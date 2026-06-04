@@ -8,6 +8,14 @@ import pytest
 FAKE_DEVPOD = Path(__file__).parent / "fake_devpod.py"
 
 
+@pytest.fixture(autouse=True)
+def _reset_runner_locks() -> None:
+    """Vide le registre de verrous du runner avant chaque test."""
+    from portal.devpod import runner
+
+    runner.clear_locks()
+
+
 @pytest.fixture
 def fake_devpod_bin() -> list[str]:
     """Retourne la commande pour appeler le faux devpod."""

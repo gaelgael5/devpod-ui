@@ -12,9 +12,7 @@ _locks: dict[str, asyncio.Lock] = {}
 
 
 def _get_lock(ws_id: str) -> asyncio.Lock:
-    if ws_id not in _locks:
-        _locks[ws_id] = asyncio.Lock()
-    return _locks[ws_id]
+    return _locks.setdefault(ws_id, asyncio.Lock())
 
 
 def clear_locks() -> None:
@@ -44,7 +42,8 @@ async def run_subprocess(
             stderr=asyncio.subprocess.STDOUT,
         )
 
-        assert proc.stdout is not None
+        if proc.stdout is None:
+            raise RuntimeError(f"subprocess stdout pipe not available for ws_id={ws_id!r}")
         with log_path.open("w", encoding="utf-8") as log_file:
             while True:
                 line = await proc.stdout.readline()
