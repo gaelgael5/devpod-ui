@@ -212,6 +212,7 @@ def _safe_node_cert_path(node_name: str) -> Path:
 def _save_node_cert(node_name: str, cert_pem: bytes) -> None:
     cert_path = _safe_node_cert_path(node_name)
     cert_path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(cert_path.parent, 0o700)
     fd, tmp_path = tempfile.mkstemp(dir=cert_path.parent, suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as f:
