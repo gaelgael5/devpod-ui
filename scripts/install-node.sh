@@ -27,8 +27,11 @@ if [[ -z "$PORTAL" || -z "$TOKEN" || -z "$NODE_NAME" || -z "$ADDRESS" ]]; then
     exit 1
 fi
 
+# Regex commune pour la détection IPv4 (factorisation §A-2 + validation)
+_IPV4_RE='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+
 TLS_DIR=/etc/docker/tls
-mkdir -p "$TLS_DIR"
+mkdir -p -m 700 "$TLS_DIR"
 
 echo "==> Vérification des outils requis..."
 for cmd in curl jq openssl timedatectl; do
@@ -43,7 +46,7 @@ if [[ ! "$NODE_NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$ ]]; then
     echo "ERREUR : --node-name doit correspondre à ^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$" >&2
     exit 1
 fi
-if [[ ! "$ADDRESS" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[a-zA-Z0-9][a-zA-Z0-9._-]{0,253}$ ]]; then
+if [[ ! "$ADDRESS" =~ $_IPV4_RE ]] && [[ ! "$ADDRESS" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,253}$ ]]; then
     echo "ERREUR : --address doit être une adresse IP ou un hostname valide" >&2
     exit 1
 fi
@@ -95,7 +98,7 @@ subjectAltName = @san
 CONF
 
 # Détecter IP vs hostname pour le SAN (§A-2)
-if [[ "$ADDRESS" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ "$ADDRESS" =~ $_IPV4_RE ]]; then
     printf 'IP.1 = %s\n' "$ADDRESS" >> "$OPENSSL_CONF"
 else
     printf 'DNS.1 = %s\n' "$ADDRESS" >> "$OPENSSL_CONF"
@@ -126,10 +129,15 @@ if [[ -z "$CERT_PEM" || -z "$CA_PEM" ]]; then
 fi
 printf '%s\n' "$CERT_PEM" > "$TLS_DIR/server-cert.pem"
 printf '%s\n' "$CA_PEM"   > "$TLS_DIR/ca.pem"
+chmod 600 "$TLS_DIR/server-cert.pem" "$TLS_DIR/ca.pem"
 echo "    Cert sauvegardé dans $TLS_DIR/"
 
 # 7. Écrire daemon.json (§A-4 mTLS)
 echo "==> Configuration daemon Docker mTLS..."
+if [[ -f /etc/docker/daemon.json ]]; then
+    cp /etc/docker/daemon.json "/etc/docker/daemon.json.bak-$(date +%Y%m%d-%H%M%S)"
+    echo "    daemon.json existant sauvegardé."
+fi
 cat > /etc/docker/daemon.json <<DAEMON
 {
   "hosts":      ["tcp://0.0.0.0:2376", "unix:///var/run/docker.sock"],
