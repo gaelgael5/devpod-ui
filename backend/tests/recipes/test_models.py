@@ -94,5 +94,14 @@ def test_recipe_meta_extra_fields_rejected() -> None:
 
     from portal.recipes.models import RecipeMeta
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="extra"):
         RecipeMeta(id="x", unknown_field="bad")
+
+
+def test_installs_after_invalid_id_rejected() -> None:
+    from pydantic import ValidationError
+
+    from portal.recipes.models import RecipeMeta
+
+    with pytest.raises(ValidationError, match="installs_after"):
+        RecipeMeta(id="my-recipe", installs_after=["../evil"])

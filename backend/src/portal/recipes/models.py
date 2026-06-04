@@ -74,6 +74,17 @@ class RecipeMeta(BaseModel):
                 result.append(item)
         return result
 
+    @field_validator("installs_after", mode="before")
+    @classmethod
+    def validate_installs_after(cls, v: list[str]) -> list[str]:
+        for item in v:
+            if not _RECIPE_ID_RE.fullmatch(item):
+                raise ValueError(
+                    f"installs_after item {item!r} must match"
+                    " ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$"
+                )
+        return v
+
     @classmethod
     def from_yaml(cls, path: str | Path) -> RecipeMeta:
         data: dict[str, Any] = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
