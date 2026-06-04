@@ -26,6 +26,8 @@ def safe_user_path(login: str, *parts: str) -> Path:
         if "/" in part or "\\" in part or ".." in part:
             raise ValueError(f"Invalid path component: {part!r}")
         result = result / part
+    if not result.is_relative_to(base):
+        raise ValueError(f"Path escapes user directory: {result!r}")
     return result
 
 
@@ -41,19 +43,21 @@ def ensure_user_dir(login: str) -> None:
     user_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(user_dir, 0o700)
     for sub in subdirs:
-        safe_user_path(login, *sub).mkdir(parents=True, exist_ok=True)
+        sub_dir = safe_user_path(login, *sub)
+        sub_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(sub_dir, 0o700)
 
 
 def load_global() -> GlobalConfig:
     path = _data_root() / "config.yaml"
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     return GlobalConfig.model_validate(data)
 
 
 def load_user(login: str) -> UserConfig:
     path = safe_user_path(login, "config.yaml")
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     return UserConfig.model_validate(data)
 
@@ -80,7 +84,7 @@ def save_user(login: str, cfg: UserConfig) -> None:
     parent = path.parent
     fd, tmp_path = tempfile.mkstemp(dir=parent, suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             yaml.dump(cfg.model_dump(mode="json"), f, default_flow_style=False)
         os.replace(tmp_path, path)
     except Exception:
