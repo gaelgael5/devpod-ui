@@ -69,7 +69,7 @@ def _setup_ca(tmp_path: Path) -> None:
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
         .sign(key, hashes.SHA256())
     )
-    ca_dir = tmp_path / "ca"
+    ca_dir = tmp_path / "certs" / "ca"
     ca_dir.mkdir(parents=True, exist_ok=True)
     (ca_dir / "ca.pem").write_bytes(ca_cert.public_bytes(serialization.Encoding.PEM))
     key_path = ca_dir / "ca-key.pem"
