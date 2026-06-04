@@ -16,6 +16,7 @@ from portal.config.store import (
 
 # ─── safe_user_path ───────────────────────────────────────────────────────────
 
+
 def test_safe_user_path_returns_correct_path(tmp_data_root):
     p = safe_user_path("alice", "config.yaml")
     assert p == tmp_data_root / "users" / "alice" / "config.yaml"
@@ -48,6 +49,7 @@ def test_safe_user_path_rejects_login_with_slash(tmp_data_root):
 
 # ─── ensure_user_dir ──────────────────────────────────────────────────────────
 
+
 def test_ensure_user_dir_creates_all_subdirs(tmp_data_root):
     ensure_user_dir("alice")
     expected = [
@@ -69,6 +71,7 @@ def test_ensure_user_dir_is_idempotent(tmp_data_root):
 
 # ─── load_global ──────────────────────────────────────────────────────────────
 
+
 def test_load_global_parses_yaml(tmp_data_root, global_config_yaml):
     (tmp_data_root / "config.yaml").write_text(global_config_yaml)
     cfg = load_global()
@@ -82,6 +85,7 @@ def test_load_global_raises_on_missing_file(tmp_data_root):
 
 
 # ─── load_user ────────────────────────────────────────────────────────────────
+
 
 def test_load_user_parses_yaml(tmp_data_root, user_config_yaml):
     ensure_user_dir("alice")
@@ -98,6 +102,7 @@ def test_load_user_raises_on_missing_file(tmp_data_root):
 
 
 # ─── save_user (écriture atomique) ────────────────────────────────────────────
+
 
 def test_save_user_writes_file(tmp_data_root, sample_user_config):
     ensure_user_dir("alice")
@@ -129,6 +134,7 @@ def test_save_user_atomic_crash_leaves_original_intact(
 
 
 # ─── load_user_config (validation croisée) ────────────────────────────────────
+
 
 def test_load_user_config_passes_when_host_exists(tmp_data_root, global_config_yaml):
     (tmp_data_root / "config.yaml").write_text(global_config_yaml)

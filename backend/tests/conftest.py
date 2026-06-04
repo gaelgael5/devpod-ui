@@ -76,11 +76,13 @@ workspaces: []
 
 @pytest.fixture
 def sample_user_config() -> UserConfig:
-    return UserConfig.model_validate({
-        "version": "1",
-        "secret_ns": str(uuid.uuid4()),
-        "defaults": {"ide": "openvscode", "idle_timeout": "4h"},
-        "harpocrate": {"api_key": ""},
-        "git_credentials": [],
-        "workspaces": [],
-    })
+    return UserConfig.model_validate(
+        {
+            "version": "1",
+            "secret_ns": str(uuid.uuid4()),
+            "defaults": {"ide": "openvscode", "idle_timeout": "4h"},
+            "harpocrate": {"api_key": ""},
+            "git_credentials": [],
+            "workspaces": [],
+        }
+    )

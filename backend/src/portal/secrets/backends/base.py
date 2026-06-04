@@ -7,5 +7,4 @@ from typing import Protocol, runtime_checkable
 class SecretsBackend(Protocol):
     base_path: str
 
-    def get(self, full_path: str) -> str:
-        ...
+    def get(self, full_path: str) -> str: ...

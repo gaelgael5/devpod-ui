@@ -68,13 +68,10 @@ def load_user_config(login: str, global_cfg: GlobalConfig) -> UserConfig:
     known_creds = {c.name for c in cfg.git_credentials}
     for ws in cfg.workspaces:
         if ws.host and ws.host not in known_hosts:
-            raise ValueError(
-                f"Workspace '{ws.name}' references unknown host: {ws.host!r}"
-            )
+            raise ValueError(f"Workspace '{ws.name}' references unknown host: {ws.host!r}")
         if ws.git_credential and ws.git_credential not in known_creds:
             raise ValueError(
-                f"Workspace '{ws.name}' references unknown git_credential:"
-                f" {ws.git_credential!r}"
+                f"Workspace '{ws.name}' references unknown git_credential: {ws.git_credential!r}"
             )
     return cfg
 

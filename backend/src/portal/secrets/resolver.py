@@ -48,14 +48,10 @@ def resolve(value: str, scope: Scope, backend: SecretsBackend) -> str | Secret:
 
 def _validate_user_vault_path(path: str, secret_ns: str) -> None:
     if path.startswith("/"):
-        raise SecretAccessError(
-            f"User vault path must not be absolute (starts with '/'): {path!r}"
-        )
+        raise SecretAccessError(f"User vault path must not be absolute (starts with '/'): {path!r}")
     parts = path.split("/")
     if ".." in parts:
-        raise SecretAccessError(
-            f"User vault path must not contain '..' traversal: {path!r}"
-        )
+        raise SecretAccessError(f"User vault path must not contain '..' traversal: {path!r}")
     for part in parts:
         try:
             parsed_uuid = uuid.UUID(part)

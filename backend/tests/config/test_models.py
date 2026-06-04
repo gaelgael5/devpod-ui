@@ -88,6 +88,7 @@ VALID_USER = {
 
 # ─── GlobalConfig ──────────────────────────────────────────────────────────
 
+
 def test_global_config_parses_valid():
     cfg = GlobalConfig.model_validate(VALID_GLOBAL)
     assert cfg.version == "1"
@@ -104,6 +105,7 @@ def test_global_config_rejects_unknown_field():
 
 
 # ─── UserConfig ───────────────────────────────────────────────────────────
+
 
 def test_user_config_parses_valid():
     cfg = UserConfig.model_validate(VALID_USER)
@@ -130,17 +132,18 @@ def test_user_config_normalizes_secret_ns_to_lowercase():
 
 # ─── WorkspaceSpec.name ───────────────────────────────────────────────────
 
+
 @pytest.mark.parametrize(
     "name",
     [
-        "Ab",       # majuscule
-        "a..b",     # point non autorisé
-        "../x",     # traversal
-        "a_b",      # underscore non autorisé
-        "a" * 40,   # trop long (> 32 chars)
-        "a",        # trop court (1 char, min = 2)
-        "-abc",     # commence par tiret
-        "abc-",     # finit par tiret
+        "Ab",  # majuscule
+        "a..b",  # point non autorisé
+        "../x",  # traversal
+        "a_b",  # underscore non autorisé
+        "a" * 40,  # trop long (> 32 chars)
+        "a",  # trop court (1 char, min = 2)
+        "-abc",  # commence par tiret
+        "abc-",  # finit par tiret
     ],
 )
 def test_workspace_name_rejects_invalid(name: str):
@@ -154,8 +157,8 @@ def test_workspace_name_rejects_invalid(name: str):
     [
         "agflow",
         "my-workspace",
-        "ab",        # 2 chars : minimum valide
-        "a" * 32,    # 32 chars : maximum valide (1 + 30 + 1)
+        "ab",  # 2 chars : minimum valide
+        "a" * 32,  # 32 chars : maximum valide (1 + 30 + 1)
     ],
 )
 def test_workspace_name_accepts_valid(name: str):

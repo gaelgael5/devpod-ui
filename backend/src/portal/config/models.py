@@ -165,9 +165,7 @@ class WorkspaceSpec(BaseModel):
     @classmethod
     def validate_name(cls, v: str) -> str:
         if not _WORKSPACE_NAME_RE.fullmatch(v):
-            raise ValueError(
-                f"name '{v}' must match ^[a-z0-9][a-z0-9-]{{0,30}}[a-z0-9]$"
-            )
+            raise ValueError(f"name '{v}' must match ^[a-z0-9][a-z0-9-]{{0,30}}[a-z0-9]$")
         return v
 
 
