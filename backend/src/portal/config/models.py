@@ -168,6 +168,15 @@ class WorkspaceSpec(BaseModel):
             raise ValueError(f"name '{v}' must match ^[a-z0-9][a-z0-9-]{{0,30}}[a-z0-9]$")
         return v
 
+    @field_validator("source")
+    @classmethod
+    def validate_source(cls, v: str) -> str:
+        if not v:
+            raise ValueError("source must not be empty")
+        if v.startswith("-"):
+            raise ValueError("source must not start with '-' (argument injection prevention)")
+        return v
+
 
 class UserConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")

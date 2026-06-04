@@ -196,7 +196,6 @@ class DevPodService:
             cmd = [
                 *self._devpod_bin,
                 "up",
-                source,
                 "--id",
                 ws_id,
                 "--ide",
@@ -204,6 +203,8 @@ class DevPodService:
                 "--devcontainer-path",
                 str(dc_path),
                 "--open-ide=false",  # v0.6.15 : empêche l'ouverture auto du navigateur
+                "--",               # fin des flags — défense en profondeur contre l'injection argv
+                source,
             ]
             log_path = self._log_path(login, ws_id)
             # Seul le returncode est logué — la valeur des env vars (secrets) n'est jamais écrite
