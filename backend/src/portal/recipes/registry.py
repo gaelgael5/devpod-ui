@@ -3,9 +3,12 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from pathlib import Path
 
+import structlog
 import yaml
 
 from .models import RecipeMeta
+
+_log = structlog.get_logger(__name__)
 
 BUILTIN_DIR: Path = Path(__file__).parent / "builtin"
 
@@ -61,6 +64,11 @@ class RecipeRegistry:
             if rid not in available:
                 raise RecipeNotFoundError(f"Recipe {rid!r} introuvable dans le registre")
 
+        if len(selected_ids) != len(set(selected_ids)):
+            raise ValueError(
+                f"selected_ids contient des doublons : {selected_ids}"
+            )
+
         selected_set = set(selected_ids)
         in_degree: dict[str, int] = {rid: 0 for rid in selected_ids}
         dependents: defaultdict[str, list[str]] = defaultdict(list)
@@ -95,5 +103,10 @@ class RecipeRegistry:
         try:
             data: object = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
             return RecipeMeta.model_validate(data)
-        except Exception:
+        except Exception as exc:
+            _log.warning(
+                "recipe_meta_invalid",
+                path=str(meta_file),
+                error=str(exc),
+            )
             return None

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -12,8 +13,6 @@ def _write_recipe(
     installs_after: list[str] | None = None,
     requires_secrets: list | None = None,
 ) -> None:
-    import json
-
     d = base / recipe_id
     d.mkdir(parents=True, exist_ok=True)
     meta = {
@@ -90,6 +89,16 @@ def test_resolve_order_unknown_recipe_raises(tmp_path: Path) -> None:
         registry.resolve_order(["unknown-recipe"], {})
 
 
+def test_resolve_order_duplicate_ids_raises(tmp_path: Path) -> None:
+    from portal.recipes.registry import RecipeRegistry
+
+    _write_recipe(tmp_path, "a")
+    registry = RecipeRegistry()
+    available = registry.load_dir(tmp_path)
+    with pytest.raises(ValueError, match="doublons"):
+        registry.resolve_order(["a", "a"], available)
+
+
 def test_resolve_order_cycle_raises(tmp_path: Path) -> None:
     from portal.recipes.registry import CycleError, RecipeRegistry
 
@@ -115,13 +124,34 @@ def test_resolve_order_no_deps_preserves_count(tmp_path: Path) -> None:
 def test_personal_overrides_shared(tmp_path: Path) -> None:
     shared = tmp_path / "shared"
     personal = tmp_path / "personal"
-    _write_recipe(shared, "my-recipe")
-    _write_recipe(personal, "my-recipe")
+    # Partagée avec version 1.0.0
+    d_shared = shared / "my-recipe"
+    d_shared.mkdir(parents=True)
+    (d_shared / "recipe.meta.yaml").write_text(
+        yaml.dump({"id": "my-recipe", "version": "1.0.0", "description": "shared"}),
+        encoding="utf-8",
+    )
+    (d_shared / "devcontainer-feature.json").write_text(
+        json.dumps({"id": "my-recipe", "version": "1.0.0"}), encoding="utf-8"
+    )
+    (d_shared / "install.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    # Personnelle avec version 2.0.0
+    d_personal = personal / "my-recipe"
+    d_personal.mkdir(parents=True)
+    (d_personal / "recipe.meta.yaml").write_text(
+        yaml.dump({"id": "my-recipe", "version": "2.0.0", "description": "personal"}),
+        encoding="utf-8",
+    )
+    (d_personal / "devcontainer-feature.json").write_text(
+        json.dumps({"id": "my-recipe", "version": "2.0.0"}), encoding="utf-8"
+    )
+    (d_personal / "install.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+
     from portal.recipes.registry import RecipeRegistry
 
     registry = RecipeRegistry(shared_dir=shared)
     shared_recipes = registry.load_shared()
     personal_recipes = registry.load_dir(personal)
     available = {**shared_recipes, **personal_recipes}
-    assert "my-recipe" in available
     assert len(available) == 1
+    assert available["my-recipe"].version == "2.0.0"  # la version personnelle a gagné
