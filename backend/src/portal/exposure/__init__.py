@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -12,6 +14,24 @@ from .caddy import CaddyClient
 from .ports import PortRegistry
 
 _log = structlog.get_logger(__name__)
+
+# Regex de validation des ws_id : même contrainte que les logins utilisateur.
+# Format : alphanumérique, tirets, points, underscores ; 2–40 caractères.
+_WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,38}[a-z0-9]$")
+
+
+def _safe_route_path(ws_id: str, data_root: Path) -> Path:
+    """Retourne le chemin vers routes/<ws_id>.json après validation du ws_id.
+
+    Lève ValueError si ws_id contient des caractères interdits (path traversal, etc.).
+    """
+    if not _WS_ID_RE.fullmatch(ws_id):
+        raise ValueError(f"Invalid ws_id: {ws_id!r}")
+    routes_dir = data_root / "routes"
+    path = routes_dir / f"{ws_id}.json"
+    if not path.is_relative_to(routes_dir):
+        raise ValueError(f"Path escapes routes directory: {path!r}")
+    return path
 
 
 class ExposureService:
@@ -67,7 +87,7 @@ class ExposureService:
             upstream=upstream,
         )
         url = f"https://{match_host}"
-        self._write_exposure(ws_id, hostname=match_host, url=url)
+        await asyncio.to_thread(self._write_exposure, ws_id, hostname=match_host, url=url)
         _log.info("workspace_exposed", ws_id=ws_id, url=url)
         return url
 
@@ -79,11 +99,24 @@ class ExposureService:
         """
         route_id = f"ws-{ws_id}"
         await self._caddy.remove_route(route_id)
-        self._clear_exposure(ws_id)
+        await asyncio.to_thread(self._clear_exposure, ws_id)
+        _log.info("workspace_unexposed", ws_id=ws_id)
 
     # ------------------------------------------------------------------
     # Helpers d'écriture atomique
     # ------------------------------------------------------------------
+
+    def _read_route(self, ws_id: str) -> dict[str, object]:
+        """Lit routes/<ws_id>.json ; retourne un dict vide (avec ws_id) si absent/corrompu."""
+        path = self._data_root / "routes" / f"{ws_id}.json"
+        if path.exists():
+            try:
+                parsed = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(parsed, dict):
+                    return parsed
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {"ws_id": ws_id}
 
     def _write_exposure(self, ws_id: str, hostname: str, url: str) -> None:
         """Met à jour (ou crée) routes/<ws_id>.json avec hostname et url.
@@ -91,15 +124,9 @@ class ExposureService:
         Préserve les champs existants (status, login, etc.).
         Écriture atomique : tempfile dans le même répertoire + os.replace.
         """
-        path = self._data_root / "routes" / f"{ws_id}.json"
+        path = _safe_route_path(ws_id, self._data_root)
         path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists():
-            try:
-                data: dict[str, object] = json.loads(path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                data = {"ws_id": ws_id}
-        else:
-            data = {"ws_id": ws_id}
+        data = self._read_route(ws_id)
         data.update({"hostname": hostname, "url": url})
         self._atomic_write(path, data)
 
@@ -108,13 +135,10 @@ class ExposureService:
 
         No-op si le fichier n'existe pas.
         """
-        path = self._data_root / "routes" / f"{ws_id}.json"
+        path = _safe_route_path(ws_id, self._data_root)
         if not path.exists():
             return
-        try:
-            data: dict[str, object] = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            data = {"ws_id": ws_id}
+        data = self._read_route(ws_id)
         data.update({"hostname": "", "url": ""})
         self._atomic_write(path, data)
 
@@ -122,11 +146,16 @@ class ExposureService:
     def _atomic_write(path: Path, data: dict[str, object]) -> None:
         """Écrit data en JSON de façon atomique via tempfile + os.replace."""
         fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=f"-{path.stem}.tmp")
+        fd_open = False
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
+                fd_open = True
                 json.dump(data, f)
             os.replace(tmp, path)
         except Exception:
+            if not fd_open:
+                with contextlib.suppress(OSError):
+                    os.close(fd)
             with contextlib.suppress(OSError):
                 os.unlink(tmp)
             raise

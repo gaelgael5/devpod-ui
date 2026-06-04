@@ -129,3 +129,11 @@ async def test_allocate_port_delegates_to_registry(data_root: Path) -> None:
     port = await svc.allocate_port("alice-myapp")
     assert port == 41000
     registry.allocate.assert_awaited_once_with("alice-myapp")
+
+
+@pytest.mark.asyncio
+async def test_expose_rejects_path_traversal_ws_id(data_root: Path) -> None:
+    """expose() rejette un ws_id contenant un path traversal."""
+    svc, _, _ = _make_exposure_service(data_root)
+    with pytest.raises(ValueError):
+        await svc.expose(ws_id="../secret", node_ip="192.168.1.50", host_port=41000)
