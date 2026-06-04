@@ -11,9 +11,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth.rbac import UserInfo, require_user
-from ..config.store import load_global, safe_user_path
+from ..config.store import _data_root, load_global, safe_user_path
 from ..devpod.env import UnknownHostError
 from ..devpod.service import DevPodService
+from ..recipes.models import _RECIPE_ID_RE as _RECIPE_ID_PATTERN
 from ..recipes.models import RecipeMeta, SecretRef
 from ..recipes.registry import RecipeRegistry
 
@@ -21,7 +22,6 @@ _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-ops"])
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
-_RECIPE_ID_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
 
 
 def _validate_name(name: str) -> None:
@@ -49,8 +49,6 @@ _recipe_registry: RecipeRegistry | None = None
 def _get_recipe_registry() -> RecipeRegistry:
     global _recipe_registry
     if _recipe_registry is None:
-        from ..config.store import _data_root
-
         _recipe_registry = RecipeRegistry(shared_dir=_data_root() / "recipes")
     return _recipe_registry
 
@@ -65,7 +63,6 @@ def _get_service() -> DevPodService:
 def _build_service() -> DevPodService:
     import httpx
 
-    from ..config.store import _data_root
     from ..exposure import ExposureService
     from ..exposure.caddy import CaddyClient
     from ..exposure.ports import PortRegistry
@@ -140,7 +137,7 @@ async def workspace_up(
 
     # Validation des recipe IDs (avant tout accès disque)
     for rid in req.recipes:
-        if not _RECIPE_ID_RE.fullmatch(rid):
+        if not _RECIPE_ID_PATTERN.fullmatch(rid):
             raise HTTPException(status_code=422, detail=f"Invalid recipe id {rid!r}")
 
     # Résolution des recettes et de leurs secrets
@@ -170,9 +167,14 @@ async def workspace_up(
                     _resolve_feature_secrets, user.login, all_refs
                 )
             except Exception as exc:
+                _log.warning(
+                    "feature_secret_resolution_failed",
+                    login=user.login,
+                    error=type(exc).__name__,
+                )
                 raise HTTPException(
                     status_code=422,
-                    detail=f"Secret resolution failed: {type(exc).__name__}: {exc}",
+                    detail=f"Secret resolution failed: {type(exc).__name__}",
                 ) from exc
 
     try:
