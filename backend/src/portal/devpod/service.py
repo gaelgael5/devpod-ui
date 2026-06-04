@@ -203,7 +203,7 @@ class DevPodService:
                 "--devcontainer-path",
                 str(dc_path),
                 "--open-ide=false",  # v0.6.15 : empêche l'ouverture auto du navigateur
-                "--",               # fin des flags — défense en profondeur contre l'injection argv
+                "--",  # fin des flags — défense en profondeur contre l'injection argv
                 source,
             ]
             log_path = self._log_path(login, ws_id)
