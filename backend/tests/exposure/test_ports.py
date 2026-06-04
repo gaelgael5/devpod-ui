@@ -77,3 +77,26 @@ async def test_allocate_ignores_non_int_host_port(data_root: Path) -> None:
     registry = PortRegistry(data_root)
     port = await registry.allocate("alice-myapp")
     assert port == 40000  # port 40000 toujours libre
+
+
+@pytest.mark.asyncio
+async def test_reserved_pruned_after_disk_confirmation(data_root: Path) -> None:
+    """_reserved est purgé des ports confirmés sur disque à chaque allocate()."""
+    from portal.exposure.ports import PortRegistry
+
+    registry = PortRegistry(data_root)
+    # Première allocation : port 40000 réservé en mémoire (disk vide)
+    port1 = await registry.allocate("alice-app1")
+    assert port1 == 40000
+    # Simuler la persistance sur disque (comme ExposureService le ferait)
+    (data_root / "routes" / "alice-app1.json").write_text(
+        json.dumps({"ws_id": "alice-app1", "host_port": 40000}),
+        encoding="utf-8",
+    )
+    # Deuxième allocation : 40000 est maintenant sur disque
+    # _reserved doit être purgé → 40000 est retiré de _reserved
+    # L'état final : disk_ports={40000}, _reserved vide avant prune → used={40000}
+    port2 = await registry.allocate("alice-app2")
+    assert port2 == 40001
+    # Vérifier que _reserved ne contient plus 40000 (il est sur disque)
+    assert 40000 not in registry._reserved

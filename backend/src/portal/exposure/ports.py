@@ -4,6 +4,10 @@ import asyncio
 import json
 from pathlib import Path
 
+import structlog
+
+_log = structlog.get_logger(__name__)
+
 _PORT_MIN = 40000
 _PORT_MAX = 49999
 
@@ -26,7 +30,7 @@ class PortRegistry:
         """Alloue le premier port libre dans [40000, 49999].
 
         Args:
-            ws_id: identifiant du workspace (pour les logs/debug) — non stocké ici.
+            ws_id: identifiant du workspace — utilisé dans les logs.
 
         Returns:
             Port libre dans la plage configurée.
@@ -35,11 +39,16 @@ class PortRegistry:
             RuntimeError: si aucun port n'est disponible dans la plage.
         """
         async with self._lock:
-            used = self._used_ports() | self._reserved
+            disk_ports = await asyncio.to_thread(self._used_ports)
+            # Les ports confirmés sur disque sortent de _reserved (déjà persistés)
+            self._reserved -= disk_ports
+            used = disk_ports | self._reserved
             for port in range(_PORT_MIN, _PORT_MAX + 1):
                 if port not in used:
                     self._reserved.add(port)
+                    _log.debug("port_allocated", ws_id=ws_id, port=port)
                     return port
+            _log.error("port_pool_exhausted", ws_id=ws_id)
             raise RuntimeError("No free port in 40000-49999")
 
     def _used_ports(self) -> set[int]:
@@ -54,5 +63,5 @@ class PortRegistry:
                 if isinstance(p := data.get("host_port"), int):
                     used.add(p)
             except (json.JSONDecodeError, OSError):
-                pass
+                _log.warning("port_json_corrupt", path=str(f))
         return used
