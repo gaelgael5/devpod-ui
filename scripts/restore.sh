@@ -69,10 +69,15 @@ if [[ -t 0 ]]; then
         exit 0
     fi
 else
-    echo "(Mode non interactif — restore forcé sans confirmation)"
+    if [[ "${RESTORE_ASSUME_YES:-}" != "1" ]]; then
+        echo "ERREUR : stdin non interactif. Relancer avec RESTORE_ASSUME_YES=1 pour confirmer le restore destructif." >&2
+        exit 1
+    fi
+    echo "(Mode non interactif — RESTORE_ASSUME_YES=1, restore confirmé)"
 fi
 
 # ── Sauvegarde de l'existant avant restore ────────────────────────────────────
+PRE_RESTORE_BACKUP=""
 if [[ -d "$DATA_ROOT" ]]; then
     PRE_RESTORE_BACKUP="$(dirname "$DATA_ROOT")/data-pre-restore-$(date -u +%Y%m%d-%H%M%S)"
     echo "==> Sauvegarde de $DATA_ROOT → $PRE_RESTORE_BACKUP (sécurité)"
@@ -80,6 +85,11 @@ if [[ -d "$DATA_ROOT" ]]; then
 fi
 
 # ── Restore ──────────────────────────────────────────────────────────────────
+# Purger la cible pour un restore miroir strict (les orphelins ne persistent pas)
+if [[ -d "$DATA_ROOT" ]]; then
+    rm -rf "$DATA_ROOT"
+fi
+
 echo "==> Déchiffrement et restauration depuis $ARCHIVE..."
 PARENT_DIR="$(dirname "$DATA_ROOT")"
 age -d -i "$AGE_IDENTITY" "$ARCHIVE" \
@@ -95,5 +105,7 @@ echo "  3. Redémarrer le portail : docker compose -f deploy/docker-compose.yml 
 echo "  4. Vérifier la connectivité aux nœuds enrôlés."
 echo "  5. Demander aux utilisateurs de re-lancer leurs workspaces."
 echo ""
-echo "En cas de problème, la sauvegarde pré-restore est dans :"
-echo "  $PRE_RESTORE_BACKUP"
+if [[ -n "$PRE_RESTORE_BACKUP" ]]; then
+    echo "En cas de problème, la sauvegarde pré-restore est dans :"
+    echo "  $PRE_RESTORE_BACKUP"
+fi
