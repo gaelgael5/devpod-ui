@@ -16,6 +16,7 @@
 #   DATA_ROOT       Racine de destination (défaut : /data)
 #   AGE_IDENTITY    Fichier clé privée age (OBLIGATOIRE)
 set -euo pipefail
+umask 077
 
 DATA_ROOT="${DATA_ROOT:-/data}"
 ARCHIVE="${1:-}"
@@ -76,24 +77,43 @@ else
     echo "(Mode non interactif — RESTORE_ASSUME_YES=1, restore confirmé)"
 fi
 
-# ── Sauvegarde de l'existant avant restore ────────────────────────────────────
-PRE_RESTORE_BACKUP=""
-if [[ -d "$DATA_ROOT" ]]; then
-    PRE_RESTORE_BACKUP="$(dirname "$DATA_ROOT")/data-pre-restore-$(date -u +%Y%m%d-%H%M%S)"
-    echo "==> Sauvegarde de $DATA_ROOT → $PRE_RESTORE_BACKUP (sécurité)"
-    cp -a "$DATA_ROOT" "$PRE_RESTORE_BACKUP"
+# ── Extraction dans un répertoire temporaire ────────────────────────────────
+PARENT_DIR="$(dirname "$DATA_ROOT")"
+RESTORE_TMP=$(mktemp -d -p "$PARENT_DIR" .restore-XXXXXX)
+trap 'rm -rf "$RESTORE_TMP"' EXIT
+
+echo "==> Déchiffrement et restauration depuis $ARCHIVE..."
+age -d -i "$AGE_IDENTITY" "$ARCHIVE" \
+    | tar xzf - -C "$RESTORE_TMP"
+
+RESTORED_DATA="$RESTORE_TMP/$(basename "$DATA_ROOT")"
+if [[ ! -d "$RESTORED_DATA" ]]; then
+    echo "ERREUR : l'archive ne contient pas de répertoire '$(basename "$DATA_ROOT")' à la racine." >&2
+    exit 1
 fi
 
-# ── Restore ──────────────────────────────────────────────────────────────────
-# Purger la cible pour un restore miroir strict (les orphelins ne persistent pas)
+# ── Ré-application des perms sensibles (§E-26, CLAUDE.md) ──────────────────
+chmod 700 "$RESTORED_DATA"
+[[ -f "$RESTORED_DATA/.env" ]] && chmod 600 "$RESTORED_DATA/.env"
+[[ -f "$RESTORED_DATA/secrets.yaml" ]] && chmod 600 "$RESTORED_DATA/secrets.yaml"
+find "$RESTORED_DATA/certs" -type d -exec chmod 700 {} + 2>/dev/null || true
+[[ -f "$RESTORED_DATA/certs/ca/ca-key.pem" ]] && chmod 600 "$RESTORED_DATA/certs/ca/ca-key.pem"
+find "$RESTORED_DATA/users" -type d -exec chmod 700 {} + 2>/dev/null || true
+
+# ── Sauvegarde de l'existant avant bascule ─────────────────────────────────
+PRE_RESTORE_BACKUP=""
+if [[ -d "$DATA_ROOT" ]]; then
+    PRE_RESTORE_BACKUP=$(mktemp -d -p "$PARENT_DIR" data-pre-restore-XXXXXX)
+    echo "==> Sauvegarde de $DATA_ROOT → $PRE_RESTORE_BACKUP (sécurité)"
+    cp -a "$DATA_ROOT/." "$PRE_RESTORE_BACKUP/"
+fi
+
+# ── Bascule atomique ────────────────────────────────────────────────────────
 if [[ -d "$DATA_ROOT" ]]; then
     rm -rf "$DATA_ROOT"
 fi
-
-echo "==> Déchiffrement et restauration depuis $ARCHIVE..."
-PARENT_DIR="$(dirname "$DATA_ROOT")"
-age -d -i "$AGE_IDENTITY" "$ARCHIVE" \
-    | tar xzf - -C "$PARENT_DIR"
+mv "$RESTORED_DATA" "$DATA_ROOT"
+trap - EXIT  # annuler le nettoyage du tmp (mv a tout basculé)
 
 echo ""
 echo "==> Restore terminé."
