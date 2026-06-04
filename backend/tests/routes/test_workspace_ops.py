@@ -132,3 +132,37 @@ def test_up_rejects_unknown_host(tmp_path: Path) -> None:
             },
         )
     assert resp.status_code in (404, 400, 422)
+
+
+def test_stop_rejects_path_traversal_name(tmp_path: Path) -> None:
+    """stop() rejette un name contenant des séquences de traversal encodées."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post("/me/workspaces/..%2F..%2Fbob-app/stop")
+    # URL-encoded traversal doit retourner 404 (FastAPI path routing le bloque)
+    # ou 422 si le paramètre est décodé et soumis à _validate_name.
+    assert resp.status_code in (404, 422)
+
+
+def test_stop_rejects_invalid_name(tmp_path: Path) -> None:
+    """stop() rejette un name non DNS-safe (majuscules, underscore…)."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post("/me/workspaces/INVALID_NAME/stop")
+    assert resp.status_code == 422
+
+
+def test_delete_rejects_invalid_name(tmp_path: Path) -> None:
+    """delete() rejette un name non DNS-safe."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post("/me/workspaces/INVALID_NAME/delete")
+    assert resp.status_code == 422
+
+
+def test_status_rejects_invalid_name(tmp_path: Path) -> None:
+    """status() rejette un name non DNS-safe."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.get("/me/workspaces/INVALID_NAME/status")
+    assert resp.status_code == 422

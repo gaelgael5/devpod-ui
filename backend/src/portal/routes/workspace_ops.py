@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 from typing import Any
 
@@ -15,6 +16,18 @@ from ..devpod.service import DevPodService
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-ops"])
+
+_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
+
+
+def _validate_name(name: str) -> None:
+    if not _NAME_RE.fullmatch(name):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid workspace name {name!r}: must match ^[a-z0-9][a-z0-9-]{{0,30}}[a-z0-9]$"
+            ),
+        )
 
 
 class UpRequest(BaseModel):
@@ -63,6 +76,7 @@ async def workspace_stop(
     name: str,
     user: UserInfo = Depends(require_user),
 ) -> dict[str, Any]:
+    _validate_name(name)
     ws_id = f"{user.login}-{name}"
     svc = _get_service()
     await svc.stop(login=user.login, ws_id=ws_id)
@@ -74,6 +88,7 @@ async def workspace_delete(
     name: str,
     user: UserInfo = Depends(require_user),
 ) -> dict[str, Any]:
+    _validate_name(name)
     ws_id = f"{user.login}-{name}"
     svc = _get_service()
     await svc.delete(login=user.login, ws_id=ws_id)
@@ -85,6 +100,7 @@ async def workspace_status(
     name: str,
     user: UserInfo = Depends(require_user),
 ) -> dict[str, Any]:
+    _validate_name(name)
     ws_id = f"{user.login}-{name}"
     svc = _get_service()
     return await svc.status(login=user.login, ws_id=ws_id)
