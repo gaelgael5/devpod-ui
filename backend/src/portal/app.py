@@ -7,6 +7,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from .auth.router import router as auth_router
 from .routes.admin import router as admin_router
 from .routes.me import router as me_router
+from .routes.workspace_ops import router as workspace_ops_router
 from .settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(auth_router)
     app.include_router(me_router, prefix="/me")
+    app.include_router(workspace_ops_router, prefix="/me")
     app.include_router(admin_router, prefix="/admin")
     return app
 
