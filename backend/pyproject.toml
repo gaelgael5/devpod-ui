@@ -36,6 +36,7 @@ src = ["src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008"]  # FastAPI Depends() in default args is the intended pattern
 
 [tool.mypy]
 python_version = "3.12"

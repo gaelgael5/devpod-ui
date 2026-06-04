@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth.router import router as auth_router
+from .routes.me import router as me_router
 from .settings import get_settings
 
 
@@ -19,6 +20,7 @@ def create_app() -> FastAPI:
         max_age=86400,
     )
     app.include_router(auth_router)
+    app.include_router(me_router, prefix="/me")
     return app
 
 
