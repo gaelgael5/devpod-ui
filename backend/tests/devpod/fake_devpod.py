@@ -15,6 +15,14 @@ def main() -> int:
         print("devpod <command>", file=sys.stderr)
         return 1
 
+    # Enregistrer chaque appel dans $DEVPOD_HOME/fake_calls.log
+    devpod_home = os.environ.get("DEVPOD_HOME", "")
+    if devpod_home and args:
+        os.makedirs(devpod_home, exist_ok=True)
+        calls_log = os.path.join(devpod_home, "fake_calls.log")
+        with open(calls_log, "a", encoding="utf-8") as f:
+            f.write(" ".join(args) + "\n")
+
     cmd = args[0]
 
     if cmd == "version":
