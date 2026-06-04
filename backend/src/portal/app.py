@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
+from .auth.router import router as auth_router
 from .settings import get_settings
 
 
@@ -17,6 +18,7 @@ def create_app() -> FastAPI:
         same_site="lax",
         max_age=86400,
     )
+    app.include_router(auth_router)
     return app
 
 
