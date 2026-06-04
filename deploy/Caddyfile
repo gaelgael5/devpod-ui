@@ -1,5 +1,8 @@
 {
-    # API admin interne — jamais exposée hors du réseau docker internal
+    # API admin sur le réseau docker internal uniquement — port 2019 NON publié sur l'hôte.
+    # 0.0.0.0 requis : le service `portal` (conteneur distinct) appelle http://caddy:2019
+    # pour pousser les routes workspace en M6. 127.0.0.1 bloquerait cet accès inter-conteneurs.
+    # Isolation : seuls `portal` et `caddy` partagent le réseau `internal` (cf. docker-compose.yml).
     admin 0.0.0.0:2019
     email {$ACME_EMAIL}
 }
