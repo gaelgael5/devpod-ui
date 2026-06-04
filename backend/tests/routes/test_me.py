@@ -103,11 +103,16 @@ def test_require_user_blocks_unauthenticated(tmp_path: Path) -> None:
 
     mod._settings = None
     os.environ["PORTAL_DATA_ROOT"] = str(tmp_path)
+    os.environ["DEV_MODE"] = "true"
     mod._settings = None
 
-    from portal.app import create_app
+    try:
+        from portal.app import create_app
 
-    app = create_app()  # no dependency_overrides
-    with TestClient(app) as client:
-        resp = client.get("/me/config")
-    assert resp.status_code == 403
+        app = create_app()  # no dependency_overrides
+        with TestClient(app) as client:
+            resp = client.get("/me/config")
+        assert resp.status_code == 403
+    finally:
+        os.environ.pop("DEV_MODE", None)
+        mod._settings = None

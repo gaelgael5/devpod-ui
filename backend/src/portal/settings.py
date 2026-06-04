@@ -10,6 +10,9 @@ class AppSettings(BaseSettings):
         extra="ignore",
     )
 
+    # Mode développement local (désactive https_only et autorise session key vide)
+    dev_mode: bool = False
+
     # Session (cookie signé)
     session_secret_key: str = ""
 

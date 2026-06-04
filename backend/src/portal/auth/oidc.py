@@ -186,9 +186,12 @@ class OIDCClient:
             iss=ClaimsOption(essential=True, value=self._issuer),
             aud=ClaimsOption(essential=True, value=self._client_id),
             exp=ClaimsOption(essential=True),
+            iat=ClaimsOption(essential=True),
             nonce=ClaimsOption(essential=True, value=nonce),
         )
         registry.validate(token.claims)
+        if "iat" not in token.claims:
+            raise OIDCError("id_token missing 'iat' claim")
         return dict(token.claims)
 
 
