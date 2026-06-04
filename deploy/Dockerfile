@@ -43,7 +43,7 @@ RUN pip install --no-cache-dir uv
 WORKDIR /app
 
 # Étape 1 : installer les dépendances depuis le lockfile (layer cachée si seul le code change)
-COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
+COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --no-dev --no-install-project --frozen
 
 # Étape 2 : copier le code source et installer le package (layer invalidée si src/ change)
