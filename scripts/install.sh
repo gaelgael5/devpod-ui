@@ -4,6 +4,7 @@
 # §E-25 : la CA n'est JAMAIS régénérée si /data/certs/ca/ca.pem existe déjà.
 # Usage : sudo bash scripts/install.sh [--data-root /data] [--compose-file deploy/docker-compose.yml]
 set -euo pipefail
+umask 077  # Fichiers créés en 600, répertoires en 700 par défaut
 
 # ── Paramètres par défaut ────────────────────────────────────────────────────
 DATA_ROOT="${PORTAL_DATA_ROOT:-/data}"
@@ -38,6 +39,7 @@ mkdir -p \
     "$DATA_ROOT/certs/portal" \
     "$DATA_ROOT/certs/nodes"
 chmod 700 "$DATA_ROOT"
+chmod 700 "$DATA_ROOT/certs" "$DATA_ROOT/certs/ca" "$DATA_ROOT/certs/portal" "$DATA_ROOT/certs/nodes"
 
 # ── 2. CA — §E-25 : NE JAMAIS régénérer si déjà présente ───────────────────
 if [[ -f "$CA_DIR/ca.pem" ]]; then
