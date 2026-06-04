@@ -66,6 +66,7 @@ def _build_global_config(tmp_path: Path) -> None:
 def _make_app(tmp_path: Path):
     """Crée une app FastAPI configurée pour les tests avec alice provisionné."""
     import portal.auth.router as auth_router_mod
+    import portal.routes.workspace_ops as ws_ops_mod
     import portal.settings as settings_mod
 
     # Configurer l'environnement
@@ -74,6 +75,8 @@ def _make_app(tmp_path: Path):
     os.environ["DEV_MODE"] = "true"
     settings_mod._settings = None
     auth_router_mod._oidc_client = None
+    # Réinitialiser le singleton du service pour que chaque test parte d'un état propre
+    ws_ops_mod._reset_service()
 
     _build_global_config(tmp_path)
     asyncio.run(_provision_alice(tmp_path))
@@ -174,6 +177,7 @@ def _make_app_with_exposure_mock(tmp_path: Path):
     from unittest.mock import AsyncMock, MagicMock
 
     import portal.auth.router as auth_router_mod
+    import portal.routes.workspace_ops as ws_ops_mod
     import portal.settings as settings_mod
 
     os.environ["PORTAL_DATA_ROOT"] = str(tmp_path)
@@ -181,6 +185,8 @@ def _make_app_with_exposure_mock(tmp_path: Path):
     os.environ["DEV_MODE"] = "true"
     settings_mod._settings = None
     auth_router_mod._oidc_client = None
+    # Réinitialiser le singleton avant injection du mock
+    ws_ops_mod._reset_service()
 
     _build_global_config(tmp_path)
     asyncio.run(_provision_alice(tmp_path))
@@ -198,7 +204,6 @@ def _make_app_with_exposure_mock(tmp_path: Path):
     user = UserInfo(login="alice", roles=["dev"])
     app.dependency_overrides[require_user] = lambda: user
 
-    import portal.routes.workspace_ops as ws_ops_mod
     from portal.devpod.service import DevPodService
 
     original_get_service = ws_ops_mod._get_service
@@ -227,6 +232,7 @@ def test_up_with_exposure_returns_202(tmp_path: Path) -> None:
         assert data["ws_id"] == "alice-myapp"
     finally:
         ws_ops_mod._get_service = original_get_service
+        ws_ops_mod._reset_service()
 
 
 def test_delete_calls_unexpose(tmp_path: Path) -> None:
@@ -253,6 +259,7 @@ def test_delete_calls_unexpose(tmp_path: Path) -> None:
         exposure_mock.unexpose.assert_awaited_once_with("alice-myapp")
     finally:
         ws_ops_mod._get_service = original_get_service
+        ws_ops_mod._reset_service()
 
 
 def test_stop_calls_unexpose(tmp_path: Path) -> None:
@@ -265,3 +272,4 @@ def test_stop_calls_unexpose(tmp_path: Path) -> None:
         exposure_mock.unexpose.assert_awaited_once_with("alice-myapp")
     finally:
         ws_ops_mod._get_service = original_get_service
+        ws_ops_mod._reset_service()

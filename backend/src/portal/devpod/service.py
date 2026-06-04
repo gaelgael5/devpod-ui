@@ -39,6 +39,7 @@ class DevPodService:
             devpod_bin if devpod_bin is not None else [global_cfg.devpod.binary]
         )
         self._exposure = exposure
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
     # Public interface
@@ -79,11 +80,13 @@ class DevPodService:
         node_ip = self._resolve_node_ip(ws_spec.host)
         self._write_status(ws_id, "provisioning", login=login)
 
-        asyncio.create_task(
+        task = asyncio.create_task(
             self._run_up_task(
                 ws_id, ws_spec.source, dc_path, subprocess_env, login, host_port, node_ip
             )
         )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
         _log.info("workspace_up_started", ws_id=ws_id, login=login)
         return ws_id
 

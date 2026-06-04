@@ -37,7 +37,17 @@ class UpRequest(BaseModel):
     host: str = ""
 
 
+_service: DevPodService | None = None
+
+
 def _get_service() -> DevPodService:
+    global _service
+    if _service is None:
+        _service = _build_service()
+    return _service
+
+
+def _build_service() -> DevPodService:
     import httpx
 
     from ..config.store import _data_root
@@ -71,6 +81,12 @@ def _get_service() -> DevPodService:
     return DevPodService(global_cfg=global_cfg, devpod_bin=devpod_bin, exposure=exposure)
 
 
+def _reset_service() -> None:
+    """Réinitialise le singleton du service (tests uniquement)."""
+    global _service
+    _service = None
+
+
 @router.post("/workspaces/{name}/up", status_code=202)
 async def workspace_up(
     name: str,
@@ -79,6 +95,7 @@ async def workspace_up(
 ) -> dict[str, Any]:
     from ..config.models import WorkspaceSpec
 
+    _validate_name(name)
     try:
         ws = WorkspaceSpec(name=name, source=req.source, host=req.host)
     except Exception as exc:
