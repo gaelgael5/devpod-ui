@@ -122,6 +122,12 @@ def test_user_config_rejects_invalid_secret_ns():
         UserConfig.model_validate({**VALID_USER, "secret_ns": "not-a-uuid"})
 
 
+def test_user_config_normalizes_secret_ns_to_lowercase():
+    data = {**VALID_USER, "secret_ns": "A3F8C1D2-4B56-7890-ABCD-EF1234567890"}
+    cfg = UserConfig.model_validate(data)
+    assert cfg.secret_ns == "a3f8c1d2-4b56-7890-abcd-ef1234567890"
+
+
 # ─── WorkspaceSpec.name ───────────────────────────────────────────────────
 
 @pytest.mark.parametrize(

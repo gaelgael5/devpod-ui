@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class LogConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    level: Literal["debug", "info", "warn", "error"] = "info"
+    level: Literal["debug", "info", "warning", "error"] = "info"
     format: Literal["text", "json"] = "text"
     output: str = ""
 
@@ -188,4 +188,4 @@ class UserConfig(BaseModel):
             uuid.UUID(v)
         except ValueError as e:
             raise ValueError(f"secret_ns must be a valid UUID, got: {v!r}") from e
-        return v
+        return str(uuid.UUID(v))
