@@ -7,7 +7,8 @@ import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import structlog
 
@@ -16,6 +17,9 @@ from ..config.store import _data_root, safe_user_path
 from .env import build_env
 from .provider import ensure_provider
 from .runner import run_subprocess
+
+if TYPE_CHECKING:
+    from ..exposure import ExposureService
 
 _log = structlog.get_logger(__name__)
 
@@ -28,11 +32,13 @@ class DevPodService:
         self,
         global_cfg: GlobalConfig,
         devpod_bin: list[str] | None = None,
+        exposure: ExposureService | None = None,
     ) -> None:
         self._global_cfg = global_cfg
         self._devpod_bin: list[str] = (
             devpod_bin if devpod_bin is not None else [global_cfg.devpod.binary]
         )
+        self._exposure = exposure
 
     # ------------------------------------------------------------------
     # Public interface
@@ -60,22 +66,31 @@ class DevPodService:
             devpod_bin=self._devpod_bin,
         )
 
-        dc_path = self._write_devcontainer(login, ws_id)
+        host_port: int | None = None
+        if self._exposure is not None:
+            host_port = await self._exposure.allocate_port(ws_id)
+
+        dc_path = self._write_devcontainer(login, ws_id, host_port=host_port)
 
         # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
         # le subprocess env UNIQUEMENT — jamais dans devcontainer.json ni dans les logs.
         subprocess_env = {**base_env, **ws_spec.env}
 
+        node_ip = self._resolve_node_ip(ws_spec.host)
         self._write_status(ws_id, "provisioning", login=login)
 
         asyncio.create_task(
-            self._run_up_task(ws_id, ws_spec.source, dc_path, subprocess_env, login)
+            self._run_up_task(
+                ws_id, ws_spec.source, dc_path, subprocess_env, login, host_port, node_ip
+            )
         )
         _log.info("workspace_up_started", ws_id=ws_id, login=login)
         return ws_id
 
     async def stop(self, login: str, ws_id: str) -> None:
         """Arrête un workspace en cours d'exécution."""
+        if self._exposure is not None:
+            await self._exposure.unexpose(ws_id)
         env = self._minimal_env(login)
         cmd = [*self._devpod_bin, "stop", ws_id]
         log_path = self._log_path(login, f"{ws_id}-stop")
@@ -85,6 +100,8 @@ class DevPodService:
 
     async def delete(self, login: str, ws_id: str) -> None:
         """Supprime un workspace (force)."""
+        if self._exposure is not None:
+            await self._exposure.unexpose(ws_id)
         env = self._minimal_env(login)
         cmd = [*self._devpod_bin, "delete", ws_id, "--force"]
         log_path = self._log_path(login, f"{ws_id}-delete")
@@ -117,8 +134,16 @@ class DevPodService:
         return results
 
     def get_port(self, ws_id: str) -> int | None:
-        """Stub — implémentation propre en M6."""
-        return None
+        """Retourne le port hôte alloué depuis le fichier de statut."""
+        path = self._status_path(ws_id)
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            p = data.get("host_port")
+            return int(p) if p is not None else None
+        except (json.JSONDecodeError, ValueError, OSError):
+            return None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -148,13 +173,15 @@ class DevPodService:
                 os.unlink(tmp_path)
             raise
 
-    def _write_devcontainer(self, login: str, ws_id: str) -> Path:
-        """Écrit un devcontainer.json minimal dans le dossier user (recipes = M7)."""
+    def _write_devcontainer(self, login: str, ws_id: str, host_port: int | None = None) -> Path:
+        """Écrit un devcontainer.json avec appPorts si host_port fourni."""
         user_dir = safe_user_path(login, "devpod")
         user_dir.mkdir(parents=True, exist_ok=True)
-        content = {
+        content: dict[str, Any] = {
             "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
         }
+        if host_port is not None:
+            content["appPorts"] = [f"{host_port}:3000"]
         fd, tmp_path = tempfile.mkstemp(dir=user_dir, suffix=f"-{ws_id}.json")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -176,6 +203,21 @@ class DevPodService:
                 return h.type
         return "docker-tls"
 
+    def _resolve_node_ip(self, host_name: str) -> str:
+        """Résout l'IP du nœud Docker à partir du nom d'host de la spec.
+
+        Extrait le hostname depuis docker_host (ex: "tcp://192.168.1.50:2376" → "192.168.1.50").
+        Retourne "127.0.0.1" si aucun host n'est trouvé ou configuré.
+        """
+        if not host_name:
+            defaults = [h for h in self._global_cfg.hosts if h.default]
+            host = defaults[0] if defaults else None
+        else:
+            host = next((h for h in self._global_cfg.hosts if h.name == host_name), None)
+        if host and host.docker_host:
+            return urlparse(host.docker_host).hostname or "127.0.0.1"
+        return "127.0.0.1"
+
     def _minimal_env(self, login: str) -> dict[str, str]:
         """Env minimal pour les commandes stop/delete (pas de secrets)."""
         return {
@@ -190,8 +232,10 @@ class DevPodService:
         dc_path: Path,
         env: dict[str, str],
         login: str,
+        host_port: int | None = None,
+        node_ip: str = "127.0.0.1",
     ) -> None:
-        """Tâche de fond : exécute devpod up et met à jour le statut."""
+        """Tâche de fond : exécute devpod up, expose le workspace si running."""
         try:
             cmd = [
                 *self._devpod_bin,
@@ -210,7 +254,25 @@ class DevPodService:
             # Seul le returncode est logué — la valeur des env vars (secrets) n'est jamais écrite
             returncode = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
             status = "running" if returncode == 0 else "failed"
-            self._write_status(ws_id, status, login=login, returncode=returncode)
+            extra: dict[str, Any] = {"returncode": returncode}
+            if status == "running" and self._exposure is not None and host_port is not None:
+                try:
+                    url = await self._exposure.expose(
+                        ws_id=ws_id,
+                        node_ip=node_ip,
+                        host_port=host_port,
+                    )
+                    extra["url"] = url
+                    extra["host_port"] = host_port
+                except Exception as exc:
+                    _log.error(
+                        "workspace_expose_failed",
+                        ws_id=ws_id,
+                        error=type(exc).__name__,
+                    )
+            elif host_port is not None:
+                extra["host_port"] = host_port
+            self._write_status(ws_id, status, login=login, **extra)
             if returncode != 0:
                 _log.warning("workspace_up_failed", ws_id=ws_id, returncode=returncode)
             else:

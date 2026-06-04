@@ -166,3 +166,102 @@ def test_status_rejects_invalid_name(tmp_path: Path) -> None:
     with TestClient(app) as client:
         resp = client.get("/me/workspaces/INVALID_NAME/status")
     assert resp.status_code == 422
+
+
+def _make_app_with_exposure_mock(tmp_path: Path):
+    """Crée une app FastAPI avec ExposureService mocké."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    import portal.auth.router as auth_router_mod
+    import portal.settings as settings_mod
+
+    os.environ["PORTAL_DATA_ROOT"] = str(tmp_path)
+    os.environ["SESSION_SECRET_KEY"] = "test-secret-key-32chars-minimum!!"
+    os.environ["DEV_MODE"] = "true"
+    settings_mod._settings = None
+    auth_router_mod._oidc_client = None
+
+    _build_global_config(tmp_path)
+    asyncio.run(_provision_alice(tmp_path))
+
+    from portal.app import create_app
+    from portal.auth.rbac import UserInfo, require_user
+    from portal.exposure import ExposureService
+
+    exposure_mock = MagicMock(spec=ExposureService)
+    exposure_mock.allocate_port = AsyncMock(return_value=41000)
+    exposure_mock.expose = AsyncMock(return_value="https://ws-alice-myapp.dev.yoops.org")
+    exposure_mock.unexpose = AsyncMock()
+
+    app = create_app()
+    user = UserInfo(login="alice", roles=["dev"])
+    app.dependency_overrides[require_user] = lambda: user
+
+    import portal.routes.workspace_ops as ws_ops_mod
+    from portal.devpod.service import DevPodService
+
+    original_get_service = ws_ops_mod._get_service
+
+    def patched_get_service() -> DevPodService:
+        svc = original_get_service()
+        svc._exposure = exposure_mock
+        return svc
+
+    ws_ops_mod._get_service = patched_get_service
+
+    return app, exposure_mock, ws_ops_mod, original_get_service
+
+
+def test_up_with_exposure_returns_202(tmp_path: Path) -> None:
+    """up() avec ExposureService mocké retourne 202 + ws_id."""
+    app, exposure_mock, ws_ops_mod, original_get_service = _make_app_with_exposure_mock(tmp_path)
+    try:
+        with TestClient(app) as client:
+            resp = client.post(
+                "/me/workspaces/myapp/up",
+                json={"source": "git@github.com:user/repo.git"},
+            )
+        assert resp.status_code == 202
+        data = resp.json()
+        assert data["ws_id"] == "alice-myapp"
+    finally:
+        ws_ops_mod._get_service = original_get_service
+
+
+def test_delete_calls_unexpose(tmp_path: Path) -> None:
+    """delete() appelle exposure.unexpose() avant de supprimer le workspace."""
+    app, exposure_mock, ws_ops_mod, original_get_service = _make_app_with_exposure_mock(tmp_path)
+    try:
+        routes_dir = tmp_path / "routes"
+        routes_dir.mkdir(parents=True, exist_ok=True)
+        (routes_dir / "alice-myapp.json").write_text(
+            json.dumps(
+                {
+                    "ws_id": "alice-myapp",
+                    "login": "alice",
+                    "status": "running",
+                    "hostname": "ws-alice-myapp.dev.yoops.org",
+                    "url": "https://ws-alice-myapp.dev.yoops.org",
+                }
+            ),
+            encoding="utf-8",
+        )
+        with TestClient(app) as client:
+            resp = client.post("/me/workspaces/myapp/delete")
+        assert resp.status_code == 200
+        exposure_mock.unexpose.assert_awaited_once_with("alice-myapp")
+    finally:
+        ws_ops_mod._get_service = original_get_service
+
+
+def test_stop_calls_unexpose(tmp_path: Path) -> None:
+    """stop() appelle exposure.unexpose() avant d'arrêter le workspace."""
+    app, exposure_mock, ws_ops_mod, original_get_service = _make_app_with_exposure_mock(tmp_path)
+    try:
+        with TestClient(app) as client:
+            resp = client.post("/me/workspaces/myapp/stop")
+        assert resp.status_code == 200
+        exposure_mock.unexpose.assert_awaited_once_with("alice-myapp")
+    finally:
+        ws_ops_mod._get_service = original_get_service

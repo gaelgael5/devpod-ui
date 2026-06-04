@@ -38,12 +38,37 @@ class UpRequest(BaseModel):
 
 
 def _get_service() -> DevPodService:
+    import httpx
+
+    from ..config.store import _data_root
+    from ..exposure import ExposureService
+    from ..exposure.caddy import CaddyClient
+    from ..exposure.ports import PortRegistry
+
     global_cfg = load_global()
     # shlex.split with posix=False preserves Windows backslash paths intact.
     # On POSIX systems posix=True (default) would also work for single-token paths
     # like "/usr/local/bin/devpod"; using posix=False is safe for both platforms.
     devpod_bin = shlex.split(global_cfg.devpod.binary, posix=(os.name != "nt"))
-    return DevPodService(global_cfg=global_cfg, devpod_bin=devpod_bin)
+
+    exposure: ExposureService | None = None
+    if global_cfg.caddy.admin_api:
+        data_root = _data_root()
+        verify_uri = f"{global_cfg.server.external_url}/auth/caddy/verify"
+        caddy = CaddyClient(
+            admin_api=global_cfg.caddy.admin_api,
+            http_client=httpx.AsyncClient(),
+            verify_uri=verify_uri,
+        )
+        registry = PortRegistry(data_root)
+        exposure = ExposureService(
+            caddy=caddy,
+            registry=registry,
+            data_root=data_root,
+            base_domain=global_cfg.server.base_domain,
+        )
+
+    return DevPodService(global_cfg=global_cfg, devpod_bin=devpod_bin, exposure=exposure)
 
 
 @router.post("/workspaces/{name}/up", status_code=202)
