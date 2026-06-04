@@ -10,7 +10,7 @@ import yaml
 
 from .models import GlobalConfig, UserConfig
 
-_LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,61}[a-z0-9]$")
+_LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,38}[a-z0-9]$")
 
 
 def _data_root() -> Path:
@@ -78,6 +78,20 @@ def load_user_config(login: str, global_cfg: GlobalConfig) -> UserConfig:
 
 def save_user(login: str, cfg: UserConfig) -> None:
     path = safe_user_path(login, "config.yaml")
+    parent = path.parent
+    fd, tmp_path = tempfile.mkstemp(dir=parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            yaml.dump(cfg.model_dump(mode="json"), f, default_flow_style=False)
+        os.replace(tmp_path, path)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
+
+
+def save_global(cfg: GlobalConfig) -> None:
+    path = _data_root() / "config.yaml"
     parent = path.parent
     fd, tmp_path = tempfile.mkstemp(dir=parent, suffix=".tmp")
     try:
