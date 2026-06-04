@@ -66,7 +66,7 @@ class DevPodService:
         # le subprocess env UNIQUEMENT — jamais dans devcontainer.json ni dans les logs.
         subprocess_env = {**base_env, **ws_spec.env}
 
-        self._write_status(ws_id, "provisioning")
+        self._write_status(ws_id, "provisioning", login=login)
 
         asyncio.create_task(
             self._run_up_task(ws_id, ws_spec.source, dc_path, subprocess_env, login)
@@ -106,12 +106,14 @@ class DevPodService:
         routes_dir = _data_root() / "routes"
         if not routes_dir.exists():
             return []
-        prefix = f"{login}-"
         results: list[dict[str, Any]] = []
         for f in routes_dir.glob("*.json"):
-            if f.stem.startswith(prefix):
-                with contextlib.suppress(json.JSONDecodeError):
-                    results.append(json.loads(f.read_text(encoding="utf-8")))
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if data.get("login") == login:
+                    results.append(data)
+            except json.JSONDecodeError:
+                pass
         return results
 
     def get_port(self, ws_id: str) -> int | None:
@@ -128,11 +130,14 @@ class DevPodService:
     def _log_path(self, login: str, ws_id: str) -> Path:
         return _data_root() / "logs" / login / f"{ws_id}.log"
 
-    def _write_status(self, ws_id: str, status: str, **extra: Any) -> None:
+    def _write_status(self, ws_id: str, status: str, login: str = "", **extra: Any) -> None:
         """Écrit atomiquement le fichier de statut."""
         path = self._status_path(ws_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        data: dict[str, Any] = {"ws_id": ws_id, "status": status, **extra}
+        data: dict[str, Any] = {"ws_id": ws_id, "status": status}
+        if login:
+            data["login"] = login
+        data.update(extra)
         fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=f"-{ws_id}.tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -187,24 +192,31 @@ class DevPodService:
         login: str,
     ) -> None:
         """Tâche de fond : exécute devpod up et met à jour le statut."""
-        cmd = [
-            *self._devpod_bin,
-            "up",
-            source,
-            "--id",
-            ws_id,
-            "--ide",
-            "openvscode",
-            "--devcontainer-path",
-            str(dc_path),
-            "--open-ide=false",  # v0.6.15 : empêche l'ouverture auto du navigateur
-        ]
-        log_path = self._log_path(login, ws_id)
-        # Seul le returncode est logué — la valeur des env vars (secrets) n'est jamais écrite
-        returncode = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
-        status = "running" if returncode == 0 else "failed"
-        self._write_status(ws_id, status, returncode=returncode)
-        if returncode != 0:
-            _log.warning("workspace_up_failed", ws_id=ws_id, returncode=returncode)
-        else:
-            _log.info("workspace_up_done", ws_id=ws_id, login=login)
+        try:
+            cmd = [
+                *self._devpod_bin,
+                "up",
+                source,
+                "--id",
+                ws_id,
+                "--ide",
+                "openvscode",
+                "--devcontainer-path",
+                str(dc_path),
+                "--open-ide=false",  # v0.6.15 : empêche l'ouverture auto du navigateur
+            ]
+            log_path = self._log_path(login, ws_id)
+            # Seul le returncode est logué — la valeur des env vars (secrets) n'est jamais écrite
+            returncode = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
+            status = "running" if returncode == 0 else "failed"
+            self._write_status(ws_id, status, login=login, returncode=returncode)
+            if returncode != 0:
+                _log.warning("workspace_up_failed", ws_id=ws_id, returncode=returncode)
+            else:
+                _log.info("workspace_up_done", ws_id=ws_id, login=login)
+        except Exception as exc:
+            self._write_status(ws_id, "failed", login=login, error=type(exc).__name__)
+            _log.error("workspace_up_crashed", ws_id=ws_id, error=type(exc).__name__)
+        finally:
+            with contextlib.suppress(OSError):
+                dc_path.unlink()

@@ -37,9 +37,14 @@ async def test_up_writes_status_file(
     ws_id = await svc.up(login="alice", ws_spec=ws)
     assert ws_id == "alice-myapp"
 
+    # Vérifier le statut provisioning immédiat (avant que la tâche de fond finisse)
+    status_path = tmp_data_root / "routes" / f"{ws_id}.json"
+    assert status_path.exists()
+    immediate_data = json.loads(status_path.read_text(encoding="utf-8"))
+    assert immediate_data["status"] == "provisioning"
+
     # Attendre que la tâche de fond passe de "provisioning" à "running"/"failed"
     # On sonde jusqu'à 10s pour absorber l'overhead subprocess Windows.
-    status_path = tmp_data_root / "routes" / f"{ws_id}.json"
     for _ in range(50):
         await asyncio.sleep(0.2)
         if status_path.exists():
@@ -111,3 +116,33 @@ async def test_status_returns_current_status(
 
     status = await svc.status(login="alice", ws_id=ws_id)
     assert status["status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_list_workspaces_isolates_by_login(
+    tmp_data_root: Path, global_cfg, fake_devpod_bin: list[str]
+) -> None:
+    """list_workspaces ne retourne que les workspaces du user demandé."""
+    from portal.devpod.service import DevPodService
+
+    svc = DevPodService(global_cfg=global_cfg, devpod_bin=fake_devpod_bin)
+    routes_dir = tmp_data_root / "routes"
+    routes_dir.mkdir(parents=True, exist_ok=True)
+
+    # Écrire des statuts pour deux users différents
+    (routes_dir / "alice-myapp.json").write_text(
+        json.dumps({"ws_id": "alice-myapp", "login": "alice", "status": "running"}),
+        encoding="utf-8",
+    )
+    (routes_dir / "bob-myapp.json").write_text(
+        json.dumps({"ws_id": "bob-myapp", "login": "bob", "status": "running"}),
+        encoding="utf-8",
+    )
+
+    alice_workspaces = await svc.list_workspaces(login="alice")
+    assert len(alice_workspaces) == 1
+    assert alice_workspaces[0]["ws_id"] == "alice-myapp"
+
+    bob_workspaces = await svc.list_workspaces(login="bob")
+    assert len(bob_workspaces) == 1
+    assert bob_workspaces[0]["ws_id"] == "bob-myapp"
