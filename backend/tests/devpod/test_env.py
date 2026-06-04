@@ -57,3 +57,49 @@ def test_build_env_raises_for_unknown_host(tmp_data_root: Path, global_cfg) -> N
     ws = WorkspaceSpec(name="myapp", source="git@github.com:user/repo.git", host="nonexistent")
     with pytest.raises(UnknownHostError):
         build_env(login="alice", ws_spec=ws, global_cfg=global_cfg)
+
+
+def test_build_env_raises_when_no_default_host(tmp_data_root: Path) -> None:
+    """UnknownHostError si host='' et aucun host n'a default=True."""
+    from portal.config.models import GlobalConfig, WorkspaceSpec
+    from portal.devpod.env import UnknownHostError, build_env
+
+    cfg_without_default = GlobalConfig.model_validate(
+        {
+            "version": "1",
+            "server": {
+                "listen": "0.0.0.0:8080",
+                "base_domain": "dev.yoops.org",
+                "external_url": "https://dev.yoops.org",
+                "dev_mode": True,
+                "log": {"level": "info", "format": "text", "output": ""},
+            },
+            "auth": {
+                "oidc": {
+                    "issuer": "https://kc.test",
+                    "client_id": "portal",
+                    "client_secret": "",
+                    "scopes": ["openid"],
+                    "role_claim": "realm_access.roles",
+                    "admin_role": "admin",
+                    "user_role": "dev",
+                    "username_claim": "preferred_username",
+                }
+            },
+            "hosts": [
+                {
+                    "name": "local",
+                    "default": False,
+                    "type": "docker-tls",
+                    "docker_host": "tcp://localhost:2376",
+                    "address": "",
+                    "key_path": "",
+                },
+            ],
+            "caddy": {"admin_api": "http://caddy:2019"},
+            "cloudflare_manager": {"url": "", "api_key": ""},
+        }
+    )
+    ws = WorkspaceSpec(name="myapp", source="git@github.com:user/repo.git")
+    with pytest.raises(UnknownHostError, match="No default host"):
+        build_env(login="alice", ws_spec=ws, global_cfg=cfg_without_default)

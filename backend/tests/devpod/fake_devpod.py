@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 
@@ -52,8 +53,6 @@ def main() -> int:
         if sub == "list":
             # Simuler le format tableau de devpod provider list (v0.6.15)
             # Si DEVPOD_HOME contient "provider_ok", simuler docker déjà présent
-            import os
-
             home = os.environ.get("DEVPOD_HOME", "")
             if "provider_ok" in home:
                 print("    NAME   | VERSION | DEFAULT |")
