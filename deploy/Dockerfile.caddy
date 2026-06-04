@@ -1,0 +1,10 @@
+# deploy/Dockerfile.caddy
+# Caddy avec plugin DNS Cloudflare pour wildcard TLS DNS-01 (§F-30)
+FROM caddy:2-builder AS builder
+
+RUN xcaddy build \
+    --with github.com/caddy-dns/cloudflare
+
+FROM caddy:2
+
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
