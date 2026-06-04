@@ -13,6 +13,7 @@ from fastapi.responses import RedirectResponse, Response
 
 from ..config.store import _data_root, ensure_user_dir
 from ..settings import get_settings
+from . import rbac as rbac_mod
 from .oidc import OIDCClient, OIDCError
 from .rbac import UsernameError, extract_roles, validate_username
 
@@ -118,16 +119,17 @@ async def caddy_verify(request: Request) -> Response:
     Retourne 200 si la session est valide et le rôle autorisé, 401 sinon.
     Fail-closed : tout doute → 401, aucune exception ne laisse passer.
     """
-    from .rbac import get_current_user
-
     settings = get_settings()
     try:
-        user = get_current_user(request)
-    except Exception:
+        user = rbac_mod.get_current_user(request)
+    except Exception as exc:
+        _log.warning("caddy_verify_denied", reason="exception", exc_type=type(exc).__name__)
         return Response(status_code=401)
     if user is None:
+        _log.warning("caddy_verify_denied", reason="no_session")
         return Response(status_code=401)
     allowed = {settings.oidc_user_role, settings.oidc_admin_role}
     if not set(user.roles) & allowed:
+        _log.warning("caddy_verify_denied", reason="role_mismatch", login=user.login)
         return Response(status_code=401)
     return Response(status_code=200)
