@@ -4,12 +4,6 @@ import httpx
 import pytest
 import respx
 
-
-@pytest.fixture
-def http_client() -> httpx.AsyncClient:
-    return httpx.AsyncClient()
-
-
 ADMIN_API = "http://caddy:2019"
 VERIFY_URI = "https://dev.yoops.org/auth/caddy/verify"
 
@@ -147,3 +141,48 @@ async def test_remove_route_500_raises() -> None:
             )
             with pytest.raises(httpx.HTTPStatusError):
                 await caddy.remove_route("ws-alice-myapp")
+
+
+@pytest.mark.asyncio
+async def test_upsert_route_patch_500_raises() -> None:
+    """upsert_route() lève une HTTPStatusError si le PATCH retourne 500."""
+    from portal.exposure.caddy import CaddyClient
+
+    with respx.mock:
+        respx.patch(f"{ADMIN_API}/id/ws-alice-myapp").mock(return_value=httpx.Response(500))
+        async with httpx.AsyncClient() as client:
+            caddy = CaddyClient(
+                admin_api=ADMIN_API,
+                http_client=client,
+                verify_uri=VERIFY_URI,
+            )
+            with pytest.raises(httpx.HTTPStatusError):
+                await caddy.upsert_route(
+                    route_id="ws-alice-myapp",
+                    match_host="ws-alice-myapp.dev.yoops.org",
+                    upstream="192.168.1.50:41000",
+                )
+
+
+@pytest.mark.asyncio
+async def test_upsert_route_post_500_raises() -> None:
+    """upsert_route() lève une HTTPStatusError si le POST (après PATCH 404) retourne 500."""
+    from portal.exposure.caddy import CaddyClient
+
+    with respx.mock(assert_all_called=True) as rsps:
+        rsps.patch(f"{ADMIN_API}/id/ws-alice-myapp").mock(return_value=httpx.Response(404))
+        rsps.post(f"{ADMIN_API}/config/apps/http/servers/srv0/routes").mock(
+            return_value=httpx.Response(500)
+        )
+        async with httpx.AsyncClient() as client:
+            caddy = CaddyClient(
+                admin_api=ADMIN_API,
+                http_client=client,
+                verify_uri=VERIFY_URI,
+            )
+            with pytest.raises(httpx.HTTPStatusError):
+                await caddy.upsert_route(
+                    route_id="ws-alice-myapp",
+                    match_host="ws-alice-myapp.dev.yoops.org",
+                    upstream="192.168.1.50:41000",
+                )

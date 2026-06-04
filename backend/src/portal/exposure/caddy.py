@@ -46,10 +46,12 @@ class CaddyClient:
         admin_api: str,
         http_client: httpx.AsyncClient,
         verify_uri: str,
+        server_name: str = "srv0",
     ) -> None:
         self._admin_api = admin_api.rstrip("/")
         self._client = http_client
         self._verify_uri = verify_uri
+        self._server_name = server_name
 
     async def upsert_route(
         self,
@@ -79,10 +81,14 @@ class CaddyClient:
         )
         if resp.status_code == 404:
             resp = await self._client.post(
-                f"{self._admin_api}/config/apps/http/servers/srv0/routes",
+                f"{self._admin_api}/config/apps/http/servers/{self._server_name}/routes",
                 json=route,
             )
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError:
+            _log.error("caddy_route_upsert_failed", route_id=route_id, status=resp.status_code)
+            raise
         _log.info("caddy_route_upserted", route_id=route_id, upstream=upstream)
 
     async def remove_route(self, route_id: str) -> None:
