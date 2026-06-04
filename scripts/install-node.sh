@@ -38,6 +38,16 @@ for cmd in curl jq openssl timedatectl; do
     fi
 done
 
+# Validation stricte des arguments (§E-28 + prévention injection openssl-conf)
+if [[ ! "$NODE_NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$ ]]; then
+    echo "ERREUR : --node-name doit correspondre à ^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$" >&2
+    exit 1
+fi
+if [[ ! "$ADDRESS" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[a-zA-Z0-9][a-zA-Z0-9._-]{0,253}$ ]]; then
+    echo "ERREUR : --address doit être une adresse IP ou un hostname valide" >&2
+    exit 1
+fi
+
 # 1. Installation de Docker (idempotente)
 echo "==> Installation Docker..."
 if ! command -v docker &>/dev/null; then
@@ -63,9 +73,11 @@ chmod 600 "$TLS_DIR/server-key.pem"
 
 # 4. Générer la CSR avec CN=NODE_NAME et SAN=IP+DNS (§A-2)
 echo "==> Génération de la CSR avec SAN..."
+OPENSSL_CONF=""
+CSR_FILE=""
+trap '[[ -n "$OPENSSL_CONF" ]] && rm -f "$OPENSSL_CONF"; [[ -n "$CSR_FILE" ]] && rm -f "$CSR_FILE"' EXIT
 OPENSSL_CONF=$(mktemp)
 CSR_FILE=$(mktemp --suffix=.csr.pem)
-trap 'rm -f "$OPENSSL_CONF" "$CSR_FILE"' EXIT
 
 cat > "$OPENSSL_CONF" <<CONF
 [req]
@@ -105,8 +117,15 @@ RESPONSE=$(curl -sSf -X POST \
     "${PORTAL}/admin/nodes/enroll")
 
 # 6. Sauvegarder le cert et la CA
-echo "$RESPONSE" | jq -r '.cert_pem' > "$TLS_DIR/server-cert.pem"
-echo "$RESPONSE" | jq -r '.ca_pem'   > "$TLS_DIR/ca.pem"
+CERT_PEM=$(echo "$RESPONSE" | jq -r '.cert_pem // empty')
+CA_PEM=$(echo "$RESPONSE"   | jq -r '.ca_pem   // empty')
+if [[ -z "$CERT_PEM" || -z "$CA_PEM" ]]; then
+    echo "ERREUR : réponse d'enrôlement invalide (cert_pem ou ca_pem manquant)." >&2
+    echo "Réponse du serveur : $RESPONSE" >&2
+    exit 1
+fi
+printf '%s\n' "$CERT_PEM" > "$TLS_DIR/server-cert.pem"
+printf '%s\n' "$CA_PEM"   > "$TLS_DIR/ca.pem"
 echo "    Cert sauvegardé dans $TLS_DIR/"
 
 # 7. Écrire daemon.json (§A-4 mTLS)
