@@ -5,6 +5,7 @@ import contextlib
 import json
 import os
 import re
+import shutil
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -14,6 +15,7 @@ import structlog
 
 from ..config.models import GlobalConfig, WorkspaceSpec
 from ..config.store import _data_root, safe_user_path
+from ..recipes.models import RecipeMeta
 from .env import build_env
 from .provider import ensure_provider
 from .runner import run_subprocess
@@ -22,6 +24,8 @@ if TYPE_CHECKING:
     from ..exposure import ExposureService
 
 _log = structlog.get_logger(__name__)
+
+_RECIPES_BUILTIN_DIR = Path(__file__).parent.parent / "recipes" / "builtin"
 
 # DNS-safe pour ws_id : login (max ~40 chars) + "-" + name (max 32 chars)
 _WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$")
@@ -33,12 +37,16 @@ class DevPodService:
         global_cfg: GlobalConfig,
         devpod_bin: list[str] | None = None,
         exposure: ExposureService | None = None,
+        recipes_builtin_dir: Path | None = None,
     ) -> None:
         self._global_cfg = global_cfg
         self._devpod_bin: list[str] = (
             devpod_bin if devpod_bin is not None else [global_cfg.devpod.binary]
         )
         self._exposure = exposure
+        self._recipes_builtin_dir: Path = (
+            recipes_builtin_dir if recipes_builtin_dir is not None else _RECIPES_BUILTIN_DIR
+        )
         self._background_tasks: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
@@ -52,7 +60,13 @@ class DevPodService:
             raise ValueError(f"Computed ws_id {ws_id!r} is not DNS-safe")
         return ws_id
 
-    async def up(self, login: str, ws_spec: WorkspaceSpec) -> str:
+    async def up(
+        self,
+        login: str,
+        ws_spec: WorkspaceSpec,
+        recipes: list[RecipeMeta] | None = None,
+        feature_env: dict[str, str] | None = None,
+    ) -> str:
         """Lance un workspace en tâche de fond. Retourne ws_id immédiatement."""
         ws_id = self._ws_id(login, ws_spec.name)
 
@@ -71,7 +85,9 @@ class DevPodService:
         if self._exposure is not None:
             host_port = await self._exposure.allocate_port(ws_id)
 
-        dc_path = self._write_devcontainer(login, ws_id, host_port=host_port)
+        dc_path = self._write_devcontainer(
+            login, ws_id, host_port=host_port, recipes=recipes, feature_env=feature_env
+        )
 
         # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
         # le subprocess env UNIQUEMENT — jamais dans devcontainer.json ni dans les logs.
@@ -176,24 +192,45 @@ class DevPodService:
                 os.unlink(tmp_path)
             raise
 
-    def _write_devcontainer(self, login: str, ws_id: str, host_port: int | None = None) -> Path:
-        """Écrit un devcontainer.json avec appPorts si host_port fourni."""
+    def _write_devcontainer(
+        self,
+        login: str,
+        ws_id: str,
+        host_port: int | None = None,
+        recipes: list[RecipeMeta] | None = None,
+        feature_env: dict[str, str] | None = None,
+    ) -> Path:
+        """Écrit devcontainer.json + Feature dirs dans un tmpdir. Retourne le chemin du JSON."""
         user_dir = safe_user_path(login, "devpod")
         user_dir.mkdir(parents=True, exist_ok=True)
-        content: dict[str, Any] = {
-            "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-        }
-        if host_port is not None:
-            content["appPorts"] = [f"{host_port}:3000"]
-        fd, tmp_path = tempfile.mkstemp(dir=user_dir, suffix=f"-{ws_id}.json")
+
+        tmp_dir = Path(tempfile.mkdtemp(dir=user_dir, prefix=f"{ws_id}-dc-"))
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(content, f, indent=2)
+            content: dict[str, Any] = {
+                "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+            }
+            if host_port is not None:
+                content["appPorts"] = [f"{host_port}:3000"]
+
+            if recipes:
+                features_block: dict[str, dict[str, Any]] = {}
+                for recipe in recipes:
+                    src = self._recipes_builtin_dir / recipe.id
+                    if src.is_dir():
+                        shutil.copytree(src, tmp_dir / recipe.id)
+                        features_block[f"./{recipe.id}"] = {}
+                if features_block:
+                    content["features"] = features_block
+
+            if feature_env:
+                content["remoteEnv"] = dict(feature_env)
+
+            dc_path = tmp_dir / "devcontainer.json"
+            dc_path.write_text(json.dumps(content, indent=2), encoding="utf-8")
+            return dc_path
         except Exception:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp_path)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
             raise
-        return Path(tmp_path)
 
     def _resolve_host_type(self, ws_spec: WorkspaceSpec) -> str:
         """Résout le type d'host à partir de la spec workspace."""
@@ -284,5 +321,5 @@ class DevPodService:
             self._write_status(ws_id, "failed", login=login, error=type(exc).__name__)
             _log.error("workspace_up_crashed", ws_id=ws_id, error=type(exc).__name__)
         finally:
-            with contextlib.suppress(OSError):
-                dc_path.unlink()
+            with contextlib.suppress(Exception):
+                shutil.rmtree(dc_path.parent, ignore_errors=True)
