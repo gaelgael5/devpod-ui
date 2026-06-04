@@ -26,7 +26,7 @@ services:
     env_file: /data/.env
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
+      - caddy_acme:/data
       - caddy_config:/config
     ports:
       - "443:443"
@@ -39,5 +39,5 @@ networks:
     driver: bridge
 
 volumes:
-  caddy_data:
+  caddy_acme:
   caddy_config:

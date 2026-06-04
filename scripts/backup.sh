@@ -13,6 +13,7 @@
 #   BACKUP_DIR      Dossier de destination (défaut : /backup)
 #   AGE_RECIPIENT   Clé publique age du destinataire (OBLIGATOIRE)
 set -euo pipefail
+umask 077
 
 DATA_ROOT="${DATA_ROOT:-/data}"
 BACKUP_DIR="${BACKUP_DIR:-/backup}"

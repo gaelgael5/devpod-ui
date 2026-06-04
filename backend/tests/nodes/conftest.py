@@ -77,7 +77,7 @@ def global_config(tmp_data_root: Path) -> Path:
 
 @pytest.fixture
 def ca_fixture(tmp_data_root: Path) -> tuple[Path, Path]:
-    """Génère une CA auto-signée de test dans tmp_data_root/ca/."""
+    """Génère une CA auto-signée de test dans tmp_data_root/certs/ca/."""
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Test CA")])
     now = datetime.now(UTC)
@@ -92,7 +92,7 @@ def ca_fixture(tmp_data_root: Path) -> tuple[Path, Path]:
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
         .sign(key, hashes.SHA256())
     )
-    ca_dir = tmp_data_root / "ca"
+    ca_dir = tmp_data_root / "certs" / "ca"
     ca_dir.mkdir(parents=True, exist_ok=True)
     ca_cert_path = ca_dir / "ca.pem"
     ca_key_path = ca_dir / "ca-key.pem"

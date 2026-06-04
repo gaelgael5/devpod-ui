@@ -250,8 +250,8 @@ async def enroll_node(token: str, csr_pem: str) -> dict[str, str]:
     if any(h.name == node_name for h in cfg.hosts):
         raise ValueError(f"Host {node_name!r} already registered — delete it first")
 
-    ca_cert_path = _data_root() / "ca" / "ca.pem"
-    ca_key_path = _data_root() / "ca" / "ca-key.pem"
+    ca_cert_path = _data_root() / "certs" / "ca" / "ca.pem"
+    ca_key_path = _data_root() / "certs" / "ca" / "ca-key.pem"
     cert_pem, ca_pem = sign_csr(
         csr_pem=csr_pem.encode(),
         expected_cn=node_name,

@@ -109,18 +109,22 @@ if [[ -d "$DATA_ROOT" ]]; then
 fi
 
 # ── Bascule atomique ────────────────────────────────────────────────────────
+# double-mv : évite la fenêtre où DATA_ROOT est absent entre rm et mv
+OLD_DATA=""
 if [[ -d "$DATA_ROOT" ]]; then
-    rm -rf "$DATA_ROOT"
+    OLD_DATA="$PARENT_DIR/.data-old-$$"
+    mv "$DATA_ROOT" "$OLD_DATA"
 fi
 mv "$RESTORED_DATA" "$DATA_ROOT"
 trap - EXIT  # annuler le nettoyage du tmp (mv a tout basculé)
+[[ -n "$OLD_DATA" ]] && rm -rf "$OLD_DATA"
 
 echo ""
 echo "==> Restore terminé."
 echo ""
 echo "Étapes post-restore obligatoires :"
 echo "  1. Vérifier que /data/.env est complet (OIDC_CLIENT_SECRET, CF_API_TOKEN, etc.)"
-echo "  2. chmod 600 $DATA_ROOT/.env $DATA_ROOT/certs/ca/ca-key.pem"
+echo "  2. Vérifier les perms : ls -la $DATA_ROOT/.env $DATA_ROOT/certs/ca/ca-key.pem  (attendu : 600)"
 echo "  3. Redémarrer le portail : docker compose -f deploy/docker-compose.yml up -d"
 echo "  4. Vérifier la connectivité aux nœuds enrôlés."
 echo "  5. Demander aux utilisateurs de re-lancer leurs workspaces."
