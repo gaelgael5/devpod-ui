@@ -9,7 +9,7 @@ from pathlib import Path
 import structlog
 import yaml
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 
 from ..config.store import _data_root, ensure_user_dir
 from ..settings import get_settings
@@ -108,3 +108,26 @@ async def provision_user(login: str, sub: str, data_root: Path) -> None:
         raise
 
     _log.info("user_provisioned", login=login, sub=sub)
+
+
+@router.get("/caddy/verify")
+async def caddy_verify(request: Request) -> Response:
+    """Endpoint Caddy forward_auth — valide la session OIDC. §F-33 fail-closed.
+
+    Caddy appelle cet endpoint pour chaque requête vers un workspace.
+    Retourne 200 si la session est valide et le rôle autorisé, 401 sinon.
+    Fail-closed : tout doute → 401, aucune exception ne laisse passer.
+    """
+    from .rbac import get_current_user
+
+    settings = get_settings()
+    try:
+        user = get_current_user(request)
+    except Exception:
+        return Response(status_code=401)
+    if user is None:
+        return Response(status_code=401)
+    allowed = {settings.oidc_user_role, settings.oidc_admin_role}
+    if not set(user.roles) & allowed:
+        return Response(status_code=401)
+    return Response(status_code=200)

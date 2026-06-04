@@ -178,6 +178,142 @@ def test_callback_creates_user_and_session(tmp_path: Path) -> None:
         router_mod._oidc_client = None
 
 
+def test_caddy_verify_valid_session_returns_200(tmp_path: Path) -> None:
+    """GET /auth/caddy/verify — session valide avec rôle dev → 200."""
+    from fastapi.testclient import TestClient
+
+    import portal.auth.router as router_mod
+    import portal.settings as settings_mod
+
+    _env_keys = ["PORTAL_DATA_ROOT", "SESSION_SECRET_KEY", "DEV_MODE"]
+    _saved = {k: os.environ.get(k) for k in _env_keys}
+    try:
+        os.environ["PORTAL_DATA_ROOT"] = str(tmp_path)
+        os.environ["SESSION_SECRET_KEY"] = "test-secret-key-32chars-minimum!!"
+        os.environ["DEV_MODE"] = "true"
+        settings_mod._settings = None
+        router_mod._oidc_client = None
+
+        from portal.app import create_app
+
+        app = create_app()
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            import portal.auth.rbac as rbac_mod
+            from portal.auth.rbac import UserInfo
+
+            def mock_get_current_user(request):  # type: ignore[override]
+                return UserInfo(login="alice", roles=["dev"], sub="sub-alice")
+
+            original_fn = rbac_mod.get_current_user
+            rbac_mod.get_current_user = mock_get_current_user  # type: ignore[assignment]
+            try:
+                resp = client.get("/auth/caddy/verify")
+                assert resp.status_code == 200
+            finally:
+                rbac_mod.get_current_user = original_fn
+
+    finally:
+        for k, v in _saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        settings_mod._settings = None
+        router_mod._oidc_client = None
+
+
+def test_caddy_verify_no_session_returns_401(tmp_path: Path) -> None:
+    """GET /auth/caddy/verify — pas de session → 401."""
+    from fastapi.testclient import TestClient
+
+    import portal.auth.router as router_mod
+    import portal.settings as settings_mod
+
+    _env_keys = ["PORTAL_DATA_ROOT", "SESSION_SECRET_KEY", "DEV_MODE"]
+    _saved = {k: os.environ.get(k) for k in _env_keys}
+    try:
+        os.environ["PORTAL_DATA_ROOT"] = str(tmp_path)
+        os.environ["SESSION_SECRET_KEY"] = "test-secret-key-32chars-minimum!!"
+        os.environ["DEV_MODE"] = "true"
+        settings_mod._settings = None
+        router_mod._oidc_client = None
+
+        from portal.app import create_app
+
+        app = create_app()
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            import portal.auth.rbac as rbac_mod
+
+            original_fn = rbac_mod.get_current_user
+
+            def no_session(request) -> None:  # type: ignore[override]
+                return None
+
+            rbac_mod.get_current_user = no_session  # type: ignore[assignment]
+            try:
+                resp = client.get("/auth/caddy/verify")
+                assert resp.status_code == 401
+            finally:
+                rbac_mod.get_current_user = original_fn
+
+    finally:
+        for k, v in _saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        settings_mod._settings = None
+        router_mod._oidc_client = None
+
+
+def test_caddy_verify_wrong_role_returns_401(tmp_path: Path) -> None:
+    """GET /auth/caddy/verify — session valide mais rôle inconnu → 401."""
+    from fastapi.testclient import TestClient
+
+    import portal.auth.router as router_mod
+    import portal.settings as settings_mod
+
+    _env_keys = ["PORTAL_DATA_ROOT", "SESSION_SECRET_KEY", "DEV_MODE"]
+    _saved = {k: os.environ.get(k) for k in _env_keys}
+    try:
+        os.environ["PORTAL_DATA_ROOT"] = str(tmp_path)
+        os.environ["SESSION_SECRET_KEY"] = "test-secret-key-32chars-minimum!!"
+        os.environ["DEV_MODE"] = "true"
+        settings_mod._settings = None
+        router_mod._oidc_client = None
+
+        from portal.app import create_app
+
+        app = create_app()
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            import portal.auth.rbac as rbac_mod
+            from portal.auth.rbac import UserInfo
+
+            original_fn = rbac_mod.get_current_user
+
+            def wrong_role(request) -> UserInfo:
+                return UserInfo(login="alice", roles=["unknown-role"], sub="sub-alice")
+
+            rbac_mod.get_current_user = wrong_role  # type: ignore[assignment]
+            try:
+                resp = client.get("/auth/caddy/verify")
+                assert resp.status_code == 401
+            finally:
+                rbac_mod.get_current_user = original_fn
+
+    finally:
+        for k, v in _saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        settings_mod._settings = None
+        router_mod._oidc_client = None
+
+
 def test_login_redirects_to_authorization_endpoint(tmp_path: Path) -> None:
     """GET /auth/login redirige vers l'endpoint OIDC."""
     import httpx
