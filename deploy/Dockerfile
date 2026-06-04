@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         openssl \
     && rm -rf /var/lib/apt/lists/*
 
-# Docker CLI uniquement (pas le daemon — §D-21, l'image ne pilote aucun docker local)
+# Docker CLI uniquement (pas le daemon — §D-21)
 RUN install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/debian/gpg \
         | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
@@ -37,13 +37,21 @@ RUN ARCH=$(dpkg --print-architecture) \
         -o /usr/local/bin/devpod \
     && chmod 755 /usr/local/bin/devpod
 
+# Installer uv pour résoudre les deps depuis le lockfile (builds déterministes)
+RUN pip install --no-cache-dir uv
+
 WORKDIR /app
 
-# Installer les dépendances Python AVANT de copier le code (layer cache)
-COPY backend/pyproject.toml backend/README.md ./
+# Étape 1 : installer les dépendances depuis le lockfile (layer cachée si seul le code change)
+COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
+RUN uv sync --no-dev --no-install-project --frozen
+
+# Étape 2 : copier le code source et installer le package (layer invalidée si src/ change)
 COPY backend/src/ ./src/
-RUN pip install --no-cache-dir . \
-    && rm -rf src/ pyproject.toml README.md
+RUN uv sync --no-dev --frozen
+
+# Exposer le venv uv sur PATH — évite le surcoût de `uv run` à chaque démarrage
+ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 8080
 
