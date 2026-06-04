@@ -80,7 +80,7 @@ class DevPodService:
         cmd = [*self._devpod_bin, "stop", ws_id]
         log_path = self._log_path(login, f"{ws_id}-stop")
         await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
-        self._write_status(ws_id, "stopped")
+        self._write_status(ws_id, "stopped", login=login)
         _log.info("workspace_stopped", ws_id=ws_id, login=login)
 
     async def delete(self, login: str, ws_id: str) -> None:
