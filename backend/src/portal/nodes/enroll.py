@@ -6,6 +6,7 @@ import hashlib
 import ipaddress
 import json
 import os
+import re
 import secrets
 import tempfile
 from datetime import UTC, datetime, timedelta
@@ -24,6 +25,9 @@ _log = structlog.get_logger(__name__)
 
 # §E-27 : TTL court pour les tokens de join
 _TOKEN_TTL_SECONDS = 3600  # 1h
+
+# Noms de nœuds DNS-safe : 2-32 caractères, alphanum + tiret, sans tiret en tête/queue
+_NODE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
 
 _token_locks: dict[str, asyncio.Lock] = {}
 
@@ -115,6 +119,8 @@ def _validate_csr(
     expected_address: str,
 ) -> None:
     """Valide CN, SAN et l'absence de CA:TRUE. §E-28."""
+    if not csr.is_signature_valid:
+        raise CsrValidationError("CSR has an invalid signature")
     cn_attrs = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
     actual_cn = cn_attrs[0].value if cn_attrs else ""
     if actual_cn != expected_cn:
@@ -194,6 +200,8 @@ def sign_csr(
 
 
 def _safe_node_cert_path(node_name: str) -> Path:
+    if not _NODE_NAME_RE.fullmatch(node_name):
+        raise ValueError(f"node_name {node_name!r} is not DNS-safe")
     base = _data_root() / "certs" / "nodes"
     path = base / node_name / "server-cert.pem"
     if not path.is_relative_to(base):
@@ -235,6 +243,12 @@ def _register_host(node_name: str, address: str) -> None:
 async def enroll_node(token: str, csr_pem: str) -> dict[str, str]:
     """Consomme le token, valide + signe la CSR, enregistre le nœud."""
     node_name, address = await consume_token(token)
+
+    # Vérification fail-fast avant toute écriture (§E-28 + cohérence d'état)
+    cfg = load_global()
+    if any(h.name == node_name for h in cfg.hosts):
+        raise ValueError(f"Host {node_name!r} already registered — delete it first")
+
     ca_cert_path = _data_root() / "ca" / "ca.pem"
     ca_key_path = _data_root() / "ca" / "ca-key.pem"
     cert_pem, ca_pem = sign_csr(

@@ -96,3 +96,15 @@ async def test_enroll_node_duplicate_rejected(
     token2 = generate_token("test-node", "192.168.1.100")
     with pytest.raises(ValueError, match="already registered"):
         await enroll_node(token=token2, csr_pem=valid_csr.decode())
+
+
+async def test_enroll_node_path_traversal_rejected(
+    global_config: Path, ca_fixture: tuple[Path, Path]
+) -> None:
+    from portal.nodes.enroll import _safe_node_cert_path
+
+    with pytest.raises(ValueError, match="DNS-safe"):
+        _safe_node_cert_path("../ca")
+
+    with pytest.raises(ValueError, match="DNS-safe"):
+        _safe_node_cert_path("foo/bar")
