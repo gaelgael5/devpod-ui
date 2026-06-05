@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-_ENV_KEYS = ("PORTAL_DATA_ROOT", "SESSION_SECRET_KEY")
+_ENV_KEYS = ("PORTAL_DATA_ROOT", "SESSION_SECRET_KEY", "SCRIPTS_DIR")
 
 
 @pytest.fixture(autouse=True)

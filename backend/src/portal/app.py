@@ -11,6 +11,7 @@ from .routes.nodes import router as nodes_router
 from .routes.recipes import router_admin as recipes_admin_router
 from .routes.recipes import router_me as recipes_me_router
 from .routes.recipes import router_public as recipes_public_router
+from .routes.static import router as static_router
 from .routes.workspace_ops import router as workspace_ops_router
 from .settings import get_settings
 
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
         same_site="lax",
         max_age=86400,
     )
+    app.include_router(static_router)
     app.include_router(auth_router)
     app.include_router(me_router, prefix="/me")
     app.include_router(workspace_ops_router, prefix="/me")

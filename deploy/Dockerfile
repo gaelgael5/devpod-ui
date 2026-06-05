@@ -46,6 +46,9 @@ WORKDIR /app
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --no-dev --no-install-project --frozen
 
+# Scripts d'exploitation (install-node.sh, backup.sh…)
+COPY scripts/ ./scripts/
+
 # Étape 2 : copier le code source et installer le package (layer invalidée si src/ change)
 COPY backend/src/ ./src/
 RUN uv sync --no-dev --frozen

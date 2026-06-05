@@ -28,6 +28,7 @@ class AppSettings(BaseSettings):
     oidc_leeway: int = 30  # secondes
 
     portal_data_root: str = "/data"
+    scripts_dir: str = "/app/scripts"
 
 
 _settings: AppSettings | None = None
