@@ -23,7 +23,8 @@
       "node": "Nœud",
       "recipes": "Recettes",
       "submit": "Créer le workspace",
-      "nameHint": "Minuscules, chiffres, tirets — 2 à 32 caractères"
+      "nameHint": "Minuscules, chiffres, tirets — 2 à 32 caractères",
+      "sourceRequired": "La source Git est requise"
     },
     "confirm": {
       "deleteTitle": "Supprimer le workspace ?",
@@ -47,7 +48,8 @@
   "errors": {
     "forbidden": "Accès refusé",
     "notFound": "Non trouvé",
-    "generic": "Une erreur est survenue"
+    "generic": "Une erreur est survenue",
+    "loadFailed": "Chargement échoué. Veuillez rafraîchir."
   },
   "nav": {
     "profile": "Profil",

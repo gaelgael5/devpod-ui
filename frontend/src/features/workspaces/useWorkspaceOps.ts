@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiFetch, apiFetchJson } from '@/shared/api/client'
-import type { WorkspaceSpec } from './types'
+import type { WorkspaceSpec, WorkspaceStatus } from './types'
 
 interface CreateInput {
   name: string
@@ -41,10 +41,10 @@ export function useWorkspaceOps() {
     },
   })
 
-  const stopWorkspace = useMutation({
+  const stopWorkspace = useMutation<WorkspaceStatus, Error, string>({
     mutationFn: (name: string) =>
-      apiFetchJson(`/me/workspaces/${name}/stop`, { method: 'POST' }),
-    onSuccess: (_data, name) => {
+      apiFetchJson<WorkspaceStatus>(`/me/workspaces/${name}/stop`, { method: 'POST' }),
+    onSuccess: (_data: WorkspaceStatus, name: string) => {
       qc.invalidateQueries({ queryKey: ['workspace-status', name] })
     },
     onError: (err: Error) => toast.error(err.message),

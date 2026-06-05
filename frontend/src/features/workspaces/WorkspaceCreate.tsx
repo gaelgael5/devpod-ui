@@ -4,11 +4,21 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useWorkspaceOps } from './useWorkspaceOps'
 import { useRecipes } from '@/features/recipes/useRecipes'
 import RecipePicker from '@/features/recipes/RecipePicker'
 import { useUserStore } from '@/store/user'
 import { useHosts } from '@/features/admin/useHosts'
+
+/** Valeur sentinelle Radix Select pour "pas de nœud choisi" (Radix refuse les strings vides). */
+const HOST_DEFAULT = '__default__'
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/
 
@@ -40,6 +50,7 @@ export default function WorkspaceCreate() {
   const [host, setHost] = useState('')
   const [selectedRecipes, setSelectedRecipes] = useState<string[]>([])
   const [nameError, setNameError] = useState('')
+  const [sourceError, setSourceError] = useState('')
   const [serverError, setServerError] = useState('')
 
   function validate(): boolean {
@@ -49,15 +60,17 @@ export default function WorkspaceCreate() {
     }
     setNameError('')
     if (!source.trim()) {
-      setServerError(t('errors.generic'))
+      setSourceError(t('workspaces.form.sourceRequired'))
       return false
     }
+    setSourceError('')
     return true
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setServerError('')
+    setSourceError('')
     if (!validate()) return
 
     try {
@@ -102,24 +115,30 @@ export default function WorkspaceCreate() {
             onChange={(e) => setSource(e.target.value)}
             placeholder="github.com/org/repo"
           />
+          {sourceError && (
+            <p role="alert" className="mt-1 text-sm text-destructive">{sourceError}</p>
+          )}
         </div>
 
         {isAdmin && hosts.length > 0 && (
           <div>
             <Label htmlFor="ws-host">{t('workspaces.form.node')}</Label>
-            <select
-              id="ws-host"
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            <Select
+              value={host || HOST_DEFAULT}
+              onValueChange={(v) => setHost(v === HOST_DEFAULT ? '' : v)}
             >
-              <option value="">— default —</option>
-              {hosts.map((h) => (
-                <option key={h.name} value={h.name}>
-                  {h.name} {h.default ? '(default)' : ''}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="ws-host">
+                <SelectValue placeholder="— default —" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={HOST_DEFAULT}>— default —</SelectItem>
+                {hosts.map((h) => (
+                  <SelectItem key={h.name} value={h.name}>
+                    {h.name} {h.default ? '(default)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 
@@ -137,7 +156,7 @@ export default function WorkspaceCreate() {
         )}
 
         {serverError && (
-          <p className="text-sm text-destructive">{serverError}</p>
+          <p role="alert" className="text-sm text-destructive">{serverError}</p>
         )}
 
         <div className="flex gap-3 pt-2">

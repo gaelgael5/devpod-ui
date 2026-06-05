@@ -23,7 +23,8 @@
       "node": "Node",
       "recipes": "Recipes",
       "submit": "Create workspace",
-      "nameHint": "Lowercase letters, numbers, hyphens — 2 to 32 chars"
+      "nameHint": "Lowercase letters, numbers, hyphens — 2 to 32 chars",
+      "sourceRequired": "Source Git is required"
     },
     "confirm": {
       "deleteTitle": "Delete workspace?",
@@ -47,7 +48,8 @@
   "errors": {
     "forbidden": "Access denied",
     "notFound": "Not found",
-    "generic": "Something went wrong"
+    "generic": "Something went wrong",
+    "loadFailed": "Failed to load data. Please refresh."
   },
   "nav": {
     "profile": "Profile",

@@ -28,7 +28,7 @@ function WorkspaceRow(spec: WorkspaceSpec) {
 
 export default function WorkspaceList() {
   const { t } = useTranslation()
-  const { data: workspaces, isLoading } = useWorkspaces()
+  const { data: workspaces, isLoading, isError } = useWorkspaces()
 
   return (
     <div>
@@ -41,7 +41,11 @@ export default function WorkspaceList() {
 
       {isLoading && <p className="text-muted-foreground">…</p>}
 
-      {!isLoading && !workspaces?.length && (
+      {isError && (
+        <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>
+      )}
+
+      {!isLoading && !isError && !workspaces?.length && (
         <p className="text-muted-foreground">{t('workspaces.empty')}</p>
       )}
 
