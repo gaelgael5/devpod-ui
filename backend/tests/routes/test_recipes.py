@@ -199,6 +199,14 @@ def test_admin_delete_shared_recipe(tmp_path: Path) -> None:
     assert not (shared_dir / "shared-tool").exists()
 
 
+def test_delete_shared_recipe_path_traversal_rejected(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_admin_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.delete("/admin/recipes/../other")
+    assert resp.status_code in (404, 422)
+
+
 def test_admin_delete_recipe_not_found(tmp_path: Path) -> None:
     _write_global_config(tmp_path)
     app = _make_admin_app(tmp_path)
