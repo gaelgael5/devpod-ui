@@ -209,6 +209,9 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# Superpowers plugin (local brainstorm sessions, non versionnable)
+.superpowers/
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
