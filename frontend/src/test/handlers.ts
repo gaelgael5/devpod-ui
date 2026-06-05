@@ -29,6 +29,7 @@ export const handlers = [
   http.get('/admin/hosts', () =>
     HttpResponse.json([
       { name: 'pve1', type: 'docker-tls', default: true, docker_host: 'tcp://192.168.1.50:2376' },
+      { name: 'pve2', type: 'docker-tls', default: false, docker_host: 'tcp://192.168.1.51:2376' },
     ])
   ),
   http.get('/admin/recipes', () => HttpResponse.json([])),

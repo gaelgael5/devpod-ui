@@ -18,7 +18,7 @@ describe('AdminHosts', () => {
     renderWithProviders(<AdminHosts />)
     await waitFor(() => {
       expect(screen.getByText('pve1')).toBeInTheDocument()
-      expect(screen.getByText('docker-tls')).toBeInTheDocument()
+      expect(screen.getByText('pve2')).toBeInTheDocument()
     })
   })
 })
