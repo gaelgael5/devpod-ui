@@ -71,7 +71,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
             {t('workspaces.actions.stop')}
           </Button>
         )}
-        {(s === 'stopped' || s === 'unknown') && (
+        {s === 'stopped' && (
           <Button
             size="sm"
             variant="outline"
