@@ -1,0 +1,11 @@
+id: goose
+version: "1.0.0"
+description: "Goose CLI (Block AI agent)"
+options:
+  version:
+    type: string
+    default: "latest"
+requires_secrets:
+  - path: "llm/anthropic_key"
+    env: "ANTHROPIC_API_KEY"
+installs_after: []

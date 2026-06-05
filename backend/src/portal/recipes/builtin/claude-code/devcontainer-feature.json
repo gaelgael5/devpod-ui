@@ -1,0 +1,14 @@
+{
+  "id": "claude-code",
+  "version": "1.0.0",
+  "name": "Claude Code CLI",
+  "description": "Installe Claude Code (Anthropic CLI) dans le conteneur.",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Version npm à installer (ex: latest, 0.2.x)"
+    }
+  },
+  "installsAfter": ["ghcr.io/devcontainers/features/node:1"]
+}

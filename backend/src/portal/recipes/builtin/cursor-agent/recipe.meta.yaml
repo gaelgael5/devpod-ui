@@ -1,0 +1,13 @@
+id: cursor-agent
+version: "1.0.0"
+description: "Cursor Agent CLI headless"
+options:
+  version:
+    type: string
+    default: "latest"
+    description: "Version npm (@cursor/agent)"
+requires_secrets:
+  - path: "llm/openai_key"
+    env: "OPENAI_API_KEY"
+installs_after:
+  - node

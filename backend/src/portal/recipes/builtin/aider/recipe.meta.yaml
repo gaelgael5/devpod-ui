@@ -1,0 +1,12 @@
+id: aider
+version: "1.0.0"
+description: "Aider — AI pair programmer"
+options:
+  version:
+    type: string
+    default: "latest"
+    description: "Version pip (aider-chat)"
+requires_secrets:
+  - path: "llm/anthropic_key"
+    env: "ANTHROPIC_API_KEY"
+installs_after: []

@@ -1,0 +1,14 @@
+{
+  "id": "aider",
+  "version": "1.0.0",
+  "name": "Aider AI pair programmer",
+  "description": "Installe aider-chat dans le conteneur.",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Version pip (ex: latest, 0.50.0)"
+    }
+  },
+  "installsAfter": []
+}

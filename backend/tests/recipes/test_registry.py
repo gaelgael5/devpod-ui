@@ -121,6 +121,23 @@ def test_resolve_order_no_deps_preserves_count(tmp_path: Path) -> None:
     assert len(order) == 2
 
 
+def test_load_builtin_dir_loads_all_seven_recipes() -> None:
+    """Le répertoire builtin réel contient les 7 recettes CLIs AI."""
+    from portal.recipes.registry import BUILTIN_DIR, RecipeRegistry
+
+    if not BUILTIN_DIR.exists():
+        pytest.skip("BUILTIN_DIR non créé")
+    registry = RecipeRegistry()
+    shared = registry.load_shared()
+    expected = {"claude-code", "aider", "gemini-cli", "codex", "goose", "opencode", "cursor-agent"}
+    assert expected.issubset(set(shared.keys())), (
+        f"Recettes manquantes : {expected - set(shared.keys())}"
+    )
+    # Vérifier claude-code spécifiquement
+    assert shared["claude-code"].requires_secrets[0].env == "ANTHROPIC_API_KEY"
+    assert shared["claude-code"].requires_secrets[0].path == "llm/anthropic_key"
+
+
 def test_personal_overrides_shared(tmp_path: Path) -> None:
     shared = tmp_path / "shared"
     personal = tmp_path / "personal"
@@ -149,7 +166,8 @@ def test_personal_overrides_shared(tmp_path: Path) -> None:
 
     from portal.recipes.registry import RecipeRegistry
 
-    registry = RecipeRegistry(shared_dir=shared)
+    # builtin_dir=None : on ne veut pas charger les builtins réels dans ce test d'isolation
+    registry = RecipeRegistry(builtin_dir=None, shared_dir=shared)
     shared_recipes = registry.load_shared()
     personal_recipes = registry.load_dir(personal)
     available = {**shared_recipes, **personal_recipes}

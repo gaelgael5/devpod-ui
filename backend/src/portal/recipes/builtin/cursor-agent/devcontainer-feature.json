@@ -1,0 +1,14 @@
+{
+  "id": "cursor-agent",
+  "version": "1.0.0",
+  "name": "Cursor Agent (headless)",
+  "description": "Installe le Cursor agent headless dans le conteneur.",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Version npm (@cursor/agent)"
+    }
+  },
+  "installsAfter": ["ghcr.io/devcontainers/features/node:1"]
+}
