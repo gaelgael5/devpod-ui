@@ -9,7 +9,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     globals: true,
     passWithNoTests: true,
-    singleFork: true,
+    maxWorkers: 1,
   },
   resolve: {
     alias: {
