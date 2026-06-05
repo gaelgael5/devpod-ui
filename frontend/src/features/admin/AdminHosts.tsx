@@ -3,13 +3,14 @@ import { useHosts } from './useHosts'
 
 export default function AdminHosts() {
   const { t } = useTranslation()
-  const { data: hosts, isLoading } = useHosts()
+  const { data: hosts, isLoading, isError } = useHosts()
 
   return (
     <div>
       <h1 className="mb-6 text-2xl font-semibold">{t('admin.hosts')}</h1>
       {isLoading && <p className="text-muted-foreground">…</p>}
-      {!isLoading && !hosts?.length && (
+      {isError && <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>}
+      {!isLoading && !isError && !hosts?.length && (
         <p className="text-muted-foreground">{t('admin.hostsEmpty')}</p>
       )}
       {hosts && hosts.length > 0 && (
@@ -17,10 +18,10 @@ export default function AdminHosts() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Name</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Type</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Host</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Default</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.name')}</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.type')}</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.host')}</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.default')}</th>
               </tr>
             </thead>
             <tbody>

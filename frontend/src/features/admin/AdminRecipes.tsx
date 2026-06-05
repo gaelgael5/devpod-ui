@@ -5,13 +5,14 @@ import { useAdminRecipes } from './useAdminRecipes'
 export default function AdminRecipes() {
   const { t } = useTranslation()
   const { recipesQuery, deleteRecipe } = useAdminRecipes()
-  const { data: recipes, isLoading } = recipesQuery
+  const { data: recipes, isLoading, isError } = recipesQuery
 
   return (
     <div>
       <h1 className="mb-6 text-2xl font-semibold">{t('admin.sharedRecipes')}</h1>
       {isLoading && <p className="text-muted-foreground">…</p>}
-      {!isLoading && !recipes?.length && (
+      {isError && <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>}
+      {!isLoading && !isError && !recipes?.length && (
         <p className="text-muted-foreground">{t('admin.recipesEmpty')}</p>
       )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

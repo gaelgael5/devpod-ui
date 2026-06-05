@@ -43,7 +43,13 @@
     "hosts": "Hosts",
     "sharedRecipes": "Shared recipes",
     "hostsEmpty": "No hosts enrolled yet.",
-    "recipesEmpty": "No shared recipes."
+    "recipesEmpty": "No shared recipes.",
+    "col": {
+      "name": "Name",
+      "type": "Type",
+      "host": "Host",
+      "default": "Default"
+    }
   },
   "errors": {
     "forbidden": "Access denied",

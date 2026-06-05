@@ -43,7 +43,13 @@
     "hosts": "Hôtes",
     "sharedRecipes": "Recettes partagées",
     "hostsEmpty": "Aucun hôte enrôlé.",
-    "recipesEmpty": "Aucune recette partagée."
+    "recipesEmpty": "Aucune recette partagée.",
+    "col": {
+      "name": "Nom",
+      "type": "Type",
+      "host": "Hôte",
+      "default": "Défaut"
+    }
   },
   "errors": {
     "forbidden": "Accès refusé",
