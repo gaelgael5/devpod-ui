@@ -11,6 +11,11 @@ _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["me"])
 
 
+@router.get("")
+async def get_current_user(user: UserInfo = Depends(require_user)) -> dict[str, object]:
+    return {"login": user.login, "roles": user.roles}
+
+
 @router.get("/config")
 async def get_config(user: UserInfo = Depends(require_user)) -> dict[str, object]:
     cfg = load_user(user.login)

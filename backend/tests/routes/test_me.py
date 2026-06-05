@@ -37,6 +37,26 @@ def _make_app(tmp_path: Path, role: str = "dev") -> TestClient:
     return app
 
 
+def test_get_me_returns_login_and_roles(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path, role="dev")
+    with TestClient(app) as client:
+        resp = client.get("/me")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["login"] == "alice"
+    assert data["roles"] == ["dev"]
+
+
+def test_get_me_admin_returns_admin_role(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path, role="admin")
+    with TestClient(app) as client:
+        resp = client.get("/me")
+    assert resp.status_code == 200
+    assert "admin" in resp.json()["roles"]
+
+
 def test_get_me_config_returns_user_config(tmp_path: Path) -> None:
     _provision_alice(tmp_path)
     app = _make_app(tmp_path)
