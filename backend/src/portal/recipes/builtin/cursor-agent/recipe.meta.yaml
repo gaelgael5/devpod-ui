@@ -6,5 +6,4 @@ options:
     type: string
     default: "latest"
 requires_secrets: []
-installs_after:
-  - node
+installs_after: []

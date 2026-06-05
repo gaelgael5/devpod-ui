@@ -25,4 +25,4 @@ fi
 echo "==> Installing Goose CLI (version: ${VERSION})"
 curl -fsSL "$DOWNLOAD_URL" -o /usr/local/bin/goose
 chmod +x /usr/local/bin/goose
-echo "==> Goose installed: $(goose --version 2>/dev/null || echo 'ok')"
+echo "==> Goose installed"

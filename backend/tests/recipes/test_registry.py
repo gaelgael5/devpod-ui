@@ -157,6 +157,14 @@ def test_load_builtin_dir_loads_all_seven_recipes() -> None:
     for recipe_id, meta in shared.items():
         assert meta.version, f"{recipe_id}: version vide"
         assert meta.description, f"{recipe_id}: description vide"
+    # Vérifier que les recettes dépendantes de node déclarent l'ordre
+    for node_dep in ("claude-code", "gemini-cli", "codex", "opencode"):
+        assert "node" in shared[node_dep].installs_after, (
+            f"{node_dep}: installs_after manquant 'node'"
+        )
+    assert shared["goose"].installs_after == []
+    assert shared["aider"].installs_after == []
+    assert shared["cursor-agent"].installs_after == []  # placeholder, no node dep
 
 
 def test_personal_overrides_shared(tmp_path: Path) -> None:
