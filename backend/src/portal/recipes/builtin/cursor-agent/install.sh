@@ -1,16 +1,9 @@
 #!/usr/bin/env bash
-# Cursor agent headless — pas l'éditeur desktop (inutile en VS Code-in-browser).
-# Auth credentials injectées au runtime via remoteEnv.
-# Vérifier le nom du package actuel avant déploiement.
+# backend/src/portal/recipes/builtin/cursor-agent/install.sh
+# STATUT EXPÉRIMENTAL — Cursor n'a pas de CLI headless officiel publié à ce jour.
+# Ce placeholder échoue intentionnellement avec un message explicite.
 set -euo pipefail
-VERSION="${VERSION:-latest}"
-if ! command -v npm &>/dev/null; then
-    echo "ERROR: npm not found." >&2; exit 1
-fi
-echo "==> Installing Cursor Agent (headless)"
-if [[ "$VERSION" == "latest" ]]; then
-    npm install -g @cursor/agent
-else
-    npm install -g "@cursor/agent@${VERSION}"
-fi
-echo "==> Cursor Agent installed"
+
+echo "ERROR: cursor-agent is not yet available. Cursor does not publish a headless CLI package." >&2
+echo "Remove cursor-agent from your recipe list." >&2
+exit 1

@@ -4,7 +4,7 @@
 set -euo pipefail
 VERSION="${VERSION:-latest}"
 if ! command -v npm &>/dev/null; then
-    echo "ERROR: npm not found." >&2; exit 1
+    echo "ERROR: npm not found. Add the node devcontainer feature before opencode." >&2; exit 1
 fi
 echo "==> Installing OpenCode CLI"
 if [[ "$VERSION" == "latest" ]]; then

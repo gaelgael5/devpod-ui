@@ -1,13 +1,12 @@
 {
   "id": "cursor-agent",
-  "version": "1.0.0",
-  "name": "Cursor Agent (headless)",
-  "description": "Installe le Cursor agent headless dans le conteneur.",
+  "version": "0.0.0",
+  "name": "Cursor Agent (headless — EXPÉRIMENTAL)",
+  "description": "Placeholder — Cursor n'a pas de CLI headless officiel. Échoue intentionnellement.",
   "options": {
     "version": {
       "type": "string",
-      "default": "latest",
-      "description": "Version npm (@cursor/agent)"
+      "default": "latest"
     }
   },
   "installsAfter": ["ghcr.io/devcontainers/features/node:1"]

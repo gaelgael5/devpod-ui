@@ -137,6 +137,27 @@ def test_load_builtin_dir_loads_all_seven_recipes() -> None:
     assert shared["claude-code"].requires_secrets[0].env == "ANTHROPIC_API_KEY"
     assert shared["claude-code"].requires_secrets[0].path == "llm/anthropic_key"
 
+    # Spot-check secrets for each recipe with requires_secrets
+    expected_secrets = {
+        "claude-code": "ANTHROPIC_API_KEY",
+        "aider": "ANTHROPIC_API_KEY",
+        "gemini-cli": "GEMINI_API_KEY",
+        "codex": "OPENAI_API_KEY",
+        "goose": "ANTHROPIC_API_KEY",
+        "opencode": "ANTHROPIC_API_KEY",
+    }
+    for recipe_id, expected_env in expected_secrets.items():
+        assert shared[recipe_id].requires_secrets, f"{recipe_id}: requires_secrets vide"
+        assert shared[recipe_id].requires_secrets[0].env == expected_env, (
+            f"{recipe_id}: env attendu {expected_env}"
+        )
+    # cursor-agent est expérimental : plus de secrets
+    assert shared["cursor-agent"].requires_secrets == []
+    # Toutes les recettes ont une version et une description non vides
+    for recipe_id, meta in shared.items():
+        assert meta.version, f"{recipe_id}: version vide"
+        assert meta.description, f"{recipe_id}: description vide"
+
 
 def test_personal_overrides_shared(tmp_path: Path) -> None:
     shared = tmp_path / "shared"

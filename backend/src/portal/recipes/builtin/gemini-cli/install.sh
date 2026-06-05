@@ -3,7 +3,7 @@
 set -euo pipefail
 VERSION="${VERSION:-latest}"
 if ! command -v npm &>/dev/null; then
-    echo "ERROR: npm not found." >&2; exit 1
+    echo "ERROR: npm not found. Add the node devcontainer feature before gemini-cli." >&2; exit 1
 fi
 echo "==> Installing Gemini CLI"
 if [[ "$VERSION" == "latest" ]]; then
