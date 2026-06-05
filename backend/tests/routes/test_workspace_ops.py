@@ -273,3 +273,47 @@ def test_stop_calls_unexpose(tmp_path: Path) -> None:
     finally:
         ws_ops_mod._get_service = original_get_service
         ws_ops_mod._reset_service()
+
+
+# ---------------------------------------------------------------------------
+# Recipe wiring — tests d'intégration HTTP
+# ---------------------------------------------------------------------------
+
+
+def test_workspace_up_invalid_recipe_id_rejected(tmp_path: Path) -> None:
+    """Recipe ID invalide rejeté avant tout accès disque (regex)."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/workspaces/myapp/up",
+            json={"source": "git@github.com:user/repo.git", "recipes": ["INVALID!"]},
+        )
+    assert resp.status_code == 422
+
+
+def test_workspace_up_unknown_recipe_id_rejected(tmp_path: Path) -> None:
+    """Recipe ID au format valide mais inconnu du registre → 422."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/workspaces/myapp/up",
+            json={
+                "source": "git@github.com:user/repo.git",
+                "recipes": ["nonexistent-recipe"],
+            },
+        )
+    assert resp.status_code == 422
+
+
+def test_workspace_up_empty_recipes_still_works(tmp_path: Path) -> None:
+    """Pas de recettes → comportement nominal inchangé (202 + provisioning)."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/workspaces/myapp/up",
+            json={"source": "git@github.com:user/repo.git", "recipes": []},
+        )
+    assert resp.status_code == 202
+    data = resp.json()
+    assert data["ws_id"] == "alice-myapp"
+    assert data["status"] == "provisioning"
