@@ -1,6 +1,7 @@
 # backend/src/portal/routes/recipes.py
 from __future__ import annotations
 
+import asyncio
 import shutil
 from typing import Any
 
@@ -46,13 +47,16 @@ async def delete_personal_recipe(
 ) -> dict[str, Any]:
     """Supprime une recette personnelle."""
     _validate_recipe_id(recipe_id)
-    personal_dir = safe_user_path(user.login, "recipes")
-    recipe_path = personal_dir / recipe_id
-    if not recipe_path.is_relative_to(personal_dir):
-        raise HTTPException(status_code=422, detail="Path traversal detected")
+    try:
+        personal_dir = safe_user_path(user.login, "recipes")
+        recipe_path = personal_dir / recipe_id
+        if not recipe_path.is_relative_to(personal_dir):
+            raise HTTPException(status_code=422, detail="Path traversal detected")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid recipe path") from exc
     if not recipe_path.exists():
         raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
-    shutil.rmtree(recipe_path)
+    await asyncio.to_thread(shutil.rmtree, recipe_path)
     _log.info("personal_recipe_deleted", login=user.login, recipe_id=recipe_id)
     return {"deleted": recipe_id}
 
@@ -82,6 +86,6 @@ async def admin_delete_shared_recipe(
         raise HTTPException(status_code=422, detail="Path traversal detected")
     if not recipe_path.exists():
         raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
-    shutil.rmtree(recipe_path)
+    await asyncio.to_thread(shutil.rmtree, recipe_path)
     _log.info("shared_recipe_deleted", login=user.login, recipe_id=recipe_id)
     return {"deleted": recipe_id}

@@ -204,6 +204,10 @@ def test_delete_shared_recipe_path_traversal_rejected(tmp_path: Path) -> None:
     app = _make_admin_app(tmp_path)
     with TestClient(app) as client:
         resp = client.delete("/admin/recipes/../other")
+    # httpx normalises `../other` → `/admin/other` before sending, so the
+    # router receives recipe_id="other" (valid regex) and returns 404.
+    # If a future client sends the raw `..` segment, _validate_recipe_id
+    # will reject it with 422. Both outcomes are safe.
     assert resp.status_code in (404, 422)
 
 
@@ -229,3 +233,19 @@ def test_admin_delete_shared_recipe_invalid_id_rejected(tmp_path: Path) -> None:
     with TestClient(app) as client:
         resp = client.delete("/admin/recipes/INVALID!")
     assert resp.status_code == 422
+
+
+def test_admin_get_recipes_requires_admin(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_user_app(tmp_path)  # non-admin user (dev role only)
+    with TestClient(app) as client:
+        resp = client.get("/admin/recipes")
+    assert resp.status_code == 403
+
+
+def test_delete_personal_recipe_requires_auth(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_no_auth_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.delete("/me/recipes/something")
+    assert resp.status_code == 403
