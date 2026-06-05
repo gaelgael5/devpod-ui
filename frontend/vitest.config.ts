@@ -9,6 +9,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     globals: true,
     passWithNoTests: true,
+    singleFork: true,
   },
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
