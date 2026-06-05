@@ -1,9 +1,10 @@
+import type { ReactNode } from 'react'
 import { useEffect } from 'react'
 import { useSession } from './useSession'
 import { useUserStore } from '@/store/user'
 
 interface Props {
-  children: React.ReactNode
+  children: ReactNode
 }
 
 export default function RequireAuth({ children }: Props) {
