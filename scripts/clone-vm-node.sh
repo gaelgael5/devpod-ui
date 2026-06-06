@@ -279,10 +279,8 @@ echo "    Disque agrandi de $DISK_EXTRA."
 echo ""
 if [[ "$USE_DHCP" == "true" ]]; then
     echo "==> A.6 — Configuration réseau via cloud-init (DHCP)..."
-    qm set "$NEW_VMID" \
-        --ipconfig0  "ip=dhcp" \
-        --nameserver "$DNS"
-    echo "    DHCP configuré."
+    qm set "$NEW_VMID" --ipconfig0 "ip=dhcp"
+    echo "    DHCP configuré (DNS fourni par le serveur DHCP)."
 else
     echo "==> A.6 — Configuration de l'IP fixe via cloud-init ($IP_CIDR gw $GATEWAY)..."
     qm set "$NEW_VMID" \
