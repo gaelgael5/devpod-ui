@@ -1,6 +1,16 @@
 # deploy/Dockerfile
 # Image générique du portail workspace — aucun secret embarqué (§D-21)
 # Build : docker build -f deploy/Dockerfile -t workspace-portal:latest .
+
+# --- Stage 1 : build du frontend ---
+FROM node:22-slim AS frontend-builder
+WORKDIR /build
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+# --- Stage 2 : image Python de production ---
 FROM python:3.12-slim
 
 # Version DevPod à pinner — vérifier avec : devpod version
@@ -52,6 +62,9 @@ COPY scripts/ ./scripts/
 # Étape 2 : copier le code source et installer le package (layer invalidée si src/ change)
 COPY backend/src/ ./src/
 RUN uv sync --no-dev --frozen
+
+# Assets frontend buildés dans le stage précédent
+COPY --from=frontend-builder /build/dist ./static
 
 # Exposer le venv uv sur PATH — évite le surcoût de `uv run` à chaque démarrage
 ENV PATH="/app/.venv/bin:$PATH"

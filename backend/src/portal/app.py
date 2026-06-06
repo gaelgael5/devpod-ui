@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import structlog
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth.router import router as auth_router
@@ -51,6 +54,13 @@ def create_app() -> FastAPI:
     app.include_router(admin_router, prefix="/admin")
     app.include_router(nodes_router, prefix="/admin")
     app.include_router(recipes_admin_router, prefix="/admin")
+
+    static_dir = Path("static")
+    if static_dir.is_dir():
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="spa")
+    else:
+        _log.info("spa_static_dir_absent", path=str(static_dir))
+
     return app
 
 
