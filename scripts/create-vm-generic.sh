@@ -178,9 +178,11 @@ echo ""
 echo "==> Installation de qemu-guest-agent dans l'image (virt-customize)..."
 
 if ! command -v virt-customize &>/dev/null; then
-    echo "    virt-customize introuvable — installation de libguestfs-tools..."
+    echo "    virt-customize introuvable — installation de libguestfs-tools (peut prendre 1 min)..."
     DEBIAN_FRONTEND=noninteractive apt-get install -y libguestfs-tools \
-        -o Dpkg::Options::="--force-confold" -qq 2>/dev/null || true
+        -o Dpkg::Options::="--force-confold" \
+        -o APT::Get::Show-Upgraded=false \
+        -qq > /dev/null 2>&1 || true
 fi
 
 GUEST_AGENT_OK=false
@@ -188,6 +190,7 @@ if command -v virt-customize &>/dev/null; then
     if LIBGUESTFS_BACKEND=direct virt-customize -a "$IMAGE_FILE" \
             --install qemu-guest-agent \
             --run-command 'systemctl enable qemu-guest-agent' \
+            --run-command 'cloud-init clean --logs' \
             --quiet 2>/dev/null; then
         GUEST_AGENT_OK=true
         echo "    qemu-guest-agent installé dans l'image."
