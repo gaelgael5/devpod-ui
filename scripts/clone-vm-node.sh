@@ -307,7 +307,7 @@ if [[ "$USE_DHCP" == "true" ]]; then
     ELAPSED=0
     LAST_AGENT_ERR=""
     while [[ $ELAPSED -lt 180 ]]; do
-        AGENT_RAW=$(qm agent "$NEW_VMID" network-get-interfaces 2>&1)
+        AGENT_RAW=$(qm agent "$NEW_VMID" network-get-interfaces 2>&1) || true
         IP_ADDR=$(echo "$AGENT_RAW" | python3 -c "
 import json, sys
 try:
