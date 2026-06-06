@@ -305,9 +305,10 @@ if [[ "$USE_DHCP" == "true" ]]; then
     echo "==> A.8 — Attente de l'IP DHCP via guest agent (max 180s)..."
     echo "    (normal : boot + cloud-init prend 40-60s)"
     ELAPSED=0
+    LAST_AGENT_ERR=""
     while [[ $ELAPSED -lt 180 ]]; do
-        IP_ADDR=$(qm agent "$NEW_VMID" network-get-interfaces 2>/dev/null \
-            | python3 -c "
+        AGENT_RAW=$(qm agent "$NEW_VMID" network-get-interfaces 2>&1)
+        IP_ADDR=$(echo "$AGENT_RAW" | python3 -c "
 import json, sys
 try:
     for iface in json.load(sys.stdin):
@@ -322,23 +323,38 @@ except Exception:
     pass
 " 2>/dev/null || true)
         if [[ -n "$IP_ADDR" ]]; then break; fi
+        # Extraire le message d'erreur court du guest agent pour l'afficher
+        LAST_AGENT_ERR=$(echo "$AGENT_RAW" \
+            | grep -v '^{' | grep -v '^$' \
+            | sed 's/.*error: //i; s/.*Error: //; s/.*: //' \
+            | head -1)
         VM_STATUS=$(qm status "$NEW_VMID" 2>/dev/null | awk '{print $2}' || echo "?")
         if [[ $ELAPSED -lt 30 ]]; then
-            STATUS_MSG="démarrage VM ($VM_STATUS)..."
+            STATUS_MSG="démarrage VM ($VM_STATUS)"
         elif [[ $ELAPSED -lt 60 ]]; then
-            STATUS_MSG="cloud-init en cours ($VM_STATUS)..."
+            STATUS_MSG="cloud-init en cours ($VM_STATUS)"
         else
-            STATUS_MSG="attente guest agent ($VM_STATUS)..."
+            STATUS_MSG="attente guest agent ($VM_STATUS)"
         fi
-        printf "\r    %3ds — %s" "$ELAPSED" "$STATUS_MSG"
+        [[ -n "$LAST_AGENT_ERR" ]] && STATUS_MSG="${STATUS_MSG} — ${LAST_AGENT_ERR}"
+        printf "\r    %3ds — %-70s" "$ELAPSED" "$STATUS_MSG"
         sleep 5
         ELAPSED=$(( ELAPSED + 5 ))
     done
     echo ""
     if [[ -z "$IP_ADDR" ]]; then
+        echo "" >&2
         echo "ERREUR : IP DHCP non obtenue après 180s." >&2
-        echo "  Vérifier que qemu-guest-agent est installé dans le template." >&2
-        echo "  Console Proxmox : qm terminal $NEW_VMID" >&2
+        echo "" >&2
+        echo "  Diagnostic :" >&2
+        echo "  - Config agent VM    : $(qm config "$NEW_VMID" 2>/dev/null | grep agent || echo 'absent')" >&2
+        echo "  - Dernière erreur    : ${LAST_AGENT_ERR:-aucune réponse du guest agent}" >&2
+        echo "  - État VM            : $(qm status "$NEW_VMID" 2>/dev/null)" >&2
+        echo "" >&2
+        echo "  Vérifier dans la console :" >&2
+        echo "    qm terminal $NEW_VMID" >&2
+        echo "    → systemctl status qemu-guest-agent" >&2
+        echo "    → journalctl -u qemu-guest-agent -n 20" >&2
         exit 1
     fi
     echo "    IP DHCP obtenue : $IP_ADDR"
