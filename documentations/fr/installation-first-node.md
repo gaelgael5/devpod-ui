@@ -1,6 +1,7 @@
-# Enrôlement d'un nœud Docker
+# Enrôlement des nœuds Docker
 
-Ce guide couvre l'ajout d'un premier nœud Docker au portail workspace.
+Ce guide couvre l'ajout de nœuds Docker au portail workspace — premier nœud ou nœuds
+supplémentaires. La procédure d'enrôlement est identique quel que soit le rang du nœud.
 Le portail joue le rôle de CA : il signe le certificat serveur du daemon,
 et seul un client porteur d'un cert signé par cette même CA peut piloter le daemon.
 
@@ -25,6 +26,7 @@ et seul un client porteur d'un cert signé par cette même CA peut piloter le da
 ### Côté portail
 
 - Portail démarré et accessible (`https://dev.yoops.org`)
+  → Si ce n'est pas encore fait : [deploiement-portail.md](deploiement-portail.md)
 - `install.sh` exécuté (CA initialisée dans `/data/certs/ca/`)
 - Compte admin disponible (rôle `admin` dans Keycloak)
 
@@ -195,3 +197,72 @@ apt-get install -y iptables-persistent && netfilter-persistent save  # Debian/Ub
 Supprimer l'entrée correspondante dans `/data/config.yaml` sur le portail
 (édition atomique ou via un endpoint d'administration si disponible),
 puis regénérer un token et relancer l'enrôlement.
+
+### `No default host configured`
+
+Aucun host n'a `default: true`. Les workspaces créés sans champ `host` échouent en 404.
+Désigner un nœud par défaut via `PUT /admin/config` (voir section ci-dessus).
+
+### Un nœud répond, un autre est muet
+
+Vérifier que le pare-feu du nœud silencieux autorise bien le port 2376
+depuis l'IP du portail (voir [Port 2376 inaccessible depuis le portail](#port-2376-inaccessible-depuis-le-portail)).
+
+---
+
+## Gestion des nœuds
+
+### Enrôler un nœud supplémentaire
+
+Répéter les étapes 1, 2 et 3 en substituant le nom et l'adresse du nouveau nœud.
+Vérifier d'abord qu'aucun host du même nom n'existe déjà :
+
+```http
+GET /admin/hosts
+```
+
+Réponse exemple avec deux nœuds enrôlés :
+```json
+[
+  { "name": "pve2-docker", "type": "docker-tls", "docker_host": "tcp://192.168.1.50:2376", "default": true  },
+  { "name": "pve3-docker", "type": "docker-tls", "docker_host": "tcp://192.168.1.51:2376", "default": false }
+]
+```
+
+### Nœud par défaut
+
+Le nœud par défaut (`default: true`) est utilisé lorsqu'un workspace est créé sans préciser
+de nœud cible. Un seul nœud peut être défaut à la fois.
+
+Pour changer le nœud par défaut, passer la liste complète avec les flags ajustés —
+`PUT /admin/config` remplace la section en entier, toujours inclure tous les hosts existants :
+
+```http
+PUT /admin/config
+Content-Type: application/json
+
+{
+  "hosts": [
+    { "name": "pve2-docker", "type": "docker-tls", "docker_host": "tcp://192.168.1.50:2376", "default": false },
+    { "name": "pve3-docker", "type": "docker-tls", "docker_host": "tcp://192.168.1.51:2376", "default": true  }
+  ]
+}
+```
+
+### Cibler un nœud spécifique à la création
+
+Le champ `host` de `UpRequest` permet de cibler un nœud précis.
+Sans ce champ (ou `host: ""`), le nœud par défaut est utilisé.
+
+```http
+POST /workspaces/mon-projet/up
+Content-Type: application/json
+
+{
+  "source": "github.com/org/repo",
+  "host":   "pve3-docker"
+}
+```
+
+Si le nœud demandé n'existe pas dans `config.yaml`, la réponse est `404 Host not found`.
+Si aucun nœud par défaut n'est configuré et que `host` est vide, la réponse est également `404`.
