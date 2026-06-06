@@ -69,7 +69,7 @@ depuis Windows, sans se connecter manuellement à la VM.
 **1 — Créer la VM** sur Proxmox (depuis le host PVE) :
 ```bash
 curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/main/scripts/clone-vm-node.sh \
-  | bash -s -- 110 --name portail-dev --ip 192.168.1.100/24 --gw 192.168.1.1
+  | bash -s -- 110 --name portail-dev --template 9000 --storage vmpool --ip 192.168.1.100/24 --gw 192.168.1.1
 ```
 
 **2 — Copier et remplir le fichier de config** (depuis le poste Windows) :

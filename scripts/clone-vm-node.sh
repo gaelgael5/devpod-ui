@@ -20,6 +20,7 @@
 #
 # Autres options :
 #   --template VMID   VMID du template source      (défaut : auto-détecté)
+#   --storage NOM     Stockage Proxmox cible        (défaut : même stockage que le template)
 #   --dns ADDR        Serveur DNS                  (défaut : 1.1.1.1)
 #   --memory N        RAM en Mo                    (défaut : 8192)
 #   --cores N         Nombre de vCPU               (défaut : 4)
@@ -35,6 +36,7 @@ TEMPLATE_VMID=""
 NODE_NAME=""
 IP_CIDR=""
 GATEWAY=""
+STORAGE=""
 DNS="1.1.1.1"
 MEMORY=8192
 CORES=4
@@ -58,6 +60,7 @@ while [[ $# -gt 0 ]]; do
         --ip)       IP_CIDR="$2";       shift 2 ;;
         --gw)       GATEWAY="$2";       shift 2 ;;
         --template) TEMPLATE_VMID="$2"; shift 2 ;;
+        --storage)  STORAGE="$2";       shift 2 ;;
         --dns)      DNS="$2";           shift 2 ;;
         --memory)   MEMORY="$2";        shift 2 ;;
         --cores)    CORES="$2";         shift 2 ;;
@@ -66,7 +69,7 @@ while [[ $# -gt 0 ]]; do
         --ciuser)   CI_USER="$2";       shift 2 ;;
         *)
             echo "ERREUR : option inconnue : $1" >&2
-            echo "Options : --name --ip --gw --template --dns --memory --cores --disk --sshkey --ciuser" >&2
+            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --sshkey --ciuser" >&2
             exit 1
             ;;
     esac
@@ -95,6 +98,15 @@ fi
 
 USE_DHCP=false
 [[ -z "$IP_CIDR" ]] && USE_DHCP=true
+
+# Valider le stockage si précisé
+if [[ -n "$STORAGE" ]]; then
+    pvesm status 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$STORAGE" || {
+        echo "ERREUR : stockage '$STORAGE' introuvable." >&2
+        echo "  Stockages disponibles : $(pvesm status 2>/dev/null | awk 'NR>1 {print $1}' | tr '\n' ' ')" >&2
+        exit 1
+    }
+fi
 
 [[ "$NEW_VMID" =~ ^[0-9]+$ ]] || {
     echo "ERREUR : NEW_VMID invalide : '$NEW_VMID' — doit être un entier positif." >&2
@@ -202,6 +214,11 @@ echo "    Réseau         : DHCP (IP détectée après démarrage)"
 else
 echo "    IP / Passerelle: $IP_CIDR via $GATEWAY"
 fi
+if [[ -n "$STORAGE" ]]; then
+echo "    Stockage       : $STORAGE"
+else
+echo "    Stockage       : même que le template (défaut)"
+fi
 echo "    DNS            : $DNS"
 echo "    vCPU / RAM     : ${CORES} cores / ${MEMORY} Mo"
 echo "    Disque ajouté  : $DISK_EXTRA"
@@ -213,7 +230,9 @@ echo ""
 echo "==> A.2 — Clonage du template VMID ${TEMPLATE_VMID} → VMID ${NEW_VMID}..."
 echo "    (clone complet --full, peut prendre 1 à 5 minutes)"
 
-qm clone "$TEMPLATE_VMID" "$NEW_VMID" --name "$NODE_NAME" --full
+CLONE_ARGS=("$TEMPLATE_VMID" "$NEW_VMID" --name "$NODE_NAME" --full)
+[[ -n "$STORAGE" ]] && CLONE_ARGS+=(--storage "$STORAGE")
+qm clone "${CLONE_ARGS[@]}"
 
 echo "    Clone terminé."
 

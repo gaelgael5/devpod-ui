@@ -62,7 +62,8 @@ ssh pve "curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/he
 ```
 
 - `110` → VMID de la nouvelle VM (libre, ni VM ni LXC existant)
-- `--template 9000` → VMID du template à cloner (voir `qm list` pour trouver le bon VMID). Si omis, le script prend le premier template disponible.
+- `--template 9000` → VMID du template à cloner (voir `qm list`). Si omis, le script prend le premier template disponible.
+- `--storage vmpool` → stockage Proxmox cible (ex. `vmpool`, `local-lvm`, `local-zfs`). Si omis, le clone va dans le même stockage que le template.
 
 Le script attend que SSH réponde avant de rendre la main, puis affiche l'IP de la VM.
 **Noter l'IP affichée** — elle sera nécessaire à l'étape 2 (`REMOTE_HOST`).
