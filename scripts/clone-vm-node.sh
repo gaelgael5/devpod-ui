@@ -408,12 +408,13 @@ fi
 
 # ─── A.9 — Attendre que SSH soit disponible ───────────────────────────────────
 echo ""
-echo "==> A.9 — Attente de SSH sur $IP_ADDR (max 120s)..."
+echo "==> A.9 — Attente de SSH sur $IP_ADDR (max 300s)..."
+echo "    (cloud-init peut prendre jusqu'à 3 min sur le premier boot)"
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR"
 SSH_OK=0
 ELAPSED=0
-while [[ $ELAPSED -lt 120 ]]; do
+while [[ $ELAPSED -lt 300 ]]; do
     if ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "${CI_USER}@${IP_ADDR}" "exit 0" 2>/dev/null; then
         SSH_OK=1
         break
@@ -425,7 +426,7 @@ done
 echo ""
 
 if [[ "$SSH_OK" -eq 0 ]]; then
-    echo "ERREUR : SSH non disponible sur $IP_ADDR après 120s." >&2
+    echo "ERREUR : SSH non disponible sur $IP_ADDR après 300s." >&2
     echo "  La VM est démarrée (VMID $NEW_VMID) mais inaccessible." >&2
     echo "  Vérifier depuis la console Proxmox : cloud-init status" >&2
     echo "  Vérifier la connectivité réseau : ping $IP_ADDR" >&2
