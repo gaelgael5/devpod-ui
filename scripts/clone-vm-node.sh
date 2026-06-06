@@ -327,7 +327,7 @@ except Exception:
         LAST_AGENT_ERR=$(echo "$AGENT_RAW" \
             | grep -v '^{' | grep -v '^$' \
             | sed 's/.*error: //i; s/.*Error: //; s/.*: //' \
-            | head -1)
+            | head -1) || true
         VM_STATUS=$(qm status "$NEW_VMID" 2>/dev/null | awk '{print $2}' || echo "?")
         if [[ $ELAPSED -lt 30 ]]; then
             STATUS_MSG="démarrage VM ($VM_STATUS)"
