@@ -236,13 +236,23 @@ qm clone "${CLONE_ARGS[@]}"
 
 echo "    Clone terminé."
 
-# ─── A.3 — Injecter la clé SSH via cloud-init ────────────────────────────────
+# ─── A.3 — Injecter la clé SSH et définir un mot de passe console ────────────
 echo ""
-echo "==> A.3 — Injection de la clé SSH publique..."
+echo "==> A.3 — Injection de la clé SSH publique + mot de passe console..."
 
-qm set "$NEW_VMID" --sshkey "$SSH_KEY_FILE" --ciuser "$CI_USER"
+# Mot de passe aléatoire pour accès console Proxmox (noVNC / qm terminal)
+CI_PASSWORD=$(openssl rand -base64 12)
+
+qm set "$NEW_VMID" --sshkey "$SSH_KEY_FILE" --ciuser "$CI_USER" --cipassword "$CI_PASSWORD"
 
 echo "    Clé injectée pour l'utilisateur '$CI_USER'."
+echo ""
+echo "  ┌─────────────────────────────────────────────────┐"
+echo "  │  Accès console (Proxmox noVNC / qm terminal)   │"
+echo "  │  Login    : $CI_USER                            │"
+echo "  │  Password : $CI_PASSWORD                        │"
+echo "  └─────────────────────────────────────────────────┘"
+echo ""
 
 # ─── A.4 — Configurer la mémoire et le CPU ───────────────────────────────────
 echo ""
