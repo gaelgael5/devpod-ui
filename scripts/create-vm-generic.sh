@@ -190,7 +190,8 @@ if command -v virt-customize &>/dev/null; then
     if LIBGUESTFS_BACKEND=direct virt-customize -a "$IMAGE_FILE" \
             --install qemu-guest-agent \
             --run-command 'systemctl enable qemu-guest-agent' \
-            --run-command 'cloud-init clean --logs' \
+            --run-command 'echo "datasource_list: [NoCloud, None]" > /etc/cloud/cloud.cfg.d/99-proxmox.cfg' \
+            --run-command 'cloud-init clean' \
             --quiet 2>/dev/null; then
         GUEST_AGENT_OK=true
         echo "    qemu-guest-agent installé dans l'image."
