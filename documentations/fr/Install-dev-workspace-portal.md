@@ -54,12 +54,28 @@ Depuis le host Proxmox, choisir un VMID libre (ex : 110).
 
 ### Prérequis — clé SSH Windows sur PVE
 
-Pour pouvoir se connecter en SSH depuis le poste Windows directement à la VM, copier la clé publique Windows sur le host PVE **avant** de lancer le script :
+> **Ces commandes sont à exécuter dans PowerShell** (pas cmd.exe).
+
+**1 — Vérifier si une clé SSH existe déjà :**
 
 ```powershell
-# Depuis PowerShell Windows
-scp $env:USERPROFILE\.ssh\id_ed25519.pub pve:/tmp/windows.pub
+Test-Path "$env:USERPROFILE\.ssh\id_ed25519.pub"
 ```
+
+Si la commande affiche `False`, générer une nouvelle clé :
+
+```powershell
+ssh-keygen -t ed25519 -C "windows-operator" -f "$env:USERPROFILE\.ssh\id_ed25519"
+# Appuyer sur Entrée deux fois pour ne pas mettre de passphrase
+```
+
+**2 — Copier la clé publique sur PVE :**
+
+```powershell
+scp "$env:USERPROFILE\.ssh\id_ed25519.pub" pve:/tmp/windows.pub
+```
+
+Vérifier que l'alias `pve` est configuré dans `~\.ssh\config` (voir Prérequis en début de document).
 
 ### Créer la VM
 
