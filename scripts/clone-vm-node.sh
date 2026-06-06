@@ -3,17 +3,22 @@
 # À exécuter en root sur le host PVE, pas dans une VM.
 #
 # Usage :
-#   bash clone-vm-node.sh <NEW_VMID> --name NOM --ip IP/CIDR --gw GATEWAY [OPTIONS]
-#   curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/main/scripts/clone-vm-node.sh \
-#     | bash -s -- 104 --name pve2-docker --ip 192.168.1.50/24 --gw 192.168.1.1
+#   bash clone-vm-node.sh <NEW_VMID> --name NOM [--ip IP/CIDR --gw GATEWAY] [OPTIONS]
+#
+#   IP fixe :
+#     bash clone-vm-node.sh 104 --name pve2-docker --ip 192.168.1.50/24 --gw 192.168.1.1
+#   DHCP (IP détectée automatiquement via guest agent) :
+#     bash clone-vm-node.sh 104 --name pve2-docker
 #
 # Arguments obligatoires :
-#   <NEW_VMID>        VMID de la nouvelle VM nœud (entier libre, ni VM ni LXC existant)
-#   --name NOM        Nom DNS-safe du nœud  (ex. pve2-docker)
-#   --ip IP/CIDR      Adresse IP fixe avec masque  (ex. 192.168.1.50/24)
-#   --gw GATEWAY      Passerelle par défaut  (ex. 192.168.1.1)
+#   <NEW_VMID>        VMID de la nouvelle VM (entier libre, ni VM ni LXC existant)
+#   --name NOM        Nom DNS-safe de la VM  (ex. portail-dev, pve2-docker)
 #
-# Options :
+# Options réseau (omettre les deux = DHCP) :
+#   --ip IP/CIDR      Adresse IP fixe avec masque  (ex. 192.168.1.50/24)
+#   --gw GATEWAY      Passerelle par défaut         (ex. 192.168.1.1)
+#
+# Autres options :
 #   --template VMID   VMID du template source      (défaut : auto-détecté)
 #   --dns ADDR        Serveur DNS                  (défaut : 1.1.1.1)
 #   --memory N        RAM en Mo                    (défaut : 8192)
@@ -78,9 +83,18 @@ for cmd in qm pct pvesm ssh; do
 done
 
 # ─── Validation des arguments obligatoires ────────────────────────────────────
-[[ -n "$NODE_NAME" ]] || { echo "ERREUR : --name est obligatoire (ex. pve2-docker)." >&2; exit 1; }
-[[ -n "$IP_CIDR"   ]] || { echo "ERREUR : --ip est obligatoire (ex. 192.168.1.50/24)." >&2; exit 1; }
-[[ -n "$GATEWAY"   ]] || { echo "ERREUR : --gw est obligatoire (ex. 192.168.1.1)." >&2; exit 1; }
+[[ -n "$NODE_NAME" ]] || { echo "ERREUR : --name est obligatoire (ex. portail-dev)." >&2; exit 1; }
+
+# --ip et --gw doivent être fournis ensemble ou pas du tout
+if [[ -n "$IP_CIDR" ]] && [[ -z "$GATEWAY" ]]; then
+    echo "ERREUR : --ip fourni sans --gw (ex. --gw 192.168.1.1)." >&2; exit 1
+fi
+if [[ -z "$IP_CIDR" ]] && [[ -n "$GATEWAY" ]]; then
+    echo "ERREUR : --gw fourni sans --ip (ex. --ip 192.168.1.50/24)." >&2; exit 1
+fi
+
+USE_DHCP=false
+[[ -z "$IP_CIDR" ]] && USE_DHCP=true
 
 [[ "$NEW_VMID" =~ ^[0-9]+$ ]] || {
     echo "ERREUR : NEW_VMID invalide : '$NEW_VMID' — doit être un entier positif." >&2
@@ -173,8 +187,9 @@ SSH_PRIVATE_KEY="${SSH_KEY_FILE%.pub}"
     exit 1
 }
 
-# Extraire l'adresse IP seule (sans le masque) pour SSH
-IP_ADDR="${IP_CIDR%%/*}"
+# Extraire l'adresse IP seule (sans le masque) — vide si DHCP, remplie plus bas
+IP_ADDR=""
+[[ -n "$IP_CIDR" ]] && IP_ADDR="${IP_CIDR%%/*}"
 
 # ─── Résumé des paramètres ────────────────────────────────────────────────────
 echo ""
@@ -182,7 +197,11 @@ echo "==> Paramètres retenus :"
 echo "    Nouveau VMID   : $NEW_VMID"
 echo "    Nom du nœud    : $NODE_NAME"
 echo "    Template source: ${TEMPLATE_NAME} (VMID ${TEMPLATE_VMID})"
+if [[ "$USE_DHCP" == "true" ]]; then
+echo "    Réseau         : DHCP (IP détectée après démarrage)"
+else
 echo "    IP / Passerelle: $IP_CIDR via $GATEWAY"
+fi
 echo "    DNS            : $DNS"
 echo "    vCPU / RAM     : ${CORES} cores / ${MEMORY} Mo"
 echo "    Disque ajouté  : $DISK_EXTRA"
@@ -237,15 +256,21 @@ qm resize "$NEW_VMID" "$DISK_DEV" "$DISK_EXTRA"
 
 echo "    Disque agrandi de $DISK_EXTRA."
 
-# ─── A.6 — Configurer l'IP fixe via cloud-init ───────────────────────────────
+# ─── A.6 — Configurer le réseau via cloud-init ───────────────────────────────
 echo ""
-echo "==> A.6 — Configuration de l'IP fixe via cloud-init ($IP_CIDR gw $GATEWAY)..."
-
-qm set "$NEW_VMID" \
-    --ipconfig0   "ip=${IP_CIDR},gw=${GATEWAY}" \
-    --nameserver  "$DNS"
-
-echo "    IP configurée."
+if [[ "$USE_DHCP" == "true" ]]; then
+    echo "==> A.6 — Configuration réseau via cloud-init (DHCP)..."
+    qm set "$NEW_VMID" \
+        --ipconfig0  "ip=dhcp" \
+        --nameserver "$DNS"
+    echo "    DHCP configuré."
+else
+    echo "==> A.6 — Configuration de l'IP fixe via cloud-init ($IP_CIDR gw $GATEWAY)..."
+    qm set "$NEW_VMID" \
+        --ipconfig0  "ip=${IP_CIDR},gw=${GATEWAY}" \
+        --nameserver "$DNS"
+    echo "    IP configurée."
+fi
 
 # ─── A.7 — Démarrer la VM ────────────────────────────────────────────────────
 echo ""
@@ -255,9 +280,43 @@ qm start "$NEW_VMID"
 
 echo "    VM démarrée. Attente de cloud-init et SSH..."
 
-# ─── A.8 / A.9 — Attendre que SSH soit disponible ────────────────────────────
-# A.8 est N/A (IP fixe injectée en A.6 — pas de DHCP, pas de recherche d'IP).
-# A.9 : attente active de l'ouverture du port SSH.
+# ─── A.8 — Récupérer l'IP DHCP via le guest agent (si DHCP) ─────────────────
+if [[ "$USE_DHCP" == "true" ]]; then
+    echo ""
+    echo "==> A.8 — Attente de l'IP DHCP via guest agent (max 120s)..."
+    ELAPSED=0
+    while [[ $ELAPSED -lt 120 ]]; do
+        IP_ADDR=$(qm agent "$NEW_VMID" network-get-interfaces 2>/dev/null \
+            | python3 -c "
+import json, sys
+try:
+    for iface in json.load(sys.stdin):
+        if iface.get('name','') == 'lo':
+            continue
+        for addr in iface.get('ip-addresses', []):
+            if addr.get('ip-address-type') == 'ipv4' \
+               and not addr['ip-address'].startswith('127.'):
+                print(addr['ip-address'])
+                sys.exit(0)
+except Exception:
+    pass
+" 2>/dev/null || true)
+        if [[ -n "$IP_ADDR" ]]; then break; fi
+        printf "\r    %3ds — guest agent non prêt, nouvelle tentative dans 5s..." "$ELAPSED"
+        sleep 5
+        ELAPSED=$(( ELAPSED + 5 ))
+    done
+    echo ""
+    if [[ -z "$IP_ADDR" ]]; then
+        echo "ERREUR : IP DHCP non obtenue après 120s." >&2
+        echo "  Vérifier que qemu-guest-agent est installé dans le template." >&2
+        echo "  Console Proxmox : qm terminal $NEW_VMID" >&2
+        exit 1
+    fi
+    echo "    IP DHCP obtenue : $IP_ADDR"
+fi
+
+# ─── A.9 — Attendre que SSH soit disponible ───────────────────────────────────
 echo ""
 echo "==> A.9 — Attente de SSH sur $IP_ADDR (max 120s)..."
 
@@ -330,7 +389,11 @@ echo "======================================================"
 echo "  Nœud créé et configuré : $NODE_NAME (VMID $NEW_VMID)"
 echo "======================================================"
 echo ""
-echo "  IP      : $IP_ADDR"
+if [[ "$USE_DHCP" == "true" ]]; then
+echo "  IP      : $IP_ADDR  (DHCP — noter cette adresse)"
+else
+echo "  IP      : $IP_ADDR  (fixe)"
+fi
 echo "  SSH     : ssh ${CI_USER}@${IP_ADDR} -i $SSH_PRIVATE_KEY"
 echo ""
 echo "Prochaines étapes :"

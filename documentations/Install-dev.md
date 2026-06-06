@@ -1,241 +1,224 @@
-# Installation environnement DEV — ag-flow.rag
+# Installation environnement DEV — workspace-portal
 
-Procédure d'**initialisation** du LXC test (303, `192.168.10.184`) pour le service RAG. À exécuter **une seule fois** par l'opérateur. Les déploiements ultérieurs passent ensuite exclusivement par `dev-deploy.sh` (cf. `CLAUDE.md` § Livraison test).
-
-> Pré-requis côté LXC 303 : Ubuntu 24.04, Docker 29.4.3 + Compose v5.1.3 déjà installés (provisionnement Proxmox terminé). User applicatif `agflow` avec `sudo NOPASSWD` et groupe `docker`.
-
----
-
-## Étape 1 — Accès SSH GitHub
-
-Le repo `ag-flow/rag` est privé. Générer une clé SSH dédiée au déploiement, depuis le LXC :
-
-```bash
-pct enter 303
-# ou : ssh root@192.168.10.184 -i /root/.ssh/lxc-keys/id_ed25519_lxc303
-
-ssh-keygen -t ed25519 -C "rag-deploy@lxc303" -f /root/.ssh/id_ed25519 -N ""
-cat /root/.ssh/id_ed25519.pub
-```
-
-Ajouter la clé publique sur GitHub :
-
-1. <https://github.com/settings/keys> → **New SSH key**
-2. Title : `rag-deploy lxc303`
-3. Coller la clé publique → **Add SSH key**
-
-Tester :
-
-```bash
-ssh -T git@github.com
-# → Hi <user>! You've successfully authenticated...
-```
+Procédure d'**initialisation** de la VM portail de test (`portail-dev`) sur Proxmox.
+À exécuter **une seule fois** par l'opérateur. Les déploiements ultérieurs passent
+ensuite exclusivement par `.\scripts\remote-deploy.ps1 portail-dev` — c'est la commande
+que Claude utilise pour livrer et tester ses modifications.
 
 ---
 
-## Étape 2 — Cloner le repo dans `/opt/rag`
+## Prérequis
 
-**Important** : le chemin `/opt/rag` est figé. Le script `dev-deploy.sh` part du principe que le repo est à cet endroit.
-
-```bash
-cd /opt
-git clone --branch dev git@github.com:ag-flow/rag.git rag
-cd rag
-./dev-deploy.sh
-```
-
-reset
-```bash
-cd /opt
-rm -rf rag
-git clone --branch dev git@github.com:ag-flow/rag.git rag
-cd rag
-./dev-deploy.sh --reset
+Accès SSH au host Proxmox configuré avec l'alias `pve` dans `~\.ssh\config` :
 
 ```
+Host pve
+    HostName 192.168.1.X
+    User root
+    IdentityFile ~/.ssh/id_ed25519
+```
 
-La branche **`dev`** est la seule branche de livraison test — voir `CLAUDE.md` § Livraison test. Ne pas cloner d'autre branche pour cet environnement.
+Vérifier : `ssh pve "hostname"` doit répondre.
+
+### Template de référence Debian 12
+
+Toutes les VMs sont clonées depuis un template. Vérifier qu'il en existe un :
+
+```bash
+ssh pve "qm list | grep template"
+```
+
+S'il n'en existe pas, le créer avec `create-vm-generic.sh` (opération unique par cluster) :
+
+```bash
+ssh pve "curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/create-vm-generic.sh \
+  | bash -s -- 9000"
+```
+
+- `9000` → VMID du template (libre, conventionnellement ≥ 9000 pour les templates)
+
+Le script télécharge l'image Debian 12 cloud, configure le template (cloud-init, guest agent, resize), et le marque `template: 1`. Durée : 5 à 10 min selon la connexion.
+
+**Cette étape est à faire une seule fois par cluster Proxmox.** Conserver le VMID du template — il sera passé en `--template` à l'étape suivante.
 
 ---
 
-## Étape 3 — Configurer le fichier `.env`
+## Étape 1 — Créer la VM `portail-dev`
+
+Depuis le host Proxmox, choisir un VMID libre (ex : 110).
+
+**Avec IP fixe** (recommandé — l'IP est connue d'avance) :
 
 ```bash
-cp .env.example .env  # si .env.example présent dans le repo
-nano .env
+ssh pve "curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/clone-vm-node.sh \
+  | bash -s -- 110 --name portail-dev --template 9000 --ip 192.168.1.100/24 --gw 192.168.1.1"
 ```
 
-Si `.env.example` n'existe pas encore (premier setup avant le code backend), créer le fichier à la main :
-
-```env
-# ─── PostgreSQL ─────────────────────────────────────────────
-POSTGRES_USER=rag
-POSTGRES_PASSWORD=<générer : openssl rand -base64 32 | tr -d '/+=' | head -c 32>
-POSTGRES_DB=rag_config
-DATABASE_URL=postgresql://rag:${POSTGRES_PASSWORD}@postgres:5432/rag_config
-RAG_POSTGRES_ADMIN_URL=postgresql://rag:${POSTGRES_PASSWORD}@postgres:5432/postgres
-
-# ─── Master key API (administration) ────────────────────────
-RAG_MASTER_KEY=<générer : openssl rand -base64 48 | tr '+/' '-_' | tr -d '=' | head -c 48>
-
-# ─── URL publique (pour redirects OIDC callback) ────────────
-RAG_PUBLIC_URL=http://192.168.10.184
-
-# ─── Harpocrate (à renseigner manuellement) ────────────────
-# Au moins une API key Harpocrate doit être attribuée au service.
-# Format : HARPOCRATE_API_TOKEN_<ID>=hrpv_1_...
-#          HARPOCRATE_API_URL_<ID>=https://vault.yoops.org
-HARPOCRATE_API_TOKEN_RAG=
-HARPOCRATE_API_URL_RAG=https://vault.yoops.org
-
-# ─── Divers ─────────────────────────────────────────────────
-ENVIRONMENT=dev
-LOG_LEVEL=INFO
-SYNC_WORKER_POLL_INTERVAL_SECONDS=30
-```
-
-Sécurise le fichier :
+**Avec DHCP** (l'IP est détectée automatiquement via guest agent et affichée en fin de script) :
 
 ```bash
-chmod 600 .env
+ssh pve "curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/clone-vm-node.sh \
+  | bash -s -- 110 --name portail-dev --template 9000"
 ```
 
-**Variables critiques à renseigner avant le premier `dev-deploy.sh`** :
+- `110` → VMID de la nouvelle VM (libre, ni VM ni LXC existant)
+- `--template 9000` → VMID du template à cloner (voir `qm list` pour trouver le bon VMID). Si omis, le script prend le premier template disponible.
 
-| Variable | Comment l'obtenir |
-|---|---|
-| `POSTGRES_PASSWORD` | À générer aléatoirement |
-| `RAG_MASTER_KEY` | À générer aléatoirement |
-| `HARPOCRATE_API_TOKEN_RAG` | Créer une API key dans le coffre Harpocrate scopée au wallet RAG, copier le token complet `hrpv_1_*` |
+Le script attend que SSH réponde avant de rendre la main, puis affiche l'IP de la VM.
+**Noter l'IP affichée** — elle sera nécessaire à l'étape 2 (`REMOTE_HOST`).
 
-> Ne JAMAIS committer `.env` — il est gitignored. Toute modif se fait directement sur le LXC.
+---
+
+## Étape 2 — Configurer le fichier `.env` local
+
+```powershell
+Copy-Item scripts\.env.portail-dev.remote-deploy.example scripts\.env.portail-dev.remote-deploy
+notepad scripts\.env.portail-dev.remote-deploy
+```
+
+> `scripts\.env.portail-dev.remote-deploy` est gitignored — ne jamais le committer.
+
+Renseigner au minimum :
+
+```dotenv
+REMOTE_HOST=192.168.1.100        # IP de la VM créée à l'étape 1
+OIDC_CLIENT_SECRET=              # Keycloak → Clients → workspace-portal → Credentials
+```
+
+Le reste a des valeurs par défaut adaptées au test :
+
+```dotenv
+REMOTE_USER=root
+REMOTE_KEY=~\.ssh\id_ed25519
+BRANCH=dev
+APP_DIR=/opt/workspace-portal
+COMPOSE_FILE=deploy/docker-compose.yml
+DEPLOY_SCRIPT=./scripts/deploy-portal.sh
+PORTAL_BASE_DOMAIN=dev.yoops.org
+PORTAL_EXTERNAL_URL=https://dev.yoops.org
+PORTAL_OIDC_ISSUER=https://security.yoops.org/realms/yoops
+PORTAL_OIDC_CLIENT_ID=workspace-portal
+```
+
+---
+
+## Étape 3 — Configurer Keycloak (si pas déjà fait)
+
+Dans la console admin Keycloak (`https://security.yoops.org/admin`), realm `yoops` :
+
+1. Créer les rôles realm `admin` et `dev`
+2. Créer le client OIDC `workspace-portal` (confidentiel, Standard flow, redirect URI `https://dev.yoops.org/auth/callback`)
+3. Copier le **Client secret** → c'est la valeur `OIDC_CLIENT_SECRET` du `.env`
+4. Créer un utilisateur, lui assigner le rôle `admin`
+
+Guide complet : [`documentations/fr/deploiement-portail.md`](fr/deploiement-portail.md) § Étape 6.
 
 ---
 
 ## Étape 4 — Premier déploiement
 
-Le bit exécutable de `dev-deploy.sh` est déjà positionné dans l'index git (`100755`) — pas besoin de `chmod` après le clone.
-
-```bash
-./dev-deploy.sh
+```powershell
+.\scripts\remote-deploy.ps1 portail-dev
 ```
 
-Le script :
-1. `git pull origin dev`
-2. Build les images `rag-backend:latest` + `rag-frontend:latest` (uniquement si les Dockerfiles existent)
-3. `docker compose -f docker-compose-dev.yml down/up`
+Le script se connecte en SSH sur la VM et exécute `deploy-portal.sh`, qui :
 
-> Tant que les répertoires `backend/` et `frontend/` ne contiennent pas de Dockerfile (phase d'amorçage du projet), le script skip ces builds et démarre uniquement les services tiers (postgres, caddy, pgweb). Le compose tournera proprement dès que l'implémentation arrivera.
+1. Clone le repo (`BRANCH=dev`) dans `/opt/workspace-portal`
+2. Initialise `/data` (CA mTLS, `config.yaml`, `.env`) via `install.sh`
+3. Injecte `OIDC_CLIENT_SECRET` dans `/data/.env`
+4. Build l'image Docker et démarre la stack (`portal` + `caddy`)
+5. Smoke test sur `/health` (timeout 60 s)
+
+Affiche en fin d'exécution les 80 dernières lignes de logs.
 
 ---
 
 ## Étape 5 — Vérifier
 
 ```bash
-docker compose -f docker-compose-dev.yml ps
-```
-
-Les services doivent être `healthy` :
-
-```
-NAME              STATUS    PORTS
-rag-postgres      healthy   0.0.0.0:5432->5432/tcp
-rag-backend       healthy   0.0.0.0:8000->8000/tcp
-rag-frontend      running
-rag-caddy         running   0.0.0.0:80->80/tcp
-rag-pgweb         running   0.0.0.0:8081->8081/tcp
-```
-
-Test rapide :
-
-```bash
-curl http://127.0.0.1:8000/health
+# Health check direct
+curl http://192.168.1.100:8080/health
 # → {"status":"ok"}
 ```
 
-URLs accessibles depuis le LAN :
-
-| Service | URL |
-|---|---|
-| UI / API derrière Caddy | http://192.168.10.184 |
-| API directe (debug) | http://192.168.10.184:8000 |
-| pgweb | http://192.168.10.184:8081 |
-| Postgres | `psql postgresql://rag:<pass>@192.168.10.184:5432/rag_config` |
-
-Logs :
-
-```bash
-docker compose -f docker-compose-dev.yml logs -f backend
-docker compose -f docker-compose-dev.yml logs --tail=50 postgres
-```
+Ouvrir `https://dev.yoops.org` dans un navigateur — le portail redirige vers Keycloak.
+Se connecter avec le compte admin → la page d'accueil du portail doit s'afficher.
 
 ---
 
-## Étape 6 — Workflow ensuite
+## Workflow ensuite
 
-L'init est terminée. À partir de maintenant, les mises à jour sont **automatiques** via le script :
+L'init est terminée. Deux modes de livraison selon qui redéploie :
 
-```bash
-cd /opt/rag
-./dev-deploy.sh
-```
-
-Et l'agent Claude appelle ça à distance via :
+### Opérateur — depuis la VM directement
 
 ```bash
-ssh pve "pct exec 303 -- bash -c 'cd /opt/rag && ./dev-deploy.sh'"
+ssh root@192.168.1.100
+cd /opt/workspace-portal
+./scripts/dev-deploy.sh        # pull + build + restart + smoke test
 ```
 
-C'est le **seul** mode de livraison de test. Pas de `scp`, pas de `rsync`, pas de build local poussé à la main.
+Ou pour une branche spécifique :
+```bash
+./scripts/dev-deploy.sh dev
+```
+
+### Claude — depuis Windows
+
+Claude exécute le redéploiement via :
+
+```powershell
+.\scripts\remote-deploy.ps1 portail-dev
+```
+
+C'est la commande que Claude utilise après chaque modification pour valider sur la VM.
+Pas de `scp`, pas de build local poussé à la main.
 
 ---
 
 ## Dépannage
 
-### Le build backend échoue
-Vérifier qu'un `Dockerfile` existe bien dans `backend/`. Tant que le code n'est pas écrit, le build est skippé — normal en phase d'amorçage.
+### `Permission denied (publickey)` à la connexion SSH
 
-### Postgres `unhealthy`
-```bash
-docker compose -f docker-compose-dev.yml logs --tail=100 postgres
-```
-Cause fréquente : `POSTGRES_PASSWORD` absent du `.env`.
-
-### Backend `unhealthy`
-```bash
-docker compose -f docker-compose-dev.yml logs --tail=100 backend
-```
-Causes fréquentes : `DATABASE_URL` mal formée, `HARPOCRATE_API_TOKEN_RAG` manquant, `RAG_MASTER_KEY` absent. Le backend log la variable manquante au boot.
-
-### Reset complet de la DB
-
-⚠ Détruit toutes les données (workspaces, vecteurs, jobs) :
+La clé de l'opérateur n'est pas dans `/root/.ssh/authorized_keys` de la VM.
+Le script `clone-vm-node.sh` injecte automatiquement la clé par défaut (`~/.ssh/id_ed25519.pub`
+du host PVE). Si la clé locale Windows est différente, l'ajouter manuellement :
 
 ```bash
-docker compose -f docker-compose-dev.yml down -v
-./dev-deploy.sh
+ssh pve "ssh root@192.168.1.100 'cat >> ~/.ssh/authorized_keys'" < ~/.ssh/id_ed25519.pub
 ```
 
-### Régénérer la clé SSH GitHub
-Si la clé est compromise / a expiré : la révoquer côté GitHub, puis re-suivre l'**Étape 1**.
+### `/health` ne répond pas après 60 s
 
----
-
-## Arborescence cible
-
-```
-/opt/rag/
-├── .env                          # gitignored — config locale
-├── .env.example                  # template versionné
-├── docker-compose-dev.yml        # stack de test
-├── dev-deploy.sh                 # script de livraison test (idempotent)
-├── Caddyfile                     # config reverse proxy
-├── backend/                      # FastAPI + asyncpg + indexer + sync worker (à venir)
-├── frontend/                     # Vite + React + TS (à venir)
-├── specs/                        # specs produit
-├── docs/                         # patterns, règles dev, logs
-└── CLAUDE.md                     # instructions Claude Code
+```powershell
+.\scripts\remote-deploy.ps1 portail-dev -LogLines 200
 ```
 
-Spec complète du service : [`specs/00-overview.md`](specs/00-overview.md).
-Instructions Claude Code : [`CLAUDE.md`](CLAUDE.md).
+Ou directement sur la VM :
+```bash
+ssh root@192.168.1.100 "docker compose -f /opt/workspace-portal/deploy/docker-compose.yml logs --tail=100 portal"
+```
+
+| Log | Cause | Fix |
+|---|---|---|
+| `SESSION_SECRET_KEY not set` | `/data/.env` absent ou vide | Vérifier le volume dans `docker-compose.yml` |
+| `invalid_client` / `401` | `OIDC_CLIENT_SECRET` incorrect | Récupérer le bon secret dans Keycloak |
+| `redirect_uri_mismatch` | URI callback absente du client | Ajouter `https://dev.yoops.org/auth/callback` dans Keycloak |
+
+### Reset complet
+
+⚠ Régénère la CA — tous les nœuds enrôlés devront être ré-enrôlés.
+
+```bash
+ssh root@192.168.1.100 "
+  docker compose -f /opt/workspace-portal/deploy/docker-compose.yml down --remove-orphans
+  rm -rf /data
+"
+.\scripts\remote-deploy.ps1 portail-dev
+```
+
+### Supprimer la VM
+
+```bash
+ssh pve "qm stop 110 && qm destroy 110 --purge"
+```
