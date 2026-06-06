@@ -300,11 +300,14 @@ qm start "$NEW_VMID"
 echo "    VM démarrée. Attente de cloud-init et SSH..."
 
 # ─── A.8 — Récupérer l'IP DHCP via le guest agent (si DHCP) ─────────────────
+# Séquence normale : BIOS ~5s + kernel ~10s + cloud-init (resize disque) ~25s
+# + démarrage services ~5s → 40-60s est attendu, pas un signe de problème.
 if [[ "$USE_DHCP" == "true" ]]; then
     echo ""
-    echo "==> A.8 — Attente de l'IP DHCP via guest agent (max 120s)..."
+    echo "==> A.8 — Attente de l'IP DHCP via guest agent (max 180s)..."
+    echo "    (normal : boot + cloud-init prend 40-60s)"
     ELAPSED=0
-    while [[ $ELAPSED -lt 120 ]]; do
+    while [[ $ELAPSED -lt 180 ]]; do
         IP_ADDR=$(qm agent "$NEW_VMID" network-get-interfaces 2>/dev/null \
             | python3 -c "
 import json, sys
@@ -321,13 +324,21 @@ except Exception:
     pass
 " 2>/dev/null || true)
         if [[ -n "$IP_ADDR" ]]; then break; fi
-        printf "\r    %3ds — guest agent non prêt, nouvelle tentative dans 5s..." "$ELAPSED"
+        VM_STATUS=$(qm status "$NEW_VMID" 2>/dev/null | awk '{print $2}' || echo "?")
+        if [[ $ELAPSED -lt 30 ]]; then
+            STATUS_MSG="démarrage VM ($VM_STATUS)..."
+        elif [[ $ELAPSED -lt 60 ]]; then
+            STATUS_MSG="cloud-init en cours ($VM_STATUS)..."
+        else
+            STATUS_MSG="attente guest agent ($VM_STATUS)..."
+        fi
+        printf "\r    %3ds — %s" "$ELAPSED" "$STATUS_MSG"
         sleep 5
         ELAPSED=$(( ELAPSED + 5 ))
     done
     echo ""
     if [[ -z "$IP_ADDR" ]]; then
-        echo "ERREUR : IP DHCP non obtenue après 120s." >&2
+        echo "ERREUR : IP DHCP non obtenue après 180s." >&2
         echo "  Vérifier que qemu-guest-agent est installé dans le template." >&2
         echo "  Console Proxmox : qm terminal $NEW_VMID" >&2
         exit 1
