@@ -52,25 +52,39 @@ Le script télécharge l'image Debian 12 cloud, configure le template (cloud-ini
 
 Depuis le host Proxmox, choisir un VMID libre (ex : 110).
 
+### Prérequis — clé SSH Windows sur PVE
+
+Pour pouvoir se connecter en SSH depuis le poste Windows directement à la VM, copier la clé publique Windows sur le host PVE **avant** de lancer le script :
+
+```powershell
+# Depuis PowerShell Windows
+scp $env:USERPROFILE\.ssh\id_ed25519.pub pve:/tmp/windows.pub
+```
+
+### Créer la VM
+
 **Avec IP fixe** (recommandé — l'IP est connue d'avance) :
 
 ```bash
 ssh pve "curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/clone-vm-node.sh \
-  | bash -s -- 110 --name portail-dev --template 9000 --ip 192.168.1.100/24 --gw 192.168.1.1"
+  | bash -s -- 110 --name portail-dev --template 9000 --storage vmpool \
+    --ip 192.168.1.100/24 --gw 192.168.1.1 --extra-sshkey /tmp/windows.pub"
 ```
 
 **Avec DHCP** (l'IP est détectée automatiquement via guest agent et affichée en fin de script) :
 
 ```bash
 ssh pve "curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/clone-vm-node.sh \
-  | bash -s -- 110 --name portail-dev --template 9000"
+  | bash -s -- 110 --name portail-dev --template 9000 --storage vmpool \
+    --extra-sshkey /tmp/windows.pub"
 ```
 
 - `110` → VMID de la nouvelle VM (libre, ni VM ni LXC existant)
 - `--template 9000` → VMID du template à cloner (voir `qm list`). Si omis, le script prend le premier template disponible.
 - `--storage vmpool` → stockage Proxmox cible (ex. `vmpool`, `local-lvm`, `local-zfs`). Si omis, le clone va dans le même stockage que le template.
+- `--extra-sshkey /tmp/windows.pub` → injecte aussi la clé Windows pour accès SSH direct depuis le poste opérateur.
 
-Le script attend que SSH réponde avant de rendre la main, puis affiche l'IP de la VM.
+Le script affiche le mot de passe console (accès Proxmox noVNC) en étape A.3, puis attend que SSH réponde avant de rendre la main.
 **Noter l'IP affichée** — elle sera nécessaire à l'étape 2 (`REMOTE_HOST`).
 
 ---
