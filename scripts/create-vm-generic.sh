@@ -172,6 +172,32 @@ echo "==> Vérification de l'intégrité SHA512..."
 }
 echo "    Intégrité vérifiée."
 
+# ─── Installation de qemu-guest-agent dans l'image ───────────────────────────
+# virt-customize modifie l'image qcow2 sans la démarrer (pas de problème bootstrap).
+echo ""
+echo "==> Installation de qemu-guest-agent dans l'image (virt-customize)..."
+
+if ! command -v virt-customize &>/dev/null; then
+    echo "    virt-customize introuvable — installation de libguestfs-tools..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y libguestfs-tools \
+        -o Dpkg::Options::="--force-confold" -qq 2>/dev/null || true
+fi
+
+GUEST_AGENT_OK=false
+if command -v virt-customize &>/dev/null; then
+    if LIBGUESTFS_BACKEND=direct virt-customize -a "$IMAGE_FILE" \
+            --install qemu-guest-agent \
+            --run-command 'systemctl enable qemu-guest-agent' \
+            --quiet 2>/dev/null; then
+        GUEST_AGENT_OK=true
+        echo "    qemu-guest-agent installé dans l'image."
+    else
+        echo "    AVERTISSEMENT : virt-customize a échoué — guest agent non installé." >&2
+    fi
+else
+    echo "    AVERTISSEMENT : libguestfs-tools indisponible — guest agent non installé." >&2
+fi
+
 # ─── Création de la VM vide ───────────────────────────────────────────────────
 echo ""
 echo "==> Création de la VM (VMID $VMID)..."
@@ -235,18 +261,19 @@ echo "======================================================"
 echo "  Template créé : $TEMPLATE_NAME (VMID $VMID)"
 echo "======================================================"
 echo ""
-echo "ATTENTION : qemu-guest-agent n'est pas installé."
-echo "  'qm guest exec' ne fonctionnera pas sur les clones."
-echo "  Pour l'installer avant de cloner :"
-echo "    1. Cloner temporairement : qm clone $VMID 9999 --name tmp-install --full"
-echo "    2. Démarrer le clone :     qm set 9999 --ipconfig0 ip=dhcp && qm start 9999"
-echo "    3. Connexion SSH → sudo apt-get install -y qemu-guest-agent"
-echo "    4. Nettoyer cloud-init :   sudo cloud-init clean --logs"
-echo "    5. Éteindre :              sudo poweroff"
-echo "    6. Supprimer le clone :    qm destroy 9999"
-echo "    Puis recréer le template depuis ce clone ou utiliser le clone comme nouvelle base."
+if $GUEST_AGENT_OK; then
+    echo "  ✓ qemu-guest-agent installé — détection IP DHCP opérationnelle sur les clones."
+else
+    echo "  ATTENTION : qemu-guest-agent non installé."
+    echo "  La détection automatique d'IP DHCP (clone-vm-node.sh sans --ip) ne fonctionnera pas."
+    echo "  Pour l'activer :"
+    echo "    apt-get install -y libguestfs-tools"
+    echo "    LIBGUESTFS_BACKEND=direct virt-customize -a <image.qcow2> \\"
+    echo "      --install qemu-guest-agent --run-command 'systemctl enable qemu-guest-agent'"
+    echo "    Puis réimporter l'image dans Proxmox."
+fi
 echo ""
 echo "Prochaine étape — créer un nœud Docker depuis ce template :"
-echo "  qm clone $VMID <NEW_VMID> --name <nom-noeud> --full"
+echo "  bash clone-vm-node.sh <NEW_VMID> --name <nom> --template $VMID --storage $STORAGE"
 echo "  Puis suivre : documentations/fr/preparation-vm-noeud-docker.md (Chemin A)"
 echo ""

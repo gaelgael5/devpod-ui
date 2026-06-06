@@ -32,10 +32,15 @@ S'il n'en existe pas, le créer avec `create-vm-generic.sh` (opération unique p
 
 ```bash
 ssh pve "curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/create-vm-generic.sh \
-  | bash -s -- 9000"
+  | bash -s -- 9000 --storage vmpool"
 ```
 
 - `9000` → VMID du template (libre, conventionnellement ≥ 9000 pour les templates)
+- `--storage vmpool` → stockage Proxmox où créer le template. Voir les stockages disponibles :
+  ```bash
+  ssh pve "pvesm status"
+  ```
+  Si omis, le script auto-détecte dans l'ordre : `local-lvm` > `local-zfs` > `local`.
 
 Le script télécharge l'image Debian 12 cloud, configure le template (cloud-init, guest agent, resize), et le marque `template: 1`. Durée : 5 à 10 min selon la connexion.
 
