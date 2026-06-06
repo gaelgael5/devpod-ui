@@ -1,0 +1,13 @@
+id: claude-code
+version: "1.0.0"
+description: "Claude Code CLI (Anthropic) — auth via ANTHROPIC_API_KEY au runtime"
+options:
+  version:
+    type: string
+    default: "latest"
+    description: "Version npm (@anthropic-ai/claude-code)"
+requires_secrets:
+  - path: "llm/anthropic_key"
+    env: "ANTHROPIC_API_KEY"
+installs_after:
+  - node

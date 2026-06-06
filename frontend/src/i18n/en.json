@@ -1,0 +1,72 @@
+{
+  "workspaces": {
+    "title": "Workspaces",
+    "new": "New workspace",
+    "empty": "No workspaces yet.",
+    "status": {
+      "running": "running",
+      "stopped": "stopped",
+      "provisioning": "provisioning",
+      "failed": "failed",
+      "unknown": "unknown"
+    },
+    "actions": {
+      "open": "Open",
+      "stop": "Stop",
+      "start": "Start",
+      "delete": "Delete",
+      "retry": "Retry"
+    },
+    "form": {
+      "name": "Name",
+      "source": "Git source",
+      "node": "Node",
+      "recipes": "Recipes",
+      "submit": "Create workspace",
+      "nameHint": "Lowercase letters, numbers, hyphens — 2 to 32 chars",
+      "sourceRequired": "Source Git is required"
+    },
+    "confirm": {
+      "deleteTitle": "Delete workspace?",
+      "deleteDescription": "This will permanently delete {{name}} and its container.",
+      "confirm": "Delete",
+      "cancel": "Cancel"
+    }
+  },
+  "recipes": {
+    "title": "Recipes",
+    "empty": "No recipes available.",
+    "personal": "My recipes",
+    "shared": "Shared recipes"
+  },
+  "admin": {
+    "hosts": "Hosts",
+    "sharedRecipes": "Shared recipes",
+    "hostsEmpty": "No hosts enrolled yet.",
+    "recipesEmpty": "No shared recipes.",
+    "col": {
+      "name": "Name",
+      "type": "Type",
+      "host": "Host",
+      "default": "Default"
+    }
+  },
+  "errors": {
+    "forbidden": "Access denied",
+    "notFound": "Not found",
+    "generic": "Something went wrong",
+    "loadFailed": "Failed to load data. Please refresh."
+  },
+  "nav": {
+    "profile": "Profile",
+    "logout": "Log out",
+    "theme": "Theme",
+    "language": "Language",
+    "dark": "Dark",
+    "light": "Light"
+  },
+  "auth": {
+    "login": "Log in with Keycloak",
+    "loggingIn": "Signing you in…"
+  }
+}

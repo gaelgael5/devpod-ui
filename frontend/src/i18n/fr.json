@@ -1,0 +1,72 @@
+{
+  "workspaces": {
+    "title": "Workspaces",
+    "new": "Nouveau workspace",
+    "empty": "Aucun workspace pour l'instant.",
+    "status": {
+      "running": "en cours",
+      "stopped": "arrêté",
+      "provisioning": "provisionnement",
+      "failed": "échec",
+      "unknown": "inconnu"
+    },
+    "actions": {
+      "open": "Ouvrir",
+      "stop": "Arrêter",
+      "start": "Démarrer",
+      "delete": "Supprimer",
+      "retry": "Réessayer"
+    },
+    "form": {
+      "name": "Nom",
+      "source": "Source Git",
+      "node": "Nœud",
+      "recipes": "Recettes",
+      "submit": "Créer le workspace",
+      "nameHint": "Minuscules, chiffres, tirets — 2 à 32 caractères",
+      "sourceRequired": "La source Git est requise"
+    },
+    "confirm": {
+      "deleteTitle": "Supprimer le workspace ?",
+      "deleteDescription": "Cette action supprime définitivement {{name}} et son conteneur.",
+      "confirm": "Supprimer",
+      "cancel": "Annuler"
+    }
+  },
+  "recipes": {
+    "title": "Recettes",
+    "empty": "Aucune recette disponible.",
+    "personal": "Mes recettes",
+    "shared": "Recettes partagées"
+  },
+  "admin": {
+    "hosts": "Hôtes",
+    "sharedRecipes": "Recettes partagées",
+    "hostsEmpty": "Aucun hôte enrôlé.",
+    "recipesEmpty": "Aucune recette partagée.",
+    "col": {
+      "name": "Nom",
+      "type": "Type",
+      "host": "Hôte",
+      "default": "Défaut"
+    }
+  },
+  "errors": {
+    "forbidden": "Accès refusé",
+    "notFound": "Non trouvé",
+    "generic": "Une erreur est survenue",
+    "loadFailed": "Chargement échoué. Veuillez rafraîchir."
+  },
+  "nav": {
+    "profile": "Profil",
+    "logout": "Se déconnecter",
+    "theme": "Thème",
+    "language": "Langue",
+    "dark": "Sombre",
+    "light": "Clair"
+  },
+  "auth": {
+    "login": "Se connecter avec Keycloak",
+    "loggingIn": "Connexion en cours…"
+  }
+}

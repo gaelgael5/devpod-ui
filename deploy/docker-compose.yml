@@ -1,0 +1,43 @@
+services:
+  portal:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: workspace-portal:latest
+    restart: unless-stopped
+    env_file: /data/.env
+    volumes:
+      - /data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    build:
+      context: ./
+      dockerfile: Dockerfile.caddy
+    image: workspace-caddy:latest
+    restart: unless-stopped
+    env_file: /data/.env
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_acme:/data
+      - caddy_config:/config
+    ports:
+      - "443:443"
+      - "80:80"
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  caddy_acme:
+  caddy_config:
