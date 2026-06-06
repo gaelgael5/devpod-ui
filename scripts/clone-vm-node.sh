@@ -325,7 +325,7 @@ except Exception:
         if [[ -n "$IP_ADDR" ]]; then break; fi
         # Extraire le message d'erreur court du guest agent pour l'afficher
         LAST_AGENT_ERR=$(echo "$AGENT_RAW" \
-            | grep -v '^{' | grep -v '^$' \
+            | grep -v '^{' | grep -v '^\[' | grep -v '^$' \
             | sed 's/.*error: //i; s/.*Error: //; s/.*: //' \
             | head -1) || true
         VM_STATUS=$(qm status "$NEW_VMID" 2>/dev/null | awk '{print $2}' || echo "?")
@@ -348,13 +348,27 @@ except Exception:
         echo "" >&2
         echo "  Diagnostic :" >&2
         echo "  - Config agent VM    : $(qm config "$NEW_VMID" 2>/dev/null | grep agent || echo 'absent')" >&2
-        echo "  - Dernière erreur    : ${LAST_AGENT_ERR:-aucune réponse du guest agent}" >&2
         echo "  - État VM            : $(qm status "$NEW_VMID" 2>/dev/null)" >&2
         echo "" >&2
-        echo "  Vérifier dans la console :" >&2
+        echo "  Interfaces rapportées par le guest agent :" >&2
+        echo "$AGENT_RAW" | python3 -c "
+import json, sys
+raw = sys.stdin.read()
+try:
+    for iface in json.loads(raw):
+        addrs = [a['ip-address'] for a in iface.get('ip-addresses', [])]
+        print(f'    {iface.get(\"name\",\"?\")} : {addrs if addrs else \"(aucune adresse)\"}')
+except Exception as e:
+    print(f'    (impossible de parser : {e})')
+    print('    Brut :', raw[:300])
+" 2>/dev/null >&2 || echo "    (qm agent n'a pas répondu)" >&2
+        echo "" >&2
+        echo "  Commandes de diagnostic sur la VM :" >&2
         echo "    qm terminal $NEW_VMID" >&2
+        echo "    → ip addr" >&2
         echo "    → systemctl status qemu-guest-agent" >&2
-        echo "    → journalctl -u qemu-guest-agent -n 20" >&2
+        echo "    → systemctl status networking cloud-init" >&2
+        echo "    → journalctl -u cloud-init -n 30" >&2
         exit 1
     fi
     echo "    IP DHCP obtenue : $IP_ADDR"
