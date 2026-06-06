@@ -25,8 +25,9 @@
 #   --memory N        RAM en Mo                    (défaut : 8192)
 #   --cores N         Nombre de vCPU               (défaut : 4)
 #   --disk SZ         Espace disque supplémentaire  (défaut : +40G)
-#   --sshkey FICHIER  Clé publique SSH sur le PVE  (défaut : auto-détectée dans ~/.ssh/)
-#   --ciuser USER     Utilisateur cloud-init        (défaut : debian)
+#   --sshkey FICHIER      Clé publique SSH principale (défaut : auto-détectée dans ~/.ssh/)
+#   --extra-sshkey FICH   Clé publique supplémentaire à injecter (ex. clé Windows)
+#   --ciuser USER         Utilisateur cloud-init      (défaut : debian)
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -42,6 +43,7 @@ MEMORY=8192
 CORES=4
 DISK_EXTRA="+40G"
 SSH_KEY_FILE=""
+EXTRA_SSH_KEY_FILE=""
 CI_USER="debian"
 
 # ─── NEW_VMID (1er argument obligatoire) ──────────────────────────────────────
@@ -65,11 +67,12 @@ while [[ $# -gt 0 ]]; do
         --memory)   MEMORY="$2";        shift 2 ;;
         --cores)    CORES="$2";         shift 2 ;;
         --disk)     DISK_EXTRA="$2";    shift 2 ;;
-        --sshkey)   SSH_KEY_FILE="$2";  shift 2 ;;
-        --ciuser)   CI_USER="$2";       shift 2 ;;
+        --sshkey)        SSH_KEY_FILE="$2";       shift 2 ;;
+        --extra-sshkey)  EXTRA_SSH_KEY_FILE="$2"; shift 2 ;;
+        --ciuser)        CI_USER="$2";            shift 2 ;;
         *)
             echo "ERREUR : option inconnue : $1" >&2
-            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --sshkey --ciuser" >&2
+            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --sshkey --extra-sshkey --ciuser" >&2
             exit 1
             ;;
     esac
@@ -199,6 +202,14 @@ SSH_PRIVATE_KEY="${SSH_KEY_FILE%.pub}"
     exit 1
 }
 
+# Valider --extra-sshkey si fourni
+if [[ -n "$EXTRA_SSH_KEY_FILE" ]]; then
+    [[ -f "$EXTRA_SSH_KEY_FILE" ]] || {
+        echo "ERREUR : --extra-sshkey : fichier introuvable : $EXTRA_SSH_KEY_FILE" >&2
+        exit 1
+    }
+fi
+
 # Extraire l'adresse IP seule (sans le masque) — vide si DHCP, remplie plus bas
 IP_ADDR=""
 [[ -n "$IP_CIDR" ]] && IP_ADDR="${IP_CIDR%%/*}"
@@ -223,6 +234,8 @@ echo "    DNS            : $DNS"
 echo "    vCPU / RAM     : ${CORES} cores / ${MEMORY} Mo"
 echo "    Disque ajouté  : $DISK_EXTRA"
 echo "    Clé SSH        : $SSH_KEY_FILE"
+[[ -n "$EXTRA_SSH_KEY_FILE" ]] && \
+echo "    Clé SSH extra  : $EXTRA_SSH_KEY_FILE"
 echo "    Utilisateur CI : $CI_USER"
 echo ""
 
@@ -243,9 +256,18 @@ echo "==> A.3 — Injection de la clé SSH publique + mot de passe console..."
 # Mot de passe aléatoire pour accès console Proxmox (noVNC / qm terminal)
 CI_PASSWORD=$(openssl rand -base64 12)
 
-qm set "$NEW_VMID" --sshkey "$SSH_KEY_FILE" --ciuser "$CI_USER" --cipassword "$CI_PASSWORD"
+# Construire le fichier de clés à injecter (principale + extra si fournie)
+COMBINED_KEYS_FILE=$(mktemp /tmp/sshkeys-XXXXXX.pub)
+trap 'rm -f "$COMBINED_KEYS_FILE"' EXIT
+cat "$SSH_KEY_FILE" > "$COMBINED_KEYS_FILE"
+if [[ -n "$EXTRA_SSH_KEY_FILE" ]]; then
+    echo "" >> "$COMBINED_KEYS_FILE"
+    cat "$EXTRA_SSH_KEY_FILE" >> "$COMBINED_KEYS_FILE"
+fi
 
-echo "    Clé injectée pour l'utilisateur '$CI_USER'."
+qm set "$NEW_VMID" --sshkeys "$COMBINED_KEYS_FILE" --ciuser "$CI_USER" --cipassword "$CI_PASSWORD"
+
+echo "    Clé(s) injectée(s) pour l'utilisateur '$CI_USER'."
 echo ""
 echo "  ┌─────────────────────────────────────────────────┐"
 echo "  │  Accès console (Proxmox noVNC / qm terminal)   │"
