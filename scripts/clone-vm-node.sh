@@ -268,13 +268,7 @@ fi
 qm set "$NEW_VMID" --sshkeys "$COMBINED_KEYS_FILE" --ciuser "$CI_USER" --cipassword "$CI_PASSWORD"
 
 echo "    Clé(s) injectée(s) pour l'utilisateur '$CI_USER'."
-echo ""
-echo "  ┌─────────────────────────────────────────────────┐"
-echo "  │  Accès console (Proxmox noVNC / qm terminal)   │"
-echo "  │  Login    : $CI_USER                            │"
-echo "  │  Password : $CI_PASSWORD                        │"
-echo "  └─────────────────────────────────────────────────┘"
-echo ""
+echo "    (mot de passe console défini en A.9.5 via SSH, après démarrage)"
 
 # ─── A.4 — Configurer la mémoire et le CPU ───────────────────────────────────
 echo ""
@@ -434,6 +428,26 @@ if [[ "$SSH_OK" -eq 0 ]]; then
 fi
 
 echo "    SSH disponible sur ${IP_ADDR}."
+
+# ─── A.9.5 — Définir le mot de passe root via SSH (fiable, indépendant de cloud-init) ──
+# Le cipassword cloud-init est ignoré par les versions récentes (format chpasswd.list déprécié).
+# On définit le mot de passe root directement via SSH + sudo (le ciuser a NOPASSWD sudo).
+echo ""
+echo "==> A.9.5 — Définition du mot de passe console root via SSH..."
+CONSOLE_PASSWORD=$(openssl rand -hex 8)
+if ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "${CI_USER}@${IP_ADDR}" \
+        "echo 'root:${CONSOLE_PASSWORD}' | sudo chpasswd" 2>/dev/null; then
+    echo ""
+    echo "  ┌─────────────────────────────────────────────────┐"
+    echo "  │  Accès console (Proxmox noVNC / qm terminal)   │"
+    echo "  │  Login    : root                                │"
+    echo "  │  Password : ${CONSOLE_PASSWORD}                 │"
+    echo "  └─────────────────────────────────────────────────┘"
+    echo ""
+else
+    echo "    AVERTISSEMENT : impossible de définir le mot de passe root." >&2
+    echo "    Accès console via : ssh ${CI_USER}@${IP_ADDR} (clé SSH)" >&2
+fi
 
 # ─── A.10 — Conversion DHCP → IP fixe ────────────────────────────────────────
 # A.10 est N/A : l'IP fixe a été configurée avant le démarrage (A.6).
