@@ -8,7 +8,7 @@
 #   ex : ./scripts/deploy-portal.sh main
 #
 # Variables d'env reconnues (toutes optionnelles si /data déjà initialisé) :
-#   REPO_URL               URL git du repo   (défaut : SSH gaelgael5/devpod-ui)
+#   REPO_URL               URL git du repo   (défaut : HTTPS public gaelgael5/devpod-ui)
 #   DATA_ROOT              Racine /data       (défaut : /data)
 #   PORTAL_BASE_DOMAIN     Domaine wildcard   (défaut : dev.yoops.org)
 #   PORTAL_EXTERNAL_URL    URL externe du portail
@@ -20,7 +20,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-REPO_URL="${REPO_URL:-git@github.com:gaelgael5/devpod-ui.git}"
+REPO_URL="${REPO_URL:-https://github.com/gaelgael5/devpod-ui.git}"
 APP_DIR="${APP_DIR:-/opt/workspace-portal}"
 DATA_ROOT="${DATA_ROOT:-/data}"
 COMPOSE_FILE="deploy/docker-compose.yml"

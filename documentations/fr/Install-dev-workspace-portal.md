@@ -172,12 +172,10 @@ rendre la main. Il rafraîchit aussi le `known_hosts` du host PVE pour cette IP.
 
 ---
 
-## Étape 2 — Autoriser la VM à cloner le dépôt et tester en local
+## Étape 2 — Cloner le dépôt et tester en local
 
-Le déploiement clone le dépôt **en SSH** (`git@github.com:gaelgael5/devpod-ui.git`,
-variable `REPO_URL` de `deploy-portal.sh`) et s'exécute **en root** sur la VM. Le dépôt
-étant privé, root doit présenter une clé SSH autorisée par GitHub **et** avoir accepté
-l'empreinte de `github.com` — sinon le `git clone` non interactif du déploiement échoue.
+Le dépôt `gaelgael5/devpod-ui` est **public** : le clone se fait en HTTPS, sans
+authentification GitHub. Le déploiement s'exécute **en root** sur la VM.
 
 Se connecter à la VM puis passer root :
 
@@ -186,47 +184,17 @@ ssh debian@192.168.1.100
 sudo -i
 ```
 
-### 2.1 — Deploy Key GitHub
-
-**a — Générer (si absente) et afficher la clé de déploiement root :**
+### 2.1 — Cloner le dépôt
 
 ```bash
-[ -f /root/.ssh/id_ed25519.pub ] || ssh-keygen -t ed25519 -C "portail-dev-deploy" -f /root/.ssh/id_ed25519 -N ""; cat /root/.ssh/id_ed25519.pub
-```
-
-**b — Ajouter la clé comme Deploy Key dans GitHub :**
-
-Dépôt `gaelgael5/devpod-ui` → **Settings → Deploy keys → Add deploy key** :
-- Title : `portail-dev`
-- Key : coller la clé publique affichée en (a)
-- **Ne pas** cocher « Allow write access » (lecture seule suffit pour cloner/puller)
-
-**c — Tester la connexion et accepter l'empreinte github.com** (toujours en root) :
-
-```bash
-ssh -T git@github.com
-# Taper "yes" pour enregistrer github.com dans /root/.ssh/known_hosts
-# Réponse attendue : "Hi gaelgael5/devpod-ui! You've successfully authenticated,
-# but GitHub does not provide shell access."
-```
-
-> Cette acceptation d'empreinte est **obligatoire** : sans elle, le `git clone` lancé
-> par `deploy-portal.sh` (non interactif) échouerait sur `Host key verification failed`.
-
-### 2.2 — Cloner le dépôt
-
-```bash
-git clone git@github.com:gaelgael5/devpod-ui.git /opt/workspace-portal
+git clone https://github.com/gaelgael5/devpod-ui.git /opt/workspace-portal
 cd /opt/workspace-portal
 ```
 
-En cas d'échec d'authentification, revérifier 2.1 (clé bien collée dans GitHub, lecture
-seule suffisante). Si le clone réussit, le déploiement fera ensuite un simple `git pull`.
+Si le clone réussit, le déploiement fera ensuite un simple `git pull`. Les scripts `.sh`
+sont versionnés **avec le bit exécutable** (`100755`) : directement lançables sans `chmod`.
 
-Les scripts `.sh` sont versionnés **avec le bit exécutable** (`100755`) : ils sont
-directement lançables après le clone, sans `chmod`.
-
-### 2.3 — Test du déploiement depuis la VM
+### 2.2 — Test du déploiement depuis la VM
 
 Valider la chaîne complète directement sur la VM, sans passer par le poste opérateur.
 
