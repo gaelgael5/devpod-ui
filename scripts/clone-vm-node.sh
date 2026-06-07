@@ -488,12 +488,14 @@ until ${SUDO} apt-get update -qq 2>/dev/null; do
     sleep 5; _t=\$(( _t + 5 ))
     [ \$_t -ge 300 ] && { echo "ERREUR: apt-get update en échec après 300s" >&2; exit 1; }
 done
-${SUDO} apt-get -o "DPkg::Lock::Timeout=300" install -y --no-install-recommends \
-    git openssl docker.io docker-compose-plugin
+# git et openssl : dépôts Debian standard (toujours disponibles)
+${SUDO} apt-get -o "DPkg::Lock::Timeout=300" install -y --no-install-recommends git openssl
+# Docker CE + compose v2 : script officiel (docker-compose-plugin absent des dépôts Debian)
+curl -fsSL https://get.docker.com | ${SUDO} sh
 ${SUDO} systemctl enable --now docker
 REMOTE
 
-echo "    Paquets installés (git, openssl, docker)."
+echo "    Paquets installés (git, openssl, docker CE + compose v2)."
 
 # ─── A.10b — Cloner le dépôt workspace-portal ────────────────────────────────
 echo ""
