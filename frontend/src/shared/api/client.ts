@@ -1,12 +1,14 @@
 const BASE = import.meta.env.VITE_API_URL ?? ''
 
 export class ApiError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string
-  ) {
+  // Champ déclaré explicitement (pas en parameter property) : `erasableSyntaxOnly`
+  // interdit les parameter properties dans le constructeur.
+  readonly status: number
+
+  constructor(status: number, message: string) {
     super(message)
     this.name = 'ApiError'
+    this.status = status
   }
 }
 
