@@ -430,9 +430,14 @@ SSH_OPTS=(
 
 # Une seule boucle : retenter le vrai SSH jusqu'à succès. On capture stderr
 # (LAST_ERR) pour afficher la vraie cause en cas d'échec, jamais 2>/dev/null aveugle.
+#
+# -n est CRITIQUE : le script est lancé via `curl | bash`, donc stdin de bash est
+# le pipe curl. Sans -n, ssh hérite de ce pipe et CONSOMME le reste du script
+# (boucle, A.11, résumé) → bash n'a plus rien à lire et s'arrête silencieusement
+# juste après cet en-tête. -n redirige stdin de ssh depuis /dev/null.
 ELAPSED=0
 LAST_ERR=""
-until LAST_ERR=$(ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" "exit 0" 2>&1); do
+until LAST_ERR=$(ssh -n "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" "exit 0" 2>&1); do
     if [[ $ELAPSED -ge 120 ]]; then
         echo "" >&2
         echo "ERREUR : SSH indisponible sur ${CI_USER}@${IP_ADDR} après 120s." >&2
