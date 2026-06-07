@@ -414,25 +414,31 @@ echo ""
 echo "==> A.9 — Attente de SSH sur $IP_ADDR (max 120s)..."
 echo "    (sshd ouvre le port avant que cloud-init n'écrive authorized_keys)"
 
-# UserKnownHostsFile=/dev/null : ignore known_hosts (évite l'échec sur VM recréée
-# avec la même IP mais une nouvelle empreinte, même avec StrictHostKeyChecking=no).
-# PAS de -i forcé : on laisse ssh résoudre l'identité via l'agent + les clés par
-# défaut (~/.ssh/id_*), exactement comme `ssh debian@host` qui marche en 20s.
-# Forcer -i sur une clé à passphrase + BatchMode=yes échouerait alors que l'agent
-# sert la clé déverrouillée à une session manuelle.
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR"
+# Tableau (PAS une chaîne) : avec IFS=$'\n\t' en tête de script, une chaîne
+# "-o A -o B" non-quotée n'est PAS découpée sur les espaces et ssh reçoit tout
+# en un seul argument ("keyword ... extra arguments at end of line"). Un tableau
+# passe chaque option comme argument distinct, indépendamment d'IFS.
+# UserKnownHostsFile=/dev/null : ignore known_hosts (VM recréée = nouvelle empreinte).
+SSH_OPTS=(
+    -o StrictHostKeyChecking=no
+    -o UserKnownHostsFile=/dev/null
+    -o ConnectTimeout=5
+    -o BatchMode=yes
+    -o LogLevel=ERROR
+    -i "$SSH_PRIVATE_KEY"
+)
 
 # Une seule boucle : retenter le vrai SSH jusqu'à succès. On capture stderr
 # (LAST_ERR) pour afficher la vraie cause en cas d'échec, jamais 2>/dev/null aveugle.
 ELAPSED=0
 LAST_ERR=""
-until LAST_ERR=$(ssh $SSH_OPTS "${CI_USER}@${IP_ADDR}" "exit 0" 2>&1); do
+until LAST_ERR=$(ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" "exit 0" 2>&1); do
     if [[ $ELAPSED -ge 120 ]]; then
         echo "" >&2
         echo "ERREUR : SSH indisponible sur ${CI_USER}@${IP_ADDR} après 120s." >&2
         echo "  Dernière erreur SSH : ${LAST_ERR:-<aucune sortie>}" >&2
         echo "  État VM    : $(qm status "$NEW_VMID" 2>/dev/null)" >&2
-        echo "  Diagnostic : ssh -v $SSH_OPTS ${CI_USER}@${IP_ADDR}" >&2
+        echo "  Diagnostic : ssh -v -i $SSH_PRIVATE_KEY ${CI_USER}@${IP_ADDR}" >&2
         exit 1
     fi
     printf "\r    %3ds — en attente de SSH..." "$ELAPSED"
@@ -457,7 +463,7 @@ else
     SUDO="sudo"
 fi
 
-ssh $SSH_OPTS "${CI_USER}@${IP_ADDR}" bash <<REMOTE
+ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
 set -e
 EXPECTED="$NODE_NAME"
 SUDO="$SUDO"
