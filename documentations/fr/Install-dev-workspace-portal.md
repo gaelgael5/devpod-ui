@@ -52,9 +52,19 @@ Le script télécharge l'image Debian 12 cloud, configure le template (cloud-ini
 
 Depuis le host Proxmox, choisir un VMID libre (ex : 110).
 
-### Prérequis — clé SSH Windows sur PVE
+### Prérequis — clé SSH du poste opérateur sur PVE
 
-> **Ces commandes sont à exécuter dans PowerShell** (pas cmd.exe).
+Le script `clone-vm-node.sh` injecte **automatiquement** la clé SSH du host PVE
+(`/root/.ssh/id_ed25519.pub`, auto-détectée). Pour te connecter à la VM **aussi
+depuis ton poste de travail** (et pas seulement depuis PVE), copie ta clé publique
+sur PVE et passe-la au script en `--extra-sshkey`.
+
+Choisis le contexte d'où tu pilotes :
+
+<details open>
+<summary><b>A — Depuis Windows (PowerShell)</b></summary>
+
+> **Commandes à exécuter dans PowerShell** (pas cmd.exe).
 
 **1 — Vérifier si une clé SSH existe déjà :**
 
@@ -62,7 +72,7 @@ Depuis le host Proxmox, choisir un VMID libre (ex : 110).
 Test-Path "$env:USERPROFILE\.ssh\id_ed25519.pub"
 ```
 
-Si la commande affiche `False`, générer une nouvelle clé :
+Si `False`, générer une clé :
 
 ```powershell
 ssh-keygen -t ed25519 -C "windows-operator" -f "$env:USERPROFILE\.ssh\id_ed25519"
@@ -72,40 +82,201 @@ ssh-keygen -t ed25519 -C "windows-operator" -f "$env:USERPROFILE\.ssh\id_ed25519
 **2 — Copier la clé publique sur PVE :**
 
 ```powershell
-scp "$env:USERPROFILE\.ssh\id_ed25519.pub" pve:/tmp/windows.pub
+scp "$env:USERPROFILE\.ssh\id_ed25519.pub" pve:/tmp/operator.pub
 ```
 
-Vérifier que l'alias `pve` est configuré dans `~\.ssh\config` (voir Prérequis en début de document).
+</details>
+
+<details>
+<summary><b>B — Depuis Linux / macOS (bash)</b></summary>
+
+**1 — Vérifier si une clé SSH existe déjà :**
+
+```bash
+ls ~/.ssh/id_ed25519.pub
+```
+
+Si « No such file », générer une clé :
+
+```bash
+ssh-keygen -t ed25519 -C "$USER-operator" -f ~/.ssh/id_ed25519
+# Appuyer sur Entrée deux fois pour ne pas mettre de passphrase
+```
+
+**2 — Copier la clé publique sur PVE :**
+
+```bash
+scp ~/.ssh/id_ed25519.pub pve:/tmp/operator.pub
+```
+
+</details>
+
+<details>
+<summary><b>C — Directement sur le serveur Proxmox (SSH ou console)</b></summary>
+
+Si tu lances le script **en étant déjà sur PVE** (connecté en `ssh root@pve` ou
+via la console Proxmox), la clé root locale (`/root/.ssh/id_ed25519.pub`) est
+**auto-détectée** — rien à copier, et `--extra-sshkey` est inutile.
+
+Vérifier qu'une clé existe (sinon en générer une) :
+
+```bash
+ls /root/.ssh/id_ed25519.pub || ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519
+```
+
+Dans ce cas, **retirer `--extra-sshkey /tmp/operator.pub`** des commandes de
+création de VM ci-dessous.
+
+</details>
+
+Pour les cas A et B, vérifier que l'alias `pve` est configuré dans
+`~/.ssh/config` (voir Prérequis en début de document).
 
 ### Créer la VM
+
+Les commandes ci-dessous se lancent **depuis ton poste** (cas A/B) via l'alias `pve`.
+Si tu es **déjà sur PVE** (cas C), retire le préfixe `ssh pve "…"` et exécute le
+`curl … | bash …` directement, **sans** `--extra-sshkey`.
 
 **Avec IP fixe** (recommandé — l'IP est connue d'avance) :
 
 ```bash
 ssh pve "curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/clone-vm-node.sh \
   | bash -s -- 110 --name portail-dev --template 9000 --storage vmpool \
-    --ip 192.168.1.100/24 --gw 192.168.1.1 --extra-sshkey /tmp/windows.pub"
+    --ip 192.168.1.100/24 --gw 192.168.1.1 --extra-sshkey /tmp/operator.pub"
 ```
 
-**Avec DHCP** (l'IP est détectée automatiquement via guest agent et affichée en fin de script) :
+**Avec DHCP** (l'IP est détectée automatiquement par balayage ARP du subnet et affichée en fin de script) :
 
 ```bash
 ssh pve "curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/clone-vm-node.sh \
   | bash -s -- 110 --name portail-dev --template 9000 --storage vmpool \
-    --extra-sshkey /tmp/windows.pub"
+    --extra-sshkey /tmp/operator.pub"
 ```
 
 - `110` → VMID de la nouvelle VM (libre, ni VM ni LXC existant)
 - `--template 9000` → VMID du template à cloner (voir `qm list`). Si omis, le script prend le premier template disponible.
 - `--storage vmpool` → stockage Proxmox cible (ex. `vmpool`, `local-lvm`, `local-zfs`). Si omis, le clone va dans le même stockage que le template.
-- `--extra-sshkey /tmp/windows.pub` → injecte aussi la clé Windows pour accès SSH direct depuis le poste opérateur.
+- `--extra-sshkey /tmp/operator.pub` → injecte aussi la clé du poste opérateur pour un accès SSH direct depuis ton poste. **À omettre dans le cas C** (déjà sur PVE).
 
-Le script affiche le mot de passe console (accès Proxmox noVNC) en étape A.3, puis attend que SSH réponde avant de rendre la main.
-**Noter l'IP affichée** — elle sera nécessaire à l'étape 2 (`REMOTE_HOST`).
+Le script affiche le mot de passe console (accès Proxmox noVNC) en étape A.3, détecte
+l'IP (A.8), attend que SSH réponde (A.9) puis finalise le hostname (A.11) avant de
+rendre la main. Il rafraîchit aussi le `known_hosts` du host PVE pour cette IP.
+**Noter l'IP affichée** — elle sera nécessaire à l'étape 3 (`REMOTE_HOST`).
+
+> **known_hosts côté poste opérateur** — Le script ne rafraîchit le `known_hosts` que
+> sur PVE. Si tu recrées une VM à une IP déjà connue de **ton poste**, le premier `ssh`
+> depuis ton poste affichera `REMOTE HOST IDENTIFICATION HAS CHANGED`. Purger l'ancienne
+> empreinte :
+> - Windows / Linux / macOS : `ssh-keygen -R 192.168.1.100`
 
 ---
 
-## Étape 2 — Configurer le fichier `.env` local
+## Étape 2 — Autoriser la VM à cloner le dépôt et tester en local
+
+Le déploiement clone le dépôt **en SSH** (`git@github.com:gaelgael5/devpod-ui.git`,
+variable `REPO_URL` de `deploy-portal.sh`) et s'exécute **en root** sur la VM. Le dépôt
+étant privé, root doit présenter une clé SSH autorisée par GitHub **et** avoir accepté
+l'empreinte de `github.com` — sinon le `git clone` non interactif du déploiement échoue.
+
+Se connecter à la VM puis passer root :
+
+```bash
+ssh debian@192.168.1.100
+sudo -i
+```
+
+### 2.1 — Deploy Key GitHub
+
+**a — Générer une clé de déploiement pour root** (si absente) :
+
+```bash
+ls /root/.ssh/id_ed25519.pub 2>/dev/null \
+  || ssh-keygen -t ed25519 -C "portail-dev-deploy" -f /root/.ssh/id_ed25519 -N ""
+```
+
+**b — Afficher la clé publique à enregistrer dans GitHub :**
+
+```bash
+cat /root/.ssh/id_ed25519.pub
+```
+
+**c — Ajouter la clé comme Deploy Key dans GitHub :**
+
+Dépôt `gaelgael5/devpod-ui` → **Settings → Deploy keys → Add deploy key** :
+- Title : `portail-dev`
+- Key : coller la clé publique affichée en (b)
+- **Ne pas** cocher « Allow write access » (lecture seule suffit pour cloner/puller)
+
+**d — Tester la connexion et accepter l'empreinte github.com** (toujours en root) :
+
+```bash
+ssh -T git@github.com
+# Taper "yes" pour enregistrer github.com dans /root/.ssh/known_hosts
+# Réponse attendue : "Hi gaelgael5/devpod-ui! You've successfully authenticated,
+# but GitHub does not provide shell access."
+```
+
+> Cette acceptation d'empreinte est **obligatoire** : sans elle, le `git clone` lancé
+> par `deploy-portal.sh` (non interactif) échouerait sur `Host key verification failed`.
+
+### 2.2 — Cloner le dépôt
+
+```bash
+git clone git@github.com:gaelgael5/devpod-ui.git /opt/workspace-portal
+cd /opt/workspace-portal
+```
+
+En cas d'échec d'authentification, revérifier 2.1 (clé bien collée dans GitHub, lecture
+seule suffisante). Si le clone réussit, le déploiement fera ensuite un simple `git pull`.
+
+### 2.3 — Rendre les scripts exécutables
+
+Les scripts `.sh` sont versionnés **sans bit exécutable** (mode `100644`). Après un clone
+sur Linux, les lancer avec `./scripts/...` donne `Permission denied`. Leur donner le droit
+d'exécution une fois pour toutes :
+
+```bash
+chmod +x /opt/workspace-portal/scripts/*.sh
+```
+
+> À défaut, lancer chaque script via `bash scripts/<nom>.sh` (qui ignore le bit exécutable).
+
+### 2.4 — Test du déploiement depuis la VM
+
+Valider la chaîne complète directement sur la VM, sans passer par le poste opérateur.
+
+**Premier déploiement** (initialise `/data` via `install.sh`, puis build + démarrage) —
+à lancer en root, en fournissant le secret OIDC :
+
+```bash
+cd /opt/workspace-portal
+OIDC_CLIENT_SECRET="<secret Keycloak>" \
+PORTAL_BASE_DOMAIN=dev.yoops.org \
+PORTAL_EXTERNAL_URL=https://dev.yoops.org \
+PORTAL_OIDC_ISSUER=https://security.yoops.org/realms/yoops \
+PORTAL_OIDC_CLIENT_ID=workspace-portal \
+  ./scripts/deploy-portal.sh dev
+```
+
+**Redéploiements suivants** (pull + build + restart + smoke `/health`) — `/data` déjà
+initialisé :
+
+```bash
+./scripts/dev-deploy.sh dev
+```
+
+> `deploy-portal.sh` initialise `/data` (CA, config, `.env`) ; `dev-deploy.sh` **suppose
+> `/data` déjà présent** et se contente de rebuild/redémarrer. Lancer `dev-deploy.sh`
+> avant le premier `deploy-portal.sh` démarrerait le portail sans configuration
+> (`SESSION_SECRET_KEY not set`). Les deux exigent **root** et le droit d'exécution (2.3).
+
+Le secret OIDC vient de Keycloak (étape 4). Si Keycloak n'est pas encore configuré,
+sauter ce test local et y revenir, ou poursuivre via le déploiement piloté (étapes 3 → 5).
+
+---
+
+## Étape 3 — Configurer le fichier `.env` local
 
 ```powershell
 Copy-Item scripts\.env.portail-dev.remote-deploy.example scripts\.env.portail-dev.remote-deploy
@@ -138,7 +309,7 @@ PORTAL_OIDC_CLIENT_ID=workspace-portal
 
 ---
 
-## Étape 3 — Configurer Keycloak (si pas déjà fait)
+## Étape 4 — Configurer Keycloak (si pas déjà fait)
 
 Dans la console admin Keycloak (`https://security.yoops.org/admin`), realm `yoops` :
 
@@ -151,7 +322,7 @@ Guide complet : [`documentations/fr/deploiement-portail.md`](fr/deploiement-port
 
 ---
 
-## Étape 4 — Premier déploiement
+## Étape 5 — Premier déploiement (piloté depuis le poste opérateur)
 
 ```powershell
 .\scripts\remote-deploy.ps1 portail-dev
@@ -169,7 +340,7 @@ Affiche en fin d'exécution les 80 dernières lignes de logs.
 
 ---
 
-## Étape 5 — Vérifier
+## Étape 6 — Vérifier
 
 ```bash
 # Health check direct
