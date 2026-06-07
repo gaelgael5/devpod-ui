@@ -264,6 +264,9 @@ if [[ -n "$EXTRA_SSH_KEY_FILE" ]]; then
     echo "" >> "$COMBINED_KEYS_FILE"
     cat "$EXTRA_SSH_KEY_FILE" >> "$COMBINED_KEYS_FILE"
 fi
+# Normaliser les fins de ligne (fichiers .pub copiés depuis Windows ont des CRLF
+# qui corrompent authorized_keys et font rejeter toutes les clés par Proxmox).
+sed -i 's/\r//' "$COMBINED_KEYS_FILE"
 
 qm set "$NEW_VMID" --sshkeys "$COMBINED_KEYS_FILE" --ciuser "$CI_USER" --cipassword "$CI_PASSWORD"
 
