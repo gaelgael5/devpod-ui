@@ -478,16 +478,17 @@ echo "==> A.10 — Installation des paquets (git, openssl)..."
 ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
 set -e
 export DEBIAN_FRONTEND=noninteractive
-# Attendre la fin de cloud-init puis stopper les services apt automatiques
-# (unattended-upgrades et apt-daily tiennent les locks après cloud-init).
 ${SUDO} cloud-init status --wait 2>/dev/null || true
-${SUDO} systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
-# Vérifier que les locks sont bien libérés avant de lancer apt
-for _lock in /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock; do
-    while ! flock -xn "\$_lock" /bin/true 2>/dev/null; do sleep 2; done
+# apt-daily et unattended-upgrades peuvent tenir le lock après cloud-init.
+# systemctl stop bloque autant que le processus ; on laisse apt gérer ses locks :
+#   - update : retry toutes les 5s jusqu'à 300s (lock lists/)
+#   - install : DPkg::Lock::Timeout attend jusqu'à 300s (lock dpkg)
+_t=0
+until ${SUDO} apt-get update -qq 2>/dev/null; do
+    sleep 5; _t=\$(( _t + 5 ))
+    [ \$_t -ge 300 ] && { echo "ERREUR: apt-get update en échec après 300s" >&2; exit 1; }
 done
-${SUDO} apt-get update -qq
-${SUDO} apt-get install -y --no-install-recommends git openssl
+${SUDO} apt-get -o "DPkg::Lock::Timeout=300" install -y --no-install-recommends git openssl
 REMOTE
 
 echo "    Paquets installés (git, openssl)."
