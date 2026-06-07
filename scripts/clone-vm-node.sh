@@ -388,10 +388,12 @@ if [[ "$USE_DHCP" == "true" ]]; then
         # Nécessaire si le timing DHCP dépasse le premier sweep ou si tcpdump est absent.
         if [[ -n "$BRIDGE_NET" && $ELAPSED -ge 30 && $(( ELAPSED - LAST_SWEEP )) -ge 30 ]]; then
             printf "\r    %3ds — balayage ARP %s.0/24...%-40s" "$ELAPSED" "$BRIDGE_NET" ""
+            PING_PIDS=()
             for i in $(seq 1 254); do
                 ping -c1 -W1 -q "${BRIDGE_NET}.${i}" &>/dev/null &
+                PING_PIDS+=($!)
             done
-            wait
+            wait "${PING_PIDS[@]}" 2>/dev/null || true
             LAST_SWEEP=$ELAPSED
             IP_ADDR=$(_extract_ip)
             if [[ -n "$IP_ADDR" ]]; then echo ""; break; fi
