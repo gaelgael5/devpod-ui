@@ -362,7 +362,12 @@ if [[ "$USE_DHCP" == "true" ]]; then
         echo "    AVERTISSEMENT : subnet du bridge introuvable — balayage ARP désactivé"
     fi
 
-    SWEEP_DONE=false
+    # LAST_SWEEP=-30 : force le premier sweep à ELAPSED=30 (30 - (-30) = 60 > 30 → non,
+    # la condition est ELAPSED >= 30 ET ELAPSED - LAST_SWEEP >= 30).
+    # Premier déclenchement : ELAPSED=30, ensuite tous les 30s (60, 90, 120…).
+    # Nécessaire car le timing DHCP varie : si le bail arrive après le premier sweep,
+    # le suivant rattrapera le coup (Linux ignore les ARP gratuits, arp_accept=0).
+    LAST_SWEEP=-30
     ELAPSED=0
     while [[ $ELAPSED -lt 120 ]]; do
         # Vérifier la table ARP en premier
@@ -370,16 +375,16 @@ if [[ "$USE_DHCP" == "true" ]]; then
             | awk -v mac="$MAC" 'tolower($5) == mac {print $1; exit}') || true
         if [[ -n "$IP_ADDR" ]]; then break; fi
 
-        # À ~30s : balayage actif du subnet (254 pings simultanés, timeout 1s chacun)
-        # Nécessaire car Linux n'apprend pas les ARP gratuits par défaut (arp_accept=0) :
-        # le host ne connaît l'IP d'un voisin que lorsqu'il lui envoie lui-même un ARP.
-        if [[ "$SWEEP_DONE" == "false" && $ELAPSED -ge 30 && -n "$BRIDGE_NET" ]]; then
+        # Balayage actif toutes les 30s dès 30s (254 pings simultanés, timeout 1s)
+        # Linux n'apprend pas les ARP gratuits (arp_accept=0) : le host ne connaît
+        # l'IP d'un voisin que lorsqu'il lui envoie lui-même un ARP request.
+        if [[ -n "$BRIDGE_NET" && $ELAPSED -ge 30 && $(( ELAPSED - LAST_SWEEP )) -ge 30 ]]; then
             printf "\r    %3ds — balayage ARP %s.0/24 en cours...%-30s" "$ELAPSED" "$BRIDGE_NET" ""
             for i in $(seq 1 254); do
                 ping -c1 -W1 -q "${BRIDGE_NET}.${i}" &>/dev/null &
             done
             wait
-            SWEEP_DONE=true
+            LAST_SWEEP=$ELAPSED
             # Re-vérifier immédiatement après le balayage
             IP_ADDR=$(ip neigh show ${BRIDGE:+dev "$BRIDGE"} 2>/dev/null \
                 | awk -v mac="$MAC" 'tolower($5) == mac {print $1; exit}') || true
@@ -389,7 +394,7 @@ if [[ "$USE_DHCP" == "true" ]]; then
         VM_STATUS=$(qm status "$NEW_VMID" 2>/dev/null | awk '{print $2}' || echo "?")
         if [[ $ELAPSED -lt 30 ]]; then
             STATUS_MSG="démarrage VM ($VM_STATUS)"
-        elif [[ "$SWEEP_DONE" == "true" ]]; then
+        elif [[ $(( ELAPSED - LAST_SWEEP )) -lt 30 ]]; then
             STATUS_MSG="attente ARP post-balayage ($VM_STATUS)"
         else
             STATUS_MSG="en attente ARP ($VM_STATUS)"
