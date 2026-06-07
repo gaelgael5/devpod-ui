@@ -464,20 +464,29 @@ if [[ -d ~/.ssh ]]; then
     echo "    known_hosts du host PVE rafraîchi pour $IP_ADDR."
 fi
 
-# ─── A.10 — Conversion DHCP → IP fixe ────────────────────────────────────────
-# A.10 est N/A : l'IP fixe a été configurée avant le démarrage (A.6).
-# Aucune reconfiguration nécessaire.
-
-# ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
-echo ""
-echo "==> A.11 — Vérification du hostname et de /etc/hosts..."
-
 # Les commandes d'élévation : sudo pour un utilisateur non-root, rien pour root
 if [[ "$CI_USER" == "root" ]]; then
     SUDO=""
 else
     SUDO="sudo"
 fi
+
+# ─── A.10 — Installer les paquets système requis ─────────────────────────────
+echo ""
+echo "==> A.10 — Installation des paquets (git, openssl)..."
+
+ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
+set -e
+export DEBIAN_FRONTEND=noninteractive
+${SUDO} apt-get update -qq
+${SUDO} apt-get install -y --no-install-recommends git openssl
+REMOTE
+
+echo "    Paquets installés (git, openssl)."
+
+# ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
+echo ""
+echo "==> A.11 — Vérification du hostname et de /etc/hosts..."
 
 ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
 set -e
