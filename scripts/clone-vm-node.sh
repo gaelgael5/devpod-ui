@@ -453,6 +453,17 @@ done
 echo ""
 echo "    SSH opérationnel sur ${IP_ADDR}."
 
+# ─── Rafraîchir known_hosts du host PVE ──────────────────────────────────────
+# La VM vient d'être (re)créée à cette IP : toute entrée known_hosts existante est
+# périmée et provoque "REMOTE HOST IDENTIFICATION HAS CHANGED" sur les ssh manuels.
+# On purge l'ancienne empreinte et on pré-enregistre la nouvelle (évite aussi le
+# prompt yes/no au premier ssh debian@IP depuis le host).
+if [[ -d ~/.ssh ]]; then
+    ssh-keygen -R "$IP_ADDR" 2>/dev/null || true
+    ssh-keyscan -T 5 "$IP_ADDR" >> ~/.ssh/known_hosts 2>/dev/null || true
+    echo "    known_hosts du host PVE rafraîchi pour $IP_ADDR."
+fi
+
 # ─── A.10 — Conversion DHCP → IP fixe ────────────────────────────────────────
 # A.10 est N/A : l'IP fixe a été configurée avant le démarrage (A.6).
 # Aucune reconfiguration nécessaire.
