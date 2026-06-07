@@ -478,9 +478,11 @@ echo "==> A.10 — Installation des paquets (git, openssl)..."
 ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
 set -e
 export DEBIAN_FRONTEND=noninteractive
-# cloud-init status --wait peut retourner avant que ses sous-processus apt aient fini ;
-# on attend la libération effective des locks (flock -xn = non-bloquant, boucle).
+# Attendre la fin de cloud-init puis stopper les services apt automatiques
+# (unattended-upgrades et apt-daily tiennent les locks après cloud-init).
 ${SUDO} cloud-init status --wait 2>/dev/null || true
+${SUDO} systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+# Vérifier que les locks sont bien libérés avant de lancer apt
 for _lock in /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock; do
     while ! flock -xn "\$_lock" /bin/true 2>/dev/null; do sleep 2; done
 done
