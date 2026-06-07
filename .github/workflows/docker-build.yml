@@ -1,0 +1,51 @@
+name: docker-build
+
+# Build de validation des images Docker (portal + caddy).
+# Gate avant de basculer dev -> main : tant que ce workflow n'est pas vert,
+# on ne merge pas. Build uniquement (push: false), aucun secret requis :
+# le env_file /data/.env du compose est runtime, pas build (§D-21).
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev, main]
+
+# Annule un run précédent encore en cours sur la même référence
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Image du portail : context = racine du repo (COPY frontend/ backend/ scripts/)
+          - name: portal
+            context: .
+            file: deploy/Dockerfile
+          # Image Caddy + plugin DNS Cloudflare : context = deploy/ (cf. docker-compose.yml)
+          - name: caddy
+            context: deploy
+            file: deploy/Dockerfile.caddy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: false
+          tags: workspace-${{ matrix.name }}:ci
+          # Cache GitHub Actions, isolé par image pour ne pas mélanger les layers
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
