@@ -406,22 +406,26 @@ if [[ "$USE_DHCP" == "true" ]]; then
     echo ""
 
     if [[ -z "$IP_ADDR" ]]; then
-        echo "" >&2
-        echo "ERREUR : IP DHCP non détectée après 120s (balayage ARP inclus)." >&2
-        echo "" >&2
-        echo "  Diagnostic :" >&2
-        echo "  - État VM   : $(qm status "$NEW_VMID" 2>/dev/null)" >&2
-        echo "  - Table ARP : ip neigh show${BRIDGE:+ dev $BRIDGE}" >&2
-        echo "  - Console   : qm terminal $NEW_VMID  → ip addr" >&2
-        echo "" >&2
-        echo "  Solutions :" >&2
-        echo "    1. Accéder via la console et noter l'IP :" >&2
-        echo "       qm terminal $NEW_VMID  → ip addr" >&2
-        echo "    2. Relancer avec IP fixe :" >&2
-        echo "       bash $0 $NEW_VMID --name $NODE_NAME --ip <IP>/24 --gw <GW> ..." >&2
-        exit 1
+        echo ""
+        echo "  IP DHCP non détectée automatiquement après 120s."
+        echo "  La VM est démarrée ($(qm status "$NEW_VMID" 2>/dev/null))."
+        echo ""
+        echo "  → Ouvrir un autre terminal et récupérer l'IP :"
+        echo "    qm terminal $NEW_VMID  (puis : ip addr)"
+        echo ""
+        if [[ -t 0 ]]; then
+            # Stdin est un terminal : saisie interactive possible
+            printf "  Entrer l'IP de la VM (ex. 192.168.10.187) : "
+            read -r IP_ADDR
+            IP_ADDR="${IP_ADDR// /}"   # supprimer espaces accidentels
+        fi
+        [[ -n "$IP_ADDR" ]] || {
+            echo "ERREUR : IP non fournie. La VM reste démarrée (VMID $NEW_VMID)." >&2
+            echo "  Reprendre manuellement à partir de l'IP obtenue via la console." >&2
+            exit 1
+        }
     fi
-    echo "    IP DHCP détectée : $IP_ADDR"
+    echo "    IP DHCP : $IP_ADDR"
 fi
 
 # ─── A.9 — Attendre que SSH soit disponible ───────────────────────────────────
