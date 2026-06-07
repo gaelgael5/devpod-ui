@@ -172,10 +172,11 @@ echo "==> Vérification de l'intégrité SHA512..."
 }
 echo "    Intégrité vérifiée."
 
-# ─── Installation de qemu-guest-agent dans l'image ───────────────────────────
-# virt-customize modifie l'image qcow2 sans la démarrer (pas de problème bootstrap).
+# ─── Préconfiguration cloud-init dans l'image ────────────────────────────────
+# virt-customize modifie l'image qcow2 sans la démarrer.
+# Force le datasource NoCloud (requis pour Proxmox) et active le module set-passwords.
 echo ""
-echo "==> Installation de qemu-guest-agent dans l'image (virt-customize)..."
+echo "==> Préconfiguration cloud-init dans l'image (virt-customize)..."
 
 if ! command -v virt-customize &>/dev/null; then
     echo "    virt-customize introuvable — installation de libguestfs-tools (peut prendre 1 min)..."
@@ -185,22 +186,20 @@ if ! command -v virt-customize &>/dev/null; then
         -qq > /dev/null 2>&1 || true
 fi
 
-GUEST_AGENT_OK=false
+VIRT_CUSTOMIZE_OK=false
 if command -v virt-customize &>/dev/null; then
     if LIBGUESTFS_BACKEND=direct virt-customize -a "$IMAGE_FILE" \
-            --install qemu-guest-agent \
-            --run-command 'systemctl enable qemu-guest-agent' \
             --run-command 'printf "datasource_list: [NoCloud, None]\n" > /etc/cloud/cloud.cfg.d/99-proxmox.cfg' \
-            --run-command 'grep -q "set.passwords" /etc/cloud/cloud.cfg || sed -i "/^cloud_config_modules:/a\\\ - set-passwords" /etc/cloud/cloud.cfg' \
+            --run-command 'grep -q "set-passwords" /etc/cloud/cloud.cfg || sed -i "/^cloud_config_modules:/a\\ - set-passwords" /etc/cloud/cloud.cfg' \
             --run-command 'cloud-init clean' \
             --quiet 2>/dev/null; then
-        GUEST_AGENT_OK=true
-        echo "    qemu-guest-agent installé dans l'image."
+        VIRT_CUSTOMIZE_OK=true
+        echo "    cloud-init configuré dans l'image (datasource NoCloud + set-passwords)."
     else
-        echo "    AVERTISSEMENT : virt-customize a échoué — guest agent non installé." >&2
+        echo "    AVERTISSEMENT : virt-customize a échoué — cloud-init non préconfiguré." >&2
     fi
 else
-    echo "    AVERTISSEMENT : libguestfs-tools indisponible — guest agent non installé." >&2
+    echo "    AVERTISSEMENT : libguestfs-tools indisponible — cloud-init non préconfiguré." >&2
 fi
 
 # ─── Création de la VM vide ───────────────────────────────────────────────────
@@ -266,16 +265,13 @@ echo "======================================================"
 echo "  Template créé : $TEMPLATE_NAME (VMID $VMID)"
 echo "======================================================"
 echo ""
-if $GUEST_AGENT_OK; then
-    echo "  ✓ qemu-guest-agent installé — détection IP DHCP opérationnelle sur les clones."
+if $VIRT_CUSTOMIZE_OK; then
+    echo "  ✓ cloud-init préconfiguré (datasource NoCloud + set-passwords)."
 else
-    echo "  ATTENTION : qemu-guest-agent non installé."
-    echo "  La détection automatique d'IP DHCP (clone-vm-node.sh sans --ip) ne fonctionnera pas."
-    echo "  Pour l'activer :"
+    echo "  ATTENTION : virt-customize n'a pas pu préconfigurer cloud-init."
+    echo "  Le mot de passe console (--cipassword) peut ne pas s'appliquer."
+    echo "  Installer libguestfs-tools et recréer le template pour activer la préconfiguration :"
     echo "    apt-get install -y libguestfs-tools"
-    echo "    LIBGUESTFS_BACKEND=direct virt-customize -a <image.qcow2> \\"
-    echo "      --install qemu-guest-agent --run-command 'systemctl enable qemu-guest-agent'"
-    echo "    Puis réimporter l'image dans Proxmox."
 fi
 echo ""
 echo "Prochaine étape — créer un nœud Docker depuis ce template :"
