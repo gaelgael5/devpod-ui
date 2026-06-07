@@ -404,43 +404,29 @@ fi
 
 # ─── A.9 — Attendre que SSH soit disponible ───────────────────────────────────
 echo ""
-echo "==> A.9 — Attente de SSH sur $IP_ADDR (max 180s)..."
+echo "==> A.9 — Attente de SSH sur $IP_ADDR (max 240s)..."
+echo "    (sshd ouvre le port avant que cloud-init n'écrive authorized_keys)"
 
 # UserKnownHostsFile=/dev/null : ignore known_hosts (évite l'échec sur VM recréée
 # avec la même IP mais une nouvelle empreinte, même avec StrictHostKeyChecking=no).
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR"
 
-# 1) Attendre que le port 22 réponde (nc, rapide)
+# Une seule boucle : retenter le vrai SSH jusqu'à succès. La clé n'est posée
+# par cloud-init qu'après le boot complet — il faut laisser le temps qu'il finisse.
 ELAPSED=0
-while [[ $ELAPSED -lt 180 ]]; do
-    nc -z -w2 "$IP_ADDR" 22 2>/dev/null && break
-    printf "\r    %3ds — port 22 fermé..." "$ELAPSED"
-    sleep 3
-    ELAPSED=$(( ELAPSED + 3 ))
+until ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "${CI_USER}@${IP_ADDR}" "exit 0" 2>/dev/null; do
+    if [[ $ELAPSED -ge 240 ]]; then
+        echo "" >&2
+        echo "ERREUR : SSH indisponible sur ${CI_USER}@${IP_ADDR} après 240s." >&2
+        echo "  État VM    : $(qm status "$NEW_VMID" 2>/dev/null)" >&2
+        echo "  Diagnostic : ssh -v -i $SSH_PRIVATE_KEY ${CI_USER}@${IP_ADDR}" >&2
+        exit 1
+    fi
+    printf "\r    %3ds — en attente de SSH..." "$ELAPSED"
+    sleep 5
+    ELAPSED=$(( ELAPSED + 5 ))
 done
 echo ""
-nc -z -w2 "$IP_ADDR" 22 2>/dev/null || {
-    echo "ERREUR : port 22 inaccessible sur $IP_ADDR après 180s." >&2
-    echo "  État VM : $(qm status "$NEW_VMID" 2>/dev/null)" >&2
-    exit 1
-}
-
-# 2) Valider l'authentification par clé (cloud-init peut encore écrire authorized_keys)
-ELAPSED=0
-while [[ $ELAPSED -lt 60 ]]; do
-    ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "${CI_USER}@${IP_ADDR}" "exit 0" 2>/dev/null && break
-    printf "\r    %3ds — auth SSH en attente (cloud-init)..." "$ELAPSED"
-    sleep 3
-    ELAPSED=$(( ELAPSED + 3 ))
-done
-echo ""
-ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "${CI_USER}@${IP_ADDR}" "exit 0" 2>/dev/null || {
-    echo "ERREUR : auth SSH échouée sur ${CI_USER}@${IP_ADDR}." >&2
-    echo "  Le port 22 répond mais la clé est refusée." >&2
-    echo "  Vérifier : ssh -v -i $SSH_PRIVATE_KEY ${CI_USER}@${IP_ADDR}" >&2
-    exit 1
-}
-
 echo "    SSH opérationnel sur ${IP_ADDR}."
 
 # ─── A.10 — Conversion DHCP → IP fixe ────────────────────────────────────────
