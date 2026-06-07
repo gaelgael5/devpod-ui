@@ -478,6 +478,8 @@ echo "==> A.10 — Installation des paquets (git, openssl)..."
 ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
 set -e
 export DEBIAN_FRONTEND=noninteractive
+# Attendre la fin de cloud-init avant de toucher apt (lock /var/lib/apt/lists/)
+${SUDO} cloud-init status --wait 2>/dev/null || true
 ${SUDO} apt-get update -qq
 ${SUDO} apt-get install -y --no-install-recommends git openssl
 REMOTE
