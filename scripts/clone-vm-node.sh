@@ -473,7 +473,7 @@ fi
 
 # ─── A.10 — Installer les paquets système requis ─────────────────────────────
 echo ""
-echo "==> A.10 — Installation des paquets (git, openssl)..."
+echo "==> A.10 — Installation des paquets (git, openssl, docker)..."
 
 ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
 set -e
@@ -488,10 +488,12 @@ until ${SUDO} apt-get update -qq 2>/dev/null; do
     sleep 5; _t=\$(( _t + 5 ))
     [ \$_t -ge 300 ] && { echo "ERREUR: apt-get update en échec après 300s" >&2; exit 1; }
 done
-${SUDO} apt-get -o "DPkg::Lock::Timeout=300" install -y --no-install-recommends git openssl
+${SUDO} apt-get -o "DPkg::Lock::Timeout=300" install -y --no-install-recommends \
+    git openssl docker.io docker-compose-plugin
+${SUDO} systemctl enable --now docker
 REMOTE
 
-echo "    Paquets installés (git, openssl)."
+echo "    Paquets installés (git, openssl, docker)."
 
 # ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
 echo ""
