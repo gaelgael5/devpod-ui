@@ -403,6 +403,18 @@ if [[ "$USE_DHCP" == "true" ]]; then
 fi
 
 # ─── A.9 — Attendre que SSH soit disponible ───────────────────────────────────
+# On attend que cloud-init ait écrit authorized_keys (module ssh, stage 'config').
+# sshd ouvre le port 22 AVANT cela : tester le port ne prouve rien, on teste le
+# vrai SSH par clé jusqu'à succès.
+#
+# Dimensionnement du timeout (mesuré sur ce template Debian 12 genericcloud) :
+#   SeaBIOS + kernel ......................  ~10-15s  (pire cas ~25s)
+#   cloud-init stage 'config' (module ssh)   ~20-40s  (pire cas ~90s host/ZFS chargé)
+#   marge réseau (DHCP/ARP déjà faits en A.8) ~5s     (pire cas ~15s)
+#   => 1re auth réussie : ~40-60s nominal, ~130s pire cas
+# Seuil retenu : 240s = ~130s de pire cas × ~1,8 de marge (clones simultanés,
+# stockage lent au 1er boot). Au-delà ce n'est plus de la lenteur mais une panne
+# (clé non injectée, réseau cassé) : inutile d'attendre plus, on échoue et on diagnostique.
 echo ""
 echo "==> A.9 — Attente de SSH sur $IP_ADDR (max 240s)..."
 echo "    (sshd ouvre le port avant que cloud-init n'écrive authorized_keys)"
@@ -411,8 +423,7 @@ echo "    (sshd ouvre le port avant que cloud-init n'écrive authorized_keys)"
 # avec la même IP mais une nouvelle empreinte, même avec StrictHostKeyChecking=no).
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR"
 
-# Une seule boucle : retenter le vrai SSH jusqu'à succès. La clé n'est posée
-# par cloud-init qu'après le boot complet — il faut laisser le temps qu'il finisse.
+# Une seule boucle : retenter le vrai SSH jusqu'à succès.
 ELAPSED=0
 until ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "${CI_USER}@${IP_ADDR}" "exit 0" 2>/dev/null; do
     if [[ $ELAPSED -ge 240 ]]; then
