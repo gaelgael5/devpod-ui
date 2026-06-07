@@ -7,7 +7,7 @@
 #
 #   IP fixe :
 #     bash clone-vm-node.sh 104 --name pve2-docker --ip 192.168.1.50/24 --gw 192.168.1.1
-#   DHCP (IP détectée automatiquement via guest agent) :
+#   DHCP (IP détectée automatiquement via tcpdump ARP) :
 #     bash clone-vm-node.sh 104 --name pve2-docker
 #
 # Arguments obligatoires :
@@ -122,7 +122,7 @@ fi
     exit 1
 }
 
-# Ajouter le préfixe '+' au montant disque si absent (ex. 40G → +40G)
+# Ajouter le préfixe '+' au montant disque si absent (ex. 40G -> +40G)
 [[ "$DISK_EXTRA" == +* ]] || DISK_EXTRA="+${DISK_EXTRA}"
 
 # ─── A.1 — Vérifier que le VMID est libre ─────────────────────────────────────
@@ -240,7 +240,7 @@ echo "    Utilisateur CI : $CI_USER"
 echo ""
 
 # ─── A.2 — Cloner le template ─────────────────────────────────────────────────
-echo "==> A.2 — Clonage du template VMID ${TEMPLATE_VMID} → VMID ${NEW_VMID}..."
+echo "==> A.2 — Clonage du template VMID ${TEMPLATE_VMID} -> VMID ${NEW_VMID}..."
 echo "    (clone complet --full, peut prendre 1 à 5 minutes)"
 
 CLONE_ARGS=("$TEMPLATE_VMID" "$NEW_VMID" --name "$NODE_NAME" --full)
@@ -329,103 +329,112 @@ qm start "$NEW_VMID"
 
 echo "    VM démarrée. Attente de cloud-init et SSH..."
 
-# ─── A.8 — Récupérer l'IP DHCP via la table ARP du bridge ───────────────────
-# Mécanisme : Linux ne peuple pas la table ARP depuis les ARP gratuits (arp_accept=0).
-# Solution : attendre ~30s que la VM démarre, puis faire un balayage actif du subnet
-# (254 pings parallèles en 1s) pour forcer les réponses ARP → la VM répond → son IP
-# apparaît dans `ip neigh show`. Séquence : BIOS ~5s + kernel ~10s + cloud-init ~15s
-# + DHCP → prêt. Balayage à 30s, détection immédiate après.
+# ─── A.8 — Récupérer l'IP DHCP via tcpdump ───────────────────────────────────
+# tcpdump capture les paquets ARP directement sur le bridge (couche 2), sans
+# passer par la table ARP du kernel (arp_accept=0 n'a aucun effet ici).
+# La VM envoie des ARP requests/announces dès qu'elle a son bail DHCP ;
+# tcpdump les intercepte et on extrait l'IP de l'émetteur.
+# Fallback : ping sweep du subnet toutes les 30s pour forcer des ARP replies
+# (utile si la VM n'envoie pas de gratuitous ARP ou si tcpdump est absent).
 if [[ "$USE_DHCP" == "true" ]]; then
     echo ""
-    echo "==> A.8 — Détection de l'IP DHCP via balayage ARP actif (max 120s)..."
-    echo "    (attente ~30s, puis ping sweep du subnet pour forcer la réponse ARP)"
+    echo "==> A.8 — Détection de l'IP DHCP via tcpdump ARP (max 120s)..."
 
-    # Récupérer le bridge et le MAC de la VM
     BRIDGE=$(qm config "$NEW_VMID" 2>/dev/null | grep '^net0:' \
         | grep -oP 'bridge=[^,]+' | cut -d= -f2)
     MAC=$(qm config "$NEW_VMID" 2>/dev/null | grep '^net0:' \
         | grep -oP 'virtio=[0-9A-Fa-f:]+' | cut -d= -f2 | tr '[:upper:]' '[:lower:]')
 
-    [[ -n "$MAC" ]] || {
-        echo "ERREUR : impossible de lire l'adresse MAC de net0." >&2
-        exit 1
-    }
-    echo "    MAC : $MAC${BRIDGE:+  Bridge : $BRIDGE}"
-
-    # Dériver le préfixe /24 du bridge (ex. 192.168.1 → sweep de .1 à .254)
+    [[ -n "$MAC" ]] || { echo "ERREUR : MAC de net0 introuvable." >&2; exit 1; }
     BRIDGE_IFACE="${BRIDGE:-vmbr0}"
+    echo "    MAC : $MAC  Bridge : $BRIDGE_IFACE"
+
+    # Subnet du bridge pour le balayage ping (fallback et renfort)
     BRIDGE_NET=$(ip -4 addr show dev "$BRIDGE_IFACE" 2>/dev/null \
         | grep -oP 'inet \K\d+\.\d+\.\d+' | head -1)
-    if [[ -n "$BRIDGE_NET" ]]; then
-        echo "    Subnet bridge : ${BRIDGE_NET}.0/24 — balayage ARP à ~30s"
+
+    IP_ADDR=""
+    TCPDUMP_LOG=$(mktemp /tmp/arp-XXXXXX.txt)
+    TCPDUMP_PID=""
+
+    if command -v tcpdump &>/dev/null; then
+        # -c 10 : absorbe les ARP probes DHCP (sender IP = 0.0.0.0) avant le vrai ARP.
+        # Filtre : uniquement les paquets ARP émis par le MAC de notre VM.
+        tcpdump -i "$BRIDGE_IFACE" -n "arp and ether src $MAC" -c 10 \
+            >"$TCPDUMP_LOG" 2>/dev/null &
+        TCPDUMP_PID=$!
+        echo "    tcpdump en écoute sur $BRIDGE_IFACE..."
     else
-        echo "    AVERTISSEMENT : subnet du bridge introuvable — balayage ARP désactivé"
+        echo "    tcpdump absent — balayage ping uniquement"
     fi
 
-    # LAST_SWEEP=-30 : force le premier sweep à ELAPSED=30 (30 - (-30) = 60 > 30 → non,
-    # la condition est ELAPSED >= 30 ET ELAPSED - LAST_SWEEP >= 30).
-    # Premier déclenchement : ELAPSED=30, ensuite tous les 30s (60, 90, 120…).
-    # Nécessaire car le timing DHCP varie : si le bail arrive après le premier sweep,
-    # le suivant rattrapera le coup (Linux ignore les ARP gratuits, arp_accept=0).
+    # Extraire l'IP de la VM depuis la sortie tcpdump :
+    #   "Request who-has X tell Y"  -> Y = sender IP (0.0.0.0 si ARP probe DHCP)
+    #   "Reply X is-at MAC"         -> X = IP de la VM
+    _extract_ip() {
+        grep -oP 'tell \K[\d.]+|Reply \K[\d.]+' "$TCPDUMP_LOG" 2>/dev/null \
+            | grep -v '^0\.' | head -1 || true
+    }
+
     LAST_SWEEP=-30
     ELAPSED=0
     while [[ $ELAPSED -lt 120 ]]; do
-        # Vérifier la table ARP en premier
-        IP_ADDR=$(ip neigh show ${BRIDGE:+dev "$BRIDGE"} 2>/dev/null \
-            | awk -v mac="$MAC" 'tolower($5) == mac {print $1; exit}') || true
-        if [[ -n "$IP_ADDR" ]]; then break; fi
+        # Vérifier le log tcpdump à chaque itération
+        IP_ADDR=$(_extract_ip)
+        [[ -n "$IP_ADDR" ]] && break
 
-        # Balayage actif toutes les 30s dès 30s (254 pings simultanés, timeout 1s)
-        # Linux n'apprend pas les ARP gratuits (arp_accept=0) : le host ne connaît
-        # l'IP d'un voisin que lorsqu'il lui envoie lui-même un ARP request.
+        # Balayage ping toutes les 30s dès 30s.
+        # Force la VM à répondre par un ARP reply que tcpdump capture.
+        # Nécessaire si le timing DHCP dépasse le premier sweep ou si tcpdump est absent.
         if [[ -n "$BRIDGE_NET" && $ELAPSED -ge 30 && $(( ELAPSED - LAST_SWEEP )) -ge 30 ]]; then
-            printf "\r    %3ds — balayage ARP %s.0/24 en cours...%-30s" "$ELAPSED" "$BRIDGE_NET" ""
+            printf "\r    %3ds — balayage ARP %s.0/24...%-40s" "$ELAPSED" "$BRIDGE_NET" ""
             for i in $(seq 1 254); do
                 ping -c1 -W1 -q "${BRIDGE_NET}.${i}" &>/dev/null &
             done
             wait
             LAST_SWEEP=$ELAPSED
-            # Re-vérifier immédiatement après le balayage
-            IP_ADDR=$(ip neigh show ${BRIDGE:+dev "$BRIDGE"} 2>/dev/null \
-                | awk -v mac="$MAC" 'tolower($5) == mac {print $1; exit}') || true
+            IP_ADDR=$(_extract_ip)
             if [[ -n "$IP_ADDR" ]]; then echo ""; break; fi
+            # Sans tcpdump : vérifier la table ARP classique après le sweep
+            if [[ -z "$TCPDUMP_PID" ]]; then
+                IP_ADDR=$(ip neigh show dev "$BRIDGE_IFACE" 2>/dev/null \
+                    | awk -v mac="$MAC" 'tolower($5) == mac {print $1; exit}') || true
+                [[ -n "$IP_ADDR" ]] && { echo ""; break; }
+            fi
         fi
 
         VM_STATUS=$(qm status "$NEW_VMID" 2>/dev/null | awk '{print $2}' || echo "?")
-        if [[ $ELAPSED -lt 30 ]]; then
-            STATUS_MSG="démarrage VM ($VM_STATUS)"
-        elif [[ $(( ELAPSED - LAST_SWEEP )) -lt 30 ]]; then
-            STATUS_MSG="attente ARP post-balayage ($VM_STATUS)"
-        else
-            STATUS_MSG="en attente ARP ($VM_STATUS)"
-        fi
-        printf "\r    %3ds — %-70s" "$ELAPSED" "$STATUS_MSG"
+        printf "\r    %3ds — attente ARP ($VM_STATUS)%-50s" "$ELAPSED" ""
         sleep 5
         ELAPSED=$(( ELAPSED + 5 ))
     done
     echo ""
 
+    # Arrêter tcpdump et faire une dernière lecture du log avant de le supprimer
+    if [[ -n "$TCPDUMP_PID" ]]; then
+        kill "$TCPDUMP_PID" 2>/dev/null || true
+        wait "$TCPDUMP_PID" 2>/dev/null || true
+        [[ -z "$IP_ADDR" ]] && IP_ADDR=$(_extract_ip)
+    fi
+    rm -f "$TCPDUMP_LOG"
+
     if [[ -z "$IP_ADDR" ]]; then
         echo ""
-        echo "  IP DHCP non détectée automatiquement après 120s."
+        echo "  IP DHCP non détectée après 120s."
         echo "  La VM est démarrée ($(qm status "$NEW_VMID" 2>/dev/null))."
-        echo ""
-        echo "  → Ouvrir un autre terminal et récupérer l'IP :"
-        echo "    qm terminal $NEW_VMID  (puis : ip addr)"
+        echo "  Récupérer l'IP via : qm terminal $NEW_VMID  -> ip addr"
         echo ""
         if [[ -t 0 ]]; then
-            # Stdin est un terminal : saisie interactive possible
-            printf "  Entrer l'IP de la VM (ex. 192.168.10.187) : "
+            printf "  Entrer l'IP manuellement : "
             read -r IP_ADDR
-            IP_ADDR="${IP_ADDR// /}"   # supprimer espaces accidentels
+            IP_ADDR="${IP_ADDR// /}"
         fi
         [[ -n "$IP_ADDR" ]] || {
-            echo "ERREUR : IP non fournie. La VM reste démarrée (VMID $NEW_VMID)." >&2
-            echo "  Reprendre manuellement à partir de l'IP obtenue via la console." >&2
+            echo "ERREUR : IP non fournie. VM reste démarrée (VMID $NEW_VMID)." >&2
             exit 1
         }
     fi
-    echo "    IP DHCP : $IP_ADDR"
+    echo "    IP DHCP détectée : $IP_ADDR"
 fi
 
 # ─── A.9 — Attendre que SSH soit disponible ───────────────────────────────────
@@ -480,7 +489,7 @@ SUDO="$SUDO"
 # Vérifier le hostname courant (cloud-init le fixe depuis le nom de la VM)
 CURRENT=\$(hostname)
 if [[ "\$CURRENT" != "\$EXPECTED" ]]; then
-    echo "    Correction du hostname : \$CURRENT → \$EXPECTED"
+    echo "    Correction du hostname : \$CURRENT -> \$EXPECTED"
     \$SUDO hostnamectl set-hostname "\$EXPECTED"
 fi
 
