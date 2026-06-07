@@ -172,6 +172,36 @@ echo "==> Vérification de l'intégrité SHA512..."
 }
 echo "    Intégrité vérifiée."
 
+# ─── Préconfiguration cloud-init dans l'image ────────────────────────────────
+# virt-customize modifie l'image qcow2 sans la démarrer.
+# Force le datasource NoCloud (requis pour Proxmox) et active le module set-passwords.
+echo ""
+echo "==> Préconfiguration cloud-init dans l'image (virt-customize)..."
+
+if ! command -v virt-customize &>/dev/null; then
+    echo "    virt-customize introuvable — installation de libguestfs-tools (peut prendre 1 min)..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y libguestfs-tools \
+        -o Dpkg::Options::="--force-confold" \
+        -o APT::Get::Show-Upgraded=false \
+        -qq > /dev/null 2>&1 || true
+fi
+
+VIRT_CUSTOMIZE_OK=false
+if command -v virt-customize &>/dev/null; then
+    if LIBGUESTFS_BACKEND=direct virt-customize -a "$IMAGE_FILE" \
+            --run-command 'printf "datasource_list: [NoCloud, None]\n" > /etc/cloud/cloud.cfg.d/99-proxmox.cfg' \
+            --run-command 'grep -q "set-passwords" /etc/cloud/cloud.cfg || sed -i "/^cloud_config_modules:/a\\ - set-passwords" /etc/cloud/cloud.cfg' \
+            --run-command 'cloud-init clean' \
+            --quiet 2>/dev/null; then
+        VIRT_CUSTOMIZE_OK=true
+        echo "    cloud-init configuré dans l'image (datasource NoCloud + set-passwords)."
+    else
+        echo "    AVERTISSEMENT : virt-customize a échoué — cloud-init non préconfiguré." >&2
+    fi
+else
+    echo "    AVERTISSEMENT : libguestfs-tools indisponible — cloud-init non préconfiguré." >&2
+fi
+
 # ─── Création de la VM vide ───────────────────────────────────────────────────
 echo ""
 echo "==> Création de la VM (VMID $VMID)..."
@@ -183,7 +213,6 @@ qm create "$VMID" \
     --net0    "virtio,bridge=${BRIDGE}" \
     --ostype  l26 \
     --machine q35 \
-    --agent   enabled=1 \
     --serial0 socket \
     --vga     serial0
 
@@ -213,8 +242,10 @@ qm set "$VMID" \
     --scsihw virtio-scsi-pci \
     --scsi0  "${DISK},discard=on"
 
-# Lecteur cloud-init — obligatoire pour que --ipconfig0 et --sshkey fonctionnent sur les clones
-qm set "$VMID" --ide2 "${STORAGE}:cloudinit"
+# Lecteur cloud-init sur scsi1 (même contrôleur VirtIO SCSI que scsi0) — détecté comme /dev/sr0
+# IMPORTANT : ne pas utiliser ide2 sur Debian 12 genericcloud — le driver AHCI n'est pas chargé
+# assez tôt dans l'initramfs et blkid ne voit pas le device cidata (DataSourceNone au lieu de NoCloud).
+qm set "$VMID" --scsi1 "${STORAGE}:cloudinit"
 
 # Ordre de démarrage : scsi0 en premier
 qm set "$VMID" --boot order=scsi0
@@ -235,18 +266,16 @@ echo "======================================================"
 echo "  Template créé : $TEMPLATE_NAME (VMID $VMID)"
 echo "======================================================"
 echo ""
-echo "ATTENTION : qemu-guest-agent n'est pas installé."
-echo "  'qm guest exec' ne fonctionnera pas sur les clones."
-echo "  Pour l'installer avant de cloner :"
-echo "    1. Cloner temporairement : qm clone $VMID 9999 --name tmp-install --full"
-echo "    2. Démarrer le clone :     qm set 9999 --ipconfig0 ip=dhcp && qm start 9999"
-echo "    3. Connexion SSH → sudo apt-get install -y qemu-guest-agent"
-echo "    4. Nettoyer cloud-init :   sudo cloud-init clean --logs"
-echo "    5. Éteindre :              sudo poweroff"
-echo "    6. Supprimer le clone :    qm destroy 9999"
-echo "    Puis recréer le template depuis ce clone ou utiliser le clone comme nouvelle base."
+if $VIRT_CUSTOMIZE_OK; then
+    echo "  ✓ cloud-init préconfiguré (datasource NoCloud + set-passwords)."
+else
+    echo "  ATTENTION : virt-customize n'a pas pu préconfigurer cloud-init."
+    echo "  Le mot de passe console (--cipassword) peut ne pas s'appliquer."
+    echo "  Installer libguestfs-tools et recréer le template pour activer la préconfiguration :"
+    echo "    apt-get install -y libguestfs-tools"
+fi
 echo ""
 echo "Prochaine étape — créer un nœud Docker depuis ce template :"
-echo "  qm clone $VMID <NEW_VMID> --name <nom-noeud> --full"
+echo "  bash clone-vm-node.sh <NEW_VMID> --name <nom> --template $VMID --storage $STORAGE"
 echo "  Puis suivre : documentations/fr/preparation-vm-noeud-docker.md (Chemin A)"
 echo ""

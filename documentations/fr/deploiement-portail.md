@@ -59,6 +59,40 @@ Le portail ne stocke aucun secret dans son image. Tout — CA, certificats, conf
 
 ---
 
+## Script automatisé (recommandé — couvre les étapes 1 à 8)
+
+Un script et un fichier de config permettent de déployer le portail en une commande
+depuis Windows, sans se connecter manuellement à la VM.
+
+**Prérequis** : VM Debian 12 créée (via `clone-vm-node.sh`), Docker installé, accès SSH root.
+
+**1 — Créer la VM** sur Proxmox (depuis le host PVE) :
+```bash
+curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/main/scripts/clone-vm-node.sh \
+  | bash -s -- 110 --name portail-dev --template 9000 --storage vmpool --ip 192.168.1.100/24 --gw 192.168.1.1
+```
+
+**2 — Copier et remplir le fichier de config** (depuis le poste Windows) :
+```powershell
+Copy-Item scripts\.env.portail-dev.remote-deploy.example scripts\.env.portail-dev.remote-deploy
+notepad scripts\.env.portail-dev.remote-deploy
+```
+
+Renseigner au minimum : `REMOTE_HOST`, `OIDC_CLIENT_SECRET`.
+
+**3 — Lancer le déploiement** :
+```powershell
+.\scripts\remote-deploy.ps1 portail-dev
+```
+
+Le script `deploy-portal.sh` exécuté sur la VM effectue dans l'ordre :
+git pull/clone → `install.sh` (CA, config.yaml, .env) → `docker compose build && up -d` → smoke `/health`.
+
+**Si le script suffit, passer directement à l'[Étape suivante — Enrôler les nœuds](#étape-suivante--enrôler-les-nœuds-docker).**
+Les étapes 1 à 8 ci-dessous détaillent chaque action pour comprendre, déboguer ou adapter.
+
+---
+
 ## Prérequis
 
 | Élément | Détail |
