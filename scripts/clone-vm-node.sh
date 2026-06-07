@@ -330,13 +330,15 @@ qm start "$NEW_VMID"
 echo "    VM démarrée. Attente de cloud-init et SSH..."
 
 # ─── A.8 — Récupérer l'IP DHCP via la table ARP du bridge ───────────────────
-# Mécanisme : après l'obtention du bail DHCP, la VM envoie un ARP gratuit.
-# Le bridge Proxmox le propage et le host met à jour sa table ARP.
-# Séquence normale : BIOS ~5s + kernel ~10s + cloud-init ~15s + DHCP + ARP → ~30-40s.
+# Mécanisme : Linux ne peuple pas la table ARP depuis les ARP gratuits (arp_accept=0).
+# Solution : attendre ~30s que la VM démarre, puis faire un balayage actif du subnet
+# (254 pings parallèles en 1s) pour forcer les réponses ARP → la VM répond → son IP
+# apparaît dans `ip neigh show`. Séquence : BIOS ~5s + kernel ~10s + cloud-init ~15s
+# + DHCP → prêt. Balayage à 30s, détection immédiate après.
 if [[ "$USE_DHCP" == "true" ]]; then
     echo ""
-    echo "==> A.8 — Détection de l'IP DHCP via la table ARP (max 120s)..."
-    echo "    (la VM envoie son ARP gratuit ~30s après le démarrage)"
+    echo "==> A.8 — Détection de l'IP DHCP via balayage ARP actif (max 120s)..."
+    echo "    (attente ~30s, puis ping sweep du subnet pour forcer la réponse ARP)"
 
     # Récupérer le bridge et le MAC de la VM
     BRIDGE=$(qm config "$NEW_VMID" 2>/dev/null | grep '^net0:' \
@@ -350,16 +352,45 @@ if [[ "$USE_DHCP" == "true" ]]; then
     }
     echo "    MAC : $MAC${BRIDGE:+  Bridge : $BRIDGE}"
 
+    # Dériver le préfixe /24 du bridge (ex. 192.168.1 → sweep de .1 à .254)
+    BRIDGE_IFACE="${BRIDGE:-vmbr0}"
+    BRIDGE_NET=$(ip -4 addr show dev "$BRIDGE_IFACE" 2>/dev/null \
+        | grep -oP 'inet \K\d+\.\d+\.\d+' | head -1)
+    if [[ -n "$BRIDGE_NET" ]]; then
+        echo "    Subnet bridge : ${BRIDGE_NET}.0/24 — balayage ARP à ~30s"
+    else
+        echo "    AVERTISSEMENT : subnet du bridge introuvable — balayage ARP désactivé"
+    fi
+
+    SWEEP_DONE=false
     ELAPSED=0
     while [[ $ELAPSED -lt 120 ]]; do
+        # Vérifier la table ARP en premier
         IP_ADDR=$(ip neigh show ${BRIDGE:+dev "$BRIDGE"} 2>/dev/null \
             | awk -v mac="$MAC" 'tolower($5) == mac {print $1; exit}') || true
         if [[ -n "$IP_ADDR" ]]; then break; fi
+
+        # À ~30s : balayage actif du subnet (254 pings simultanés, timeout 1s chacun)
+        # Nécessaire car Linux n'apprend pas les ARP gratuits par défaut (arp_accept=0) :
+        # le host ne connaît l'IP d'un voisin que lorsqu'il lui envoie lui-même un ARP.
+        if [[ "$SWEEP_DONE" == "false" && $ELAPSED -ge 30 && -n "$BRIDGE_NET" ]]; then
+            printf "\r    %3ds — balayage ARP %s.0/24 en cours...%-30s" "$ELAPSED" "$BRIDGE_NET" ""
+            for i in $(seq 1 254); do
+                ping -c1 -W1 -q "${BRIDGE_NET}.${i}" &>/dev/null &
+            done
+            wait
+            SWEEP_DONE=true
+            # Re-vérifier immédiatement après le balayage
+            IP_ADDR=$(ip neigh show ${BRIDGE:+dev "$BRIDGE"} 2>/dev/null \
+                | awk -v mac="$MAC" 'tolower($5) == mac {print $1; exit}') || true
+            if [[ -n "$IP_ADDR" ]]; then echo ""; break; fi
+        fi
+
         VM_STATUS=$(qm status "$NEW_VMID" 2>/dev/null | awk '{print $2}' || echo "?")
         if [[ $ELAPSED -lt 30 ]]; then
             STATUS_MSG="démarrage VM ($VM_STATUS)"
-        elif [[ $ELAPSED -lt 60 ]]; then
-            STATUS_MSG="cloud-init en cours ($VM_STATUS)"
+        elif [[ "$SWEEP_DONE" == "true" ]]; then
+            STATUS_MSG="attente ARP post-balayage ($VM_STATUS)"
         else
             STATUS_MSG="en attente ARP ($VM_STATUS)"
         fi
@@ -371,19 +402,17 @@ if [[ "$USE_DHCP" == "true" ]]; then
 
     if [[ -z "$IP_ADDR" ]]; then
         echo "" >&2
-        echo "ERREUR : IP DHCP non détectée via ARP après 120s." >&2
-        echo "" >&2
-        echo "  Le host Proxmox n'a pas appris l'IP de la VM." >&2
-        echo "  Cela arrive si le bridge est isolé ou si la VM n'a pas encore envoyé d'ARP." >&2
+        echo "ERREUR : IP DHCP non détectée après 120s (balayage ARP inclus)." >&2
         echo "" >&2
         echo "  Diagnostic :" >&2
         echo "  - État VM   : $(qm status "$NEW_VMID" 2>/dev/null)" >&2
         echo "  - Table ARP : ip neigh show${BRIDGE:+ dev $BRIDGE}" >&2
+        echo "  - Console   : qm terminal $NEW_VMID  → ip addr" >&2
         echo "" >&2
         echo "  Solutions :" >&2
-        echo "    1. Accéder via la console et vérifier l'IP :" >&2
+        echo "    1. Accéder via la console et noter l'IP :" >&2
         echo "       qm terminal $NEW_VMID  → ip addr" >&2
-        echo "    2. Relancer avec IP fixe pour éviter la détection ARP :" >&2
+        echo "    2. Relancer avec IP fixe :" >&2
         echo "       bash $0 $NEW_VMID --name $NODE_NAME --ip <IP>/24 --gw <GW> ..." >&2
         exit 1
     fi
