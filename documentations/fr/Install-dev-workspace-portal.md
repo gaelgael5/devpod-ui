@@ -188,27 +188,20 @@ sudo -i
 
 ### 2.1 — Deploy Key GitHub
 
-**a — Générer une clé de déploiement pour root** (si absente) :
+**a — Générer (si absente) et afficher la clé de déploiement root :**
 
 ```bash
-ls /root/.ssh/id_ed25519.pub 2>/dev/null \
-  || ssh-keygen -t ed25519 -C "portail-dev-deploy" -f /root/.ssh/id_ed25519 -N ""
+[ -f /root/.ssh/id_ed25519.pub ] || ssh-keygen -t ed25519 -C "portail-dev-deploy" -f /root/.ssh/id_ed25519 -N ""; cat /root/.ssh/id_ed25519.pub
 ```
 
-**b — Afficher la clé publique à enregistrer dans GitHub :**
-
-```bash
-cat /root/.ssh/id_ed25519.pub
-```
-
-**c — Ajouter la clé comme Deploy Key dans GitHub :**
+**b — Ajouter la clé comme Deploy Key dans GitHub :**
 
 Dépôt `gaelgael5/devpod-ui` → **Settings → Deploy keys → Add deploy key** :
 - Title : `portail-dev`
-- Key : coller la clé publique affichée en (b)
+- Key : coller la clé publique affichée en (a)
 - **Ne pas** cocher « Allow write access » (lecture seule suffit pour cloner/puller)
 
-**d — Tester la connexion et accepter l'empreinte github.com** (toujours en root) :
+**c — Tester la connexion et accepter l'empreinte github.com** (toujours en root) :
 
 ```bash
 ssh -T git@github.com
@@ -230,19 +223,10 @@ cd /opt/workspace-portal
 En cas d'échec d'authentification, revérifier 2.1 (clé bien collée dans GitHub, lecture
 seule suffisante). Si le clone réussit, le déploiement fera ensuite un simple `git pull`.
 
-### 2.3 — Rendre les scripts exécutables
+Les scripts `.sh` sont versionnés **avec le bit exécutable** (`100755`) : ils sont
+directement lançables après le clone, sans `chmod`.
 
-Les scripts `.sh` sont versionnés **sans bit exécutable** (mode `100644`). Après un clone
-sur Linux, les lancer avec `./scripts/...` donne `Permission denied`. Leur donner le droit
-d'exécution une fois pour toutes :
-
-```bash
-chmod +x /opt/workspace-portal/scripts/*.sh
-```
-
-> À défaut, lancer chaque script via `bash scripts/<nom>.sh` (qui ignore le bit exécutable).
-
-### 2.4 — Test du déploiement depuis la VM
+### 2.3 — Test du déploiement depuis la VM
 
 Valider la chaîne complète directement sur la VM, sans passer par le poste opérateur.
 
@@ -269,7 +253,7 @@ initialisé :
 > `deploy-portal.sh` initialise `/data` (CA, config, `.env`) ; `dev-deploy.sh` **suppose
 > `/data` déjà présent** et se contente de rebuild/redémarrer. Lancer `dev-deploy.sh`
 > avant le premier `deploy-portal.sh` démarrerait le portail sans configuration
-> (`SESSION_SECRET_KEY not set`). Les deux exigent **root** et le droit d'exécution (2.3).
+> (`SESSION_SECRET_KEY not set`). Les deux exigent **root**.
 
 Le secret OIDC vient de Keycloak (étape 4). Si Keycloak n'est pas encore configuré,
 sauter ce test local et y revenir, ou poursuivre via le déploiement piloté (étapes 3 → 5).
