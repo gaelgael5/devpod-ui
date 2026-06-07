@@ -495,6 +495,25 @@ REMOTE
 
 echo "    Paquets installés (git, openssl, docker)."
 
+# ─── A.10b — Cloner le dépôt workspace-portal ────────────────────────────────
+echo ""
+echo "==> A.10b — Clone du dépôt dans /opt/workspace-portal..."
+
+REPO_URL="https://github.com/gaelgael5/devpod-ui.git"
+APP_DIR="/opt/workspace-portal"
+
+ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
+set -e
+if [[ -d "${APP_DIR}/.git" ]]; then
+    echo "    Repo déjà présent — git pull..."
+    git -C "${APP_DIR}" pull --ff-only
+else
+    git clone --branch dev "${REPO_URL}" "${APP_DIR}"
+fi
+REMOTE
+
+echo "    Dépôt disponible dans ${APP_DIR}."
+
 # ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
 echo ""
 echo "==> A.11 — Vérification du hostname et de /etc/hosts..."
