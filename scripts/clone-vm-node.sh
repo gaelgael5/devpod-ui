@@ -478,8 +478,12 @@ echo "==> A.10 — Installation des paquets (git, openssl)..."
 ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
 set -e
 export DEBIAN_FRONTEND=noninteractive
-# Attendre la fin de cloud-init avant de toucher apt (lock /var/lib/apt/lists/)
+# cloud-init status --wait peut retourner avant que ses sous-processus apt aient fini ;
+# on attend la libération effective des locks (flock -xn = non-bloquant, boucle).
 ${SUDO} cloud-init status --wait 2>/dev/null || true
+for _lock in /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock; do
+    while ! flock -xn "\$_lock" /bin/true 2>/dev/null; do sleep 2; done
+done
 ${SUDO} apt-get update -qq
 ${SUDO} apt-get install -y --no-install-recommends git openssl
 REMOTE
