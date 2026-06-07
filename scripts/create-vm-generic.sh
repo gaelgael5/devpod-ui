@@ -213,7 +213,6 @@ qm create "$VMID" \
     --net0    "virtio,bridge=${BRIDGE}" \
     --ostype  l26 \
     --machine q35 \
-    --agent   enabled=1 \
     --serial0 socket \
     --vga     serial0
 
@@ -243,8 +242,10 @@ qm set "$VMID" \
     --scsihw virtio-scsi-pci \
     --scsi0  "${DISK},discard=on"
 
-# Lecteur cloud-init — obligatoire pour que --ipconfig0 et --sshkey fonctionnent sur les clones
-qm set "$VMID" --ide2 "${STORAGE}:cloudinit"
+# Lecteur cloud-init sur scsi1 (même contrôleur VirtIO SCSI que scsi0) — détecté comme /dev/sr0
+# IMPORTANT : ne pas utiliser ide2 sur Debian 12 genericcloud — le driver AHCI n'est pas chargé
+# assez tôt dans l'initramfs et blkid ne voit pas le device cidata (DataSourceNone au lieu de NoCloud).
+qm set "$VMID" --scsi1 "${STORAGE}:cloudinit"
 
 # Ordre de démarrage : scsi0 en premier
 qm set "$VMID" --boot order=scsi0

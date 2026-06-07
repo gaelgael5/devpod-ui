@@ -329,81 +329,65 @@ qm start "$NEW_VMID"
 
 echo "    VM démarrée. Attente de cloud-init et SSH..."
 
-# ─── A.8 — Récupérer l'IP DHCP via le guest agent (si DHCP) ─────────────────
-# Séquence normale : BIOS ~5s + kernel ~10s + cloud-init (resize disque) ~25s
-# + démarrage services ~5s → 40-60s est attendu, pas un signe de problème.
+# ─── A.8 — Récupérer l'IP DHCP via la table ARP du bridge ───────────────────
+# Mécanisme : après l'obtention du bail DHCP, la VM envoie un ARP gratuit.
+# Le bridge Proxmox le propage et le host met à jour sa table ARP.
+# Séquence normale : BIOS ~5s + kernel ~10s + cloud-init ~15s + DHCP + ARP → ~30-40s.
 if [[ "$USE_DHCP" == "true" ]]; then
     echo ""
-    echo "==> A.8 — Attente de l'IP DHCP via guest agent (max 180s)..."
-    echo "    (normal : boot + cloud-init prend 40-60s)"
+    echo "==> A.8 — Détection de l'IP DHCP via la table ARP (max 120s)..."
+    echo "    (la VM envoie son ARP gratuit ~30s après le démarrage)"
+
+    # Récupérer le bridge et le MAC de la VM
+    BRIDGE=$(qm config "$NEW_VMID" 2>/dev/null | grep '^net0:' \
+        | grep -oP 'bridge=[^,]+' | cut -d= -f2)
+    MAC=$(qm config "$NEW_VMID" 2>/dev/null | grep '^net0:' \
+        | grep -oP 'virtio=[0-9A-Fa-f:]+' | cut -d= -f2 | tr '[:upper:]' '[:lower:]')
+
+    [[ -n "$MAC" ]] || {
+        echo "ERREUR : impossible de lire l'adresse MAC de net0." >&2
+        exit 1
+    }
+    echo "    MAC : $MAC${BRIDGE:+  Bridge : $BRIDGE}"
+
     ELAPSED=0
-    LAST_AGENT_ERR=""
-    while [[ $ELAPSED -lt 180 ]]; do
-        AGENT_RAW=$(qm agent "$NEW_VMID" network-get-interfaces 2>&1) || true
-        IP_ADDR=$(echo "$AGENT_RAW" | python3 -c "
-import json, sys
-try:
-    for iface in json.load(sys.stdin):
-        if iface.get('name','') == 'lo':
-            continue
-        for addr in iface.get('ip-addresses', []):
-            if addr.get('ip-address-type') == 'ipv4' \
-               and not addr['ip-address'].startswith('127.'):
-                print(addr['ip-address'])
-                sys.exit(0)
-except Exception:
-    pass
-" 2>/dev/null || true)
+    while [[ $ELAPSED -lt 120 ]]; do
+        IP_ADDR=$(ip neigh show ${BRIDGE:+dev "$BRIDGE"} 2>/dev/null \
+            | awk -v mac="$MAC" 'tolower($5) == mac {print $1; exit}') || true
         if [[ -n "$IP_ADDR" ]]; then break; fi
-        # Extraire le message d'erreur court du guest agent pour l'afficher
-        LAST_AGENT_ERR=$(echo "$AGENT_RAW" \
-            | grep -v '^{' | grep -v '^\[' | grep -v '^$' \
-            | sed 's/.*error: //i; s/.*Error: //; s/.*: //' \
-            | head -1) || true
         VM_STATUS=$(qm status "$NEW_VMID" 2>/dev/null | awk '{print $2}' || echo "?")
         if [[ $ELAPSED -lt 30 ]]; then
             STATUS_MSG="démarrage VM ($VM_STATUS)"
         elif [[ $ELAPSED -lt 60 ]]; then
             STATUS_MSG="cloud-init en cours ($VM_STATUS)"
         else
-            STATUS_MSG="attente guest agent ($VM_STATUS)"
+            STATUS_MSG="en attente ARP ($VM_STATUS)"
         fi
-        [[ -n "$LAST_AGENT_ERR" ]] && STATUS_MSG="${STATUS_MSG} — ${LAST_AGENT_ERR}"
         printf "\r    %3ds — %-70s" "$ELAPSED" "$STATUS_MSG"
         sleep 5
         ELAPSED=$(( ELAPSED + 5 ))
     done
     echo ""
+
     if [[ -z "$IP_ADDR" ]]; then
         echo "" >&2
-        echo "ERREUR : IP DHCP non obtenue après 180s." >&2
+        echo "ERREUR : IP DHCP non détectée via ARP après 120s." >&2
+        echo "" >&2
+        echo "  Le host Proxmox n'a pas appris l'IP de la VM." >&2
+        echo "  Cela arrive si le bridge est isolé ou si la VM n'a pas encore envoyé d'ARP." >&2
         echo "" >&2
         echo "  Diagnostic :" >&2
-        echo "  - Config agent VM    : $(qm config "$NEW_VMID" 2>/dev/null | grep agent || echo 'absent')" >&2
-        echo "  - État VM            : $(qm status "$NEW_VMID" 2>/dev/null)" >&2
+        echo "  - État VM   : $(qm status "$NEW_VMID" 2>/dev/null)" >&2
+        echo "  - Table ARP : ip neigh show${BRIDGE:+ dev $BRIDGE}" >&2
         echo "" >&2
-        echo "  Interfaces rapportées par le guest agent :" >&2
-        echo "$AGENT_RAW" | python3 -c "
-import json, sys
-raw = sys.stdin.read()
-try:
-    for iface in json.loads(raw):
-        addrs = [a['ip-address'] for a in iface.get('ip-addresses', [])]
-        print(f'    {iface.get(\"name\",\"?\")} : {addrs if addrs else \"(aucune adresse)\"}')
-except Exception as e:
-    print(f'    (impossible de parser : {e})')
-    print('    Brut :', raw[:300])
-" 2>/dev/null >&2 || echo "    (qm agent n'a pas répondu)" >&2
-        echo "" >&2
-        echo "  Commandes de diagnostic sur la VM :" >&2
-        echo "    qm terminal $NEW_VMID" >&2
-        echo "    → ip addr" >&2
-        echo "    → systemctl status qemu-guest-agent" >&2
-        echo "    → systemctl status networking cloud-init" >&2
-        echo "    → journalctl -u cloud-init -n 30" >&2
+        echo "  Solutions :" >&2
+        echo "    1. Accéder via la console et vérifier l'IP :" >&2
+        echo "       qm terminal $NEW_VMID  → ip addr" >&2
+        echo "    2. Relancer avec IP fixe pour éviter la détection ARP :" >&2
+        echo "       bash $0 $NEW_VMID --name $NODE_NAME --ip <IP>/24 --gw <GW> ..." >&2
         exit 1
     fi
-    echo "    IP DHCP obtenue : $IP_ADDR"
+    echo "    IP DHCP détectée : $IP_ADDR"
 fi
 
 # ─── A.9 — Attendre que SSH soit disponible ───────────────────────────────────
