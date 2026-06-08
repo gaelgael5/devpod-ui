@@ -30,13 +30,13 @@ def test_get_current_user_returns_userinfo_from_session() -> None:
 
 
 @pytest.mark.asyncio
-async def test_require_user_raises_403_when_no_session() -> None:
+async def test_require_user_raises_401_when_no_session() -> None:
     from portal.auth.rbac import require_user
 
     req = _make_request({})
     with pytest.raises(HTTPException) as exc_info:
         await require_user(req)
-    assert exc_info.value.status_code == 403
+    assert exc_info.value.status_code == 401
 
 
 @pytest.mark.asyncio

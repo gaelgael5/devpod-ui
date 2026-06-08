@@ -62,7 +62,7 @@ async def require_user(request: Request) -> UserInfo:
     settings = get_settings()
     user = get_current_user(request)
     if user is None:
-        raise HTTPException(status_code=403, detail="Not authenticated")
+        raise HTTPException(status_code=401, detail="Not authenticated")
     allowed = {settings.oidc_user_role, settings.oidc_admin_role}
     if not set(user.roles) & allowed:
         _log.warning("rbac_denied", login=user.login, roles=user.roles)
@@ -74,7 +74,7 @@ async def require_admin(request: Request) -> UserInfo:
     settings = get_settings()
     user = get_current_user(request)
     if user is None:
-        raise HTTPException(status_code=403, detail="Not authenticated")
+        raise HTTPException(status_code=401, detail="Not authenticated")
     if settings.oidc_admin_role not in user.roles:
         _log.warning("rbac_admin_denied", login=user.login, roles=user.roles)
         raise HTTPException(status_code=403, detail="Admin role required")

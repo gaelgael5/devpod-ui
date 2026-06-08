@@ -148,7 +148,7 @@ def test_get_recipes_requires_auth(tmp_path: Path) -> None:
     app = _make_no_auth_app(tmp_path)
     with TestClient(app) as client:
         resp = client.get("/recipes")
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 def test_delete_personal_recipe(tmp_path: Path) -> None:
@@ -237,10 +237,10 @@ def test_admin_delete_shared_recipe_invalid_id_rejected(tmp_path: Path) -> None:
 
 def test_admin_get_recipes_requires_admin(tmp_path: Path) -> None:
     _write_global_config(tmp_path)
-    app = _make_user_app(tmp_path)  # non-admin user (dev role only)
+    app = _make_user_app(tmp_path)  # require_admin non overridé → 401 sans session
     with TestClient(app) as client:
         resp = client.get("/admin/recipes")
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 def test_delete_personal_recipe_requires_auth(tmp_path: Path) -> None:
@@ -248,4 +248,4 @@ def test_delete_personal_recipe_requires_auth(tmp_path: Path) -> None:
     app = _make_no_auth_app(tmp_path)
     with TestClient(app) as client:
         resp = client.delete("/me/recipes/something")
-    assert resp.status_code == 403
+    assert resp.status_code == 401
