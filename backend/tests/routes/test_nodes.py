@@ -146,7 +146,7 @@ def test_create_token_requires_admin(tmp_path: Path) -> None:
             "/admin/nodes/token",
             json={"node_name": "pve2-docker", "address": "192.168.1.50"},
         )
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 def test_create_token_invalid_name_rejected(tmp_path: Path) -> None:

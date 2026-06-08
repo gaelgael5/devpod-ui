@@ -23,7 +23,7 @@ PORTAL_CERT_DIR="$DATA_ROOT/certs/portal"
 
 # ── Outils requis ────────────────────────────────────────────────────────────
 echo "==> Vérification des outils requis..."
-for cmd in openssl docker; do
+for cmd in openssl docker python3; do
     command -v "$cmd" &>/dev/null || { echo "ERREUR : $cmd introuvable" >&2; exit 1; }
 done
 
@@ -187,6 +187,19 @@ if [[ -f "$ENV_FILE" ]]; then
 else
     echo "==> Génération de /data/.env..."
     SESSION_KEY=$(openssl rand -hex 32)
+
+    # Credentials auth locale — bcrypt via python3
+    python3 -c "import bcrypt" 2>/dev/null || {
+        echo "    Installation de python3-bcrypt..."
+        apt-get install -y --no-install-recommends python3-bcrypt >/dev/null 2>&1
+    }
+    LOCAL_PASS=$(openssl rand -hex 12)
+    LOCAL_HASH=$(echo "$LOCAL_PASS" | python3 -c "
+import sys, bcrypt
+p = sys.stdin.read().strip().encode()
+print(bcrypt.hashpw(p, bcrypt.gensalt()).decode())
+")
+
     cat > "$ENV_FILE" <<ENVEOF
 # Généré par install.sh
 # Perms 600 requises — ne JAMAIS commiter ce fichier (§D-21)
@@ -198,9 +211,20 @@ CFM_API_KEY=
 CF_API_TOKEN=
 ACME_EMAIL=
 BASE_DOMAIN=${BASE_DOMAIN:-dev.yoops.org}
+
+# Auth locale (fallback sans OIDC)
+LOCAL_USER=admin
+LOCAL_PASSWORD=${LOCAL_PASS}
+LOCAL_PASSWORD_HASH=${LOCAL_HASH}
 ENVEOF
     chmod 600 "$ENV_FILE"
-    echo "    .env créé. Compléter les valeurs manquantes avant de démarrer."
+    echo "    .env créé."
+    echo ""
+    echo "    ┌─────────────────────────────────────────────┐"
+    echo "    │  Credentials locaux (noter maintenant)      │"
+    echo "    │  Login    : admin                           │"
+    echo "    │  Password : ${LOCAL_PASS}  │"
+    echo "    └─────────────────────────────────────────────┘"
 fi
 
 # ── 6. Instructions de démarrage ─────────────────────────────────────────────

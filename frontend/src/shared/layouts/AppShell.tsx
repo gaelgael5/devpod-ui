@@ -84,6 +84,9 @@ export default function AppShell() {
               {isAdmin && (
                 <>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => navigate('/admin/proxmox')}>
+                    {t('admin.proxmox')}
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/hosts')}>
                     {t('admin.hosts')}
                   </DropdownMenuItem>

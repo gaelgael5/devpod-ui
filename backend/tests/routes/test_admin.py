@@ -97,7 +97,7 @@ def test_get_admin_config_requires_admin(tmp_path: Path) -> None:
     app = _make_dev_app(tmp_path)
     with TestClient(app) as client:
         resp = client.get("/admin/config")
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 def test_get_admin_hosts_returns_list(tmp_path: Path) -> None:

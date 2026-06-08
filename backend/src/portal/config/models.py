@@ -86,6 +86,28 @@ class HostConfig(BaseModel):
     key_path: str = ""
 
 
+_PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
+
+
+class ProxmoxNode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    address: str
+    ssh_user: str = "root"
+    ssh_port: int = 22
+    ssh_key_path: str
+    pve_node: str = "pve"
+    script_url: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not _PROXMOX_NAME_RE.fullmatch(v):
+            raise ValueError(f"name {v!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$")
+        return v
+
+
 class CaddyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -108,6 +130,7 @@ class GlobalConfig(BaseModel):
     secrets: SecretsConfig = Field(default_factory=SecretsConfig)
     devpod: DevpodConfig = Field(default_factory=DevpodConfig)
     hosts: list[HostConfig] = Field(default_factory=list)
+    proxmox_nodes: list[ProxmoxNode] = Field(default_factory=list)
     caddy: CaddyConfig = Field(default_factory=CaddyConfig)
     cloudflare_manager: CloudflareManagerConfig = Field(default_factory=CloudflareManagerConfig)
 

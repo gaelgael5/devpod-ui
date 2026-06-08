@@ -15,7 +15,8 @@
       "stop": "Stop",
       "start": "Start",
       "delete": "Delete",
-      "retry": "Retry"
+      "retry": "Retry",
+      "edit": "Edit"
     },
     "form": {
       "name": "Name",
@@ -40,15 +41,49 @@
     "shared": "Shared recipes"
   },
   "admin": {
-    "hosts": "Hosts",
+    "hosts": "Docker hosts",
     "sharedRecipes": "Shared recipes",
+    "proxmox": "Proxmox nodes",
     "hostsEmpty": "No hosts enrolled yet.",
     "recipesEmpty": "No shared recipes.",
+    "proxmoxEmpty": "No Proxmox nodes enrolled yet.",
+    "addHost": "Add host",
+    "addRecipe": "Add recipe",
+    "addProxmox": "Add hypervisor",
+    "editProxmox": "Edit hypervisor",
     "col": {
       "name": "Name",
       "type": "Type",
       "host": "Host",
-      "default": "Default"
+      "default": "Default",
+      "address": "Address",
+      "sshUser": "SSH user",
+      "pveNode": "PVE node"
+    },
+    "form": {
+      "hostName": "Name",
+      "hostType": "Type",
+      "dockerHost": "Docker socket URL",
+      "address": "Address",
+      "keyPath": "TLS cert directory",
+      "makeDefault": "Default host",
+      "recipeId": "Recipe ID",
+      "version": "Version",
+      "description": "Description",
+      "installScript": "install.sh",
+      "save": "Save",
+      "sshUser": "SSH user",
+      "sshPort": "SSH port",
+      "pveNode": "PVE node name",
+      "sshKey": "SSH private key",
+      "sshKeyHelp": "How to generate the key?",
+      "sshKeyPlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
+      "sshKeyLoadFile": "Load from file",
+      "sshKeyHelpIntro": "Run these commands on the Proxmox server (as root):",
+      "sshKeyHelpNote": "Copy the output of the last command and paste it into the private key field.",
+      "sshKeyOptional": "leave empty to keep current key",
+      "scriptUrl": "JSON script URL",
+      "scriptUrlPlaceholder": "https://example.com/scripts/create-vm.json"
     }
   },
   "errors": {
@@ -67,6 +102,14 @@
   },
   "auth": {
     "login": "Log in with Keycloak",
-    "loggingIn": "Signing you in…"
+    "loggingIn": "Signing you in…",
+    "loginLocal": "Log in",
+    "loginOidc": "Log in with OIDC",
+    "username": "Username",
+    "password": "Password",
+    "invalidCredentials": "Invalid username or password.",
+    "networkError": "Network error, please try again.",
+    "or": "or",
+    "notConfigured": "No authentication method configured. Check /data/.env (LOCAL_USER / LOCAL_PASSWORD_HASH)."
   }
 }

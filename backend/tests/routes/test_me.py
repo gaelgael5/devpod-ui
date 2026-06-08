@@ -132,7 +132,7 @@ def test_require_user_blocks_unauthenticated(tmp_path: Path) -> None:
         app = create_app()  # no dependency_overrides
         with TestClient(app) as client:
             resp = client.get("/me/config")
-        assert resp.status_code == 403
+        assert resp.status_code == 401
     finally:
         os.environ.pop("DEV_MODE", None)
         mod._settings = None

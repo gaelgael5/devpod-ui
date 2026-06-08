@@ -13,6 +13,7 @@ dependencies = [
     "joserfc>=1.7",
     "itsdangerous>=2.1",
     "cryptography>=42.0",
+    "bcrypt>=4.0",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +46,7 @@ python_version = "3.12"
 strict = true
 packages = ["portal"]
 mypy_path = "src"
+
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -45,6 +45,8 @@ DISK_EXTRA="+40G"
 SSH_KEY_FILE=""
 EXTRA_SSH_KEY_FILE=""
 CI_USER="debian"
+PORTAL_URL=""
+PORTAL_TOKEN=""
 
 # ─── NEW_VMID (1er argument obligatoire) ──────────────────────────────────────
 if [[ $# -lt 1 ]]; then
@@ -70,9 +72,11 @@ while [[ $# -gt 0 ]]; do
         --sshkey)        SSH_KEY_FILE="$2";       shift 2 ;;
         --extra-sshkey)  EXTRA_SSH_KEY_FILE="$2"; shift 2 ;;
         --ciuser)        CI_USER="$2";            shift 2 ;;
+        --portal-url)    PORTAL_URL="$2";          shift 2 ;;
+        --portal-token)  PORTAL_TOKEN="$2";        shift 2 ;;
         *)
             echo "ERREUR : option inconnue : $1" >&2
-            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --sshkey --extra-sshkey --ciuser" >&2
+            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --sshkey --extra-sshkey --ciuser --portal-url --portal-token" >&2
             exit 1
             ;;
     esac
@@ -124,6 +128,10 @@ fi
 
 # Ajouter le préfixe '+' au montant disque si absent (ex. 40G -> +40G)
 [[ "$DISK_EXTRA" == +* ]] || DISK_EXTRA="+${DISK_EXTRA}"
+
+# Valeur 'auto' passée par l'interface → traité comme vide (détection automatique)
+[[ "$STORAGE" == "auto" ]] && STORAGE=""
+[[ "$TEMPLATE_VMID" == "auto" ]] && TEMPLATE_VMID=""
 
 # ─── A.1 — Vérifier que le VMID est libre ─────────────────────────────────────
 echo "==> A.1 — Vérification du VMID $NEW_VMID..."
@@ -544,6 +552,23 @@ REMOTE
 
 echo "    Hostname vérifié."
 
+# ─── A.12 — Enrôlement dans le portail (optionnel) ───────────────────────────
+ENROLLED=false
+if [[ -n "$PORTAL_URL" && -n "$PORTAL_TOKEN" ]]; then
+    echo ""
+    echo "==> A.12 — Enrôlement du nœud dans le portail..."
+    ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
+set -e
+${SUDO} bash /opt/workspace-portal/scripts/install-node.sh \
+    --portal "${PORTAL_URL}" \
+    --token "${PORTAL_TOKEN}" \
+    --node-name "${NODE_NAME}" \
+    --address "${IP_ADDR}"
+REMOTE
+    echo "    Nœud enrôlé dans le portail."
+    ENROLLED=true
+fi
+
 # ─── Résumé ───────────────────────────────────────────────────────────────────
 echo ""
 echo "======================================================"
@@ -557,9 +582,22 @@ echo "  IP      : $IP_ADDR  (fixe)"
 fi
 echo "  SSH     : ssh ${CI_USER}@${IP_ADDR} -i $SSH_PRIVATE_KEY"
 echo ""
-echo "Prochaines étapes :"
-echo "  1. Étape 3 (post-install) : outils requis, NTP, pare-feu"
-echo "     ssh ${CI_USER}@${IP_ADDR}"
-echo "  2. Enrôlement dans le portail :"
-echo "     Suivre : documentations/fr/installation-first-node.md"
+if [[ "$ENROLLED" == "true" ]]; then
+    echo "  Enrôlement : effectué (portail notifié)"
+else
+    echo "Prochaines étapes :"
+    echo "  1. Étape 3 (post-install) : outils requis, NTP, pare-feu"
+    echo "     ssh ${CI_USER}@${IP_ADDR}"
+    echo "  2. Enrôlement dans le portail :"
+    echo "     Suivre : documentations/fr/installation-first-node.md"
+fi
 echo ""
+
+# ─── Résumé JSON (dernière ligne — parsée par le portail) ────────────────────
+if [[ "$ENROLLED" == "true" ]]; then
+    printf '{"status":"ok","name":"%s","address":"%s","type":"docker-tls","docker_host":"tcp://%s:2376","ssh_user":"%s","ssh_port":22,"key_path":"/data/certs/portal"}\n' \
+        "$NODE_NAME" "$IP_ADDR" "$IP_ADDR" "$CI_USER"
+else
+    printf '{"status":"ok","name":"%s","address":"%s","ssh_user":"%s","ssh_port":22}\n' \
+        "$NODE_NAME" "$IP_ADDR" "$CI_USER"
+fi

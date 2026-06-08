@@ -27,6 +27,11 @@ class AppSettings(BaseSettings):
     oidc_username_claim: str = "preferred_username"
     oidc_leeway: int = 30  # secondes
 
+    # Auth locale (fallback sans OIDC)
+    local_user: str = ""
+    local_password: str = ""
+    local_password_hash: str = ""
+
     portal_data_root: str = "/data"
     scripts_dir: str = "/app/scripts"
 

@@ -4,21 +4,18 @@
     # pour pousser les routes workspace en M6. 127.0.0.1 bloquerait cet accès inter-conteneurs.
     # Isolation : seuls `portal` et `caddy` partagent le réseau `internal` (cf. docker-compose.yml).
     admin 0.0.0.0:2019
-    email {$ACME_EMAIL}
 }
 
 # Portail principal : auth OIDC gérée par FastAPI lui-même
-{$BASE_DOMAIN} {
+# Dev : HTTP plain (préfixe http:// désactive TLS + redirect auto de Caddy).
+# Prod : retirer le préfixe http:// et ajouter tls { dns cloudflare {$CF_API_TOKEN} }
+http://{$BASE_DOMAIN} {
     reverse_proxy portal:8080
 }
 
 # Wildcard workspaces — routes dynamiques ajoutées par l'API admin en M6
-# §F-30 : DNS-01 via Cloudflare pour le wildcard
 # §F-33 : stub 404 fail-closed — jamais d'accès sans auth opérationnelle
-*.{$BASE_DOMAIN} {
-    tls {
-        dns cloudflare {$CF_API_TOKEN}
-    }
+http://*.{$BASE_DOMAIN} {
     # STUB M5 — sera remplacé par forward_auth + reverse_proxy en M6
     respond "Workspace introuvable (M6 non encore déployé)" 404
 }

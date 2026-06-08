@@ -12,6 +12,7 @@ const WorkspaceCreate = lazy(() => import('@/features/workspaces/WorkspaceCreate
 const RecipeCatalog = lazy(() => import('@/features/recipes/RecipeCatalog'))
 const AdminHosts = lazy(() => import('@/features/admin/AdminHosts'))
 const AdminRecipes = lazy(() => import('@/features/admin/AdminRecipes'))
+const AdminProxmox = lazy(() => import('@/features/admin/AdminProxmox'))
 
 function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -38,6 +39,10 @@ export const router = createBrowserRouter([
       {
         path: '/admin/recipes',
         element: <AdminGuard><Wrap><AdminRecipes /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/proxmox',
+        element: <AdminGuard><Wrap><AdminProxmox /></Wrap></AdminGuard>,
       },
     ],
   },

@@ -15,7 +15,8 @@
       "stop": "Arrêter",
       "start": "Démarrer",
       "delete": "Supprimer",
-      "retry": "Réessayer"
+      "retry": "Réessayer",
+      "edit": "Modifier"
     },
     "form": {
       "name": "Nom",
@@ -40,15 +41,49 @@
     "shared": "Recettes partagées"
   },
   "admin": {
-    "hosts": "Hôtes",
+    "hosts": "Hôtes Docker",
     "sharedRecipes": "Recettes partagées",
+    "proxmox": "Nœuds Proxmox",
     "hostsEmpty": "Aucun hôte enrôlé.",
     "recipesEmpty": "Aucune recette partagée.",
+    "proxmoxEmpty": "Aucun nœud Proxmox enrôlé.",
+    "addHost": "Ajouter un hôte",
+    "addRecipe": "Ajouter une recette",
+    "addProxmox": "Ajout d'hyperviseur",
+    "editProxmox": "Modifier l'hyperviseur",
     "col": {
       "name": "Nom",
       "type": "Type",
       "host": "Hôte",
-      "default": "Défaut"
+      "default": "Défaut",
+      "address": "Adresse",
+      "sshUser": "Utilisateur SSH",
+      "pveNode": "Nœud PVE"
+    },
+    "form": {
+      "hostName": "Nom",
+      "hostType": "Type",
+      "dockerHost": "URL socket Docker",
+      "address": "Adresse",
+      "keyPath": "Répertoire des certs TLS",
+      "makeDefault": "Hôte par défaut",
+      "recipeId": "ID de la recette",
+      "version": "Version",
+      "description": "Description",
+      "installScript": "install.sh",
+      "save": "Enregistrer",
+      "sshUser": "Utilisateur SSH",
+      "sshPort": "Port SSH",
+      "pveNode": "Nom du nœud PVE",
+      "sshKey": "Clé privée SSH",
+      "sshKeyHelp": "Comment générer la clé ?",
+      "sshKeyPlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
+      "sshKeyLoadFile": "Charger depuis un fichier",
+      "sshKeyHelpIntro": "Exécutez ces commandes sur le serveur Proxmox (en root) :",
+      "sshKeyHelpNote": "Copiez la sortie de la dernière commande et collez-la dans le champ de la clé privée.",
+      "sshKeyOptional": "laisser vide pour conserver la clé actuelle",
+      "scriptUrl": "URL du script JSON",
+      "scriptUrlPlaceholder": "https://exemple.com/scripts/create-vm.json"
     }
   },
   "errors": {
@@ -67,6 +102,14 @@
   },
   "auth": {
     "login": "Se connecter avec Keycloak",
-    "loggingIn": "Connexion en cours…"
+    "loggingIn": "Connexion en cours…",
+    "loginLocal": "Se connecter",
+    "loginOidc": "Se connecter avec OIDC",
+    "username": "Identifiant",
+    "password": "Mot de passe",
+    "invalidCredentials": "Identifiant ou mot de passe incorrect.",
+    "networkError": "Erreur réseau, veuillez réessayer.",
+    "or": "ou",
+    "notConfigured": "Aucune méthode d'authentification configurée. Vérifier /data/.env (LOCAL_USER / LOCAL_PASSWORD_HASH)."
   }
 }

@@ -8,9 +8,10 @@
 #   ex : ./scripts/deploy-portal.sh main
 #
 # Variables d'env reconnues (toutes optionnelles si /data déjà initialisé) :
-#   REPO_URL               URL git du repo   (défaut : HTTPS public gaelgael5/devpod-ui)
-#   DATA_ROOT              Racine /data       (défaut : /data)
-#   PORTAL_BASE_DOMAIN     Domaine wildcard   (défaut : dev.yoops.org)
+#   REPO_URL               URL git du repo        (défaut : HTTPS public gaelgael5/devpod-ui)
+#   DATA_ROOT              Racine /data            (défaut : /data)
+#   COMPOSE_FILE           Fichier compose cible   (défaut : deploy/docker-compose.yml)
+#   PORTAL_BASE_DOMAIN     Domaine wildcard        (défaut : dev.yoops.org)
 #   PORTAL_EXTERNAL_URL    URL externe du portail
 #   PORTAL_OIDC_ISSUER     URL issuer Keycloak
 #   PORTAL_OIDC_CLIENT_ID  Client ID OIDC
@@ -23,7 +24,7 @@ IFS=$'\n\t'
 REPO_URL="${REPO_URL:-https://github.com/gaelgael5/devpod-ui.git}"
 APP_DIR="${APP_DIR:-/opt/workspace-portal}"
 DATA_ROOT="${DATA_ROOT:-/data}"
-COMPOSE_FILE="deploy/docker-compose.yml"
+COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker-compose.yml}"
 
 # ─── Argument : branche cible ─────────────────────────────────────────────────
 TARGET_BRANCH=""
@@ -132,8 +133,10 @@ echo ""
 echo "==> [4/4] Smoke /health (timeout 60s)..."
 SMOKE_OK=0
 ELAPSED=0
-while [[ $ELAPSED -lt 60 ]]; do
-    if curl -sf -m 3 "http://localhost:8080/health" &>/dev/null; then
+PORTAL_ID="$(docker compose -f "$COMPOSE_FILE" ps -q portal 2>/dev/null)"
+while [[ $ELAPSED -lt 90 ]]; do
+    STATUS="$(docker inspect --format='{{.State.Health.Status}}' "$PORTAL_ID" 2>/dev/null)"
+    if [[ "$STATUS" == "healthy" ]]; then
         SMOKE_OK=1; break
     fi
     sleep 5
@@ -143,21 +146,28 @@ done
 IP="$(ip -4 -o addr show scope global 2>/dev/null | awk 'NR==1 {print $4}' | cut -d/ -f1 || echo '?')"
 EXTERNAL="${PORTAL_EXTERNAL_URL:-http://${IP}}"
 
+# Lire les credentials locaux depuis .env (pour affichage uniquement)
+_LOCAL_USER="$(grep -E '^LOCAL_USER=' "${DATA_ROOT}/.env" 2>/dev/null | cut -d= -f2- || true)"
+_LOCAL_PASS="$(grep -E '^LOCAL_PASSWORD=' "${DATA_ROOT}/.env" 2>/dev/null | cut -d= -f2- || true)"
+
 if [[ $SMOKE_OK -eq 1 ]]; then
-    cat <<EOF
-
-══════════════════════════════════════════════════════════════════
-  ✓ Portail opérationnel
-
-  Accès  : ${EXTERNAL}
-  Santé  : http://${IP}:8080/health
-  Config : ${DATA_ROOT}/config.yaml
-  Env    : ${DATA_ROOT}/.env
-
-  Logs   : docker compose -f ${COMPOSE_FILE} logs -f portal
-  Caddy  : docker compose -f ${COMPOSE_FILE} logs -f caddy
-══════════════════════════════════════════════════════════════════
-EOF
+    echo ""
+    echo "══════════════════════════════════════════════════════════════════"
+    echo "  ✓ Portail opérationnel"
+    echo ""
+    echo "  Accès  : ${EXTERNAL}"
+    if [[ -n "${_LOCAL_USER:-}" && -n "${_LOCAL_PASS:-}" && -t 1 ]]; then
+        echo "  Login  : ${_LOCAL_USER} / ${_LOCAL_PASS}"
+        unset _LOCAL_PASS
+    elif [[ -n "${_LOCAL_USER:-}" ]]; then
+        echo "  Login  : ${_LOCAL_USER}  (mot de passe dans ${DATA_ROOT}/.env)"
+    fi
+    echo "  Santé  : http://${IP}:8080/health"
+    echo "  Config : ${DATA_ROOT}/config.yaml"
+    echo "  Env    : ${DATA_ROOT}/.env"
+    echo ""
+    echo "  Logs   : docker compose -f ${COMPOSE_FILE} logs -f"
+    echo "══════════════════════════════════════════════════════════════════"
 else
     cat >&2 <<EOF
 

@@ -181,13 +181,15 @@ Se connecter à la VM puis passer root :
 
 ```bash
 ssh debian@192.168.1.100
-sudo -i
 ```
 
 ### 2.1 — Cloner le dépôt
 
 ```bash
 sudo -i
+```
+
+```bash
 git clone --branch dev https://github.com/gaelgael5/devpod-ui.git /opt/workspace-portal
 cd /opt/workspace-portal
 ```
