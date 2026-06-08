@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         gnupg \
         openssl \
+        openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Docker CLI uniquement (pas le daemon — §D-21)
