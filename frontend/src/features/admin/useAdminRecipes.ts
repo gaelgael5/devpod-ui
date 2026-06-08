@@ -3,6 +3,13 @@ import { toast } from 'sonner'
 import { apiFetch, apiFetchJson } from '@/shared/api/client'
 import type { Recipe } from '@/features/recipes/types'
 
+export interface RecipeCreateRequest {
+  id: string
+  version: string
+  description: string
+  install_script: string
+}
+
 export function useAdminRecipes() {
   const qc = useQueryClient()
 
@@ -19,5 +26,16 @@ export function useAdminRecipes() {
     onError: (err: Error) => toast.error(err.message),
   })
 
-  return { recipesQuery, deleteRecipe }
+  const addRecipe = useMutation({
+    mutationFn: (data: RecipeCreateRequest) =>
+      apiFetchJson<Recipe>('/admin/recipes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'recipes'] }),
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  return { recipesQuery, deleteRecipe, addRecipe }
 }

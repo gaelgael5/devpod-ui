@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useRecipes } from './useRecipes'
+import type { Recipe } from './types'
 
 export default function RecipeCatalog() {
   const { t } = useTranslation()
@@ -13,7 +14,7 @@ export default function RecipeCatalog() {
         <p className="text-muted-foreground">{t('recipes.empty')}</p>
       )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {recipes?.map((recipe) => (
+        {recipes?.map((recipe: Recipe) => (
           <div
             key={recipe.id}
             className="rounded-lg border bg-card p-4"

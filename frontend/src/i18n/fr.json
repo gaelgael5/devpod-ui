@@ -44,11 +44,26 @@
     "sharedRecipes": "Recettes partagées",
     "hostsEmpty": "Aucun hôte enrôlé.",
     "recipesEmpty": "Aucune recette partagée.",
+    "addHost": "Ajouter un hôte",
+    "addRecipe": "Ajouter une recette",
     "col": {
       "name": "Nom",
       "type": "Type",
       "host": "Hôte",
       "default": "Défaut"
+    },
+    "form": {
+      "hostName": "Nom",
+      "hostType": "Type",
+      "dockerHost": "URL socket Docker",
+      "address": "Adresse",
+      "keyPath": "Répertoire des certs TLS",
+      "makeDefault": "Hôte par défaut",
+      "recipeId": "ID de la recette",
+      "version": "Version",
+      "description": "Description",
+      "installScript": "install.sh",
+      "save": "Enregistrer"
     }
   },
   "errors": {

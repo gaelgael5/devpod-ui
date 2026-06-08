@@ -15,7 +15,7 @@ import { useWorkspaceOps } from './useWorkspaceOps'
 import { useRecipes } from '@/features/recipes/useRecipes'
 import RecipePicker from '@/features/recipes/RecipePicker'
 import { useUserStore } from '@/store/user'
-import { useHosts } from '@/features/admin/useHosts'
+import { useHosts, type HostConfig } from '@/features/admin/useHosts'
 
 /** Valeur sentinelle Radix Select pour "pas de nœud choisi" (Radix refuse les strings vides). */
 const HOST_DEFAULT = '__default__'
@@ -132,7 +132,7 @@ export default function WorkspaceCreate() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={HOST_DEFAULT}>— default —</SelectItem>
-                {hosts.map((h) => (
+                {hosts.map((h: HostConfig) => (
                   <SelectItem key={h.name} value={h.name}>
                     {h.name} {h.default ? '(default)' : ''}
                   </SelectItem>

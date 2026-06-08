@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import shutil
 from typing import Any
 
 import structlog
+import yaml
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..auth.rbac import UserInfo, require_admin, require_user
 from ..config.store import _data_root, safe_user_path
-from ..recipes.models import _RECIPE_ID_RE
+from ..recipes.models import RecipeMeta, _RECIPE_ID_RE
 from ..recipes.registry import RecipeRegistry
 
 _log = structlog.get_logger(__name__)
@@ -18,6 +21,26 @@ _log = structlog.get_logger(__name__)
 router_public = APIRouter(tags=["recipes"])
 router_me = APIRouter(tags=["recipes-me"])
 router_admin = APIRouter(tags=["recipes-admin"])
+
+_DEFAULT_INSTALL_SH = "#!/usr/bin/env bash\nset -e\necho 'Installing...'\n"
+
+
+class RecipeCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    version: str = "1.0.0"
+    description: str = ""
+    install_script: str = _DEFAULT_INSTALL_SH
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, v: str) -> str:
+        if not _RECIPE_ID_RE.fullmatch(v):
+            raise ValueError(
+                f"id {v!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$"
+            )
+        return v
 
 
 def _validate_recipe_id(recipe_id: str) -> None:
@@ -70,6 +93,44 @@ async def admin_list_recipes(
     registry = RecipeRegistry(shared_dir=data_root / "recipes")
     shared = registry.load_shared()
     return [m.model_dump() for m in shared.values()]
+
+
+@router_admin.post("/recipes", status_code=201)
+async def admin_create_shared_recipe(
+    body: RecipeCreateRequest,
+    user: UserInfo = Depends(require_admin),
+) -> dict[str, Any]:
+    """Crée une recette partagée avec son install.sh."""
+    data_root = _data_root()
+    shared_recipes_dir = data_root / "recipes"
+    recipe_path = shared_recipes_dir / body.id
+    if recipe_path.exists():
+        raise HTTPException(status_code=409, detail=f"Recipe {body.id!r} already exists")
+
+    meta = RecipeMeta(id=body.id, version=body.version, description=body.description)
+
+    def _write() -> None:
+        tmp = shared_recipes_dir / f".tmp-{body.id}"
+        try:
+            tmp.mkdir(parents=True, exist_ok=False)
+            (tmp / "recipe.meta.yaml").write_text(
+                yaml.dump(meta.model_dump(), default_flow_style=False), encoding="utf-8"
+            )
+            (tmp / "devcontainer-feature.json").write_text(
+                _json.dumps({"id": body.id, "version": body.version}, indent=2),
+                encoding="utf-8",
+            )
+            install_sh = tmp / "install.sh"
+            install_sh.write_text(body.install_script, encoding="utf-8")
+            install_sh.chmod(0o755)
+            tmp.rename(recipe_path)
+        except Exception:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+
+    await asyncio.to_thread(_write)
+    _log.info("shared_recipe_created", recipe_id=body.id, by=user.login)
+    return meta.model_dump()
 
 
 @router_admin.delete("/recipes/{recipe_id}")
