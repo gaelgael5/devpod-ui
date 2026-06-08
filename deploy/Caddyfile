@@ -4,11 +4,16 @@
     # pour pousser les routes workspace en M6. 127.0.0.1 bloquerait cet accès inter-conteneurs.
     # Isolation : seuls `portal` et `caddy` partagent le réseau `internal` (cf. docker-compose.yml).
     admin 0.0.0.0:2019
-    email {$ACME_EMAIL}
+    # email : optionnel pour ACME (notifications Let's Encrypt). Ajouter si souhaité :
+    # email {$ACME_EMAIL}
 }
 
 # Portail principal : auth OIDC gérée par FastAPI lui-même
+# DNS-01 Cloudflare requis : la VM est sur IP privée, HTTP-01 ne peut pas fonctionner.
 {$BASE_DOMAIN} {
+    tls {
+        dns cloudflare {$CF_API_TOKEN}
+    }
     reverse_proxy portal:8080
 }
 
