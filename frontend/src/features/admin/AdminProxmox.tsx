@@ -42,32 +42,28 @@ export default function AdminProxmox() {
       setTimeout(() => setCopiedIndex((c) => (c === index ? null : c)), 1500)
     }
 
-    // execCommand synchrone : textarea jetable injecté dans le nœud Radix
-    // du dialog courant → jamais bloqué par le focus trap, toujours dans
-    // le user-activation context du clic.
-    const syncCopy = () => {
-      const container =
-        (document.querySelector('[data-radix-dialog-content]') as HTMLElement | null) ??
-        document.body
-      const ta = document.createElement('textarea')
-      ta.value = cmd
-      ta.style.cssText =
-        'position:absolute;width:1px;height:1px;padding:0;overflow:hidden;opacity:0;pointer-events:none'
-      container.appendChild(ta)
+    // Sélectionne le contenu du <pre> visible et copie via execCommand.
+    // Aucune création d'élément, aucun changement de focus →
+    // le focus trap Radix n'interfère pas.
+    const rangeCopy = () => {
+      const el = document.querySelector<HTMLElement>(`[data-step="${index}"]`)
+      if (!el) return
       try {
-        ta.focus()
-        ta.select()
-        if (document.execCommand('copy')) markDone()
-      } finally {
-        container.removeChild(ta)
-      }
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        const sel = window.getSelection()
+        sel?.removeAllRanges()
+        sel?.addRange(range)
+        document.execCommand('copy')
+        sel?.removeAllRanges()
+        markDone()
+      } catch { /* ignore */ }
     }
 
-    // Clipboard API uniquement en contexte sécurisé (HTTPS / localhost)
     if (window.isSecureContext && navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(cmd).then(markDone, syncCopy)
+      navigator.clipboard.writeText(cmd).then(markDone).catch(rangeCopy)
     } else {
-      syncCopy()
+      rangeCopy()
     }
   }
 
@@ -167,7 +163,7 @@ export default function AdminProxmox() {
                   {i + 1}. {step.label}
                 </span>
                 <div className="flex items-start gap-2 rounded-md bg-muted px-3 py-2">
-                  <pre className="flex-1 overflow-x-auto text-xs leading-relaxed">{step.cmd}</pre>
+                  <pre data-step={i} className="flex-1 overflow-x-auto text-xs leading-relaxed">{step.cmd}</pre>
                   <button
                     type="button"
                     onClick={() => copyCmd(step.cmd, i)}
