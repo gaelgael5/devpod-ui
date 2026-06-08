@@ -164,6 +164,15 @@ function StepParams({
   )
 }
 
+function ArgLabel({ label, required }: { label: string; required?: boolean }) {
+  return (
+    <Label>
+      {label}
+      {required && <span className="ml-0.5 text-destructive">*</span>}
+    </Label>
+  )
+}
+
 function ArgField({
   arg,
   value,
@@ -175,10 +184,11 @@ function ArgField({
 }) {
   const label = argLabel(arg)
 
-  if (arg.type === 'select' && arg.options && arg.options.length > 0) {
+  // Toute arg ayant des options (statiques ou enrichies par option_script) → liste déroulante
+  if (arg.options && arg.options.length > 0) {
     return (
       <div className="flex flex-col gap-1.5">
-        <Label>{label}</Label>
+        <ArgLabel label={label} required={arg.required} />
         <Select value={value} onValueChange={onChange}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -194,7 +204,7 @@ function ArgField({
   if (arg.type === 'integer') {
     return (
       <div className="flex flex-col gap-1.5">
-        <Label>{label}</Label>
+        <ArgLabel label={label} required={arg.required} />
         <Input
           type="number"
           value={value}
@@ -210,7 +220,7 @@ function ArgField({
   // string (default)
   return (
     <div className="flex flex-col gap-1.5">
-      <Label>{label}</Label>
+      <ArgLabel label={label} required={arg.required} />
       <Input
         type="text"
         value={value}
