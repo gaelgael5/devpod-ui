@@ -74,6 +74,7 @@
     "password": "Password",
     "invalidCredentials": "Invalid username or password.",
     "networkError": "Network error, please try again.",
-    "or": "or"
+    "or": "or",
+    "notConfigured": "No authentication method configured. Check /data/.env (LOCAL_USER / LOCAL_PASSWORD_HASH)."
   }
 }

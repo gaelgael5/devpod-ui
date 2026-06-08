@@ -74,6 +74,7 @@
     "password": "Mot de passe",
     "invalidCredentials": "Identifiant ou mot de passe incorrect.",
     "networkError": "Erreur réseau, veuillez réessayer.",
-    "or": "ou"
+    "or": "ou",
+    "notConfigured": "Aucune méthode d'authentification configurée. Vérifier /data/.env (LOCAL_USER / LOCAL_PASSWORD_HASH)."
   }
 }

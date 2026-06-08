@@ -99,6 +99,10 @@ export default function LoginPage() {
         {!config && (
           <p className="text-center text-sm text-muted-foreground">{t('auth.loggingIn')}</p>
         )}
+
+        {config && !config.local_auth_enabled && !config.oidc_enabled && (
+          <p className="text-center text-sm text-destructive">{t('auth.notConfigured')}</p>
+        )}
       </div>
     </div>
   )
