@@ -6,10 +6,12 @@ import tempfile
 import uuid
 from pathlib import Path
 
+import bcrypt as _bcrypt
 import structlog
 import yaml
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
+from pydantic import BaseModel
 
 from ..config.store import _data_root, ensure_user_dir
 from ..settings import get_settings
@@ -21,6 +23,11 @@ _log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 _oidc_client: OIDCClient | None = None
+
+
+class LocalLoginRequest(BaseModel):
+    username: str
+    password: str
 
 
 def _get_oidc_client() -> OIDCClient:
@@ -37,8 +44,39 @@ def _get_oidc_client() -> OIDCClient:
     return _oidc_client
 
 
-@router.get("/login")
-async def login(request: Request) -> RedirectResponse:
+@router.get("/config")
+async def auth_config() -> dict[str, bool]:
+    settings = get_settings()
+    return {
+        "oidc_enabled": bool(settings.oidc_issuer and settings.oidc_client_id),
+        "local_auth_enabled": bool(settings.local_user and settings.local_password_hash),
+    }
+
+
+@router.post("/local-login")
+async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[str, bool]:
+    settings = get_settings()
+    if not settings.local_user or not settings.local_password_hash:
+        raise HTTPException(status_code=404, detail="Local auth not configured")
+    valid = credentials.username == settings.local_user and _bcrypt.checkpw(
+        credentials.password.encode(),
+        settings.local_password_hash.encode(),
+    )
+    if not valid:
+        _log.warning("local_login_failed", username=credentials.username)
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    await provision_user(login=settings.local_user, sub="local", data_root=_data_root())
+    request.session["user"] = {
+        "login": settings.local_user,
+        "roles": [settings.oidc_admin_role],
+        "sub": "local",
+    }
+    _log.info("local_login_success", login=settings.local_user)
+    return {"ok": True}
+
+
+@router.get("/oidc")
+async def oidc_login(request: Request) -> RedirectResponse:
     url = await _get_oidc_client().authorization_url(request.session)
     return RedirectResponse(url, status_code=302)
 

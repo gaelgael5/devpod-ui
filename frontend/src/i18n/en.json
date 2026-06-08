@@ -67,6 +67,13 @@
   },
   "auth": {
     "login": "Log in with Keycloak",
-    "loggingIn": "Signing you in…"
+    "loggingIn": "Signing you in…",
+    "loginLocal": "Log in",
+    "loginOidc": "Log in with OIDC",
+    "username": "Username",
+    "password": "Password",
+    "invalidCredentials": "Invalid username or password.",
+    "networkError": "Network error, please try again.",
+    "or": "or"
   }
 }

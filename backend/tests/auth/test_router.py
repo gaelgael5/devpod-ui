@@ -117,7 +117,7 @@ def test_callback_creates_user_and_session(tmp_path: Path) -> None:
 
             with TestClient(app, follow_redirects=False) as client:
                 # Étape 1 : login pour obtenir state/nonce/verifier dans la session
-                login_resp = client.get("/auth/login")
+                login_resp = client.get("/auth/oidc")
                 assert login_resp.status_code in (302, 307)
 
                 # Extraire le state et le nonce depuis la location
@@ -315,7 +315,7 @@ def test_caddy_verify_wrong_role_returns_401(tmp_path: Path) -> None:
 
 
 def test_login_redirects_to_authorization_endpoint(tmp_path: Path) -> None:
-    """GET /auth/login redirige vers l'endpoint OIDC."""
+    """GET /auth/oidc redirige vers l'endpoint OIDC."""
     import httpx
     import respx
     from fastapi.testclient import TestClient
@@ -355,7 +355,7 @@ def test_login_redirects_to_authorization_endpoint(tmp_path: Path) -> None:
 
             app = create_app()
             with TestClient(app, follow_redirects=False) as client:
-                resp = client.get("/auth/login")
+                resp = client.get("/auth/oidc")
 
         assert resp.status_code in (302, 307)
         location = resp.headers["location"]

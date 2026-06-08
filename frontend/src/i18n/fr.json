@@ -67,6 +67,13 @@
   },
   "auth": {
     "login": "Se connecter avec Keycloak",
-    "loggingIn": "Connexion en cours…"
+    "loggingIn": "Connexion en cours…",
+    "loginLocal": "Se connecter",
+    "loginOidc": "Se connecter avec OIDC",
+    "username": "Identifiant",
+    "password": "Mot de passe",
+    "invalidCredentials": "Identifiant ou mot de passe incorrect.",
+    "networkError": "Erreur réseau, veuillez réessayer.",
+    "or": "ou"
   }
 }
