@@ -473,16 +473,48 @@ fi
 
 # ─── A.10 — Installer les paquets système requis ─────────────────────────────
 echo ""
-echo "==> A.10 — Installation des paquets (git, openssl)..."
+echo "==> A.10 — Installation des paquets (git, openssl, docker)..."
 
 ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
 set -e
 export DEBIAN_FRONTEND=noninteractive
-${SUDO} apt-get update -qq
-${SUDO} apt-get install -y --no-install-recommends git openssl
+${SUDO} cloud-init status --wait 2>/dev/null || true
+# apt-daily et unattended-upgrades peuvent tenir le lock après cloud-init.
+# systemctl stop bloque autant que le processus ; on laisse apt gérer ses locks :
+#   - update : retry toutes les 5s jusqu'à 300s (lock lists/)
+#   - install : DPkg::Lock::Timeout attend jusqu'à 300s (lock dpkg)
+_t=0
+until ${SUDO} apt-get update -qq 2>/dev/null; do
+    sleep 5; _t=\$(( _t + 5 ))
+    [ \$_t -ge 300 ] && { echo "ERREUR: apt-get update en échec après 300s" >&2; exit 1; }
+done
+# git et openssl : dépôts Debian standard (toujours disponibles)
+${SUDO} apt-get -o "DPkg::Lock::Timeout=300" install -y --no-install-recommends git openssl
+# Docker CE + compose v2 : script officiel (docker-compose-plugin absent des dépôts Debian)
+curl -fsSL https://get.docker.com | ${SUDO} sh
+${SUDO} systemctl enable --now docker
 REMOTE
 
-echo "    Paquets installés (git, openssl)."
+echo "    Paquets installés (git, openssl, docker CE + compose v2)."
+
+# ─── A.10b — Cloner le dépôt workspace-portal ────────────────────────────────
+echo ""
+echo "==> A.10b — Clone du dépôt dans /opt/workspace-portal..."
+
+REPO_URL="https://github.com/gaelgael5/devpod-ui.git"
+APP_DIR="/opt/workspace-portal"
+
+ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
+set -e
+if [[ -d "${APP_DIR}/.git" ]]; then
+    echo "    Repo déjà présent — git pull..."
+    git -C "${APP_DIR}" pull --ff-only
+else
+    git clone --branch dev "${REPO_URL}" "${APP_DIR}"
+fi
+REMOTE
+
+echo "    Dépôt disponible dans ${APP_DIR}."
 
 # ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
 echo ""

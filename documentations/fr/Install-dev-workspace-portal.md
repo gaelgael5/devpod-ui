@@ -187,6 +187,7 @@ sudo -i
 ### 2.1 — Cloner le dépôt
 
 ```bash
+sudo -i
 git clone --branch dev https://github.com/gaelgael5/devpod-ui.git /opt/workspace-portal
 cd /opt/workspace-portal
 ```
