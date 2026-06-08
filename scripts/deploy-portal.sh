@@ -146,20 +146,28 @@ done
 IP="$(ip -4 -o addr show scope global 2>/dev/null | awk 'NR==1 {print $4}' | cut -d/ -f1 || echo '?')"
 EXTERNAL="${PORTAL_EXTERNAL_URL:-http://${IP}}"
 
+# Lire les credentials locaux depuis .env (pour affichage uniquement)
+_LOCAL_USER="$(grep -E '^LOCAL_USER=' "${DATA_ROOT}/.env" 2>/dev/null | cut -d= -f2- || true)"
+_LOCAL_PASS="$(grep -E '^LOCAL_PASSWORD=' "${DATA_ROOT}/.env" 2>/dev/null | cut -d= -f2- || true)"
+
 if [[ $SMOKE_OK -eq 1 ]]; then
-    cat <<EOF
-
-══════════════════════════════════════════════════════════════════
-  ✓ Portail opérationnel
-
-  Accès  : ${EXTERNAL}
-  Santé  : http://${IP}:8080/health
-  Config : ${DATA_ROOT}/config.yaml
-  Env    : ${DATA_ROOT}/.env
-
-  Logs   : docker compose -f ${COMPOSE_FILE} logs -f
-══════════════════════════════════════════════════════════════════
-EOF
+    echo ""
+    echo "══════════════════════════════════════════════════════════════════"
+    echo "  ✓ Portail opérationnel"
+    echo ""
+    echo "  Accès  : ${EXTERNAL}"
+    if [[ -n "${_LOCAL_USER:-}" && -n "${_LOCAL_PASS:-}" && -t 1 ]]; then
+        echo "  Login  : ${_LOCAL_USER} / ${_LOCAL_PASS}"
+        unset _LOCAL_PASS
+    elif [[ -n "${_LOCAL_USER:-}" ]]; then
+        echo "  Login  : ${_LOCAL_USER}  (mot de passe dans ${DATA_ROOT}/.env)"
+    fi
+    echo "  Santé  : http://${IP}:8080/health"
+    echo "  Config : ${DATA_ROOT}/config.yaml"
+    echo "  Env    : ${DATA_ROOT}/.env"
+    echo ""
+    echo "  Logs   : docker compose -f ${COMPOSE_FILE} logs -f"
+    echo "══════════════════════════════════════════════════════════════════"
 else
     cat >&2 <<EOF
 

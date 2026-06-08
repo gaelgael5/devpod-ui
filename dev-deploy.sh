@@ -1,5 +1,37 @@
 #!/usr/bin/env bash
-# Raccourci racine — déploiement dev sans Caddy (portal exposé sur :80).
-# Toujours sur la branche courante (pas d'argument de branche).
+# Déploiement dev — portal exposé directement sur :80, sans Caddy.
+# Initialise /data/.env depuis deploy/.env.example si absent,
+# génère SESSION_SECRET_KEY + LOCAL_PASSWORD + LOCAL_PASSWORD_HASH automatiquement.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DATA_ROOT="${DATA_ROOT:-/data}"
+ENV_FILE="${DATA_ROOT}/.env"
+
+# ─── Initialisation du .env si absent ────────────────────────────────────────
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "==> .env absent — initialisation depuis deploy/.env.example..."
+
+    command -v python3 &>/dev/null || apt-get install -y --no-install-recommends python3 >/dev/null 2>&1
+    python3 -c "import bcrypt" 2>/dev/null || apt-get install -y --no-install-recommends python3-bcrypt >/dev/null 2>&1
+
+    mkdir -p "$DATA_ROOT"
+    cp "${SCRIPT_DIR}/deploy/.env.example" "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+
+    SESSION_KEY="$(openssl rand -hex 32)"
+    LOCAL_PASS="$(openssl rand -hex 12)"
+    LOCAL_HASH="$(PASS="$LOCAL_PASS" python3 -c \
+        "import bcrypt, os; print(bcrypt.hashpw(os.environ['PASS'].encode(), bcrypt.gensalt()).decode())")"
+
+    sed -i "s|^SESSION_SECRET_KEY=.*|SESSION_SECRET_KEY=${SESSION_KEY}|" "$ENV_FILE"
+    sed -i "s|^LOCAL_PASSWORD=.*|LOCAL_PASSWORD=${LOCAL_PASS}|" "$ENV_FILE"
+    sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${LOCAL_HASH}|" "$ENV_FILE"
+
+    echo "    .env créé — credentials locaux générés."
+fi
+
+# ─── Déploiement ──────────────────────────────────────────────────────────────
 exec env COMPOSE_FILE=deploy/docker-compose.dev.yml \
-    "$(dirname "$0")/scripts/deploy-portal.sh"
+    DATA_ROOT="$DATA_ROOT" \
+    "${SCRIPT_DIR}/scripts/deploy-portal.sh"
