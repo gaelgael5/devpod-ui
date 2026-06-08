@@ -4,6 +4,11 @@
 # génère SESSION_SECRET_KEY + LOCAL_PASSWORD + LOCAL_PASSWORD_HASH automatiquement.
 set -euo pipefail
 
+if [[ "$(id -u)" -ne 0 ]]; then
+    echo "ERREUR : ce script doit être exécuté en root (sudo ./dev-deploy.sh)." >&2
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DATA_ROOT="${DATA_ROOT:-/data}"
 ENV_FILE="${DATA_ROOT}/.env"
