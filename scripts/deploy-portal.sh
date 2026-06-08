@@ -8,9 +8,10 @@
 #   ex : ./scripts/deploy-portal.sh main
 #
 # Variables d'env reconnues (toutes optionnelles si /data déjà initialisé) :
-#   REPO_URL               URL git du repo   (défaut : HTTPS public gaelgael5/devpod-ui)
-#   DATA_ROOT              Racine /data       (défaut : /data)
-#   PORTAL_BASE_DOMAIN     Domaine wildcard   (défaut : dev.yoops.org)
+#   REPO_URL               URL git du repo        (défaut : HTTPS public gaelgael5/devpod-ui)
+#   DATA_ROOT              Racine /data            (défaut : /data)
+#   COMPOSE_FILE           Fichier compose cible   (défaut : deploy/docker-compose.yml)
+#   PORTAL_BASE_DOMAIN     Domaine wildcard        (défaut : dev.yoops.org)
 #   PORTAL_EXTERNAL_URL    URL externe du portail
 #   PORTAL_OIDC_ISSUER     URL issuer Keycloak
 #   PORTAL_OIDC_CLIENT_ID  Client ID OIDC
@@ -23,7 +24,7 @@ IFS=$'\n\t'
 REPO_URL="${REPO_URL:-https://github.com/gaelgael5/devpod-ui.git}"
 APP_DIR="${APP_DIR:-/opt/workspace-portal}"
 DATA_ROOT="${DATA_ROOT:-/data}"
-COMPOSE_FILE="deploy/docker-compose.yml"
+COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker-compose.yml}"
 
 # ─── Argument : branche cible ─────────────────────────────────────────────────
 TARGET_BRANCH=""
