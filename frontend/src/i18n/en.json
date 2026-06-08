@@ -73,7 +73,12 @@
       "sshUser": "SSH user",
       "sshPort": "SSH port",
       "pveNode": "PVE node name",
-      "sshKey": "SSH private key"
+      "sshKey": "SSH private key",
+      "sshKeyHelp": "How to generate the key?",
+      "sshKeyPlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
+      "sshKeyLoadFile": "Load from file",
+      "sshKeyHelpIntro": "Run these commands on the Proxmox server (as root):",
+      "sshKeyHelpNote": "Copy the output of the last command and paste it into the private key field."
     }
   },
   "errors": {

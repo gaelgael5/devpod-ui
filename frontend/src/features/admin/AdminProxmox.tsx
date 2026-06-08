@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { HelpCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -8,13 +9,26 @@ import {
 } from '@/components/ui/dialog'
 import { useAdminProxmox, type ProxmoxNodeConfig } from './useAdminProxmox'
 
-const EMPTY = { name: '', address: '', ssh_user: 'root', ssh_port: 22, pve_node: 'pve' }
+const EMPTY = { name: '', address: '', ssh_user: 'root', ssh_port: 22, pve_node: 'pve', ssh_key_content: '' }
+
+const SSH_KEYGEN_COMMANDS = `# Sur le serveur Proxmox, en tant que root :
+
+# 1. Générer une paire de clés Ed25519 dédiée au portail
+ssh-keygen -t ed25519 -f /root/.ssh/portal_key -N ""
+
+# 2. Autoriser la clé publique sur ce serveur
+cat /root/.ssh/portal_key.pub >> /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+
+# 3. Afficher la clé privée — copiez tout ce bloc dans le portail
+cat /root/.ssh/portal_key`
 
 export default function AdminProxmox() {
   const { t } = useTranslation()
   const { nodesQuery, deleteNode, addNode } = useAdminProxmox()
   const { data: nodes, isLoading, isError } = nodesQuery
   const [open, setOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [form, setForm] = useState(EMPTY)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -23,24 +37,30 @@ export default function AdminProxmox() {
   }
 
   function handleClose(o: boolean) {
-    if (!o) {
-      setForm(EMPTY)
-      if (fileRef.current) fileRef.current.value = ''
-    }
+    if (!o) setForm(EMPTY)
     setOpen(o)
+  }
+
+  function handleFileLoad(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => set('ssh_key_content', (ev.target?.result as string) ?? '')
+    reader.readAsText(file)
+    e.target.value = ''
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const file = fileRef.current?.files?.[0]
-    if (!file) return
+    const content = form.ssh_key_content.trim()
+    if (!content) return
     const fd = new FormData()
     fd.append('name', form.name)
     fd.append('address', form.address)
     fd.append('ssh_user', form.ssh_user)
     fd.append('ssh_port', String(form.ssh_port))
     fd.append('pve_node', form.pve_node)
-    fd.append('ssh_key', file)
+    fd.append('ssh_key', new Blob([content], { type: 'text/plain' }), 'id_ed25519')
     addNode.mutate(fd, { onSuccess: () => handleClose(false) })
   }
 
@@ -92,6 +112,22 @@ export default function AdminProxmox() {
           </table>
         </div>
       )}
+
+      <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('admin.form.sshKeyHelp')}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">{t('admin.form.sshKeyHelpIntro')}</p>
+          <pre className="overflow-x-auto rounded-md bg-muted px-4 py-3 text-xs leading-relaxed">
+            {SSH_KEYGEN_COMMANDS}
+          </pre>
+          <p className="text-sm text-muted-foreground">{t('admin.form.sshKeyHelpNote')}</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHelpOpen(false)}>{t('workspaces.confirm.cancel')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={open} onOpenChange={handleClose}>
         <DialogContent>
@@ -155,15 +191,36 @@ export default function AdminProxmox() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="px-key">{t('admin.form.sshKey')}</Label>
-              <input
+              <div className="flex items-center justify-between">
+                <Label htmlFor="px-key">{t('admin.form.sshKey')}</Label>
+                <button
+                  type="button"
+                  onClick={() => setHelpOpen(true)}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <HelpCircle size={13} />
+                  {t('admin.form.sshKeyHelp')}
+                </button>
+              </div>
+              <textarea
                 id="px-key"
-                ref={fileRef}
-                type="file"
-                accept=".pem,.key,text/plain"
+                value={form.ssh_key_content}
+                onChange={(e) => set('ssh_key_content', e.target.value)}
+                placeholder={t('admin.form.sshKeyPlaceholder')}
+                rows={5}
                 required
-                className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:border-input file:bg-transparent file:px-3 file:py-1 file:text-sm file:font-medium hover:file:bg-muted"
+                className="min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
               />
+              <div className="flex items-center gap-2">
+                <input ref={fileRef} type="file" accept=".pem,.key,text/plain" className="hidden" onChange={handleFileLoad} />
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                >
+                  {t('admin.form.sshKeyLoadFile')}
+                </button>
+              </div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => handleClose(false)}>

@@ -73,7 +73,12 @@
       "sshUser": "Utilisateur SSH",
       "sshPort": "Port SSH",
       "pveNode": "Nom du nœud PVE",
-      "sshKey": "Clé privée SSH"
+      "sshKey": "Clé privée SSH",
+      "sshKeyHelp": "Comment générer la clé ?",
+      "sshKeyPlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
+      "sshKeyLoadFile": "Charger depuis un fichier",
+      "sshKeyHelpIntro": "Exécutez ces commandes sur le serveur Proxmox (en root) :",
+      "sshKeyHelpNote": "Copiez la sortie de la dernière commande et collez-la dans le champ de la clé privée."
     }
   },
   "errors": {
