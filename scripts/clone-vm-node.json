@@ -1,0 +1,129 @@
+{
+  "args": [
+    {
+      "arg": "NEW_VMID",
+      "label_fr": "VMID de la nouvelle VM",
+      "label_en": "New VM ID",
+      "description_fr": "Numéro unique de la VM Proxmox (doit être libre — ni VM ni LXC existant avec cet ID)",
+      "description_en": "Unique Proxmox VM ID (must be unused — no existing VM or LXC with this ID)",
+      "type": "integer",
+      "required": true,
+      "min": 100,
+      "max": 9999
+    },
+    {
+      "arg": "NODE_NAME",
+      "label_fr": "Nom DNS de la VM",
+      "label_en": "VM DNS hostname",
+      "description_fr": "Hostname DNS de la VM (minuscules, chiffres, tirets — ex: pve2-docker)",
+      "description_en": "VM DNS hostname (lowercase, digits, dashes — e.g. pve2-docker)",
+      "type": "string",
+      "required": true,
+      "pattern": "^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$"
+    },
+    {
+      "arg": "IP_CIDR",
+      "label_fr": "Adresse IP fixe (optionnel)",
+      "label_en": "Static IP address (optional)",
+      "description_fr": "Adresse IP avec masque CIDR (ex: 192.168.1.50/24). Laisser vide pour DHCP.",
+      "description_en": "IP address with CIDR mask (e.g. 192.168.1.50/24). Leave empty for DHCP.",
+      "type": "string",
+      "required": false,
+      "default": ""
+    },
+    {
+      "arg": "GATEWAY",
+      "label_fr": "Passerelle (obligatoire si IP fixe)",
+      "label_en": "Gateway (required if static IP set)",
+      "description_fr": "Passerelle par défaut. Obligatoire si IP fixe renseignée (ex: 192.168.1.1).",
+      "description_en": "Default gateway. Required when static IP is set (e.g. 192.168.1.1).",
+      "type": "string",
+      "required": false,
+      "default": ""
+    },
+    {
+      "arg": "TEMPLATE_VMID",
+      "label_fr": "VMID du template source",
+      "label_en": "Source template VMID",
+      "description_fr": "VMID du template Proxmox à cloner. 'auto' = détection automatique du dernier template cloud-init.",
+      "description_en": "VMID of the Proxmox template to clone. 'auto' = auto-detect latest cloud-init template.",
+      "type": "string",
+      "required": false,
+      "default": "auto"
+    },
+    {
+      "arg": "STORAGE",
+      "label_fr": "Stockage Proxmox",
+      "label_en": "Proxmox storage",
+      "description_fr": "Pool de stockage pour le disque VM. 'auto' = même stockage que le template source.",
+      "description_en": "Storage pool for the VM disk. 'auto' = same storage as the source template.",
+      "type": "select",
+      "required": false,
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": "auto (même stockage que le template)" }
+      ],
+      "option_script": "pvesm status 2>/dev/null | awk 'NR>1 && $3==\"active\" {print $1}'"
+    },
+    {
+      "arg": "DNS",
+      "label_fr": "Serveur DNS",
+      "label_en": "DNS server",
+      "description_fr": "Adresse du résolveur DNS injecté dans cloud-init",
+      "description_en": "DNS resolver address injected via cloud-init",
+      "type": "string",
+      "required": false,
+      "default": "1.1.1.1"
+    },
+    {
+      "arg": "MEMORY",
+      "label_fr": "RAM (Mo)",
+      "label_en": "RAM (MB)",
+      "description_fr": "Mémoire vive allouée en MégaBytes",
+      "description_en": "Memory allocated in MegaBytes",
+      "type": "integer",
+      "required": false,
+      "default": 8192,
+      "min": 512,
+      "max": 524288
+    },
+    {
+      "arg": "CORES",
+      "label_fr": "Nombre de vCPU",
+      "label_en": "vCPU count",
+      "description_fr": "Nombre de cœurs virtuels alloués à la VM",
+      "description_en": "Number of virtual CPU cores allocated to the VM",
+      "type": "integer",
+      "required": false,
+      "default": 4,
+      "min": 1,
+      "max": 64
+    },
+    {
+      "arg": "DISK_EXTRA",
+      "label_fr": "Extension disque",
+      "label_en": "Disk expansion",
+      "description_fr": "Espace disque supplémentaire à ajouter au template (ex: +40G, +100G)",
+      "description_en": "Additional disk space to expand by on top of the template (e.g. +40G, +100G)",
+      "type": "string",
+      "required": false,
+      "default": "+40G"
+    },
+    {
+      "arg": "CI_USER",
+      "label_fr": "Utilisateur cloud-init",
+      "label_en": "Cloud-init user",
+      "description_fr": "Nom d'utilisateur créé par cloud-init dans la VM (doit correspondre au template)",
+      "description_en": "Username created by cloud-init in the VM (must match the template)",
+      "type": "string",
+      "required": false,
+      "default": "debian"
+    }
+  ],
+  "commands": [
+    "curl -fsSL -o /tmp/clone-vm-node.sh https://raw.githubusercontent.com/gaelgael5/devpod-ui/main/scripts/clone-vm-node.sh",
+    "chmod +x /tmp/clone-vm-node.sh",
+    "/tmp/clone-vm-node.sh {NEW_VMID} --name '{NODE_NAME}' --ip '{IP_CIDR}' --gw '{GATEWAY}' --template '{TEMPLATE_VMID}' --storage '{STORAGE}' --dns '{DNS}' --memory {MEMORY} --cores {CORES} --disk '{DISK_EXTRA}' --ciuser '{CI_USER}'"
+  ],
+  "tags": ["create_vm"]
+}

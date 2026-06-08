@@ -98,6 +98,7 @@ class ProxmoxNode(BaseModel):
     ssh_port: int = 22
     ssh_key_path: str
     pve_node: str = "pve"
+    script_url: str = ""
 
     @field_validator("name")
     @classmethod

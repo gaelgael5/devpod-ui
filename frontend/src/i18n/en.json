@@ -15,7 +15,8 @@
       "stop": "Stop",
       "start": "Start",
       "delete": "Delete",
-      "retry": "Retry"
+      "retry": "Retry",
+      "edit": "Edit"
     },
     "form": {
       "name": "Name",
@@ -49,6 +50,7 @@
     "addHost": "Add host",
     "addRecipe": "Add recipe",
     "addProxmox": "Add hypervisor",
+    "editProxmox": "Edit hypervisor",
     "col": {
       "name": "Name",
       "type": "Type",
@@ -78,7 +80,10 @@
       "sshKeyPlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
       "sshKeyLoadFile": "Load from file",
       "sshKeyHelpIntro": "Run these commands on the Proxmox server (as root):",
-      "sshKeyHelpNote": "Copy the output of the last command and paste it into the private key field."
+      "sshKeyHelpNote": "Copy the output of the last command and paste it into the private key field.",
+      "sshKeyOptional": "leave empty to keep current key",
+      "scriptUrl": "JSON script URL",
+      "scriptUrlPlaceholder": "https://example.com/scripts/create-vm.json"
     }
   },
   "errors": {

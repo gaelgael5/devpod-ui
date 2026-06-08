@@ -15,7 +15,8 @@
       "stop": "Arrêter",
       "start": "Démarrer",
       "delete": "Supprimer",
-      "retry": "Réessayer"
+      "retry": "Réessayer",
+      "edit": "Modifier"
     },
     "form": {
       "name": "Nom",
@@ -49,6 +50,7 @@
     "addHost": "Ajouter un hôte",
     "addRecipe": "Ajouter une recette",
     "addProxmox": "Ajout d'hyperviseur",
+    "editProxmox": "Modifier l'hyperviseur",
     "col": {
       "name": "Nom",
       "type": "Type",
@@ -78,7 +80,10 @@
       "sshKeyPlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
       "sshKeyLoadFile": "Charger depuis un fichier",
       "sshKeyHelpIntro": "Exécutez ces commandes sur le serveur Proxmox (en root) :",
-      "sshKeyHelpNote": "Copiez la sortie de la dernière commande et collez-la dans le champ de la clé privée."
+      "sshKeyHelpNote": "Copiez la sortie de la dernière commande et collez-la dans le champ de la clé privée.",
+      "sshKeyOptional": "laisser vide pour conserver la clé actuelle",
+      "scriptUrl": "URL du script JSON",
+      "scriptUrlPlaceholder": "https://exemple.com/scripts/create-vm.json"
     }
   },
   "errors": {

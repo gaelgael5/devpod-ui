@@ -9,6 +9,7 @@ export interface ProxmoxNodeConfig {
   ssh_port: number
   ssh_key_path: string
   pve_node: string
+  script_url: string
 }
 
 export function useAdminProxmox() {
@@ -33,5 +34,12 @@ export function useAdminProxmox() {
     onError: (err: Error) => toast.error(err.message),
   })
 
-  return { nodesQuery, deleteNode, addNode }
+  const updateNode = useMutation({
+    mutationFn: ({ name, fd }: { name: string; fd: FormData }) =>
+      apiFetchJson<ProxmoxNodeConfig>(`/admin/proxmox/${name}`, { method: 'PUT', body: fd }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'proxmox'] }),
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  return { nodesQuery, deleteNode, addNode, updateNode }
 }
