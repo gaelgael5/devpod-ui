@@ -7,17 +7,15 @@
 }
 
 # Portail principal : auth OIDC gérée par FastAPI lui-même
-# Dev : tls internal (CA Caddy locale). Prod : remplacer par tls { dns cloudflare {$CF_API_TOKEN} }
-{$BASE_DOMAIN} {
-    tls internal
+# Dev : HTTP plain (préfixe http:// désactive TLS + redirect auto de Caddy).
+# Prod : retirer le préfixe http:// et ajouter tls { dns cloudflare {$CF_API_TOKEN} }
+http://{$BASE_DOMAIN} {
     reverse_proxy portal:8080
 }
 
 # Wildcard workspaces — routes dynamiques ajoutées par l'API admin en M6
 # §F-33 : stub 404 fail-closed — jamais d'accès sans auth opérationnelle
-# Dev : tls internal. Prod : remplacer par tls { dns cloudflare {$CF_API_TOKEN} }
-*.{$BASE_DOMAIN} {
-    tls internal
+http://*.{$BASE_DOMAIN} {
     # STUB M5 — sera remplacé par forward_auth + reverse_proxy en M6
     respond "Workspace introuvable (M6 non encore déployé)" 404
 }
