@@ -157,8 +157,7 @@ if [[ $SMOKE_OK -eq 1 ]]; then
   Config : ${DATA_ROOT}/config.yaml
   Env    : ${DATA_ROOT}/.env
 
-  Logs   : docker compose -f ${COMPOSE_FILE} logs -f portal
-  Caddy  : docker compose -f ${COMPOSE_FILE} logs -f caddy
+  Logs   : docker compose -f ${COMPOSE_FILE} logs -f
 ══════════════════════════════════════════════════════════════════
 EOF
 else
