@@ -232,9 +232,9 @@ async def _fetch_spec(node: ProxmoxNode) -> dict[str, object]:
         try:
             resp = await client.get(node.script_url, timeout=15.0, follow_redirects=True)
             resp.raise_for_status()
+            return dict(resp.json())
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=f"Failed to fetch script spec: {exc}") from exc
-    return dict(resp.json())
 
 
 @router.get("/proxmox/{name}/script")
