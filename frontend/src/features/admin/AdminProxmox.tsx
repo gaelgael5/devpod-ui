@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { HelpCircle } from 'lucide-react'
+import { Check, Copy, HelpCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,17 +11,20 @@ import { useAdminProxmox, type ProxmoxNodeConfig } from './useAdminProxmox'
 
 const EMPTY = { name: '', address: '', ssh_user: 'root', ssh_port: 22, pve_node: 'pve', ssh_key_content: '' }
 
-const SSH_KEYGEN_COMMANDS = `# Sur le serveur Proxmox, en tant que root :
-
-# 1. Générer une paire de clés Ed25519 dédiée au portail
-ssh-keygen -t ed25519 -f /root/.ssh/portal_key -N ""
-
-# 2. Autoriser la clé publique sur ce serveur
-cat /root/.ssh/portal_key.pub >> /root/.ssh/authorized_keys
-chmod 600 /root/.ssh/authorized_keys
-
-# 3. Afficher la clé privée — copiez tout ce bloc dans le portail
-cat /root/.ssh/portal_key`
+const SSH_STEPS = [
+  {
+    label: 'Generate a dedicated Ed25519 key pair for the portal',
+    cmd: 'ssh-keygen -t ed25519 -f /root/.ssh/portal_key -N ""',
+  },
+  {
+    label: 'Authorize the public key on this server',
+    cmd: 'cat /root/.ssh/portal_key.pub >> /root/.ssh/authorized_keys\nchmod 600 /root/.ssh/authorized_keys',
+  },
+  {
+    label: 'Display the private key — paste the output into the portal',
+    cmd: 'cat /root/.ssh/portal_key',
+  },
+]
 
 export default function AdminProxmox() {
   const { t } = useTranslation()
@@ -29,8 +32,16 @@ export default function AdminProxmox() {
   const { data: nodes, isLoading, isError } = nodesQuery
   const [open, setOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const [form, setForm] = useState(EMPTY)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  function copyCmd(cmd: string, index: number) {
+    navigator.clipboard.writeText(cmd).then(() => {
+      setCopiedIndex(index)
+      setTimeout(() => setCopiedIndex(null), 1500)
+    })
+  }
 
   function set<K extends keyof typeof EMPTY>(k: K, v: (typeof EMPTY)[K]) {
     setForm((f) => ({ ...f, [k]: v }))
@@ -114,17 +125,35 @@ export default function AdminProxmox() {
       )}
 
       <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>{t('admin.form.sshKeyHelp')}</DialogTitle>
+            <DialogTitle>SSH key setup — Proxmox server (root)</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">{t('admin.form.sshKeyHelpIntro')}</p>
-          <pre className="overflow-x-auto rounded-md bg-muted px-4 py-3 text-xs leading-relaxed">
-            {SSH_KEYGEN_COMMANDS}
-          </pre>
-          <p className="text-sm text-muted-foreground">{t('admin.form.sshKeyHelpNote')}</p>
+          <p className="text-sm text-muted-foreground">
+            Run these commands on the Proxmox server, then paste the output of step 3 into the private key field.
+          </p>
+          <div className="flex flex-col gap-3">
+            {SSH_STEPS.map((step, i) => (
+              <div key={i} className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {i + 1}. {step.label}
+                </span>
+                <div className="flex items-start gap-2 rounded-md bg-muted px-3 py-2">
+                  <pre className="flex-1 overflow-x-auto text-xs leading-relaxed">{step.cmd}</pre>
+                  <button
+                    type="button"
+                    onClick={() => copyCmd(step.cmd, i)}
+                    className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                    title="Copy"
+                  >
+                    {copiedIndex === i ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setHelpOpen(false)}>{t('workspaces.confirm.cancel')}</Button>
+            <Button variant="outline" onClick={() => setHelpOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
