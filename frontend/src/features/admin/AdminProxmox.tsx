@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Copy, HelpCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -35,29 +35,41 @@ export default function AdminProxmox() {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const [form, setForm] = useState(EMPTY)
   const fileRef = useRef<HTMLInputElement>(null)
-  // Textarea caché dans le dialog pour le fallback execCommand
-  // (doit être dans le dialog pour ne pas être bloqué par le focus trap Radix)
-  const copyFallbackRef = useRef<HTMLTextAreaElement>(null)
 
-  const copyCmd = useCallback((cmd: string, index: number) => {
+  function copyCmd(cmd: string, index: number) {
     const markDone = () => {
       setCopiedIndex(index)
       setTimeout(() => setCopiedIndex((c) => (c === index ? null : c)), 1500)
     }
-    const legacyCopy = () => {
-      const ta = copyFallbackRef.current
-      if (!ta) return
+
+    // execCommand synchrone : textarea jetable injecté dans le nœud Radix
+    // du dialog courant → jamais bloqué par le focus trap, toujours dans
+    // le user-activation context du clic.
+    const syncCopy = () => {
+      const container =
+        (document.querySelector('[data-radix-dialog-content]') as HTMLElement | null) ??
+        document.body
+      const ta = document.createElement('textarea')
       ta.value = cmd
-      ta.focus()
-      ta.select()
-      try { document.execCommand('copy'); markDone() } catch { /* ignore */ }
+      ta.style.cssText =
+        'position:absolute;width:1px;height:1px;padding:0;overflow:hidden;opacity:0;pointer-events:none'
+      container.appendChild(ta)
+      try {
+        ta.focus()
+        ta.select()
+        if (document.execCommand('copy')) markDone()
+      } finally {
+        container.removeChild(ta)
+      }
     }
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(cmd).then(markDone, legacyCopy)
+
+    // Clipboard API uniquement en contexte sécurisé (HTTPS / localhost)
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(cmd).then(markDone, syncCopy)
     } else {
-      legacyCopy()
+      syncCopy()
     }
-  }, [])
+  }
 
   function set<K extends keyof typeof EMPTY>(k: K, v: (typeof EMPTY)[K]) {
     setForm((f) => ({ ...f, [k]: v }))
@@ -168,14 +180,6 @@ export default function AdminProxmox() {
               </div>
             ))}
           </div>
-          {/* textarea caché pour le fallback execCommand — doit rester dans le dialog */}
-          <textarea
-            ref={copyFallbackRef}
-            aria-hidden="true"
-            tabIndex={-1}
-            readOnly
-            style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0 }}
-          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setHelpOpen(false)}>Close</Button>
           </DialogFooter>
