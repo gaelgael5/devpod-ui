@@ -147,7 +147,7 @@ export default function AdminProxmox() {
   const sshKeyArea = (
     value: string,
     onChange: (v: string) => void,
-    fileInputRef: React.RefObject<HTMLInputElement>,
+    fileInputRef: React.RefObject<HTMLInputElement | null>,
     optional = false,
   ) => (
     <div className="flex flex-col gap-1.5">
