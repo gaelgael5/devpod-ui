@@ -89,7 +89,7 @@ export default function AdminHosts() {
                 id="h-name"
                 value={form.name}
                 onChange={(e) => set('name', e.target.value)}
-                placeholder="pve1"
+                placeholder="docker-node1"
                 required
               />
             </div>
