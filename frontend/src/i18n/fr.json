@@ -49,6 +49,19 @@
     "proxmoxEmpty": "Aucun nœud Proxmox enrôlé.",
     "addHost": "Ajouter un hôte",
     "addRecipe": "Ajouter une recette",
+    "generate": {
+      "btn": "Générer",
+      "selectNode": "Sélectionner un hyperviseur",
+      "noNodes": "Aucun hyperviseur avec une URL de script configurée.",
+      "paramTitle": "Configurer la VM",
+      "execute": "Exécuter",
+      "back": "Retour",
+      "logTitle": "Exécution",
+      "running": "En cours…",
+      "addGenerated": "Ajouter ce host",
+      "resultFound": "Configuration du host extraite de la sortie du script.",
+      "resultMissing": "Script terminé mais aucun résultat JSON trouvé dans la dernière ligne."
+    },
     "addProxmox": "Ajout d'hyperviseur",
     "editProxmox": "Modifier l'hyperviseur",
     "col": {

@@ -49,6 +49,19 @@
     "proxmoxEmpty": "No Proxmox nodes enrolled yet.",
     "addHost": "Add host",
     "addRecipe": "Add recipe",
+    "generate": {
+      "btn": "Generate",
+      "selectNode": "Select a hypervisor",
+      "noNodes": "No hypervisor with a script URL configured.",
+      "paramTitle": "Configure VM",
+      "execute": "Execute",
+      "back": "Back",
+      "logTitle": "Execution",
+      "running": "Running…",
+      "addGenerated": "Add this host",
+      "resultFound": "Host configuration extracted from script output.",
+      "resultMissing": "Script completed but no JSON result found in the last line."
+    },
     "addProxmox": "Add hypervisor",
     "editProxmox": "Edit hypervisor",
     "col": {

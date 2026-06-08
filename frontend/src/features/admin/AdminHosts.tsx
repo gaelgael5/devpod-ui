@@ -10,6 +10,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { useHosts, useAddHost, type HostConfig } from './useHosts'
+import GenerateHostDialog from './GenerateHostDialog'
 
 const EMPTY: HostConfig = { name: '', type: 'docker-tls', default: false, docker_host: '', address: '', key_path: '' }
 
@@ -18,6 +19,7 @@ export default function AdminHosts() {
   const { data: hosts, isLoading, isError } = useHosts()
   const addHost = useAddHost()
   const [open, setOpen] = useState(false)
+  const [generateOpen, setGenerateOpen] = useState(false)
   const [form, setForm] = useState<HostConfig>(EMPTY)
 
   function set<K extends keyof HostConfig>(k: K, v: HostConfig[K]) {
@@ -34,11 +36,21 @@ export default function AdminHosts() {
     addHost.mutate(form, { onSuccess: () => handleClose(false) })
   }
 
+  function handleGenerated(config: HostConfig) {
+    setForm(config)
+    setOpen(true)
+  }
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{t('admin.hosts')}</h1>
-        <Button size="sm" onClick={() => setOpen(true)}>{t('admin.addHost')}</Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
+            {t('admin.generate.btn')}
+          </Button>
+          <Button size="sm" onClick={() => setOpen(true)}>{t('admin.addHost')}</Button>
+        </div>
       </div>
 
       {isLoading && <p className="text-muted-foreground">…</p>}
@@ -76,6 +88,12 @@ export default function AdminHosts() {
           </table>
         </div>
       )}
+
+      <GenerateHostDialog
+        open={generateOpen}
+        onClose={() => setGenerateOpen(false)}
+        onGenerated={handleGenerated}
+      />
 
       <Dialog open={open} onOpenChange={handleClose}>
         <DialogContent>
