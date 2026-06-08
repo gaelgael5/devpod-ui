@@ -40,17 +40,23 @@
     "shared": "Shared recipes"
   },
   "admin": {
-    "hosts": "Hosts",
+    "hosts": "Docker hosts",
     "sharedRecipes": "Shared recipes",
+    "proxmox": "Proxmox nodes",
     "hostsEmpty": "No hosts enrolled yet.",
     "recipesEmpty": "No shared recipes.",
+    "proxmoxEmpty": "No Proxmox nodes enrolled yet.",
     "addHost": "Add host",
     "addRecipe": "Add recipe",
+    "addProxmox": "Add node",
     "col": {
       "name": "Name",
       "type": "Type",
       "host": "Host",
-      "default": "Default"
+      "default": "Default",
+      "address": "Address",
+      "sshUser": "SSH user",
+      "pveNode": "PVE node"
     },
     "form": {
       "hostName": "Name",
@@ -63,7 +69,11 @@
       "version": "Version",
       "description": "Description",
       "installScript": "install.sh",
-      "save": "Save"
+      "save": "Save",
+      "sshUser": "SSH user",
+      "sshPort": "SSH port",
+      "pveNode": "PVE node name",
+      "sshKey": "SSH private key"
     }
   },
   "errors": {

@@ -40,17 +40,23 @@
     "shared": "Recettes partagées"
   },
   "admin": {
-    "hosts": "Hôtes",
+    "hosts": "Hôtes Docker",
     "sharedRecipes": "Recettes partagées",
+    "proxmox": "Nœuds Proxmox",
     "hostsEmpty": "Aucun hôte enrôlé.",
     "recipesEmpty": "Aucune recette partagée.",
+    "proxmoxEmpty": "Aucun nœud Proxmox enrôlé.",
     "addHost": "Ajouter un hôte",
     "addRecipe": "Ajouter une recette",
+    "addProxmox": "Ajouter un nœud",
     "col": {
       "name": "Nom",
       "type": "Type",
       "host": "Hôte",
-      "default": "Défaut"
+      "default": "Défaut",
+      "address": "Adresse",
+      "sshUser": "Utilisateur SSH",
+      "pveNode": "Nœud PVE"
     },
     "form": {
       "hostName": "Nom",
@@ -63,7 +69,11 @@
       "version": "Version",
       "description": "Description",
       "installScript": "install.sh",
-      "save": "Enregistrer"
+      "save": "Enregistrer",
+      "sshUser": "Utilisateur SSH",
+      "sshPort": "Port SSH",
+      "pveNode": "Nom du nœud PVE",
+      "sshKey": "Clé privée SSH"
     }
   },
   "errors": {
