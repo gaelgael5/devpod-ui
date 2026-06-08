@@ -13,7 +13,7 @@ import {
 import { useAdminProxmox, type ProxmoxNodeConfig } from './useAdminProxmox'
 import {
   useScriptSpec, useExecuteScript, extractLastJson,
-  type ScriptArg, type ScriptSpec,
+  type ScriptArg,
 } from './useProxmoxScript'
 import type { HostConfig } from './useHosts'
 
