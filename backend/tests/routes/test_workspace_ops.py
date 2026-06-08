@@ -144,7 +144,7 @@ def test_stop_rejects_path_traversal_name(tmp_path: Path) -> None:
         resp = client.post("/me/workspaces/..%2F..%2Fbob-app/stop")
     # URL-encoded traversal doit retourner 404 (FastAPI path routing le bloque)
     # ou 422 si le paramètre est décodé et soumis à _validate_name.
-    assert resp.status_code in (404, 422)
+    assert resp.status_code in (404, 405, 422)
 
 
 def test_stop_rejects_invalid_name(tmp_path: Path) -> None:

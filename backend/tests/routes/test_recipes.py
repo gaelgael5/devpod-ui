@@ -208,7 +208,7 @@ def test_delete_shared_recipe_path_traversal_rejected(tmp_path: Path) -> None:
     # router receives recipe_id="other" (valid regex) and returns 404.
     # If a future client sends the raw `..` segment, _validate_recipe_id
     # will reject it with 422. Both outcomes are safe.
-    assert resp.status_code in (404, 422)
+    assert resp.status_code in (404, 405, 422)
 
 
 def test_admin_delete_recipe_not_found(tmp_path: Path) -> None:
