@@ -48,7 +48,7 @@
     "proxmoxEmpty": "No Proxmox nodes enrolled yet.",
     "addHost": "Add host",
     "addRecipe": "Add recipe",
-    "addProxmox": "Add node",
+    "addProxmox": "Add hypervisor",
     "col": {
       "name": "Name",
       "type": "Type",

@@ -48,7 +48,7 @@
     "proxmoxEmpty": "Aucun nœud Proxmox enrôlé.",
     "addHost": "Ajouter un hôte",
     "addRecipe": "Ajouter une recette",
-    "addProxmox": "Ajouter un nœud",
+    "addProxmox": "Ajout d'hyperviseur",
     "col": {
       "name": "Nom",
       "type": "Type",
