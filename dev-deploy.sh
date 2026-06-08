@@ -28,10 +28,13 @@ if [[ ! -f "$ENV_FILE" ]]; then
     LOCAL_PASS="$(openssl rand -hex 12)"
     LOCAL_HASH="$(PASS="$LOCAL_PASS" python3 -c \
         "import bcrypt, os; print(bcrypt.hashpw(os.environ['PASS'].encode(), bcrypt.gensalt()).decode())")"
+    # docker-compose interprole $VAR dans env_file : échapper $ → $$ pour que le
+    # conteneur reçoive le hash bcrypt intact ($2b$12$… → $$2b$$12$$…).
+    LOCAL_HASH_ESCAPED="$(printf '%s' "$LOCAL_HASH" | sed 's/\$/\$\$/g')"
 
     sed -i "s|^SESSION_SECRET_KEY=.*|SESSION_SECRET_KEY=${SESSION_KEY}|" "$ENV_FILE"
     sed -i "s|^LOCAL_PASSWORD=.*|LOCAL_PASSWORD=${LOCAL_PASS}|" "$ENV_FILE"
-    sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${LOCAL_HASH}|" "$ENV_FILE"
+    sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}|" "$ENV_FILE"
 
     echo "    .env créé — credentials locaux générés."
 fi
