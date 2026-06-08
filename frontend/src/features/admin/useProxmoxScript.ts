@@ -21,6 +21,7 @@ export interface ScriptArg {
   pattern?: string
   options?: ScriptOption[]
   option_script?: string
+  _option_script_error?: string
 }
 
 export interface ScriptSpec {

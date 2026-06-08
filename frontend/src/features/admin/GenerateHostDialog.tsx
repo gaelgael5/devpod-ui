@@ -197,6 +197,9 @@ function ArgField({
             ))}
           </SelectContent>
         </Select>
+        {arg._option_script_error && (
+          <p className="text-xs text-destructive">{arg._option_script_error}</p>
+        )}
       </div>
     )
   }

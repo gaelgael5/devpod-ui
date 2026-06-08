@@ -69,14 +69,21 @@ def _ssh_opts(node: ProxmoxNode) -> list[str]:
 
 
 async def _ssh_run(node: ProxmoxNode, command: str, timeout: float = 30.0) -> str:
-    """Exécute une commande SSH et retourne stdout (stderr ignoré)."""
+    """Exécute une commande SSH et retourne stdout ; lève RuntimeError si le code de retour est non-zéro."""
     proc = await asyncio.create_subprocess_exec(
         "ssh", *_ssh_opts(node), f"{node.ssh_user}@{node.address}",
         command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise
+    if proc.returncode != 0:
+        msg = stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"SSH exited {proc.returncode}: {msg or '(no stderr)'}")
     return stdout.decode("utf-8", errors="replace")
 
 
@@ -264,7 +271,9 @@ async def get_node_script(
             existing = arg.get("options", []) or []
             arg["options"] = existing + dynamic
         except Exception as exc:
-            _log.warning("option_script_failed", node=name, arg=arg.get("arg"), error=str(exc))
+            err = str(exc)
+            _log.warning("option_script_failed", node=name, arg=arg.get("arg"), error=err)
+            arg["_option_script_error"] = err
 
     return spec
 
