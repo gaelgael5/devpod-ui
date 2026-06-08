@@ -133,7 +133,7 @@ echo "==> [4/4] Smoke /health (timeout 60s)..."
 SMOKE_OK=0
 ELAPSED=0
 while [[ $ELAPSED -lt 60 ]]; do
-    if curl -sf -m 3 "http://localhost:8080/health" &>/dev/null; then
+    if docker compose -f "$COMPOSE_FILE" exec -T portal curl -sf -m 3 "http://localhost:8080/health" &>/dev/null; then
         SMOKE_OK=1; break
     fi
     sleep 5
