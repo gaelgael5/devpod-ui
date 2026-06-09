@@ -350,9 +350,9 @@ export default function AdminProxmox() {
               </div>
             ))}
           </div>
-          <DialogFooter>
+          <div className="flex justify-end">
             <Button variant="outline" onClick={() => setHelpOpen(false)}>Close</Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
