@@ -429,28 +429,26 @@ export default function AdminProxmox() {
               />
             </div>
             {sshKeyArea(form.ssh_key_content, (v) => setField('ssh_key_content', v), fileRef)}
-            <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleTestAdd}
-                  disabled={addTestStatus === 'testing' || !form.address || !form.ssh_key_content.trim()}
-                >
-                  {addTestStatus === 'testing' && <LoaderCircle size={13} className="mr-1.5 animate-spin" />}
-                  {t('admin.form.testConnection')}
-                </Button>
-                {renderTestStatus(addTestStatus, addTestError)}
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => handleClose(false)}>
-                  {t('workspaces.confirm.cancel')}
-                </Button>
-                <Button type="submit" disabled={addNode.isPending}>
-                  {t('admin.form.save')}
-                </Button>
-              </div>
+            <div className="flex items-center gap-3 border-t pt-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleTestAdd}
+                disabled={addTestStatus === 'testing' || !form.address || !form.ssh_key_content.trim()}
+              >
+                {addTestStatus === 'testing' && <LoaderCircle size={13} className="mr-1.5 animate-spin" />}
+                {t('admin.form.testConnection')}
+              </Button>
+              {renderTestStatus(addTestStatus, addTestError)}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => handleClose(false)}>
+                {t('workspaces.confirm.cancel')}
+              </Button>
+              <Button type="submit" disabled={addNode.isPending}>
+                {t('admin.form.save')}
+              </Button>
             </div>
           </form>
         </DialogContent>
@@ -518,28 +516,26 @@ export default function AdminProxmox() {
               />
             </div>
             {sshKeyArea(editForm.ssh_key_content, (v) => setEditField('ssh_key_content', v), editFileRef, true)}
-            <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleTestEdit}
-                  disabled={editTestStatus === 'testing'}
-                >
-                  {editTestStatus === 'testing' && <LoaderCircle size={13} className="mr-1.5 animate-spin" />}
-                  {t('admin.form.testConnection')}
-                </Button>
-                {renderTestStatus(editTestStatus, editTestError)}
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => handleEditClose(false)}>
-                  {t('workspaces.confirm.cancel')}
-                </Button>
-                <Button type="submit" disabled={updateNode.isPending}>
-                  {t('admin.form.save')}
-                </Button>
-              </div>
+            <div className="flex items-center gap-3 border-t pt-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleTestEdit}
+                disabled={editTestStatus === 'testing'}
+              >
+                {editTestStatus === 'testing' && <LoaderCircle size={13} className="mr-1.5 animate-spin" />}
+                {t('admin.form.testConnection')}
+              </Button>
+              {renderTestStatus(editTestStatus, editTestError)}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => handleEditClose(false)}>
+                {t('workspaces.confirm.cancel')}
+              </Button>
+              <Button type="submit" disabled={updateNode.isPending}>
+                {t('admin.form.save')}
+              </Button>
             </div>
           </form>
         </DialogContent>
