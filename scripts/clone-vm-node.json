@@ -8,7 +8,9 @@
       "description_en": "First 10 free IDs after 100 (VMs + LXC taken into account)",
       "type": "select",
       "required": true,
-      "options": [],
+      "options": [
+        { "value": "auto", "label": "auto (même stockage que le template)" }
+      ],
       "option_script": "PATH=/usr/sbin:/usr/bin:$PATH; used=$(ls /etc/pve/qemu-server/ /etc/pve/lxc/ 2>/dev/null | sed 's/\\.conf$//' | grep -E '^[0-9]+$'); count=0; id=101; while [ $count -lt 10 ]; do echo \"$used\" | grep -qx \"$id\" || { echo $id; count=$((count+1)); }; id=$((id+1)); done"
     },
     {
@@ -21,25 +23,42 @@
       "required": true,
       "pattern": "^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$"
     },
+
     {
-      "arg": "IP_CIDR",
-      "label_fr": "Adresse IP fixe (optionnel)",
-      "label_en": "Static IP address (optional)",
-      "description_fr": "Adresse IP avec masque CIDR (ex: 192.168.1.50/24). Laisser vide pour DHCP.",
-      "description_en": "IP address with CIDR mask (e.g. 192.168.1.50/24). Leave empty for DHCP.",
-      "type": "string",
-      "required": false,
-      "default": ""
-    },
-    {
-      "arg": "GATEWAY",
-      "label_fr": "Passerelle (obligatoire si IP fixe)",
-      "label_en": "Gateway (required if static IP set)",
-      "description_fr": "Passerelle par défaut. Obligatoire si IP fixe renseignée (ex: 192.168.1.1).",
-      "description_en": "Default gateway. Required when static IP is set (e.g. 192.168.1.1).",
-      "type": "string",
-      "required": false,
-      "default": ""
+      "type": "sub",
+      "label_fr": "réseau. laisser vide pour le dhcp",
+      "label_en": "Network. Let empty for DHCP",
+      "args": [
+        {
+          "arg": "IP_CIDR",
+          "label_fr": "Adresse IP fixe (optionnel)",
+          "label_en": "Static IP address (optional)",
+          "description_fr": "Adresse IP avec masque CIDR (ex: 192.168.1.50/24). Laisser vide pour DHCP.",
+          "description_en": "IP address with CIDR mask (e.g. 192.168.1.50/24). Leave empty for DHCP.",
+          "type": "string",
+          "required": false,
+          "default": ""
+        },
+        {
+          "arg": "GATEWAY",
+          "label_fr": "Passerelle (obligatoire si IP fixe)",
+          "label_en": "Gateway (required if static IP set)",
+          "description_fr": "Passerelle par défaut. Obligatoire si IP fixe renseignée (ex: 192.168.1.1).",
+          "description_en": "Default gateway. Required when static IP is set (e.g. 192.168.1.1).",
+          "type": "string",
+          "required": false,
+          "default": ""
+        },
+        {
+          "arg": "DNS",
+          "label_fr": "Serveur DNS",
+          "label_en": "DNS server",
+          "description_fr": "Adresse du résolveur DNS injecté dans cloud-init",
+          "description_en": "DNS resolver address injected via cloud-init",
+          "type": "string",
+          "required": false
+        }
+      ]
     },
     {
       "arg": "TEMPLATE_VMID",
@@ -51,64 +70,66 @@
       "required": false,
       "default": "auto"
     },
+
     {
-      "arg": "STORAGE",
-      "label_fr": "Stockage Proxmox",
-      "label_en": "Proxmox storage",
-      "description_fr": "Pool de stockage pour le disque VM. 'auto' = même stockage que le template source.",
-      "description_en": "Storage pool for the VM disk. 'auto' = same storage as the source template.",
-      "type": "select",
-      "required": false,
-      "default": "auto",
-      "options": [
-        { "value": "auto", "label": "auto (même stockage que le template)" }
-      ],
-      "option_script": "PATH=/usr/sbin:/usr/bin:$PATH pvesm status 2>/dev/null | awk 'NR>1 && $3==\"active\" {print $1}'"
+      "type": "sub",
+      "label_fr": "réseau",
+      "label_en": "Network",
+      "args": [
+
+        {
+          "arg": "STORAGE",
+          "label_fr": "Stockage Proxmox",
+          "label_en": "Proxmox storage",
+          "description_fr": "Pool de stockage pour le disque VM. 'auto' = même stockage que le template source.",
+          "description_en": "Storage pool for the VM disk. 'auto' = same storage as the source template.",
+          "type": "select",
+          "required": false,
+          "default": "auto",
+          "options": [
+            { "value": "auto", "label": "auto (même stockage que le template)" }
+          ],
+          "option_script": "PATH=/usr/sbin:/usr/bin:$PATH pvesm status 2>/dev/null | awk 'NR>1 && $3==\"active\" {print $1}'"
+        },
+        {
+          "arg": "MEMORY",
+          "label_fr": "RAM (Mo)",
+          "label_en": "RAM (MB)",
+          "description_fr": "Mémoire vive allouée en MégaBytes",
+          "description_en": "Memory allocated in MegaBytes",
+          "type": "integer",
+          "required": false,
+          "default": 8192,
+          "min": 512,
+          "max": 524288
+        },
+        {
+          "arg": "CORES",
+          "label_fr": "Nombre de vCPU",
+          "label_en": "vCPU count",
+          "description_fr": "Nombre de cœurs virtuels alloués à la VM",
+          "description_en": "Number of virtual CPU cores allocated to the VM",
+          "type": "integer",
+          "required": false,
+          "default": 4,
+          "min": 1,
+          "max": 64
+        },
+        {
+          "arg": "DISK_EXTRA",
+          "label_fr": "Extension disque",
+          "label_en": "Disk expansion",
+          "description_fr": "Espace disque supplémentaire à ajouter au template (ex: +40G, +100G)",
+          "description_en": "Additional disk space to expand by on top of the template (e.g. +40G, +100G)",
+          "type": "string",
+          "required": false,
+          "default": "+40G"
+        }
+
+      ]
     },
-    {
-      "arg": "DNS",
-      "label_fr": "Serveur DNS",
-      "label_en": "DNS server",
-      "description_fr": "Adresse du résolveur DNS injecté dans cloud-init",
-      "description_en": "DNS resolver address injected via cloud-init",
-      "type": "string",
-      "required": false,
-      "default": "1.1.1.1"
-    },
-    {
-      "arg": "MEMORY",
-      "label_fr": "RAM (Mo)",
-      "label_en": "RAM (MB)",
-      "description_fr": "Mémoire vive allouée en MégaBytes",
-      "description_en": "Memory allocated in MegaBytes",
-      "type": "integer",
-      "required": false,
-      "default": 8192,
-      "min": 512,
-      "max": 524288
-    },
-    {
-      "arg": "CORES",
-      "label_fr": "Nombre de vCPU",
-      "label_en": "vCPU count",
-      "description_fr": "Nombre de cœurs virtuels alloués à la VM",
-      "description_en": "Number of virtual CPU cores allocated to the VM",
-      "type": "integer",
-      "required": false,
-      "default": 4,
-      "min": 1,
-      "max": 64
-    },
-    {
-      "arg": "DISK_EXTRA",
-      "label_fr": "Extension disque",
-      "label_en": "Disk expansion",
-      "description_fr": "Espace disque supplémentaire à ajouter au template (ex: +40G, +100G)",
-      "description_en": "Additional disk space to expand by on top of the template (e.g. +40G, +100G)",
-      "type": "string",
-      "required": false,
-      "default": "+40G"
-    },
+
+
     {
       "arg": "CI_USER",
       "label_fr": "Utilisateur cloud-init",
