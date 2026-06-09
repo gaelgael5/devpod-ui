@@ -12,8 +12,8 @@ import {
 } from '@/components/ui/select'
 import { useAdminProxmox, type ProxmoxNodeConfig } from './useAdminProxmox'
 import {
-  useScriptSpec, useExecuteScript, extractLastJson,
-  type ScriptArg,
+  useScriptSpec, useExecuteScript, extractLastJson, flattenArgs,
+  type ScriptArg, type ScriptSubArg, type ScriptArgOrSub,
 } from './useProxmoxScript'
 import type { HostConfig } from './useHosts'
 
@@ -26,13 +26,13 @@ type Step =
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function argLabel(arg: ScriptArg): string {
+function argLabel(arg: ScriptArg | ScriptSubArg): string {
   return i18n.language.startsWith('fr') ? arg.label_fr : arg.label_en
 }
 
-function initValues(args: ScriptArg[]): Record<string, string> {
+function initValues(args: ScriptArgOrSub[]): Record<string, string> {
   return Object.fromEntries(
-    args.map(a => [a.arg, a.default !== undefined ? String(a.default) : ''])
+    flattenArgs(args).map(a => [a.arg, a.default !== undefined ? String(a.default) : ''])
   )
 }
 
@@ -145,9 +145,11 @@ function StepParams({
 
       {spec && (
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          {spec.args.map(arg => (
-            <ArgField key={arg.arg} arg={arg} value={values[arg.arg] ?? ''} onChange={v => set(arg.arg, v)} />
-          ))}
+          {spec.args.map((arg, i) =>
+            arg.type === 'sub'
+              ? <SubGroup key={i} sub={arg} values={values} onChange={set} />
+              : <ArgField key={arg.arg} arg={arg} value={values[arg.arg] ?? ''} onChange={v => set(arg.arg, v)} />
+          )}
           <DialogFooter className="mt-2">
             <Button type="button" variant="outline" onClick={onBack}>{t('admin.generate.back')}</Button>
             <Button type="submit">{t('admin.generate.execute')}</Button>
@@ -161,6 +163,29 @@ function StepParams({
         </DialogFooter>
       )}
     </>
+  )
+}
+
+function SubGroup({
+  sub,
+  values,
+  onChange,
+}: {
+  sub: ScriptSubArg
+  values: Record<string, string>
+  onChange: (key: string, value: string) => void
+}) {
+  return (
+    <fieldset className="rounded-md border px-3 pb-3 pt-1">
+      <legend className="px-1 text-xs font-medium text-muted-foreground">
+        {argLabel(sub)}
+      </legend>
+      <div className="flex flex-col gap-3 mt-1">
+        {sub.args.map(arg => (
+          <ArgField key={arg.arg} arg={arg} value={values[arg.arg] ?? ''} onChange={v => onChange(arg.arg, v)} />
+        ))}
+      </div>
+    </fieldset>
   )
 }
 

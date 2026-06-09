@@ -24,8 +24,21 @@ export interface ScriptArg {
   _option_script_error?: string
 }
 
-export interface ScriptSpec {
+export interface ScriptSubArg {
+  type: 'sub'
+  label_fr: string
+  label_en: string
   args: ScriptArg[]
+}
+
+export type ScriptArgOrSub = ScriptArg | ScriptSubArg
+
+export function flattenArgs(args: ScriptArgOrSub[]): ScriptArg[] {
+  return args.flatMap(a => a.type === 'sub' ? a.args : [a])
+}
+
+export interface ScriptSpec {
+  args: ScriptArgOrSub[]
   commands: string[]
   tags?: string[]
 }
