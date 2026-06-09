@@ -1,17 +1,19 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy, HelpCircle } from 'lucide-react'
+import { Check, CheckCircle2, Copy, HelpCircle, Loader2, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
+import { apiFetchJson } from '@/shared/api/client'
 import { useAdminProxmox, type ProxmoxNodeConfig } from './useAdminProxmox'
 
 const EMPTY = { name: '', address: '', ssh_user: 'root', ssh_port: 22, pve_node: 'pve', script_url: '', ssh_key_content: '' }
 type AddForm = typeof EMPTY
 type EditForm = { address: string; ssh_user: string; ssh_port: number; pve_node: string; script_url: string; ssh_key_content: string }
+type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
 const SSH_STEPS = [
   {
@@ -41,6 +43,11 @@ export default function AdminProxmox() {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const [form, setForm] = useState<AddForm>(EMPTY)
   const [editForm, setEditForm] = useState<EditForm>({ address: '', ssh_user: 'root', ssh_port: 22, pve_node: 'pve', script_url: '', ssh_key_content: '' })
+
+  const [addTestStatus, setAddTestStatus] = useState<TestStatus>('idle')
+  const [addTestError, setAddTestError] = useState<string | null>(null)
+  const [editTestStatus, setEditTestStatus] = useState<TestStatus>('idle')
+  const [editTestError, setEditTestError] = useState<string | null>(null)
 
   const fileRef = useRef<HTMLInputElement>(null)
   const editFileRef = useRef<HTMLInputElement>(null)
@@ -82,7 +89,11 @@ export default function AdminProxmox() {
   }
 
   function handleClose(o: boolean) {
-    if (!o) setForm(EMPTY)
+    if (!o) {
+      setForm(EMPTY)
+      setAddTestStatus('idle')
+      setAddTestError(null)
+    }
     setOpen(o)
   }
 
@@ -96,11 +107,17 @@ export default function AdminProxmox() {
       script_url: node.script_url,
       ssh_key_content: '',
     })
+    setEditTestStatus('idle')
+    setEditTestError(null)
     setEditOpen(true)
   }
 
   function handleEditClose(o: boolean) {
-    if (!o) setEditTarget(null)
+    if (!o) {
+      setEditTarget(null)
+      setEditTestStatus('idle')
+      setEditTestError(null)
+    }
     setEditOpen(o)
   }
 
@@ -111,6 +128,45 @@ export default function AdminProxmox() {
     reader.onload = (ev) => setter((ev.target?.result as string) ?? '')
     reader.readAsText(file)
     e.target.value = ''
+  }
+
+  async function handleTestAdd() {
+    const content = form.ssh_key_content.trim()
+    if (!form.address || !content) return
+    setAddTestStatus('testing')
+    setAddTestError(null)
+    try {
+      const fd = new FormData()
+      fd.append('address', form.address)
+      fd.append('ssh_user', form.ssh_user)
+      fd.append('ssh_port', String(form.ssh_port))
+      fd.append('ssh_key', new Blob([content], { type: 'text/plain' }), 'id_ed25519')
+      const res = await apiFetchJson<{ ok: boolean; error: string | null }>(
+        '/admin/proxmox/test-connection',
+        { method: 'POST', body: fd },
+      )
+      setAddTestStatus(res.ok ? 'ok' : 'error')
+      setAddTestError(res.error ?? null)
+    } catch (e) {
+      setAddTestStatus('error')
+      setAddTestError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  async function handleTestEdit() {
+    if (!editTarget) return
+    setEditTestStatus('testing')
+    setEditTestError(null)
+    try {
+      const res = await apiFetchJson<{ ok: boolean; error: string | null }>(
+        `/admin/proxmox/${editTarget.name}/ping`,
+      )
+      setEditTestStatus(res.ok ? 'ok' : 'error')
+      setEditTestError(res.error ?? null)
+    } catch (e) {
+      setEditTestStatus('error')
+      setEditTestError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -142,6 +198,28 @@ export default function AdminProxmox() {
       fd.append('ssh_key', new Blob([keyContent], { type: 'text/plain' }), 'id_ed25519')
     }
     updateNode.mutate({ name: editTarget.name, fd }, { onSuccess: () => handleEditClose(false) })
+  }
+
+  function renderTestStatus(status: TestStatus, error: string | null) {
+    if (status === 'idle') return null
+    if (status === 'testing') return (
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2 size={12} className="animate-spin" />
+        {t('admin.form.testing')}
+      </p>
+    )
+    if (status === 'ok') return (
+      <p className="flex items-center gap-1.5 text-xs text-green-600">
+        <CheckCircle2 size={12} />
+        {t('admin.form.testOk')}
+      </p>
+    )
+    return (
+      <p className="flex items-center gap-1.5 text-xs text-destructive">
+        <XCircle size={12} />
+        {error ?? t('admin.form.testFailed')}
+      </p>
+    )
   }
 
   const sshKeyArea = (
@@ -351,7 +429,19 @@ export default function AdminProxmox() {
               />
             </div>
             {sshKeyArea(form.ssh_key_content, (v) => setField('ssh_key_content', v), fileRef)}
+            {renderTestStatus(addTestStatus, addTestError)}
             <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleTestAdd}
+                disabled={addTestStatus === 'testing' || !form.address || !form.ssh_key_content.trim()}
+              >
+                {addTestStatus === 'testing'
+                  ? <Loader2 size={14} className="mr-1.5 animate-spin" />
+                  : null}
+                {t('admin.form.testConnection')}
+              </Button>
               <Button type="button" variant="outline" onClick={() => handleClose(false)}>
                 {t('workspaces.confirm.cancel')}
               </Button>
@@ -425,7 +515,19 @@ export default function AdminProxmox() {
               />
             </div>
             {sshKeyArea(editForm.ssh_key_content, (v) => setEditField('ssh_key_content', v), editFileRef, true)}
+            {renderTestStatus(editTestStatus, editTestError)}
             <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleTestEdit}
+                disabled={editTestStatus === 'testing'}
+              >
+                {editTestStatus === 'testing'
+                  ? <Loader2 size={14} className="mr-1.5 animate-spin" />
+                  : null}
+                {t('admin.form.testConnection')}
+              </Button>
               <Button type="button" variant="outline" onClick={() => handleEditClose(false)}>
                 {t('workspaces.confirm.cancel')}
               </Button>

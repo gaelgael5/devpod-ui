@@ -96,7 +96,11 @@
       "sshKeyHelpNote": "Copiez la sortie de la dernière commande et collez-la dans le champ de la clé privée.",
       "sshKeyOptional": "laisser vide pour conserver la clé actuelle",
       "scriptUrl": "URL du script JSON",
-      "scriptUrlPlaceholder": "https://exemple.com/scripts/create-vm.json"
+      "scriptUrlPlaceholder": "https://exemple.com/scripts/create-vm.json",
+      "testConnection": "Tester la connexion",
+      "testing": "Test en cours…",
+      "testOk": "Connexion réussie",
+      "testFailed": "Connexion échouée"
     }
   },
   "errors": {

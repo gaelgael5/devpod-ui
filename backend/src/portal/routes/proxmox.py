@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -224,6 +225,57 @@ async def delete_proxmox_node(
     save_global(cfg)
     Path(node.ssh_key_path).unlink(missing_ok=True)
     _log.info("proxmox_node_deleted", name=name, by=user.login)
+
+
+# ─── Test de connexion SSH ────────────────────────────────────────────────────
+
+@router.post("/proxmox/test-connection")
+async def test_proxmox_connection(
+    address: str = Form(...),
+    ssh_user: str = Form("root"),
+    ssh_port: int = Form(22),
+    ssh_key: UploadFile = File(...),
+    user: UserInfo = Depends(require_admin),
+) -> dict[str, object]:
+    """Teste une connexion SSH à partir de paramètres fournis directement (clé non encore sauvegardée)."""
+    key_bytes = await ssh_key.read(_MAX_KEY_BYTES + 1)
+    _validate_key_bytes(key_bytes)
+    fd, tmp_path = tempfile.mkstemp(suffix=".key")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(key_bytes)
+        os.chmod(tmp_path, 0o600)
+        node = ProxmoxNode(
+            name="test", address=address,
+            ssh_user=ssh_user, ssh_port=ssh_port, ssh_key_path=tmp_path,
+        )
+        out = await _ssh_run(node, "echo OK", timeout=15.0)
+        if out.strip() == "OK":
+            return {"ok": True, "error": None}
+        return {"ok": False, "error": f"Unexpected output: {out.strip()!r}"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+@router.get("/proxmox/{name}/ping")
+async def ping_proxmox_node(
+    name: str,
+    user: UserInfo = Depends(require_admin),
+) -> dict[str, object]:
+    """Teste la connexion SSH d'un nœud enregistré en utilisant ses paramètres stockés."""
+    cfg = load_global()
+    node = next((n for n in cfg.proxmox_nodes if n.name == name), None)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Proxmox node {name!r} not found")
+    try:
+        out = await _ssh_run(node, "echo OK", timeout=15.0)
+        if out.strip() == "OK":
+            return {"ok": True, "error": None}
+        return {"ok": False, "error": f"Unexpected output: {out.strip()!r}"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 # ─── Exécution de script via SSH ──────────────────────────────────────────────
