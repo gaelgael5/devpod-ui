@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import structlog
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 from .auth.router import router as auth_router
 from .routes.admin import router as admin_router
@@ -17,6 +23,31 @@ from .routes.workspace_ops import router as workspace_ops_router
 from .settings import get_settings
 
 _log = structlog.get_logger(__name__)
+
+_SPA_INDEX = Path("static") / "index.html"
+_NO_CACHE = "no-cache, no-store, must-revalidate"
+
+
+class SPAMiddleware(BaseHTTPMiddleware):
+    """Sert index.html pour les requêtes de navigation navigateur vers des routes frontend.
+
+    Sans ce middleware, les routes API comme GET /admin/proxmox prenaient la priorité
+    sur le routeur React, renvoyant du JSON brut lors d'un rechargement de page.
+    Critère : requête GET dont le Accept inclut text/html (navigation browser)
+    et dont le chemin n'a pas d'extension (pas un asset JS/CSS/image).
+    """
+
+    async def dispatch(self, request: Request, call_next: object) -> Response:
+        if request.method == "GET":
+            accept = request.headers.get("Accept", "")
+            path_last = request.url.path.split("/")[-1]
+            is_browser_nav = "text/html" in accept and "application/json" not in accept
+            is_page_route = "." not in path_last  # les assets ont une extension
+
+            if is_browser_nav and is_page_route and _SPA_INDEX.is_file():
+                return FileResponse(_SPA_INDEX, headers={"Cache-Control": _NO_CACHE})
+
+        return await call_next(request)  # type: ignore[operator]
 
 
 def create_app() -> FastAPI:
@@ -35,6 +66,11 @@ def create_app() -> FastAPI:
             )
 
     app = FastAPI(title="workspace-portal", version="0.1.0")
+
+    # Starlette insère chaque middleware en tête de liste (prepend).
+    # Ordre d'exécution requête : SessionMiddleware → SPAMiddleware → Router.
+    # SPAMiddleware court-circuite le routeur API pour les navigations browser.
+    app.add_middleware(SPAMiddleware)
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.session_secret_key or "dev-only-insecure-key",
