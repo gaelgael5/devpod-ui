@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, CheckCircle2, Copy, HelpCircle, Loader2, XCircle } from 'lucide-react'
+import { Check, CircleCheck, CircleX, Copy, HelpCircle, LoaderCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -204,19 +204,19 @@ export default function AdminProxmox() {
     if (status === 'idle') return null
     if (status === 'testing') return (
       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Loader2 size={12} className="animate-spin" />
+        <LoaderCircle size={12} className="animate-spin" />
         {t('admin.form.testing')}
       </p>
     )
     if (status === 'ok') return (
       <p className="flex items-center gap-1.5 text-xs text-green-600">
-        <CheckCircle2 size={12} />
+        <CircleCheck size={12} />
         {t('admin.form.testOk')}
       </p>
     )
     return (
       <p className="flex items-center gap-1.5 text-xs text-destructive">
-        <XCircle size={12} />
+        <CircleX size={12} />
         {error ?? t('admin.form.testFailed')}
       </p>
     )
@@ -438,7 +438,7 @@ export default function AdminProxmox() {
                 disabled={addTestStatus === 'testing' || !form.address || !form.ssh_key_content.trim()}
               >
                 {addTestStatus === 'testing'
-                  ? <Loader2 size={14} className="mr-1.5 animate-spin" />
+                  ? <LoaderCircle size={14} className="mr-1.5 animate-spin" />
                   : null}
                 {t('admin.form.testConnection')}
               </Button>
@@ -524,7 +524,7 @@ export default function AdminProxmox() {
                 disabled={editTestStatus === 'testing'}
               >
                 {editTestStatus === 'testing'
-                  ? <Loader2 size={14} className="mr-1.5 animate-spin" />
+                  ? <LoaderCircle size={14} className="mr-1.5 animate-spin" />
                   : null}
                 {t('admin.form.testConnection')}
               </Button>
