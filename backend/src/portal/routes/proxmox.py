@@ -35,8 +35,17 @@ def _key_dir() -> Path:
     return p
 
 
+def _normalize_key(key_bytes: bytes) -> bytes:
+    """Normalise les fins de ligne CRLF → LF et assure une newline finale."""
+    text = key_bytes.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    if not text.endswith(b"\n"):
+        text += b"\n"
+    return text
+
+
 def _write_key_atomic(key_path: Path, key_bytes: bytes) -> None:
     """Écrit la clé SSH de façon atomique avec permissions 0o600."""
+    key_bytes = _normalize_key(key_bytes)
     tmp = key_path.with_suffix(".tmp")
     tmp.unlink(missing_ok=True)  # nettoie un éventuel résidu
     try:
@@ -240,6 +249,7 @@ async def test_proxmox_connection(
     """Teste une connexion SSH à partir de paramètres fournis directement (clé non encore sauvegardée)."""
     key_bytes = await ssh_key.read(_MAX_KEY_BYTES + 1)
     _validate_key_bytes(key_bytes)
+    key_bytes = _normalize_key(key_bytes)
     fd, tmp_path = tempfile.mkstemp(suffix=".key")
     try:
         with os.fdopen(fd, "wb") as f:
