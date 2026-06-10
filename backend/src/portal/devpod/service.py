@@ -270,15 +270,24 @@ class DevPodService:
                     url = src.url.strip()
                     if not url:
                         continue
+                    # Défense en profondeur : rejeter les valeurs commençant par '-'
+                    # même si la route les valide déjà (argument injection git).
+                    if url.startswith("-"):
+                        raise ValueError(f"Source URL must not start with '-': {url!r}")
+                    if src.branch and src.branch.startswith("-"):
+                        raise ValueError(f"Branch must not start with '-': {src.branch!r}")
                     repo_name = _repo_name_from_url(url)
                     target = f"/workspaces/{repo_name}"
+                    # '--' empêche git d'interpréter l'URL comme un flag.
                     if src.branch:
                         clone_cmds.append(
-                            f"git clone -b {shlex.quote(src.branch)} "
+                            f"git clone -b {shlex.quote(src.branch)} -- "
                             f"{shlex.quote(url)} {shlex.quote(target)}"
                         )
                     else:
-                        clone_cmds.append(f"git clone {shlex.quote(url)} {shlex.quote(target)}")
+                        clone_cmds.append(
+                            f"git clone -- {shlex.quote(url)} {shlex.quote(target)}"
+                        )
                 if clone_cmds:
                     content["postCreateCommand"] = " && ".join(clone_cmds)
 
