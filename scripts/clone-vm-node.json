@@ -55,7 +55,7 @@
       "options": [
         { "value": "auto", "label": "auto (dernier template cloud-init détecté)" }
       ],
-      "option_script": "PATH=/usr/sbin:/usr/bin:$PATH; for f in /etc/pve/qemu-server/*.conf 2>/dev/null; do [ -f \"$f\" ] || continue; grep -q '^template: 1' \"$f\" || continue; vmid=$(basename \"$f\" .conf); name=$(awk '/^name:/{print $2; exit}' \"$f\"); echo \"${vmid}|${vmid} — ${name:-?}\"; done | sort -t'|' -k1 -n"
+      "option_script": "PATH=/usr/sbin:/usr/bin:$PATH; for f in /etc/pve/qemu-server/*.conf; do [ -f \"$f\" ] || continue; grep -q '^template: 1' \"$f\" || continue; vmid=$(basename \"$f\" .conf); name=$(awk '/^name:/{print $2; exit}' \"$f\"); echo \"${vmid}|${vmid} — ${name:-?}\"; done | sort -t'|' -k1 -n"
     },
 
     {
