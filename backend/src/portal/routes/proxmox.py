@@ -348,8 +348,8 @@ async def get_node_script(
 
     spec = await _fetch_spec(node)
 
-    for arg in spec.get("args", []):  # type: ignore[union-attr]
-        option_script = arg.get("option_script") if isinstance(arg, dict) else None
+    for arg in _flatten_args(spec.get("args", [])):  # type: ignore[arg-type]
+        option_script = arg.get("option_script")
         if not option_script:
             continue
         try:
