@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth.rbac import UserInfo, require_user
+from ..config.models import SourceSpec, WorkspaceSpec
 from ..config.store import _data_root, load_global, safe_user_path
 from ..devpod.env import UnknownHostError
 from ..devpod.service import DevPodService
@@ -38,8 +39,11 @@ class UpRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source: str
+    branch: str = ""
+    git_credential: str = ""
     host: str = ""
     recipes: list[str] = Field(default_factory=list)
+    extra_sources: list[SourceSpec] = Field(default_factory=list)
 
 
 _service: DevPodService | None = None
@@ -131,14 +135,24 @@ async def workspace_up(
     req: UpRequest,
     user: UserInfo = Depends(require_user),
 ) -> dict[str, Any]:
-    from ..config.models import WorkspaceSpec
-
     _validate_name(name)
 
     # Validation des recipe IDs (avant tout accès disque)
     for rid in req.recipes:
         if not _RECIPE_ID_PATTERN.fullmatch(rid):
             raise HTTPException(status_code=422, detail=f"Invalid recipe id {rid!r}")
+
+    # Validation des sources supplémentaires
+    for idx, src in enumerate(req.extra_sources):
+        if not src.url:
+            raise HTTPException(
+                status_code=422, detail=f"extra_sources[{idx}].url must not be empty"
+            )
+        if src.url.startswith("-"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"extra_sources[{idx}].url must not start with '-'",
+            )
 
     # Résolution des recettes et de leurs secrets
     resolved_recipes: list[RecipeMeta] = []
@@ -178,7 +192,15 @@ async def workspace_up(
                 ) from exc
 
     try:
-        ws = WorkspaceSpec(name=name, source=req.source, host=req.host, recipes=req.recipes)
+        ws = WorkspaceSpec(
+            name=name,
+            source=req.source,
+            branch=req.branch,
+            git_credential=req.git_credential,
+            host=req.host,
+            recipes=req.recipes,
+            extra_sources=req.extra_sources,
+        )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

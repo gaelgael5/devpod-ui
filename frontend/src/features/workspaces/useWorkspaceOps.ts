@@ -1,21 +1,43 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiFetch, apiFetchJson } from '@/shared/api/client'
-import type { WorkspaceSpec, WorkspaceStatus } from './types'
+import type { SourceSpec, WorkspaceSpec, WorkspaceStatus } from './types'
+
+export interface SourceEntry {
+  url: string
+  branch: string
+  credential: string
+}
 
 interface CreateInput {
   name: string
-  source: string
+  sources: SourceEntry[]
   host: string
   recipes: string[]
+}
+
+function toSourceSpec(entry: SourceEntry): SourceSpec {
+  return { url: entry.url, branch: entry.branch, git_credential: entry.credential }
 }
 
 export function useWorkspaceOps() {
   const qc = useQueryClient()
 
   const createWorkspace = useMutation({
-    mutationFn: async ({ name, source, host, recipes }: CreateInput) => {
-      const spec: WorkspaceSpec = { name, source, host, recipes, env: {} }
+    mutationFn: async ({ name, sources, host, recipes }: CreateInput) => {
+      const primary = sources[0] ?? { url: '', branch: '', credential: '' }
+      const extra = sources.slice(1).map(toSourceSpec)
+
+      const spec: WorkspaceSpec = {
+        name,
+        source: primary.url,
+        branch: primary.branch,
+        git_credential: primary.credential,
+        host,
+        recipes,
+        env: {},
+        extra_sources: extra,
+      }
       // Add to config (ignore 409 — already exists)
       const addRes = await apiFetch('/me/workspaces', {
         method: 'POST',
@@ -30,7 +52,14 @@ export function useWorkspaceOps() {
       await apiFetchJson(`/me/workspaces/${name}/up`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source, host, recipes }),
+        body: JSON.stringify({
+          source: primary.url,
+          branch: primary.branch,
+          git_credential: primary.credential,
+          host,
+          recipes,
+          extra_sources: extra,
+        }),
       })
     },
     onSuccess: () => {

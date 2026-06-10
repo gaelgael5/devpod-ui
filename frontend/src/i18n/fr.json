@@ -20,12 +20,21 @@
     },
     "form": {
       "name": "Nom",
-      "source": "Source Git",
+      "sources": "Sources Git",
+      "addSource": "Ajouter une source",
+      "removeSource": "Supprimer",
+      "primarySource": "Source principale",
+      "additionalSource": "Source supplémentaire {{n}}",
+      "branch": "Branche",
+      "branchPlaceholder": "main",
+      "credential": "Identifiant",
+      "credentialNone": "— aucun —",
+      "sourcesHint": "La 1ère source est le workspace principal. Les suivantes sont clonées automatiquement.",
+      "sourceUrlRequired": "L'URL de la source est requise",
       "node": "Nœud",
       "recipes": "Recettes",
       "submit": "Créer le workspace",
-      "nameHint": "Minuscules, chiffres, tirets — 2 à 32 caractères",
-      "sourceRequired": "La source Git est requise"
+      "nameHint": "Minuscules, chiffres, tirets — 2 à 32 caractères"
     },
     "confirm": {
       "deleteTitle": "Supprimer le workspace ?",

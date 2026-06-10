@@ -106,7 +106,7 @@ async def test_ensure_provider_is_idempotent_when_already_present(
 async def test_ensure_provider_uses_ssh_for_ssh_host(
     tmp_data_root: Path, fake_devpod_bin: list[str]
 ) -> None:
-    """Pour host ssh, provider add ssh doit être appelé (pas docker)."""
+    """Pour host ssh, provider add ssh --name ssh-myhost --option HOST=... doit être appelé."""
     from portal.config.store import ensure_user_dir
     from portal.devpod.provider import ensure_provider
 
@@ -117,10 +117,21 @@ async def test_ensure_provider_uses_ssh_for_ssh_host(
         "PATH": os.environ.get("PATH", ""),
     }
 
-    await ensure_provider(login="alice", host_type="ssh", env=env, devpod_bin=fake_devpod_bin)
+    provider = await ensure_provider(
+        login="alice",
+        host_type="ssh",
+        env=env,
+        host_name="node-ssh",
+        ssh_host="192.168.1.40",
+        ssh_user="devops",
+        devpod_bin=fake_devpod_bin,
+    )
 
+    assert provider == "ssh-node-ssh"
     calls = _read_calls(devpod_home)
     assert any("provider add ssh" in c for c in calls), f"Expected 'provider add ssh', got: {calls}"
+    assert any("HOST=192.168.1.40" in c for c in calls), f"Expected HOST option, got: {calls}"
+    assert any("USER=devops" in c for c in calls), f"Expected USER option, got: {calls}"
     assert not any("provider add docker" in c for c in calls), (
         f"Unexpected 'provider add docker', got: {calls}"
     )

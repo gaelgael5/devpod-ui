@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 import structlog
 
 _log = structlog.get_logger(__name__)
 
-_PROVIDER_FOR_HOST: dict[str, str] = {
-    "docker-tls": "docker",
-    "ssh": "ssh",
-}
+_SAFE_RE = re.compile(r"[^a-z0-9-]")
 
 
 class ProviderError(RuntimeError):
@@ -33,26 +31,41 @@ def _parse_providers(output: str) -> set[str]:
     return providers
 
 
+def _ssh_provider_name(host_name: str) -> str:
+    """Construit le nom de provider DevPod pour un host SSH donné."""
+    safe = _SAFE_RE.sub("-", host_name.lower()).strip("-") or "default"
+    return f"ssh-{safe}"
+
+
 async def ensure_provider(
     login: str,
     host_type: str,
     env: dict[str, str],
+    host_name: str = "",
+    ssh_host: str = "",
+    ssh_user: str = "root",
     devpod_bin: list[str] | None = None,
-) -> None:
+) -> str:
     """
     S'assure que le provider requis existe dans ce DEVPOD_HOME.
     Idempotent : ne refait rien si le provider est déjà présent.
     Lève ProviderError si l'ajout échoue.
     Lève ValueError si host_type est inconnu.
 
+    Pour SSH : crée un provider nommé "ssh-<host_name>" avec les options HOST et USER,
+    ce qui permet d'avoir plusieurs hosts SSH distincts par user.
+
+    Retourne le nom du provider à passer à --provider dans devpod up.
+
     Note : devpod provider list (v0.6.15) ne supporte pas --output json.
     On parse la sortie tabulaire ligne par ligne, colonne NAME exacte.
     """
-    if host_type not in _PROVIDER_FOR_HOST:
+    if host_type not in ("docker-tls", "ssh"):
         raise ValueError(
-            f"Unknown host_type: {host_type!r}. Expected one of {list(_PROVIDER_FOR_HOST)}"
+            f"Unknown host_type: {host_type!r}. Expected one of ['docker-tls', 'ssh']"
         )
-    provider_name = _PROVIDER_FOR_HOST[host_type]
+
+    provider_name = "docker" if host_type == "docker-tls" else _ssh_provider_name(host_name)
     cmd = devpod_bin if devpod_bin is not None else ["devpod"]
 
     # Lister les providers existants
@@ -78,14 +91,27 @@ async def ensure_provider(
     existing = _parse_providers(output)
     if provider_name in existing:
         _log.debug("provider_already_present", login=login, provider=provider_name)
-        return
+        return provider_name
 
     _log.info("provider_add", login=login, provider=provider_name)
+
+    if host_type == "docker-tls":
+        add_args = [*cmd, "provider", "add", "docker"]
+    else:
+        if not ssh_host:
+            raise ProviderError(
+                f"ssh_host requis pour ajouter le provider SSH {provider_name!r}"
+            )
+        # --name crée une instance nommée du provider SSH (un par host)
+        add_args = [
+            *cmd, "provider", "add", "ssh",
+            "--name", provider_name,
+            "--option", f"HOST={ssh_host}",
+            "--option", f"USER={ssh_user}",
+        ]
+
     add_proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        "provider",
-        "add",
-        provider_name,
+        *add_args,
         env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -97,3 +123,4 @@ async def ensure_provider(
             f"devpod provider add {provider_name!r} failed (exit {add_proc.returncode}): {err}"
         )
     _log.info("provider_added", login=login, provider=provider_name)
+    return provider_name

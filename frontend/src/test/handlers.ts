@@ -5,6 +5,7 @@ export const handlers = [
     HttpResponse.json({ login: 'alice', roles: ['dev'] })
   ),
   http.get('/me/workspaces', () => HttpResponse.json([])),
+  http.get('/me/git-credentials', () => HttpResponse.json([])),
   http.post('/me/workspaces', () => HttpResponse.json({}, { status: 201 })),
   http.delete('/me/workspaces/:name', () => HttpResponse.json({ deleted: 'ok' })),
   http.post('/me/workspaces/:name/up', () =>

@@ -168,12 +168,20 @@ class WorkspaceExpose(BaseModel):
     hostname: str = ""
 
 
+class SourceSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str
+    branch: str = ""
+    git_credential: str = ""
+
+
 class WorkspaceSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
     source: str
-    branch: str = "main"
+    branch: str = ""
     git_credential: str = ""
     host: str = ""
     template: str = ""
@@ -183,6 +191,7 @@ class WorkspaceSpec(BaseModel):
     idle_timeout: str = ""
     env: dict[str, str] = Field(default_factory=dict)
     expose: WorkspaceExpose = Field(default_factory=WorkspaceExpose)
+    extra_sources: list[SourceSpec] = Field(default_factory=list)
 
     @field_validator("name")
     @classmethod
