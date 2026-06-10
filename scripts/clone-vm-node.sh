@@ -3,12 +3,12 @@
 # À exécuter en root sur le host PVE, pas dans une VM.
 #
 # Usage :
-#   bash clone-vm-node.sh <NEW_VMID> --name NOM [--ip IP/CIDR --gw GATEWAY] [OPTIONS]
+#   bash clone-vm-node.sh <NEW_VMID> <NODE_NAME> [--ip IP/CIDR --gw GATEWAY] [OPTIONS]
 #
 #   IP fixe :
-#     bash clone-vm-node.sh 104 --name pve2-docker --ip 192.168.1.50/24 --gw 192.168.1.1
+#     bash clone-vm-node.sh 104 pve2-docker --ip 192.168.1.50/24 --gw 192.168.1.1
 #   DHCP (IP détectée automatiquement via tcpdump ARP) :
-#     bash clone-vm-node.sh 104 --name pve2-docker
+#     bash clone-vm-node.sh 104 pve2-docker
 #
 # Arguments obligatoires :
 #   <NEW_VMID>        VMID de la nouvelle VM (entier libre, ni VM ni LXC existant)
@@ -48,19 +48,19 @@ CI_USER="debian"
 PORTAL_URL=""
 PORTAL_TOKEN=""
 
-# ─── NEW_VMID (1er argument obligatoire) ──────────────────────────────────────
-if [[ $# -lt 1 ]]; then
-    echo "ERREUR : NEW_VMID manquant." >&2
-    echo "Usage : bash $0 <NEW_VMID> --name NOM --ip IP/CIDR --gw GATEWAY [OPTIONS]" >&2
+# ─── Arguments positionnels obligatoires ─────────────────────────────────────
+if [[ $# -lt 2 ]]; then
+    echo "ERREUR : arguments manquants." >&2
+    echo "Usage : bash $0 <NEW_VMID> <NODE_NAME> [OPTIONS]" >&2
     exit 1
 fi
 NEW_VMID="$1"
-shift
+NODE_NAME="$2"
+shift 2
 
 # ─── Options facultatives ─────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --name)     NODE_NAME="$2";     shift 2 ;;
         --ip)       IP_CIDR="$2";       shift 2 ;;
         --gw)       GATEWAY="$2";       shift 2 ;;
         --template) TEMPLATE_VMID="$2"; shift 2 ;;
