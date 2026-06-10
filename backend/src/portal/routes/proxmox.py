@@ -4,7 +4,7 @@ import asyncio
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 import httpx
 import structlog
@@ -393,10 +393,14 @@ async def execute_node_script(
     commands = [_substitute(cmd, body.args) for cmd in commands_raw]
 
     _log.info("proxmox_script_execute", node=name, by=user.login, commands=len(commands))
-    return StreamingResponse(
-        _ssh_stream(node, commands),
-        media_type="text/plain; charset=utf-8",
-    )
+
+    async def _stream() -> AsyncIterator[bytes]:
+        header = "==> Commandes exécutées :\n" + "\n".join(f"    {cmd}" for cmd in commands) + "\n\n"
+        yield header.encode("utf-8")
+        async for chunk in _ssh_stream(node, commands):
+            yield chunk
+
+    return StreamingResponse(_stream(), media_type="text/plain; charset=utf-8")
 
 
 class ValidateArgRequest(BaseModel):
