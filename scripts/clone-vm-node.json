@@ -1,5 +1,6 @@
 {
   "args": [
+
     {
       "arg": "NEW_VMID",
       "label_fr": "VMID de la nouvelle VM",
@@ -13,6 +14,7 @@
       ],
       "option_script": "PATH=/usr/sbin:/usr/bin:$PATH; used=$(ls /etc/pve/qemu-server/ /etc/pve/lxc/ 2>/dev/null | sed 's/\\.conf$//' | grep -E '^[0-9]+$'); count=0; id=101; while [ $count -lt 10 ]; do echo \"$used\" | grep -qx \"$id\" || { echo $id; count=$((count+1)); }; id=$((id+1)); done"
     },
+    
     {
       "arg": "NODE_NAME",
       "label_fr": "Nom DNS de la VM",
@@ -21,7 +23,13 @@
       "description_en": "VM DNS hostname (lowercase, digits, dashes — e.g. pve2-docker)",
       "type": "string",
       "required": true,
-      "pattern": "^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$"
+      "pattern": "^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$",
+      "default": "host-dev-01",
+      "test_script": {
+        "if": "! grep -rqE \"^(name|hostname): {NODE_NAME}$\" /etc/pve/qemu-server/ /etc/pve/lxc/ 2>/dev/null",
+        "then": "Nom disponible",
+        "else": "Ce nom est déjà utilisé par une VM ou un LXC sur ce nœud"
+      }
     },
 
     {
@@ -60,15 +68,20 @@
         }
       ]
     },
+
     {
       "arg": "TEMPLATE_VMID",
-      "label_fr": "VMID du template source",
-      "label_en": "Source template VMID",
-      "description_fr": "VMID du template Proxmox à cloner. 'auto' = détection automatique du dernier template cloud-init.",
-      "description_en": "VMID of the Proxmox template to clone. 'auto' = auto-detect latest cloud-init template.",
-      "type": "string",
+      "label_fr": "Template source",
+      "label_en": "Source template",
+      "description_fr": "Template Proxmox à cloner. 'auto' = détection automatique du dernier template cloud-init.",
+      "description_en": "Proxmox template to clone. 'auto' = auto-detect latest cloud-init template.",
+      "type": "select",
       "required": false,
-      "default": "auto"
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": "auto (dernier template cloud-init détecté)" }
+      ],
+      "option_script": "PATH=/usr/sbin:/usr/bin:$PATH; for f in /etc/pve/qemu-server/*.conf 2>/dev/null; do [ -f \"$f\" ] || continue; grep -q '^template: 1' \"$f\" || continue; vmid=$(basename \"$f\" .conf); name=$(awk '/^name:/{print $2; exit}' \"$f\"); echo \"${vmid}|${vmid} — ${name:-?}\"; done | sort -t'|' -k1 -n"
     },
 
     {

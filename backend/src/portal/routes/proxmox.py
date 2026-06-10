@@ -97,6 +97,35 @@ async def _ssh_run(node: ProxmoxNode, command: str, timeout: float = 30.0) -> st
     return stdout.decode("utf-8", errors="replace")
 
 
+async def _ssh_run_nocheck(node: ProxmoxNode, command: str, timeout: float = 30.0) -> int:
+    """Exécute une commande SSH et retourne le code de retour sans lever d'exception."""
+    proc = await asyncio.create_subprocess_exec(
+        "ssh", *_ssh_opts(node), f"{node.ssh_user}@{node.address}",
+        command,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    try:
+        await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return -1
+    return proc.returncode or 0
+
+
+def _flatten_args(args: list[object]) -> list[dict[str, object]]:
+    """Aplatit les args en incluant les args imbriqués dans les groupes 'sub'."""
+    result: list[dict[str, object]] = []
+    for a in args:
+        if not isinstance(a, dict):
+            continue
+        if a.get("type") == "sub":
+            result.extend(_flatten_args(a.get("args", [])))  # type: ignore[arg-type]
+        else:
+            result.append(a)
+    return result
+
+
 async def _ssh_stream(node: ProxmoxNode, commands: list[str]):
     """Exécute des commandes shell sur le nœud SSH et streame stdout+stderr."""
     script = "set -euo pipefail\n" + "\n".join(commands) + "\n"
@@ -325,11 +354,16 @@ async def get_node_script(
             continue
         try:
             output = await _ssh_run(node, option_script)
-            dynamic = [
-                {"value": v.strip(), "label": v.strip()}
-                for v in output.strip().splitlines()
-                if v.strip()
-            ]
+            dynamic: list[dict[str, str]] = []
+            for v in output.strip().splitlines():
+                v = v.strip()
+                if not v:
+                    continue
+                if "|" in v:
+                    val, _, lbl = v.partition("|")
+                    dynamic.append({"value": val.strip(), "label": lbl.strip()})
+                else:
+                    dynamic.append({"value": v, "label": v})
             existing = arg.get("options", []) or []
             arg["options"] = existing + dynamic
         except Exception as exc:
@@ -361,3 +395,40 @@ async def execute_node_script(
         _ssh_stream(node, commands),
         media_type="text/plain; charset=utf-8",
     )
+
+
+class ValidateArgRequest(BaseModel):
+    arg: str
+    args: dict[str, str]
+
+
+@router.post("/proxmox/{name}/validate-arg")
+async def validate_arg(
+    name: str,
+    body: ValidateArgRequest,
+    user: UserInfo = Depends(require_admin),
+) -> dict[str, object]:
+    """Exécute le test_script d'un argument et retourne valid + message."""
+    cfg = load_global()
+    node = next((n for n in cfg.proxmox_nodes if n.name == name), None)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Proxmox node {name!r} not found")
+
+    spec = await _fetch_spec(node)
+    flat = _flatten_args(spec.get("args", []))  # type: ignore[arg-type]
+    arg_spec = next((a for a in flat if a.get("arg") == body.arg), None)
+    if arg_spec is None:
+        raise HTTPException(status_code=404, detail=f"Arg {body.arg!r} not found in spec")
+
+    test_script = arg_spec.get("test_script")
+    if not isinstance(test_script, dict):
+        return {"valid": True, "message": None}
+
+    if_cmd = _substitute(str(test_script.get("if", "")), body.args).strip()
+    if not if_cmd:
+        return {"valid": True, "message": None}
+
+    code = await _ssh_run_nocheck(node, if_cmd)
+    if code == 0:
+        return {"valid": True, "message": test_script.get("then") or None}
+    return {"valid": False, "message": test_script.get("else") or None}

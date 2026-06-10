@@ -7,6 +7,12 @@ export interface ScriptOption {
   label: string
 }
 
+export interface TestScript {
+  if: string
+  then?: string
+  else?: string
+}
+
 export interface ScriptArg {
   arg: string
   label_fr: string
@@ -22,6 +28,7 @@ export interface ScriptArg {
   options?: ScriptOption[]
   option_script?: string
   _option_script_error?: string
+  test_script?: TestScript
 }
 
 export interface ScriptSubArg {

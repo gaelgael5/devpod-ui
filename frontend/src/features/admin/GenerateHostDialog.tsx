@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import i18n from '@/i18n'
+import { ChevronDown, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,6 +16,7 @@ import {
   useScriptSpec, useExecuteScript, extractLastJson, flattenArgs,
   type ScriptArg, type ScriptSubArg, type ScriptArgOrSub,
 } from './useProxmoxScript'
+import { apiFetch } from '@/shared/api/client'
 import type { HostConfig } from './useHosts'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -28,6 +30,10 @@ type Step =
 
 function argLabel(arg: ScriptArg | ScriptSubArg): string {
   return i18n.language.startsWith('fr') ? arg.label_fr : arg.label_en
+}
+
+function argDescription(arg: ScriptArg): string | undefined {
+  return i18n.language.startsWith('fr') ? arg.description_fr : arg.description_en
 }
 
 function initValues(args: ScriptArgOrSub[]): Record<string, string> {
@@ -116,6 +122,8 @@ function StepParams({
   const { t } = useTranslation()
   const { data: spec, isLoading, isError, error } = useScriptSpec(node.name)
   const [values, setValues] = useState<Record<string, string>>({})
+  const [argErrors, setArgErrors] = useState<Record<string, string>>({})
+  const [validatingArgs, setValidatingArgs] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (spec) setValues(initValues(spec.args))
@@ -123,12 +131,47 @@ function StepParams({
 
   function set(key: string, value: string) {
     setValues(v => ({ ...v, [key]: value }))
+    // Efface l'erreur dès que l'utilisateur modifie la valeur
+    if (argErrors[key]) setArgErrors(e => ({ ...e, [key]: '' }))
   }
+
+  const validateArgApi = useCallback(async (
+    arg: ScriptArg,
+    currentValues: Record<string, string>,
+  ): Promise<boolean> => {
+    if (!arg.test_script) return true
+    setValidatingArgs(s => new Set(s).add(arg.arg))
+    try {
+      const res = await apiFetch(`/admin/proxmox/${node.name}/validate-arg`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ arg: arg.arg, args: currentValues }),
+      })
+      if (!res.ok) return true  // erreur réseau → ne bloque pas
+      const data = await res.json() as { valid: boolean; message: string | null }
+      setArgErrors(e => ({ ...e, [arg.arg]: data.valid ? '' : (data.message ?? 'Valeur invalide') }))
+      return data.valid
+    } catch {
+      return true  // erreur SSH → ne bloque pas
+    } finally {
+      setValidatingArgs(s => { const n = new Set(s); n.delete(arg.arg); return n })
+    }
+  }, [node.name])
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    onExecute(values)
+    void (async () => {
+      const argsWithTest = flattenArgs(spec!.args).filter(a => a.test_script)
+      if (argsWithTest.length > 0) {
+        const results = await Promise.all(argsWithTest.map(a => validateArgApi(a, values)))
+        if (results.some(r => !r)) return
+      }
+      onExecute(values)
+    })()
   }
+
+  const isValidating = validatingArgs.size > 0
+  const hasErrors = Object.values(argErrors).some(e => !!e)
 
   return (
     <>
@@ -147,12 +190,34 @@ function StepParams({
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           {spec.args.map((arg, i) =>
             arg.type === 'sub'
-              ? <SubGroup key={i} sub={arg} values={values} onChange={set} />
-              : <ArgField key={arg.arg} arg={arg} value={values[arg.arg] ?? ''} onChange={v => set(arg.arg, v)} />
+              ? (
+                <SubGroup
+                  key={i}
+                  sub={arg}
+                  values={values}
+                  onChange={set}
+                  onBlurArg={a => { void validateArgApi(a, values) }}
+                  argErrors={argErrors}
+                  validatingArgs={validatingArgs}
+                />
+              )
+              : (
+                <ArgField
+                  key={arg.arg}
+                  arg={arg}
+                  value={values[arg.arg] ?? ''}
+                  onChange={v => set(arg.arg, v)}
+                  onBlur={arg.test_script ? () => { void validateArgApi(arg, values) } : undefined}
+                  validationError={argErrors[arg.arg]}
+                  validating={validatingArgs.has(arg.arg)}
+                />
+              )
           )}
           <DialogFooter className="mt-2">
             <Button type="button" variant="outline" onClick={onBack}>{t('admin.generate.back')}</Button>
-            <Button type="submit">{t('admin.generate.execute')}</Button>
+            <Button type="submit" disabled={isValidating || hasErrors}>
+              {isValidating ? <Loader2 className="h-4 w-4 animate-spin" /> : t('admin.generate.execute')}
+            </Button>
           </DialogFooter>
         </form>
       )}
@@ -170,30 +235,60 @@ function SubGroup({
   sub,
   values,
   onChange,
+  onBlurArg,
+  argErrors,
+  validatingArgs,
 }: {
   sub: ScriptSubArg
   values: Record<string, string>
   onChange: (key: string, value: string) => void
+  onBlurArg: (arg: ScriptArg) => void
+  argErrors: Record<string, string>
+  validatingArgs: Set<string>
 }) {
+  const [open, setOpen] = useState(false)
+
   return (
-    <fieldset className="rounded-md border px-3 pb-3 pt-1">
-      <legend className="px-1 text-xs font-medium text-muted-foreground">
-        {argLabel(sub)}
-      </legend>
-      <div className="flex flex-col gap-3 mt-1">
-        {sub.args.map(arg => (
-          <ArgField key={arg.arg} arg={arg} value={values[arg.arg] ?? ''} onChange={v => onChange(arg.arg, v)} />
-        ))}
-      </div>
-    </fieldset>
+    <div className="rounded-md border">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/50 transition-colors rounded-md"
+      >
+        <span>{argLabel(sub)}</span>
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="flex flex-col gap-3 px-3 pb-3">
+          {sub.args.map(arg => (
+            <ArgField
+              key={arg.arg}
+              arg={arg}
+              value={values[arg.arg] ?? ''}
+              onChange={v => onChange(arg.arg, v)}
+              onBlur={arg.test_script ? () => onBlurArg(arg) : undefined}
+              validationError={argErrors[arg.arg]}
+              validating={validatingArgs.has(arg.arg)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
-function ArgLabel({ label, required }: { label: string; required?: boolean }) {
+function ArgLabel({
+  label, required, validating,
+}: {
+  label: string
+  required?: boolean
+  validating?: boolean
+}) {
   return (
-    <Label>
+    <Label className="flex items-center gap-1.5">
       {label}
-      {required && <span className="ml-0.5 text-destructive">*</span>}
+      {required && <span className="text-destructive">*</span>}
+      {validating && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
     </Label>
   )
 }
@@ -202,61 +297,71 @@ function ArgField({
   arg,
   value,
   onChange,
+  onBlur,
+  validationError,
+  validating,
 }: {
   arg: ScriptArg
   value: string
   onChange: (v: string) => void
+  onBlur?: () => void
+  validationError?: string
+  validating?: boolean
 }) {
   const label = argLabel(arg)
+  const description = argDescription(arg)
 
-  // Toute arg ayant des options (statiques ou enrichies par option_script) → liste déroulante
-  if (arg.options && arg.options.length > 0) {
+  function wrap(input: ReactNode, extra?: ReactNode) {
     return (
       <div className="flex flex-col gap-1.5">
-        <ArgLabel label={label} required={arg.required} />
-        <Select value={value} onValueChange={onChange}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {arg.options.map(o => (
-              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {arg._option_script_error && (
-          <p className="text-xs text-destructive">{arg._option_script_error}</p>
-        )}
+        <ArgLabel label={label} required={arg.required} validating={validating} />
+        {description && <p className="text-xs text-muted-foreground -mt-0.5">{description}</p>}
+        {input}
+        {extra}
+        {validationError && <p className="text-xs text-destructive">{validationError}</p>}
       </div>
+    )
+  }
+
+  if (arg.options && arg.options.length > 0) {
+    return wrap(
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {arg.options.map(o => (
+            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>,
+      arg._option_script_error && (
+        <p className="text-xs text-destructive">{arg._option_script_error}</p>
+      ),
     )
   }
 
   if (arg.type === 'integer') {
-    return (
-      <div className="flex flex-col gap-1.5">
-        <ArgLabel label={label} required={arg.required} />
-        <Input
-          type="number"
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          min={arg.min}
-          max={arg.max}
-          required={arg.required}
-        />
-      </div>
+    return wrap(
+      <Input
+        type="number"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onBlur={onBlur}
+        min={arg.min}
+        max={arg.max}
+        required={arg.required}
+      />,
     )
   }
 
-  // string (default)
-  return (
-    <div className="flex flex-col gap-1.5">
-      <ArgLabel label={label} required={arg.required} />
-      <Input
-        type="text"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        pattern={arg.pattern}
-        required={arg.required}
-      />
-    </div>
+  return wrap(
+    <Input
+      type="text"
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      onBlur={onBlur}
+      pattern={arg.pattern}
+      required={arg.required}
+    />,
   )
 }
 
