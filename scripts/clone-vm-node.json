@@ -158,7 +158,7 @@
 
   ],
   "commands": [
-    "curl -fsSL -o /tmp/clone-vm-node.sh https://raw.githubusercontent.com/gaelgael5/devpod-ui/main/scripts/clone-vm-node.sh",
+    "curl -fsSL -o /tmp/clone-vm-node.sh https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/clone-vm-node.sh",
     "chmod +x /tmp/clone-vm-node.sh",
     "/tmp/clone-vm-node.sh {NEW_VMID} --name '{NODE_NAME}' --ip '{IP_CIDR}' --gw '{GATEWAY}' --template '{TEMPLATE_VMID}' --storage '{STORAGE}' --dns '{DNS}' --memory {MEMORY} --cores {CORES} --disk '{DISK_EXTRA}' --ciuser '{CI_USER}'"
   ],

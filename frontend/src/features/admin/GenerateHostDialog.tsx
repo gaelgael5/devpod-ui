@@ -38,7 +38,11 @@ function argDescription(arg: ScriptArg): string | undefined {
 
 function initValues(args: ScriptArgOrSub[]): Record<string, string> {
   return Object.fromEntries(
-    flattenArgs(args).map(a => [a.arg, a.default !== undefined ? String(a.default) : ''])
+    flattenArgs(args).map(a => {
+      if (a.default !== undefined) return [a.arg, String(a.default)]
+      if (a.type === 'select' && a.options && a.options.length > 0) return [a.arg, a.options[0].value]
+      return [a.arg, '']
+    })
   )
 }
 
