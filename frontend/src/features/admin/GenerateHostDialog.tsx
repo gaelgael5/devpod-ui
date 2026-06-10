@@ -246,7 +246,7 @@ function SubGroup({
   argErrors: Record<string, string>
   validatingArgs: Set<string>
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(sub.expanded ?? false)
 
   return (
     <div className="rounded-md border">

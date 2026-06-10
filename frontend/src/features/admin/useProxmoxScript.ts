@@ -35,6 +35,7 @@ export interface ScriptSubArg {
   type: 'sub'
   label_fr: string
   label_en: string
+  expanded?: boolean
   args: ScriptArg[]
 }
 

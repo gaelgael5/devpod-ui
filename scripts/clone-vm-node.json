@@ -33,6 +33,32 @@
     },
 
     {
+      "arg": "CI_USER",
+      "label_fr": "Utilisateur cloud-init",
+      "label_en": "Cloud-init user",
+      "description_fr": "Nom d'utilisateur créé par cloud-init dans la VM (doit correspondre au template)",
+      "description_en": "Username created by cloud-init in the VM (must match the template)",
+      "type": "string",
+      "required": false,
+      "default": "debian"
+    },
+
+    {
+      "arg": "TEMPLATE_VMID",
+      "label_fr": "Template source",
+      "label_en": "Source template",
+      "description_fr": "Template Proxmox à cloner. 'auto' = détection automatique du dernier template cloud-init.",
+      "description_en": "Proxmox template to clone. 'auto' = auto-detect latest cloud-init template.",
+      "type": "select",
+      "required": false,
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": "auto (dernier template cloud-init détecté)" }
+      ],
+      "option_script": "PATH=/usr/sbin:/usr/bin:$PATH; for f in /etc/pve/qemu-server/*.conf 2>/dev/null; do [ -f \"$f\" ] || continue; grep -q '^template: 1' \"$f\" || continue; vmid=$(basename \"$f\" .conf); name=$(awk '/^name:/{print $2; exit}' \"$f\"); echo \"${vmid}|${vmid} — ${name:-?}\"; done | sort -t'|' -k1 -n"
+    },
+
+    {
       "type": "sub",
       "label_fr": "réseau. laisser vide pour le dhcp",
       "label_en": "Network. Let empty for DHCP",
@@ -69,25 +95,12 @@
       ]
     },
 
-    {
-      "arg": "TEMPLATE_VMID",
-      "label_fr": "Template source",
-      "label_en": "Source template",
-      "description_fr": "Template Proxmox à cloner. 'auto' = détection automatique du dernier template cloud-init.",
-      "description_en": "Proxmox template to clone. 'auto' = auto-detect latest cloud-init template.",
-      "type": "select",
-      "required": false,
-      "default": "auto",
-      "options": [
-        { "value": "auto", "label": "auto (dernier template cloud-init détecté)" }
-      ],
-      "option_script": "PATH=/usr/sbin:/usr/bin:$PATH; for f in /etc/pve/qemu-server/*.conf 2>/dev/null; do [ -f \"$f\" ] || continue; grep -q '^template: 1' \"$f\" || continue; vmid=$(basename \"$f\" .conf); name=$(awk '/^name:/{print $2; exit}' \"$f\"); echo \"${vmid}|${vmid} — ${name:-?}\"; done | sort -t'|' -k1 -n"
-    },
 
     {
       "type": "sub",
-      "label_fr": "réseau",
-      "label_en": "Network",
+      "label_fr": "Resources",
+      "label_en": "Resources",
+      "expanded": true,
       "args": [
 
         {
@@ -140,19 +153,9 @@
         }
 
       ]
-    },
-
-
-    {
-      "arg": "CI_USER",
-      "label_fr": "Utilisateur cloud-init",
-      "label_en": "Cloud-init user",
-      "description_fr": "Nom d'utilisateur créé par cloud-init dans la VM (doit correspondre au template)",
-      "description_en": "Username created by cloud-init in the VM (must match the template)",
-      "type": "string",
-      "required": false,
-      "default": "debian"
     }
+
+
   ],
   "commands": [
     "curl -fsSL -o /tmp/clone-vm-node.sh https://raw.githubusercontent.com/gaelgael5/devpod-ui/main/scripts/clone-vm-node.sh",
