@@ -106,8 +106,8 @@ fi
 USE_DHCP=false
 [[ -z "$IP_CIDR" ]] && USE_DHCP=true
 
-# Valider le stockage si précisé
-if [[ -n "$STORAGE" ]]; then
+# Valider le stockage si précisé (auto = même stockage que le template, pas de validation)
+if [[ -n "$STORAGE" && "$STORAGE" != "auto" ]]; then
     pvesm status 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$STORAGE" || {
         echo "ERREUR : stockage '$STORAGE' introuvable." >&2
         echo "  Stockages disponibles : $(pvesm status 2>/dev/null | awk 'NR>1 {print $1}' | tr '\n' ' ')" >&2
