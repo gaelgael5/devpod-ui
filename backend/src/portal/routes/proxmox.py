@@ -75,6 +75,8 @@ def _ssh_opts(node: ProxmoxNode) -> list[str]:
         "-o", "StrictHostKeyChecking=accept-new",
         "-o", "ConnectTimeout=15",
         "-o", "ServerAliveInterval=10",
+        "-o", "ServerAliveCountMax=30",  # 30 × 10 s = 5 min sans réponse avant déconnexion
+        "-o", "TCPKeepAlive=yes",
     ]
 
 
