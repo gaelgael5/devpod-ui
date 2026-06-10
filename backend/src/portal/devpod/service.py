@@ -5,6 +5,7 @@ import contextlib
 import json
 import os
 import re
+import shlex
 import shutil
 import tempfile
 from pathlib import Path
@@ -13,10 +14,10 @@ from urllib.parse import urlparse
 
 import structlog
 
-from ..config.models import GlobalConfig, WorkspaceSpec
+from ..config.models import GlobalConfig, SourceSpec, WorkspaceSpec
 from ..config.store import _data_root, safe_user_path
 from ..recipes.models import RecipeMeta
-from .env import build_env
+from .env import _find_host, build_env
 from .provider import ensure_provider
 from .runner import run_subprocess
 
@@ -29,6 +30,15 @@ _RECIPES_BUILTIN_DIR = Path(__file__).parent.parent / "recipes" / "builtin"
 
 # DNS-safe pour ws_id : login (max ~40 chars) + "-" + name (max 32 chars)
 _WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$")
+
+
+def _repo_name_from_url(url: str) -> str:
+    """Dérive un nom de répertoire safe depuis une URL git."""
+    base = url.rstrip("/").split("/")[-1]
+    if base.endswith(".git"):
+        base = base[:-4]
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", base)
+    return safe or "repo"
 
 
 class DevPodService:
@@ -73,11 +83,23 @@ class DevPodService:
         # Env de base (DEVPOD_HOME, DOCKER_*) — sans les secrets utilisateur
         base_env = build_env(login=login, ws_spec=ws_spec, global_cfg=self._global_cfg)
 
-        host_type = self._resolve_host_type(ws_spec)
-        await ensure_provider(
+        # Résoudre le host pour extraire les infos SSH si nécessaire
+        host_cfg = _find_host(ws_spec.host, self._global_cfg)
+        ssh_host = ""
+        ssh_user = "root"
+        if host_cfg.type == "ssh" and host_cfg.address:
+            if "@" in host_cfg.address:
+                ssh_user, ssh_host = host_cfg.address.split("@", 1)
+            else:
+                ssh_host = host_cfg.address
+
+        provider_name = await ensure_provider(
             login=login,
-            host_type=host_type,
+            host_type=host_cfg.type,
             env=base_env,
+            host_name=host_cfg.name,
+            ssh_host=ssh_host,
+            ssh_user=ssh_user,
             devpod_bin=self._devpod_bin,
         )
 
@@ -86,19 +108,29 @@ class DevPodService:
             host_port = await self._exposure.allocate_port(ws_id)
 
         dc_path = self._write_devcontainer(
-            login, ws_id, host_port=host_port, recipes=recipes, feature_env=feature_env
+            login, ws_id,
+            host_port=host_port,
+            recipes=recipes,
+            feature_env=feature_env,
+            extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
         )
 
         # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
         # le subprocess env UNIQUEMENT — jamais dans devcontainer.json ni dans les logs.
         subprocess_env = {**base_env, **ws_spec.env}
 
-        node_ip = self._resolve_node_ip(ws_spec.host)
+        # Combiner source et branche : "github.com/org/repo@feature-branch"
+        devpod_source = ws_spec.source
+        if ws_spec.branch:
+            devpod_source = f"{ws_spec.source}@{ws_spec.branch}"
+
+        node_ip = self._resolve_node_ip(host_cfg)
         self._write_status(ws_id, "provisioning", login=login)
 
         task = asyncio.create_task(
             self._run_up_task(
-                ws_id, ws_spec.source, dc_path, subprocess_env, login, host_port, node_ip
+                ws_id, devpod_source, dc_path, subprocess_env, login,
+                host_port, node_ip, provider_name=provider_name,
             )
         )
         self._background_tasks.add(task)
@@ -109,7 +141,10 @@ class DevPodService:
     async def stop(self, login: str, ws_id: str) -> None:
         """Arrête un workspace en cours d'exécution."""
         if self._exposure is not None:
-            await self._exposure.unexpose(ws_id)
+            try:
+                await self._exposure.unexpose(ws_id)
+            except Exception as exc:
+                _log.warning("workspace_unexpose_failed", ws_id=ws_id, error=type(exc).__name__)
         env = self._minimal_env(login)
         cmd = [*self._devpod_bin, "stop", ws_id]
         log_path = self._log_path(login, f"{ws_id}-stop")
@@ -120,7 +155,10 @@ class DevPodService:
     async def delete(self, login: str, ws_id: str) -> None:
         """Supprime un workspace (force)."""
         if self._exposure is not None:
-            await self._exposure.unexpose(ws_id)
+            try:
+                await self._exposure.unexpose(ws_id)
+            except Exception as exc:
+                _log.warning("workspace_unexpose_failed", ws_id=ws_id, error=type(exc).__name__)
         env = self._minimal_env(login)
         cmd = [*self._devpod_bin, "delete", ws_id, "--force"]
         log_path = self._log_path(login, f"{ws_id}-delete")
@@ -199,6 +237,7 @@ class DevPodService:
         host_port: int | None = None,
         recipes: list[RecipeMeta] | None = None,
         feature_env: dict[str, str] | None = None,
+        extra_sources: list[SourceSpec] | None = None,
     ) -> Path:
         """Écrit devcontainer.json + Feature dirs dans un tmpdir. Retourne le chemin du JSON."""
         user_dir = safe_user_path(login, "devpod")
@@ -225,6 +264,24 @@ class DevPodService:
             if feature_env:
                 content["remoteEnv"] = dict(feature_env)
 
+            if extra_sources:
+                clone_cmds: list[str] = []
+                for src in extra_sources:
+                    url = src.url.strip()
+                    if not url:
+                        continue
+                    repo_name = _repo_name_from_url(url)
+                    target = f"/workspaces/{repo_name}"
+                    if src.branch:
+                        clone_cmds.append(
+                            f"git clone -b {shlex.quote(src.branch)} "
+                            f"{shlex.quote(url)} {shlex.quote(target)}"
+                        )
+                    else:
+                        clone_cmds.append(f"git clone {shlex.quote(url)} {shlex.quote(target)}")
+                if clone_cmds:
+                    content["postCreateCommand"] = " && ".join(clone_cmds)
+
             dc_path = tmp_dir / "devcontainer.json"
             dc_path.write_text(json.dumps(content, indent=2), encoding="utf-8")
             return dc_path
@@ -232,30 +289,18 @@ class DevPodService:
             shutil.rmtree(tmp_dir, ignore_errors=True)
             raise
 
-    def _resolve_host_type(self, ws_spec: WorkspaceSpec) -> str:
-        """Résout le type d'host à partir de la spec workspace."""
-        host_name = ws_spec.host
-        if not host_name:
-            defaults = [h for h in self._global_cfg.hosts if h.default]
-            return defaults[0].type if defaults else "docker-tls"
-        for h in self._global_cfg.hosts:
-            if h.name == host_name:
-                return h.type
-        return "docker-tls"
-
-    def _resolve_node_ip(self, host_name: str) -> str:
-        """Résout l'IP du nœud Docker à partir du nom d'host de la spec.
-
-        Extrait le hostname depuis docker_host (ex: "tcp://192.168.1.50:2376" → "192.168.1.50").
-        Retourne "127.0.0.1" si aucun host n'est trouvé ou configuré.
-        """
-        if not host_name:
-            defaults = [h for h in self._global_cfg.hosts if h.default]
-            host = defaults[0] if defaults else None
-        else:
-            host = next((h for h in self._global_cfg.hosts if h.name == host_name), None)
-        if host and host.docker_host:
-            return urlparse(host.docker_host).hostname or "127.0.0.1"
+    def _resolve_node_ip(self, host_cfg: Any) -> str:
+        """Résout l'IP du nœud Docker/SSH depuis l'HostConfig."""
+        from ..config.models import HostConfig
+        if not isinstance(host_cfg, HostConfig):
+            return "127.0.0.1"
+        if host_cfg.type == "docker-tls" and host_cfg.docker_host:
+            return urlparse(host_cfg.docker_host).hostname or "127.0.0.1"
+        if host_cfg.type == "ssh" and host_cfg.address:
+            addr = host_cfg.address
+            if "@" in addr:
+                _, addr = addr.split("@", 1)
+            return addr.strip() or "127.0.0.1"
         return "127.0.0.1"
 
     def _minimal_env(self, login: str) -> dict[str, str]:
@@ -274,6 +319,7 @@ class DevPodService:
         login: str,
         host_port: int | None = None,
         node_ip: str = "127.0.0.1",
+        provider_name: str = "",
     ) -> None:
         """Tâche de fond : exécute devpod up, expose le workspace si running."""
         try:
@@ -287,6 +333,10 @@ class DevPodService:
                 "--devcontainer-path",
                 str(dc_path),
                 "--open-ide=false",  # v0.6.15 : empêche l'ouverture auto du navigateur
+            ]
+            if provider_name:
+                cmd += ["--provider", provider_name]
+            cmd += [
                 "--",  # fin des flags — défense en profondeur contre l'injection argv
                 source,
             ]
