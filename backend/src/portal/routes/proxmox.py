@@ -144,13 +144,25 @@ async def _ssh_stream(node: ProxmoxNode, commands: list[str]):
     await proc.stdin.drain()
     proc.stdin.close()
 
-    while True:
-        chunk = await proc.stdout.read(4096)
-        if not chunk:
-            break
-        yield chunk
+    try:
+        while True:
+            chunk = await proc.stdout.read(4096)
+            if not chunk:
+                break
+            yield chunk
+    except BaseException:
+        # GeneratorExit (client déconnecté) ou autre exception : tuer le subprocess
+        if proc.returncode is None:
+            proc.kill()
+        raise
+    finally:
+        # Toujours reaper le subprocess pour éviter les zombies
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            if proc.returncode is None:
+                proc.kill()
 
-    await proc.wait()
     if proc.returncode != 0:
         yield f"\n[ERROR] Script terminé avec le code {proc.returncode}\n".encode()
 
