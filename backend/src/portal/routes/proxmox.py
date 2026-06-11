@@ -191,6 +191,7 @@ async def add_proxmox_node(
     ssh_port: int = Form(22),
     pve_node: str = Form("pve"),
     script_url: str = Form(""),
+    password: str = Form(""),
     ssh_key: UploadFile = File(...),
     user: UserInfo = Depends(require_admin),
 ) -> dict[str, object]:
@@ -218,6 +219,7 @@ async def add_proxmox_node(
         ssh_key_path=str(key_path),
         pve_node=pve_node,
         script_url=script_url,
+        password=password,
     )
     cfg.proxmox_nodes.append(node)
     save_global(cfg)
@@ -233,6 +235,7 @@ async def update_proxmox_node(
     ssh_port: int = Form(22),
     pve_node: str = Form("pve"),
     script_url: str = Form(""),
+    password: str = Form(""),
     ssh_key: Optional[UploadFile] = File(default=None),
     user: UserInfo = Depends(require_admin),
 ) -> dict[str, object]:
@@ -257,6 +260,7 @@ async def update_proxmox_node(
         ssh_key_path=key_path,
         pve_node=pve_node,
         script_url=script_url,
+        password=password if password else node.password,  # vide = conserver l'existant
     )
     cfg.proxmox_nodes = [updated if n.name == name else n for n in cfg.proxmox_nodes]
     save_global(cfg)

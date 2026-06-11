@@ -113,7 +113,8 @@
       "testFailed": "Connection failed",
       "showCert": "View TLS certificate",
       "hideCert": "Hide certificate",
-      "copyCert": "Copy"
+      "copyCert": "Copy",
+      "proxmoxPassword": "Password"
     },
     "deleteHost": "Delete host",
     "deleteHostTitle": "Delete host",

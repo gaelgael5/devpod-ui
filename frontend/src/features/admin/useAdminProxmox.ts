@@ -10,6 +10,7 @@ export interface ProxmoxNodeConfig {
   ssh_key_path: string
   pve_node: string
   script_url: string
+  password: string
 }
 
 export function useAdminProxmox() {

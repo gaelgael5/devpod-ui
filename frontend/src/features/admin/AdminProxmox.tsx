@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, CircleCheck, CircleX, Copy, HelpCircle, LoaderCircle } from 'lucide-react'
+import { Check, CircleCheck, CircleX, Copy, Eye, EyeOff, HelpCircle, LoaderCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,9 +10,9 @@ import {
 import { apiFetchJson } from '@/shared/api/client'
 import { useAdminProxmox, type ProxmoxNodeConfig } from './useAdminProxmox'
 
-const EMPTY = { name: '', address: '', ssh_user: 'root', ssh_port: 22, pve_node: 'pve', script_url: '', ssh_key_content: '' }
+const EMPTY = { name: '', address: '', ssh_user: 'root', ssh_port: 22, pve_node: 'pve', script_url: '', ssh_key_content: '', password: '' }
 type AddForm = typeof EMPTY
-type EditForm = { address: string; ssh_user: string; ssh_port: number; pve_node: string; script_url: string; ssh_key_content: string }
+type EditForm = { address: string; ssh_user: string; ssh_port: number; pve_node: string; script_url: string; ssh_key_content: string; password: string }
 type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
 const SSH_STEPS = [
@@ -42,12 +42,15 @@ export default function AdminProxmox() {
 
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const [form, setForm] = useState<AddForm>(EMPTY)
-  const [editForm, setEditForm] = useState<EditForm>({ address: '', ssh_user: 'root', ssh_port: 22, pve_node: 'pve', script_url: '', ssh_key_content: '' })
+  const [editForm, setEditForm] = useState<EditForm>({ address: '', ssh_user: 'root', ssh_port: 22, pve_node: 'pve', script_url: '', ssh_key_content: '', password: '' })
 
   const [addTestStatus, setAddTestStatus] = useState<TestStatus>('idle')
   const [addTestError, setAddTestError] = useState<string | null>(null)
   const [editTestStatus, setEditTestStatus] = useState<TestStatus>('idle')
   const [editTestError, setEditTestError] = useState<string | null>(null)
+
+  const [showAddPassword, setShowAddPassword] = useState(false)
+  const [showEditPassword, setShowEditPassword] = useState(false)
 
   const fileRef = useRef<HTMLInputElement>(null)
   const editFileRef = useRef<HTMLInputElement>(null)
@@ -91,6 +94,7 @@ export default function AdminProxmox() {
   function handleClose(o: boolean) {
     if (!o) {
       setForm(EMPTY)
+      setShowAddPassword(false)
       setAddTestStatus('idle')
       setAddTestError(null)
     }
@@ -106,7 +110,9 @@ export default function AdminProxmox() {
       pve_node: node.pve_node,
       script_url: node.script_url,
       ssh_key_content: '',
+      password: node.password ?? '',
     })
+    setShowEditPassword(false)
     setEditTestStatus('idle')
     setEditTestError(null)
     setEditOpen(true)
@@ -180,6 +186,7 @@ export default function AdminProxmox() {
     fd.append('ssh_port', String(form.ssh_port))
     fd.append('pve_node', form.pve_node)
     fd.append('script_url', form.script_url)
+    fd.append('password', form.password)
     fd.append('ssh_key', new Blob([content], { type: 'text/plain' }), 'id_ed25519')
     addNode.mutate(fd, { onSuccess: () => handleClose(false) })
   }
@@ -193,6 +200,7 @@ export default function AdminProxmox() {
     fd.append('ssh_port', String(editForm.ssh_port))
     fd.append('pve_node', editForm.pve_node)
     fd.append('script_url', editForm.script_url)
+    fd.append('password', editForm.password)
     const keyContent = editForm.ssh_key_content.trim()
     if (keyContent) {
       fd.append('ssh_key', new Blob([keyContent], { type: 'text/plain' }), 'id_ed25519')
@@ -260,6 +268,39 @@ export default function AdminProxmox() {
           className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
         >
           {t('admin.form.sshKeyLoadFile')}
+        </button>
+      </div>
+    </div>
+  )
+
+  const passwordField = (
+    value: string,
+    onChange: (v: string) => void,
+    show: boolean,
+    toggleShow: () => void,
+    optional = false,
+  ) => (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor="px-password">
+        {t('admin.form.proxmoxPassword')}
+        {optional && <span className="ml-1 text-xs text-muted-foreground">({t('admin.form.sshKeyOptional')})</span>}
+      </Label>
+      <div className="relative">
+        <Input
+          id="px-password"
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="pr-9"
+          autoComplete="new-password"
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={toggleShow}
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+        >
+          {show ? <EyeOff size={14} /> : <Eye size={14} />}
         </button>
       </div>
     </div>
@@ -428,6 +469,7 @@ export default function AdminProxmox() {
                 placeholder={t('admin.form.scriptUrlPlaceholder')}
               />
             </div>
+            {passwordField(form.password, (v) => setField('password', v), showAddPassword, () => setShowAddPassword((s) => !s))}
             {sshKeyArea(form.ssh_key_content, (v) => setField('ssh_key_content', v), fileRef)}
             <div className="flex items-center gap-3 border-t pt-3">
               <Button
@@ -515,6 +557,7 @@ export default function AdminProxmox() {
                 placeholder={t('admin.form.scriptUrlPlaceholder')}
               />
             </div>
+            {passwordField(editForm.password, (v) => setEditField('password', v), showEditPassword, () => setShowEditPassword((s) => !s), true)}
             {sshKeyArea(editForm.ssh_key_content, (v) => setEditField('ssh_key_content', v), editFileRef, true)}
             <div className="flex items-center gap-3 border-t pt-3">
               <Button
