@@ -34,13 +34,22 @@
       "node": "Nœud",
       "recipes": "Recettes",
       "submit": "Créer le workspace",
-      "nameHint": "Minuscules, chiffres, tirets — 2 à 32 caractères"
+      "nameHint": "Minuscules, chiffres, tirets — 2 à 32 caractères",
+      "generateSshKey": "Générer une clé SSH pour ce workspace"
     },
     "confirm": {
       "deleteTitle": "Supprimer le workspace ?",
       "deleteDescription": "Cette action supprime définitivement {{name}} et son conteneur.",
       "confirm": "Supprimer",
       "cancel": "Annuler"
+    },
+    "sshKey": {
+      "button": "Clé SSH",
+      "title": "Clé publique SSH",
+      "hint": "Copiez cette clé dans GitHub → Settings → Deploy keys ou GitLab → Dépôt → Paramètres → Clés de déploiement.",
+      "copy": "Copier",
+      "copied": "Copié !",
+      "notGenerated": "Clé SSH non disponible pour ce workspace."
     }
   },
   "recipes": {

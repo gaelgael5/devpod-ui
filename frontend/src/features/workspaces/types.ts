@@ -13,6 +13,7 @@ export interface WorkspaceSpec {
   recipes: string[]
   env: Record<string, string>
   extra_sources: SourceSpec[]
+  ssh_key?: boolean
 }
 
 export type WorkspaceStatusValue =
