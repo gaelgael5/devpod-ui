@@ -327,7 +327,7 @@ def test_get_ssh_key_returns_404_when_not_generated(tmp_path: Path) -> None:
     assert resp.status_code == 404
 
 
-def test_get_ssh_key_returns_404_for_invalid_name(tmp_path: Path) -> None:
+def test_get_ssh_key_returns_422_for_invalid_name(tmp_path: Path) -> None:
     """GET /me/workspaces/{name}/ssh-key rejette les noms invalides."""
     app = _make_app(tmp_path)
     with TestClient(app) as client:
