@@ -193,6 +193,7 @@ class WorkspaceSpec(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     expose: WorkspaceExpose = Field(default_factory=WorkspaceExpose)
     extra_sources: list[SourceSpec] = Field(default_factory=list)
+    ssh_key: bool = False
 
     @field_validator("name")
     @classmethod
