@@ -55,11 +55,11 @@ Persiste le choix de l'utilisateur ; pilote l'affichage du bouton côté fronten
 generate_ssh_key: bool = False
 ```
 
-Si `True`, la clé est générée (idempotent) avant le lancement devpod. Le `WorkspaceSpec` persiste `ssh_key=True` via `save_user`.
+Si `True`, la clé est générée (idempotent) avant le lancement devpod. La persistance de `ssh_key=True` dans `WorkspaceSpec` est assurée par le frontend via `POST /me/workspaces` (endpoint existant dans `me.py`) — `DevPodService` n'appelle pas `save_user`.
 
-Nouveau endpoint :
+Nouveau endpoint (monté sous `/me` dans `app.py`) :
 ```
-GET /workspaces/{name}/ssh-key
+GET /me/workspaces/{name}/ssh-key
 → 200  { "public_key": "ssh-ed25519 AAAA..." }
 → 404  si la clé n'existe pas
 ```
@@ -102,7 +102,8 @@ Checkbox ou Switch "Générer une clé SSH pour ce workspace". Valeur passée à
 ```
 [WorkspaceCreate] toggle ssh_key=true
         ↓
-POST /workspaces/{name}/up  { generate_ssh_key: true }
+POST /me/workspaces  { ..., ssh_key: true }       ← persiste le flag
+POST /me/workspaces/{name}/up  { generate_ssh_key: true }
         ↓
 workspace_ops.py → DevPodService.up(generate_ssh_key=True)
         ↓
@@ -110,12 +111,10 @@ asyncio.to_thread(ensure_workspace_ssh_key, login, name)
   → génère id_ed25519 + id_ed25519.pub (si absent)
         ↓
 devpod up ...   (la clé est prête mais pas montée dans le container)
-        ↓
-save_user: WorkspaceSpec.ssh_key = True
 
 [WorkspaceList] WorkspaceCard (spec.ssh_key=true)
         ↓  clic bouton Key
-SshKeyDialog ouvre → GET /workspaces/{name}/ssh-key
+SshKeyDialog ouvre → GET /me/workspaces/{name}/ssh-key
         ↓
 200 { public_key: "ssh-ed25519 ..." }
         ↓
