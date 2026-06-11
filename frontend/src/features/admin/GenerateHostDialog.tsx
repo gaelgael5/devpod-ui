@@ -81,7 +81,7 @@ function StepSelect({
 }) {
   const { t } = useTranslation()
   const { nodesQuery } = useAdminProxmox()
-  const nodes = (nodesQuery.data ?? []).filter(n => n.script_url)
+  const nodes = (nodesQuery.data ?? [] as ProxmoxNodeConfig[]).filter((n: ProxmoxNodeConfig) => n.script_url)
 
   return (
     <>
@@ -93,7 +93,7 @@ function StepSelect({
         {!nodesQuery.isLoading && nodes.length === 0 && (
           <p className="text-sm text-muted-foreground">{t('admin.generate.noNodes')}</p>
         )}
-        {nodes.map(n => (
+        {nodes.map((n: ProxmoxNodeConfig) => (
           <button
             key={n.name}
             type="button"
@@ -192,7 +192,7 @@ function StepParams({
 
       {spec && (
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          {spec.args.map((arg, i) =>
+          {spec.args.map((arg: ScriptArgOrSub, i: number) =>
             arg.type === 'sub'
               ? (
                 <SubGroup

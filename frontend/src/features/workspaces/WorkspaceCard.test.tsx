@@ -8,9 +8,12 @@ import type { WorkspaceSpec, WorkspaceStatus } from './types'
 const SPEC: WorkspaceSpec = {
   name: 'myapp',
   source: 'github.com/org/myapp',
+  branch: '',
+  git_credential: '',
   host: '',
   recipes: ['claude-code'],
   env: {},
+  extra_sources: [],
 }
 
 function card(status: WorkspaceStatus['status'], url?: string) {
