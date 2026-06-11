@@ -91,4 +91,26 @@ describe('WorkspaceCreate', () => {
       screen.getByRole('checkbox', { name: /générer.*clé ssh|generate.*ssh key/i })
     ).toBeInTheDocument()
   })
+
+  it('passe generate_ssh_key=true dans le corps /up quand la case SSH est cochée', async () => {
+    let capturedBody: unknown
+    server.use(
+      http.post('/me/workspaces/:name/up', async ({ request }) => {
+        capturedBody = await request.json()
+        return HttpResponse.json({ ws_id: 'alice-my-project', status: 'provisioning' }, { status: 202 })
+      })
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<WorkspaceCreate />, { route: '/workspaces/new' })
+
+    await user.type(screen.getByLabelText(/name|nom/i), 'my-project')
+    await user.click(screen.getByRole('checkbox', { name: /générer.*clé ssh|generate.*ssh key/i }))
+    await user.click(screen.getByRole('button', { name: /create|créer/i }))
+
+    await waitFor(() => {
+      expect(capturedBody).toBeDefined()
+    })
+    expect(capturedBody).toMatchObject({ generate_ssh_key: true })
+  })
 })
