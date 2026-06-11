@@ -317,3 +317,38 @@ def test_workspace_up_empty_recipes_still_works(tmp_path: Path) -> None:
     data = resp.json()
     assert data["ws_id"] == "alice-myapp"
     assert data["status"] == "provisioning"
+
+
+def test_get_ssh_key_returns_404_when_not_generated(tmp_path: Path) -> None:
+    """GET /me/workspaces/{name}/ssh-key retourne 404 si la clé n'existe pas."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.get("/me/workspaces/myapp/ssh-key")
+    assert resp.status_code == 404
+
+
+def test_get_ssh_key_returns_404_for_invalid_name(tmp_path: Path) -> None:
+    """GET /me/workspaces/{name}/ssh-key rejette les noms invalides."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.get("/me/workspaces/INVALID_NAME/ssh-key")
+    assert resp.status_code == 422
+
+
+def test_get_ssh_key_returns_200_when_key_exists(tmp_path: Path) -> None:
+    """GET /me/workspaces/{name}/ssh-key retourne 200 + public_key si la clé existe."""
+    # _make_app provisionne alice (crée le répertoire user) et positionne PORTAL_DATA_ROOT
+    app = _make_app(tmp_path)
+
+    # Générer la clé directement via le module (simule DevPodService.up avec generate_ssh_key=True)
+    from portal.ssh_keys import ensure_workspace_ssh_key
+    expected_pub = ensure_workspace_ssh_key("alice", "myapp")
+
+    with TestClient(app) as client:
+        resp = client.get("/me/workspaces/myapp/ssh-key")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "public_key" in data
+    assert data["public_key"].startswith("ssh-ed25519 ")
+    assert data["public_key"] == expected_pub

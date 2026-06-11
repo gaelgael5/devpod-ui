@@ -254,3 +254,18 @@ async def workspace_status(
     ws_id = f"{user.login}-{name}"
     svc = _get_service()
     return await svc.status(login=user.login, ws_id=ws_id)
+
+
+@router.get("/workspaces/{name}/ssh-key")
+async def get_workspace_ssh_key(
+    name: str,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, str]:
+    _validate_name(name)
+    pub_path = safe_user_path(user.login, "keys", "workspaces", name) / "id_ed25519.pub"
+    if not pub_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="SSH key not generated for this workspace",
+        )
+    return {"public_key": pub_path.read_text(encoding="utf-8").strip()}
