@@ -20,6 +20,7 @@ def test_ensure_workspace_ssh_key_generates_valid_ed25519(
     pub_key = ensure_workspace_ssh_key("alice", "myapp")
 
     assert pub_key.startswith("ssh-ed25519 ")
+    assert pub_key.endswith(" devpod:alice/myapp")
     key_dir = tmp_path / "users" / "alice" / "keys" / "workspaces" / "myapp"
     assert (key_dir / "id_ed25519").exists()
     assert (key_dir / "id_ed25519.pub").exists()
