@@ -38,7 +38,7 @@ def _validate_name(name: str) -> None:
 class UpRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source: str
+    source: str = ""
     branch: str = ""
     git_credential: str = ""
     host: str = ""

@@ -203,9 +203,7 @@ class WorkspaceSpec(BaseModel):
     @field_validator("source")
     @classmethod
     def validate_source(cls, v: str) -> str:
-        if not v:
-            raise ValueError("source must not be empty")
-        if v.startswith("-"):
+        if v and v.startswith("-"):
             raise ValueError("source must not start with '-' (argument injection prevention)")
         return v
 

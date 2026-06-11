@@ -345,10 +345,11 @@ class DevPodService:
             ]
             if provider_name:
                 cmd += ["--provider", provider_name]
-            cmd += [
-                "--",  # fin des flags — défense en profondeur contre l'injection argv
-                source,
-            ]
+            if source:
+                cmd += [
+                    "--",  # fin des flags — défense en profondeur contre l'injection argv
+                    source,
+                ]
             log_path = self._log_path(login, ws_id)
             # Seul le returncode est logué — la valeur des env vars (secrets) n'est jamais écrite
             returncode = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)

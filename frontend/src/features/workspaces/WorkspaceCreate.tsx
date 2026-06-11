@@ -156,7 +156,6 @@ export default function WorkspaceCreate() {
   const [selectedRecipes, setSelectedRecipes] = useState<string[]>([])
   const [nameError, setNameError] = useState('')
   const [sourceErrors, setSourceErrors] = useState<Record<number, string>>({})
-  const [noSourceError, setNoSourceError] = useState('')
   const [serverError, setServerError] = useState('')
 
   function updateSource(index: number, updated: SourceEntry) {
@@ -186,13 +185,6 @@ export default function WorkspaceCreate() {
       valid = false
     } else {
       setNameError('')
-    }
-
-    if (sources.length === 0) {
-      setNoSourceError(t('workspaces.form.sourcesRequired'))
-      valid = false
-    } else {
-      setNoSourceError('')
     }
 
     const errors: Record<number, string> = {}
@@ -288,9 +280,6 @@ export default function WorkspaceCreate() {
               />
             ))}
           </div>
-          {noSourceError && (
-            <p role="alert" className="mt-1 text-xs text-destructive">{noSourceError}</p>
-          )}
           {sources.length > 0 && (
             <p className="mt-1.5 text-xs text-muted-foreground">
               {t('workspaces.form.sourcesHint')}

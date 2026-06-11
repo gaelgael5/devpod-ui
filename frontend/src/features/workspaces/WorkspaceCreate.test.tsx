@@ -62,13 +62,14 @@ describe('WorkspaceCreate', () => {
     expect(urlInputs).toHaveLength(2)
   })
 
-  it('exige au moins une source avant de soumettre', async () => {
+  it('soumet sans source (workspace sans git clone)', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<WorkspaceCreate />)
+    renderWithProviders(<WorkspaceCreate />, { route: '/workspaces/new' })
     await user.type(screen.getByLabelText(/name|nom/i), 'my-project')
+    // Pas de source ajoutée
     await user.click(screen.getByRole('button', { name: /create|créer/i }))
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
   })
 
