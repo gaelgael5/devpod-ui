@@ -101,7 +101,7 @@ function SourceRow({
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className={credentials.length > 0 ? 'grid grid-cols-2 gap-2' : ''}>
         <div>
           <Label htmlFor={branchId} className="text-xs">{t('workspaces.form.branch')}</Label>
           <Input
@@ -113,25 +113,27 @@ function SourceRow({
           />
         </div>
 
-        <div>
-          <Label className="text-xs">{t('workspaces.form.credential')}</Label>
-          <Select
-            value={entry.credential || CRED_NONE}
-            onValueChange={v => onChange({ ...entry, credential: v === CRED_NONE ? '' : v })}
-          >
-            <SelectTrigger className="mt-1">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={CRED_NONE}>{t('workspaces.form.credentialNone')}</SelectItem>
-              {credentials.map(c => (
-                <SelectItem key={c.name} value={c.name}>
-                  {c.name} ({c.host})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {credentials.length > 0 && (
+          <div>
+            <Label className="text-xs">{t('workspaces.form.credential')}</Label>
+            <Select
+              value={entry.credential || CRED_NONE}
+              onValueChange={v => onChange({ ...entry, credential: v === CRED_NONE ? '' : v })}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={CRED_NONE}>{t('workspaces.form.credentialNone')}</SelectItem>
+                {credentials.map(c => (
+                  <SelectItem key={c.name} value={c.name}>
+                    {c.name} ({c.host})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
     </div>
   )
