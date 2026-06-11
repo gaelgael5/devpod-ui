@@ -68,4 +68,30 @@ describe('WorkspaceCard', () => {
     await user.click(screen.getByRole('button', { name: /stop|arrêter/i }))
     expect(onStop).toHaveBeenCalledWith('myapp')
   })
+
+  it('affiche le bouton Clé SSH quand spec.ssh_key=true', () => {
+    const spec: WorkspaceSpec = { ...SPEC, ssh_key: true }
+    renderWithProviders(
+      <WorkspaceCard
+        spec={spec}
+        status={{ ws_id: 'alice-myapp', status: 'running', url: 'https://x' }}
+        onStop={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    )
+    expect(screen.getByRole('button', { name: /clé ssh|ssh key/i })).toBeInTheDocument()
+  })
+
+  it("n'affiche pas le bouton Clé SSH quand spec.ssh_key=false", () => {
+    const spec: WorkspaceSpec = { ...SPEC, ssh_key: false }
+    renderWithProviders(
+      <WorkspaceCard
+        spec={spec}
+        status={{ ws_id: 'alice-myapp', status: 'running', url: 'https://x' }}
+        onStop={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    )
+    expect(screen.queryByRole('button', { name: /clé ssh|ssh key/i })).not.toBeInTheDocument()
+  })
 })
