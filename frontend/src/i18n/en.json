@@ -110,8 +110,14 @@
       "testConnection": "Test connection",
       "testing": "Testing…",
       "testOk": "Connection successful",
-      "testFailed": "Connection failed"
-    }
+      "testFailed": "Connection failed",
+      "showCert": "View TLS certificate",
+      "hideCert": "Hide certificate",
+      "copyCert": "Copy"
+    },
+    "deleteHost": "Delete host",
+    "deleteHostTitle": "Delete host",
+    "deleteHostDescription": "Are you sure you want to delete host \"{{name}}\"? This action cannot be undone."
   },
   "errors": {
     "forbidden": "Access denied",

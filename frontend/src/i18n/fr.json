@@ -110,8 +110,14 @@
       "testConnection": "Tester la connexion",
       "testing": "Test en cours…",
       "testOk": "Connexion réussie",
-      "testFailed": "Connexion échouée"
-    }
+      "testFailed": "Connexion échouée",
+      "showCert": "Voir le certificat TLS",
+      "hideCert": "Masquer le certificat",
+      "copyCert": "Copier"
+    },
+    "deleteHost": "Supprimer l'hôte",
+    "deleteHostTitle": "Supprimer l'hôte",
+    "deleteHostDescription": "Confirmer la suppression de l'hôte « {{name}} » ? Cette action est irréversible."
   },
   "errors": {
     "forbidden": "Accès refusé",
