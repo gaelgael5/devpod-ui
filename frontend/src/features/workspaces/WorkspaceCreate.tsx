@@ -245,6 +245,28 @@ export default function WorkspaceCreate() {
           )}
         </div>
 
+        {isAdmin && hosts.length > 0 && (
+          <div>
+            <Label htmlFor="ws-host">{t('workspaces.form.node')}</Label>
+            <Select
+              value={host || HOST_DEFAULT}
+              onValueChange={(v) => setHost(v === HOST_DEFAULT ? '' : v)}
+            >
+              <SelectTrigger id="ws-host">
+                <SelectValue placeholder="— default —" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={HOST_DEFAULT}>— default —</SelectItem>
+                {hosts.map((h: HostConfig) => (
+                  <SelectItem key={h.name} value={h.name}>
+                    {h.name} {h.default ? '(default)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         <div>
           <div className="flex items-center justify-between mb-2">
             <Label>{t('workspaces.form.sources')}</Label>
@@ -275,28 +297,6 @@ export default function WorkspaceCreate() {
             </p>
           )}
         </div>
-
-        {isAdmin && hosts.length > 0 && (
-          <div>
-            <Label htmlFor="ws-host">{t('workspaces.form.node')}</Label>
-            <Select
-              value={host || HOST_DEFAULT}
-              onValueChange={(v) => setHost(v === HOST_DEFAULT ? '' : v)}
-            >
-              <SelectTrigger id="ws-host">
-                <SelectValue placeholder="— default —" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={HOST_DEFAULT}>— default —</SelectItem>
-                {hosts.map((h: HostConfig) => (
-                  <SelectItem key={h.name} value={h.name}>
-                    {h.name} {h.default ? '(default)' : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
 
         {recipes.length > 0 && (
           <div>
