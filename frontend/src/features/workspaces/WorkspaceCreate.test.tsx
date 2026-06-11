@@ -84,4 +84,11 @@ describe('WorkspaceCreate', () => {
       expect(screen.getByRole('alert')).toBeInTheDocument()
     })
   })
+
+  it('affiche le toggle Générer une clé SSH', () => {
+    renderWithProviders(<WorkspaceCreate />)
+    expect(
+      screen.getByRole('checkbox', { name: /générer.*clé ssh|generate.*ssh key/i })
+    ).toBeInTheDocument()
+  })
 })

@@ -154,6 +154,7 @@ export default function WorkspaceCreate() {
   const [sources, setSources] = useState<SourceEntry[]>([])
   const [host, setHost] = useState('')
   const [selectedRecipes, setSelectedRecipes] = useState<string[]>([])
+  const [generateSshKey, setGenerateSshKey] = useState(false)
   const [nameError, setNameError] = useState('')
   const [sourceErrors, setSourceErrors] = useState<Record<number, string>>({})
   const [serverError, setServerError] = useState('')
@@ -204,7 +205,7 @@ export default function WorkspaceCreate() {
     if (!validate()) return
 
     try {
-      await createWorkspace.mutateAsync({ name, sources, host, recipes: selectedRecipes })
+      await createWorkspace.mutateAsync({ name, sources, host, recipes: selectedRecipes, generateSshKey })
       navigate('/workspaces')
     } catch (err) {
       setServerError(extractErrorMessage(err) || t('errors.generic'))
@@ -299,6 +300,19 @@ export default function WorkspaceCreate() {
             </div>
           </div>
         )}
+
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="ws-ssh-key"
+            checked={generateSshKey}
+            onChange={e => setGenerateSshKey(e.target.checked)}
+            className="h-4 w-4 rounded border-input"
+          />
+          <Label htmlFor="ws-ssh-key" className="cursor-pointer font-normal">
+            {t('workspaces.form.generateSshKey')}
+          </Label>
+        </div>
 
         {serverError && (
           <p role="alert" className="text-sm text-destructive">{serverError}</p>
