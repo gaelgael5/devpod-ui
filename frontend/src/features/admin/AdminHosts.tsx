@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -9,16 +10,20 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { useHosts, useAddHost, type HostConfig } from './useHosts'
+import { useHosts, useAddHost, useUpdateHost, type HostConfig } from './useHosts'
 import GenerateHostDialog from './GenerateHostDialog'
 
 const EMPTY: HostConfig = { name: '', type: 'docker-tls', default: false, docker_host: '', address: '', key_path: '' }
+
+type DialogMode = 'add' | 'edit'
 
 export default function AdminHosts() {
   const { t } = useTranslation()
   const { data: hosts, isLoading, isError } = useHosts()
   const addHost = useAddHost()
+  const updateHost = useUpdateHost()
   const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState<DialogMode>('add')
   const [generateOpen, setGenerateOpen] = useState(false)
   const [form, setForm] = useState<HostConfig>(EMPTY)
 
@@ -27,19 +32,35 @@ export default function AdminHosts() {
   }
 
   function handleClose(o: boolean) {
-    if (!o) setForm(EMPTY)
+    if (!o) { setForm(EMPTY); setMode('add') }
     setOpen(o)
+  }
+
+  function openAdd() {
+    setForm(EMPTY)
+    setMode('add')
+    setOpen(true)
+  }
+
+  function openEdit(host: HostConfig) {
+    setForm({ ...host })
+    setMode('edit')
+    setOpen(true)
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    addHost.mutate(form, { onSuccess: () => handleClose(false) })
+    const mutation = mode === 'edit' ? updateHost : addHost
+    mutation.mutate(form, { onSuccess: () => handleClose(false) })
   }
 
   function handleGenerated(config: HostConfig) {
     setForm(config)
+    setMode('add')
     setOpen(true)
   }
+
+  const isPending = addHost.isPending || updateHost.isPending
 
   return (
     <div>
@@ -49,7 +70,7 @@ export default function AdminHosts() {
           <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
             {t('admin.generate.btn')}
           </Button>
-          <Button size="sm" onClick={() => setOpen(true)}>{t('admin.addHost')}</Button>
+          <Button size="sm" onClick={openAdd}>{t('admin.addHost')}</Button>
         </div>
       </div>
 
@@ -67,6 +88,7 @@ export default function AdminHosts() {
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.type')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.host')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.default')}</th>
+                <th className="px-4 py-2" />
               </tr>
             </thead>
             <tbody>
@@ -74,13 +96,24 @@ export default function AdminHosts() {
                 <tr key={h.name} className="border-b last:border-0">
                   <td className="px-4 py-2 font-medium">{h.name}</td>
                   <td className="px-4 py-2 text-muted-foreground">{h.type}</td>
-                  <td className="px-4 py-2 text-muted-foreground font-mono text-xs">{h.docker_host ?? '—'}</td>
+                  <td className="px-4 py-2 text-muted-foreground font-mono text-xs">{h.docker_host ?? h.address ?? '—'}</td>
                   <td className="px-4 py-2">
                     {h.default ? (
                       <span className="text-green-600">✓</span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onClick={() => openEdit(h)}
+                      aria-label={t('workspaces.actions.edit')}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -98,7 +131,9 @@ export default function AdminHosts() {
       <Dialog open={open} onOpenChange={handleClose}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('admin.addHost')}</DialogTitle>
+            <DialogTitle>
+              {mode === 'edit' ? t('admin.editHost') : t('admin.addHost')}
+            </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
@@ -109,6 +144,8 @@ export default function AdminHosts() {
                 onChange={(e) => set('name', e.target.value)}
                 placeholder="docker-node1"
                 required
+                readOnly={mode === 'edit'}
+                className={mode === 'edit' ? 'bg-muted text-muted-foreground' : ''}
               />
             </div>
             <div className="flex flex-col gap-1.5">
@@ -164,7 +201,7 @@ export default function AdminHosts() {
               <Button type="button" variant="outline" onClick={() => handleClose(false)}>
                 {t('workspaces.confirm.cancel')}
               </Button>
-              <Button type="submit" disabled={addHost.isPending}>
+              <Button type="submit" disabled={isPending}>
                 {t('admin.form.save')}
               </Button>
             </DialogFooter>

@@ -48,3 +48,19 @@ async def add_host(host: HostConfig, user: UserInfo = Depends(require_admin)) ->
     save_global(cfg)
     _log.info("host_added", name=host.name, by=user.login)
     return host.model_dump(mode="json")
+
+
+@router.put("/hosts/{name}")
+async def update_host(
+    name: str, host: HostConfig, user: UserInfo = Depends(require_admin)
+) -> dict[str, object]:
+    if host.name != name:
+        raise HTTPException(status_code=422, detail="Host name in body must match URL")
+    cfg = load_global()
+    idx = next((i for i, h in enumerate(cfg.hosts) if h.name == name), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail=f"Host {name!r} not found")
+    cfg.hosts[idx] = host
+    save_global(cfg)
+    _log.info("host_updated", name=name, by=user.login)
+    return host.model_dump(mode="json")

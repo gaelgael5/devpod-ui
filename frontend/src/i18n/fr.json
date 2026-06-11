@@ -58,6 +58,7 @@
     "recipesEmpty": "Aucune recette partagée.",
     "proxmoxEmpty": "Aucun nœud Proxmox enrôlé.",
     "addHost": "Ajouter un hôte",
+    "editHost": "Modifier l'hôte",
     "addRecipe": "Ajouter une recette",
     "generate": {
       "btn": "Générer",

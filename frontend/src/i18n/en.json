@@ -58,6 +58,7 @@
     "recipesEmpty": "No shared recipes.",
     "proxmoxEmpty": "No Proxmox nodes enrolled yet.",
     "addHost": "Add host",
+    "editHost": "Edit host",
     "addRecipe": "Add recipe",
     "generate": {
       "btn": "Generate",

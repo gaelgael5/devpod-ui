@@ -32,3 +32,17 @@ export function useAddHost() {
     onError: (err: Error) => toast.error(err.message),
   })
 }
+
+export function useUpdateHost() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (host: HostConfig) =>
+      apiFetchJson<HostConfig>(`/admin/hosts/${encodeURIComponent(host.name)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(host),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hosts'] }),
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
