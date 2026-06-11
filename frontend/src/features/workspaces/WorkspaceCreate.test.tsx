@@ -7,10 +7,10 @@ import { renderWithProviders } from '@/test/renderWithProviders'
 import WorkspaceCreate from './WorkspaceCreate'
 
 describe('WorkspaceCreate', () => {
-  it('affiche le formulaire', () => {
+  it('affiche le formulaire sans source pré-remplie', () => {
     renderWithProviders(<WorkspaceCreate />)
     expect(screen.getByLabelText(/name|nom/i)).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('github.com/org/repo')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('github.com/org/repo')).not.toBeInTheDocument()
   })
 
   it('invalide un nom qui ne respecte pas la regex', async () => {
@@ -27,10 +27,10 @@ describe('WorkspaceCreate', () => {
     const user = userEvent.setup()
     renderWithProviders(<WorkspaceCreate />, { route: '/workspaces/new' })
     await user.type(screen.getByLabelText(/name|nom/i), 'my-project')
+    await user.click(screen.getByRole('button', { name: /ajouter|add source/i }))
     await user.type(screen.getByPlaceholderText('github.com/org/repo'), 'github.com/org/repo')
     await user.click(screen.getByRole('button', { name: /create|créer/i }))
     await waitFor(() => {
-      // La mutation a été appelée — pas d'erreur affichée
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
   })
@@ -44,6 +44,7 @@ describe('WorkspaceCreate', () => {
     const user = userEvent.setup()
     renderWithProviders(<WorkspaceCreate />)
     await user.type(screen.getByLabelText(/name|nom/i), 'myapp')
+    await user.click(screen.getByRole('button', { name: /ajouter|add source/i }))
     await user.type(screen.getByPlaceholderText('github.com/org/repo'), 'github.com/org/repo')
     await user.click(screen.getByRole('button', { name: /create|créer/i }))
     await waitFor(() => {
@@ -51,21 +52,32 @@ describe('WorkspaceCreate', () => {
     })
   })
 
-  it('permet d\'ajouter une source supplémentaire', async () => {
+  it('permet d\'ajouter deux sources', async () => {
     const user = userEvent.setup()
     renderWithProviders(<WorkspaceCreate />)
     const addBtn = screen.getByRole('button', { name: /ajouter|add source/i })
     await user.click(addBtn)
-    // Deux champs URL doivent être présents
+    await user.click(addBtn)
     const urlInputs = screen.getAllByPlaceholderText('github.com/org/repo')
     expect(urlInputs).toHaveLength(2)
   })
 
-  it('valide que l\'URL de la source principale est requise', async () => {
+  it('exige au moins une source avant de soumettre', async () => {
     const user = userEvent.setup()
     renderWithProviders(<WorkspaceCreate />)
     await user.type(screen.getByLabelText(/name|nom/i), 'my-project')
-    // Ne pas remplir l'URL
+    await user.click(screen.getByRole('button', { name: /create|créer/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+    })
+  })
+
+  it('valide que l\'URL de la source est requise quand une ligne est ajoutée', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<WorkspaceCreate />)
+    await user.type(screen.getByLabelText(/name|nom/i), 'my-project')
+    await user.click(screen.getByRole('button', { name: /ajouter|add source/i }))
+    // URL laissée vide
     await user.click(screen.getByRole('button', { name: /create|créer/i }))
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeInTheDocument()

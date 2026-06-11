@@ -151,11 +151,12 @@ export default function WorkspaceCreate() {
   const { data: credentials = [] } = useGitCredentials()
 
   const [name, setName] = useState('')
-  const [sources, setSources] = useState<SourceEntry[]>([emptySource()])
+  const [sources, setSources] = useState<SourceEntry[]>([])
   const [host, setHost] = useState('')
   const [selectedRecipes, setSelectedRecipes] = useState<string[]>([])
   const [nameError, setNameError] = useState('')
   const [sourceErrors, setSourceErrors] = useState<Record<number, string>>({})
+  const [noSourceError, setNoSourceError] = useState('')
   const [serverError, setServerError] = useState('')
 
   function updateSource(index: number, updated: SourceEntry) {
@@ -185,6 +186,13 @@ export default function WorkspaceCreate() {
       valid = false
     } else {
       setNameError('')
+    }
+
+    if (sources.length === 0) {
+      setNoSourceError(t('workspaces.form.sourcesRequired'))
+      valid = false
+    } else {
+      setNoSourceError('')
     }
 
     const errors: Record<number, string> = {}
@@ -252,15 +260,20 @@ export default function WorkspaceCreate() {
                 index={i}
                 entry={src}
                 onChange={updated => updateSource(i, updated)}
-                onRemove={sources.length > 1 ? () => removeSource(i) : undefined}
+                onRemove={() => removeSource(i)}
                 credentials={credentials}
                 urlError={sourceErrors[i]}
               />
             ))}
           </div>
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            {t('workspaces.form.sourcesHint')}
-          </p>
+          {noSourceError && (
+            <p role="alert" className="mt-1 text-xs text-destructive">{noSourceError}</p>
+          )}
+          {sources.length > 0 && (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {t('workspaces.form.sourcesHint')}
+            </p>
+          )}
         </div>
 
         {isAdmin && hosts.length > 0 && (

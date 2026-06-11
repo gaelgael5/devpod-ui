@@ -31,6 +31,7 @@
       "credentialNone": "— none —",
       "sourcesHint": "The 1st source is the main workspace. Additional ones are cloned automatically.",
       "sourceUrlRequired": "Source URL is required",
+      "sourcesRequired": "Add at least one source",
       "node": "Node",
       "recipes": "Recipes",
       "submit": "Create workspace",
