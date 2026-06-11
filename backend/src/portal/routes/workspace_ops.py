@@ -44,6 +44,7 @@ class UpRequest(BaseModel):
     host: str = ""
     recipes: list[str] = Field(default_factory=list)
     extra_sources: list[SourceSpec] = Field(default_factory=list)
+    generate_ssh_key: bool = False
 
 
 _service: DevPodService | None = None
@@ -211,6 +212,7 @@ async def workspace_up(
             ws_spec=ws,
             recipes=resolved_recipes or None,
             feature_env=feature_env or None,
+            generate_ssh_key=req.generate_ssh_key,
         )
     except UnknownHostError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

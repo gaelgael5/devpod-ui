@@ -352,3 +352,32 @@ def test_get_ssh_key_returns_200_when_key_exists(tmp_path: Path) -> None:
     assert "public_key" in data
     assert data["public_key"].startswith("ssh-ed25519 ")
     assert data["public_key"] == expected_pub
+
+
+def test_up_with_generate_ssh_key_creates_key_file(tmp_path: Path) -> None:
+    """POST up avec generate_ssh_key=True génère la paire de clés sur disque."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/workspaces/myapp/up",
+            json={"source": "git@github.com:user/repo.git", "generate_ssh_key": True},
+        )
+    assert resp.status_code == 202
+
+    pub_path = tmp_path / "users" / "alice" / "keys" / "workspaces" / "myapp" / "id_ed25519.pub"
+    assert pub_path.exists(), "La clé publique doit exister après up avec generate_ssh_key=True"
+    assert pub_path.read_text(encoding="utf-8").strip().startswith("ssh-ed25519 ")
+
+
+def test_up_without_generate_ssh_key_does_not_create_key(tmp_path: Path) -> None:
+    """POST up sans generate_ssh_key ne crée pas de clé."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/workspaces/myapp/up",
+            json={"source": "git@github.com:user/repo.git"},
+        )
+    assert resp.status_code == 202
+
+    pub_path = tmp_path / "users" / "alice" / "keys" / "workspaces" / "myapp" / "id_ed25519.pub"
+    assert not pub_path.exists(), "Aucune clé ne doit être créée sans generate_ssh_key"

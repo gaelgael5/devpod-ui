@@ -76,9 +76,14 @@ class DevPodService:
         ws_spec: WorkspaceSpec,
         recipes: list[RecipeMeta] | None = None,
         feature_env: dict[str, str] | None = None,
+        generate_ssh_key: bool = False,
     ) -> str:
         """Lance un workspace en tâche de fond. Retourne ws_id immédiatement."""
         ws_id = self._ws_id(login, ws_spec.name)
+
+        if generate_ssh_key:
+            from ..ssh_keys import ensure_workspace_ssh_key
+            await asyncio.to_thread(ensure_workspace_ssh_key, login, ws_spec.name)
 
         # Env de base (DEVPOD_HOME, DOCKER_*) — sans les secrets utilisateur
         base_env = build_env(login=login, ws_spec=ws_spec, global_cfg=self._global_cfg)

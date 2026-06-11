@@ -119,6 +119,29 @@ async def test_status_returns_current_status(
 
 
 @pytest.mark.asyncio
+async def test_up_with_generate_ssh_key_creates_key(
+    tmp_data_root: Path, global_cfg, fake_devpod_bin: list[str]
+) -> None:
+    """up(generate_ssh_key=True) crée la paire de clés avant de lancer devpod."""
+    from portal.auth.router import provision_user
+    from portal.config.models import WorkspaceSpec
+    from portal.devpod.service import DevPodService
+
+    await provision_user(login="alice", sub="sub", data_root=tmp_data_root)
+
+    svc = DevPodService(global_cfg=global_cfg, devpod_bin=fake_devpod_bin)
+    ws = WorkspaceSpec(name="myapp", source="git@github.com:user/repo.git")
+
+    await svc.up(login="alice", ws_spec=ws, generate_ssh_key=True)
+
+    pub_path = (
+        tmp_data_root / "users" / "alice" / "keys" / "workspaces" / "myapp" / "id_ed25519.pub"
+    )
+    assert pub_path.exists()
+    assert pub_path.read_text(encoding="utf-8").strip().startswith("ssh-ed25519 ")
+
+
+@pytest.mark.asyncio
 async def test_list_workspaces_isolates_by_login(
     tmp_data_root: Path, global_cfg, fake_devpod_bin: list[str]
 ) -> None:
