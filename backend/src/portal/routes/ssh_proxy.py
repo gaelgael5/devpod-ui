@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 import structlog
 from fastapi import APIRouter, WebSocket
+from starlette.websockets import WebSocketDisconnect
 
 from ..config.store import _data_root, load_global
 from ..settings import get_settings
@@ -69,10 +70,14 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
     address = host.address
     _log.info("ws_ssh_open", host=name, address=address, admin=user_data.get("login"))
 
+    known_hosts = _data_root() / "keys" / "hosts_known"
+    known_hosts.parent.mkdir(parents=True, exist_ok=True)
+
     proc = await asyncio.create_subprocess_exec(
         "ssh",
         "-i", str(key_path),
-        "-o", "StrictHostKeyChecking=no",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", f"UserKnownHostsFile={known_hosts}",
         "-o", "BatchMode=no",
         address,
         stdin=asyncio.subprocess.PIPE,
@@ -87,19 +92,24 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
                 if proc.stdin and not proc.stdin.is_closing():
                     proc.stdin.write(data)
                     await proc.stdin.drain()
-        except Exception:
+        except (WebSocketDisconnect, OSError):
             pass
+        except Exception as exc:
+            _log.warning("ws_ssh_ws_to_ssh_error", exc_type=type(exc).__name__)
 
     async def _ssh_to_ws() -> None:
         try:
-            assert proc.stdout is not None
+            if proc.stdout is None:
+                return
             while True:
                 chunk = await proc.stdout.read(4096)
                 if not chunk:
                     break
                 await websocket.send_bytes(chunk)
-        except Exception:
+        except (WebSocketDisconnect, OSError):
             pass
+        except Exception as exc:
+            _log.warning("ws_ssh_ssh_to_ws_error", exc_type=type(exc).__name__)
 
     tasks = [
         asyncio.create_task(_ws_to_ssh()),
