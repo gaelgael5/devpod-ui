@@ -23,19 +23,27 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
     settings = get_settings()
     cfg = load_global()
 
+    _log.info("ws_ssh_handler_entry", host=name, dev_mode=settings.dev_mode)
+
     # ── Origin validation (anti-CSWSH) ────────────────────────────────────────
     if not settings.dev_mode:
         parsed = urlparse(cfg.server.external_url)
         allowed_origin = f"{parsed.scheme}://{parsed.netloc}"
         request_origin = websocket.headers.get("origin", "").rstrip("/")
         if request_origin != allowed_origin:
-            _log.warning("ws_ssh_bad_origin", origin=request_origin)
+            _log.warning("ws_ssh_bad_origin", origin=request_origin, allowed=allowed_origin)
             await websocket.close(code=4003, reason="Bad origin")
             return
 
     # ── Auth ──────────────────────────────────────────────────────────────────
     user_data = websocket.session.get("user")
     if not user_data or not isinstance(user_data, dict):
+        _log.warning(
+            "ws_ssh_unauthenticated",
+            host=name,
+            session_is_empty=not bool(websocket.session),
+            session_keys=list(websocket.session.keys()),
+        )
         await websocket.close(code=4001, reason="Not authenticated")
         return
     if settings.oidc_admin_role not in user_data.get("roles", []):
@@ -46,12 +54,15 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
     # ── Config ────────────────────────────────────────────────────────────────
     host = next((h for h in cfg.hosts if h.name == name), None)
     if host is None:
+        _log.warning("ws_ssh_host_not_found", host=name, known=[h.name for h in cfg.hosts])
         await websocket.close(code=4004, reason=f"Host {name!r} not found")
         return
     if host.type != "ssh":
+        _log.warning("ws_ssh_not_ssh_type", host=name, host_type=host.type)
         await websocket.close(code=4022, reason=f"Host {name!r} is not of type ssh")
         return
     if not host.key_path:
+        _log.warning("ws_ssh_empty_key_path", host=name)
         await websocket.close(code=4022, reason="key_path not configured for this host")
         return
 
@@ -63,6 +74,7 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         await websocket.close(code=4022, reason="key_path must be under data root")
         return
     if not key_path.exists():
+        _log.warning("ws_ssh_key_not_found", host=name, key_path=str(key_path), data_root=str(data_root))
         await websocket.close(code=4022, reason=f"key_path does not exist: {host.key_path}")
         return
 
