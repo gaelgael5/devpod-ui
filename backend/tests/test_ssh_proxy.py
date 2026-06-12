@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import textwrap
 from pathlib import Path
 
@@ -227,3 +228,92 @@ def test_ws_rejects_bad_origin(tmp_data_root, monkeypatch):
          ) as ws:
         ws.receive_text()
     assert exc_info.value.code == 4003
+
+
+# ── Tests du proxy nominal ────────────────────────────────────────────────────
+
+
+class _FakeProcess:
+    """Simule asyncio.subprocess.Process pour les tests proxy."""
+
+    def __init__(self, echo: bool = True) -> None:
+        self.returncode: int | None = None
+        self._killed = False
+        self._echo = echo
+        self.stdin = _FakeStdin(self)
+        self.stdout = _FakeStdout(self, echo=echo)
+
+    def kill(self) -> None:
+        self._killed = True
+        self.returncode = -9
+        # Débloquer le lecteur stdout (envoyer EOF)
+        self.stdout._close()
+
+    async def wait(self) -> int:
+        return self.returncode or 0
+
+
+class _FakeStdin:
+    def __init__(self, proc: _FakeProcess) -> None:
+        self._proc = proc
+
+    def is_closing(self) -> bool:
+        return self._proc.returncode is not None
+
+    def write(self, data: bytes) -> None:
+        if self._proc._echo:
+            self._proc.stdout._feed(data)
+
+    async def drain(self) -> None:
+        pass
+
+
+class _FakeStdout:
+    def __init__(self, proc: _FakeProcess, echo: bool) -> None:
+        self._queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._closed = False
+
+    def _feed(self, data: bytes) -> None:
+        self._queue.put_nowait(data)
+
+    def _close(self) -> None:
+        self._closed = True
+        self._queue.put_nowait(b"")  # sentinelle EOF
+
+    async def read(self, n: int) -> bytes:
+        if self._closed and self._queue.empty():
+            return b""
+        chunk = await self._queue.get()
+        return chunk
+
+
+def test_ws_proxy_echoes_data(data_root_with_ssh, monkeypatch):
+    """Le subprocess SSH factice (echo) remet les bytes sur le WebSocket."""
+    fake_proc = _FakeProcess(echo=True)
+
+    async def _fake_exec(*args, **kwargs):
+        return fake_proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+    client = _make_client(data_root_with_ssh)
+    with client.websocket_connect("/admin/hosts/ssh-dev/ssh") as ws:
+        ws.send_bytes(b"hello")
+        data = ws.receive_bytes()
+        assert data == b"hello"
+
+
+def test_ws_close_kills_subprocess(data_root_with_ssh, monkeypatch):
+    """Fermer le WebSocket tue le subprocess SSH."""
+    fake_proc = _FakeProcess(echo=False)
+
+    async def _fake_exec(*args, **kwargs):
+        return fake_proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+    client = _make_client(data_root_with_ssh)
+    with client.websocket_connect("/admin/hosts/ssh-dev/ssh"):
+        pass  # ferme immédiatement le WS
+
+    assert fake_proc._killed, "Le subprocess doit être killed après fermeture WS"
