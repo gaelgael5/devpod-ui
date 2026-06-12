@@ -40,6 +40,7 @@ vi.mock('@xterm/addon-fit', () => ({
 const sshWsLink = ws.link('ws://localhost:3000/admin/hosts/:name/ssh')
 
 let wsClient: WebSocketClientConnectionProtocol | null = null
+let wsCloseCalled = false
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const SSH_HOST: HostConfig = {
@@ -62,9 +63,13 @@ describe('SshTerminalWindow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     wsClient = null
+    wsCloseCalled = false
     // Register WS handler for the SSH endpoint
     const handler = sshWsLink.addEventListener('connection', ({ client }) => {
       wsClient = client
+      client.addEventListener('close', () => {
+        wsCloseCalled = true
+      })
     })
     server.use(handler)
   })
@@ -74,18 +79,28 @@ describe('SshTerminalWindow', () => {
     expect(screen.getByText(/debian@192\.168\.10\.175/)).toBeInTheDocument()
   })
 
-  it('le composant se monte et ouvre un terminal', () => {
+  it('se connecte au bon endpoint WebSocket', async () => {
     renderWindow()
-    // Component rendered correctly — the address is visible in the DOM
-    expect(screen.getByText(/debian@192\.168\.10\.175/)).toBeInTheDocument()
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 80))
+    })
+    // wsClient non-null signifie que l'URL ws://localhost:3000/admin/hosts/ssh-dev/ssh a matché
+    expect(wsClient).not.toBeNull()
   })
 
-  it('appelle onClose au clic sur le bouton rouge', async () => {
+  it('appelle onClose et ferme le WebSocket au clic sur le bouton rouge', async () => {
     const onClose = vi.fn()
     renderWindow(onClose)
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 80))
+    })
     const btn = screen.getByRole('button', { name: /fermer|close/i })
     await userEvent.click(btn)
     expect(onClose).toHaveBeenCalledOnce()
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20))
+    })
+    expect(wsCloseCalled).toBe(true)
   })
 
   it("écrit dans le terminal à la réception d'un message WebSocket", async () => {
@@ -106,9 +121,18 @@ describe('SshTerminalWindow', () => {
     expect(mockTerminalInstance.write).toHaveBeenCalled()
   })
 
-  it('dispose le terminal au démontage', () => {
+  it('dispose le terminal au démontage', async () => {
     const { unmount } = renderWindow()
-    unmount()
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 80))
+    })
+    act(() => {
+      unmount()
+    })
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20))
+    })
     expect(mockTerminalInstance.dispose).toHaveBeenCalled()
+    expect(wsCloseCalled).toBe(true)
   })
 })

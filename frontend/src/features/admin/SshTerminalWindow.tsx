@@ -37,6 +37,9 @@ export default function SshTerminalWindow({ host, onClose }: Props) {
       terminal.focus()
     }
 
+    const onResize = () => fitAddon.fit()
+    window.addEventListener('resize', onResize)
+
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(
       `${proto}//${window.location.host}/admin/hosts/${encodeURIComponent(host.name)}/ssh`
@@ -56,6 +59,7 @@ export default function SshTerminalWindow({ host, onClose }: Props) {
     ws.onerror = () => terminal.write(t('admin.sshTerminal.connError'))
 
     return () => {
+      window.removeEventListener('resize', onResize)
       dataDisposable.dispose()
       ws.close()
       terminal.dispose()
@@ -130,7 +134,7 @@ export default function SshTerminalWindow({ host, onClose }: Props) {
         }}
       >
         <span style={{ fontSize: 12, color: '#a0a0c0', fontFamily: 'monospace' }}>
-          ⚡ {host.address}
+          ⚡ {host.address ?? '(no address)'}
         </span>
         <button
           onClick={handleClose}
