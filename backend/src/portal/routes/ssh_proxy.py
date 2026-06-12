@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from pathlib import Path
+from urllib.parse import urlparse
 
 import structlog
 from fastapi import APIRouter, WebSocket
@@ -18,10 +19,21 @@ router = APIRouter(tags=["ssh-proxy"])
 @router.websocket("/hosts/{name}/ssh")
 async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
     await websocket.accept()
+    settings = get_settings()
+    cfg = load_global()
+
+    # ── Origin validation (anti-CSWSH) ────────────────────────────────────────
+    if not settings.dev_mode:
+        parsed = urlparse(cfg.server.external_url)
+        allowed_origin = f"{parsed.scheme}://{parsed.netloc}"
+        request_origin = websocket.headers.get("origin", "").rstrip("/")
+        if request_origin != allowed_origin:
+            _log.warning("ws_ssh_bad_origin", origin=request_origin)
+            await websocket.close(code=4003, reason="Bad origin")
+            return
 
     # ── Auth ──────────────────────────────────────────────────────────────────
     user_data = websocket.session.get("user")
-    settings = get_settings()
     if not user_data or not isinstance(user_data, dict):
         await websocket.close(code=4001, reason="Not authenticated")
         return
@@ -31,7 +43,6 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         return
 
     # ── Config ────────────────────────────────────────────────────────────────
-    cfg = load_global()
     host = next((h for h in cfg.hosts if h.name == name), None)
     if host is None:
         await websocket.close(code=4004, reason=f"Host {name!r} not found")

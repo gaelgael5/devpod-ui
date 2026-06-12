@@ -199,3 +199,31 @@ def test_ws_rejects_missing_key_file(tmp_data_root, monkeypatch):
     client = _inject_admin_session(app)
 
     _assert_ws_closes_with(client, "/admin/hosts/ssh-dev/ssh", 4022)
+
+
+def test_ws_rejects_bad_origin(tmp_data_root, monkeypatch):
+    """Rejette une connexion WebSocket avec un Origin non autorisé (anti-CSWSH)."""
+    import portal.settings as mod
+    monkeypatch.setattr(mod, "_settings", None)
+    monkeypatch.setenv("SESSION_SECRET_KEY", "test-secret-for-cswsh")
+    monkeypatch.setenv("DEV_MODE", "false")
+
+    key_dir = tmp_data_root / "keys" / "hosts"
+    key_dir.mkdir(parents=True)
+    key_file = key_dir / "ssh_dev_ed25519"
+    key_file.write_text("fake key")
+    key_file.chmod(0o600)
+    config = SSH_HOST_CONFIG.format(key_path=key_file.as_posix())
+    (tmp_data_root / "config.yaml").write_text(config)
+
+    from portal.app import create_app
+    app = create_app()
+    client = _inject_admin_session(app)
+
+    with pytest.raises(WebSocketDisconnect) as exc_info, \
+         client.websocket_connect(
+             "/admin/hosts/ssh-dev/ssh",
+             headers={"Origin": "https://evil.example.com"},
+         ) as ws:
+        ws.receive_text()
+    assert exc_info.value.code == 4003
