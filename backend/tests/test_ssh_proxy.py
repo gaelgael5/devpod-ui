@@ -241,7 +241,7 @@ class _FakeProcess:
         self._killed = False
         self._echo = echo
         self.stdin = _FakeStdin(self)
-        self.stdout = _FakeStdout(self, echo=echo)
+        self.stdout = _FakeStdout()
 
     def kill(self) -> None:
         self._killed = True
@@ -269,7 +269,7 @@ class _FakeStdin:
 
 
 class _FakeStdout:
-    def __init__(self, proc: _FakeProcess, echo: bool) -> None:
+    def __init__(self) -> None:
         self._queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._closed = False
 
@@ -287,11 +287,11 @@ class _FakeStdout:
         return chunk
 
 
-def test_ws_proxy_echoes_data(data_root_with_ssh, monkeypatch):
+def test_ws_proxy_echoes_data(data_root_with_ssh: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Le subprocess SSH factice (echo) remet les bytes sur le WebSocket."""
     fake_proc = _FakeProcess(echo=True)
 
-    async def _fake_exec(*args, **kwargs):
+    async def _fake_exec(*args: object, **kwargs: object) -> _FakeProcess:
         return fake_proc
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
@@ -303,11 +303,11 @@ def test_ws_proxy_echoes_data(data_root_with_ssh, monkeypatch):
         assert data == b"hello"
 
 
-def test_ws_close_kills_subprocess(data_root_with_ssh, monkeypatch):
+def test_ws_close_kills_subprocess(data_root_with_ssh: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Fermer le WebSocket tue le subprocess SSH."""
     fake_proc = _FakeProcess(echo=False)
 
-    async def _fake_exec(*args, **kwargs):
+    async def _fake_exec(*args: object, **kwargs: object) -> _FakeProcess:
         return fake_proc
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
