@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select'
 import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, type HostConfig } from './useHosts'
 import GenerateHostDialog from './GenerateHostDialog'
+import SshTerminalWindow from './SshTerminalWindow'
 
 const EMPTY: HostConfig = { name: '', type: 'docker-tls', default: false, docker_host: '', address: '', key_path: '' }
 
@@ -77,6 +78,7 @@ export default function AdminHosts() {
   const [generateOpen, setGenerateOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [form, setForm] = useState<HostConfig>(EMPTY)
+  const [sshTarget, setSshTarget] = useState<HostConfig | null>(null)
 
   function set<K extends keyof HostConfig>(k: K, v: HostConfig[K]) {
     setForm((f) => ({ ...f, [k]: v }))
@@ -147,7 +149,7 @@ export default function AdminHosts() {
                 <tr key={h.name} className="border-b last:border-0">
                   <td className="px-4 py-2 font-medium">{h.name}</td>
                   <td className="px-4 py-2 text-muted-foreground">{h.type}</td>
-                  <td className="px-4 py-2 text-muted-foreground font-mono text-xs">{h.docker_host || h.address || '—'}</td>
+                  <td className="px-4 py-2 text-muted-foreground font-mono text-xs">{h.docker_host || '—'}</td>
                   <td className="px-4 py-2">
                     {h.default
                       ? <span className="text-green-600">✓</span>
@@ -163,6 +165,21 @@ export default function AdminHosts() {
                         onClick={() => confirmDelete(h.name)} aria-label={t('admin.deleteHost')}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
+                      {h.type === 'ssh' && (
+                        <>
+                          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
+                            data-ssh=""
+                            onClick={() => setSshTarget(h)}
+                            aria-label={t('admin.sshTerminal.openBtn')}
+                          >
+                            {t('admin.sshTerminal.openBtn')}
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -274,6 +291,10 @@ export default function AdminHosts() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {sshTarget && (
+        <SshTerminalWindow host={sshTarget} onClose={() => setSshTarget(null)} />
+      )}
     </div>
   )
 }
