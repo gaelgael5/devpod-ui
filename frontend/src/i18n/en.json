@@ -127,7 +127,14 @@
     },
     "deleteHost": "Delete host",
     "deleteHostTitle": "Delete host",
-    "deleteHostDescription": "Are you sure you want to delete host \"{{name}}\"? This action cannot be undone."
+    "deleteHostDescription": "Are you sure you want to delete host \"{{name}}\"? This action cannot be undone.",
+    "sshTerminal": {
+      "openBtn": "SSH",
+      "windowTitle": "SSH Terminal",
+      "closeLabel": "Close terminal",
+      "connClosed": "\r\n[Connection closed]\r\n",
+      "connError": "\r\n[Connection error]\r\n"
+    }
   },
   "errors": {
     "forbidden": "Access denied",
