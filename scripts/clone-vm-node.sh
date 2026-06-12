@@ -479,6 +479,59 @@ else
     SUDO="sudo"
 fi
 
+# ─── A.9b — Clé SSH portail (si portail configuré et host de type ssh) ──────
+# Génère la paire ed25519 côté portail, enregistre l'adresse dans config.yaml,
+# et injecte la clé publique du portail dans authorized_keys de la VM.
+# Non-fatal si le host n'existe pas encore dans le portail (404/422 → avertissement).
+PORTAL_KEY_PATH=""
+if [[ -n "$PORTAL_URL" && -n "$PORTAL_TOKEN" ]]; then
+    echo ""
+    echo "==> A.9b — Génération de la clé SSH portail pour '$NODE_NAME'..."
+
+    PORTAL_RESP_FILE=$(mktemp /tmp/portal-keygen-XXXXXX.json)
+    # Étend le trap EXIT pour nettoyer également ce fichier temporaire
+    trap 'rm -f "$COMBINED_KEYS_FILE" "$PORTAL_RESP_FILE"' EXIT
+
+    HTTP_CODE=$(curl -sS \
+        -w "%{http_code}" \
+        -o "$PORTAL_RESP_FILE" \
+        -X POST \
+        "${PORTAL_URL}/admin/hosts/${NODE_NAME}/generate-ssh-key?address=${CI_USER}@${IP_ADDR}" \
+        -H "Authorization: Bearer ${PORTAL_TOKEN}" 2>/dev/null) || HTTP_CODE="000"
+
+    if [[ "$HTTP_CODE" == "200" ]]; then
+        PORTAL_PUBKEY=$(python3 -c \
+            "import sys, json; print(json.load(open('${PORTAL_RESP_FILE}')).get('public_key',''))" \
+            2>/dev/null || true)
+        if [[ -n "$PORTAL_PUBKEY" ]]; then
+            # Injecter la pubkey du portail dans authorized_keys (sans doublon)
+            ssh -n "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
+set -e
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+grep -qxF "${PORTAL_PUBKEY}" ~/.ssh/authorized_keys 2>/dev/null \
+    || echo "${PORTAL_PUBKEY}" >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+REMOTE
+            PORTAL_KEY_PATH="/data/keys/hosts/${NODE_NAME}_ed25519"
+            echo "    Clé portail générée et injectée dans authorized_keys."
+            echo "    Le portail peut désormais accéder à ${CI_USER}@${IP_ADDR}."
+        else
+            echo "AVERTISSEMENT : réponse portail invalide (public_key absent) — A.9b ignorée." >&2
+        fi
+    elif [[ "$HTTP_CODE" == "404" ]]; then
+        echo "AVERTISSEMENT : host '${NODE_NAME}' introuvable dans le portail (404) — A.9b ignorée." >&2
+        echo "  Créer le host dans l'admin du portail avant de relancer." >&2
+    elif [[ "$HTTP_CODE" == "422" ]]; then
+        echo "AVERTISSEMENT : host '${NODE_NAME}' n'est pas de type 'ssh' (422) — A.9b ignorée." >&2
+    elif [[ "$HTTP_CODE" == "000" ]]; then
+        echo "AVERTISSEMENT : portail inaccessible — A.9b ignorée." >&2
+    else
+        echo "AVERTISSEMENT : erreur portail HTTP ${HTTP_CODE} — A.9b ignorée." >&2
+    fi
+    rm -f "$PORTAL_RESP_FILE"
+fi
+
 # ─── A.10 — Installer les paquets système requis ─────────────────────────────
 echo ""
 echo "==> A.10 — Installation des paquets (git, openssl, docker)..."
@@ -564,7 +617,10 @@ fi
 echo "  SSH     : ssh ${CI_USER}@${IP_ADDR} -i $SSH_PRIVATE_KEY"
 echo ""
 if [[ "$ENROLLED" == "true" ]]; then
-    echo "  Enrôlement : effectué (portail notifié)"
+    echo "  Enrôlement docker-tls : effectué (portail notifié)"
+elif [[ -n "$PORTAL_KEY_PATH" ]]; then
+    echo "  Enrôlement SSH : clé portail générée, adresse enregistrée"
+    echo "  Le portail peut se connecter : ssh ${CI_USER}@${IP_ADDR}"
 else
     echo "Prochaines étapes :"
     echo "  1. Étape 3 (post-install) : outils requis, NTP, pare-feu"
@@ -578,6 +634,9 @@ echo ""
 if [[ "$ENROLLED" == "true" ]]; then
     printf '{"status":"ok","name":"%s","address":"%s","type":"docker-tls","docker_host":"tcp://%s:2376","ssh_user":"%s","ssh_port":22,"key_path":"/data/certs/portal"}\n' \
         "$NODE_NAME" "$IP_ADDR" "$IP_ADDR" "$CI_USER"
+elif [[ -n "$PORTAL_KEY_PATH" ]]; then
+    printf '{"status":"ok","name":"%s","address":"%s","type":"ssh","ssh_user":"%s","ssh_port":22,"key_path":"%s"}\n' \
+        "$NODE_NAME" "$CI_USER@$IP_ADDR" "$CI_USER" "$PORTAL_KEY_PATH"
 else
     printf '{"status":"ok","name":"%s","address":"%s","ssh_user":"%s","ssh_port":22}\n' \
         "$NODE_NAME" "$IP_ADDR" "$CI_USER"

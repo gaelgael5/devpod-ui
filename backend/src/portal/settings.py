@@ -34,6 +34,7 @@ class AppSettings(BaseSettings):
 
     portal_data_root: str = "/data"
     scripts_dir: str = "/app/scripts"
+    portal_api_key: str = ""
 
 
 _settings: AppSettings | None = None

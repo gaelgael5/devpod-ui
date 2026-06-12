@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import contextlib
+import os
+import tempfile
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+    PublicFormat,
+    load_ssh_private_key,
+)
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ..auth.rbac import UserInfo, require_admin
+from ..auth.rbac import UserInfo, require_admin, require_admin_or_api_key
 from ..config.models import GlobalConfig, HostConfig
 from ..config.store import _data_root, load_global, save_global
 
@@ -77,6 +88,62 @@ async def delete_host(name: str, user: UserInfo = Depends(require_admin)) -> Non
         raise HTTPException(status_code=404, detail=f"Host {name!r} not found")
     save_global(cfg)
     _log.info("host_deleted", name=name, by=user.login)
+
+
+@router.post("/hosts/{name}/generate-ssh-key")
+async def generate_host_ssh_key(
+    name: str,
+    address: str | None = Query(default=None),
+    user: UserInfo = Depends(require_admin_or_api_key),
+) -> dict[str, str]:
+    """Génère une paire ed25519 pour le host SSH, stocke la privée dans /data/keys/hosts/.
+
+    Idempotent : si la clé existe déjà, retourne la pub sans régénérer.
+    Si `address` est fourni, met à jour host.address dans config.yaml.
+    """
+    cfg = load_global()
+    host = next((h for h in cfg.hosts if h.name == name), None)
+    if host is None:
+        raise HTTPException(status_code=404, detail=f"Host {name!r} not found")
+    if host.type != "ssh":
+        raise HTTPException(
+            status_code=422,
+            detail="Génération de clé SSH disponible pour les hosts de type ssh uniquement",
+        )
+
+    key_dir = _data_root() / "keys" / "hosts"
+    key_dir.mkdir(parents=True, exist_ok=True)
+    key_path = key_dir / f"{name}_ed25519"
+
+    updates: dict[str, str] = {}
+
+    if not key_path.exists():
+        private_key = Ed25519PrivateKey.generate()
+        private_pem = private_key.private_bytes(Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption())
+        fd, tmp_path = tempfile.mkstemp(dir=key_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(private_pem)
+            os.chmod(tmp_path, 0o600)
+            os.replace(tmp_path, str(key_path))
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            raise
+        updates["key_path"] = str(key_path)
+        _log.info("host_ssh_key_generated", host=name, by=user.login)
+
+    if address is not None:
+        updates["address"] = address
+
+    if updates:
+        idx = next(i for i, h in enumerate(cfg.hosts) if h.name == name)
+        cfg.hosts[idx] = cfg.hosts[idx].model_copy(update=updates)
+        save_global(cfg)
+
+    raw = load_ssh_private_key(key_path.read_bytes(), password=None)
+    pub_bytes = raw.public_key().public_bytes(Encoding.OpenSSH, PublicFormat.OpenSSH)
+    return {"public_key": pub_bytes.decode()}
 
 
 @router.get("/hosts/{name}/cert")
