@@ -34,6 +34,10 @@ _WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$")
 # Image de base utilisée quand aucune source git n'est fournie
 _DEFAULT_IMAGE = "mcr.microsoft.com/devcontainers/base:ubuntu"
 
+# Durée d'attente (secondes) après le lancement de devpod port-forward,
+# pour laisser le tunnel SSH s'établir avant que Caddy tente de router.
+_PORT_FORWARD_SETTLE_S = 3
+
 
 def _repo_name_from_url(url: str) -> str:
     """Dérive un nom de répertoire safe depuis une URL git."""
@@ -61,6 +65,8 @@ class DevPodService:
             recipes_builtin_dir if recipes_builtin_dir is not None else _RECIPES_BUILTIN_DIR
         )
         self._background_tasks: set[asyncio.Task[None]] = set()
+        # Processus devpod port-forward actifs, indexés par ws_id
+        self._port_forward_procs: dict[str, asyncio.subprocess.Process] = {}
 
     # ------------------------------------------------------------------
     # Public interface
@@ -122,10 +128,11 @@ class DevPodService:
         if self._exposure is not None:
             host_port = await self._exposure.allocate_port(ws_id)
 
-        # Pour docker-tls : devcontainer.json généré localement, chemin passé directement.
-        # Pour SSH : le fichier est uploadé sur le host distant avant devpod up ;
-        #   l'agent DevPod sur la VM résout --devcontainer-path localement → chemin absolu
-        #   sur la VM, pas sur le portail.
+        # Pour docker-tls : devcontainer.json généré localement, chemin absolu local valide.
+        # Pour SSH : l'agent DevPod tourne sur la VM distante. --devcontainer-path y est
+        #   résolu relativement à content/ → un chemin local au portail est inexploitable.
+        #   On utilise devpod port-forward après devpod up pour exposer le port 3000
+        #   sur localhost du portail, et Caddy route vers 127.0.0.1:{host_port}.
         dc_path: Path | None = None
         if host_cfg.type == "docker-tls":
             dc_path = self._write_devcontainer(
@@ -135,10 +142,6 @@ class DevPodService:
                 feature_env=feature_env,
                 extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
             )
-
-        # Infos de connexion SSH passées à la tâche pour l'upload du devcontainer
-        ssh_dc_key_path = host_cfg.key_path if host_cfg.type == "ssh" else ""
-        ssh_dc_address = host_cfg.address if host_cfg.type == "ssh" else ""
 
         # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
         # le subprocess env UNIQUEMENT — jamais dans devcontainer.json ni dans les logs.
@@ -151,15 +154,19 @@ class DevPodService:
         if ws_spec.branch and ws_spec.source:
             devpod_source = f"{ws_spec.source}@{ws_spec.branch}"
 
+        # Pour SSH : devpod port-forward lie le port sur localhost du portail → 127.0.0.1.
+        # Pour docker-tls : l'IP réelle du nœud Docker est utilisée directement.
         node_ip = self._resolve_node_ip(host_cfg)
+        if host_cfg.type == "ssh":
+            node_ip = "127.0.0.1"
+
         self._write_status(ws_id, "provisioning", login=login)
 
         task = asyncio.create_task(
             self._run_up_task(
                 ws_id, devpod_source, dc_path, subprocess_env, login,
                 host_port, node_ip, provider_name=provider_name,
-                ssh_dc_key_path=ssh_dc_key_path,
-                ssh_dc_address=ssh_dc_address or "",
+                host_type=host_cfg.type,
             )
         )
         self._background_tasks.add(task)
@@ -169,6 +176,7 @@ class DevPodService:
 
     async def stop(self, login: str, ws_id: str) -> None:
         """Arrête un workspace en cours d'exécution."""
+        await self._stop_port_forward(ws_id)
         if self._exposure is not None:
             try:
                 await self._exposure.unexpose(ws_id)
@@ -183,6 +191,7 @@ class DevPodService:
 
     async def delete(self, login: str, ws_id: str) -> None:
         """Supprime un workspace (force)."""
+        await self._stop_port_forward(ws_id)
         if self._exposure is not None:
             try:
                 await self._exposure.unexpose(ws_id)
@@ -348,65 +357,39 @@ class DevPodService:
             "DEVPOD_HOME": str(safe_user_path(login, "devpod")),
         }
 
-    async def _upload_devcontainer_ssh(
+    async def _start_port_forward(
         self,
         ws_id: str,
-        key_path: str,
-        address: str,
-        content: dict[str, Any],
-    ) -> str:
+        env: dict[str, str],
+        host_port: int,
+    ) -> None:
         """
-        Envoie devcontainer.json sur le host SSH via stdin pipe.
-        Retourne le chemin absolu du fichier sur le host distant.
-
-        L'agent DevPod SSH résout --devcontainer-path localement sur la VM ;
-        on pré-dépose donc le fichier là-bas avant de lancer devpod up.
+        Lance devpod port-forward en tâche de fond pour les providers SSH.
+        Forwarder localhost:{host_port} → port 3000 dans le devcontainer.
+        Caddy route ensuite vers 127.0.0.1:{host_port}.
         """
-        remote_path = f"/tmp/devpod-dc-{ws_id}.json"
-        json_bytes = json.dumps(content, indent=2).encode()
+        cmd = [*self._devpod_bin, "port-forward", ws_id, f"{host_port}:3000"]
         proc = await asyncio.create_subprocess_exec(
-            "ssh",
-            "-i", key_path,
-            "-o", "StrictHostKeyChecking=accept-new",
-            "-o", "BatchMode=yes",
-            address,
-            f"cat > {shlex.quote(remote_path)}",
-            stdin=asyncio.subprocess.PIPE,
+            *cmd,
+            env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr_bytes = await proc.communicate(input=json_bytes)
-        if proc.returncode != 0:
-            err = stderr_bytes.decode(errors="replace").strip()
-            raise RuntimeError(
-                f"devcontainer upload to {address!r} failed (exit {proc.returncode}): {err}"
-            )
-        _log.info("devcontainer_uploaded_ssh", ws_id=ws_id, remote_path=remote_path)
-        return remote_path
+        self._port_forward_procs[ws_id] = proc
+        _log.info("port_forward_started", ws_id=ws_id, host_port=host_port)
+        # Laisser le tunnel SSH s'établir avant que Caddy tente de router
+        await asyncio.sleep(_PORT_FORWARD_SETTLE_S)
 
-    async def _remove_remote_devcontainer_ssh(
-        self,
-        ws_id: str,
-        key_path: str,
-        address: str,
-        remote_path: str,
-    ) -> None:
-        """Supprime le devcontainer.json temporaire sur le host SSH (best-effort)."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "ssh",
-                "-i", key_path,
-                "-o", "StrictHostKeyChecking=accept-new",
-                "-o", "BatchMode=yes",
-                address,
-                f"rm -f {shlex.quote(remote_path)}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.communicate()
-        except Exception:
-            pass
-        _log.debug("devcontainer_removed_ssh", ws_id=ws_id, remote_path=remote_path)
+    async def _stop_port_forward(self, ws_id: str) -> None:
+        """Arrête le processus devpod port-forward s'il est en cours (best-effort)."""
+        proc = self._port_forward_procs.pop(ws_id, None)
+        if proc is None:
+            return
+        if proc.returncode is None:
+            proc.terminate()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(proc.wait(), timeout=5.0)
+        _log.info("port_forward_stopped", ws_id=ws_id)
 
     async def _run_up_task(
         self,
@@ -418,23 +401,10 @@ class DevPodService:
         host_port: int | None = None,
         node_ip: str = "127.0.0.1",
         provider_name: str = "",
-        ssh_dc_key_path: str = "",
-        ssh_dc_address: str = "",
+        host_type: str = "",
     ) -> None:
         """Tâche de fond : exécute devpod up, expose le workspace si running."""
-        remote_dc_path: str | None = None
         try:
-            # Upload devcontainer.json minimal sur le host SSH pour configurer appPorts.
-            # Sans ce mapping, le port 3000 d'openvscode reste inaccessible depuis Caddy.
-            if ssh_dc_key_path and ssh_dc_address and host_port is not None:
-                ssh_dc_content: dict[str, Any] = {
-                    "image": _DEFAULT_IMAGE,
-                    "appPorts": [f"{host_port}:3000"],
-                }
-                remote_dc_path = await self._upload_devcontainer_ssh(
-                    ws_id, ssh_dc_key_path, ssh_dc_address, ssh_dc_content
-                )
-
             cmd = [
                 *self._devpod_bin,
                 "up",
@@ -446,8 +416,6 @@ class DevPodService:
             ]
             if dc_path is not None:
                 cmd += ["--devcontainer-path", str(dc_path)]
-            elif remote_dc_path is not None:
-                cmd += ["--devcontainer-path", remote_dc_path]
             if provider_name:
                 cmd += ["--provider", provider_name]
             if source:
@@ -460,6 +428,11 @@ class DevPodService:
             returncode = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
             status = "running" if returncode == 0 else "failed"
             extra: dict[str, Any] = {"returncode": returncode}
+
+            if status == "running" and host_type == "ssh" and host_port is not None:
+                # devpod port-forward établit le tunnel SSH localhost:{host_port} → 3000
+                await self._start_port_forward(ws_id, env, host_port)
+
             if status == "running" and self._exposure is not None and host_port is not None:
                 try:
                     url = await self._exposure.expose(
@@ -489,7 +462,3 @@ class DevPodService:
             if dc_path is not None:
                 with contextlib.suppress(Exception):
                     shutil.rmtree(dc_path.parent, ignore_errors=True)
-            if remote_dc_path is not None and ssh_dc_key_path and ssh_dc_address:
-                await self._remove_remote_devcontainer_ssh(
-                    ws_id, ssh_dc_key_path, ssh_dc_address, remote_dc_path
-                )
