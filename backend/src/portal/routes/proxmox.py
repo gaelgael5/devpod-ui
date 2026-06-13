@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from ..auth.rbac import UserInfo, require_admin
 from ..config.models import _PROXMOX_NAME_RE, ProxmoxNode
 from ..config.store import load_global, save_global
+from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["admin"])
@@ -406,12 +407,24 @@ async def execute_node_script(
 
     spec = await _fetch_spec(node)
     commands_raw: list[str] = spec.get("commands", [])  # type: ignore[assignment]
+
+    # Injecter les coordonnées du portail — toujours en dernier pour ne pas être
+    # écrasées par des valeurs soumises par l'utilisateur (qui ne voit pas ces champs).
+    settings = get_settings()
+    body.args["PORTAL_URL"] = cfg.server.external_url
+    body.args["PORTAL_TOKEN"] = settings.portal_api_key
+
     commands = [_substitute(cmd, body.args) for cmd in commands_raw]
+
+    # Version affichée : token remplacé par *** pour ne jamais apparaître dans le stream
+    redacted_args = {**body.args, "PORTAL_TOKEN": "***"}
+    display_commands = [_substitute(cmd, redacted_args) for cmd in commands_raw]
 
     _log.info("proxmox_script_execute", node=name, by=user.login, commands=len(commands))
 
     async def _stream() -> AsyncIterator[bytes]:
-        header = "==> Commandes exécutées :\n" + "\n".join(f"    {cmd}" for cmd in commands) + "\n\n"
+        lines = "\n".join(f"    {cmd}" for cmd in display_commands)
+        header = f"==> Commandes exécutées :\n{lines}\n\n"
         yield header.encode("utf-8")
         async for chunk in _ssh_stream(node, commands):
             yield chunk
