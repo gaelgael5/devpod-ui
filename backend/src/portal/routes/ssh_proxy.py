@@ -101,9 +101,14 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
     async def _ws_to_ssh() -> None:
         try:
             while True:
-                data = await websocket.receive_bytes()
-                if proc.stdin and not proc.stdin.is_closing():
-                    proc.stdin.write(data)
+                message = await websocket.receive()
+                if message["type"] == "websocket.disconnect":
+                    break
+                raw: bytes | None = message.get("bytes")
+                if raw is None:
+                    raw = (message.get("text") or "").encode()
+                if raw and proc.stdin and not proc.stdin.is_closing():
+                    proc.stdin.write(raw)
                     await proc.stdin.drain()
         except (WebSocketDisconnect, OSError):
             pass
