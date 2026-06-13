@@ -122,13 +122,19 @@ class DevPodService:
         if self._exposure is not None:
             host_port = await self._exposure.allocate_port(ws_id)
 
-        dc_path = self._write_devcontainer(
-            login, ws_id,
-            host_port=host_port,
-            recipes=recipes,
-            feature_env=feature_env,
-            extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
-        )
+        # --devcontainer-path est un chemin LOCAL au portail. Pour les providers SSH,
+        # l'agent DevPod tourne sur la VM distante et cherche ce chemin RELATIF à la
+        # racine du workspace cloné → incompatible avec un chemin absolu local.
+        # On ne génère le fichier et ne passe le flag que pour docker-tls.
+        dc_path: Path | None = None
+        if host_cfg.type == "docker-tls":
+            dc_path = self._write_devcontainer(
+                login, ws_id,
+                host_port=host_port,
+                recipes=recipes,
+                feature_env=feature_env,
+                extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
+            )
 
         # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
         # le subprocess env UNIQUEMENT — jamais dans devcontainer.json ni dans les logs.
@@ -271,9 +277,9 @@ class DevPodService:
             if recipes:
                 features_block: dict[str, dict[str, Any]] = {}
                 for recipe in recipes:
-                    src = self._recipes_builtin_dir / recipe.id
-                    if src.is_dir():
-                        shutil.copytree(src, tmp_dir / recipe.id)
+                    recipe_dir = self._recipes_builtin_dir / recipe.id
+                    if recipe_dir.is_dir():
+                        shutil.copytree(recipe_dir, tmp_dir / recipe.id)
                         features_block[f"./{recipe.id}"] = {}
                 if features_block:
                     content["features"] = features_block
@@ -340,7 +346,7 @@ class DevPodService:
         self,
         ws_id: str,
         source: str,
-        dc_path: Path,
+        dc_path: Path | None,
         env: dict[str, str],
         login: str,
         host_port: int | None = None,
@@ -356,10 +362,10 @@ class DevPodService:
                 ws_id,
                 "--ide",
                 "openvscode",
-                "--devcontainer-path",
-                str(dc_path),
                 "--open-ide=false",  # v0.6.15 : empêche l'ouverture auto du navigateur
             ]
+            if dc_path is not None:
+                cmd += ["--devcontainer-path", str(dc_path)]
             if provider_name:
                 cmd += ["--provider", provider_name]
             if source:
@@ -398,5 +404,6 @@ class DevPodService:
             self._write_status(ws_id, "failed", login=login, error=type(exc).__name__)
             _log.error("workspace_up_crashed", ws_id=ws_id, error=type(exc).__name__)
         finally:
-            with contextlib.suppress(Exception):
-                shutil.rmtree(dc_path.parent, ignore_errors=True)
+            if dc_path is not None:
+                with contextlib.suppress(Exception):
+                    shutil.rmtree(dc_path.parent, ignore_errors=True)
