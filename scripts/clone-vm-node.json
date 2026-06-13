@@ -33,6 +33,21 @@
     },
 
     {
+      "arg": "STORAGE",
+      "label_fr": "Stockage Proxmox",
+      "label_en": "Proxmox storage",
+      "description_fr": "Pool de stockage pour le disque VM. 'auto' = même stockage que le template source.",
+      "description_en": "Storage pool for the VM disk. 'auto' = same storage as the source template.",
+      "type": "select",
+      "required": false,
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": "auto (même stockage que le template)" }
+      ],
+      "option_script": "PATH=/usr/sbin:/usr/bin:$PATH pvesm status 2>/dev/null | awk 'NR>1 && $3==\"active\" {print $1}'"
+    },
+
+    {
       "arg": "CI_USER",
       "label_fr": "Utilisateur cloud-init",
       "label_en": "Cloud-init user",
@@ -103,20 +118,6 @@
       "expanded": true,
       "args": [
 
-        {
-          "arg": "STORAGE",
-          "label_fr": "Stockage Proxmox",
-          "label_en": "Proxmox storage",
-          "description_fr": "Pool de stockage pour le disque VM. 'auto' = même stockage que le template source.",
-          "description_en": "Storage pool for the VM disk. 'auto' = same storage as the source template.",
-          "type": "select",
-          "required": false,
-          "default": "auto",
-          "options": [
-            { "value": "auto", "label": "auto (même stockage que le template)" }
-          ],
-          "option_script": "PATH=/usr/sbin:/usr/bin:$PATH pvesm status 2>/dev/null | awk 'NR>1 && $3==\"active\" {print $1}'"
-        },
         {
           "arg": "MEMORY",
           "label_fr": "RAM (Mo)",
