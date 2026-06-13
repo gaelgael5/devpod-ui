@@ -31,6 +31,9 @@ _RECIPES_BUILTIN_DIR = Path(__file__).parent.parent / "recipes" / "builtin"
 # DNS-safe pour ws_id : login (max ~40 chars) + "-" + name (max 32 chars)
 _WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$")
 
+# Image de base utilisée quand aucune source git n'est fournie
+_DEFAULT_IMAGE = "mcr.microsoft.com/devcontainers/base:ubuntu"
+
 
 def _repo_name_from_url(url: str) -> str:
     """Dérive un nom de répertoire safe depuis une URL git."""
@@ -132,8 +135,10 @@ class DevPodService:
         subprocess_env = {**base_env, **ws_spec.env}
 
         # Combiner source et branche : "github.com/org/repo@feature-branch"
-        devpod_source = ws_spec.source
-        if ws_spec.branch:
+        # Sans source explicite, utiliser l'image de base pour que DevPod puisse
+        # initialiser le workspace (sans source DevPod cherche un WS existant → erreur).
+        devpod_source = ws_spec.source or _DEFAULT_IMAGE
+        if ws_spec.branch and ws_spec.source:
             devpod_source = f"{ws_spec.source}@{ws_spec.branch}"
 
         node_ip = self._resolve_node_ip(host_cfg)
