@@ -47,6 +47,7 @@ EXTRA_SSH_KEY_FILE=""
 CI_USER="debian"
 PORTAL_URL=""
 PORTAL_TOKEN=""
+PORTAL_PVE_NODE=""
 
 # ─── Arguments positionnels obligatoires ─────────────────────────────────────
 if [[ $# -lt 2 ]]; then
@@ -72,11 +73,12 @@ while [[ $# -gt 0 ]]; do
         --sshkey)        SSH_KEY_FILE="$2";       shift 2 ;;
         --extra-sshkey)  EXTRA_SSH_KEY_FILE="$2"; shift 2 ;;
         --ciuser)        CI_USER="$2";            shift 2 ;;
-        --portal-url)    PORTAL_URL="$2";          shift 2 ;;
-        --portal-token)  PORTAL_TOKEN="$2";        shift 2 ;;
+        --portal-url)      PORTAL_URL="$2";      shift 2 ;;
+        --portal-token)    PORTAL_TOKEN="$2";    shift 2 ;;
+        --portal-pve-node) PORTAL_PVE_NODE="$2"; shift 2 ;;
         *)
             echo "ERREUR : option inconnue : $1" >&2
-            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --sshkey --extra-sshkey --ciuser --portal-url --portal-token" >&2
+            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --sshkey --extra-sshkey --ciuser --portal-url --portal-token --portal-pve-node" >&2
             exit 1
             ;;
     esac
@@ -496,7 +498,7 @@ if [[ -n "$PORTAL_URL" && -n "$PORTAL_TOKEN" ]]; then
         -w "%{http_code}" \
         -o "$PORTAL_RESP_FILE" \
         -X POST \
-        "${PORTAL_URL}/admin/hosts/${NODE_NAME}/generate-ssh-key?address=${CI_USER}@${IP_ADDR}" \
+        "${PORTAL_URL}/admin/hosts/${NODE_NAME}/generate-ssh-key?address=${CI_USER}@${IP_ADDR}&proxmox_node=${PORTAL_PVE_NODE}" \
         -H "Authorization: Bearer ${PORTAL_TOKEN}" 2>/dev/null) || HTTP_CODE="000"
 
     if [[ "$HTTP_CODE" == "200" ]]; then

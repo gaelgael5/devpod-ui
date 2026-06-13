@@ -19,18 +19,24 @@ interface Props {
 
 export default function BootstrapSshDialog({ host, open, onClose }: Props) {
   const { t } = useTranslation()
-  const { data: nodes = [] } = useProxmoxNodes()
   const bootstrap = useBootstrapSsh()
   const [address, setAddress] = useState(host.address ?? '')
-  const [proxmoxNode, setProxmoxNode] = useState('')
 
+  // Le nœud PVE est connu si le host a été créé via le portail
+  const pveKnown = Boolean(host.proxmox_node)
+  const { data: nodes = [] } = useProxmoxNodes()
+  const [proxmoxNode, setProxmoxNode] = useState(host.proxmox_node ?? '')
+
+  // Auto-sélection si un seul nœud disponible et nœud non encore connu
   useEffect(() => {
-    if (nodes.length === 1 && !proxmoxNode) setProxmoxNode(nodes[0].name)
-  }, [nodes])
+    if (!pveKnown && nodes.length === 1 && !proxmoxNode) {
+      setProxmoxNode(nodes[0].name)
+    }
+  }, [nodes, pveKnown, proxmoxNode])
 
   function handleClose() {
     setAddress(host.address ?? '')
-    setProxmoxNode('')
+    setProxmoxNode(host.proxmox_node ?? '')
     bootstrap.reset()
     onClose()
   }
@@ -42,6 +48,8 @@ export default function BootstrapSshDialog({ host, open, onClose }: Props) {
       { onSuccess: handleClose }
     )
   }
+
+  const canSubmit = Boolean(address && proxmoxNode) && !bootstrap.isPending
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
@@ -61,7 +69,9 @@ export default function BootstrapSshDialog({ host, open, onClose }: Props) {
               required
             />
           </div>
-          {nodes.length !== 1 && (
+
+          {/* Sélecteur PVE uniquement si le nœud n'est pas déjà mémorisé */}
+          {!pveKnown && nodes.length !== 1 && (
             <div className="flex flex-col gap-1.5">
               <Label>{t('admin.bootstrap.proxmoxNode')}</Label>
               <Select value={proxmoxNode} onValueChange={setProxmoxNode}>
@@ -78,6 +88,7 @@ export default function BootstrapSshDialog({ host, open, onClose }: Props) {
               </Select>
             </div>
           )}
+
           {bootstrap.isError && (
             <p className="text-sm text-destructive">
               {bootstrap.error instanceof Error ? bootstrap.error.message : t('errors.generic')}
@@ -87,7 +98,7 @@ export default function BootstrapSshDialog({ host, open, onClose }: Props) {
             <Button type="button" variant="outline" onClick={handleClose}>
               {t('workspaces.confirm.cancel')}
             </Button>
-            <Button type="submit" disabled={bootstrap.isPending || !proxmoxNode}>
+            <Button type="submit" disabled={!canSubmit}>
               {bootstrap.isPending ? t('admin.bootstrap.configuring') : t('admin.bootstrap.configure')}
             </Button>
           </DialogFooter>

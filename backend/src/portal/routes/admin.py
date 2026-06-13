@@ -100,12 +100,14 @@ async def delete_host(name: str, user: UserInfo = Depends(require_admin)) -> Non
 async def generate_host_ssh_key(
     name: str,
     address: str | None = Query(default=None),
+    proxmox_node: str | None = Query(default=None),
     user: UserInfo = Depends(require_admin_or_api_key),
 ) -> dict[str, str]:
     """Génère une paire ed25519 pour le host SSH, stocke la privée dans /data/keys/hosts/.
 
     Idempotent : si la clé existe déjà, retourne la pub sans régénérer.
     Si `address` est fourni, met à jour host.address dans config.yaml.
+    Si `proxmox_node` est fourni, mémorise le nœud PVE d'origine.
     """
     cfg = load_global()
     host = next((h for h in cfg.hosts if h.name == name), None)
@@ -125,6 +127,8 @@ async def generate_host_ssh_key(
         updates["key_path"] = str(key_path)
     if address is not None:
         updates["address"] = address
+    if proxmox_node is not None:
+        updates["proxmox_node"] = proxmox_node
 
     if updates:
         idx = next(i for i, h in enumerate(cfg.hosts) if h.name == name)
@@ -228,7 +232,7 @@ async def get_host_cert(
 
 class BootstrapSshRequest(BaseModel):
     address: str  # user@host — ex: debian@192.168.10.179
-    proxmox_node: str  # nom du nœud PVE servant de jump
+    proxmox_node: str = ""  # optionnel si host.proxmox_node est déjà connu
 
 
 @router.post("/hosts/{name}/bootstrap-ssh")
@@ -256,20 +260,27 @@ async def bootstrap_host_ssh(
             detail="bootstrap-ssh disponible pour les hosts de type ssh uniquement",
         )
 
-    pve_node = next((n for n in cfg.proxmox_nodes if n.name == body.proxmox_node), None)
+    # Résolution du nœud PVE : corps de la requête → host.proxmox_node → 422
+    resolved_pve = body.proxmox_node or host.proxmox_node
+    if not resolved_pve:
+        raise HTTPException(
+            status_code=422,
+            detail="proxmox_node requis (non mémorisé sur le host)",
+        )
+    pve_node = next((n for n in cfg.proxmox_nodes if n.name == resolved_pve), None)
     if pve_node is None:
         raise HTTPException(
-            status_code=404, detail=f"Nœud Proxmox {body.proxmox_node!r} introuvable"
+            status_code=404, detail=f"Nœud Proxmox {resolved_pve!r} introuvable"
         )
 
     # Génère ou charge la clé ed25519
     key_path = _data_root() / "keys" / "hosts" / f"{name}_ed25519"
     public_key = _generate_or_load_key(key_path, name, user.login)
 
-    # Met à jour address + key_path dans le config
+    # Met à jour address + key_path + proxmox_node dans le config
     idx = next(i for i, h in enumerate(cfg.hosts) if h.name == name)
     cfg.hosts[idx] = cfg.hosts[idx].model_copy(
-        update={"address": body.address, "key_path": str(key_path)}
+        update={"address": body.address, "key_path": str(key_path), "proxmox_node": resolved_pve}
     )
     save_global(cfg)
 

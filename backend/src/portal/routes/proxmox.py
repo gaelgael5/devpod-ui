@@ -413,6 +413,7 @@ async def execute_node_script(
     settings = get_settings()
     body.args["PORTAL_URL"] = cfg.server.external_url
     body.args["PORTAL_TOKEN"] = settings.portal_api_key
+    body.args["PORTAL_PVE_NODE"] = node.name
 
     commands = [_substitute(cmd, body.args) for cmd in commands_raw]
 

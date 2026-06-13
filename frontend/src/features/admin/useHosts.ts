@@ -9,6 +9,7 @@ export interface HostConfig {
   docker_host?: string
   address?: string
   key_path?: string
+  proxmox_node?: string
 }
 
 export function useHosts() {

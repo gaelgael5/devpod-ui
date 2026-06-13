@@ -84,6 +84,7 @@ class HostConfig(BaseModel):
     docker_host: str = ""
     address: str = ""
     key_path: str = ""
+    proxmox_node: str = ""  # nœud PVE qui a créé/gère cette VM
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
