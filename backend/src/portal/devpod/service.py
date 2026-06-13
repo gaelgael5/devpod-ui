@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 import structlog
 
 from ..config.models import GlobalConfig, SourceSpec, WorkspaceSpec
-from ..config.store import _data_root, safe_user_path
+from ..config.store import _data_root, load_global, safe_user_path
 from ..recipes.models import RecipeMeta
 from .env import _find_host, build_env
 from .provider import ensure_provider
@@ -85,11 +85,10 @@ class DevPodService:
             from ..ssh_keys import ensure_workspace_ssh_key
             await asyncio.to_thread(ensure_workspace_ssh_key, login, ws_spec.name)
 
-        # Env de base (DEVPOD_HOME, DOCKER_*) — sans les secrets utilisateur
-        base_env = build_env(login=login, ws_spec=ws_spec, global_cfg=self._global_cfg)
-
-        # Résoudre le host pour extraire les infos SSH si nécessaire
-        host_cfg = _find_host(ws_spec.host, self._global_cfg)
+        # Rechargement systématique : la liste des hosts évolue pendant la vie du singleton
+        global_cfg = load_global()
+        base_env = build_env(login=login, ws_spec=ws_spec, global_cfg=global_cfg)
+        host_cfg = _find_host(ws_spec.host, global_cfg)
         ssh_host = ""
         ssh_user = "root"
         if host_cfg.type == "ssh" and host_cfg.address:
