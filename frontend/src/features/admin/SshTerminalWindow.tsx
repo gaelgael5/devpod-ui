@@ -51,8 +51,9 @@ export default function SshTerminalWindow({ host, onClose }: Props) {
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
+    const encoder = new TextEncoder()
     const dataDisposable = terminal.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(data)
+      if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data))
     })
 
     ws.onmessage = (e) => {
