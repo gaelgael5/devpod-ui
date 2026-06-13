@@ -37,6 +37,29 @@ def _ssh_provider_name(host_name: str) -> str:
     return f"ssh-{safe}"
 
 
+async def _set_provider_ssh_key(
+    cmd: list[str],
+    env: dict[str, str],
+    provider_name: str,
+    ssh_key_path: str,
+    login: str,
+) -> None:
+    """Met à jour EXTRA_FLAGS sur un provider SSH existant pour injecter la clé privée."""
+    set_proc = await asyncio.create_subprocess_exec(
+        *cmd, "provider", "set-options", provider_name,
+        "--option", f"EXTRA_FLAGS=-i {ssh_key_path}",
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr_bytes = await set_proc.communicate()
+    if set_proc.returncode != 0:
+        err = stderr_bytes.decode(errors="replace").strip()
+        _log.warning("provider_set_options_failed", login=login, provider=provider_name, error=err)
+    else:
+        _log.debug("provider_ssh_key_set", login=login, provider=provider_name)
+
+
 async def ensure_provider(
     login: str,
     host_type: str,
@@ -44,6 +67,7 @@ async def ensure_provider(
     host_name: str = "",
     ssh_host: str = "",
     ssh_user: str = "root",
+    ssh_key_path: str = "",
     devpod_bin: list[str] | None = None,
 ) -> str:
     """
@@ -52,8 +76,8 @@ async def ensure_provider(
     Lève ProviderError si l'ajout échoue.
     Lève ValueError si host_type est inconnu.
 
-    Pour SSH : crée un provider nommé "ssh-<host_name>" avec l'option HOST=user@ip,
-    ce qui permet d'avoir plusieurs hosts SSH distincts par user.
+    Pour SSH : crée un provider nommé "ssh-<host_name>" avec HOST=user@ip et
+    EXTRA_FLAGS=-i <ssh_key_path> pour que DevPod utilise la clé du portail.
 
     Retourne le nom du provider à passer à --provider dans devpod up.
 
@@ -89,8 +113,12 @@ async def ensure_provider(
         )
 
     existing = _parse_providers(output)
+
     if provider_name in existing:
         _log.debug("provider_already_present", login=login, provider=provider_name)
+        # Provider déjà présent — s'assurer que la clé SSH est à jour (peut avoir changé)
+        if host_type == "ssh" and ssh_key_path:
+            await _set_provider_ssh_key(cmd, env, provider_name, ssh_key_path, login)
         return provider_name
 
     _log.info("provider_add", login=login, provider=provider_name)
@@ -102,15 +130,15 @@ async def ensure_provider(
             raise ProviderError(
                 f"ssh_host requis pour ajouter le provider SSH {provider_name!r}"
             )
-        # --name crée une instance nommée du provider SSH (un par host).
-        # USER n'est pas un flag valide du provider SSH DevPod — l'utilisateur
-        # doit être inclus dans HOST au format user@hostname.
         host_value = f"{ssh_user}@{ssh_host}" if ssh_user else ssh_host
         add_args = [
             *cmd, "provider", "add", "ssh",
             "--name", provider_name,
             "--option", f"HOST={host_value}",
         ]
+        if ssh_key_path:
+            # EXTRA_FLAGS est inséré tel quel dans la commande SSH du provider
+            add_args += ["--option", f"EXTRA_FLAGS=-i {ssh_key_path}"]
 
     add_proc = await asyncio.create_subprocess_exec(
         *add_args,

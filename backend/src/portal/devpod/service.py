@@ -89,6 +89,13 @@ class DevPodService:
         global_cfg = load_global()
         base_env = build_env(login=login, ws_spec=ws_spec, global_cfg=global_cfg)
         host_cfg = _find_host(ws_spec.host, global_cfg)
+
+        if host_cfg.type == "ssh" and not host_cfg.key_path:
+            from .env import UnknownHostError
+            raise UnknownHostError(
+                f"Host {host_cfg.name!r} : clé SSH manquante — lancez d'abord 'Configurer SSH'"
+            )
+
         ssh_host = ""
         ssh_user = "root"
         if host_cfg.type == "ssh" and host_cfg.address:
@@ -104,6 +111,7 @@ class DevPodService:
             host_name=host_cfg.name,
             ssh_host=ssh_host,
             ssh_user=ssh_user,
+            ssh_key_path=host_cfg.key_path,
             devpod_bin=self._devpod_bin,
         )
 
