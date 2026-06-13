@@ -170,7 +170,7 @@ export default function AdminHosts() {
                       {h.type === 'ssh' && (
                         <>
                           <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
-                          {!h.address && (
+                          {!h.key_path && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -181,7 +181,7 @@ export default function AdminHosts() {
                               {t('admin.bootstrap.btn')}
                             </Button>
                           )}
-                          {h.address && (
+                          {h.key_path && (
                             <Button
                               size="sm"
                               variant="outline"
