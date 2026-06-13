@@ -11,6 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, type HostConfig } from './useHosts'
+import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import SshTerminalWindow from './SshTerminalWindow'
 
@@ -79,6 +80,7 @@ export default function AdminHosts() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [form, setForm] = useState<HostConfig>(EMPTY)
   const [sshTarget, setSshTarget] = useState<HostConfig | null>(null)
+  const [bootstrapTarget, setBootstrapTarget] = useState<HostConfig | null>(null)
 
   function set<K extends keyof HostConfig>(k: K, v: HostConfig[K]) {
     setForm((f) => ({ ...f, [k]: v }))
@@ -168,16 +170,29 @@ export default function AdminHosts() {
                       {h.type === 'ssh' && (
                         <>
                           <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
-                            data-ssh=""
-                            onClick={() => setSshTarget(h)}
-                            aria-label={t('admin.sshTerminal.openBtn')}
-                          >
-                            {t('admin.sshTerminal.openBtn')}
-                          </Button>
+                          {!h.address && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
+                              onClick={() => setBootstrapTarget(h)}
+                              aria-label={t('admin.bootstrap.btn')}
+                            >
+                              {t('admin.bootstrap.btn')}
+                            </Button>
+                          )}
+                          {h.address && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
+                              data-ssh=""
+                              onClick={() => setSshTarget(h)}
+                              aria-label={t('admin.sshTerminal.openBtn')}
+                            >
+                              {t('admin.sshTerminal.openBtn')}
+                            </Button>
+                          )}
                         </>
                       )}
                     </div>
@@ -291,6 +306,14 @@ export default function AdminHosts() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {bootstrapTarget && (
+        <BootstrapSshDialog
+          host={bootstrapTarget}
+          open={bootstrapTarget !== null}
+          onClose={() => setBootstrapTarget(null)}
+        />
+      )}
 
       {sshTarget && (
         <SshTerminalWindow host={sshTarget} onClose={() => setSshTarget(null)} />

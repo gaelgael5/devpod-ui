@@ -65,3 +65,47 @@ export function useHostCert(name: string, enabled: boolean) {
     retry: false,
   })
 }
+
+export interface ProxmoxNodeSummary {
+  name: string
+  address: string
+}
+
+export function useProxmoxNodes() {
+  return useQuery<ProxmoxNodeSummary[]>({
+    queryKey: ['admin', 'proxmox-nodes'],
+    queryFn: async () => {
+      const cfg = await apiFetchJson<{ proxmox_nodes?: ProxmoxNodeSummary[] }>('/admin/config')
+      return cfg.proxmox_nodes ?? []
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+export interface BootstrapSshPayload {
+  address: string
+  proxmox_node: string
+}
+
+export interface BootstrapSshResult {
+  public_key: string
+  address: string
+  key_path: string
+}
+
+export function useBootstrapSsh() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, payload }: { name: string; payload: BootstrapSshPayload }) =>
+      apiFetchJson<BootstrapSshResult>(
+        `/admin/hosts/${encodeURIComponent(name)}/bootstrap-ssh`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hosts'] }),
+    onError: (err: Error) => toast.error(err.message),
+  })
+}

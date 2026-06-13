@@ -134,6 +134,16 @@
       "closeLabel": "Close terminal",
       "connClosed": "\r\n[Connection closed]\r\n",
       "connError": "\r\n[Connection error]\r\n"
+    },
+    "bootstrap": {
+      "btn": "Configure SSH",
+      "title": "Configure SSH access — {{name}}",
+      "description": "Generates an ed25519 SSH key and injects it into the VM via the Proxmox node.",
+      "address": "SSH address (user@ip)",
+      "proxmoxNode": "Proxmox node",
+      "selectNode": "Select a node…",
+      "configure": "Configure",
+      "configuring": "Configuring…"
     }
   },
   "errors": {

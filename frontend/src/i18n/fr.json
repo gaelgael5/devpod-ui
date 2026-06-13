@@ -134,6 +134,16 @@
       "closeLabel": "Fermer le terminal",
       "connClosed": "\r\n[Connexion fermée]\r\n",
       "connError": "\r\n[Erreur de connexion]\r\n"
+    },
+    "bootstrap": {
+      "btn": "Configurer SSH",
+      "title": "Configurer l'accès SSH — {{name}}",
+      "description": "Génère une clé SSH ed25519 et l'injecte dans la VM via le nœud Proxmox.",
+      "address": "Adresse SSH (user@ip)",
+      "proxmoxNode": "Nœud Proxmox",
+      "selectNode": "Sélectionner un nœud…",
+      "configure": "Configurer",
+      "configuring": "Configuration en cours…"
     }
   },
   "errors": {

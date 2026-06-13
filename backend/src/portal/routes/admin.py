@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -15,13 +17,17 @@ from cryptography.hazmat.primitives.serialization import (
     load_ssh_private_key,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from ..auth.rbac import UserInfo, require_admin, require_admin_or_api_key
-from ..config.models import GlobalConfig, HostConfig
+from ..config.models import GlobalConfig, HostConfig, ProxmoxNode
 from ..config.store import _data_root, load_global, save_global
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["admin"])
+
+# user@host : user alphanum+_- (max 32), host alphanum+._- (max 253) — aucun apostrophe
+_ADDRESS_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}@[a-zA-Z0-9][a-zA-Z0-9._-]{0,253}$")
 
 
 @router.get("/config")
@@ -111,11 +117,50 @@ async def generate_host_ssh_key(
             detail="Génération de clé SSH disponible pour les hosts de type ssh uniquement",
         )
 
-    key_dir = _data_root() / "keys" / "hosts"
-    key_dir.mkdir(parents=True, exist_ok=True)
-    key_path = key_dir / f"{name}_ed25519"
+    key_path = _data_root() / "keys" / "hosts" / f"{name}_ed25519"
+    public_key = _generate_or_load_key(key_path, name, user.login)
 
     updates: dict[str, str] = {}
+    if not host.key_path:
+        updates["key_path"] = str(key_path)
+    if address is not None:
+        updates["address"] = address
+
+    if updates:
+        idx = next(i for i, h in enumerate(cfg.hosts) if h.name == name)
+        cfg.hosts[idx] = cfg.hosts[idx].model_copy(update=updates)
+        save_global(cfg)
+
+    return {"public_key": public_key}
+
+
+async def _run_script_on_pve(node: ProxmoxNode, script: str, timeout: float = 30.0) -> str:
+    """Exécute un script bash sur un nœud PVE via SSH stdin ; lève RuntimeError si erreur."""
+    from .proxmox import _ssh_opts
+    proc = await asyncio.create_subprocess_exec(
+        "ssh", *_ssh_opts(node), f"{node.ssh_user}@{node.address}",
+        "bash -s",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=script.encode()), timeout=timeout
+        )
+    except TimeoutError:
+        proc.kill()
+        raise
+    if proc.returncode != 0:
+        msg = stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"SSH script exited {proc.returncode}: {msg or '(no stderr)'}")
+    return stdout.decode("utf-8", errors="replace")
+
+
+def _generate_or_load_key(key_path: Path, host_name: str, requester: str) -> str:
+    """Génère la clé ed25519 si absente, retourne la clé publique OpenSSH."""
+    key_dir = key_path.parent
+    key_dir.mkdir(parents=True, exist_ok=True)
 
     if not key_path.exists():
         private_key = Ed25519PrivateKey.generate()
@@ -130,20 +175,11 @@ async def generate_host_ssh_key(
             with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
             raise
-        updates["key_path"] = str(key_path)
-        _log.info("host_ssh_key_generated", host=name, by=user.login)
-
-    if address is not None:
-        updates["address"] = address
-
-    if updates:
-        idx = next(i for i, h in enumerate(cfg.hosts) if h.name == name)
-        cfg.hosts[idx] = cfg.hosts[idx].model_copy(update=updates)
-        save_global(cfg)
+        _log.info("host_ssh_key_generated", host=host_name, by=requester)
 
     raw = load_ssh_private_key(key_path.read_bytes(), password=None)
     pub_bytes = raw.public_key().public_bytes(Encoding.OpenSSH, PublicFormat.OpenSSH)
-    return {"public_key": pub_bytes.decode()}
+    return pub_bytes.decode().strip()
 
 
 @router.get("/hosts/{name}/cert")
@@ -160,7 +196,10 @@ async def get_host_cert(
     if host is None:
         raise HTTPException(status_code=404, detail=f"Host {name!r} not found")
     if host.type != "docker-tls":
-        raise HTTPException(status_code=422, detail="Certificats TLS disponibles pour les hosts docker-tls uniquement")
+        raise HTTPException(
+            status_code=422,
+            detail="Certificats TLS disponibles pour les hosts docker-tls uniquement",
+        )
 
     raw_path = host.key_path or cfg.devpod.client_cert_path
     if not raw_path:
@@ -183,3 +222,80 @@ async def get_host_cert(
             detail=f"Aucun fichier de certificat trouvé dans {raw_path}",
         )
     return result
+
+
+# ── Bootstrap SSH ─────────────────────────────────────────────────────────────
+
+class BootstrapSshRequest(BaseModel):
+    address: str  # user@host — ex: debian@192.168.10.179
+    proxmox_node: str  # nom du nœud PVE servant de jump
+
+
+@router.post("/hosts/{name}/bootstrap-ssh")
+async def bootstrap_host_ssh(
+    name: str,
+    body: BootstrapSshRequest,
+    user: UserInfo = Depends(require_admin),
+) -> dict[str, str]:
+    """Configure un host SSH : génère/récupère la clé ed25519 et injecte la pubkey via PVE.
+
+    Flux : portail → SSH PVE → SSH VM → ~/.ssh/authorized_keys
+    Idempotent : l'injection n'ajoute la clé que si elle n'est pas déjà présente.
+    """
+    if not _ADDRESS_RE.fullmatch(body.address):
+        raise HTTPException(status_code=422, detail="address invalide (attendu : user@host)")
+
+    cfg = load_global()
+
+    host = next((h for h in cfg.hosts if h.name == name), None)
+    if host is None:
+        raise HTTPException(status_code=404, detail=f"Host {name!r} introuvable")
+    if host.type != "ssh":
+        raise HTTPException(
+            status_code=422,
+            detail="bootstrap-ssh disponible pour les hosts de type ssh uniquement",
+        )
+
+    pve_node = next((n for n in cfg.proxmox_nodes if n.name == body.proxmox_node), None)
+    if pve_node is None:
+        raise HTTPException(
+            status_code=404, detail=f"Nœud Proxmox {body.proxmox_node!r} introuvable"
+        )
+
+    # Génère ou charge la clé ed25519
+    key_path = _data_root() / "keys" / "hosts" / f"{name}_ed25519"
+    public_key = _generate_or_load_key(key_path, name, user.login)
+
+    # Met à jour address + key_path dans le config
+    idx = next(i for i, h in enumerate(cfg.hosts) if h.name == name)
+    cfg.hosts[idx] = cfg.hosts[idx].model_copy(
+        update={"address": body.address, "key_path": str(key_path)}
+    )
+    save_global(cfg)
+
+    # Injecte la pubkey dans la VM via un saut PVE
+    # Sécurité du quoting : pubkey ed25519 = alphanum + "+/= " (pas d'apostrophe) ;
+    # address = user@host alphanum + "@._-" (pas d'apostrophe) → single-quote safe.
+    inner_cmd = (
+        "mkdir -p ~/.ssh && "
+        "chmod 700 ~/.ssh && "
+        f'grep -qxF "{public_key}" ~/.ssh/authorized_keys 2>/dev/null || '
+        f'echo "{public_key}" >> ~/.ssh/authorized_keys && '
+        "chmod 600 ~/.ssh/authorized_keys"
+    )
+    inject_script = (
+        "set -euo pipefail\n"
+        f"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "
+        f"-o ConnectTimeout=15 '{body.address}' '{inner_cmd}'\n"
+    )
+
+    try:
+        await _run_script_on_pve(pve_node, inject_script, timeout=30.0)
+    except (TimeoutError, RuntimeError) as exc:
+        _log.warning("host_ssh_bootstrap_inject_failed", host=name, error=str(exc))
+        raise HTTPException(
+            status_code=502, detail=f"Injection de clé SSH échouée : {exc}"
+        ) from exc
+
+    _log.info("host_ssh_bootstrapped", host=name, address=body.address, by=user.login)
+    return {"public_key": public_key, "address": body.address, "key_path": str(key_path)}
