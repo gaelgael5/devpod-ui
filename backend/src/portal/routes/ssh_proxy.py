@@ -87,6 +87,7 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
 
     proc = await asyncio.create_subprocess_exec(
         "ssh",
+        "-t", "-t",  # force PTY même quand stdin est un pipe
         "-i", str(key_path),
         "-o", "StrictHostKeyChecking=accept-new",
         "-o", f"UserKnownHostsFile={known_hosts}",

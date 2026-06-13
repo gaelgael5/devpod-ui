@@ -37,8 +37,12 @@ export default function SshTerminalWindow({ host, onClose }: Props) {
       terminal.focus()
     }
 
+    // Redimensionnement : window resize + resize handle CSS
     const onResize = () => fitAddon.fit()
     window.addEventListener('resize', onResize)
+
+    const ro = new ResizeObserver(() => fitAddon.fit())
+    if (winRef.current) ro.observe(winRef.current)
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(
@@ -60,6 +64,7 @@ export default function SshTerminalWindow({ host, onClose }: Props) {
 
     return () => {
       window.removeEventListener('resize', onResize)
+      ro.disconnect()
       dataDisposable.dispose()
       ws.close()
       terminal.dispose()
@@ -114,13 +119,19 @@ export default function SshTerminalWindow({ host, onClose }: Props) {
         left: posRef.current.x,
         top: posRef.current.y,
         width: 600,
+        height: 440,
+        minWidth: 360,
+        minHeight: 240,
         zIndex: 9999,
         borderRadius: 8,
         overflow: 'hidden',
         boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
+        display: 'flex',
+        flexDirection: 'column',
+        resize: 'both',
       }}
     >
-      {/* Header */}
+      {/* Header draggable */}
       <div
         onMouseDown={handleHeaderMouseDown}
         style={{
@@ -131,6 +142,7 @@ export default function SshTerminalWindow({ host, onClose }: Props) {
           justifyContent: 'space-between',
           cursor: 'grab',
           userSelect: 'none',
+          flexShrink: 0,
         }}
       >
         <span style={{ fontSize: 12, color: '#a0a0c0', fontFamily: 'monospace' }}>
@@ -151,10 +163,10 @@ export default function SshTerminalWindow({ host, onClose }: Props) {
         />
       </div>
 
-      {/* Terminal */}
+      {/* Terminal — prend tout l'espace restant */}
       <div
         ref={termRef}
-        style={{ background: '#0d0d1a', height: 360, padding: '4px 2px' }}
+        style={{ flex: 1, minHeight: 0, background: '#0d0d1a', padding: '4px 2px' }}
       />
     </div>
   )
