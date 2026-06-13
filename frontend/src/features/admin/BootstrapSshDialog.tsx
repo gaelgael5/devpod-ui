@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,6 +23,10 @@ export default function BootstrapSshDialog({ host, open, onClose }: Props) {
   const bootstrap = useBootstrapSsh()
   const [address, setAddress] = useState(host.address ?? '')
   const [proxmoxNode, setProxmoxNode] = useState('')
+
+  useEffect(() => {
+    if (nodes.length === 1 && !proxmoxNode) setProxmoxNode(nodes[0].name)
+  }, [nodes])
 
   function handleClose() {
     setAddress(host.address ?? '')
@@ -57,21 +61,23 @@ export default function BootstrapSshDialog({ host, open, onClose }: Props) {
               required
             />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>{t('admin.bootstrap.proxmoxNode')}</Label>
-            <Select value={proxmoxNode} onValueChange={setProxmoxNode}>
-              <SelectTrigger>
-                <SelectValue placeholder={t('admin.bootstrap.selectNode')} />
-              </SelectTrigger>
-              <SelectContent>
-                {nodes.map((n) => (
-                  <SelectItem key={n.name} value={n.name}>
-                    {n.name} ({n.address})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {nodes.length !== 1 && (
+            <div className="flex flex-col gap-1.5">
+              <Label>{t('admin.bootstrap.proxmoxNode')}</Label>
+              <Select value={proxmoxNode} onValueChange={setProxmoxNode}>
+                <SelectTrigger>
+                  <SelectValue placeholder={t('admin.bootstrap.selectNode')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {nodes.map((n) => (
+                    <SelectItem key={n.name} value={n.name}>
+                      {n.name} ({n.address})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {bootstrap.isError && (
             <p className="text-sm text-destructive">
               {bootstrap.error instanceof Error ? bootstrap.error.message : t('errors.generic')}
