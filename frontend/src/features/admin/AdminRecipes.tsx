@@ -10,6 +10,7 @@ import {
 import type { Recipe } from '@/features/recipes/types'
 import { useAdminRecipes, type RecipeCreateRequest } from './useAdminRecipes'
 import { useRecipeSources, type RemoteRecipe } from './useRecipeSources'
+import BashEditor from './BashEditor'
 
 const DEFAULT_SCRIPT = '#!/usr/bin/env bash\nset -e\necho "Installing..."\n'
 
@@ -238,7 +239,7 @@ export default function AdminRecipes() {
 
       {/* ── Dialog édition recette locale ───────────────────────────── */}
       <Dialog open={open} onOpenChange={handleClose}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>
               {isEditing ? t('admin.editRecipe') : t('admin.addRecipe')}
@@ -282,15 +283,9 @@ export default function AdminRecipes() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>{t('admin.form.installScript')}</Label>
-              <textarea
+              <BashEditor
                 value={form.install_script}
-                onChange={(e) => set('install_script', e.target.value)}
-                rows={12}
-                className="overflow-auto rounded-md border border-input bg-zinc-950 p-3 font-mono text-sm text-[#d4d4d4] shadow-sm outline-none focus:ring-1 focus:ring-ring resize-none"
-                spellCheck={false}
-                autoCapitalize="off"
-                autoComplete="off"
-                autoCorrect="off"
+                onChange={(v) => set('install_script', v)}
               />
             </div>
             <DialogFooter>
