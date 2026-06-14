@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json as _json
+import os
 import shutil
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -167,16 +171,27 @@ async def admin_update_shared_recipe(
     meta = RecipeMeta(id=recipe_id, version=body.version, description=body.description)
 
     def _update() -> None:
-        (recipe_path / "recipe.meta.yaml").write_text(
-            yaml.dump(meta.model_dump(), default_flow_style=False), encoding="utf-8"
+        def _write_atomic(path: Path, content: str) -> None:
+            fd, tmp_name = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(content)
+                os.replace(tmp_name, path)
+            except Exception:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp_name)
+                raise
+
+        _write_atomic(
+            recipe_path / "recipe.meta.yaml",
+            yaml.dump(meta.model_dump(), default_flow_style=False),
         )
-        (recipe_path / "devcontainer-feature.json").write_text(
+        _write_atomic(
+            recipe_path / "devcontainer-feature.json",
             _json.dumps({"id": recipe_id, "version": body.version}, indent=2),
-            encoding="utf-8",
         )
-        install_sh = recipe_path / "install.sh"
-        install_sh.write_text(body.install_script, encoding="utf-8")
-        install_sh.chmod(0o755)
+        _write_atomic(recipe_path / "install.sh", body.install_script)
+        (recipe_path / "install.sh").chmod(0o755)
 
     await asyncio.to_thread(_update)
     _log.info("shared_recipe_updated", recipe_id=recipe_id, by=user.login)

@@ -64,6 +64,19 @@ def _save_sources(sources: list[str]) -> None:
         raise
 
 
+def _check_ssrf(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(
+            status_code=422, detail=f"URL scheme must be http or https: {url!r}"
+        )
+    hostname = (parsed.hostname or "").lower()
+    if any(hostname == h or hostname.startswith(h) for h in _BLOCKED_HOSTS):
+        raise HTTPException(
+            status_code=422, detail=f"URL points to a blocked internal address: {url!r}"
+        )
+
+
 @router_admin.get("/recipe-sources")
 async def get_recipe_sources(
     user: UserInfo = Depends(require_admin),
@@ -142,6 +155,8 @@ async def put_recipe_sources(
     body: RecipeSourcesPayload,
     user: UserInfo = Depends(require_admin),
 ) -> dict[str, Any]:
+    for url in body.sources:
+        _check_ssrf(url)
     await asyncio.to_thread(_save_sources, body.sources)
     _log.info("recipe_sources_updated", count=len(body.sources), by=user.login)
     return {"sources": body.sources}
@@ -172,9 +187,9 @@ def _write_recipe(
     install_script: str,
 ) -> None:
     recipe_path = shared_dir / recipe_id
-    tmp = shared_dir / f".tmp-{recipe_id}"
+    tmp_str = tempfile.mkdtemp(dir=shared_dir, prefix=f".tmp-{recipe_id}-")
+    tmp = Path(tmp_str)
     try:
-        tmp.mkdir(parents=True, exist_ok=False)
         meta = RecipeMeta(id=recipe_id, version=version, description=description)
         (tmp / "recipe.meta.yaml").write_text(
             yaml.dump(meta.model_dump(), default_flow_style=False), encoding="utf-8"
@@ -197,12 +212,7 @@ async def import_recipe_from_source(
     body: RecipeImportRequest,
     user: UserInfo = Depends(require_admin),
 ) -> dict[str, Any]:
-    parsed = urlparse(body.source_url)
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(status_code=422, detail="URL must use http or https scheme")
-    hostname = (parsed.hostname or "").lower()
-    if any(hostname == h or hostname.startswith(h) for h in _BLOCKED_HOSTS):
-        raise HTTPException(status_code=422, detail="URL points to a blocked internal address")
+    _check_ssrf(body.source_url)
 
     async with httpx.AsyncClient() as http:
         try:
@@ -213,7 +223,7 @@ async def import_recipe_from_source(
             ) from exc
 
     headers = _parse_sh_headers(content)
-    fname = body.source_url.rsplit("/", 1)[-1]
+    fname = Path(urlparse(body.source_url).path).name
     base_id = fname[:-3] if fname.endswith(".sh") else fname
 
     if not _RECIPE_ID_RE.fullmatch(base_id):
