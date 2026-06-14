@@ -37,6 +37,9 @@ _DEFAULT_IMAGE = "mcr.microsoft.com/devcontainers/base:ubuntu"
 # Durée d'attente (secondes) après le lancement de devpod port-forward,
 # pour laisser le tunnel SSH s'établir avant que Caddy tente de router.
 _PORT_FORWARD_SETTLE_S = 3
+# Port sur lequel DevPod démarre openvscode-server dans le devcontainer.
+# DevPod 0.6.x utilise systématiquement 10800 (--port 10800 dans son agent).
+_OPENVSCODE_SERVER_PORT = 10800
 
 
 def _repo_name_from_url(url: str) -> str:
@@ -383,7 +386,7 @@ class DevPodService:
         ssh_env = {**env, "HOME": os.environ.get("HOME", "/root")}
         cmd = [
             "ssh", "-N",
-            "-L", f"0.0.0.0:{host_port}:localhost:3000",
+            "-L", f"0.0.0.0:{host_port}:localhost:{_OPENVSCODE_SERVER_PORT}",
             f"{ws_id}.devpod",
         ]
         proc = await asyncio.create_subprocess_exec(
