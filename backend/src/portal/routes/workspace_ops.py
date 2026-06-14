@@ -290,9 +290,13 @@ async def get_workspace_logs(
 ) -> str:
     _validate_name(name)
     ws_id = f"{user.login}-{name}"
-    log_file = _data_root() / "logs" / user.login / f"{ws_id}.log"
+    logs_root = _data_root() / "logs"
+    log_file = logs_root / user.login / f"{ws_id}.log"
+    if not log_file.is_relative_to(logs_root):
+        raise HTTPException(status_code=422, detail="Invalid log path")
     if not log_file.exists():
         raise HTTPException(status_code=404, detail="Log file not found")
+    _log.info("workspace_logs_fetched", login=user.login, ws_id=ws_id)
     content = await asyncio.to_thread(
         log_file.read_text, encoding="utf-8", errors="replace"
     )
