@@ -191,10 +191,13 @@ if command -v virt-customize &>/dev/null; then
     if LIBGUESTFS_BACKEND=direct virt-customize -a "$IMAGE_FILE" \
             --run-command 'printf "datasource_list: [NoCloud, None]\n" > /etc/cloud/cloud.cfg.d/99-proxmox.cfg' \
             --run-command 'grep -q "set-passwords" /etc/cloud/cloud.cfg || sed -i "/^cloud_config_modules:/a\\ - set-passwords" /etc/cloud/cloud.cfg' \
-            --run-command 'cloud-init clean' \
+            --run-command 'truncate -s 0 /etc/machine-id' \
+            --run-command 'rm -f /var/lib/dbus/machine-id && ln -sf /etc/machine-id /var/lib/dbus/machine-id' \
+            --run-command 'rm -f /etc/ssh/ssh_host_*' \
+            --run-command 'cloud-init clean --logs' \
             --quiet 2>/dev/null; then
         VIRT_CUSTOMIZE_OK=true
-        echo "    cloud-init configuré dans l'image (datasource NoCloud + set-passwords)."
+        echo "    cloud-init configuré et image scellée (datasource NoCloud + set-passwords, machine-id vidé, clés SSH host supprimées)."
     else
         echo "    AVERTISSEMENT : virt-customize a échoué — cloud-init non préconfiguré." >&2
     fi
@@ -267,11 +270,14 @@ echo "  Template créé : $TEMPLATE_NAME (VMID $VMID)"
 echo "======================================================"
 echo ""
 if $VIRT_CUSTOMIZE_OK; then
-    echo "  ✓ cloud-init préconfiguré (datasource NoCloud + set-passwords)."
+    echo "  ✓ cloud-init configuré et image scellée :"
+    echo "     - datasource NoCloud + set-passwords activé"
+    echo "     - /etc/machine-id vidé (DUID unique par clone)"
+    echo "     - clés SSH host supprimées (régénérées au premier démarrage)"
 else
-    echo "  ATTENTION : virt-customize n'a pas pu préconfigurer cloud-init."
-    echo "  Le mot de passe console (--cipassword) peut ne pas s'appliquer."
-    echo "  Installer libguestfs-tools et recréer le template pour activer la préconfiguration :"
+    echo "  ATTENTION : virt-customize n'a pas pu configurer/sceller l'image."
+    echo "  RISQUE : les clones auront le même machine-id → conflit DHCP (même IP pour tous)."
+    echo "  Installer libguestfs-tools et recréer le template :"
     echo "    apt-get install -y libguestfs-tools"
 fi
 echo ""

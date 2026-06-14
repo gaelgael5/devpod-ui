@@ -3,12 +3,12 @@
 # À exécuter en root sur le host PVE, pas dans une VM.
 #
 # Usage :
-#   bash clone-vm-node.sh <NEW_VMID> --name NOM [--ip IP/CIDR --gw GATEWAY] [OPTIONS]
+#   bash clone-vm-node.sh <NEW_VMID> <NODE_NAME> [--ip IP/CIDR --gw GATEWAY] [OPTIONS]
 #
 #   IP fixe :
-#     bash clone-vm-node.sh 104 --name pve2-docker --ip 192.168.1.50/24 --gw 192.168.1.1
+#     bash clone-vm-node.sh 104 pve2-docker --ip 192.168.1.50/24 --gw 192.168.1.1
 #   DHCP (IP détectée automatiquement via tcpdump ARP) :
-#     bash clone-vm-node.sh 104 --name pve2-docker
+#     bash clone-vm-node.sh 104 pve2-docker
 #
 # Arguments obligatoires :
 #   <NEW_VMID>        VMID de la nouvelle VM (entier libre, ni VM ni LXC existant)
@@ -47,20 +47,21 @@ EXTRA_SSH_KEY_FILE=""
 CI_USER="debian"
 PORTAL_URL=""
 PORTAL_TOKEN=""
+PORTAL_PVE_NODE=""
 
-# ─── NEW_VMID (1er argument obligatoire) ──────────────────────────────────────
-if [[ $# -lt 1 ]]; then
-    echo "ERREUR : NEW_VMID manquant." >&2
-    echo "Usage : bash $0 <NEW_VMID> --name NOM --ip IP/CIDR --gw GATEWAY [OPTIONS]" >&2
+# ─── Arguments positionnels obligatoires ─────────────────────────────────────
+if [[ $# -lt 2 ]]; then
+    echo "ERREUR : arguments manquants." >&2
+    echo "Usage : bash $0 <NEW_VMID> <NODE_NAME> [OPTIONS]" >&2
     exit 1
 fi
 NEW_VMID="$1"
-shift
+NODE_NAME="$2"
+shift 2
 
 # ─── Options facultatives ─────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --name)     NODE_NAME="$2";     shift 2 ;;
         --ip)       IP_CIDR="$2";       shift 2 ;;
         --gw)       GATEWAY="$2";       shift 2 ;;
         --template) TEMPLATE_VMID="$2"; shift 2 ;;
@@ -72,11 +73,12 @@ while [[ $# -gt 0 ]]; do
         --sshkey)        SSH_KEY_FILE="$2";       shift 2 ;;
         --extra-sshkey)  EXTRA_SSH_KEY_FILE="$2"; shift 2 ;;
         --ciuser)        CI_USER="$2";            shift 2 ;;
-        --portal-url)    PORTAL_URL="$2";          shift 2 ;;
-        --portal-token)  PORTAL_TOKEN="$2";        shift 2 ;;
+        --portal-url)      PORTAL_URL="$2";      shift 2 ;;
+        --portal-token)    PORTAL_TOKEN="$2";    shift 2 ;;
+        --portal-pve-node) PORTAL_PVE_NODE="$2"; shift 2 ;;
         *)
             echo "ERREUR : option inconnue : $1" >&2
-            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --sshkey --extra-sshkey --ciuser --portal-url --portal-token" >&2
+            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --sshkey --extra-sshkey --ciuser --portal-url --portal-token --portal-pve-node" >&2
             exit 1
             ;;
     esac
@@ -106,8 +108,8 @@ fi
 USE_DHCP=false
 [[ -z "$IP_CIDR" ]] && USE_DHCP=true
 
-# Valider le stockage si précisé
-if [[ -n "$STORAGE" ]]; then
+# Valider le stockage si précisé (auto = même stockage que le template, pas de validation)
+if [[ -n "$STORAGE" && "$STORAGE" != "auto" ]]; then
     pvesm status 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$STORAGE" || {
         echo "ERREUR : stockage '$STORAGE' introuvable." >&2
         echo "  Stockages disponibles : $(pvesm status 2>/dev/null | awk 'NR>1 {print $1}' | tr '\n' ' ')" >&2
@@ -479,6 +481,59 @@ else
     SUDO="sudo"
 fi
 
+# ─── A.9b — Clé SSH portail (si portail configuré et host de type ssh) ──────
+# Génère la paire ed25519 côté portail, enregistre l'adresse dans config.yaml,
+# et injecte la clé publique du portail dans authorized_keys de la VM.
+# Non-fatal si le host n'existe pas encore dans le portail (404/422 → avertissement).
+PORTAL_KEY_PATH=""
+if [[ -n "$PORTAL_URL" && -n "$PORTAL_TOKEN" ]]; then
+    echo ""
+    echo "==> A.9b — Génération de la clé SSH portail pour '$NODE_NAME'..."
+
+    PORTAL_RESP_FILE=$(mktemp /tmp/portal-keygen-XXXXXX.json)
+    # Étend le trap EXIT pour nettoyer également ce fichier temporaire
+    trap 'rm -f "$COMBINED_KEYS_FILE" "$PORTAL_RESP_FILE"' EXIT
+
+    HTTP_CODE=$(curl -sS \
+        -w "%{http_code}" \
+        -o "$PORTAL_RESP_FILE" \
+        -X POST \
+        "${PORTAL_URL}/admin/hosts/${NODE_NAME}/generate-ssh-key?address=${CI_USER}@${IP_ADDR}&proxmox_node=${PORTAL_PVE_NODE}" \
+        -H "Authorization: Bearer ${PORTAL_TOKEN}" 2>/dev/null) || HTTP_CODE="000"
+
+    if [[ "$HTTP_CODE" == "200" ]]; then
+        PORTAL_PUBKEY=$(python3 -c \
+            "import sys, json; print(json.load(open('${PORTAL_RESP_FILE}')).get('public_key',''))" \
+            2>/dev/null || true)
+        if [[ -n "$PORTAL_PUBKEY" ]]; then
+            # Injecter la pubkey du portail dans authorized_keys (sans doublon)
+            ssh -n "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
+set -e
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+grep -qxF "${PORTAL_PUBKEY}" ~/.ssh/authorized_keys 2>/dev/null \
+    || echo "${PORTAL_PUBKEY}" >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+REMOTE
+            PORTAL_KEY_PATH="/data/keys/hosts/${NODE_NAME}_ed25519"
+            echo "    Clé portail générée et injectée dans authorized_keys."
+            echo "    Le portail peut désormais accéder à ${CI_USER}@${IP_ADDR}."
+        else
+            echo "AVERTISSEMENT : réponse portail invalide (public_key absent) — A.9b ignorée." >&2
+        fi
+    elif [[ "$HTTP_CODE" == "404" ]]; then
+        echo "AVERTISSEMENT : host '${NODE_NAME}' introuvable dans le portail (404) — A.9b ignorée." >&2
+        echo "  Créer le host dans l'admin du portail avant de relancer." >&2
+    elif [[ "$HTTP_CODE" == "422" ]]; then
+        echo "AVERTISSEMENT : host '${NODE_NAME}' n'est pas de type 'ssh' (422) — A.9b ignorée." >&2
+    elif [[ "$HTTP_CODE" == "000" ]]; then
+        echo "AVERTISSEMENT : portail inaccessible — A.9b ignorée." >&2
+    else
+        echo "AVERTISSEMENT : erreur portail HTTP ${HTTP_CODE} — A.9b ignorée." >&2
+    fi
+    rm -f "$PORTAL_RESP_FILE"
+fi
+
 # ─── A.10 — Installer les paquets système requis ─────────────────────────────
 echo ""
 echo "==> A.10 — Installation des paquets (git, openssl, docker)..."
@@ -504,25 +559,6 @@ ${SUDO} systemctl enable --now docker
 REMOTE
 
 echo "    Paquets installés (git, openssl, docker CE + compose v2)."
-
-# ─── A.10b — Cloner le dépôt workspace-portal ────────────────────────────────
-echo ""
-echo "==> A.10b — Clone du dépôt dans /opt/workspace-portal..."
-
-REPO_URL="https://github.com/gaelgael5/devpod-ui.git"
-APP_DIR="/opt/workspace-portal"
-
-ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
-set -e
-if [[ -d "${APP_DIR}/.git" ]]; then
-    echo "    Repo déjà présent — git pull..."
-    git -C "${APP_DIR}" pull --ff-only
-else
-    git clone --branch dev "${REPO_URL}" "${APP_DIR}"
-fi
-REMOTE
-
-echo "    Dépôt disponible dans ${APP_DIR}."
 
 # ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
 echo ""
@@ -583,7 +619,10 @@ fi
 echo "  SSH     : ssh ${CI_USER}@${IP_ADDR} -i $SSH_PRIVATE_KEY"
 echo ""
 if [[ "$ENROLLED" == "true" ]]; then
-    echo "  Enrôlement : effectué (portail notifié)"
+    echo "  Enrôlement docker-tls : effectué (portail notifié)"
+elif [[ -n "$PORTAL_KEY_PATH" ]]; then
+    echo "  Enrôlement SSH : clé portail générée, adresse enregistrée"
+    echo "  Le portail peut se connecter : ssh ${CI_USER}@${IP_ADDR}"
 else
     echo "Prochaines étapes :"
     echo "  1. Étape 3 (post-install) : outils requis, NTP, pare-feu"
@@ -597,6 +636,9 @@ echo ""
 if [[ "$ENROLLED" == "true" ]]; then
     printf '{"status":"ok","name":"%s","address":"%s","type":"docker-tls","docker_host":"tcp://%s:2376","ssh_user":"%s","ssh_port":22,"key_path":"/data/certs/portal"}\n' \
         "$NODE_NAME" "$IP_ADDR" "$IP_ADDR" "$CI_USER"
+elif [[ -n "$PORTAL_KEY_PATH" ]]; then
+    printf '{"status":"ok","name":"%s","address":"%s","type":"ssh","ssh_user":"%s","ssh_port":22,"key_path":"%s"}\n' \
+        "$NODE_NAME" "$CI_USER@$IP_ADDR" "$CI_USER" "$PORTAL_KEY_PATH"
 else
     printf '{"status":"ok","name":"%s","address":"%s","ssh_user":"%s","ssh_port":22}\n' \
         "$NODE_NAME" "$IP_ADDR" "$CI_USER"

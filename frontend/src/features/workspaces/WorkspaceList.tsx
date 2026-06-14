@@ -20,7 +20,15 @@ function WorkspaceRow(spec: WorkspaceSpec) {
       onStop={(n) => stopWorkspace.mutate(n)}
       onDelete={(n) => deleteWorkspace.mutate(n)}
       onStart={(n) =>
-        createWorkspace.mutate({ name: n, source: spec.source, host: spec.host, recipes: spec.recipes })
+        createWorkspace.mutate({
+          name: n,
+          sources: [
+            { url: spec.source, branch: spec.branch, credential: spec.git_credential },
+            ...spec.extra_sources.map(s => ({ url: s.url, branch: s.branch, credential: s.git_credential })),
+          ],
+          host: spec.host,
+          recipes: spec.recipes,
+        })
       }
     />
   )

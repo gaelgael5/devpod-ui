@@ -1,9 +1,19 @@
+export interface SourceSpec {
+  url: string
+  branch: string
+  git_credential: string
+}
+
 export interface WorkspaceSpec {
   name: string
   source: string
+  branch: string
+  git_credential: string
   host: string
   recipes: string[]
   env: Record<string, string>
+  extra_sources: SourceSpec[]
+  ssh_key?: boolean
 }
 
 export type WorkspaceStatusValue =

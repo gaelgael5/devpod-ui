@@ -1,8 +1,11 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Key } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { WorkspaceSpec, WorkspaceStatus, WorkspaceStatusValue } from './types'
+import SshKeyDialog from './SshKeyDialog'
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
   running: 'bg-green-500/10 text-green-600 border-green-500/30',
@@ -22,6 +25,7 @@ interface Props {
 
 export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart }: Props) {
   const { t } = useTranslation()
+  const [sshKeyOpen, setSshKeyOpen] = useState(false)
   const s = status.status
 
   return (
@@ -101,7 +105,25 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
             {t('workspaces.actions.retry')}
           </Button>
         )}
+        {spec.ssh_key && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setSshKeyOpen(true)}
+            aria-label={t('workspaces.sshKey.button')}
+          >
+            <Key className="h-4 w-4" />
+          </Button>
+        )}
       </div>
+
+      {spec.ssh_key && (
+        <SshKeyDialog
+          workspaceName={spec.name}
+          open={sshKeyOpen}
+          onOpenChange={setSshKeyOpen}
+        />
+      )}
     </div>
   )
 }

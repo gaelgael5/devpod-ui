@@ -5,6 +5,7 @@ export const handlers = [
     HttpResponse.json({ login: 'alice', roles: ['dev'] })
   ),
   http.get('/me/workspaces', () => HttpResponse.json([])),
+  http.get('/me/git-credentials', () => HttpResponse.json([])),
   http.post('/me/workspaces', () => HttpResponse.json({}, { status: 201 })),
   http.delete('/me/workspaces/:name', () => HttpResponse.json({ deleted: 'ok' })),
   http.post('/me/workspaces/:name/up', () =>
@@ -30,6 +31,7 @@ export const handlers = [
     HttpResponse.json([
       { name: 'pve1', type: 'docker-tls', default: true, docker_host: 'tcp://192.168.1.50:2376' },
       { name: 'pve2', type: 'docker-tls', default: false, docker_host: 'tcp://192.168.1.51:2376' },
+      { name: 'ssh-dev', type: 'ssh', default: false, address: 'debian@192.168.10.175', key_path: '/data/keys/hosts/ssh_dev_ed25519' },
     ])
   ),
   http.get('/admin/recipes', () => HttpResponse.json([])),

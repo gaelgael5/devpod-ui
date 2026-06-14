@@ -5,6 +5,7 @@ import contextlib
 import json
 import os
 import re
+import shlex
 import shutil
 import tempfile
 from pathlib import Path
@@ -13,10 +14,10 @@ from urllib.parse import urlparse
 
 import structlog
 
-from ..config.models import GlobalConfig, WorkspaceSpec
-from ..config.store import _data_root, safe_user_path
+from ..config.models import GlobalConfig, SourceSpec, WorkspaceSpec
+from ..config.store import _data_root, load_global, safe_user_path
 from ..recipes.models import RecipeMeta
-from .env import build_env
+from .env import _find_host, build_env
 from .provider import ensure_provider
 from .runner import run_subprocess
 
@@ -29,6 +30,25 @@ _RECIPES_BUILTIN_DIR = Path(__file__).parent.parent / "recipes" / "builtin"
 
 # DNS-safe pour ws_id : login (max ~40 chars) + "-" + name (max 32 chars)
 _WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$")
+
+# Image de base utilisée quand aucune source git n'est fournie
+_DEFAULT_IMAGE = "mcr.microsoft.com/devcontainers/base:ubuntu"
+
+# Durée d'attente (secondes) après le lancement de devpod port-forward,
+# pour laisser le tunnel SSH s'établir avant que Caddy tente de router.
+_PORT_FORWARD_SETTLE_S = 3
+# Port sur lequel DevPod démarre openvscode-server dans le devcontainer.
+# DevPod 0.6.x utilise systématiquement 10800 (--port 10800 dans son agent).
+_OPENVSCODE_SERVER_PORT = 10800
+
+
+def _repo_name_from_url(url: str) -> str:
+    """Dérive un nom de répertoire safe depuis une URL git."""
+    base = url.rstrip("/").split("/")[-1]
+    if base.endswith(".git"):
+        base = base[:-4]
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", base)
+    return safe or "repo"
 
 
 class DevPodService:
@@ -48,6 +68,8 @@ class DevPodService:
             recipes_builtin_dir if recipes_builtin_dir is not None else _RECIPES_BUILTIN_DIR
         )
         self._background_tasks: set[asyncio.Task[None]] = set()
+        # Processus devpod port-forward actifs, indexés par ws_id
+        self._port_forward_procs: dict[str, asyncio.subprocess.Process] = {}
 
     # ------------------------------------------------------------------
     # Public interface
@@ -66,18 +88,43 @@ class DevPodService:
         ws_spec: WorkspaceSpec,
         recipes: list[RecipeMeta] | None = None,
         feature_env: dict[str, str] | None = None,
+        generate_ssh_key: bool = False,
+        request_host: str = "",
     ) -> str:
         """Lance un workspace en tâche de fond. Retourne ws_id immédiatement."""
         ws_id = self._ws_id(login, ws_spec.name)
 
-        # Env de base (DEVPOD_HOME, DOCKER_*) — sans les secrets utilisateur
-        base_env = build_env(login=login, ws_spec=ws_spec, global_cfg=self._global_cfg)
+        if generate_ssh_key:
+            from ..ssh_keys import ensure_workspace_ssh_key
+            await asyncio.to_thread(ensure_workspace_ssh_key, login, ws_spec.name)
 
-        host_type = self._resolve_host_type(ws_spec)
-        await ensure_provider(
+        # Rechargement systématique : la liste des hosts évolue pendant la vie du singleton
+        global_cfg = load_global()
+        base_env = build_env(login=login, ws_spec=ws_spec, global_cfg=global_cfg)
+        host_cfg = _find_host(ws_spec.host, global_cfg)
+
+        if host_cfg.type == "ssh" and not host_cfg.key_path:
+            from .env import UnknownHostError
+            raise UnknownHostError(
+                f"Host {host_cfg.name!r} : clé SSH manquante — lancez d'abord 'Configurer SSH'"
+            )
+
+        ssh_host = ""
+        ssh_user = "root"
+        if host_cfg.type == "ssh" and host_cfg.address:
+            if "@" in host_cfg.address:
+                ssh_user, ssh_host = host_cfg.address.split("@", 1)
+            else:
+                ssh_host = host_cfg.address
+
+        provider_name = await ensure_provider(
             login=login,
-            host_type=host_type,
+            host_type=host_cfg.type,
             env=base_env,
+            host_name=host_cfg.name,
+            ssh_host=ssh_host,
+            ssh_user=ssh_user,
+            ssh_key_path=host_cfg.key_path,
             devpod_bin=self._devpod_bin,
         )
 
@@ -85,20 +132,60 @@ class DevPodService:
         if self._exposure is not None:
             host_port = await self._exposure.allocate_port(ws_id)
 
-        dc_path = self._write_devcontainer(
-            login, ws_id, host_port=host_port, recipes=recipes, feature_env=feature_env
-        )
+        # Pour docker-tls : devcontainer.json généré localement, chemin absolu local valide.
+        # Pour SSH : l'agent DevPod tourne sur la VM distante. --devcontainer-path y est
+        #   résolu relativement à content/ → un chemin local au portail est inexploitable.
+        #   On utilise devpod ssh -L après devpod up pour exposer le port 3000
+        #   du container sur le portail, et Caddy route vers portal:{host_port}.
+        dc_path: Path | None = None
+        if host_cfg.type == "docker-tls":
+            dc_path = self._write_devcontainer(
+                login, ws_id,
+                host_port=host_port,
+                recipes=recipes,
+                feature_env=feature_env,
+                extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
+            )
 
         # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
         # le subprocess env UNIQUEMENT — jamais dans devcontainer.json ni dans les logs.
         subprocess_env = {**base_env, **ws_spec.env}
 
-        node_ip = self._resolve_node_ip(ws_spec.host)
+        # Combiner source et branche : "github.com/org/repo@feature-branch"
+        # Sans source explicite, utiliser l'image de base pour que DevPod puisse
+        # initialiser le workspace (sans source DevPod cherche un WS existant → erreur).
+        devpod_source = ws_spec.source or _DEFAULT_IMAGE
+        if ws_spec.branch and ws_spec.source:
+            devpod_source = f"{ws_spec.source}@{ws_spec.branch}"
+
+        # Pour SSH : devpod ssh -L bind sur 0.0.0.0 dans le container portal ;
+        # Caddy atteint portal:{host_port} via le réseau Docker interne.
+        # Pour docker-tls : l'IP réelle du nœud Docker est utilisée directement.
+        node_ip = self._resolve_node_ip(host_cfg)
+        if host_cfg.type == "ssh":
+            node_ip = global_cfg.caddy.portal_host
+
+        # Plusieurs sources → ouvrir /workspaces pour voir tous les repos clonés.
+        # Source unique ou image seule → ouvrir directement /workspaces/{ws_id}.
+        workspace_folder = (
+            "/workspaces"
+            if ws_spec.extra_sources
+            else f"/workspaces/{ws_id}"
+        )
+
         self._write_status(ws_id, "provisioning", login=login)
 
         task = asyncio.create_task(
             self._run_up_task(
-                ws_id, ws_spec.source, dc_path, subprocess_env, login, host_port, node_ip
+                ws_id, devpod_source, dc_path, subprocess_env, login,
+                host_port, node_ip, provider_name=provider_name,
+                host_type=host_cfg.type,
+                ssh_host=ssh_host,
+                ssh_user=ssh_user,
+                ssh_key_path=host_cfg.key_path or "",
+                request_host=request_host,
+                workspace_folder=workspace_folder,
+                host_name=host_cfg.name,
             )
         )
         self._background_tasks.add(task)
@@ -106,10 +193,60 @@ class DevPodService:
         _log.info("workspace_up_started", ws_id=ws_id, login=login)
         return ws_id
 
+    async def reconcile_port_forwards(self) -> None:
+        """Au démarrage, relance les tunnels SSH des workspaces running persistés sur disque.
+
+        Si le container portal redémarre, les process ssh -L sont perdus mais le devcontainer
+        reste actif sur le nœud distant.  Cette méthode relit les routes/*.json et rétablit
+        les tunnels manquants sans relancer devpod up.
+        """
+        routes_dir = _data_root() / "routes"
+        if not routes_dir.exists():
+            return
+        global_cfg = load_global()
+        minimal_env = {"HOME": os.environ.get("HOME", "/root")}
+        for f in routes_dir.glob("*.json"):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if data.get("status") != "running" or data.get("host_type") != "ssh":
+                continue
+            ws_id: str = data.get("ws_id", "")
+            host_port_raw = data.get("host_port")
+            host_name: str = data.get("host_name", "")
+            if not ws_id or host_port_raw is None:
+                continue
+            host_port = int(host_port_raw)
+            try:
+                host_cfg = _find_host(host_name, global_cfg)
+            except Exception:
+                _log.warning("reconcile_host_not_found", ws_id=ws_id, host_name=host_name)
+                continue
+            ssh_user, ssh_host = "root", ""
+            if host_cfg.address:
+                if "@" in host_cfg.address:
+                    ssh_user, ssh_host = host_cfg.address.split("@", 1)
+                else:
+                    ssh_host = host_cfg.address
+            _log.info("reconcile_port_forward", ws_id=ws_id, host_port=host_port)
+            try:
+                await self._start_port_forward(
+                    ws_id, minimal_env, host_port,
+                    ssh_host=ssh_host, ssh_user=ssh_user,
+                    ssh_key_path=host_cfg.key_path or "",
+                )
+            except Exception as exc:
+                _log.warning("reconcile_port_forward_failed", ws_id=ws_id, error=str(exc))
+
     async def stop(self, login: str, ws_id: str) -> None:
         """Arrête un workspace en cours d'exécution."""
+        await self._stop_port_forward(ws_id)
         if self._exposure is not None:
-            await self._exposure.unexpose(ws_id)
+            try:
+                await self._exposure.unexpose(ws_id)
+            except Exception as exc:
+                _log.warning("workspace_unexpose_failed", ws_id=ws_id, error=type(exc).__name__)
         env = self._minimal_env(login)
         cmd = [*self._devpod_bin, "stop", ws_id]
         log_path = self._log_path(login, f"{ws_id}-stop")
@@ -119,12 +256,18 @@ class DevPodService:
 
     async def delete(self, login: str, ws_id: str) -> None:
         """Supprime un workspace (force)."""
+        await self._stop_port_forward(ws_id)
         if self._exposure is not None:
-            await self._exposure.unexpose(ws_id)
+            try:
+                await self._exposure.unexpose(ws_id)
+            except Exception as exc:
+                _log.warning("workspace_unexpose_failed", ws_id=ws_id, error=type(exc).__name__)
         env = self._minimal_env(login)
         cmd = [*self._devpod_bin, "delete", ws_id, "--force"]
         log_path = self._log_path(login, f"{ws_id}-delete")
-        await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
+        rc = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
+        if rc != 0:
+            _log.warning("workspace_delete_failed", ws_id=ws_id, returncode=rc)
         status_path = self._status_path(ws_id)
         if status_path.exists():
             status_path.unlink()
@@ -199,6 +342,7 @@ class DevPodService:
         host_port: int | None = None,
         recipes: list[RecipeMeta] | None = None,
         feature_env: dict[str, str] | None = None,
+        extra_sources: list[SourceSpec] | None = None,
     ) -> Path:
         """Écrit devcontainer.json + Feature dirs dans un tmpdir. Retourne le chemin du JSON."""
         user_dir = safe_user_path(login, "devpod")
@@ -215,15 +359,42 @@ class DevPodService:
             if recipes:
                 features_block: dict[str, dict[str, Any]] = {}
                 for recipe in recipes:
-                    src = self._recipes_builtin_dir / recipe.id
-                    if src.is_dir():
-                        shutil.copytree(src, tmp_dir / recipe.id)
+                    recipe_dir = self._recipes_builtin_dir / recipe.id
+                    if recipe_dir.is_dir():
+                        shutil.copytree(recipe_dir, tmp_dir / recipe.id)
                         features_block[f"./{recipe.id}"] = {}
                 if features_block:
                     content["features"] = features_block
 
             if feature_env:
                 content["remoteEnv"] = dict(feature_env)
+
+            if extra_sources:
+                clone_cmds: list[str] = []
+                for src in extra_sources:
+                    url = src.url.strip()
+                    if not url:
+                        continue
+                    # Défense en profondeur : rejeter les valeurs commençant par '-'
+                    # même si la route les valide déjà (argument injection git).
+                    if url.startswith("-"):
+                        raise ValueError(f"Source URL must not start with '-': {url!r}")
+                    if src.branch and src.branch.startswith("-"):
+                        raise ValueError(f"Branch must not start with '-': {src.branch!r}")
+                    repo_name = _repo_name_from_url(url)
+                    target = f"/workspaces/{repo_name}"
+                    # '--' empêche git d'interpréter l'URL comme un flag.
+                    if src.branch:
+                        clone_cmds.append(
+                            f"git clone -b {shlex.quote(src.branch)} -- "
+                            f"{shlex.quote(url)} {shlex.quote(target)}"
+                        )
+                    else:
+                        clone_cmds.append(
+                            f"git clone -- {shlex.quote(url)} {shlex.quote(target)}"
+                        )
+                if clone_cmds:
+                    content["postCreateCommand"] = " && ".join(clone_cmds)
 
             dc_path = tmp_dir / "devcontainer.json"
             dc_path.write_text(json.dumps(content, indent=2), encoding="utf-8")
@@ -232,30 +403,18 @@ class DevPodService:
             shutil.rmtree(tmp_dir, ignore_errors=True)
             raise
 
-    def _resolve_host_type(self, ws_spec: WorkspaceSpec) -> str:
-        """Résout le type d'host à partir de la spec workspace."""
-        host_name = ws_spec.host
-        if not host_name:
-            defaults = [h for h in self._global_cfg.hosts if h.default]
-            return defaults[0].type if defaults else "docker-tls"
-        for h in self._global_cfg.hosts:
-            if h.name == host_name:
-                return h.type
-        return "docker-tls"
-
-    def _resolve_node_ip(self, host_name: str) -> str:
-        """Résout l'IP du nœud Docker à partir du nom d'host de la spec.
-
-        Extrait le hostname depuis docker_host (ex: "tcp://192.168.1.50:2376" → "192.168.1.50").
-        Retourne "127.0.0.1" si aucun host n'est trouvé ou configuré.
-        """
-        if not host_name:
-            defaults = [h for h in self._global_cfg.hosts if h.default]
-            host = defaults[0] if defaults else None
-        else:
-            host = next((h for h in self._global_cfg.hosts if h.name == host_name), None)
-        if host and host.docker_host:
-            return urlparse(host.docker_host).hostname or "127.0.0.1"
+    def _resolve_node_ip(self, host_cfg: Any) -> str:
+        """Résout l'IP du nœud Docker/SSH depuis l'HostConfig."""
+        from ..config.models import HostConfig
+        if not isinstance(host_cfg, HostConfig):
+            return "127.0.0.1"
+        if host_cfg.type == "docker-tls" and host_cfg.docker_host:
+            return urlparse(host_cfg.docker_host).hostname or "127.0.0.1"
+        if host_cfg.type == "ssh" and host_cfg.address:
+            addr = host_cfg.address
+            if "@" in addr:
+                _, addr = addr.split("@", 1)
+            return addr.strip() or "127.0.0.1"
         return "127.0.0.1"
 
     def _minimal_env(self, login: str) -> dict[str, str]:
@@ -265,15 +424,68 @@ class DevPodService:
             "DEVPOD_HOME": str(safe_user_path(login, "devpod")),
         }
 
+    async def _start_port_forward(
+        self,
+        ws_id: str,
+        env: dict[str, str],
+        host_port: int,
+        ssh_host: str = "",
+        ssh_user: str = "root",
+        ssh_key_path: str = "",
+    ) -> None:
+        """
+        Expose le port 3000 du devcontainer via le tunnel SSH écrit par DevPod.
+        Après devpod up, DevPod écrit une entrée `{ws_id}.devpod` dans
+        /root/.ssh/config avec un ProxyCommand vers le container (docker exec).
+        ssh(1) standard crée un vrai listener local via -L, contrairement à
+        `devpod ssh -L` qui ne bind pas de socket.
+        """
+        # HOME est requis pour que ssh(1) trouve /root/.ssh/config écrit par DevPod.
+        ssh_env = {**env, "HOME": os.environ.get("HOME", "/root")}
+        cmd = [
+            "ssh", "-N",
+            "-L", f"0.0.0.0:{host_port}:localhost:{_OPENVSCODE_SERVER_PORT}",
+            f"{ws_id}.devpod",
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            env=ssh_env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        self._port_forward_procs[ws_id] = proc
+        _log.info("port_forward_started", ws_id=ws_id, host_port=host_port)
+        # Laisser le tunnel SSH s'établir avant que Caddy tente de router
+        await asyncio.sleep(_PORT_FORWARD_SETTLE_S)
+
+    async def _stop_port_forward(self, ws_id: str) -> None:
+        """Arrête le processus devpod port-forward s'il est en cours (best-effort)."""
+        proc = self._port_forward_procs.pop(ws_id, None)
+        if proc is None:
+            return
+        if proc.returncode is None:
+            proc.terminate()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(proc.wait(), timeout=5.0)
+        _log.info("port_forward_stopped", ws_id=ws_id)
+
     async def _run_up_task(
         self,
         ws_id: str,
         source: str,
-        dc_path: Path,
+        dc_path: Path | None,
         env: dict[str, str],
         login: str,
         host_port: int | None = None,
         node_ip: str = "127.0.0.1",
+        provider_name: str = "",
+        host_type: str = "",
+        ssh_host: str = "",
+        ssh_user: str = "root",
+        ssh_key_path: str = "",
+        request_host: str = "",
+        workspace_folder: str = "",
+        host_name: str = "",
     ) -> None:
         """Tâche de fond : exécute devpod up, expose le workspace si running."""
         try:
@@ -284,23 +496,41 @@ class DevPodService:
                 ws_id,
                 "--ide",
                 "openvscode",
-                "--devcontainer-path",
-                str(dc_path),
                 "--open-ide=false",  # v0.6.15 : empêche l'ouverture auto du navigateur
-                "--",  # fin des flags — défense en profondeur contre l'injection argv
-                source,
             ]
+            if dc_path is not None:
+                cmd += ["--devcontainer-path", str(dc_path)]
+            if provider_name:
+                cmd += ["--provider", provider_name]
+            if source:
+                cmd += [
+                    "--",  # fin des flags — défense en profondeur contre l'injection argv
+                    source,
+                ]
             log_path = self._log_path(login, ws_id)
             # Seul le returncode est logué — la valeur des env vars (secrets) n'est jamais écrite
             returncode = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
             status = "running" if returncode == 0 else "failed"
-            extra: dict[str, Any] = {"returncode": returncode}
+            extra: dict[str, Any] = {
+                "returncode": returncode,
+                "host_type": host_type,
+                "host_name": host_name,
+            }
+
+            if status == "running" and host_type == "ssh" and host_port is not None:
+                await self._start_port_forward(
+                    ws_id, env, host_port,
+                    ssh_host=ssh_host, ssh_user=ssh_user, ssh_key_path=ssh_key_path,
+                )
+
             if status == "running" and self._exposure is not None and host_port is not None:
                 try:
                     url = await self._exposure.expose(
                         ws_id=ws_id,
                         node_ip=node_ip,
                         host_port=host_port,
+                        request_host=request_host,
+                        workspace_folder=workspace_folder,
                     )
                     extra["url"] = url
                     extra["host_port"] = host_port
@@ -321,5 +551,6 @@ class DevPodService:
             self._write_status(ws_id, "failed", login=login, error=type(exc).__name__)
             _log.error("workspace_up_crashed", ws_id=ws_id, error=type(exc).__name__)
         finally:
-            with contextlib.suppress(Exception):
-                shutil.rmtree(dc_path.parent, ignore_errors=True)
+            if dc_path is not None:
+                with contextlib.suppress(Exception):
+                    shutil.rmtree(dc_path.parent, ignore_errors=True)

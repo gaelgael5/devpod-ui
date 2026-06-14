@@ -10,6 +10,13 @@ export interface RecipeCreateRequest {
   install_script: string
 }
 
+export interface RecipeUpdateRequest {
+  id: string
+  version: string
+  description: string
+  install_script: string
+}
+
 export function useAdminRecipes() {
   const qc = useQueryClient()
 
@@ -37,5 +44,16 @@ export function useAdminRecipes() {
     onError: (err: Error) => toast.error(err.message),
   })
 
-  return { recipesQuery, deleteRecipe, addRecipe }
+  const updateRecipe = useMutation({
+    mutationFn: ({ id, ...data }: RecipeUpdateRequest) =>
+      apiFetchJson<Recipe>(`/admin/recipes/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'recipes'] }),
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  return { recipesQuery, deleteRecipe, addRecipe, updateRecipe }
 }

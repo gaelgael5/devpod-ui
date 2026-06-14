@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { apiFetchJson } from '@/shared/api/client'
+import { apiFetch, apiFetchJson } from '@/shared/api/client'
 
 export interface HostConfig {
   name: string
@@ -9,6 +9,7 @@ export interface HostConfig {
   docker_host?: string
   address?: string
   key_path?: string
+  proxmox_node?: string
 }
 
 export function useHosts() {
@@ -28,6 +29,83 @@ export function useAddHost() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(host),
       }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hosts'] }),
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
+
+export function useUpdateHost() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (host: HostConfig) =>
+      apiFetchJson<HostConfig>(`/admin/hosts/${encodeURIComponent(host.name)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(host),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hosts'] }),
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
+
+export function useDeleteHost() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetch(`/admin/hosts/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hosts'] }),
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
+
+export function useHostCert(name: string, enabled: boolean) {
+  return useQuery<Record<string, string>>({
+    queryKey: ['admin', 'hosts', name, 'cert'],
+    queryFn: () => apiFetchJson<Record<string, string>>(`/admin/hosts/${encodeURIComponent(name)}/cert`),
+    enabled,
+    retry: false,
+  })
+}
+
+export interface ProxmoxNodeSummary {
+  name: string
+  address: string
+}
+
+export function useProxmoxNodes() {
+  return useQuery<ProxmoxNodeSummary[]>({
+    queryKey: ['admin', 'proxmox-nodes'],
+    queryFn: async () => {
+      const cfg = await apiFetchJson<{ hypervisors?: ProxmoxNodeSummary[] }>('/admin/config')
+      return cfg.hypervisors ?? []
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+export interface BootstrapSshPayload {
+  address: string
+  proxmox_node: string
+}
+
+export interface BootstrapSshResult {
+  public_key: string
+  address: string
+  key_path: string
+}
+
+export function useBootstrapSsh() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, payload }: { name: string; payload: BootstrapSshPayload }) =>
+      apiFetchJson<BootstrapSshResult>(
+        `/admin/hosts/${encodeURIComponent(name)}/bootstrap-ssh`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hosts'] }),
     onError: (err: Error) => toast.error(err.message),
   })

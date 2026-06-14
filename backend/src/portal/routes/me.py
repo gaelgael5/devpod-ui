@@ -57,6 +57,17 @@ async def add_workspace(
     return workspace.model_dump(mode="json")
 
 
+@router.get("/git-credentials")
+async def list_git_credentials(
+    user: UserInfo = Depends(require_user),
+) -> list[dict[str, object]]:
+    cfg = load_user(user.login)
+    return [
+        {"name": c.name, "host": c.host, "kind": c.kind}
+        for c in cfg.git_credentials
+    ]
+
+
 @router.delete("/workspaces/{name}")
 async def delete_workspace(name: str, user: UserInfo = Depends(require_user)) -> dict[str, object]:
     cfg = load_user(user.login)

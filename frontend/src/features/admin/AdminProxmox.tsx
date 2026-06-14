@@ -1,17 +1,29 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy, HelpCircle } from 'lucide-react'
+import { Check, CircleCheck, CircleX, Copy, Eye, EyeOff, HelpCircle, LoaderCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
-import { useAdminProxmox, type ProxmoxNodeConfig } from './useAdminProxmox'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { apiFetchJson } from '@/shared/api/client'
+import { useAdminProxmox, type HypervisorConfig } from './useAdminProxmox'
+import { useAdminHypervisorTypes } from './useAdminHypervisorTypes'
 
-const EMPTY = { name: '', address: '', ssh_user: 'root', ssh_port: 22, pve_node: 'pve', script_url: '', ssh_key_content: '' }
+const EMPTY = {
+  name: '', address: '', ssh_user: 'root', ssh_port: 22,
+  pve_node: 'pve', hypervisor_type: '', ssh_key_content: '', password: '',
+}
 type AddForm = typeof EMPTY
-type EditForm = { address: string; ssh_user: string; ssh_port: number; pve_node: string; script_url: string; ssh_key_content: string }
+type EditForm = {
+  address: string; ssh_user: string; ssh_port: number
+  pve_node: string; hypervisor_type: string; ssh_key_content: string; password: string
+}
+type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
 const SSH_STEPS = [
   {
@@ -31,16 +43,29 @@ const SSH_STEPS = [
 export default function AdminProxmox() {
   const { t } = useTranslation()
   const { nodesQuery, deleteNode, addNode, updateNode } = useAdminProxmox()
+  const { typesQuery } = useAdminHypervisorTypes()
   const { data: nodes, isLoading, isError } = nodesQuery
+  const hypervisorTypes = typesQuery.data ?? []
 
   const [open, setOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
-  const [editTarget, setEditTarget] = useState<ProxmoxNodeConfig | null>(null)
+  const [editTarget, setEditTarget] = useState<HypervisorConfig | null>(null)
 
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const [form, setForm] = useState<AddForm>(EMPTY)
-  const [editForm, setEditForm] = useState<EditForm>({ address: '', ssh_user: 'root', ssh_port: 22, pve_node: 'pve', script_url: '', ssh_key_content: '' })
+  const [editForm, setEditForm] = useState<EditForm>({
+    address: '', ssh_user: 'root', ssh_port: 22,
+    pve_node: 'pve', hypervisor_type: '', ssh_key_content: '', password: '',
+  })
+
+  const [addTestStatus, setAddTestStatus] = useState<TestStatus>('idle')
+  const [addTestError, setAddTestError] = useState<string | null>(null)
+  const [editTestStatus, setEditTestStatus] = useState<TestStatus>('idle')
+  const [editTestError, setEditTestError] = useState<string | null>(null)
+
+  const [showAddPassword, setShowAddPassword] = useState(false)
+  const [showEditPassword, setShowEditPassword] = useState(false)
 
   const fileRef = useRef<HTMLInputElement>(null)
   const editFileRef = useRef<HTMLInputElement>(null)
@@ -82,25 +107,38 @@ export default function AdminProxmox() {
   }
 
   function handleClose(o: boolean) {
-    if (!o) setForm(EMPTY)
+    if (!o) {
+      setForm(EMPTY)
+      setShowAddPassword(false)
+      setAddTestStatus('idle')
+      setAddTestError(null)
+    }
     setOpen(o)
   }
 
-  function handleEditOpen(node: ProxmoxNodeConfig) {
+  function handleEditOpen(node: HypervisorConfig) {
     setEditTarget(node)
     setEditForm({
       address: node.address,
       ssh_user: node.ssh_user,
       ssh_port: node.ssh_port,
       pve_node: node.pve_node,
-      script_url: node.script_url,
+      hypervisor_type: node.hypervisor_type,
       ssh_key_content: '',
+      password: node.password ?? '',
     })
+    setShowEditPassword(false)
+    setEditTestStatus('idle')
+    setEditTestError(null)
     setEditOpen(true)
   }
 
   function handleEditClose(o: boolean) {
-    if (!o) setEditTarget(null)
+    if (!o) {
+      setEditTarget(null)
+      setEditTestStatus('idle')
+      setEditTestError(null)
+    }
     setEditOpen(o)
   }
 
@@ -113,6 +151,45 @@ export default function AdminProxmox() {
     e.target.value = ''
   }
 
+  async function handleTestAdd() {
+    const content = form.ssh_key_content.trim()
+    if (!form.address || !content) return
+    setAddTestStatus('testing')
+    setAddTestError(null)
+    try {
+      const fd = new FormData()
+      fd.append('address', form.address)
+      fd.append('ssh_user', form.ssh_user)
+      fd.append('ssh_port', String(form.ssh_port))
+      fd.append('ssh_key', new Blob([content], { type: 'text/plain' }), 'id_ed25519')
+      const res = await apiFetchJson<{ ok: boolean; error: string | null }>(
+        '/admin/hypervisors/test-connection',
+        { method: 'POST', body: fd },
+      )
+      setAddTestStatus(res.ok ? 'ok' : 'error')
+      setAddTestError(res.error ?? null)
+    } catch (e) {
+      setAddTestStatus('error')
+      setAddTestError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  async function handleTestEdit() {
+    if (!editTarget) return
+    setEditTestStatus('testing')
+    setEditTestError(null)
+    try {
+      const res = await apiFetchJson<{ ok: boolean; error: string | null }>(
+        `/admin/hypervisors/${editTarget.name}/ping`,
+      )
+      setEditTestStatus(res.ok ? 'ok' : 'error')
+      setEditTestError(res.error ?? null)
+    } catch (e) {
+      setEditTestStatus('error')
+      setEditTestError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const content = form.ssh_key_content.trim()
@@ -123,7 +200,8 @@ export default function AdminProxmox() {
     fd.append('ssh_user', form.ssh_user)
     fd.append('ssh_port', String(form.ssh_port))
     fd.append('pve_node', form.pve_node)
-    fd.append('script_url', form.script_url)
+    fd.append('hypervisor_type', form.hypervisor_type)
+    fd.append('password', form.password)
     fd.append('ssh_key', new Blob([content], { type: 'text/plain' }), 'id_ed25519')
     addNode.mutate(fd, { onSuccess: () => handleClose(false) })
   }
@@ -136,7 +214,8 @@ export default function AdminProxmox() {
     fd.append('ssh_user', editForm.ssh_user)
     fd.append('ssh_port', String(editForm.ssh_port))
     fd.append('pve_node', editForm.pve_node)
-    fd.append('script_url', editForm.script_url)
+    fd.append('hypervisor_type', editForm.hypervisor_type)
+    fd.append('password', editForm.password)
     const keyContent = editForm.ssh_key_content.trim()
     if (keyContent) {
       fd.append('ssh_key', new Blob([keyContent], { type: 'text/plain' }), 'id_ed25519')
@@ -144,10 +223,55 @@ export default function AdminProxmox() {
     updateNode.mutate({ name: editTarget.name, fd }, { onSuccess: () => handleEditClose(false) })
   }
 
+  function renderTestStatus(status: TestStatus, error: string | null) {
+    if (status === 'idle') return null
+    if (status === 'testing') return (
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <LoaderCircle size={12} className="animate-spin" />
+        {t('admin.form.testing')}
+      </p>
+    )
+    if (status === 'ok') return (
+      <p className="flex items-center gap-1.5 text-xs text-green-600">
+        <CircleCheck size={12} />
+        {t('admin.form.testOk')}
+      </p>
+    )
+    return (
+      <p className="flex items-center gap-1.5 text-xs text-destructive">
+        <CircleX size={12} />
+        {error ?? t('admin.form.testFailed')}
+      </p>
+    )
+  }
+
+  const typeSelect = (
+    value: string,
+    onChange: (v: string) => void,
+  ) => (
+    <div className="flex flex-col gap-1.5">
+      <Label>{t('admin.form.hypervisorType')}</Label>
+      <Select
+        value={value || '__none__'}
+        onValueChange={(v) => onChange(v === '__none__' ? '' : v)}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder={t('admin.form.hypervisorTypePlaceholder')} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__none__">{t('admin.form.hypervisorTypeNone')}</SelectItem>
+          {hypervisorTypes.map((ht) => (
+            <SelectItem key={ht.name} value={ht.name}>{ht.label || ht.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+
   const sshKeyArea = (
     value: string,
     onChange: (v: string) => void,
-    fileInputRef: React.RefObject<HTMLInputElement>,
+    fileInputRef: React.RefObject<HTMLInputElement | null>,
     optional = false,
   ) => (
     <div className="flex flex-col gap-1.5">
@@ -187,17 +311,50 @@ export default function AdminProxmox() {
     </div>
   )
 
+  const passwordField = (
+    value: string,
+    onChange: (v: string) => void,
+    show: boolean,
+    toggleShow: () => void,
+    optional = false,
+  ) => (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor="px-password">
+        {t('admin.form.proxmoxPassword')}
+        {optional && <span className="ml-1 text-xs text-muted-foreground">({t('admin.form.sshKeyOptional')})</span>}
+      </Label>
+      <div className="relative">
+        <Input
+          id="px-password"
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="pr-9"
+          autoComplete="new-password"
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={toggleShow}
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+        >
+          {show ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+      </div>
+    </div>
+  )
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{t('admin.proxmox')}</h1>
+        <h1 className="text-2xl font-semibold">{t('admin.hypervisors')}</h1>
         <Button size="sm" onClick={() => setOpen(true)}>{t('admin.addProxmox')}</Button>
       </div>
 
       {isLoading && <p className="text-muted-foreground">…</p>}
       {isError && <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>}
       {!isLoading && !isError && !nodes?.length && (
-        <p className="text-muted-foreground">{t('admin.proxmoxEmpty')}</p>
+        <p className="text-muted-foreground">{t('admin.hypervisorsEmpty')}</p>
       )}
       {nodes && nodes.length > 0 && (
         <div className="rounded-lg border">
@@ -208,22 +365,20 @@ export default function AdminProxmox() {
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.address')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.sshUser')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.pveNode')}</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.form.hypervisorType')}</th>
                 <th className="px-4 py-2" />
               </tr>
             </thead>
             <tbody>
-              {nodes.map((n: ProxmoxNodeConfig) => (
+              {nodes.map((n: HypervisorConfig) => (
                 <tr key={n.name} className="border-b last:border-0">
                   <td className="px-4 py-2 font-medium">{n.name}</td>
                   <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{n.address}</td>
                   <td className="px-4 py-2 text-muted-foreground">{n.ssh_user}</td>
                   <td className="px-4 py-2 text-muted-foreground">{n.pve_node}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{n.hypervisor_type || '—'}</td>
                   <td className="px-4 py-2 text-right flex items-center justify-end gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleEditOpen(n)}
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => handleEditOpen(n)}>
                       {t('workspaces.actions.edit')}
                     </Button>
                     <Button
@@ -272,9 +427,9 @@ export default function AdminProxmox() {
               </div>
             ))}
           </div>
-          <DialogFooter>
+          <div className="flex justify-end">
             <Button variant="outline" onClick={() => setHelpOpen(false)}>Close</Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -340,25 +495,30 @@ export default function AdminProxmox() {
                 required
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="px-scripturl">{t('admin.form.scriptUrl')}</Label>
-              <Input
-                id="px-scripturl"
-                type="url"
-                value={form.script_url}
-                onChange={(e) => setField('script_url', e.target.value)}
-                placeholder={t('admin.form.scriptUrlPlaceholder')}
-              />
-            </div>
+            {typeSelect(form.hypervisor_type, (v) => setField('hypervisor_type', v))}
+            {passwordField(form.password, (v) => setField('password', v), showAddPassword, () => setShowAddPassword((s) => !s))}
             {sshKeyArea(form.ssh_key_content, (v) => setField('ssh_key_content', v), fileRef)}
-            <DialogFooter>
+            <div className="flex items-center gap-3 border-t pt-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleTestAdd}
+                disabled={addTestStatus === 'testing' || !form.address || !form.ssh_key_content.trim()}
+              >
+                {addTestStatus === 'testing' && <LoaderCircle size={13} className="mr-1.5 animate-spin" />}
+                {t('admin.form.testConnection')}
+              </Button>
+              {renderTestStatus(addTestStatus, addTestError)}
+            </div>
+            <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => handleClose(false)}>
                 {t('workspaces.confirm.cancel')}
               </Button>
               <Button type="submit" disabled={addNode.isPending}>
                 {t('admin.form.save')}
               </Button>
-            </DialogFooter>
+            </div>
           </form>
         </DialogContent>
       </Dialog>
@@ -414,25 +574,30 @@ export default function AdminProxmox() {
                 required
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ep-scripturl">{t('admin.form.scriptUrl')}</Label>
-              <Input
-                id="ep-scripturl"
-                type="url"
-                value={editForm.script_url}
-                onChange={(e) => setEditField('script_url', e.target.value)}
-                placeholder={t('admin.form.scriptUrlPlaceholder')}
-              />
-            </div>
+            {typeSelect(editForm.hypervisor_type, (v) => setEditField('hypervisor_type', v))}
+            {passwordField(editForm.password, (v) => setEditField('password', v), showEditPassword, () => setShowEditPassword((s) => !s), true)}
             {sshKeyArea(editForm.ssh_key_content, (v) => setEditField('ssh_key_content', v), editFileRef, true)}
-            <DialogFooter>
+            <div className="flex items-center gap-3 border-t pt-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleTestEdit}
+                disabled={editTestStatus === 'testing'}
+              >
+                {editTestStatus === 'testing' && <LoaderCircle size={13} className="mr-1.5 animate-spin" />}
+                {t('admin.form.testConnection')}
+              </Button>
+              {renderTestStatus(editTestStatus, editTestError)}
+            </div>
+            <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => handleEditClose(false)}>
                 {t('workspaces.confirm.cancel')}
               </Button>
               <Button type="submit" disabled={updateNode.isPending}>
                 {t('admin.form.save')}
               </Button>
-            </DialogFooter>
+            </div>
           </form>
         </DialogContent>
       </Dialog>

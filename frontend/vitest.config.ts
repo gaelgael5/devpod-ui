@@ -10,6 +10,10 @@ export default defineConfig({
     globals: true,
     passWithNoTests: true,
     maxWorkers: 1,
+    // Stub CSS imports that Vitest cannot transform (e.g. @xterm/xterm/css/xterm.css)
+    moduleNameMapper: {
+      '\\.css$': path.resolve(__dirname, 'src/test/cssStub.ts'),
+    },
   },
   resolve: {
     alias: {

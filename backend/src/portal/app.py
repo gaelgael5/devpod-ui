@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import contextlib
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from pathlib import Path
+
 import structlog
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 from .auth.router import router as auth_router
 from .routes.admin import router as admin_router
@@ -12,11 +20,48 @@ from .routes.proxmox import router as proxmox_router
 from .routes.recipes import router_admin as recipes_admin_router
 from .routes.recipes import router_me as recipes_me_router
 from .routes.recipes import router_public as recipes_public_router
+from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
-from .routes.workspace_ops import router as workspace_ops_router
+from .routes.workspace_ops import _get_service, router as workspace_ops_router
 from .settings import get_settings
 
 _log = structlog.get_logger(__name__)
+
+_SPA_INDEX = Path("static") / "index.html"
+_NO_CACHE = "no-cache, no-store, must-revalidate"
+
+
+class SPAMiddleware(BaseHTTPMiddleware):
+    """Sert index.html pour les requêtes de navigation navigateur vers des routes frontend.
+
+    Sans ce middleware, les routes API comme GET /admin/hypervisors prenaient la priorité
+    sur le routeur React, renvoyant du JSON brut lors d'un rechargement de page.
+    Critère : requête GET dont le Accept inclut text/html (navigation browser)
+    et dont le chemin n'a pas d'extension (pas un asset JS/CSS/image).
+    """
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        if request.method == "GET":
+            accept = request.headers.get("Accept", "")
+            path_last = request.url.path.split("/")[-1]
+            is_browser_nav = "text/html" in accept and "application/json" not in accept
+            is_page_route = "." not in path_last  # les assets ont une extension
+
+            if is_browser_nav and is_page_route and _SPA_INDEX.is_file():
+                return FileResponse(_SPA_INDEX, headers={"Cache-Control": _NO_CACHE})
+
+        return await call_next(request)
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    with contextlib.suppress(Exception):
+        await _get_service().reconcile_port_forwards()
+    yield
 
 
 def create_app() -> FastAPI:
@@ -34,7 +79,12 @@ def create_app() -> FastAPI:
                 "Starting without a session secret key is not allowed in production."
             )
 
-    app = FastAPI(title="workspace-portal", version="0.1.0")
+    app = FastAPI(title="workspace-portal", version="0.1.0", lifespan=_lifespan)
+
+    # Starlette insère chaque middleware en tête de liste (prepend).
+    # Ordre d'exécution requête : SessionMiddleware → SPAMiddleware → Router.
+    # SPAMiddleware court-circuite le routeur API pour les navigations browser.
+    app.add_middleware(SPAMiddleware)
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.session_secret_key or "dev-only-insecure-key",
@@ -52,6 +102,7 @@ def create_app() -> FastAPI:
     app.include_router(nodes_router, prefix="/admin")
     app.include_router(proxmox_router, prefix="/admin")
     app.include_router(recipes_admin_router, prefix="/admin")
+    app.include_router(ssh_proxy_router, prefix="/admin")
     # static_router en dernier : son catch-all /{full_path:path} ne doit pas
     # intercepter les routes API enregistrées avant lui.
     app.include_router(static_router)

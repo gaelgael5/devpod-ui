@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..auth.rbac import UserInfo, require_admin, require_user
 from ..config.store import _data_root, safe_user_path
-from ..recipes.models import RecipeMeta, _RECIPE_ID_RE
+from ..recipes.models import _RECIPE_ID_RE, RecipeMeta
 from ..recipes.registry import RecipeRegistry
 
 _log = structlog.get_logger(__name__)
@@ -41,6 +41,14 @@ class RecipeCreateRequest(BaseModel):
                 f"id {v!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$"
             )
         return v
+
+
+class RecipeUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: str
+    description: str
+    install_script: str
 
 
 def _validate_recipe_id(recipe_id: str) -> None:
@@ -88,11 +96,18 @@ async def delete_personal_recipe(
 async def admin_list_recipes(
     user: UserInfo = Depends(require_admin),
 ) -> list[dict[str, Any]]:
-    """Liste les recettes partagées (admin only)."""
+    """Liste les recettes partagées avec install_script (admin only)."""
     data_root = _data_root()
-    registry = RecipeRegistry(shared_dir=data_root / "recipes")
+    shared_recipes_dir = data_root / "recipes"
+    registry = RecipeRegistry(shared_dir=shared_recipes_dir)
     shared = registry.load_shared()
-    return [m.model_dump() for m in shared.values()]
+    results = []
+    for meta in shared.values():
+        entry = meta.model_dump()
+        install_sh = shared_recipes_dir / meta.id / "install.sh"
+        entry["install_script"] = install_sh.read_text(encoding="utf-8") if install_sh.exists() else ""
+        results.append(entry)
+    return results
 
 
 @router_admin.post("/recipes", status_code=201)
@@ -131,6 +146,43 @@ async def admin_create_shared_recipe(
     await asyncio.to_thread(_write)
     _log.info("shared_recipe_created", recipe_id=body.id, by=user.login)
     return meta.model_dump()
+
+
+@router_admin.put("/recipes/{recipe_id}")
+async def admin_update_shared_recipe(
+    recipe_id: str,
+    body: RecipeUpdateRequest,
+    user: UserInfo = Depends(require_admin),
+) -> dict[str, Any]:
+    """Met à jour version, description et install.sh d'une recette partagée."""
+    _validate_recipe_id(recipe_id)
+    data_root = _data_root()
+    shared_recipes_dir = data_root / "recipes"
+    recipe_path = shared_recipes_dir / recipe_id
+    if not recipe_path.is_relative_to(shared_recipes_dir):
+        raise HTTPException(status_code=422, detail="Path traversal detected")
+    if not recipe_path.exists():
+        raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
+
+    meta = RecipeMeta(id=recipe_id, version=body.version, description=body.description)
+
+    def _update() -> None:
+        (recipe_path / "recipe.meta.yaml").write_text(
+            yaml.dump(meta.model_dump(), default_flow_style=False), encoding="utf-8"
+        )
+        (recipe_path / "devcontainer-feature.json").write_text(
+            _json.dumps({"id": recipe_id, "version": body.version}, indent=2),
+            encoding="utf-8",
+        )
+        install_sh = recipe_path / "install.sh"
+        install_sh.write_text(body.install_script, encoding="utf-8")
+        install_sh.chmod(0o755)
+
+    await asyncio.to_thread(_update)
+    _log.info("shared_recipe_updated", recipe_id=recipe_id, by=user.login)
+    entry = meta.model_dump()
+    entry["install_script"] = body.install_script
+    return entry
 
 
 @router_admin.delete("/recipes/{recipe_id}")

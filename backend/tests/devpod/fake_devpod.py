@@ -76,6 +76,12 @@ def main() -> int:
             return 0
         return 0
 
+    if cmd == "ssh":
+        # Simule devpod ssh --command "sleep N" : reste actif quelques dixièmes
+        # pour que _start_port_forward puisse enregistrer le proc, puis s'arrête.
+        time.sleep(0.3)
+        return 0
+
     if cmd in ("--help", "-h", "help"):
         print("fake devpod help")
         return 0

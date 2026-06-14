@@ -20,18 +20,36 @@
     },
     "form": {
       "name": "Name",
-      "source": "Git source",
+      "sources": "Git sources",
+      "addSource": "Add source",
+      "removeSource": "Remove",
+      "primarySource": "Primary source",
+      "additionalSource": "Additional source {{n}}",
+      "branch": "Branch",
+      "branchPlaceholder": "main",
+      "credential": "Credential",
+      "credentialNone": "— none —",
+      "sourcesHint": "The 1st source is the main workspace. Additional ones are cloned automatically.",
+      "sourceUrlRequired": "Source URL is required",
       "node": "Node",
       "recipes": "Recipes",
       "submit": "Create workspace",
       "nameHint": "Lowercase letters, numbers, hyphens — 2 to 32 chars",
-      "sourceRequired": "Source Git is required"
+      "generateSshKey": "Generate an SSH key for this workspace"
     },
     "confirm": {
       "deleteTitle": "Delete workspace?",
       "deleteDescription": "This will permanently delete {{name}} and its container.",
       "confirm": "Delete",
       "cancel": "Cancel"
+    },
+    "sshKey": {
+      "button": "SSH Key",
+      "title": "SSH Public Key",
+      "hint": "Paste this key into GitHub → Settings → Deploy keys or GitLab → Repository → Settings → Deploy Keys.",
+      "copy": "Copy",
+      "copied": "Copied!",
+      "notGenerated": "SSH key not available for this workspace."
     }
   },
   "recipes": {
@@ -44,13 +62,34 @@
     "hosts": "Docker hosts",
     "sharedRecipes": "Shared recipes",
     "proxmox": "Proxmox nodes",
+    "hypervisors": "Hypervisors",
+    "hypervisorTypes": "Hypervisor types",
     "hostsEmpty": "No hosts enrolled yet.",
     "recipesEmpty": "No shared recipes.",
     "proxmoxEmpty": "No Proxmox nodes enrolled yet.",
+    "hypervisorsEmpty": "No hypervisors enrolled yet.",
+    "hypervisorTypesEmpty": "No hypervisor types configured.",
     "addHost": "Add host",
+    "editHost": "Edit host",
     "addRecipe": "Add recipe",
+    "generate": {
+      "btn": "Generate",
+      "selectNode": "Select a hypervisor",
+      "noNodes": "No hypervisor with a script URL configured.",
+      "paramTitle": "Configure VM",
+      "execute": "Execute",
+      "back": "Back",
+      "logTitle": "Execution",
+      "running": "Running…",
+      "addGenerated": "Add this host",
+      "resultFound": "Host configuration extracted from script output.",
+      "resultMissing": "Script completed but no JSON result found in the last line."
+    },
     "addProxmox": "Add hypervisor",
     "editProxmox": "Edit hypervisor",
+    "editRecipe": "Edit recipe",
+    "addHypervisorType": "Add hypervisor type",
+    "editHypervisorType": "Edit type",
     "col": {
       "name": "Name",
       "type": "Type",
@@ -83,7 +122,41 @@
       "sshKeyHelpNote": "Copy the output of the last command and paste it into the private key field.",
       "sshKeyOptional": "leave empty to keep current key",
       "scriptUrl": "JSON script URL",
-      "scriptUrlPlaceholder": "https://example.com/scripts/create-vm.json"
+      "scriptUrlPlaceholder": "https://example.com/scripts/create-vm.json",
+      "hypervisorType": "Hypervisor type",
+      "hypervisorTypePlaceholder": "Select a type…",
+      "hypervisorTypeNone": "— none —",
+      "hypervisorLabel": "Label",
+      "addScript": "Creation script (JSON URL)",
+      "destroyScript": "Destroy script (JSON URL)",
+      "testConnection": "Test connection",
+      "testing": "Testing…",
+      "testOk": "Connection successful",
+      "testFailed": "Connection failed",
+      "showCert": "View TLS certificate",
+      "hideCert": "Hide certificate",
+      "copyCert": "Copy",
+      "proxmoxPassword": "Password"
+    },
+    "deleteHost": "Delete host",
+    "deleteHostTitle": "Delete host",
+    "deleteHostDescription": "Are you sure you want to delete host \"{{name}}\"? This action cannot be undone.",
+    "sshTerminal": {
+      "openBtn": "SSH",
+      "windowTitle": "SSH Terminal",
+      "closeLabel": "Close terminal",
+      "connClosed": "\r\n[Connection closed]\r\n",
+      "connError": "\r\n[Connection error]\r\n"
+    },
+    "bootstrap": {
+      "btn": "Configure SSH",
+      "title": "Configure SSH access — {{name}}",
+      "description": "Generates an ed25519 SSH key and injects it into the VM via the Proxmox node.",
+      "address": "SSH address (user@ip)",
+      "proxmoxNode": "Proxmox node",
+      "selectNode": "Select a node…",
+      "configure": "Configure",
+      "configuring": "Configuring…"
     }
   },
   "errors": {

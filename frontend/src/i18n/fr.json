@@ -20,18 +20,36 @@
     },
     "form": {
       "name": "Nom",
-      "source": "Source Git",
+      "sources": "Sources Git",
+      "addSource": "Ajouter une source",
+      "removeSource": "Supprimer",
+      "primarySource": "Source principale",
+      "additionalSource": "Source supplémentaire {{n}}",
+      "branch": "Branche",
+      "branchPlaceholder": "main",
+      "credential": "Identifiant",
+      "credentialNone": "— aucun —",
+      "sourcesHint": "La 1ère source est le workspace principal. Les suivantes sont clonées automatiquement.",
+      "sourceUrlRequired": "L'URL de la source est requise",
       "node": "Nœud",
       "recipes": "Recettes",
       "submit": "Créer le workspace",
       "nameHint": "Minuscules, chiffres, tirets — 2 à 32 caractères",
-      "sourceRequired": "La source Git est requise"
+      "generateSshKey": "Générer une clé SSH pour ce workspace"
     },
     "confirm": {
       "deleteTitle": "Supprimer le workspace ?",
       "deleteDescription": "Cette action supprime définitivement {{name}} et son conteneur.",
       "confirm": "Supprimer",
       "cancel": "Annuler"
+    },
+    "sshKey": {
+      "button": "Clé SSH",
+      "title": "Clé publique SSH",
+      "hint": "Copiez cette clé dans GitHub → Settings → Deploy keys ou GitLab → Dépôt → Paramètres → Clés de déploiement.",
+      "copy": "Copier",
+      "copied": "Copié !",
+      "notGenerated": "Clé SSH non disponible pour ce workspace."
     }
   },
   "recipes": {
@@ -44,13 +62,34 @@
     "hosts": "Hôtes Docker",
     "sharedRecipes": "Recettes partagées",
     "proxmox": "Nœuds Proxmox",
+    "hypervisors": "Hyperviseurs",
+    "hypervisorTypes": "Types d'hyperviseurs",
     "hostsEmpty": "Aucun hôte enrôlé.",
     "recipesEmpty": "Aucune recette partagée.",
     "proxmoxEmpty": "Aucun nœud Proxmox enrôlé.",
+    "hypervisorsEmpty": "Aucun hyperviseur enrôlé.",
+    "hypervisorTypesEmpty": "Aucun type d'hyperviseur configuré.",
     "addHost": "Ajouter un hôte",
+    "editHost": "Modifier l'hôte",
     "addRecipe": "Ajouter une recette",
+    "generate": {
+      "btn": "Générer",
+      "selectNode": "Sélectionner un hyperviseur",
+      "noNodes": "Aucun hyperviseur avec une URL de script configurée.",
+      "paramTitle": "Configurer la VM",
+      "execute": "Exécuter",
+      "back": "Retour",
+      "logTitle": "Exécution",
+      "running": "En cours…",
+      "addGenerated": "Ajouter ce host",
+      "resultFound": "Configuration du host extraite de la sortie du script.",
+      "resultMissing": "Script terminé mais aucun résultat JSON trouvé dans la dernière ligne."
+    },
     "addProxmox": "Ajout d'hyperviseur",
     "editProxmox": "Modifier l'hyperviseur",
+    "editRecipe": "Modifier la recette",
+    "addHypervisorType": "Ajouter un type d'hyperviseur",
+    "editHypervisorType": "Modifier le type",
     "col": {
       "name": "Nom",
       "type": "Type",
@@ -83,7 +122,41 @@
       "sshKeyHelpNote": "Copiez la sortie de la dernière commande et collez-la dans le champ de la clé privée.",
       "sshKeyOptional": "laisser vide pour conserver la clé actuelle",
       "scriptUrl": "URL du script JSON",
-      "scriptUrlPlaceholder": "https://exemple.com/scripts/create-vm.json"
+      "scriptUrlPlaceholder": "https://exemple.com/scripts/create-vm.json",
+      "hypervisorType": "Type d'hyperviseur",
+      "hypervisorTypePlaceholder": "Sélectionner un type…",
+      "hypervisorTypeNone": "— aucun —",
+      "hypervisorLabel": "Libellé",
+      "addScript": "Script de création (JSON URL)",
+      "destroyScript": "Script de destruction (JSON URL)",
+      "testConnection": "Tester la connexion",
+      "testing": "Test en cours…",
+      "testOk": "Connexion réussie",
+      "testFailed": "Connexion échouée",
+      "showCert": "Voir le certificat TLS",
+      "hideCert": "Masquer le certificat",
+      "copyCert": "Copier",
+      "proxmoxPassword": "Mot de passe"
+    },
+    "deleteHost": "Supprimer l'hôte",
+    "deleteHostTitle": "Supprimer l'hôte",
+    "deleteHostDescription": "Confirmer la suppression de l'hôte « {{name}} » ? Cette action est irréversible.",
+    "sshTerminal": {
+      "openBtn": "SSH",
+      "windowTitle": "Terminal SSH",
+      "closeLabel": "Fermer le terminal",
+      "connClosed": "\r\n[Connexion fermée]\r\n",
+      "connError": "\r\n[Erreur de connexion]\r\n"
+    },
+    "bootstrap": {
+      "btn": "Configurer SSH",
+      "title": "Configurer l'accès SSH — {{name}}",
+      "description": "Génère une clé SSH ed25519 et l'injecte dans la VM via le nœud Proxmox.",
+      "address": "Adresse SSH (user@ip)",
+      "proxmoxNode": "Nœud Proxmox",
+      "selectNode": "Sélectionner un nœud…",
+      "configure": "Configurer",
+      "configuring": "Configuration en cours…"
     }
   },
   "errors": {

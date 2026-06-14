@@ -4,9 +4,12 @@ import re
 from dataclasses import dataclass, field
 
 import structlog
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from ..settings import get_settings
+
+_bearer = HTTPBearer(auto_error=False)
 
 _log = structlog.get_logger(__name__)
 
@@ -68,6 +71,19 @@ async def require_user(request: Request) -> UserInfo:
         _log.warning("rbac_denied", login=user.login, roles=user.roles)
         raise HTTPException(status_code=403, detail="Insufficient role")
     return user
+
+
+async def require_admin_or_api_key(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> UserInfo:
+    """Accepte soit une session admin (cookie), soit un Bearer token == portal_api_key."""
+    settings = get_settings()
+    if credentials is not None:
+        if settings.portal_api_key and credentials.credentials == settings.portal_api_key:
+            return UserInfo(login="__api__", roles=[settings.oidc_admin_role])
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return await require_admin(request)
 
 
 async def require_admin(request: Request) -> UserInfo:

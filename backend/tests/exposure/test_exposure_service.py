@@ -48,7 +48,7 @@ async def test_expose_calls_caddy_upsert_route(data_root: Path) -> None:
         match_host="ws-alice-myapp.dev.yoops.org",
         upstream="192.168.1.50:41000",
     )
-    assert url == "https://ws-alice-myapp.dev.yoops.org"
+    assert url == "https://ws-alice-myapp.dev.yoops.org/?folder=/workspaces/alice-myapp"
 
 
 @pytest.mark.asyncio
@@ -60,7 +60,7 @@ async def test_expose_writes_hostname_and_url_to_routes_file(data_root: Path) ->
     assert route_file.exists()
     data = json.loads(route_file.read_text(encoding="utf-8"))
     assert data["hostname"] == "ws-alice-myapp.dev.yoops.org"
-    assert data["url"] == "https://ws-alice-myapp.dev.yoops.org"
+    assert data["url"] == "https://ws-alice-myapp.dev.yoops.org/?folder=/workspaces/alice-myapp"
 
 
 @pytest.mark.asyncio
@@ -78,7 +78,7 @@ async def test_expose_preserves_existing_fields(data_root: Path) -> None:
     assert data["status"] == "running"
     assert data["login"] == "alice"
     assert data["hostname"] == "ws-alice-myapp.dev.yoops.org"
-    assert data["url"] == "https://ws-alice-myapp.dev.yoops.org"
+    assert data["url"] == "https://ws-alice-myapp.dev.yoops.org/?folder=/workspaces/alice-myapp"
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,23 @@
+{
+  "args": [
+
+    {
+      "arg": "VMID",
+      "label_fr": "VM à supprimer",
+      "label_en": "VM to destroy",
+      "description_fr": "Sélectionner la VM à supprimer (VMs non-templates uniquement)",
+      "description_en": "Select the VM to destroy (non-template VMs only)",
+      "type": "select",
+      "required": true,
+      "options": [],
+      "option_script": "PATH=/usr/sbin:/usr/bin:$PATH; for f in /etc/pve/qemu-server/*.conf; do [ -f \"$f\" ] || continue; grep -q '^template: 1' \"$f\" && continue; vmid=$(basename \"$f\" .conf); name=$(awk '/^name:/{print $2; exit}' \"$f\"); echo \"${vmid}|${vmid} — ${name:-?}\"; done | sort -t'|' -k1 -n"
+    }
+
+  ],
+  "commands": [
+    "curl -fsSL -o /tmp/proxmox-destroy-vm-node.sh https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/proxmox-destroy-vm-node.sh",
+    "chmod +x /tmp/proxmox-destroy-vm-node.sh",
+    "/tmp/proxmox-destroy-vm-node.sh {VMID}"
+  ],
+  "tags": ["destroy_vm"]
+}

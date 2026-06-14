@@ -9,4 +9,5 @@ export interface Recipe {
   description: string
   installs_after: string[]
   requires_secrets: SecretRef[]
+  install_script?: string
 }

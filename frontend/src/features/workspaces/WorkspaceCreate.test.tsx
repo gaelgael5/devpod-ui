@@ -7,10 +7,10 @@ import { renderWithProviders } from '@/test/renderWithProviders'
 import WorkspaceCreate from './WorkspaceCreate'
 
 describe('WorkspaceCreate', () => {
-  it('affiche le formulaire', () => {
+  it('affiche le formulaire sans source pré-remplie', () => {
     renderWithProviders(<WorkspaceCreate />)
     expect(screen.getByLabelText(/name|nom/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/source/i)).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('github.com/org/repo')).not.toBeInTheDocument()
   })
 
   it('invalide un nom qui ne respecte pas la regex', async () => {
@@ -19,7 +19,7 @@ describe('WorkspaceCreate', () => {
     await user.type(screen.getByLabelText(/name|nom/i), '../etc')
     await user.click(screen.getByRole('button', { name: /create|créer/i }))
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument()
+      expect(screen.getAllByRole('alert').length).toBeGreaterThan(0)
     })
   })
 
@@ -27,10 +27,10 @@ describe('WorkspaceCreate', () => {
     const user = userEvent.setup()
     renderWithProviders(<WorkspaceCreate />, { route: '/workspaces/new' })
     await user.type(screen.getByLabelText(/name|nom/i), 'my-project')
-    await user.type(screen.getByLabelText(/source/i), 'github.com/org/repo')
+    await user.click(screen.getByRole('button', { name: /ajouter|add source/i }))
+    await user.type(screen.getByPlaceholderText('github.com/org/repo'), 'github.com/org/repo')
     await user.click(screen.getByRole('button', { name: /create|créer/i }))
     await waitFor(() => {
-      // La mutation a été appelée — pas d'erreur affichée
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
   })
@@ -44,10 +44,73 @@ describe('WorkspaceCreate', () => {
     const user = userEvent.setup()
     renderWithProviders(<WorkspaceCreate />)
     await user.type(screen.getByLabelText(/name|nom/i), 'myapp')
-    await user.type(screen.getByLabelText(/source/i), 'github.com/org/repo')
+    await user.click(screen.getByRole('button', { name: /ajouter|add source/i }))
+    await user.type(screen.getByPlaceholderText('github.com/org/repo'), 'github.com/org/repo')
     await user.click(screen.getByRole('button', { name: /create|créer/i }))
     await waitFor(() => {
       expect(screen.getByText(/invalid recipe/i)).toBeInTheDocument()
     })
+  })
+
+  it('permet d\'ajouter deux sources', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<WorkspaceCreate />)
+    const addBtn = screen.getByRole('button', { name: /ajouter|add source/i })
+    await user.click(addBtn)
+    await user.click(addBtn)
+    const urlInputs = screen.getAllByPlaceholderText('github.com/org/repo')
+    expect(urlInputs).toHaveLength(2)
+  })
+
+  it('soumet sans source (workspace sans git clone)', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<WorkspaceCreate />, { route: '/workspaces/new' })
+    await user.type(screen.getByLabelText(/name|nom/i), 'my-project')
+    // Pas de source ajoutée
+    await user.click(screen.getByRole('button', { name: /create|créer/i }))
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+  })
+
+  it('valide que l\'URL de la source est requise quand une ligne est ajoutée', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<WorkspaceCreate />)
+    await user.type(screen.getByLabelText(/name|nom/i), 'my-project')
+    await user.click(screen.getByRole('button', { name: /ajouter|add source/i }))
+    // URL laissée vide
+    await user.click(screen.getByRole('button', { name: /create|créer/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+    })
+  })
+
+  it('affiche le toggle Générer une clé SSH', () => {
+    renderWithProviders(<WorkspaceCreate />)
+    expect(
+      screen.getByRole('checkbox', { name: /générer.*clé ssh|generate.*ssh key/i })
+    ).toBeInTheDocument()
+  })
+
+  it('passe generate_ssh_key=true dans le corps /up quand la case SSH est cochée', async () => {
+    let capturedBody: unknown
+    server.use(
+      http.post('/me/workspaces/:name/up', async ({ request }) => {
+        capturedBody = await request.json()
+        return HttpResponse.json({ ws_id: 'alice-my-project', status: 'provisioning' }, { status: 202 })
+      })
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<WorkspaceCreate />, { route: '/workspaces/new' })
+
+    await user.type(screen.getByLabelText(/name|nom/i), 'my-project')
+    await user.click(screen.getByRole('checkbox', { name: /générer.*clé ssh|generate.*ssh key/i }))
+    await user.click(screen.getByRole('button', { name: /create|créer/i }))
+
+    await waitFor(() => {
+      expect(capturedBody).toBeDefined()
+    })
+    expect(capturedBody).toMatchObject({ generate_ssh_key: true })
   })
 })

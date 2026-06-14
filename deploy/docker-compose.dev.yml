@@ -6,13 +6,38 @@ services:
     image: workspace-portal:dev
     restart: unless-stopped
     env_file: /data/.env
-    ports:
-      - "80:8080"
     volumes:
       - /data:/data
+    ports:
+      # Plage de ports du tunnel SSH workspace — accès direct en dev (bypass DNS/Caddy)
+      # Correspond à la plage PortRegistry (40000-49999) ; 20 suffisent pour le dev local.
+      - "40000-40019:40000-40019"
+    networks:
+      - internal
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    env_file: /data/.env
+    volumes:
+      - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -7,10 +7,11 @@ import shlex
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth.rbac import UserInfo, require_user
+from ..config.models import SourceSpec, WorkspaceSpec
 from ..config.store import _data_root, load_global, safe_user_path
 from ..devpod.env import UnknownHostError
 from ..devpod.service import DevPodService
@@ -37,9 +38,13 @@ def _validate_name(name: str) -> None:
 class UpRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source: str
+    source: str = ""
+    branch: str = ""
+    git_credential: str = ""
     host: str = ""
     recipes: list[str] = Field(default_factory=list)
+    extra_sources: list[SourceSpec] = Field(default_factory=list)
+    generate_ssh_key: bool = False
 
 
 _service: DevPodService | None = None
@@ -77,10 +82,12 @@ def _build_service() -> DevPodService:
     if global_cfg.caddy.admin_api:
         data_root = _data_root()
         verify_uri = f"{global_cfg.server.external_url}/auth/caddy/verify"
+        dev_mode = global_cfg.server.dev_mode
         caddy = CaddyClient(
             admin_api=global_cfg.caddy.admin_api,
             http_client=httpx.AsyncClient(),
             verify_uri=verify_uri,
+            require_auth=not dev_mode,
         )
         registry = PortRegistry(data_root)
         exposure = ExposureService(
@@ -88,6 +95,10 @@ def _build_service() -> DevPodService:
             registry=registry,
             data_root=data_root,
             base_domain=global_cfg.server.base_domain,
+            url_scheme="http" if dev_mode else "https",
+            dev_mode=dev_mode,
+            external_url=global_cfg.server.external_url,
+            workspace_host=global_cfg.server.workspace_host,
         )
 
     return DevPodService(global_cfg=global_cfg, devpod_bin=devpod_bin, exposure=exposure)
@@ -129,16 +140,27 @@ def _resolve_feature_secrets(login: str, secret_refs: list[SecretRef]) -> dict[s
 async def workspace_up(
     name: str,
     req: UpRequest,
+    request: Request,
     user: UserInfo = Depends(require_user),
 ) -> dict[str, Any]:
-    from ..config.models import WorkspaceSpec
-
     _validate_name(name)
 
     # Validation des recipe IDs (avant tout accès disque)
     for rid in req.recipes:
         if not _RECIPE_ID_PATTERN.fullmatch(rid):
             raise HTTPException(status_code=422, detail=f"Invalid recipe id {rid!r}")
+
+    # Validation des sources supplémentaires
+    for idx, src in enumerate(req.extra_sources):
+        if not src.url:
+            raise HTTPException(
+                status_code=422, detail=f"extra_sources[{idx}].url must not be empty"
+            )
+        if src.url.startswith("-"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"extra_sources[{idx}].url must not start with '-'",
+            )
 
     # Résolution des recettes et de leurs secrets
     resolved_recipes: list[RecipeMeta] = []
@@ -178,17 +200,28 @@ async def workspace_up(
                 ) from exc
 
     try:
-        ws = WorkspaceSpec(name=name, source=req.source, host=req.host, recipes=req.recipes)
+        ws = WorkspaceSpec(
+            name=name,
+            source=req.source,
+            branch=req.branch,
+            git_credential=req.git_credential,
+            host=req.host,
+            recipes=req.recipes,
+            extra_sources=req.extra_sources,
+        )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     svc = _get_service()
+    request_host = request.headers.get("x-forwarded-host") or request.url.hostname or ""
     try:
         ws_id = await svc.up(
             login=user.login,
             ws_spec=ws,
             recipes=resolved_recipes or None,
             feature_env=feature_env or None,
+            generate_ssh_key=req.generate_ssh_key,
+            request_host=request_host,
         )
     except UnknownHostError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -232,3 +265,18 @@ async def workspace_status(
     ws_id = f"{user.login}-{name}"
     svc = _get_service()
     return await svc.status(login=user.login, ws_id=ws_id)
+
+
+@router.get("/workspaces/{name}/ssh-key")
+async def get_workspace_ssh_key(
+    name: str,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, str]:
+    _validate_name(name)
+    pub_path = safe_user_path(user.login, "keys", "workspaces", name) / "id_ed25519.pub"
+    if not pub_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="SSH key not generated for this workspace",
+        )
+    return {"public_key": pub_path.read_text(encoding="utf-8").strip()}
