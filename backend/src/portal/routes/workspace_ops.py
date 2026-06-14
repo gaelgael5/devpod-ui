@@ -96,6 +96,8 @@ def _build_service() -> DevPodService:
             data_root=data_root,
             base_domain=global_cfg.server.base_domain,
             url_scheme="http" if dev_mode else "https",
+            dev_mode=dev_mode,
+            external_url=global_cfg.server.external_url,
         )
 
     return DevPodService(global_cfg=global_cfg, devpod_bin=devpod_bin, exposure=exposure)

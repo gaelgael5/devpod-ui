@@ -8,6 +8,10 @@ services:
     env_file: /data/.env
     volumes:
       - /data:/data
+    ports:
+      # Plage de ports du tunnel SSH workspace — accès direct en dev (bypass DNS/Caddy)
+      # Correspond à la plage PortRegistry (40000-49999) ; 20 suffisent pour le dev local.
+      - "40000-40019:40000-40019"
     networks:
       - internal
     healthcheck:

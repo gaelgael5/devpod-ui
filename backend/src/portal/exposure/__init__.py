@@ -7,6 +7,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 import structlog
 
@@ -51,12 +52,16 @@ class ExposureService:
         data_root: Path,
         base_domain: str,
         url_scheme: str = "https",
+        dev_mode: bool = False,
+        external_url: str = "",
     ) -> None:
         self._caddy = caddy
         self._registry = registry
         self._data_root = data_root
         self._base_domain = base_domain
         self._url_scheme = url_scheme
+        self._dev_mode = dev_mode
+        self._external_url = external_url
 
     async def allocate_port(self, ws_id: str) -> int:
         """Délègue l'allocation de port au PortRegistry.
@@ -70,16 +75,29 @@ class ExposureService:
         return await self._registry.allocate(ws_id)
 
     async def expose(self, ws_id: str, node_ip: str, host_port: int) -> str:
-        """Crée la route Caddy et persiste les métadonnées d'exposition.
+        """Crée la route Caddy (prod) ou génère une URL directe (dev) et persiste les métadonnées.
+
+        En mode dev, bypasse Caddy : le tunnel SSH est déjà bindé sur 0.0.0.0:{host_port}
+        dans le container portal, exposé à l'hôte via docker-compose ports mapping.
+        En prod, crée la route Caddy subdomain-based habituelle.
 
         Args:
             ws_id: identifiant du workspace.
-            node_ip: adresse IP du nœud Docker hébergeant le workspace.
-            host_port: port hôte alloué (openvscode-server exposé par Docker).
+            node_ip: adresse IP/hostname du nœud (utilisé en prod uniquement).
+            host_port: port hôte alloué (40000-49999).
 
         Returns:
-            URL publique HTTPS du workspace.
+            URL publique du workspace.
         """
+        if self._dev_mode:
+            host = urlparse(self._external_url).hostname or "localhost"
+            url = f"http://{host}:{host_port}"
+            await asyncio.to_thread(
+                self._write_exposure, ws_id, hostname=f"{host}:{host_port}", url=url
+            )
+            _log.info("workspace_exposed", ws_id=ws_id, url=url)
+            return url
+
         route_id = f"ws-{ws_id}"
         match_host = f"{route_id}.{self._base_domain}"
         upstream = f"{node_ip}:{host_port}"
@@ -94,13 +112,16 @@ class ExposureService:
         return url
 
     async def unexpose(self, ws_id: str) -> None:
-        """Supprime la route Caddy et vide les métadonnées d'exposition.
+        """Supprime la route Caddy (prod) et vide les métadonnées d'exposition.
+
+        En mode dev, pas de route Caddy à supprimer.
 
         Args:
             ws_id: identifiant du workspace à désexposer.
         """
-        route_id = f"ws-{ws_id}"
-        await self._caddy.remove_route(route_id)
+        if not self._dev_mode:
+            route_id = f"ws-{ws_id}"
+            await self._caddy.remove_route(route_id)
         await asyncio.to_thread(self._clear_exposure, ws_id)
         _log.info("workspace_unexposed", ws_id=ws_id)
 
