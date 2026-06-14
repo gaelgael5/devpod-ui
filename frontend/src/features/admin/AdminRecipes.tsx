@@ -1,9 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, RefreshCw } from 'lucide-react'
-import Editor from 'react-simple-code-editor'
-import Prism from 'prismjs'
-import 'prismjs/components/prism-bash'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -285,30 +282,16 @@ export default function AdminRecipes() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>{t('admin.form.installScript')}</Label>
-              <div
-                className="bash-editor overflow-auto rounded-md border border-input bg-zinc-950 shadow-sm focus-within:ring-1 focus-within:ring-ring"
-                style={{ minHeight: '220px', maxHeight: '420px' }}
-              >
-                <Editor
-                  value={form.install_script}
-                  onValueChange={(v) => set('install_script', v)}
-                  highlight={(code) => {
-                    const grammar = Prism.languages['bash']
-                    if (!grammar) return code
-                    try {
-                      return Prism.highlight(code, grammar, 'bash')
-                    } catch {
-                      return code
-                    }
-                  }}
-                  padding={12}
-                  style={{
-                    color: '#d4d4d4',
-                    background: 'transparent',
-                    minHeight: '220px',
-                  }}
-                />
-              </div>
+              <textarea
+                value={form.install_script}
+                onChange={(e) => set('install_script', e.target.value)}
+                rows={12}
+                className="overflow-auto rounded-md border border-input bg-zinc-950 p-3 font-mono text-sm text-[#d4d4d4] shadow-sm outline-none focus:ring-1 focus:ring-ring resize-none"
+                spellCheck={false}
+                autoCapitalize="off"
+                autoComplete="off"
+                autoCorrect="off"
+              />
             </div>
             <DialogFooter>
               <Button
