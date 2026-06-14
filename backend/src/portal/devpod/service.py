@@ -131,8 +131,8 @@ class DevPodService:
         # Pour docker-tls : devcontainer.json généré localement, chemin absolu local valide.
         # Pour SSH : l'agent DevPod tourne sur la VM distante. --devcontainer-path y est
         #   résolu relativement à content/ → un chemin local au portail est inexploitable.
-        #   On utilise devpod port-forward après devpod up pour exposer le port 3000
-        #   sur localhost du portail, et Caddy route vers 127.0.0.1:{host_port}.
+        #   On utilise devpod ssh -L après devpod up pour exposer le port 3000
+        #   du container sur le portail, et Caddy route vers portal:{host_port}.
         dc_path: Path | None = None
         if host_cfg.type == "docker-tls":
             dc_path = self._write_devcontainer(
@@ -154,7 +154,7 @@ class DevPodService:
         if ws_spec.branch and ws_spec.source:
             devpod_source = f"{ws_spec.source}@{ws_spec.branch}"
 
-        # Pour SSH : le tunnel bind sur 0.0.0.0 dans le container portal ;
+        # Pour SSH : devpod ssh -L bind sur 0.0.0.0 dans le container portal ;
         # Caddy atteint portal:{host_port} via le réseau Docker interne.
         # Pour docker-tls : l'IP réelle du nœud Docker est utilisée directement.
         node_ip = self._resolve_node_ip(host_cfg)
@@ -373,31 +373,23 @@ class DevPodService:
         ssh_key_path: str = "",
     ) -> None:
         """
-        Lance un tunnel SSH direct pour exposer le port 3000 du devcontainer.
-        Bind sur 0.0.0.0:{host_port} (toutes interfaces) pour que Caddy
-        puisse atteindre portal:{host_port} via le réseau Docker interne.
+        Expose le port 3000 du devcontainer via `devpod ssh -L`.
+        devpod ssh connecte directement dans le container : localhost:3000
+        est donc bien VS Code server, pas localhost de la machine hôte SSH.
+        Bind sur 0.0.0.0:{host_port} pour que Caddy atteigne portal:{host_port}.
         """
-        if ssh_host:
-            if ssh_host.startswith("-") or ssh_user.startswith("-"):
-                raise ValueError(
-                    f"ssh_host/ssh_user must not start with '-': {ssh_host!r}/{ssh_user!r}"
-                )
-            # known_hosts persistant par IP : TOFU mais rejette les clés changées (MITM)
-            known_hosts = _data_root() / "ssh_known_hosts"
-            cmd = [
-                "ssh", "-N",
-                "-o", f"UserKnownHostsFile={known_hosts}",
-                "-o", "StrictHostKeyChecking=accept-new",
-                "-o", "ServerAliveInterval=30",
-                "-o", "ExitOnForwardFailure=yes",
-                "-L", f"0.0.0.0:{host_port}:localhost:3000",
-            ]
-            if ssh_key_path:
-                cmd += ["-i", ssh_key_path]
-            # '--' évite qu'une valeur commençant par '-' soit interprétée comme flag
-            cmd += ["--", f"{ssh_user}@{ssh_host}"]
-        else:
-            cmd = [*self._devpod_bin, "port-forward", ws_id, f"{host_port}:3000"]
+        # devpod ssh route la connexion jusqu'au container (SSH host → docker exec).
+        # -L 0.0.0.0:{host_port}:localhost:3000 : forward côté portal vers port 3000
+        # vu depuis l'intérieur du container (= VS Code server).
+        # sleep 86400 maintient la connexion SSH ouverte sans shell interactif.
+        cmd = [
+            *self._devpod_bin,
+            "ssh",
+            "-L", f"0.0.0.0:{host_port}:localhost:3000",
+            "--command", "sleep 86400",
+            "--start-services=false",
+            ws_id,
+        ]
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             env=env,
