@@ -180,6 +180,8 @@ def test_preview_recipe_sources_returns_parsed_recipes(tmp_path: Path) -> None:
     assert recipe["description"] == "Configure Git"
     assert recipe["version"] == "1.0.0"
     assert recipe["source_url"] == sh_url
+    assert "install_script" in recipe
+    assert len(recipe["install_script"]) > 0  # content was returned
 
 
 # Test 6: GET /admin/recipe-sources/preview — one failing source doesn't break others
