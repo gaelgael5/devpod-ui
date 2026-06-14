@@ -87,6 +87,7 @@
     },
     "addProxmox": "Add hypervisor",
     "editProxmox": "Edit hypervisor",
+    "editRecipe": "Edit recipe",
     "addHypervisorType": "Add hypervisor type",
     "editHypervisorType": "Edit type",
     "col": {

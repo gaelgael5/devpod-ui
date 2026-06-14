@@ -87,6 +87,7 @@
     },
     "addProxmox": "Ajout d'hyperviseur",
     "editProxmox": "Modifier l'hyperviseur",
+    "editRecipe": "Modifier la recette",
     "addHypervisorType": "Ajouter un type d'hyperviseur",
     "editHypervisorType": "Modifier le type",
     "col": {

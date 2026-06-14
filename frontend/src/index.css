@@ -67,3 +67,24 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Coloration syntaxique bash — éditeur de script install.sh */
+.bash-editor textarea,
+.bash-editor pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 0.8125rem !important;
+  line-height: 1.6 !important;
+  tab-size: 2 !important;
+}
+.bash-editor .token.comment,
+.bash-editor .token.prolog { color: #6a9955; }
+.bash-editor .token.string,
+.bash-editor .token.attr-value { color: #ce9178; }
+.bash-editor .token.keyword { color: #569cd6; }
+.bash-editor .token.builtin { color: #4ec9b0; }
+.bash-editor .token.function { color: #dcdcaa; }
+.bash-editor .token.variable { color: #9cdcfe; }
+.bash-editor .token.number { color: #b5cea8; }
+.bash-editor .token.operator { color: #d4d4d4; }
+.bash-editor .token.punctuation { color: #d4d4d4; }
+.bash-editor .token.shebang.important { color: #569cd6; font-weight: bold; }

@@ -1,5 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import Editor from 'react-simple-code-editor'
+import Prism from 'prismjs'
+import 'prismjs/components/prism-bash'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,39 +14,80 @@ import { useAdminRecipes, type RecipeCreateRequest } from './useAdminRecipes'
 
 const DEFAULT_SCRIPT = '#!/usr/bin/env bash\nset -e\necho "Installing..."\n'
 
-const EMPTY: RecipeCreateRequest = {
+interface FormState {
+  id: string
+  version: string
+  description: string
+  install_script: string
+}
+
+const EMPTY: FormState = {
   id: '',
   version: '1.0.0',
   description: '',
   install_script: DEFAULT_SCRIPT,
 }
 
+function recipeToForm(r: Recipe): FormState {
+  return {
+    id: r.id,
+    version: r.version,
+    description: r.description,
+    install_script: r.install_script ?? DEFAULT_SCRIPT,
+  }
+}
+
 export default function AdminRecipes() {
   const { t } = useTranslation()
-  const { recipesQuery, deleteRecipe, addRecipe } = useAdminRecipes()
+  const { recipesQuery, deleteRecipe, addRecipe, updateRecipe } = useAdminRecipes()
   const { data: recipes, isLoading, isError } = recipesQuery
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
-  const [form, setForm] = useState<RecipeCreateRequest>(EMPTY)
+  const [form, setForm] = useState<FormState>(EMPTY)
 
-  function set<K extends keyof RecipeCreateRequest>(k: K, v: RecipeCreateRequest[K]) {
-    setForm((f) => ({ ...f, [k]: v }))
+  const isEditing = editingId !== null
+  const isPending = addRecipe.isPending || updateRecipe.isPending
+
+  function openAdd() {
+    setEditingId(null)
+    setForm(EMPTY)
+    setOpen(true)
+  }
+
+  function openEdit(recipe: Recipe) {
+    setEditingId(recipe.id)
+    setForm(recipeToForm(recipe))
+    setOpen(true)
   }
 
   function handleClose(o: boolean) {
-    if (!o) setForm(EMPTY)
-    setOpen(o)
+    if (!o) {
+      setOpen(false)
+      setEditingId(null)
+      setForm(EMPTY)
+    } else {
+      setOpen(true)
+    }
+  }
+
+  function set<K extends keyof FormState>(k: K, v: FormState[K]) {
+    setForm((f) => ({ ...f, [k]: v }))
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    addRecipe.mutate(form, { onSuccess: () => handleClose(false) })
+    if (isEditing) {
+      updateRecipe.mutate(form, { onSuccess: () => handleClose(false) })
+    } else {
+      addRecipe.mutate(form as RecipeCreateRequest, { onSuccess: () => handleClose(false) })
+    }
   }
 
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{t('admin.sharedRecipes')}</h1>
-        <Button size="sm" onClick={() => setOpen(true)}>{t('admin.addRecipe')}</Button>
+        <Button size="sm" onClick={openAdd}>{t('admin.addRecipe')}</Button>
       </div>
 
       {isLoading && <p className="text-muted-foreground">…</p>}
@@ -56,15 +100,24 @@ export default function AdminRecipes() {
           <div key={recipe.id} className="rounded-lg border bg-card p-4">
             <div className="mb-1 flex items-start justify-between gap-2">
               <div className="font-medium">{recipe.id}</div>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-destructive hover:text-destructive"
-                onClick={() => deleteRecipe.mutate(recipe.id)}
-                disabled={deleteRecipe.isPending}
-              >
-                {t('workspaces.actions.delete')}
-              </Button>
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => openEdit(recipe)}
+                >
+                  {t('workspaces.actions.edit')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => deleteRecipe.mutate(recipe.id)}
+                  disabled={deleteRecipe.isPending}
+                >
+                  {t('workspaces.actions.delete')}
+                </Button>
+              </div>
             </div>
             <div className="text-sm text-muted-foreground">{recipe.description}</div>
             <div className="mt-2 text-xs text-muted-foreground">v{recipe.version}</div>
@@ -73,9 +126,11 @@ export default function AdminRecipes() {
       </div>
 
       <Dialog open={open} onOpenChange={handleClose}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{t('admin.addRecipe')}</DialogTitle>
+            <DialogTitle>
+              {isEditing ? t('admin.editRecipe') : t('admin.addRecipe')}
+            </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
@@ -87,43 +142,49 @@ export default function AdminRecipes() {
                 placeholder="my-tool"
                 pattern="^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$"
                 required
+                readOnly={isEditing}
+                className={isEditing ? 'opacity-60 cursor-not-allowed' : ''}
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="r-version">{t('admin.form.version')}</Label>
-              <Input
-                id="r-version"
-                value={form.version}
-                onChange={(e) => set('version', e.target.value)}
-                placeholder="1.0.0"
-                required
-              />
+            <div className="flex gap-4">
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Label htmlFor="r-version">{t('admin.form.version')}</Label>
+                <Input
+                  id="r-version"
+                  value={form.version}
+                  onChange={(e) => set('version', e.target.value)}
+                  placeholder="1.0.0"
+                  required
+                />
+              </div>
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Label htmlFor="r-desc">{t('admin.form.description')}</Label>
+                <Input
+                  id="r-desc"
+                  value={form.description}
+                  onChange={(e) => set('description', e.target.value)}
+                  placeholder="Description courte"
+                />
+              </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="r-desc">{t('admin.form.description')}</Label>
-              <Input
-                id="r-desc"
-                value={form.description}
-                onChange={(e) => set('description', e.target.value)}
-                placeholder="Description courte"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="r-script">{t('admin.form.installScript')}</Label>
-              <textarea
-                id="r-script"
-                value={form.install_script}
-                onChange={(e) => set('install_script', e.target.value)}
-                rows={8}
-                className="min-h-[120px] w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
-                required
-              />
+              <Label>{t('admin.form.installScript')}</Label>
+              <div className="bash-editor overflow-auto rounded-md border border-input bg-zinc-950 shadow-sm focus-within:ring-1 focus-within:ring-ring"
+                   style={{ minHeight: '220px', maxHeight: '420px' }}>
+                <Editor
+                  value={form.install_script}
+                  onValueChange={(v) => set('install_script', v)}
+                  highlight={(code) => Prism.highlight(code, Prism.languages.bash, 'bash')}
+                  padding={12}
+                  style={{ color: '#d4d4d4', background: 'transparent', minHeight: '220px' }}
+                />
+              </div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => handleClose(false)}>
                 {t('workspaces.confirm.cancel')}
               </Button>
-              <Button type="submit" disabled={addRecipe.isPending}>
+              <Button type="submit" disabled={isPending}>
                 {t('admin.form.save')}
               </Button>
             </DialogFooter>
