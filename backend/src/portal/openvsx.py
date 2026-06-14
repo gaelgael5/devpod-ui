@@ -144,10 +144,11 @@ class OpenVsxClient:
 
     async def readme(self, namespace: str, name: str) -> str:
         key = f"readme:{namespace}.{name}"
-        if cached := await self._readme_cache.get(key):
+        if (cached := await self._readme_cache.get(key)) is not None:
             return cached
         detail = await self.detail(namespace, name)
         if not detail.readme_url:
+            await self._readme_cache.set(key, "")
             return ""
         url = detail.readme_url
         try:
