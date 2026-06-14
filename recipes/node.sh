@@ -4,7 +4,7 @@
 #!/usr/bin/env bash
 set -e
 echo "Installing Node.js LTS via nvm..."
-export NVM_DIR="/usr/local/nvm"
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 mkdir -p "$NVM_DIR"
 curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 # shellcheck disable=SC1090
