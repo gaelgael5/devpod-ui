@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import respx
@@ -225,3 +226,74 @@ def test_preview_recipe_sources_failing_source_skipped(tmp_path: Path) -> None:
     data = resp.json()
     assert len(data["recipes"]) == 1
     assert data["recipes"][0]["name"] == "OK"
+
+
+# Test 8: POST /admin/recipe-sources/import — basic import writes recipe files and returns 201
+@respx.mock
+def test_import_recipe_from_source_basic(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_admin_app(tmp_path)
+
+    sh_url = "https://example.com/recipes/git.sh"
+    sh_content = (
+        "# name: Git\n"
+        "# description: Configure Git\n"
+        "# version: 1.0.0\n"
+        "#!/usr/bin/env bash\n"
+        "set -e\n"
+    )
+    respx.get(sh_url).mock(return_value=Response(200, text=sh_content))
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/admin/recipe-sources/import", json={"source_url": sh_url}
+        )
+
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["id"] == "git"
+    assert data["version"] == "1.0.0"
+    assert data["description"] == "Configure Git"
+
+    recipe_dir = tmp_path / "recipes" / "git"
+    assert recipe_dir.is_dir()
+    assert (recipe_dir / "recipe.meta.yaml").exists()
+    assert (recipe_dir / "devcontainer-feature.json").exists()
+    install_sh = recipe_dir / "install.sh"
+    assert install_sh.exists()
+    if sys.platform != "win32":
+        assert install_sh.stat().st_mode & 0o111  # executable bit set
+
+
+# Test 9: POST /admin/recipe-sources/import — collision → second import gets suffix -1
+@respx.mock
+def test_import_recipe_collision_generates_suffix(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_admin_app(tmp_path)
+
+    sh_url = "https://example.com/recipes/git.sh"
+    sh_content = (
+        "# name: Git\n"
+        "# description: Configure Git\n"
+        "# version: 1.0.0\n"
+        "#!/usr/bin/env bash\n"
+        "set -e\n"
+    )
+    respx.get(sh_url).mock(return_value=Response(200, text=sh_content))
+
+    with TestClient(app) as client:
+        resp1 = client.post(
+            "/admin/recipe-sources/import", json={"source_url": sh_url}
+        )
+        resp2 = client.post(
+            "/admin/recipe-sources/import", json={"source_url": sh_url}
+        )
+
+    assert resp1.status_code == 201
+    assert resp1.json()["id"] == "git"
+
+    assert resp2.status_code == 201
+    assert resp2.json()["id"] == "git-1"
+
+    assert (tmp_path / "recipes" / "git").is_dir()
+    assert (tmp_path / "recipes" / "git-1").is_dir()
