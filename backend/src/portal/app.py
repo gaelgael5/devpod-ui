@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import contextlib
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from pathlib import Path
 
 import structlog
@@ -21,7 +22,7 @@ from .routes.recipes import router_me as recipes_me_router
 from .routes.recipes import router_public as recipes_public_router
 from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
-from .routes.workspace_ops import router as workspace_ops_router
+from .routes.workspace_ops import _get_service, router as workspace_ops_router
 from .settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -56,6 +57,13 @@ class SPAMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+@contextlib.asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    with contextlib.suppress(Exception):
+        await _get_service().reconcile_port_forwards()
+    yield
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
 
@@ -71,7 +79,7 @@ def create_app() -> FastAPI:
                 "Starting without a session secret key is not allowed in production."
             )
 
-    app = FastAPI(title="workspace-portal", version="0.1.0")
+    app = FastAPI(title="workspace-portal", version="0.1.0", lifespan=_lifespan)
 
     # Starlette insère chaque middleware en tête de liste (prepend).
     # Ordre d'exécution requête : SessionMiddleware → SPAMiddleware → Router.

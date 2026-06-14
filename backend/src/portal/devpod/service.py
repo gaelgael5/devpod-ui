@@ -185,12 +185,59 @@ class DevPodService:
                 ssh_key_path=host_cfg.key_path or "",
                 request_host=request_host,
                 workspace_folder=workspace_folder,
+                host_name=host_cfg.name,
             )
         )
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
         _log.info("workspace_up_started", ws_id=ws_id, login=login)
         return ws_id
+
+    async def reconcile_port_forwards(self) -> None:
+        """Au démarrage, relance les tunnels SSH des workspaces running persistés sur disque.
+
+        Si le container portal redémarre, les process ssh -L sont perdus mais le devcontainer
+        reste actif sur le nœud distant.  Cette méthode relit les routes/*.json et rétablit
+        les tunnels manquants sans relancer devpod up.
+        """
+        routes_dir = _data_root() / "routes"
+        if not routes_dir.exists():
+            return
+        global_cfg = load_global()
+        minimal_env = {"HOME": os.environ.get("HOME", "/root")}
+        for f in routes_dir.glob("*.json"):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if data.get("status") != "running" or data.get("host_type") != "ssh":
+                continue
+            ws_id: str = data.get("ws_id", "")
+            host_port_raw = data.get("host_port")
+            host_name: str = data.get("host_name", "")
+            if not ws_id or host_port_raw is None:
+                continue
+            host_port = int(host_port_raw)
+            try:
+                host_cfg = _find_host(host_name, global_cfg)
+            except Exception:
+                _log.warning("reconcile_host_not_found", ws_id=ws_id, host_name=host_name)
+                continue
+            ssh_user, ssh_host = "root", ""
+            if host_cfg.address:
+                if "@" in host_cfg.address:
+                    ssh_user, ssh_host = host_cfg.address.split("@", 1)
+                else:
+                    ssh_host = host_cfg.address
+            _log.info("reconcile_port_forward", ws_id=ws_id, host_port=host_port)
+            try:
+                await self._start_port_forward(
+                    ws_id, minimal_env, host_port,
+                    ssh_host=ssh_host, ssh_user=ssh_user,
+                    ssh_key_path=host_cfg.key_path or "",
+                )
+            except Exception as exc:
+                _log.warning("reconcile_port_forward_failed", ws_id=ws_id, error=str(exc))
 
     async def stop(self, login: str, ws_id: str) -> None:
         """Arrête un workspace en cours d'exécution."""
@@ -438,6 +485,7 @@ class DevPodService:
         ssh_key_path: str = "",
         request_host: str = "",
         workspace_folder: str = "",
+        host_name: str = "",
     ) -> None:
         """Tâche de fond : exécute devpod up, expose le workspace si running."""
         try:
@@ -463,7 +511,11 @@ class DevPodService:
             # Seul le returncode est logué — la valeur des env vars (secrets) n'est jamais écrite
             returncode = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
             status = "running" if returncode == 0 else "failed"
-            extra: dict[str, Any] = {"returncode": returncode}
+            extra: dict[str, Any] = {
+                "returncode": returncode,
+                "host_type": host_type,
+                "host_name": host_name,
+            }
 
             if status == "running" and host_type == "ssh" and host_port is not None:
                 await self._start_port_forward(
