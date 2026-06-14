@@ -57,6 +57,7 @@
     "logs": {
       "button": "Logs",
       "title": "Logs — {{name}}",
+      "description": "Logs en temps réel du workspace {{name}}",
       "empty": "Aucun log disponible pour ce workspace.",
       "loading": "Chargement…"
     }

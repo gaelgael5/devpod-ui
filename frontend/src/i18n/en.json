@@ -57,6 +57,7 @@
     "logs": {
       "button": "Logs",
       "title": "Logs — {{name}}",
+      "description": "Live logs for workspace {{name}}",
       "empty": "No logs available for this workspace.",
       "loading": "Loading…"
     }

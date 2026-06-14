@@ -34,7 +34,7 @@ export default function LogDialog({ workspaceName, open, onOpenChange }: Props) 
             {t('workspaces.logs.title', { name: workspaceName })}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            {t('workspaces.logs.title', { name: workspaceName })}
+            {t('workspaces.logs.description', { name: workspaceName })}
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-[60vh] overflow-auto rounded-md bg-zinc-950 p-3">
