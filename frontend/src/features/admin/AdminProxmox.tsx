@@ -251,12 +251,15 @@ export default function AdminProxmox() {
   ) => (
     <div className="flex flex-col gap-1.5">
       <Label>{t('admin.form.hypervisorType')}</Label>
-      <Select value={value} onValueChange={onChange}>
+      <Select
+        value={value || '__none__'}
+        onValueChange={(v) => onChange(v === '__none__' ? '' : v)}
+      >
         <SelectTrigger>
           <SelectValue placeholder={t('admin.form.hypervisorTypePlaceholder')} />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="">{t('admin.form.hypervisorTypeNone')}</SelectItem>
+          <SelectItem value="__none__">{t('admin.form.hypervisorTypeNone')}</SelectItem>
           {hypervisorTypes.map((ht) => (
             <SelectItem key={ht.name} value={ht.name}>{ht.name}</SelectItem>
           ))}
