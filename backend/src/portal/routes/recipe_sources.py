@@ -67,6 +67,7 @@ async def get_recipe_sources(
 
 
 _HEADER_RE = re.compile(r"^#\s*(name|description|version)\s*:\s*(.+)$", re.MULTILINE)
+_SH_FNAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*\.sh$")
 
 
 def _parse_sh_headers(content: str) -> dict[str, str]:
@@ -92,6 +93,9 @@ async def _preview_one_source(
     for line in toc.splitlines():
         fname = line.strip()
         if not fname or not fname.endswith(".sh"):
+            continue
+        if not _SH_FNAME_RE.fullmatch(fname):
+            _log.warning("recipe_sh_invalid_filename", fname=fname)
             continue
         sh_url = f"{base}/{fname}"
         try:

@@ -184,6 +184,24 @@ def test_preview_recipe_sources_returns_parsed_recipes(tmp_path: Path) -> None:
     assert len(recipe["install_script"]) > 0  # content was returned
 
 
+# Test 7: GET /admin/recipe-sources/preview — path traversal filename in toc.txt is rejected
+@respx.mock
+def test_preview_rejects_path_traversal_filename(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_admin_app(tmp_path)
+
+    toc_url = "https://example.com/recipes/toc.txt"
+    # toc.txt contains a path traversal filename — must be silently dropped
+    respx.get(toc_url).mock(return_value=Response(200, text="../../../etc/passwd.sh\n"))
+
+    with TestClient(app) as client:
+        client.put("/admin/recipe-sources", json={"sources": [toc_url]})
+        resp = client.get("/admin/recipe-sources/preview")
+
+    assert resp.status_code == 200
+    assert resp.json()["recipes"] == []  # invalid filename rejected
+
+
 # Test 6: GET /admin/recipe-sources/preview — one failing source doesn't break others
 @respx.mock
 def test_preview_recipe_sources_failing_source_skipped(tmp_path: Path) -> None:
