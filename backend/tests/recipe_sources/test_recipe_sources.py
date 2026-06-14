@@ -297,3 +297,55 @@ def test_import_recipe_collision_generates_suffix(tmp_path: Path) -> None:
 
     assert (tmp_path / "recipes" / "git").is_dir()
     assert (tmp_path / "recipes" / "git-1").is_dir()
+
+
+# Test 10: POST /admin/recipe-sources/import — SSRF: internal URL is rejected with 422
+def test_import_rejects_internal_url(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_admin_app(tmp_path)
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/admin/recipe-sources/import",
+            json={"source_url": "http://localhost/admin/secret"},
+        )
+
+    assert resp.status_code == 422
+    assert "blocked" in resp.json()["detail"].lower()
+
+
+# Test 11: POST /admin/recipe-sources/import — 502 when remote fetch returns an error
+@respx.mock
+def test_import_recipe_fetch_failure_returns_502(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_admin_app(tmp_path)
+
+    sh_url = "https://example.com/broken.sh"
+    respx.get(sh_url).mock(return_value=Response(500))
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/admin/recipe-sources/import",
+            json={"source_url": sh_url},
+        )
+
+    assert resp.status_code == 502
+
+
+# Test 12: POST /admin/recipe-sources/import — 422 when recipe id derived from URL is invalid
+@respx.mock
+def test_import_recipe_invalid_id_rejected(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_admin_app(tmp_path)
+
+    # Filename "UPPERCASE.sh" → id "UPPERCASE" → invalid (must be lowercase)
+    sh_url = "https://example.com/UPPERCASE.sh"
+    respx.get(sh_url).mock(return_value=Response(200, text="#!/usr/bin/env bash\n"))
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/admin/recipe-sources/import",
+            json={"source_url": sh_url},
+        )
+
+    assert resp.status_code == 422

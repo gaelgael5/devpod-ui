@@ -9,6 +9,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import structlog
@@ -23,6 +24,8 @@ from ..recipes.models import _RECIPE_ID_RE, RecipeMeta
 _log = structlog.get_logger(__name__)
 
 router_admin = APIRouter(tags=["recipe-sources"])
+
+_BLOCKED_HOSTS = ("localhost", "127.0.0.1", "::1", "0.0.0.0", "169.254.")
 
 _DEFAULT_SOURCE = (
     "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/recipes/toc.txt"
@@ -156,6 +159,8 @@ def _unique_recipe_id(base_id: str, shared_dir: Path) -> str:
     counter = 1
     while (shared_dir / f"{base_id}-{counter}").exists():
         counter += 1
+        if counter > 100:
+            raise ValueError(f"Too many collisions for recipe id {base_id!r}")
     return f"{base_id}-{counter}"
 
 
@@ -192,6 +197,13 @@ async def import_recipe_from_source(
     body: RecipeImportRequest,
     user: UserInfo = Depends(require_admin),
 ) -> dict[str, Any]:
+    parsed = urlparse(body.source_url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=422, detail="URL must use http or https scheme")
+    hostname = (parsed.hostname or "").lower()
+    if any(hostname == h or hostname.startswith(h) for h in _BLOCKED_HOSTS):
+        raise HTTPException(status_code=422, detail="URL points to a blocked internal address")
+
     async with httpx.AsyncClient() as http:
         try:
             content = await _fetch_text(http, body.source_url)
