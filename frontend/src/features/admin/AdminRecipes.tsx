@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import type { Recipe } from '@/features/recipes/types'
 import { useAdminRecipes, type RecipeCreateRequest } from './useAdminRecipes'
@@ -212,25 +212,34 @@ export default function AdminRecipes() {
           {recipes?.map((recipe: Recipe) => (
             <div key={recipe.id} className="rounded-lg border bg-card p-4">
               <div className="mb-1 flex items-start justify-between gap-2">
-                <div className="font-medium">{recipe.id}</div>
-                <div className="flex gap-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => openEdit(recipe)}
-                  >
-                    {t('workspaces.actions.edit')}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => deleteRecipe.mutate(recipe.id)}
-                    disabled={deleteRecipe.isPending}
-                  >
-                    {t('workspaces.actions.delete')}
-                  </Button>
+                <div>
+                  <div className="font-medium">{recipe.id}</div>
+                  {recipe.builtin && (
+                    <span className="mt-0.5 inline-block rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                      {t('admin.builtinBadge')}
+                    </span>
+                  )}
                 </div>
+                {!recipe.builtin && (
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => openEdit(recipe)}
+                    >
+                      {t('workspaces.actions.edit')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => deleteRecipe.mutate(recipe.id)}
+                      disabled={deleteRecipe.isPending}
+                    >
+                      {t('workspaces.actions.delete')}
+                    </Button>
+                  </div>
+                )}
               </div>
               <div className="text-sm text-muted-foreground">{recipe.description}</div>
               <div className="mt-2 text-xs text-muted-foreground">v{recipe.version}</div>
@@ -246,6 +255,9 @@ export default function AdminRecipes() {
             <DialogTitle>
               {isEditing ? t('admin.editRecipe') : t('admin.addRecipe')}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              {t('admin.recipeDialogDescription')}
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
@@ -289,9 +301,15 @@ export default function AdminRecipes() {
                 <Editor
                   value={form.install_script}
                   onValueChange={(v) => set('install_script', v)}
-                  highlight={(code) =>
-                    Prism.highlight(code, Prism.languages.bash, 'bash')
-                  }
+                  highlight={(code) => {
+                    const grammar = Prism.languages['bash']
+                    if (!grammar) return code
+                    try {
+                      return Prism.highlight(code, grammar, 'bash')
+                    } catch {
+                      return code
+                    }
+                  }}
                   padding={12}
                   style={{
                     color: '#d4d4d4',

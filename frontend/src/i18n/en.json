@@ -91,6 +91,8 @@
     "deleteSource": "Remove source",
     "recipeImported": "Recipe \"{{id}}\" imported",
     "refreshGallery": "Refresh",
+    "builtinBadge": "Built-in",
+    "recipeDialogDescription": "Shared recipe management form.",
     "generate": {
       "btn": "Generate",
       "selectNode": "Select a hypervisor",

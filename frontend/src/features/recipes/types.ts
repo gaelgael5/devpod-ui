@@ -10,4 +10,5 @@ export interface Recipe {
   installs_after: string[]
   requires_secrets: SecretRef[]
   install_script?: string
+  builtin?: boolean
 }
