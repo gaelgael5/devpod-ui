@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -20,8 +21,9 @@ export default function OrderedRecipePicker({ recipes, selected, onChange }: Pro
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
 
-  const recipeById = new Map(recipes.map((r) => [r.id, r]))
-  const available = recipes.filter((r) => !selected.includes(r.id))
+  const selectedSet = useMemo(() => new Set(selected), [selected])
+  const recipeById = useMemo(() => new Map(recipes.map((r) => [r.id, r])), [recipes])
+  const available = useMemo(() => recipes.filter((r) => !selectedSet.has(r.id)), [recipes, selectedSet])
 
   function add(id: string) {
     onChange([...selected, id])
@@ -58,7 +60,7 @@ export default function OrderedRecipePicker({ recipes, selected, onChange }: Pro
                   variant="ghost"
                   className="h-6 w-6 shrink-0"
                   onClick={() => remove(id)}
-                  aria-label={`Retirer ${id}`}
+                  aria-label={t('workspaces.form.removeRecipeLabel', { id })}
                 >
                   <X className="h-3.5 w-3.5" />
                 </Button>
@@ -83,6 +85,9 @@ export default function OrderedRecipePicker({ recipes, selected, onChange }: Pro
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{t('workspaces.form.addRecipe')}</DialogTitle>
+            <DialogDescription className="sr-only">
+              {t('workspaces.form.addRecipe')}
+            </DialogDescription>
           </DialogHeader>
           {available.length === 0 ? (
             <p className="text-sm text-muted-foreground">
