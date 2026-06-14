@@ -67,9 +67,10 @@ def _validate_recipe_id(recipe_id: str) -> None:
 async def list_recipes(user: UserInfo = Depends(require_user)) -> list[dict[str, Any]]:
     """Liste les recettes partagées + personnelles visibles par l'utilisateur."""
     data_root = _data_root()
-    registry = RecipeRegistry(shared_dir=data_root / "recipes")
-    shared = registry.load_shared()
+    shared_dir = data_root / "recipes"
     personal_dir = safe_user_path(user.login, "recipes")
+    registry = RecipeRegistry(builtin_dir=None, shared_dir=shared_dir)
+    shared = registry.load_shared()
     personal = registry.load_dir(personal_dir)
     available = {**shared, **personal}
     return [m.model_dump() for m in available.values()]

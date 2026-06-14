@@ -55,7 +55,7 @@ _recipe_registry: RecipeRegistry | None = None
 def _get_recipe_registry() -> RecipeRegistry:
     global _recipe_registry
     if _recipe_registry is None:
-        _recipe_registry = RecipeRegistry(shared_dir=_data_root() / "recipes")
+        _recipe_registry = RecipeRegistry(builtin_dir=None, shared_dir=_data_root() / "recipes")
     return _recipe_registry
 
 
