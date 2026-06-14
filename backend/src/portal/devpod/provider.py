@@ -37,17 +37,21 @@ def _ssh_provider_name(host_name: str) -> str:
     return f"ssh-{safe}"
 
 
-async def _set_provider_ssh_key(
+async def _update_provider_ssh_options(
     cmd: list[str],
     env: dict[str, str],
     provider_name: str,
     ssh_key_path: str,
+    host_value: str,
     login: str,
 ) -> None:
-    """Met à jour EXTRA_FLAGS sur un provider SSH existant pour injecter la clé privée."""
+    """Met à jour HOST et EXTRA_FLAGS sur un provider SSH existant."""
+    args = [*cmd, "provider", "set-options", provider_name,
+            "--option", f"HOST={host_value}"]
+    if ssh_key_path:
+        args += ["--option", f"EXTRA_FLAGS=-i {ssh_key_path}"]
     set_proc = await asyncio.create_subprocess_exec(
-        *cmd, "provider", "set-options", provider_name,
-        "--option", f"EXTRA_FLAGS=-i {ssh_key_path}",
+        *args,
         env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -57,7 +61,7 @@ async def _set_provider_ssh_key(
         err = stderr_bytes.decode(errors="replace").strip()
         _log.warning("provider_set_options_failed", login=login, provider=provider_name, error=err)
     else:
-        _log.debug("provider_ssh_key_set", login=login, provider=provider_name)
+        _log.debug("provider_ssh_options_updated", login=login, provider=provider_name)
 
 
 async def ensure_provider(
@@ -116,9 +120,10 @@ async def ensure_provider(
 
     if provider_name in existing:
         _log.debug("provider_already_present", login=login, provider=provider_name)
-        # Provider déjà présent — s'assurer que la clé SSH est à jour (peut avoir changé)
-        if host_type == "ssh" and ssh_key_path:
-            await _set_provider_ssh_key(cmd, env, provider_name, ssh_key_path, login)
+        # Provider déjà présent — synchroniser HOST + EXTRA_FLAGS (IP ou clé peuvent avoir changé)
+        if host_type == "ssh":
+            host_value = f"{ssh_user}@{ssh_host}" if ssh_user else ssh_host
+            await _update_provider_ssh_options(cmd, env, provider_name, ssh_key_path, host_value, login)
         return provider_name
 
     _log.info("provider_add", login=login, provider=provider_name)
