@@ -218,3 +218,25 @@ async def test_readme_returns_empty_string_when_no_readme_url():
 
     assert content == ""
     assert call_count == 1  # uniquement l'appel detail, pas de fetch readme
+
+
+async def test_readme_content_cached_after_first_fetch():
+    """Deux appels readme identiques → le contenu est mis en cache (1 seul fetch markdown)."""
+    readme_fetch_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal readme_fetch_count
+        if "/api/" in str(request.url):
+            # appel detail
+            return httpx.Response(200, json=DETAIL_PAYLOAD)
+        # appel readme content (https://open-vsx.org/readme.md)
+        readme_fetch_count += 1
+        return httpx.Response(200, text="# Python README")
+
+    client = _make_client(handler)
+    content1 = await client.readme("ms-python", "python")
+    content2 = await client.readme("ms-python", "python")
+
+    assert content1 == "# Python README"
+    assert content2 == "# Python README"
+    assert readme_fetch_count == 1  # contenu fetché une seule fois

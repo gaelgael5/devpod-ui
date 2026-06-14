@@ -19,7 +19,7 @@ _log = structlog.get_logger(__name__)
 
 
 class OpenVsxSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="OPENVSX_")
+    model_config = SettingsConfigDict(env_prefix="OPENVSX_", extra="forbid")
 
     base_url: str = "https://open-vsx.org"
     timeout_s: float = 10.0
@@ -90,6 +90,7 @@ class OpenVsxClient:
         self._http = http
         self._search_cache: _TtlCache[PluginSearchResult] = _TtlCache(settings.cache_ttl_s)
         self._detail_cache: _TtlCache[PluginDetail] = _TtlCache(settings.cache_ttl_s)
+        self._readme_cache: _TtlCache[str] = _TtlCache(settings.cache_ttl_s)
 
     async def search(
         self, query: str, sort: str = "relevance", offset: int = 0, size: int = 24
@@ -142,12 +143,25 @@ class OpenVsxClient:
         return detail
 
     async def readme(self, namespace: str, name: str) -> str:
+        key = f"readme:{namespace}.{name}"
+        if cached := await self._readme_cache.get(key):
+            return cached
         detail = await self.detail(namespace, name)
         if not detail.readme_url:
             return ""
-        resp = await self._http.get(detail.readme_url, timeout=self._s.timeout_s)
-        resp.raise_for_status()
-        return resp.text
+        url = detail.readme_url
+        try:
+            resp = await self._http.get(url, timeout=self._s.timeout_s)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            _log.warning("openvsx.readme_http_error", url=url, status=exc.response.status_code)
+            raise
+        except httpx.HTTPError as exc:
+            _log.error("openvsx.readme_unreachable", url=url, error=str(exc))
+            raise
+        content = resp.text
+        await self._readme_cache.set(key, content)
+        return content
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         url = f"{self._s.base_url}{path}"
