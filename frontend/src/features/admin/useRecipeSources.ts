@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { apiFetchJson } from '@/shared/api/client'
 
 export interface RemoteRecipe {
@@ -13,6 +14,7 @@ export interface RemoteRecipe {
 
 export function useRecipeSources() {
   const qc = useQueryClient()
+  const { t } = useTranslation()
 
   const sourcesQuery = useQuery<{ sources: string[] }>({
     queryKey: ['admin', 'recipe-sources'],
@@ -46,7 +48,7 @@ export function useRecipeSources() {
         body: JSON.stringify({ source_url }),
       }),
     onSuccess: (data) => {
-      toast.success(`Recette "${data.id}" importée`)
+      toast.success(t('admin.recipeImported', { id: data.id }))
       qc.invalidateQueries({ queryKey: ['admin', 'recipes'] })
       qc.invalidateQueries({ queryKey: ['admin', 'recipe-sources', 'preview'] })
     },

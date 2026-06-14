@@ -119,7 +119,7 @@ export default function AdminRecipes() {
                 size="icon"
                 variant="ghost"
                 onClick={() => removeSource(idx)}
-                aria-label="Supprimer la source"
+                aria-label={t('admin.deleteSource')}
               >
                 <Trash2 className="h-4 w-4 text-destructive" />
               </Button>

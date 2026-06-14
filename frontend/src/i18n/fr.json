@@ -78,6 +78,8 @@
     "addSource": "Ajouter",
     "importRecipe": "Importer",
     "importing": "Import…",
+    "deleteSource": "Supprimer la source",
+    "recipeImported": "Recette \"{{id}}\" importée",
     "refreshGallery": "Rafraîchir",
     "generate": {
       "btn": "Générer",
