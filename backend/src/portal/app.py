@@ -4,6 +4,7 @@ import contextlib
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from pathlib import Path
 
+import httpx
 import structlog
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
@@ -16,6 +17,8 @@ from .auth.router import router as auth_router
 from .routes.admin import router as admin_router
 from .routes.me import router as me_router
 from .routes.nodes import router as nodes_router
+from .routes.plugins import get_openvsx
+from .routes.plugins import router as plugins_router
 from .routes.proxmox import router as proxmox_router
 from .routes.recipe_sources import router_admin as recipe_sources_admin_router
 from .routes.recipes import router_admin as recipes_admin_router
@@ -61,9 +64,14 @@ class SPAMiddleware(BaseHTTPMiddleware):
 
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    from .openvsx import OpenVsxClient, OpenVsxSettings
+
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()
-    yield
+    async with httpx.AsyncClient(headers={"User-Agent": "devpod-ui/1.0"}) as http:
+        client = OpenVsxClient(OpenVsxSettings(), http)
+        app.dependency_overrides[get_openvsx] = lambda: client
+        yield
 
 
 def create_app() -> FastAPI:
@@ -98,6 +106,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(me_router, prefix="/me")
     app.include_router(workspace_ops_router, prefix="/me")
+    app.include_router(plugins_router)
     app.include_router(recipes_public_router)
     app.include_router(recipes_me_router, prefix="/me")
     app.include_router(admin_router, prefix="/admin")
