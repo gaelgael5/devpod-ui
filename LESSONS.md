@@ -21,3 +21,15 @@ Un import d'icône inexistante donne `undefined` au runtime → le composant Rea
 
 ## [frontend] DialogFooter avec 3 boutons : le premier est caché en viewport étroit
 `DialogFooter` utilise `flex-col-reverse` sous le breakpoint `sm` (640px). Avec 3 boutons [Test, Cancel, Save], l'ordre visuel devient [Save, Cancel, Test] et Test peut être tronqué si le dialog est haut. Utiliser un `div` custom avec `sm:justify-between` : bouton test à gauche, Cancel+Save à droite.
+
+## [openvsx] Cache TTL par-process
+Avec plusieurs workers uvicorn, chaque worker a son propre cache. Acceptable pour un proxy Open VSX (pas d'état métier), mais à documenter si on passe à un déploiement multi-worker.
+
+## [openvsx] Ordre routes FastAPI
+Déclarer `/{ns}/{name}/readme` AVANT `/{ns}/{name}` dans le router, sinon FastAPI interprète "readme" comme valeur du paramètre `name`.
+
+## [openvsx] Préfixe routes
+Adapter `/api/plugins` en `/plugins` pour cohérence avec les autres routes du projet (aucun autre router n'utilise de préfixe `/api/`).
+
+## [openvsx] env_prefix pydantic-settings
+`OpenVsxSettings` utilise `OPENVSX_` — si un test lit ces variables d'env, utiliser `monkeypatch.setenv` pour garantir l'isolation (pas `os.environ` direct).
