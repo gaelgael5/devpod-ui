@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import os
+import socket
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import respx
 import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import Response
+
+# Mock address returned for "safe" public hostnames (e.g. example.com, other.org…)
+_MOCK_PUBLIC_ADDR = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+# Mock address that triggers the SSRF block (private RFC-1918 range)
+_MOCK_INTERNAL_ADDR = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.1", 0))]
 
 _DEFAULT_SOURCE = (
     "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/recipes/toc.txt"
@@ -112,8 +119,12 @@ def test_put_recipe_sources_replaces_list(tmp_path: Path) -> None:
         "https://example.com/toc.txt",
         "https://other.org/recipes/toc.txt",
     ]
-    with TestClient(app) as client:
-        resp = client.put("/admin/recipe-sources", json={"sources": new_sources})
+    with patch(
+        "portal.routes.recipe_sources._socket.getaddrinfo",
+        return_value=_MOCK_PUBLIC_ADDR,
+    ):
+        with TestClient(app) as client:
+            resp = client.put("/admin/recipe-sources", json={"sources": new_sources})
     assert resp.status_code == 200
     data = resp.json()
     assert data["sources"] == new_sources
@@ -130,10 +141,14 @@ def test_get_after_put_returns_updated_sources(tmp_path: Path) -> None:
     _write_global_config(tmp_path)
     app = _make_admin_app(tmp_path)
     new_sources = ["https://custom.example.com/toc.txt"]
-    with TestClient(app) as client:
-        put_resp = client.put("/admin/recipe-sources", json={"sources": new_sources})
-        assert put_resp.status_code == 200
-        get_resp = client.get("/admin/recipe-sources")
+    with patch(
+        "portal.routes.recipe_sources._socket.getaddrinfo",
+        return_value=_MOCK_PUBLIC_ADDR,
+    ):
+        with TestClient(app) as client:
+            put_resp = client.put("/admin/recipe-sources", json={"sources": new_sources})
+            assert put_resp.status_code == 200
+            get_resp = client.get("/admin/recipe-sources")
     assert get_resp.status_code == 200
     assert get_resp.json()["sources"] == new_sources
 
@@ -167,9 +182,13 @@ def test_preview_recipe_sources_returns_parsed_recipes(tmp_path: Path) -> None:
     respx.get(toc_url).mock(return_value=Response(200, text="git.sh\n"))
     respx.get(sh_url).mock(return_value=Response(200, text=sh_content))
 
-    with TestClient(app) as client:
-        client.put("/admin/recipe-sources", json={"sources": [toc_url]})
-        resp = client.get("/admin/recipe-sources/preview")
+    with patch(
+        "portal.routes.recipe_sources._socket.getaddrinfo",
+        return_value=_MOCK_PUBLIC_ADDR,
+    ):
+        with TestClient(app) as client:
+            client.put("/admin/recipe-sources", json={"sources": [toc_url]})
+            resp = client.get("/admin/recipe-sources/preview")
 
     assert resp.status_code == 200
     data = resp.json()
@@ -195,9 +214,13 @@ def test_preview_rejects_path_traversal_filename(tmp_path: Path) -> None:
     # toc.txt contains a path traversal filename — must be silently dropped
     respx.get(toc_url).mock(return_value=Response(200, text="../../../etc/passwd.sh\n"))
 
-    with TestClient(app) as client:
-        client.put("/admin/recipe-sources", json={"sources": [toc_url]})
-        resp = client.get("/admin/recipe-sources/preview")
+    with patch(
+        "portal.routes.recipe_sources._socket.getaddrinfo",
+        return_value=_MOCK_PUBLIC_ADDR,
+    ):
+        with TestClient(app) as client:
+            client.put("/admin/recipe-sources", json={"sources": [toc_url]})
+            resp = client.get("/admin/recipe-sources/preview")
 
     assert resp.status_code == 200
     assert resp.json()["recipes"] == []  # invalid filename rejected
@@ -218,9 +241,13 @@ def test_preview_recipe_sources_failing_source_skipped(tmp_path: Path) -> None:
     respx.get(ok_sh_url).mock(return_value=Response(200, text=sh_content))
     respx.get(bad_toc).mock(return_value=Response(500))
 
-    with TestClient(app) as client:
-        client.put("/admin/recipe-sources", json={"sources": [good_toc, bad_toc]})
-        resp = client.get("/admin/recipe-sources/preview")
+    with patch(
+        "portal.routes.recipe_sources._socket.getaddrinfo",
+        return_value=_MOCK_PUBLIC_ADDR,
+    ):
+        with TestClient(app) as client:
+            client.put("/admin/recipe-sources", json={"sources": [good_toc, bad_toc]})
+            resp = client.get("/admin/recipe-sources/preview")
 
     assert resp.status_code == 200
     data = resp.json()
@@ -244,10 +271,14 @@ def test_import_recipe_from_source_basic(tmp_path: Path) -> None:
     )
     respx.get(sh_url).mock(return_value=Response(200, text=sh_content))
 
-    with TestClient(app) as client:
-        resp = client.post(
-            "/admin/recipe-sources/import", json={"source_url": sh_url}
-        )
+    with patch(
+        "portal.routes.recipe_sources._socket.getaddrinfo",
+        return_value=_MOCK_PUBLIC_ADDR,
+    ):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/admin/recipe-sources/import", json={"source_url": sh_url}
+            )
 
     assert resp.status_code == 201
     data = resp.json()
@@ -281,13 +312,17 @@ def test_import_recipe_collision_generates_suffix(tmp_path: Path) -> None:
     )
     respx.get(sh_url).mock(return_value=Response(200, text=sh_content))
 
-    with TestClient(app) as client:
-        resp1 = client.post(
-            "/admin/recipe-sources/import", json={"source_url": sh_url}
-        )
-        resp2 = client.post(
-            "/admin/recipe-sources/import", json={"source_url": sh_url}
-        )
+    with patch(
+        "portal.routes.recipe_sources._socket.getaddrinfo",
+        return_value=_MOCK_PUBLIC_ADDR,
+    ):
+        with TestClient(app) as client:
+            resp1 = client.post(
+                "/admin/recipe-sources/import", json={"source_url": sh_url}
+            )
+            resp2 = client.post(
+                "/admin/recipe-sources/import", json={"source_url": sh_url}
+            )
 
     assert resp1.status_code == 201
     assert resp1.json()["id"] == "git"
@@ -323,11 +358,15 @@ def test_import_recipe_fetch_failure_returns_502(tmp_path: Path) -> None:
     sh_url = "https://example.com/broken.sh"
     respx.get(sh_url).mock(return_value=Response(500))
 
-    with TestClient(app) as client:
-        resp = client.post(
-            "/admin/recipe-sources/import",
-            json={"source_url": sh_url},
-        )
+    with patch(
+        "portal.routes.recipe_sources._socket.getaddrinfo",
+        return_value=_MOCK_PUBLIC_ADDR,
+    ):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/admin/recipe-sources/import",
+                json={"source_url": sh_url},
+            )
 
     assert resp.status_code == 502
 
@@ -342,10 +381,14 @@ def test_import_recipe_invalid_id_rejected(tmp_path: Path) -> None:
     sh_url = "https://example.com/UPPERCASE.sh"
     respx.get(sh_url).mock(return_value=Response(200, text="#!/usr/bin/env bash\n"))
 
-    with TestClient(app) as client:
-        resp = client.post(
-            "/admin/recipe-sources/import",
-            json={"source_url": sh_url},
-        )
+    with patch(
+        "portal.routes.recipe_sources._socket.getaddrinfo",
+        return_value=_MOCK_PUBLIC_ADDR,
+    ):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/admin/recipe-sources/import",
+                json={"source_url": sh_url},
+            )
 
     assert resp.status_code == 422

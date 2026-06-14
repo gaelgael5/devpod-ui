@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import json as _json
 import os
 import re
 import shutil
+import socket as _socket
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -24,8 +26,6 @@ from ..recipes.models import _RECIPE_ID_RE, RecipeMeta
 _log = structlog.get_logger(__name__)
 
 router_admin = APIRouter(tags=["recipe-sources"])
-
-_BLOCKED_HOSTS = ("localhost", "127.0.0.1", "::1", "0.0.0.0", "169.254.")
 
 _DEFAULT_SOURCE = (
     "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/recipes/toc.txt"
@@ -70,11 +70,32 @@ def _check_ssrf(url: str) -> None:
         raise HTTPException(
             status_code=422, detail=f"URL scheme must be http or https: {url!r}"
         )
-    hostname = (parsed.hostname or "").lower()
-    if any(hostname == h or hostname.startswith(h) for h in _BLOCKED_HOSTS):
+    host = (parsed.hostname or "").rstrip(".").lower()
+    if not host:
+        raise HTTPException(status_code=422, detail="URL has no hostname")
+    try:
+        infos = _socket.getaddrinfo(host, None)
+    except _socket.gaierror as exc:
         raise HTTPException(
-            status_code=422, detail=f"URL points to a blocked internal address: {url!r}"
-        )
+            status_code=422, detail=f"Cannot resolve hostname '{host}': {exc}"
+        ) from exc
+    for _fam, _type, _proto, _canon, sa in infos:
+        try:
+            ip = ipaddress.ip_address(sa[0])
+        except ValueError:
+            continue
+        if (
+            ip.is_loopback
+            or ip.is_link_local
+            or ip.is_private
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=f"URL resolves to a blocked internal address: {ip}",
+            )
 
 
 @router_admin.get("/recipe-sources")
@@ -94,7 +115,7 @@ def _parse_sh_headers(content: str) -> dict[str, str]:
 
 
 async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
-    resp = await client.get(url, timeout=5.0, follow_redirects=True)
+    resp = await client.get(url, timeout=5.0, follow_redirects=False)
     resp.raise_for_status()
     return resp.text
 
@@ -156,7 +177,7 @@ async def put_recipe_sources(
     user: UserInfo = Depends(require_admin),
 ) -> dict[str, Any]:
     for url in body.sources:
-        _check_ssrf(url)
+        await asyncio.to_thread(_check_ssrf, url)
     await asyncio.to_thread(_save_sources, body.sources)
     _log.info("recipe_sources_updated", count=len(body.sources), by=user.login)
     return {"sources": body.sources}
@@ -212,7 +233,7 @@ async def import_recipe_from_source(
     body: RecipeImportRequest,
     user: UserInfo = Depends(require_admin),
 ) -> dict[str, Any]:
-    _check_ssrf(body.source_url)
+    await asyncio.to_thread(_check_ssrf, body.source_url)
 
     async with httpx.AsyncClient() as http:
         try:
