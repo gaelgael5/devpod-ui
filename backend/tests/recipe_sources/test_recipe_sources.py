@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 import yaml
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 _DEFAULT_SOURCE = (
@@ -51,7 +52,7 @@ def _write_global_config(tmp_path: Path) -> None:
     )
 
 
-def _make_admin_app(tmp_path: Path):
+def _make_admin_app(tmp_path: Path) -> FastAPI:
     import portal.settings as mod
     from portal.routes.workspace_ops import _reset_service
 
@@ -69,7 +70,7 @@ def _make_admin_app(tmp_path: Path):
     return app
 
 
-def _make_user_app(tmp_path: Path):
+def _make_user_app(tmp_path: Path) -> FastAPI:
     """App with non-admin user — require_admin dependency NOT overridden."""
     import portal.settings as mod
     from portal.routes.workspace_ops import _reset_service
