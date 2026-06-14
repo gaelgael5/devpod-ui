@@ -54,6 +54,7 @@ class ExposureService:
         url_scheme: str = "https",
         dev_mode: bool = False,
         external_url: str = "",
+        workspace_host: str = "",
     ) -> None:
         self._caddy = caddy
         self._registry = registry
@@ -62,6 +63,7 @@ class ExposureService:
         self._url_scheme = url_scheme
         self._dev_mode = dev_mode
         self._external_url = external_url
+        self._workspace_host = workspace_host
 
     async def allocate_port(self, ws_id: str) -> int:
         """Délègue l'allocation de port au PortRegistry.
@@ -90,7 +92,7 @@ class ExposureService:
             URL publique du workspace.
         """
         if self._dev_mode:
-            host = urlparse(self._external_url).hostname or "localhost"
+            host = self._workspace_host or urlparse(self._external_url).hostname or "localhost"
             url = f"http://{host}:{host_port}"
             await asyncio.to_thread(
                 self._write_exposure, ws_id, hostname=f"{host}:{host_port}", url=url

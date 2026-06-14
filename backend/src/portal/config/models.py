@@ -22,6 +22,10 @@ class ServerConfig(BaseModel):
     base_domain: str
     external_url: str
     dev_mode: bool = False
+    # En dev, l'URL publique (external_url) passe par Cloudflare qui bloque les
+    # ports non-standard.  workspace_host permet de spécifier l'IP/hostname
+    # direct de la VM pour les URLs de workspace (ex : "192.168.10.50").
+    workspace_host: str = ""
     log: LogConfig = Field(default_factory=LogConfig)
 
 
