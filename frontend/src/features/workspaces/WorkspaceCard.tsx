@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Key } from 'lucide-react'
+import { FileText, Key } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { WorkspaceSpec, WorkspaceStatus, WorkspaceStatusValue } from './types'
 import SshKeyDialog from './SshKeyDialog'
+import LogDialog from './LogDialog'
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
   running: 'bg-green-500/10 text-green-600 border-green-500/30',
@@ -26,6 +27,7 @@ interface Props {
 export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart }: Props) {
   const { t } = useTranslation()
   const [sshKeyOpen, setSshKeyOpen] = useState(false)
+  const [logsOpen, setLogsOpen] = useState(false)
   const s = status.status
 
   return (
@@ -115,6 +117,14 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
             <Key className="h-4 w-4" />
           </Button>
         )}
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setLogsOpen(true)}
+          aria-label={t('workspaces.logs.button')}
+        >
+          <FileText className="h-4 w-4" />
+        </Button>
       </div>
 
       {spec.ssh_key && (
@@ -124,6 +134,11 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
           onOpenChange={setSshKeyOpen}
         />
       )}
+      <LogDialog
+        workspaceName={spec.name}
+        open={logsOpen}
+        onOpenChange={setLogsOpen}
+      />
     </div>
   )
 }

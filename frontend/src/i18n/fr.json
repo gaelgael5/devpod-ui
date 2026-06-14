@@ -53,6 +53,12 @@
       "copy": "Copier",
       "copied": "Copié !",
       "notGenerated": "Clé SSH non disponible pour ce workspace."
+    },
+    "logs": {
+      "button": "Logs",
+      "title": "Logs — {{name}}",
+      "empty": "Aucun log disponible pour ce workspace.",
+      "loading": "Chargement…"
     }
   },
   "recipes": {

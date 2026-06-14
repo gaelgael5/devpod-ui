@@ -53,6 +53,12 @@
       "copy": "Copy",
       "copied": "Copied!",
       "notGenerated": "SSH key not available for this workspace."
+    },
+    "logs": {
+      "button": "Logs",
+      "title": "Logs — {{name}}",
+      "empty": "No logs available for this workspace.",
+      "loading": "Loading…"
     }
   },
   "recipes": {
