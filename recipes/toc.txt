@@ -2,3 +2,9 @@ git.sh
 node.sh
 python.sh
 docker.sh
+claude-code.sh
+aider.sh
+codex.sh
+gemini-cli.sh
+goose.sh
+opencode.sh
