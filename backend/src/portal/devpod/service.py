@@ -89,6 +89,7 @@ class DevPodService:
         recipes: list[RecipeMeta] | None = None,
         feature_env: dict[str, str] | None = None,
         generate_ssh_key: bool = False,
+        request_host: str = "",
     ) -> str:
         """Lance un workspace en tâche de fond. Retourne ws_id immédiatement."""
         ws_id = self._ws_id(login, ws_spec.name)
@@ -174,6 +175,7 @@ class DevPodService:
                 ssh_host=ssh_host,
                 ssh_user=ssh_user,
                 ssh_key_path=host_cfg.key_path or "",
+                request_host=request_host,
             )
         )
         self._background_tasks.add(task)
@@ -425,6 +427,7 @@ class DevPodService:
         ssh_host: str = "",
         ssh_user: str = "root",
         ssh_key_path: str = "",
+        request_host: str = "",
     ) -> None:
         """Tâche de fond : exécute devpod up, expose le workspace si running."""
         try:
@@ -464,6 +467,7 @@ class DevPodService:
                         ws_id=ws_id,
                         node_ip=node_ip,
                         host_port=host_port,
+                        request_host=request_host,
                     )
                     extra["url"] = url
                     extra["host_port"] = host_port

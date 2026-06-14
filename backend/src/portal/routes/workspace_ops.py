@@ -7,7 +7,7 @@ import shlex
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth.rbac import UserInfo, require_user
@@ -140,6 +140,7 @@ def _resolve_feature_secrets(login: str, secret_refs: list[SecretRef]) -> dict[s
 async def workspace_up(
     name: str,
     req: UpRequest,
+    request: Request,
     user: UserInfo = Depends(require_user),
 ) -> dict[str, Any]:
     _validate_name(name)
@@ -212,6 +213,7 @@ async def workspace_up(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     svc = _get_service()
+    request_host = request.headers.get("x-forwarded-host") or request.url.hostname or ""
     try:
         ws_id = await svc.up(
             login=user.login,
@@ -219,6 +221,7 @@ async def workspace_up(
             recipes=resolved_recipes or None,
             feature_env=feature_env or None,
             generate_ssh_key=req.generate_ssh_key,
+            request_host=request_host,
         )
     except UnknownHostError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
