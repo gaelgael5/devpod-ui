@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import structlog
@@ -151,8 +152,15 @@ class OpenVsxClient:
             await self._readme_cache.set(key, "")
             return ""
         url = detail.readme_url
+        # Anti-SSRF : le hostname du README doit appartenir au même domaine que base_url.
+        # Empêche qu'une instance Open VSX compromise redirige vers des adresses internes.
+        _allowed = urlparse(self._s.base_url).hostname
+        if urlparse(url).hostname != _allowed:
+            _log.warning("openvsx.readme_ssrf_blocked", url=url, allowed_host=_allowed)
+            await self._readme_cache.set(key, "")
+            return ""
         try:
-            resp = await self._http.get(url, timeout=self._s.timeout_s)
+            resp = await self._http.get(url, timeout=self._s.timeout_s, follow_redirects=False)
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             _log.warning("openvsx.readme_http_error", url=url, status=exc.response.status_code)

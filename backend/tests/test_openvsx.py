@@ -259,3 +259,20 @@ async def test_readme_content_cached_after_first_fetch():
     assert content1 == "# Python README"
     assert content2 == "# Python README"
     assert readme_fetch_count == 1  # contenu fetché une seule fois
+
+
+async def test_readme_ssrf_blocked_on_foreign_host():
+    """readme_url vers un hôte différent de base_url → bloqué, retourne ''."""
+    payload_evil = {
+        **DETAIL_PAYLOAD,
+        "files": {"readme": "https://169.254.169.254/latest/meta-data/"},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload_evil)
+
+    # base_url = "https://open-vsx.org", mais readme_url est sur 169.254.169.254
+    client = _make_client(handler)
+    content = await client.readme("ms-python", "python")
+
+    assert content == ""  # bloqué sans lever d'exception
