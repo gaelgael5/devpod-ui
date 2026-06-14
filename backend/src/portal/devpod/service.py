@@ -154,11 +154,12 @@ class DevPodService:
         if ws_spec.branch and ws_spec.source:
             devpod_source = f"{ws_spec.source}@{ws_spec.branch}"
 
-        # Pour SSH : devpod port-forward lie le port sur localhost du portail → 127.0.0.1.
+        # Pour SSH : le tunnel bind sur 0.0.0.0 dans le container portal ;
+        # Caddy atteint portal:{host_port} via le réseau Docker interne.
         # Pour docker-tls : l'IP réelle du nœud Docker est utilisée directement.
         node_ip = self._resolve_node_ip(host_cfg)
         if host_cfg.type == "ssh":
-            node_ip = "127.0.0.1"
+            node_ip = global_cfg.caddy.portal_host
 
         self._write_status(ws_id, "provisioning", login=login)
 
@@ -167,6 +168,9 @@ class DevPodService:
                 ws_id, devpod_source, dc_path, subprocess_env, login,
                 host_port, node_ip, provider_name=provider_name,
                 host_type=host_cfg.type,
+                ssh_host=ssh_host,
+                ssh_user=ssh_user,
+                ssh_key_path=host_cfg.key_path or "",
             )
         )
         self._background_tasks.add(task)
@@ -362,13 +366,36 @@ class DevPodService:
         ws_id: str,
         env: dict[str, str],
         host_port: int,
+        ssh_host: str = "",
+        ssh_user: str = "root",
+        ssh_key_path: str = "",
     ) -> None:
         """
-        Lance devpod port-forward en tâche de fond pour les providers SSH.
-        Forwarder localhost:{host_port} → port 3000 dans le devcontainer.
-        Caddy route ensuite vers 127.0.0.1:{host_port}.
+        Lance un tunnel SSH direct pour exposer le port 3000 du devcontainer.
+        Bind sur 0.0.0.0:{host_port} (toutes interfaces) pour que Caddy
+        puisse atteindre portal:{host_port} via le réseau Docker interne.
         """
-        cmd = [*self._devpod_bin, "port-forward", ws_id, f"{host_port}:3000"]
+        if ssh_host:
+            if ssh_host.startswith("-") or ssh_user.startswith("-"):
+                raise ValueError(
+                    f"ssh_host/ssh_user must not start with '-': {ssh_host!r}/{ssh_user!r}"
+                )
+            # known_hosts persistant par IP : TOFU mais rejette les clés changées (MITM)
+            known_hosts = _data_root() / "ssh_known_hosts"
+            cmd = [
+                "ssh", "-N",
+                "-o", f"UserKnownHostsFile={known_hosts}",
+                "-o", "StrictHostKeyChecking=accept-new",
+                "-o", "ServerAliveInterval=30",
+                "-o", "ExitOnForwardFailure=yes",
+                "-L", f"0.0.0.0:{host_port}:localhost:3000",
+            ]
+            if ssh_key_path:
+                cmd += ["-i", ssh_key_path]
+            # '--' évite qu'une valeur commençant par '-' soit interprétée comme flag
+            cmd += ["--", f"{ssh_user}@{ssh_host}"]
+        else:
+            cmd = [*self._devpod_bin, "port-forward", ws_id, f"{host_port}:3000"]
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             env=env,
@@ -402,6 +429,9 @@ class DevPodService:
         node_ip: str = "127.0.0.1",
         provider_name: str = "",
         host_type: str = "",
+        ssh_host: str = "",
+        ssh_user: str = "root",
+        ssh_key_path: str = "",
     ) -> None:
         """Tâche de fond : exécute devpod up, expose le workspace si running."""
         try:
@@ -430,8 +460,10 @@ class DevPodService:
             extra: dict[str, Any] = {"returncode": returncode}
 
             if status == "running" and host_type == "ssh" and host_port is not None:
-                # devpod port-forward établit le tunnel SSH localhost:{host_port} → 3000
-                await self._start_port_forward(ws_id, env, host_port)
+                await self._start_port_forward(
+                    ws_id, env, host_port,
+                    ssh_host=ssh_host, ssh_user=ssh_user, ssh_key_path=ssh_key_path,
+                )
 
             if status == "running" and self._exposure is not None and host_port is not None:
                 try:

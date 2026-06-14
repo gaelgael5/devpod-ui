@@ -114,6 +114,7 @@ class CaddyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     admin_api: str = "http://caddy:2019"
+    portal_host: str = "portal"
 
 
 class CloudflareManagerConfig(BaseModel):
