@@ -15,7 +15,7 @@ import {
 import { useWorkspaceOps, type SourceEntry } from './useWorkspaceOps'
 import { useGitCredentials } from './useGitCredentials'
 import { useRecipes } from '@/features/recipes/useRecipes'
-import RecipePicker from '@/features/recipes/RecipePicker'
+import OrderedRecipePicker from '@/features/recipes/OrderedRecipePicker'
 import { useUserStore } from '@/store/user'
 import { useHosts, type HostConfig } from '@/features/admin/useHosts'
 
@@ -292,7 +292,7 @@ export default function WorkspaceCreate() {
           <div>
             <Label>{t('workspaces.form.recipes')}</Label>
             <div className="mt-1">
-              <RecipePicker
+              <OrderedRecipePicker
                 recipes={recipes}
                 selected={selectedRecipes}
                 onChange={setSelectedRecipes}

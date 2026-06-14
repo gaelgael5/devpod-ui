@@ -35,7 +35,9 @@
       "recipes": "Recettes",
       "submit": "Créer le workspace",
       "nameHint": "Minuscules, chiffres, tirets — 2 à 32 caractères",
-      "generateSshKey": "Générer une clé SSH pour ce workspace"
+      "generateSshKey": "Générer une clé SSH pour ce workspace",
+      "addRecipe": "Ajouter une recette",
+      "noMoreRecipes": "Toutes les recettes sont déjà sélectionnées."
     },
     "confirm": {
       "deleteTitle": "Supprimer le workspace ?",

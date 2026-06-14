@@ -35,7 +35,9 @@
       "recipes": "Recipes",
       "submit": "Create workspace",
       "nameHint": "Lowercase letters, numbers, hyphens — 2 to 32 chars",
-      "generateSshKey": "Generate an SSH key for this workspace"
+      "generateSshKey": "Generate an SSH key for this workspace",
+      "addRecipe": "Add recipe",
+      "noMoreRecipes": "All recipes already selected."
     },
     "confirm": {
       "deleteTitle": "Delete workspace?",
