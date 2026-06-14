@@ -165,6 +165,14 @@ class DevPodService:
         if host_cfg.type == "ssh":
             node_ip = global_cfg.caddy.portal_host
 
+        # Plusieurs sources → ouvrir /workspaces pour voir tous les repos clonés.
+        # Source unique ou image seule → ouvrir directement /workspaces/{ws_id}.
+        workspace_folder = (
+            "/workspaces"
+            if ws_spec.extra_sources
+            else f"/workspaces/{ws_id}"
+        )
+
         self._write_status(ws_id, "provisioning", login=login)
 
         task = asyncio.create_task(
@@ -176,6 +184,7 @@ class DevPodService:
                 ssh_user=ssh_user,
                 ssh_key_path=host_cfg.key_path or "",
                 request_host=request_host,
+                workspace_folder=workspace_folder,
             )
         )
         self._background_tasks.add(task)
@@ -428,6 +437,7 @@ class DevPodService:
         ssh_user: str = "root",
         ssh_key_path: str = "",
         request_host: str = "",
+        workspace_folder: str = "",
     ) -> None:
         """Tâche de fond : exécute devpod up, expose le workspace si running."""
         try:
@@ -468,6 +478,7 @@ class DevPodService:
                         node_ip=node_ip,
                         host_port=host_port,
                         request_host=request_host,
+                        workspace_folder=workspace_folder,
                     )
                     extra["url"] = url
                     extra["host_port"] = host_port
