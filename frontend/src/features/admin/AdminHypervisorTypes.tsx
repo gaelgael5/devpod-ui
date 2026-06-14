@@ -8,7 +8,14 @@ import {
 } from '@/components/ui/dialog'
 import { useAdminHypervisorTypes, type HypervisorTypeConfig } from './useAdminHypervisorTypes'
 
-const EMPTY: HypervisorTypeConfig = { name: '', add_script: '', destroy_script: '' }
+const EMPTY: HypervisorTypeConfig = { label: '', name: '', add_script: '', destroy_script: '' }
+
+function labelToKey(label: string): string {
+  return label
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
 
 export default function AdminHypervisorTypes() {
   const { t } = useTranslation()
@@ -20,6 +27,7 @@ export default function AdminHypervisorTypes() {
   const [editTarget, setEditTarget] = useState<HypervisorTypeConfig | null>(null)
   const [form, setForm] = useState<HypervisorTypeConfig>(EMPTY)
   const [editForm, setEditForm] = useState<Omit<HypervisorTypeConfig, 'name'>>({
+    label: '',
     add_script: '',
     destroy_script: '',
   })
@@ -31,13 +39,17 @@ export default function AdminHypervisorTypes() {
 
   function handleEditOpen(ht: HypervisorTypeConfig) {
     setEditTarget(ht)
-    setEditForm({ add_script: ht.add_script, destroy_script: ht.destroy_script })
+    setEditForm({ label: ht.label, add_script: ht.add_script, destroy_script: ht.destroy_script })
     setEditOpen(true)
   }
 
   function handleEditClose(o: boolean) {
     if (!o) setEditTarget(null)
     setEditOpen(o)
+  }
+
+  function handleLabelChange(label: string) {
+    setForm((f) => ({ ...f, label, name: labelToKey(label) }))
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -71,6 +83,7 @@ export default function AdminHypervisorTypes() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.form.hypervisorLabel')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.name')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.form.addScript')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.form.destroyScript')}</th>
@@ -80,7 +93,8 @@ export default function AdminHypervisorTypes() {
             <tbody>
               {types.map((ht) => (
                 <tr key={ht.name} className="border-b last:border-0">
-                  <td className="px-4 py-2 font-medium">{ht.name}</td>
+                  <td className="px-4 py-2 font-medium">{ht.label || '—'}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{ht.name}</td>
                   <td className="px-4 py-2 font-mono text-xs text-muted-foreground truncate max-w-xs">{ht.add_script || '—'}</td>
                   <td className="px-4 py-2 font-mono text-xs text-muted-foreground truncate max-w-xs">{ht.destroy_script || '—'}</td>
                   <td className="px-4 py-2 text-right flex items-center justify-end gap-1">
@@ -112,12 +126,22 @@ export default function AdminHypervisorTypes() {
           </DialogHeader>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ht-label">{t('admin.form.hypervisorLabel')}</Label>
+              <Input
+                id="ht-label"
+                value={form.label}
+                onChange={(e) => handleLabelChange(e.target.value)}
+                placeholder="Proxmox KVM"
+                autoFocus
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="ht-name">{t('admin.col.name')}</Label>
               <Input
                 id="ht-name"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="proxmox"
+                placeholder="proxmox-kvm"
                 pattern="^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$"
                 required
               />
@@ -161,6 +185,16 @@ export default function AdminHypervisorTypes() {
             <DialogTitle>{t('admin.editHypervisorType')} — {editTarget?.name}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleEditSubmit} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="eht-label">{t('admin.form.hypervisorLabel')}</Label>
+              <Input
+                id="eht-label"
+                value={editForm.label}
+                onChange={(e) => setEditForm((f) => ({ ...f, label: e.target.value }))}
+                placeholder="Proxmox KVM"
+                autoFocus
+              />
+            </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="eht-add">{t('admin.form.addScript')}</Label>
               <Input

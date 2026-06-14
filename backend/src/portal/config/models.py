@@ -93,6 +93,7 @@ _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
 class HypervisorType(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    label: str = ""
     name: str
     add_script: str = ""
     destroy_script: str = ""

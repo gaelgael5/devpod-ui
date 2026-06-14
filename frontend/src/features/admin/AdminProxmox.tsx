@@ -261,7 +261,7 @@ export default function AdminProxmox() {
         <SelectContent>
           <SelectItem value="__none__">{t('admin.form.hypervisorTypeNone')}</SelectItem>
           {hypervisorTypes.map((ht) => (
-            <SelectItem key={ht.name} value={ht.name}>{ht.name}</SelectItem>
+            <SelectItem key={ht.name} value={ht.name}>{ht.label || ht.name}</SelectItem>
           ))}
         </SelectContent>
       </Select>

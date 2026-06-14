@@ -125,6 +125,7 @@
       "hypervisorType": "Hypervisor type",
       "hypervisorTypePlaceholder": "Select a type…",
       "hypervisorTypeNone": "— none —",
+      "hypervisorLabel": "Label",
       "addScript": "Creation script (JSON URL)",
       "destroyScript": "Destroy script (JSON URL)",
       "testConnection": "Test connection",

@@ -125,6 +125,7 @@
       "hypervisorType": "Type d'hyperviseur",
       "hypervisorTypePlaceholder": "Sélectionner un type…",
       "hypervisorTypeNone": "— aucun —",
+      "hypervisorLabel": "Libellé",
       "addScript": "Script de création (JSON URL)",
       "destroyScript": "Script de destruction (JSON URL)",
       "testConnection": "Tester la connexion",

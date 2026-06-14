@@ -179,6 +179,7 @@ def _substitute(template: str, args: dict[str, str]) -> str:
 # ─── CRUD types d'hyperviseurs ────────────────────────────────────────────────
 
 class HypervisorTypeRequest(BaseModel):
+    label: str = ""
     name: str
     add_script: str = ""
     destroy_script: str = ""
@@ -206,7 +207,8 @@ async def add_hypervisor_type(
     if any(t.name == body.name for t in cfg.hypervisor_types):
         raise HTTPException(status_code=409, detail=f"Hypervisor type {body.name!r} already exists")
     ht = HypervisorType(
-        name=body.name, add_script=body.add_script, destroy_script=body.destroy_script,
+        label=body.label, name=body.name,
+        add_script=body.add_script, destroy_script=body.destroy_script,
     )
     cfg.hypervisor_types.append(ht)
     save_global(cfg)
@@ -225,7 +227,8 @@ async def update_hypervisor_type(
     if ht is None:
         raise HTTPException(status_code=404, detail=f"Hypervisor type {name!r} not found")
     updated = HypervisorType(
-        name=name, add_script=body.add_script, destroy_script=body.destroy_script,
+        label=body.label, name=name,
+        add_script=body.add_script, destroy_script=body.destroy_script,
     )
     cfg.hypervisor_types = [updated if t.name == name else t for t in cfg.hypervisor_types]
     save_global(cfg)

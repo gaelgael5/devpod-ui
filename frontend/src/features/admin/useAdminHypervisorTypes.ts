@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { apiFetchJson } from '@/shared/api/client'
 
 export interface HypervisorTypeConfig {
+  label: string
   name: string
   add_script: string
   destroy_script: string
