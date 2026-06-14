@@ -123,7 +123,9 @@ async def ensure_provider(
         # Provider déjà présent — synchroniser HOST + EXTRA_FLAGS (IP ou clé peuvent avoir changé)
         if host_type == "ssh":
             host_value = f"{ssh_user}@{ssh_host}" if ssh_user else ssh_host
-            await _update_provider_ssh_options(cmd, env, provider_name, ssh_key_path, host_value, login)
+            await _update_provider_ssh_options(
+                cmd, env, provider_name, ssh_key_path, host_value, login
+            )
         return provider_name
 
     _log.info("provider_add", login=login, provider=provider_name)

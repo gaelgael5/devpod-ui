@@ -54,7 +54,7 @@ export interface ScriptSpec {
 export function useScriptSpec(nodeName: string | null) {
   return useQuery<ScriptSpec>({
     queryKey: ['admin', 'proxmox', nodeName, 'script'],
-    queryFn: () => apiFetchJson<ScriptSpec>(`/admin/proxmox/${nodeName}/script`),
+    queryFn: () => apiFetchJson<ScriptSpec>(`/admin/hypervisors/${nodeName}/script`),
     enabled: nodeName != null,
     staleTime: 5 * 60 * 1000,
     retry: false,
@@ -83,7 +83,7 @@ export function useExecuteScript() {
   const execute = useCallback(async (nodeName: string, args: Record<string, string>) => {
     setState({ logs: '', running: true, done: false, error: null })
     try {
-      const res = await apiFetch(`/admin/proxmox/${nodeName}/execute`, {
+      const res = await apiFetch(`/admin/hypervisors/${nodeName}/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ args }),

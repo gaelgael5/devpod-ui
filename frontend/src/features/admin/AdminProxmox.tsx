@@ -7,12 +7,22 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { apiFetchJson } from '@/shared/api/client'
-import { useAdminProxmox, type ProxmoxNodeConfig } from './useAdminProxmox'
+import { useAdminProxmox, type HypervisorConfig } from './useAdminProxmox'
+import { useAdminHypervisorTypes } from './useAdminHypervisorTypes'
 
-const EMPTY = { name: '', address: '', ssh_user: 'root', ssh_port: 22, pve_node: 'pve', script_url: '', ssh_key_content: '', password: '' }
+const EMPTY = {
+  name: '', address: '', ssh_user: 'root', ssh_port: 22,
+  pve_node: 'pve', hypervisor_type: '', ssh_key_content: '', password: '',
+}
 type AddForm = typeof EMPTY
-type EditForm = { address: string; ssh_user: string; ssh_port: number; pve_node: string; script_url: string; ssh_key_content: string; password: string }
+type EditForm = {
+  address: string; ssh_user: string; ssh_port: number
+  pve_node: string; hypervisor_type: string; ssh_key_content: string; password: string
+}
 type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
 const SSH_STEPS = [
@@ -33,16 +43,21 @@ const SSH_STEPS = [
 export default function AdminProxmox() {
   const { t } = useTranslation()
   const { nodesQuery, deleteNode, addNode, updateNode } = useAdminProxmox()
+  const { typesQuery } = useAdminHypervisorTypes()
   const { data: nodes, isLoading, isError } = nodesQuery
+  const hypervisorTypes = typesQuery.data ?? []
 
   const [open, setOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
-  const [editTarget, setEditTarget] = useState<ProxmoxNodeConfig | null>(null)
+  const [editTarget, setEditTarget] = useState<HypervisorConfig | null>(null)
 
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const [form, setForm] = useState<AddForm>(EMPTY)
-  const [editForm, setEditForm] = useState<EditForm>({ address: '', ssh_user: 'root', ssh_port: 22, pve_node: 'pve', script_url: '', ssh_key_content: '', password: '' })
+  const [editForm, setEditForm] = useState<EditForm>({
+    address: '', ssh_user: 'root', ssh_port: 22,
+    pve_node: 'pve', hypervisor_type: '', ssh_key_content: '', password: '',
+  })
 
   const [addTestStatus, setAddTestStatus] = useState<TestStatus>('idle')
   const [addTestError, setAddTestError] = useState<string | null>(null)
@@ -101,14 +116,14 @@ export default function AdminProxmox() {
     setOpen(o)
   }
 
-  function handleEditOpen(node: ProxmoxNodeConfig) {
+  function handleEditOpen(node: HypervisorConfig) {
     setEditTarget(node)
     setEditForm({
       address: node.address,
       ssh_user: node.ssh_user,
       ssh_port: node.ssh_port,
       pve_node: node.pve_node,
-      script_url: node.script_url,
+      hypervisor_type: node.hypervisor_type,
       ssh_key_content: '',
       password: node.password ?? '',
     })
@@ -148,7 +163,7 @@ export default function AdminProxmox() {
       fd.append('ssh_port', String(form.ssh_port))
       fd.append('ssh_key', new Blob([content], { type: 'text/plain' }), 'id_ed25519')
       const res = await apiFetchJson<{ ok: boolean; error: string | null }>(
-        '/admin/proxmox/test-connection',
+        '/admin/hypervisors/test-connection',
         { method: 'POST', body: fd },
       )
       setAddTestStatus(res.ok ? 'ok' : 'error')
@@ -165,7 +180,7 @@ export default function AdminProxmox() {
     setEditTestError(null)
     try {
       const res = await apiFetchJson<{ ok: boolean; error: string | null }>(
-        `/admin/proxmox/${editTarget.name}/ping`,
+        `/admin/hypervisors/${editTarget.name}/ping`,
       )
       setEditTestStatus(res.ok ? 'ok' : 'error')
       setEditTestError(res.error ?? null)
@@ -185,7 +200,7 @@ export default function AdminProxmox() {
     fd.append('ssh_user', form.ssh_user)
     fd.append('ssh_port', String(form.ssh_port))
     fd.append('pve_node', form.pve_node)
-    fd.append('script_url', form.script_url)
+    fd.append('hypervisor_type', form.hypervisor_type)
     fd.append('password', form.password)
     fd.append('ssh_key', new Blob([content], { type: 'text/plain' }), 'id_ed25519')
     addNode.mutate(fd, { onSuccess: () => handleClose(false) })
@@ -199,7 +214,7 @@ export default function AdminProxmox() {
     fd.append('ssh_user', editForm.ssh_user)
     fd.append('ssh_port', String(editForm.ssh_port))
     fd.append('pve_node', editForm.pve_node)
-    fd.append('script_url', editForm.script_url)
+    fd.append('hypervisor_type', editForm.hypervisor_type)
     fd.append('password', editForm.password)
     const keyContent = editForm.ssh_key_content.trim()
     if (keyContent) {
@@ -229,6 +244,26 @@ export default function AdminProxmox() {
       </p>
     )
   }
+
+  const typeSelect = (
+    value: string,
+    onChange: (v: string) => void,
+  ) => (
+    <div className="flex flex-col gap-1.5">
+      <Label>{t('admin.form.hypervisorType')}</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger>
+          <SelectValue placeholder={t('admin.form.hypervisorTypePlaceholder')} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="">{t('admin.form.hypervisorTypeNone')}</SelectItem>
+          {hypervisorTypes.map((ht) => (
+            <SelectItem key={ht.name} value={ht.name}>{ht.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
 
   const sshKeyArea = (
     value: string,
@@ -309,14 +344,14 @@ export default function AdminProxmox() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{t('admin.proxmox')}</h1>
+        <h1 className="text-2xl font-semibold">{t('admin.hypervisors')}</h1>
         <Button size="sm" onClick={() => setOpen(true)}>{t('admin.addProxmox')}</Button>
       </div>
 
       {isLoading && <p className="text-muted-foreground">…</p>}
       {isError && <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>}
       {!isLoading && !isError && !nodes?.length && (
-        <p className="text-muted-foreground">{t('admin.proxmoxEmpty')}</p>
+        <p className="text-muted-foreground">{t('admin.hypervisorsEmpty')}</p>
       )}
       {nodes && nodes.length > 0 && (
         <div className="rounded-lg border">
@@ -327,22 +362,20 @@ export default function AdminProxmox() {
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.address')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.sshUser')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.pveNode')}</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.form.hypervisorType')}</th>
                 <th className="px-4 py-2" />
               </tr>
             </thead>
             <tbody>
-              {nodes.map((n: ProxmoxNodeConfig) => (
+              {nodes.map((n: HypervisorConfig) => (
                 <tr key={n.name} className="border-b last:border-0">
                   <td className="px-4 py-2 font-medium">{n.name}</td>
                   <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{n.address}</td>
                   <td className="px-4 py-2 text-muted-foreground">{n.ssh_user}</td>
                   <td className="px-4 py-2 text-muted-foreground">{n.pve_node}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{n.hypervisor_type || '—'}</td>
                   <td className="px-4 py-2 text-right flex items-center justify-end gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleEditOpen(n)}
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => handleEditOpen(n)}>
                       {t('workspaces.actions.edit')}
                     </Button>
                     <Button
@@ -459,16 +492,7 @@ export default function AdminProxmox() {
                 required
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="px-scripturl">{t('admin.form.scriptUrl')}</Label>
-              <Input
-                id="px-scripturl"
-                type="url"
-                value={form.script_url}
-                onChange={(e) => setField('script_url', e.target.value)}
-                placeholder={t('admin.form.scriptUrlPlaceholder')}
-              />
-            </div>
+            {typeSelect(form.hypervisor_type, (v) => setField('hypervisor_type', v))}
             {passwordField(form.password, (v) => setField('password', v), showAddPassword, () => setShowAddPassword((s) => !s))}
             {sshKeyArea(form.ssh_key_content, (v) => setField('ssh_key_content', v), fileRef)}
             <div className="flex items-center gap-3 border-t pt-3">
@@ -547,16 +571,7 @@ export default function AdminProxmox() {
                 required
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ep-scripturl">{t('admin.form.scriptUrl')}</Label>
-              <Input
-                id="ep-scripturl"
-                type="url"
-                value={editForm.script_url}
-                onChange={(e) => setEditField('script_url', e.target.value)}
-                placeholder={t('admin.form.scriptUrlPlaceholder')}
-              />
-            </div>
+            {typeSelect(editForm.hypervisor_type, (v) => setEditField('hypervisor_type', v))}
             {passwordField(editForm.password, (v) => setEditField('password', v), showEditPassword, () => setShowEditPassword((s) => !s), true)}
             {sshKeyArea(editForm.ssh_key_content, (v) => setEditField('ssh_key_content', v), editFileRef, true)}
             <div className="flex items-center gap-3 border-t pt-3">

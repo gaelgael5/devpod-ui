@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import structlog
@@ -32,13 +33,17 @@ _NO_CACHE = "no-cache, no-store, must-revalidate"
 class SPAMiddleware(BaseHTTPMiddleware):
     """Sert index.html pour les requêtes de navigation navigateur vers des routes frontend.
 
-    Sans ce middleware, les routes API comme GET /admin/proxmox prenaient la priorité
+    Sans ce middleware, les routes API comme GET /admin/hypervisors prenaient la priorité
     sur le routeur React, renvoyant du JSON brut lors d'un rechargement de page.
     Critère : requête GET dont le Accept inclut text/html (navigation browser)
     et dont le chemin n'a pas d'extension (pas un asset JS/CSS/image).
     """
 
-    async def dispatch(self, request: Request, call_next: object) -> Response:
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         if request.method == "GET":
             accept = request.headers.get("Accept", "")
             path_last = request.url.path.split("/")[-1]
@@ -48,7 +53,7 @@ class SPAMiddleware(BaseHTTPMiddleware):
             if is_browser_nav and is_page_route and _SPA_INDEX.is_file():
                 return FileResponse(_SPA_INDEX, headers={"Cache-Control": _NO_CACHE})
 
-        return await call_next(request)  # type: ignore[operator]
+        return await call_next(request)
 
 
 def create_app() -> FastAPI:

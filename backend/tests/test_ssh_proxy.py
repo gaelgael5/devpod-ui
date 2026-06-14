@@ -303,7 +303,9 @@ def test_ws_proxy_echoes_data(data_root_with_ssh: Path, monkeypatch: pytest.Monk
         assert data == b"hello"
 
 
-def test_ws_close_kills_subprocess(data_root_with_ssh: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ws_close_kills_subprocess(
+    data_root_with_ssh: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Fermer le WebSocket tue le subprocess SSH."""
     fake_proc = _FakeProcess(echo=False)
 

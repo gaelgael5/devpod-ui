@@ -11,7 +11,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { useAdminProxmox, type ProxmoxNodeConfig } from './useAdminProxmox'
+import { useAdminProxmox, type HypervisorConfig } from './useAdminProxmox'
 import {
   useScriptSpec, useExecuteScript, extractLastJson, flattenArgs,
   type ScriptArg, type ScriptSubArg, type ScriptArgOrSub,
@@ -23,8 +23,8 @@ import type { HostConfig } from './useHosts'
 
 type Step =
   | { kind: 'select' }
-  | { kind: 'params'; node: ProxmoxNodeConfig }
-  | { kind: 'log'; node: ProxmoxNodeConfig; args: Record<string, string> }
+  | { kind: 'params'; node: HypervisorConfig }
+  | { kind: 'log'; node: HypervisorConfig; args: Record<string, string> }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -76,12 +76,12 @@ function StepSelect({
   onSelect,
   onClose,
 }: {
-  onSelect: (node: ProxmoxNodeConfig) => void
+  onSelect: (node: HypervisorConfig) => void
   onClose: () => void
 }) {
   const { t } = useTranslation()
   const { nodesQuery } = useAdminProxmox()
-  const nodes = (nodesQuery.data ?? [] as ProxmoxNodeConfig[]).filter((n: ProxmoxNodeConfig) => n.script_url)
+  const nodes = (nodesQuery.data ?? [] as HypervisorConfig[]).filter((n: HypervisorConfig) => n.hypervisor_type)
 
   return (
     <>
@@ -93,7 +93,7 @@ function StepSelect({
         {!nodesQuery.isLoading && nodes.length === 0 && (
           <p className="text-sm text-muted-foreground">{t('admin.generate.noNodes')}</p>
         )}
-        {nodes.map((n: ProxmoxNodeConfig) => (
+        {nodes.map((n: HypervisorConfig) => (
           <button
             key={n.name}
             type="button"
@@ -119,7 +119,7 @@ function StepParams({
   onExecute,
   onBack,
 }: {
-  node: ProxmoxNodeConfig
+  node: HypervisorConfig
   onExecute: (args: Record<string, string>) => void
   onBack: () => void
 }) {
@@ -146,7 +146,7 @@ function StepParams({
     if (!arg.test_script) return true
     setValidatingArgs(s => new Set(s).add(arg.arg))
     try {
-      const res = await apiFetch(`/admin/proxmox/${node.name}/validate-arg`, {
+      const res = await apiFetch(`/admin/hypervisors/${node.name}/validate-arg`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ arg: arg.arg, args: currentValues }),
@@ -377,7 +377,7 @@ function StepLog({
   onAddHost,
   onClose,
 }: {
-  node: ProxmoxNodeConfig
+  node: HypervisorConfig
   args: Record<string, string>
   onAddHost: (config: HostConfig) => void
   onClose: () => void

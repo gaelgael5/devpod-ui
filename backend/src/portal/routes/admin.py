@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from ..auth.rbac import UserInfo, require_admin, require_admin_or_api_key
-from ..config.models import GlobalConfig, HostConfig, ProxmoxNode
+from ..config.models import GlobalConfig, HostConfig, Hypervisor
 from ..config.store import _data_root, load_global, save_global
 
 _log = structlog.get_logger(__name__)
@@ -138,7 +138,7 @@ async def generate_host_ssh_key(
     return {"public_key": public_key}
 
 
-async def _run_script_on_pve(node: ProxmoxNode, script: str, timeout: float = 30.0) -> str:
+async def _run_script_on_pve(node: Hypervisor, script: str, timeout: float = 30.0) -> str:
     """Exécute un script bash sur un nœud PVE via SSH stdin ; lève RuntimeError si erreur."""
     from .proxmox import _ssh_opts
     proc = await asyncio.create_subprocess_exec(
@@ -267,7 +267,7 @@ async def bootstrap_host_ssh(
             status_code=422,
             detail="proxmox_node requis (non mémorisé sur le host)",
         )
-    pve_node = next((n for n in cfg.proxmox_nodes if n.name == resolved_pve), None)
+    pve_node = next((n for n in cfg.hypervisors if n.name == resolved_pve), None)
     if pve_node is None:
         raise HTTPException(
             status_code=404, detail=f"Nœud Proxmox {resolved_pve!r} introuvable"

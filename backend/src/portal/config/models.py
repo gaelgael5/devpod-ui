@@ -4,7 +4,7 @@ import re
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class LogConfig(BaseModel):
@@ -84,13 +84,28 @@ class HostConfig(BaseModel):
     docker_host: str = ""
     address: str = ""
     key_path: str = ""
-    proxmox_node: str = ""  # nœud PVE qui a créé/gère cette VM
+    proxmox_node: str = ""  # nœud hyperviseur qui a créé/gère cette VM
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
 
 
-class ProxmoxNode(BaseModel):
+class HypervisorType(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    add_script: str = ""
+    destroy_script: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not _PROXMOX_NAME_RE.fullmatch(v):
+            raise ValueError(f"name {v!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$")
+        return v
+
+
+class Hypervisor(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
@@ -99,7 +114,7 @@ class ProxmoxNode(BaseModel):
     ssh_port: int = 22
     ssh_key_path: str
     pve_node: str = "pve"
-    script_url: str = ""
+    hypervisor_type: str = ""
     password: str = ""
 
     @field_validator("name")
@@ -133,9 +148,25 @@ class GlobalConfig(BaseModel):
     secrets: SecretsConfig = Field(default_factory=SecretsConfig)
     devpod: DevpodConfig = Field(default_factory=DevpodConfig)
     hosts: list[HostConfig] = Field(default_factory=list)
-    proxmox_nodes: list[ProxmoxNode] = Field(default_factory=list)
+    hypervisor_types: list[HypervisorType] = Field(default_factory=list)
+    hypervisors: list[Hypervisor] = Field(default_factory=list)
     caddy: CaddyConfig = Field(default_factory=CaddyConfig)
     cloudflare_manager: CloudflareManagerConfig = Field(default_factory=CloudflareManagerConfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_proxmox_nodes(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        if "proxmox_nodes" in data and "hypervisors" not in data:
+            nodes = data.pop("proxmox_nodes")
+            migrated = []
+            for n in nodes or []:
+                if isinstance(n, dict):
+                    n = {k: v for k, v in n.items() if k != "script_url"}
+                migrated.append(n)
+            data["hypervisors"] = migrated
+        return data
 
 
 _WORKSPACE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")

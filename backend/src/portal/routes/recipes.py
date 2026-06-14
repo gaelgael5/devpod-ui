@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..auth.rbac import UserInfo, require_admin, require_user
 from ..config.store import _data_root, safe_user_path
-from ..recipes.models import RecipeMeta, _RECIPE_ID_RE
+from ..recipes.models import _RECIPE_ID_RE, RecipeMeta
 from ..recipes.registry import RecipeRegistry
 
 _log = structlog.get_logger(__name__)

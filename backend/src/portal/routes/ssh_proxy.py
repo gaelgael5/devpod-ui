@@ -74,7 +74,10 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         await websocket.close(code=4022, reason="key_path must be under data root")
         return
     if not key_path.exists():
-        _log.warning("ws_ssh_key_not_found", host=name, key_path=str(key_path), data_root=str(data_root))
+        _log.warning(
+            "ws_ssh_key_not_found", host=name,
+            key_path=str(key_path), data_root=str(data_root),
+        )
         await websocket.close(code=4022, reason=f"key_path does not exist: {host.key_path}")
         return
 

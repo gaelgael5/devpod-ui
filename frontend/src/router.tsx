@@ -13,6 +13,7 @@ const RecipeCatalog = lazy(() => import('@/features/recipes/RecipeCatalog'))
 const AdminHosts = lazy(() => import('@/features/admin/AdminHosts'))
 const AdminRecipes = lazy(() => import('@/features/admin/AdminRecipes'))
 const AdminProxmox = lazy(() => import('@/features/admin/AdminProxmox'))
+const AdminHypervisorTypes = lazy(() => import('@/features/admin/AdminHypervisorTypes'))
 
 function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -41,8 +42,12 @@ export const router = createBrowserRouter([
         element: <AdminGuard><Wrap><AdminRecipes /></Wrap></AdminGuard>,
       },
       {
-        path: '/admin/proxmox',
+        path: '/admin/hypervisors',
         element: <AdminGuard><Wrap><AdminProxmox /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/hypervisor-types',
+        element: <AdminGuard><Wrap><AdminHypervisorTypes /></Wrap></AdminGuard>,
       },
     ],
   },

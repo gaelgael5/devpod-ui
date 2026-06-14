@@ -76,8 +76,8 @@ export function useProxmoxNodes() {
   return useQuery<ProxmoxNodeSummary[]>({
     queryKey: ['admin', 'proxmox-nodes'],
     queryFn: async () => {
-      const cfg = await apiFetchJson<{ proxmox_nodes?: ProxmoxNodeSummary[] }>('/admin/config')
-      return cfg.proxmox_nodes ?? []
+      const cfg = await apiFetchJson<{ hypervisors?: ProxmoxNodeSummary[] }>('/admin/config')
+      return cfg.hypervisors ?? []
     },
     staleTime: 5 * 60 * 1000,
   })

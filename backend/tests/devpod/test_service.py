@@ -132,13 +132,23 @@ async def test_up_with_generate_ssh_key_creates_key(
     svc = DevPodService(global_cfg=global_cfg, devpod_bin=fake_devpod_bin)
     ws = WorkspaceSpec(name="myapp", source="git@github.com:user/repo.git")
 
-    await svc.up(login="alice", ws_spec=ws, generate_ssh_key=True)
+    ws_id = await svc.up(login="alice", ws_spec=ws, generate_ssh_key=True)
 
     pub_path = (
         tmp_data_root / "users" / "alice" / "keys" / "workspaces" / "myapp" / "id_ed25519.pub"
     )
     assert pub_path.exists()
     assert pub_path.read_text(encoding="utf-8").strip().startswith("ssh-ed25519 ")
+
+    # Attendre que la tâche de fond se termine pour éviter que pytest-asyncio
+    # ne reste bloqué à annuler une tâche avec un subprocess actif.
+    status_path = tmp_data_root / "routes" / f"{ws_id}.json"
+    for _ in range(50):
+        await asyncio.sleep(0.2)
+        if status_path.exists():
+            data = json.loads(status_path.read_text(encoding="utf-8"))
+            if data.get("status") in ("running", "failed"):
+                break
 
 
 @pytest.mark.asyncio
