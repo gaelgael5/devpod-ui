@@ -82,10 +82,12 @@ def _build_service() -> DevPodService:
     if global_cfg.caddy.admin_api:
         data_root = _data_root()
         verify_uri = f"{global_cfg.server.external_url}/auth/caddy/verify"
+        dev_mode = global_cfg.server.dev_mode
         caddy = CaddyClient(
             admin_api=global_cfg.caddy.admin_api,
             http_client=httpx.AsyncClient(),
             verify_uri=verify_uri,
+            require_auth=not dev_mode,
         )
         registry = PortRegistry(data_root)
         exposure = ExposureService(
@@ -93,6 +95,7 @@ def _build_service() -> DevPodService:
             registry=registry,
             data_root=data_root,
             base_domain=global_cfg.server.base_domain,
+            url_scheme="http" if dev_mode else "https",
         )
 
     return DevPodService(global_cfg=global_cfg, devpod_bin=devpod_bin, exposure=exposure)

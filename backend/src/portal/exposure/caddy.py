@@ -7,28 +7,33 @@ _log = structlog.get_logger(__name__)
 
 
 def _build_route(
-    route_id: str, match_host: str, upstream: str, verify_uri: str
+    route_id: str,
+    match_host: str,
+    upstream: str,
+    verify_uri: str,
+    require_auth: bool = True,
 ) -> dict[str, object]:
     """Construit la configuration de route Caddy.
 
-    Structure : forward_auth (§F-33 fail-closed) AVANT reverse_proxy.
-    L'en-tête Cookie est transmis à l'endpoint de vérification pour valider
-    la session OIDC avant de proxyfier vers le workspace.
+    En mode production (require_auth=True) : forward_auth (§F-33 fail-closed)
+    AVANT reverse_proxy — la session OIDC est vérifiée avant tout accès workspace.
+    En mode dev (require_auth=False) : reverse_proxy seul (pas de TLS/auth).
     """
+    handlers: list[dict[str, object]] = []
+    if require_auth:
+        handlers.append({
+            "handler": "forward_auth",
+            "uri": verify_uri,
+            "copy_headers": ["Cookie"],
+        })
+    handlers.append({
+        "handler": "reverse_proxy",
+        "upstreams": [{"dial": upstream}],
+    })
     return {
         "@id": route_id,
         "match": [{"host": [match_host]}],
-        "handle": [
-            {
-                "handler": "forward_auth",
-                "uri": verify_uri,
-                "copy_headers": ["Cookie"],
-            },
-            {
-                "handler": "reverse_proxy",
-                "upstreams": [{"dial": upstream}],
-            },
-        ],
+        "handle": handlers,
         "terminal": True,
     }
 
@@ -47,11 +52,13 @@ class CaddyClient:
         http_client: httpx.AsyncClient,
         verify_uri: str,
         server_name: str = "srv0",
+        require_auth: bool = True,
     ) -> None:
         self._admin_api = admin_api.rstrip("/")
         self._client = http_client
         self._verify_uri = verify_uri
         self._server_name = server_name
+        self._require_auth = require_auth
 
     async def upsert_route(
         self,
@@ -74,6 +81,7 @@ class CaddyClient:
             match_host=match_host,
             upstream=upstream,
             verify_uri=self._verify_uri,
+            require_auth=self._require_auth,
         )
         resp = await self._client.patch(
             f"{self._admin_api}/id/{route_id}",

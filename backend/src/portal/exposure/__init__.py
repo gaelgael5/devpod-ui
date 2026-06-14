@@ -50,11 +50,13 @@ class ExposureService:
         registry: PortRegistry,
         data_root: Path,
         base_domain: str,
+        url_scheme: str = "https",
     ) -> None:
         self._caddy = caddy
         self._registry = registry
         self._data_root = data_root
         self._base_domain = base_domain
+        self._url_scheme = url_scheme
 
     async def allocate_port(self, ws_id: str) -> int:
         """Délègue l'allocation de port au PortRegistry.
@@ -86,7 +88,7 @@ class ExposureService:
             match_host=match_host,
             upstream=upstream,
         )
-        url = f"https://{match_host}"
+        url = f"{self._url_scheme}://{match_host}"
         await asyncio.to_thread(self._write_exposure, ws_id, hostname=match_host, url=url)
         _log.info("workspace_exposed", ws_id=ws_id, url=url)
         return url
