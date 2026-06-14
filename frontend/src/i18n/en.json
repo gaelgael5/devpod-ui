@@ -72,6 +72,13 @@
     "addHost": "Add host",
     "editHost": "Edit host",
     "addRecipe": "Add recipe",
+    "gallery": "Gallery",
+    "localRecipes": "Local recipes",
+    "recipeSource": "Recipe sources",
+    "addSource": "Add",
+    "importRecipe": "Import",
+    "importing": "Importing…",
+    "refreshGallery": "Refresh",
     "generate": {
       "btn": "Generate",
       "selectNode": "Select a hypervisor",

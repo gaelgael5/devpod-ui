@@ -72,6 +72,13 @@
     "addHost": "Ajouter un hôte",
     "editHost": "Modifier l'hôte",
     "addRecipe": "Ajouter une recette",
+    "gallery": "Galerie",
+    "localRecipes": "Recettes locales",
+    "recipeSource": "Sources de recettes",
+    "addSource": "Ajouter",
+    "importRecipe": "Importer",
+    "importing": "Import…",
+    "refreshGallery": "Rafraîchir",
     "generate": {
       "btn": "Générer",
       "selectNode": "Sélectionner un hyperviseur",
