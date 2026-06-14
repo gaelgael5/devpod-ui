@@ -256,7 +256,7 @@ export default function AdminRecipes() {
                 value={form.id}
                 onChange={(e) => set('id', e.target.value)}
                 placeholder="my-tool"
-                pattern="^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$"
+                pattern="^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$"
                 required
                 readOnly={isEditing}
                 className={isEditing ? 'opacity-60 cursor-not-allowed' : ''}
