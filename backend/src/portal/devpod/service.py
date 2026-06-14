@@ -204,7 +204,9 @@ class DevPodService:
         env = self._minimal_env(login)
         cmd = [*self._devpod_bin, "delete", ws_id, "--force"]
         log_path = self._log_path(login, f"{ws_id}-delete")
-        await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
+        rc = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
+        if rc != 0:
+            _log.warning("workspace_delete_failed", ws_id=ws_id, returncode=rc)
         status_path = self._status_path(ws_id)
         if status_path.exists():
             status_path.unlink()
