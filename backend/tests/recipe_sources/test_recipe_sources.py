@@ -3,9 +3,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import respx
 import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from httpx import Response
 
 _DEFAULT_SOURCE = (
     "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/recipes/toc.txt"
@@ -143,3 +145,63 @@ def test_get_recipe_sources_requires_admin(tmp_path: Path) -> None:
     with TestClient(app) as client:
         resp = client.get("/admin/recipe-sources")
     assert resp.status_code == 401
+
+
+# Test 5: GET /admin/recipe-sources/preview returns parsed recipes from toc.txt
+@respx.mock
+def test_preview_recipe_sources_returns_parsed_recipes(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_admin_app(tmp_path)
+
+    toc_url = "https://example.com/recipes/toc.txt"
+    sh_url = "https://example.com/recipes/git.sh"
+    sh_content = (
+        "# name: Git\n"
+        "# description: Configure Git\n"
+        "# version: 1.0.0\n"
+        "#!/usr/bin/env bash\n"
+        "set -e\n"
+    )
+
+    respx.get(toc_url).mock(return_value=Response(200, text="git.sh\n"))
+    respx.get(sh_url).mock(return_value=Response(200, text=sh_content))
+
+    with TestClient(app) as client:
+        client.put("/admin/recipe-sources", json={"sources": [toc_url]})
+        resp = client.get("/admin/recipe-sources/preview")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "recipes" in data
+    assert len(data["recipes"]) == 1
+    recipe = data["recipes"][0]
+    assert recipe["id"] == "git"
+    assert recipe["name"] == "Git"
+    assert recipe["description"] == "Configure Git"
+    assert recipe["version"] == "1.0.0"
+    assert recipe["source_url"] == sh_url
+
+
+# Test 6: GET /admin/recipe-sources/preview — one failing source doesn't break others
+@respx.mock
+def test_preview_recipe_sources_failing_source_skipped(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_admin_app(tmp_path)
+
+    good_toc = "https://good.example.com/recipes/toc.txt"
+    bad_toc = "https://bad.example.com/recipes/toc.txt"
+    ok_sh_url = "https://good.example.com/recipes/ok.sh"
+    sh_content = "# name: OK\n#!/usr/bin/env bash\nset -e\n"
+
+    respx.get(good_toc).mock(return_value=Response(200, text="ok.sh\n"))
+    respx.get(ok_sh_url).mock(return_value=Response(200, text=sh_content))
+    respx.get(bad_toc).mock(return_value=Response(500))
+
+    with TestClient(app) as client:
+        client.put("/admin/recipe-sources", json={"sources": [good_toc, bad_toc]})
+        resp = client.get("/admin/recipe-sources/preview")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["recipes"]) == 1
+    assert data["recipes"][0]["name"] == "OK"
