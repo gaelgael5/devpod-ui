@@ -373,26 +373,22 @@ class DevPodService:
         ssh_key_path: str = "",
     ) -> None:
         """
-        Expose le port 3000 du devcontainer via `devpod ssh -L`.
-        devpod ssh connecte directement dans le container : localhost:3000
-        est donc bien VS Code server, pas localhost de la machine hôte SSH.
-        Bind sur 0.0.0.0:{host_port} pour que Caddy atteigne portal:{host_port}.
+        Expose le port 3000 du devcontainer via le tunnel SSH écrit par DevPod.
+        Après devpod up, DevPod écrit une entrée `{ws_id}.devpod` dans
+        /root/.ssh/config avec un ProxyCommand vers le container (docker exec).
+        ssh(1) standard crée un vrai listener local via -L, contrairement à
+        `devpod ssh -L` qui ne bind pas de socket.
         """
-        # devpod ssh route la connexion jusqu'au container (SSH host → docker exec).
-        # -L 0.0.0.0:{host_port}:localhost:3000 : forward côté portal vers port 3000
-        # vu depuis l'intérieur du container (= VS Code server).
-        # sleep 86400 maintient la connexion SSH ouverte sans shell interactif.
+        # HOME est requis pour que ssh(1) trouve /root/.ssh/config écrit par DevPod.
+        ssh_env = {**env, "HOME": os.environ.get("HOME", "/root")}
         cmd = [
-            *self._devpod_bin,
-            "ssh",
+            "ssh", "-N",
             "-L", f"0.0.0.0:{host_port}:localhost:3000",
-            "--command", "sleep 86400",
-            "--start-services=false",
-            ws_id,
+            f"{ws_id}.devpod",
         ]
         proc = await asyncio.create_subprocess_exec(
             *cmd,
-            env=env,
+            env=ssh_env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
