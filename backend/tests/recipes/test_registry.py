@@ -121,52 +121,6 @@ def test_resolve_order_no_deps_preserves_count(tmp_path: Path) -> None:
     assert len(order) == 2
 
 
-def test_load_builtin_dir_loads_all_seven_recipes() -> None:
-    """Le répertoire builtin réel contient les 7 recettes CLIs AI."""
-    from portal.recipes.registry import BUILTIN_DIR, RecipeRegistry
-
-    if not BUILTIN_DIR.exists():
-        pytest.skip("BUILTIN_DIR non créé")
-    registry = RecipeRegistry()
-    shared = registry.load_shared()
-    expected = {"claude-code", "aider", "gemini-cli", "codex", "goose", "opencode", "cursor-agent"}
-    assert expected.issubset(set(shared.keys())), (
-        f"Recettes manquantes : {expected - set(shared.keys())}"
-    )
-    # Vérifier claude-code spécifiquement
-    assert shared["claude-code"].requires_secrets[0].env == "ANTHROPIC_API_KEY"
-    assert shared["claude-code"].requires_secrets[0].path == "llm/anthropic_key"
-
-    # Spot-check secrets for each recipe with requires_secrets
-    expected_secrets = {
-        "claude-code": "ANTHROPIC_API_KEY",
-        "aider": "ANTHROPIC_API_KEY",
-        "gemini-cli": "GEMINI_API_KEY",
-        "codex": "OPENAI_API_KEY",
-        "goose": "ANTHROPIC_API_KEY",
-        "opencode": "ANTHROPIC_API_KEY",
-    }
-    for recipe_id, expected_env in expected_secrets.items():
-        assert shared[recipe_id].requires_secrets, f"{recipe_id}: requires_secrets vide"
-        assert shared[recipe_id].requires_secrets[0].env == expected_env, (
-            f"{recipe_id}: env attendu {expected_env}"
-        )
-    # cursor-agent est expérimental : plus de secrets
-    assert shared["cursor-agent"].requires_secrets == []
-    # Toutes les recettes ont une version et une description non vides
-    for recipe_id, meta in shared.items():
-        assert meta.version, f"{recipe_id}: version vide"
-        assert meta.description, f"{recipe_id}: description vide"
-    # Vérifier que les recettes dépendantes de node déclarent l'ordre
-    for node_dep in ("claude-code", "gemini-cli", "codex", "opencode"):
-        assert "node" in shared[node_dep].installs_after, (
-            f"{node_dep}: installs_after manquant 'node'"
-        )
-    assert shared["goose"].installs_after == []
-    assert shared["aider"].installs_after == []
-    assert shared["cursor-agent"].installs_after == []  # placeholder, no node dep
-
-
 def test_personal_overrides_shared(tmp_path: Path) -> None:
     shared = tmp_path / "shared"
     personal = tmp_path / "personal"

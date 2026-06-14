@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from ..auth.rbac import UserInfo, require_admin, require_user
 from ..config.store import _data_root, safe_user_path
 from ..recipes.models import _RECIPE_ID_RE, RecipeMeta
-from ..recipes.registry import BUILTIN_DIR, RecipeRegistry
+from ..recipes.registry import RecipeRegistry
 
 _log = structlog.get_logger(__name__)
 
@@ -100,25 +100,17 @@ async def delete_personal_recipe(
 async def admin_list_recipes(
     user: UserInfo = Depends(require_admin),
 ) -> list[dict[str, Any]]:
-    """Liste les recettes builtins (lecture seule) et partagées avec install_script (admin only)."""
+    """Liste les recettes partagées (importées / créées) avec install_script (admin only).
+
+    Les recettes builtin (baked-in) ne sont pas listées ici : elles ne peuvent
+    pas être supprimées ni modifiées via l'API admin.
+    """
     data_root = _data_root()
     shared_recipes_dir = data_root / "recipes"
-
-    builtin_metas = RecipeRegistry(shared_dir=None).load_shared()
     shared_metas = RecipeRegistry(builtin_dir=None, shared_dir=shared_recipes_dir).load_shared()
-
     results: list[dict[str, Any]] = []
-    for meta in builtin_metas.values():
-        entry = meta.model_dump()
-        entry["builtin"] = True
-        install_sh = BUILTIN_DIR / meta.id / "install.sh"
-        entry["install_script"] = (
-            install_sh.read_text(encoding="utf-8") if install_sh.exists() else ""
-        )
-        results.append(entry)
     for meta in shared_metas.values():
         entry = meta.model_dump()
-        entry["builtin"] = False
         install_sh = shared_recipes_dir / meta.id / "install.sh"
         entry["install_script"] = (
             install_sh.read_text(encoding="utf-8") if install_sh.exists() else ""

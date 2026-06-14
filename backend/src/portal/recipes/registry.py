@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from pathlib import Path
-from typing import Final
 
 import structlog
 import yaml
@@ -10,11 +9,6 @@ import yaml
 from .models import RecipeMeta
 
 _log = structlog.get_logger(__name__)
-
-BUILTIN_DIR: Path = Path(__file__).parent / "builtin"
-
-# Sentinel pour distinguer "argument non fourni" de "explicitement None".
-_UNSET: Final[object] = object()
 
 
 class CycleError(ValueError):
@@ -28,15 +22,10 @@ class RecipeNotFoundError(KeyError):
 class RecipeRegistry:
     def __init__(
         self,
-        builtin_dir: Path | None | object = _UNSET,
+        builtin_dir: Path | None = None,
         shared_dir: Path | None = None,
     ) -> None:
-        # builtin_dir=_UNSET → utiliser BUILTIN_DIR par défaut.
-        # builtin_dir=None   → désactiver le chargement builtin (tests d'isolation).
-        # builtin_dir=<path> → utiliser le chemin fourni.
-        self._builtin_dir: Path | None = (
-            BUILTIN_DIR if builtin_dir is _UNSET else builtin_dir  # type: ignore[assignment]
-        )
+        self._builtin_dir: Path | None = builtin_dir
         self._shared_dir: Path | None = shared_dir
 
     def load_shared(self) -> dict[str, RecipeMeta]:

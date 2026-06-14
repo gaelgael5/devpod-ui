@@ -212,34 +212,25 @@ export default function AdminRecipes() {
           {recipes?.map((recipe: Recipe) => (
             <div key={recipe.id} className="rounded-lg border bg-card p-4">
               <div className="mb-1 flex items-start justify-between gap-2">
-                <div>
-                  <div className="font-medium">{recipe.id}</div>
-                  {recipe.builtin && (
-                    <span className="mt-0.5 inline-block rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                      {t('admin.builtinBadge')}
-                    </span>
-                  )}
+                <div className="font-medium">{recipe.id}</div>
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => openEdit(recipe)}
+                  >
+                    {t('workspaces.actions.edit')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => deleteRecipe.mutate(recipe.id)}
+                    disabled={deleteRecipe.isPending}
+                  >
+                    {t('workspaces.actions.delete')}
+                  </Button>
                 </div>
-                {!recipe.builtin && (
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => openEdit(recipe)}
-                    >
-                      {t('workspaces.actions.edit')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => deleteRecipe.mutate(recipe.id)}
-                      disabled={deleteRecipe.isPending}
-                    >
-                      {t('workspaces.actions.delete')}
-                    </Button>
-                  </div>
-                )}
               </div>
               <div className="text-sm text-muted-foreground">{recipe.description}</div>
               <div className="mt-2 text-xs text-muted-foreground">v{recipe.version}</div>

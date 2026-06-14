@@ -1,9 +1,0 @@
-id: cursor-agent
-version: "0.0.0"
-description: "EXPÉRIMENTAL — Cursor Agent CLI headless (non disponible)"
-options:
-  version:
-    type: string
-    default: "latest"
-requires_secrets: []
-installs_after: []

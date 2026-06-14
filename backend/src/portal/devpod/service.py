@@ -26,8 +26,6 @@ if TYPE_CHECKING:
 
 _log = structlog.get_logger(__name__)
 
-_RECIPES_BUILTIN_DIR = Path(__file__).parent.parent / "recipes" / "builtin"
-
 # DNS-safe pour ws_id : login (max ~40 chars) + "-" + name (max 32 chars)
 _WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$")
 
@@ -57,16 +55,12 @@ class DevPodService:
         global_cfg: GlobalConfig,
         devpod_bin: list[str] | None = None,
         exposure: ExposureService | None = None,
-        recipes_builtin_dir: Path | None = None,
     ) -> None:
         self._global_cfg = global_cfg
         self._devpod_bin: list[str] = (
             devpod_bin if devpod_bin is not None else [global_cfg.devpod.binary]
         )
         self._exposure = exposure
-        self._recipes_builtin_dir: Path = (
-            recipes_builtin_dir if recipes_builtin_dir is not None else _RECIPES_BUILTIN_DIR
-        )
         self._background_tasks: set[asyncio.Task[None]] = set()
         # Processus devpod port-forward actifs, indexés par ws_id
         self._port_forward_procs: dict[str, asyncio.subprocess.Process] = {}
@@ -359,7 +353,7 @@ class DevPodService:
             if recipes:
                 features_block: dict[str, dict[str, Any]] = {}
                 for recipe in recipes:
-                    recipe_dir = self._recipes_builtin_dir / recipe.id
+                    recipe_dir = _data_root() / "recipes" / recipe.id
                     if recipe_dir.is_dir():
                         shutil.copytree(recipe_dir, tmp_dir / recipe.id)
                         features_block[f"./{recipe.id}"] = {}
