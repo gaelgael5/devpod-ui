@@ -8,6 +8,7 @@ from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth.rbac import UserInfo, require_user
@@ -280,3 +281,19 @@ async def get_workspace_ssh_key(
             detail="SSH key not generated for this workspace",
         )
     return {"public_key": pub_path.read_text(encoding="utf-8").strip()}
+
+
+@router.get("/workspaces/{name}/logs", response_class=PlainTextResponse)
+async def get_workspace_logs(
+    name: str,
+    user: UserInfo = Depends(require_user),
+) -> str:
+    _validate_name(name)
+    ws_id = f"{user.login}-{name}"
+    log_file = _data_root() / "logs" / user.login / f"{ws_id}.log"
+    if not log_file.exists():
+        raise HTTPException(status_code=404, detail="Log file not found")
+    content = await asyncio.to_thread(
+        log_file.read_text, encoding="utf-8", errors="replace"
+    )
+    return content[-100_000:]
