@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import {
   Dialog,
   DialogContent,
@@ -11,81 +10,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  useProfiles,
-  useProfile,
-  useSaveSharedProfile,
-  useDeleteSharedProfile,
-} from '@/features/profiles/hooks/useProfiles'
+import { useProfiles, useDeleteSharedProfile } from '@/features/profiles/hooks/useProfiles'
 import type { ProfileSummary } from '@/features/profiles/api/profiles'
-
-interface FormState {
-  name: string
-  description: string
-  extensions: string
-  settings: string
-}
-
-const EMPTY: FormState = { name: '', description: '', extensions: '', settings: '{}' }
 
 export default function SharedProfilesSection() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { data: allProfiles, isLoading, isError } = useProfiles()
-  const saveMutation = useSaveSharedProfile()
   const deleteMutation = useDeleteSharedProfile()
 
-  const [editingSlug, setEditingSlug] = useState<string | null>(null)
-  const [openEdit, setOpenEdit] = useState(false)
-  const [form, setForm] = useState<FormState>(EMPTY)
-  const [settingsError, setSettingsError] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<ProfileSummary | null>(null)
 
-  const { data: editingProfile } = useProfile('shared', editingSlug ?? undefined)
   const shared = allProfiles?.filter((p) => p.scope === 'shared') ?? []
-
-  useEffect(() => {
-    if (!editingProfile || editingProfile.slug !== editingSlug) return
-    setForm({
-      name: editingProfile.name,
-      description: editingProfile.description,
-      extensions: editingProfile.extensions.join('\n'),
-      settings: JSON.stringify(editingProfile.settings ?? {}, null, 2),
-    })
-  }, [editingProfile, editingSlug])
-
-  function handleEditOpen(p: ProfileSummary) {
-    setEditingSlug(p.slug)
-    setForm({ ...EMPTY, name: p.name, description: p.description })
-    setSettingsError(false)
-    setOpenEdit(true)
-  }
-
-  function handleEditClose() {
-    setOpenEdit(false)
-    setEditingSlug(null)
-    setForm(EMPTY)
-    setSettingsError(false)
-  }
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    let settings: Record<string, unknown> = {}
-    try {
-      settings = JSON.parse(form.settings || '{}')
-      setSettingsError(false)
-    } catch {
-      setSettingsError(true)
-      return
-    }
-    const extensions = form.extensions.split('\n').map((s) => s.trim()).filter(Boolean)
-    saveMutation.mutate(
-      {
-        slug: editingSlug!,
-        body: { name: form.name, description: form.description, extensions, settings },
-      },
-      { onSuccess: handleEditClose },
-    )
-  }
 
   return (
     <section>
@@ -112,7 +48,11 @@ export default function SharedProfilesSection() {
               {p.extension_count} extension{p.extension_count !== 1 ? 's' : ''}
             </div>
             <div className="flex gap-1">
-              <Button size="sm" variant="ghost" onClick={() => handleEditOpen(p)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => navigate(`/admin/profiles/${p.slug}`)}
+              >
                 {t('workspaces.actions.edit')}
               </Button>
               <Button
@@ -128,71 +68,6 @@ export default function SharedProfilesSection() {
         ))}
       </div>
 
-      {/* Dialog édition */}
-      <Dialog open={openEdit} onOpenChange={(o) => !o && handleEditClose()}>
-        <DialogContent>
-          <form onSubmit={handleSubmit}>
-            <DialogHeader>
-              <DialogTitle>{t('admin.editProfile')}</DialogTitle>
-              <DialogDescription className="sr-only">
-                {t('admin.editProfile')}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex flex-col gap-3 py-4">
-              <Label htmlFor="sp-name">{t('profiles.fields.name')}</Label>
-              <Input
-                id="sp-name"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                required
-              />
-              <Label htmlFor="sp-desc">{t('profiles.fields.description')}</Label>
-              <Input
-                id="sp-desc"
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              />
-              <Label htmlFor="sp-ext">{t('admin.extensionsHint')}</Label>
-              <textarea
-                id="sp-ext"
-                className="min-h-[80px] w-full rounded-md border bg-background px-3 py-2 text-sm font-mono"
-                value={form.extensions}
-                onChange={(e) => setForm((f) => ({ ...f, extensions: e.target.value }))}
-                placeholder="esbenp.prettier-vscode&#10;dbaeumer.vscode-eslint"
-              />
-              <Label htmlFor="sp-settings">{t('admin.settingsHint')}</Label>
-              <textarea
-                id="sp-settings"
-                className={`min-h-[100px] w-full rounded-md border bg-background px-3 py-2 text-sm font-mono${
-                  settingsError ? ' border-destructive' : ''
-                }`}
-                value={form.settings}
-                onChange={(e) => {
-                  setForm((f) => ({ ...f, settings: e.target.value }))
-                  setSettingsError(false)
-                }}
-                placeholder="{}"
-              />
-              {settingsError && (
-                <p className="text-xs text-destructive">{t('admin.settingsInvalid')}</p>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" type="button" onClick={handleEditClose}>
-                {t('common.cancel')}
-              </Button>
-              <Button
-                type="submit"
-                disabled={!form.name.trim() || saveMutation.isPending}
-              >
-                {t('common.save')}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog confirmation suppression */}
       <Dialog
         open={Boolean(confirmDelete)}
         onOpenChange={(o) => !o && setConfirmDelete(null)}

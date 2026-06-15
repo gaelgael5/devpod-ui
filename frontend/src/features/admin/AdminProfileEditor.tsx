@@ -1,25 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { PluginBrowser } from './components/PluginBrowser'
-import { useProfile, useSaveProfile } from './hooks/useProfiles'
+import { PluginBrowser } from '@/features/profiles/components/PluginBrowser'
+import { useProfile, useSaveSharedProfile } from '@/features/profiles/hooks/useProfiles'
 
-function useSlugFromPath(): string | undefined {
-  const { pathname } = useLocation()
-  const segment = pathname.split('/').filter(Boolean).pop()
-  return segment === 'new' || segment === undefined ? undefined : segment
-}
-
-export default function ProfileEditor() {
+export default function AdminProfileEditor() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const slug = useSlugFromPath()
+  const { slug } = useParams<{ slug: string }>()
+  const isNew = !slug || slug === 'new'
 
-  const { data: existing } = useProfile('user', slug)
-  const save = useSaveProfile()
+  const { data: existing } = useProfile('shared', isNew ? undefined : slug)
+  const save = useSaveSharedProfile()
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -62,24 +57,27 @@ export default function ProfileEditor() {
       return
     }
     save.mutate(
-      { slug, body: { name, description, extensions: [...selected], settings } },
-      { onSuccess: () => navigate('/profiles') },
+      {
+        slug: isNew ? undefined : slug,
+        body: { name, description, extensions: [...selected], settings },
+      },
+      { onSuccess: () => navigate('/admin/profiles') },
     )
   }
 
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex flex-col gap-3 max-w-xl">
-        <Label htmlFor="profile-name">{t('profiles.fields.name')}</Label>
+        <Label htmlFor="ape-name">{t('profiles.fields.name')}</Label>
         <Input
-          id="profile-name"
+          id="ape-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={t('profiles.fields.name')}
         />
-        <Label htmlFor="profile-desc">{t('profiles.fields.description')}</Label>
+        <Label htmlFor="ape-desc">{t('profiles.fields.description')}</Label>
         <Input
-          id="profile-desc"
+          id="ape-desc"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder={t('profiles.fields.description')}
@@ -111,7 +109,10 @@ export default function ProfileEditor() {
 
       <section>
         <h2 className="mb-2 text-lg font-medium">{t('profiles.preview')}</h2>
-        <pre role="code" className="overflow-x-auto rounded-md bg-muted p-4 text-xs">
+        <pre
+          role="code"
+          className="overflow-x-auto rounded-md bg-muted p-4 text-xs max-w-xl"
+        >
           {devcontainerPreview}
         </pre>
       </section>
@@ -120,7 +121,7 @@ export default function ProfileEditor() {
         <Button onClick={onSave} disabled={!name.trim() || save.isPending}>
           {t('common.save')}
         </Button>
-        <Button variant="ghost" onClick={() => navigate('/profiles')}>
+        <Button variant="ghost" onClick={() => navigate('/admin/profiles')}>
           {t('common.cancel')}
         </Button>
       </div>
