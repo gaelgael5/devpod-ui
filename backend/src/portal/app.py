@@ -23,6 +23,7 @@ from .routes.profiles import get_repo as get_profile_repo
 from .routes.profiles import router as profiles_router
 from .routes.profiles import router_admin as profiles_admin_router
 from .routes.proxmox import router as proxmox_router
+from .routes.profile_sources import router_admin as profile_sources_admin_router
 from .routes.recipe_sources import router_admin as recipe_sources_admin_router
 from .routes.recipes import router_admin as recipes_admin_router
 from .routes.recipes import router_me as recipes_me_router
@@ -122,6 +123,7 @@ def create_app() -> FastAPI:
     app.include_router(proxmox_router, prefix="/admin")
     app.include_router(recipes_admin_router, prefix="/admin")
     app.include_router(recipe_sources_admin_router, prefix="/admin")
+    app.include_router(profile_sources_admin_router, prefix="/admin")
     app.include_router(ssh_proxy_router, prefix="/admin")
     app.include_router(profiles_router)
     app.include_router(profiles_admin_router, prefix="/admin")
