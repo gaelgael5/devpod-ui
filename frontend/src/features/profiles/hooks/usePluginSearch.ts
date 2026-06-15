@@ -12,5 +12,6 @@ export function usePluginSearch(query: string, sort: PluginSort) {
       const loaded = pages.reduce((n, p) => n + p.items.length, 0)
       return loaded < last.total ? loaded : undefined
     },
+    staleTime: 30 * 1000,
   })
 }

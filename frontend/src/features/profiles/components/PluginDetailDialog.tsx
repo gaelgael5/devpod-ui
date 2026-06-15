@@ -21,7 +21,7 @@ interface Props {
 
 export function PluginDetailDialog({ plugin, selected, onToggle, onClose }: Props) {
   const { t } = useTranslation()
-  const { data: readme, isLoading } = usePluginReadme(plugin?.namespace, plugin?.name)
+  const { data: readme, isLoading, isError: readmeError } = usePluginReadme(plugin?.namespace, plugin?.name)
 
   return (
     <Dialog open={Boolean(plugin)} onOpenChange={(o) => !o && onClose()}>
@@ -47,9 +47,11 @@ export function PluginDetailDialog({ plugin, selected, onToggle, onClose }: Prop
             <div className="prose prose-sm prose-invert mt-4 max-w-none">
               {isLoading ? (
                 <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-              ) : (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{readme ?? ''}</ReactMarkdown>
-              )}
+              ) : readmeError ? (
+                <p className="text-sm text-muted-foreground">{t('profiles.plugins.errors.readme')}</p>
+              ) : readme ? (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{readme}</ReactMarkdown>
+              ) : null}
             </div>
           </>
         )}

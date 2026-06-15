@@ -40,13 +40,8 @@ describe('PluginBrowser', () => {
     renderBrowser(new Set(), onToggle)
     await waitFor(() => screen.getByText('Python'))
 
-    // La carte elle-même a role="button" avec un accessible name composite qui inclut "Add".
-    // On filtre sur les vrais <button> (tagName=BUTTON) pour cibler uniquement le bouton interne.
-    const addBtn = screen
-      .getAllByRole('button', { name: /add|ajouter/i })
-      .find((el) => el.tagName === 'BUTTON')
-    expect(addBtn).toBeDefined()
-    await user.click(addBtn!)
+    const addBtn = screen.getByRole('button', { name: /^(add|ajouter)$/i })
+    await user.click(addBtn)
     expect(onToggle).toHaveBeenCalledWith('ms-python.python')
   })
 
@@ -54,12 +49,9 @@ describe('PluginBrowser', () => {
     renderBrowser(new Set(['ms-python.python']))
     await waitFor(() => screen.getByText('Python'))
 
-    // Cibler le vrai <button> (pas la carte qui a role="button" avec accessible name composite)
-    const removeBtn = screen
-      .getAllByRole('button', { name: /remove|retirer/i })
-      .find((el) => el.tagName === 'BUTTON')
+    const removeBtn = screen.getByRole('button', { name: /^(remove|retirer)$/i })
     expect(removeBtn).toBeDefined()
-    const card = removeBtn!.closest('[role="button"]')
+    const card = removeBtn.closest('[role="button"]')
     expect(card?.className).toContain('ring-primary')
   })
 
@@ -94,6 +86,27 @@ describe('PluginBrowser', () => {
     await waitFor(() => screen.getByRole('dialog'))
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Python README')
+    })
+  })
+
+  it("erreur readme → message d'erreur readme affiché dans la dialog", async () => {
+    const user = userEvent.setup()
+
+    server.use(
+      http.get('/plugins/:namespace/:name/readme', () =>
+        HttpResponse.json({ detail: 'not found' }, { status: 404 }),
+      ),
+    )
+
+    renderBrowser()
+    await waitFor(() => screen.getByText('Python'))
+    await user.click(screen.getByText('Python language support'))
+
+    await waitFor(() => screen.getByRole('dialog'))
+    await waitFor(() => {
+      expect(
+        screen.getByText(/impossible de charger le readme|could not load plugin readme/i),
+      ).toBeInTheDocument()
     })
   })
 

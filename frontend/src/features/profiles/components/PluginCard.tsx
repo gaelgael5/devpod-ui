@@ -50,6 +50,7 @@ export function PluginCard({ plugin, selected, onToggle, onOpen }: Props) {
         <Button
           size="sm"
           variant={selected ? 'secondary' : 'outline'}
+          aria-label={t(selected ? 'profiles.plugins.remove' : 'profiles.plugins.add')}
           onClick={(e) => {
             e.stopPropagation()
             onToggle()

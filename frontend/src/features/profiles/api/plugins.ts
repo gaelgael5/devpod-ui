@@ -28,6 +28,10 @@ export async function getPluginReadme(namespace: string, name: string): Promise<
   const res = await apiFetch(
     `/plugins/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/readme`,
   )
-  if (!res.ok) return ''
+  if (!res.ok) {
+    // README is optional enrichment — server returns empty string when unavailable,
+    // so non-ok means a real error (502 upstream down, etc.)
+    throw new Error(`readme fetch failed: ${res.status}`)
+  }
   return res.text()
 }
