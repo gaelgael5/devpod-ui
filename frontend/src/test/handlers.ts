@@ -37,4 +37,43 @@ export const handlers = [
   http.get('/admin/recipes', () => HttpResponse.json([])),
   http.delete('/admin/recipes/:id', () => HttpResponse.json({ deleted: 'ok' })),
   http.delete('/me/recipes/:id', () => HttpResponse.json({ deleted: 'ok' })),
+
+  // Handlers plugins
+  http.get('/plugins/search', () =>
+    HttpResponse.json({
+      total: 1,
+      offset: 0,
+      items: [{
+        id: 'ms-python.python',
+        namespace: 'ms-python',
+        name: 'python',
+        display_name: 'Python',
+        description: 'Python language support',
+        version: '2024.0.1',
+        downloads: 100000,
+        rating: 4.5,
+        icon_url: null,
+      }],
+    })
+  ),
+  http.get('/plugins/:namespace/:name/readme', () =>
+    new HttpResponse('', { headers: { 'Content-Type': 'text/markdown' } })
+  ),
+  http.get('/plugins/:namespace/:name', () =>
+    HttpResponse.json({
+      id: 'ms-python.python',
+      namespace: 'ms-python',
+      name: 'python',
+      display_name: 'Python',
+      description: 'Python language support',
+      version: '2024.0.1',
+      downloads: 100000,
+      rating: 4.5,
+      icon_url: null,
+      categories: ['Programming Languages'],
+      tags: ['python'],
+      license: null,
+      readme_url: null,
+    })
+  ),
 ]
