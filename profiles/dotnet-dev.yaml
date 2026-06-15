@@ -1,0 +1,12 @@
+name: .NET Dev
+description: C# / F# — C# Dev Kit, IntelliCode, tests, débogueur intégré
+extensions:
+  - ms-dotnettools.csdevkit
+  - ms-dotnettools.csharp
+  - ms-dotnettools.vscodeintellicode-csharp
+settings:
+  editor.formatOnSave: true
+  "[csharp]":
+    editor.defaultFormatter: ms-dotnettools.csharp
+  dotnet.defaultSolution: auto
+  omnisharp.enableEditorConfigSupport: true

@@ -1,0 +1,4 @@
+python-dev.yaml | Python Dev | Python 3.12+ — IntelliSense, Ruff (lint+format), debugpy, mypy | 4
+dotnet-dev.yaml | .NET Dev | C# / F# — C# Dev Kit, IntelliCode, tests, débogueur intégré | 3
+rust-dev.yaml | Rust Dev | Rust — rust-analyzer, CodeLLDB, crates.io, TOML | 4
+go-dev.yaml | Go Dev | Go 1.22+ — gopls, débogueur Delve, goimports, tests intégrés | 1
