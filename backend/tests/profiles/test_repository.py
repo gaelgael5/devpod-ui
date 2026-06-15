@@ -6,9 +6,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from portal.profiles.models import Profile, ProfileBody, ProfileSummary
-from portal.profiles.repository import ProfileRepository, ProfileError, slugify
-
+from portal.profiles.models import Profile, ProfileBody
+from portal.profiles.repository import ProfileError, ProfileRepository, slugify
 
 # ---------------------------------------------------------------------------
 # slugify
@@ -245,3 +244,13 @@ def test_atomic_write_no_tmp_residual(repo: ProfileRepository) -> None:
     repo.create(ALICE, BODY)
     tmp_files = list((repo._data / "users" / ALICE / "profiles").glob("*.tmp"))
     assert tmp_files == []
+
+
+# ---------------------------------------------------------------------------
+# sécurité — path traversal
+# ---------------------------------------------------------------------------
+
+def test_path_traversal_slug_rejected(repo: ProfileRepository) -> None:
+    with pytest.raises(ProfileError) as exc:
+        repo.get("user", "../etc/passwd", ALICE)
+    assert exc.value.code == "not_found"

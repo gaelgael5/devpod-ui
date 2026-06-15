@@ -4,6 +4,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
+from typing import cast
 
 import structlog
 import yaml
@@ -13,6 +14,7 @@ from .models import Profile, ProfileBody, ProfileSummary, Scope
 _log = structlog.get_logger(__name__)
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+_VALID_SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
 
 def slugify(name: str) -> str:
@@ -38,6 +40,8 @@ class ProfileRepository:
         return self._data / "users" / login / "profiles"
 
     def _path(self, scope: Scope, slug: str, login: str | None) -> Path:
+        if not _VALID_SLUG.fullmatch(slug):
+            raise ProfileError("not_found")
         return self._dir(scope, login) / f"{slug}.yaml"
 
     def list(self, login: str, is_admin: bool) -> list[ProfileSummary]:
@@ -49,7 +53,7 @@ class ProfileRepository:
             if not base.is_dir():
                 continue
             for f in sorted(base.glob("*.yaml")):
-                p = self._read(f, scope, f.stem)  # type: ignore[arg-type]
+                p = self._read(f, cast(Scope, scope), f.stem)
                 editable = is_admin if scope == "shared" else True
                 out.append(
                     ProfileSummary(
