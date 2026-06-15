@@ -75,9 +75,7 @@ async def list_git_branches(
     returncode, stdout, _ = await run_git_ls_remote(url, credential, user.login)
 
     if returncode != 0:
-        raise HTTPException(
-            status_code=422, detail="Cannot list branches (check URL and credentials)"
-        )
+        return {"branches": [], "default": None}
 
     branches: list[str] = []
     default: str | None = None
