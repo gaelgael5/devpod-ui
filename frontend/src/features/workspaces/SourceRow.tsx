@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -60,13 +60,19 @@ export default function SourceRow({
   const urlHost = extractHost(entry.url)
   const filteredCredentials = credentials.filter(c => !urlHost || c.host === urlHost)
 
-  // Auto-remplir la branche par défaut dès que le repo est résolu
+  // Ref pour éviter le stale closure sur entry dans les effets
+  const entryRef = useRef(entry)
+  entryRef.current = entry
+
+  // Auto-remplir la branche par défaut quand committed change ou quand les données arrivent.
+  // On dépend de committed.credential pour re-déclencher même si default reste 'main'.
   useEffect(() => {
-    if (gitBranches?.default && !entry.branch) {
-      onChange({ ...entry, branch: gitBranches.default })
+    const e = entryRef.current
+    if (gitBranches?.default && !e.branch) {
+      onChange({ ...e, branch: gitBranches.default })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gitBranches?.default])
+  }, [committed.url, committed.credential, gitBranches?.default])
 
   // Quand le credential change (après que committed.url est défini), relancer la requête
   useEffect(() => {
