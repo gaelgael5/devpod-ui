@@ -271,6 +271,9 @@
       "downloadsLabel": "téléch.",
       "selectedCount_one": "{{count}} plugin sélectionné",
       "selectedCount_other": "{{count}} plugins sélectionnés",
+      "showSelected": "Voir la sélection",
+      "showAll": "Tout afficher",
+      "selectedEmpty": "Aucune extension sélectionnée.",
       "sort": {
         "relevance": "Pertinence",
         "popular": "Populaires",

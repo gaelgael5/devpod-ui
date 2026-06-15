@@ -270,6 +270,9 @@
       "remove": "Remove",
       "downloadsLabel": "dl",
       "selectedCount_one": "{{count}} plugin selected",
+      "showSelected": "Show selected",
+      "showAll": "Show all",
+      "selectedEmpty": "No extensions selected.",
       "selectedCount_other": "{{count}} plugins selected",
       "sort": {
         "relevance": "Relevance",
