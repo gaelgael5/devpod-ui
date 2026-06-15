@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -26,6 +26,18 @@ interface SourceRowProps {
   urlError?: string
 }
 
+function extractHost(url: string): string {
+  const trimmed = url.trim()
+  if (trimmed.startsWith('git@')) {
+    return trimmed.slice(4).split(':')[0].split('/')[0].toLowerCase()
+  }
+  try {
+    return new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
 export default function SourceRow({
   index,
   entry,
@@ -40,25 +52,13 @@ export default function SourceRow({
   const branchId = `ws-source-${index}-branch`
   const branchListId = `ws-source-${index}-branches`
 
-  const { data: gitBranches } = useGitBranches(entry.url, entry.credential)
+  // Committed = ce qui déclenche réellement la requête de branches
+  const [committed, setCommitted] = useState({ url: '', credential: '' })
 
-  // Auto-sélectionner le credential qui correspond à l'hôte de l'URL
-  useEffect(() => {
-    if (!entry.url || entry.credential || credentials.length === 0) return
-    const url = entry.url.trim()
-    let host = ''
-    if (url.startsWith('git@')) {
-      host = url.slice(4).split(':')[0].split('/')[0].toLowerCase()
-    } else {
-      try {
-        host = new URL(url.startsWith('http') ? url : `https://${url}`).hostname.toLowerCase()
-      } catch { /* URL pas encore valide */ }
-    }
-    if (!host) return
-    const match = credentials.find(c => c.host === host)
-    if (match) onChange({ ...entry, credential: match.name })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry.url])
+  const { data: gitBranches } = useGitBranches(committed.url, committed.credential)
+
+  const urlHost = extractHost(entry.url)
+  const filteredCredentials = credentials.filter(c => !urlHost || c.host === urlHost)
 
   // Auto-remplir la branche par défaut dès que le repo est résolu
   useEffect(() => {
@@ -67,6 +67,28 @@ export default function SourceRow({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gitBranches?.default])
+
+  // Quand le credential change (après que committed.url est défini), relancer la requête
+  useEffect(() => {
+    if (!committed.url) return
+    if (entry.credential !== committed.credential) {
+      setCommitted(prev => ({ ...prev, credential: entry.credential }))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.credential])
+
+  function handleUrlBlur() {
+    const url = entry.url.trim().replace(/\.git$/, '')
+    if (url.length <= 5) return
+    const host = extractHost(url)
+    const filtered = credentials.filter(c => !host || c.host === host)
+    let credential = entry.credential
+    if (!credential && filtered.length === 1) {
+      credential = filtered[0].name
+      onChange({ ...entry, credential })
+    }
+    setCommitted({ url, credential })
+  }
 
   return (
     <div className="rounded-md border p-3 flex flex-col gap-2">
@@ -96,6 +118,7 @@ export default function SourceRow({
           id={urlId}
           value={entry.url}
           onChange={e => onChange({ ...entry, url: e.target.value })}
+          onBlur={handleUrlBlur}
           placeholder="github.com/org/repo"
           className="mt-1"
         />
@@ -104,45 +127,43 @@ export default function SourceRow({
         )}
       </div>
 
-      <div className={credentials.length > 0 ? 'grid grid-cols-2 gap-2' : ''}>
+      {credentials.length > 0 && (
         <div>
-          <Label htmlFor={branchId} className="text-xs">{t('workspaces.form.branch')}</Label>
-          <Input
-            id={branchId}
-            value={entry.branch}
-            onChange={e => onChange({ ...entry, branch: e.target.value })}
-            placeholder={t('workspaces.form.branchPlaceholder')}
-            list={branchListId}
-            className="mt-1"
-          />
-          <datalist id={branchListId}>
-            {gitBranches?.branches.map((b: string) => (
-              <option key={b} value={b} />
-            ))}
-          </datalist>
+          <Label className="text-xs">{t('workspaces.form.credential')}</Label>
+          <Select
+            value={entry.credential || CRED_NONE}
+            onValueChange={v => onChange({ ...entry, credential: v === CRED_NONE ? '' : v })}
+          >
+            <SelectTrigger className="mt-1">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={CRED_NONE}>{t('workspaces.form.credentialNone')}</SelectItem>
+              {filteredCredentials.map(c => (
+                <SelectItem key={c.name} value={c.name}>
+                  {c.name} ({c.host})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+      )}
 
-        {credentials.length > 0 && (
-          <div>
-            <Label className="text-xs">{t('workspaces.form.credential')}</Label>
-            <Select
-              value={entry.credential || CRED_NONE}
-              onValueChange={v => onChange({ ...entry, credential: v === CRED_NONE ? '' : v })}
-            >
-              <SelectTrigger className="mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={CRED_NONE}>{t('workspaces.form.credentialNone')}</SelectItem>
-                {credentials.map(c => (
-                  <SelectItem key={c.name} value={c.name}>
-                    {c.name} ({c.host})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+      <div>
+        <Label htmlFor={branchId} className="text-xs">{t('workspaces.form.branch')}</Label>
+        <Input
+          id={branchId}
+          value={entry.branch}
+          onChange={e => onChange({ ...entry, branch: e.target.value })}
+          placeholder={t('workspaces.form.branchPlaceholder')}
+          list={branchListId}
+          className="mt-1"
+        />
+        <datalist id={branchListId}>
+          {gitBranches?.branches.map((b: string) => (
+            <option key={b} value={b} />
+          ))}
+        </datalist>
       </div>
     </div>
   )

@@ -16,7 +16,6 @@ const AdminProxmox = lazy(() => import('@/features/admin/AdminProxmox'))
 const AdminHypervisorTypes = lazy(() => import('@/features/admin/AdminHypervisorTypes'))
 const ProfileList = lazy(() => import('@/features/profiles/ProfileList'))
 const ProfileEditor = lazy(() => import('@/features/profiles/ProfileEditor'))
-const AdminProfiles = lazy(() => import('@/features/admin/AdminProfiles'))
 const AdminProfileEditor = lazy(() => import('@/features/admin/AdminProfileEditor'))
 const AdminProfileSources = lazy(() => import('@/features/admin/AdminProfileSources'))
 const GitCredentialManager = lazy(() => import('@/features/git-credentials/GitCredentialManager'))
@@ -50,10 +49,6 @@ export const router = createBrowserRouter([
       {
         path: '/admin/recipes',
         element: <AdminGuard><Wrap><AdminRecipes /></Wrap></AdminGuard>,
-      },
-      {
-        path: '/admin/profiles',
-        element: <AdminGuard><Wrap><AdminProfiles /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/profiles/new',
