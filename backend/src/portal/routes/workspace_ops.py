@@ -12,10 +12,12 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth.rbac import UserInfo, require_user
-from ..config.models import SourceSpec, WorkspaceSpec
+from ..config.models import ProfileRef, SourceSpec, WorkspaceSpec
 from ..config.store import _data_root, load_global, safe_user_path
 from ..devpod.env import UnknownHostError
 from ..devpod.service import DevPodService
+from ..profiles.models import Profile
+from ..profiles.repository import ProfileError, ProfileRepository
 from ..recipes.models import _RECIPE_ID_RE as _RECIPE_ID_PATTERN
 from ..recipes.models import RecipeMeta, SecretRef
 from ..recipes.registry import RecipeRegistry
@@ -46,6 +48,7 @@ class UpRequest(BaseModel):
     recipes: list[str] = Field(default_factory=list)
     extra_sources: list[SourceSpec] = Field(default_factory=list)
     generate_ssh_key: bool = False
+    profile: ProfileRef | None = None
 
 
 _service: DevPodService | None = None
@@ -200,6 +203,21 @@ async def workspace_up(
                     detail=f"Secret resolution failed: {type(exc).__name__}",
                 ) from exc
 
+    # Résolution du profil (dégradation gracieuse si absent)
+    profile_obj: Profile | None = None
+    if req.profile is not None:
+        try:
+            repo = ProfileRepository(_data_root())
+            profile_obj = await asyncio.to_thread(
+                repo.get, req.profile.scope, req.profile.slug, user.login
+            )
+        except ProfileError:
+            _log.warning(
+                "workspace.profile_missing",
+                scope=req.profile.scope,
+                slug=req.profile.slug,
+            )
+
     try:
         ws = WorkspaceSpec(
             name=name,
@@ -209,6 +227,7 @@ async def workspace_up(
             host=req.host,
             recipes=req.recipes,
             extra_sources=req.extra_sources,
+            profile=req.profile,
         )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -223,6 +242,7 @@ async def workspace_up(
             feature_env=feature_env or None,
             generate_ssh_key=req.generate_ssh_key,
             request_host=request_host,
+            profile=profile_obj,
         )
     except UnknownHostError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

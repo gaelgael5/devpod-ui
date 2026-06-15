@@ -381,3 +381,67 @@ def test_up_without_generate_ssh_key_does_not_create_key(tmp_path: Path) -> None
 
     pub_path = tmp_path / "users" / "alice" / "keys" / "workspaces" / "myapp" / "id_ed25519.pub"
     assert not pub_path.exists(), "Aucune clé ne doit être créée sans generate_ssh_key"
+
+
+# ---------------------------------------------------------------------------
+# Profile wiring — Task 4
+# ---------------------------------------------------------------------------
+
+
+def test_up_without_profile_field_is_retro_compatible(tmp_path: Path) -> None:
+    """UpRequest sans 'profile' est accepté — rétro-compat."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/workspaces/myapp/up",
+            json={"source": "git@github.com:user/repo.git"},
+        )
+    assert resp.status_code == 202
+
+
+def test_up_with_missing_profile_degrades_gracefully(tmp_path: Path) -> None:
+    """Profil inexistant → 202 (pas d'erreur), workspace démarré sans profil."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/workspaces/myapp/up",
+            json={
+                "source": "git@github.com:user/repo.git",
+                "profile": {"scope": "user", "slug": "nonexistent"},
+            },
+        )
+    assert resp.status_code == 202
+    data = resp.json()
+    assert data["status"] == "provisioning"
+
+
+def test_up_with_valid_profile_ref_returns_202(tmp_path: Path) -> None:
+    """Profil existant dans /data/profiles → 202 et workspace lancé."""
+    import yaml
+
+    # Créer un profil partagé sur disque
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    (profiles_dir / "python-dev.yaml").write_text(
+        yaml.dump(
+            {
+                "name": "Python Dev",
+                "description": "",
+                "extensions": ["ms-python.python"],
+                "settings": {},
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/workspaces/myapp/up",
+            json={
+                "source": "git@github.com:user/repo.git",
+                "profile": {"scope": "shared", "slug": "python-dev"},
+            },
+        )
+    assert resp.status_code == 202
