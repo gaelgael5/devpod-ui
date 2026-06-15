@@ -14,6 +14,7 @@ export default defineConfig({
       '/admin': { target: 'http://localhost:8080', changeOrigin: true },
       '/recipes': { target: 'http://localhost:8080', changeOrigin: true },
       '/plugins': { target: 'http://localhost:8080', changeOrigin: true },
+      '/profiles': { target: 'http://localhost:8080', changeOrigin: true },
       '/health': { target: 'http://localhost:8080', changeOrigin: true },
     },
   },

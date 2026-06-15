@@ -40,6 +40,105 @@ export const handlers = [
   http.get('/admin/recipe-sources', () => HttpResponse.json({ sources: [] })),
   http.get('/admin/recipe-sources/preview', () => HttpResponse.json({ recipes: [] })),
 
+  // Handlers profiles
+  http.get('/profiles', () =>
+    HttpResponse.json([
+      {
+        slug: 'frontend-react',
+        scope: 'user',
+        name: 'Frontend React',
+        description: 'Stack React',
+        extension_count: 1,
+        editable: true,
+      },
+      {
+        slug: 'python-dev',
+        scope: 'shared',
+        name: 'Python Dev',
+        description: 'Python stack',
+        extension_count: 2,
+        editable: false,
+      },
+    ])
+  ),
+  http.get('/profiles/:scope/:slug', ({ params }) =>
+    HttpResponse.json({
+      slug: params.slug,
+      scope: params.scope,
+      name: 'Frontend React',
+      description: 'Stack React',
+      extensions: ['esbenp.prettier-vscode'],
+      settings: {},
+    })
+  ),
+  http.post('/profiles/shared/:slug/fork', () =>
+    HttpResponse.json(
+      {
+        slug: 'python-dev-2',
+        scope: 'user',
+        name: 'Python Dev',
+        description: 'Python stack',
+        extensions: [],
+        settings: {},
+      },
+      { status: 201 }
+    )
+  ),
+  http.post('/profiles', () =>
+    HttpResponse.json(
+      {
+        slug: 'new-profile',
+        scope: 'user',
+        name: 'New Profile',
+        description: '',
+        extensions: [],
+        settings: {},
+      },
+      { status: 201 }
+    )
+  ),
+  http.put('/profiles/:slug', ({ params }) =>
+    HttpResponse.json({
+      slug: params.slug,
+      scope: 'user',
+      name: 'Updated',
+      description: '',
+      extensions: [],
+      settings: {},
+    })
+  ),
+  http.delete('/profiles/:slug', () => new HttpResponse(null, { status: 204 })),
+  // Admin profiles
+  http.get('/admin/profiles', () =>
+    HttpResponse.json([
+      {
+        slug: 'python-dev',
+        scope: 'shared',
+        name: 'Python Dev',
+        description: 'Python stack',
+        extension_count: 2,
+        editable: true,
+      },
+    ])
+  ),
+  http.post('/admin/profiles', () =>
+    HttpResponse.json(
+      { slug: 'new-shared', scope: 'shared', name: 'New', description: '', extensions: [], settings: {} },
+      { status: 201 }
+    )
+  ),
+  http.put('/admin/profiles/:slug', ({ params }) =>
+    HttpResponse.json({
+      slug: params.slug,
+      scope: 'shared',
+      name: 'Updated',
+      description: '',
+      extensions: [],
+      settings: {},
+    })
+  ),
+  http.delete('/admin/profiles/:slug', () => new HttpResponse(null, { status: 204 })),
+
   // Handlers plugins
   http.get('/plugins/search', () =>
     HttpResponse.json({
