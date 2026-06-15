@@ -4,11 +4,12 @@ import { Plus, Trash2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { useNavigate } from 'react-router-dom'
 import { useProfileSources, type RemoteProfile } from './useProfileSources'
-import SharedProfilesSection from './SharedProfilesSection'
 
 export default function AdminProfileSources() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { sourcesQuery, updateSources, previewQuery, importProfile } = useProfileSources()
   const { data: sourcesData } = sourcesQuery
   const {
@@ -85,9 +86,6 @@ export default function AdminProfileSources() {
         </div>
       </section>
 
-      {/* ── Profils importés ────────────────────────────────────────── */}
-      <SharedProfilesSection />
-
       {/* ── Galerie ─────────────────────────────────────────────────── */}
       <section>
         <div className="mb-3 flex items-center justify-between">
@@ -126,7 +124,11 @@ export default function AdminProfileSources() {
                 </div>
                 <Button
                   size="sm"
-                  onClick={() => importProfile.mutate(p.source_url)}
+                  onClick={() =>
+                    importProfile.mutate(p.source_url, {
+                      onSuccess: (data) => navigate(`/admin/profiles/${data.slug}`),
+                    })
+                  }
                   disabled={importProfile.isPending}
                 >
                   {importProfile.isPending
