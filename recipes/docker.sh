@@ -1,5 +1,5 @@
 # name: Docker CLI
-# description: Installe le client Docker CLI (sans daemon)
+# description: Install Installe le client Docker CLI (sans daemon)
 # version: 1.0.0
 #!/usr/bin/env bash
 set -e

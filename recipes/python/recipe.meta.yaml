@@ -1,6 +1,6 @@
 id: python
 version: 1.0.0
-description: "Python via deadsnakes PPA — versions 3.10 à 3.13 (défaut : 3.12 LTS)"
+description: "Install Python via deadsnakes PPA — versions 3.10 à 3.13 (défaut : 3.12 LTS)"
 options:
   version:
     type: string

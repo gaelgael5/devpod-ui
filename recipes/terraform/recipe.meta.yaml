@@ -1,6 +1,6 @@
 id: terraform
 version: 1.0.0
-description: "Terraform via dépôt officiel HashiCorp apt"
+description: "Install Terraform via dépôt officiel HashiCorp apt"
 options:
   version:
     type: string

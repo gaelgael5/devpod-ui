@@ -1,5 +1,5 @@
 # name: Claude Code
-# description: Claude Code CLI (Anthropic) — requiert ANTHROPIC_API_KEY dans l'environnement
+# description: Install Claude Code CLI (Anthropic) — requiert ANTHROPIC_API_KEY dans l'environnement
 # version: 1.0.0
 #!/usr/bin/env bash
 set -euo pipefail

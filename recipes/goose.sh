@@ -1,5 +1,5 @@
 # name: Goose CLI
-# description: Goose CLI (Block) — agent AI autonome, télécharge un binaire, requiert une clé API LLM
+# description: Install Goose CLI (Block) — agent AI autonome, télécharge un binaire, requiert une clé API LLM
 # version: 1.0.0
 #!/usr/bin/env bash
 set -euo pipefail

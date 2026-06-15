@@ -1,5 +1,5 @@
 # name: Gemini CLI
-# description: Gemini CLI (Google) — requiert Node.js et GEMINI_API_KEY dans l'environnement
+# description: Install Gemini CLI (Google) — requiert Node.js et GEMINI_API_KEY dans l'environnement
 # version: 1.0.0
 #!/usr/bin/env bash
 set -euo pipefail

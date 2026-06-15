@@ -1,5 +1,5 @@
 # name: OpenCode CLI
-# description: OpenCode CLI — interface CLI pour LLMs de code, requiert Node.js
+# description: Install OpenCode CLI — interface CLI pour LLMs de code, requiert Node.js
 # version: 1.0.0
 #!/usr/bin/env bash
 set -euo pipefail

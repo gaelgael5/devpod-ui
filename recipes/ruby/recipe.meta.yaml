@@ -1,6 +1,6 @@
 id: ruby
 version: 1.0.0
-description: "Ruby via rbenv + ruby-build — compilation depuis source"
+description: "Install Ruby via rbenv + ruby-build — compilation depuis source"
 options:
   version:
     type: string

@@ -1,6 +1,6 @@
 id: java
 version: 1.0.0
-description: "OpenJDK via apt — 11 LTS, 17 LTS ou 21 LTS (défaut)"
+description: "Install OpenJDK via apt — 11 LTS, 17 LTS ou 21 LTS (défaut)"
 options:
   version:
     type: string

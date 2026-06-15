@@ -1,5 +1,5 @@
 # name: Codex CLI
-# description: OpenAI Codex CLI — requiert Node.js et OPENAI_API_KEY dans l'environnement
+# description: Install OpenAI Codex CLI — requiert Node.js et OPENAI_API_KEY dans l'environnement
 # version: 1.0.0
 #!/usr/bin/env bash
 set -euo pipefail

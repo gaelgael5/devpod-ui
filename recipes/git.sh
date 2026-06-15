@@ -1,5 +1,5 @@
 # name: Git
-# description: Configure Git avec user.name et user.email via variables d'environnement
+# description: Install Configure Git avec user.name et user.email via variables d'environnement
 # version: 1.0.0
 #!/usr/bin/env bash
 set -e

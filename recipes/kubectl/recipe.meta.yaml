@@ -1,6 +1,6 @@
 id: kubectl
 version: 1.0.0
-description: "kubectl + Helm — pilotage de clusters Kubernetes"
+description: "Install kubectl + Helm — pilotage de clusters Kubernetes"
 options:
   kubectl_version:
     type: string

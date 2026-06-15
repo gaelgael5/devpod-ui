@@ -1,6 +1,6 @@
 id: cpp
 version: 1.0.0
-description: "C/C++ — build-essential + CMake + GDB (GCC ou Clang)"
+description: "Install C/C++ — build-essential + CMake + GDB (GCC ou Clang)"
 options:
   compiler:
     type: string

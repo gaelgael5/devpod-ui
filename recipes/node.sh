@@ -1,5 +1,5 @@
 # name: Node.js LTS
-# description: Installe Node.js LTS via nvm dans le workspace
+# description: Install Installe Node.js LTS via nvm dans le workspace
 # version: 1.0.0
 #!/usr/bin/env bash
 set -e

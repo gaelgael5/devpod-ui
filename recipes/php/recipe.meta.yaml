@@ -1,6 +1,6 @@
 id: php
 version: 1.0.0
-description: "PHP via PPA ondrej/php + Composer — 8.1, 8.2 ou 8.3 (défaut)"
+description: "Install PHP via PPA ondrej/php + Composer — 8.1, 8.2 ou 8.3 (défaut)"
 options:
   version:
     type: string

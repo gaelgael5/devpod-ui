@@ -1,6 +1,6 @@
 id: scala
 version: 1.0.0
-description: "Scala + sbt via Coursier — Scala 2 ou 3 (requiert Java)"
+description: "Install Scala + sbt via Coursier — Scala 2 ou 3 (requiert Java)"
 options:
   version:
     type: string
