@@ -11,18 +11,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useProfiles, useDeleteProfile, useForkProfile } from './hooks/useProfiles'
+import { useProfiles, useDeleteProfile } from './hooks/useProfiles'
 import type { ProfileSummary } from './api/profiles'
 
 export default function ProfileList() {
   const { t } = useTranslation()
   const { data: profiles, isLoading, isError } = useProfiles()
   const deleteMutation = useDeleteProfile()
-  const forkMutation = useForkProfile()
   const [confirmDelete, setConfirmDelete] = useState<ProfileSummary | null>(null)
 
-  const mine = profiles?.filter((p) => p.scope === 'user') ?? []
-  const shared = profiles?.filter((p) => p.scope === 'shared') ?? []
+  const mine = profiles?.filter((p: ProfileSummary) => p.scope === 'user') ?? []
 
   function handleDeleteConfirm() {
     if (confirmDelete) {
@@ -45,40 +43,18 @@ export default function ProfileList() {
         </Button>
       </div>
 
-      {/* Mes profils */}
-      <section>
-        <h2 className="mb-3 text-lg font-medium">{t('profiles.sections.mine')}</h2>
-        {mine.length === 0 && (
-          <p className="text-sm text-muted-foreground">{t('profiles.empty.mine')}</p>
-        )}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {mine.map((p) => (
-            <ProfileCard
-              key={p.slug}
-              profile={p}
-              onDelete={() => setConfirmDelete(p)}
-            />
-          ))}
-        </div>
-      </section>
-
-      {/* Profils partagés */}
-      <section>
-        <h2 className="mb-3 text-lg font-medium">{t('profiles.sections.shared')}</h2>
-        {shared.length === 0 && (
-          <p className="text-sm text-muted-foreground">{t('profiles.empty.shared')}</p>
-        )}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {shared.map((p) => (
-            <ProfileCard
-              key={p.slug}
-              profile={p}
-              onFork={() => forkMutation.mutate(p.slug)}
-              forkPending={forkMutation.isPending}
-            />
-          ))}
-        </div>
-      </section>
+      {mine.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t('profiles.empty.mine')}</p>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {mine.map((p: ProfileSummary) => (
+          <ProfileCard
+            key={p.slug}
+            profile={p}
+            onDelete={() => setConfirmDelete(p)}
+          />
+        ))}
+      </div>
 
       {/* Dialog confirmation suppression */}
       <Dialog open={Boolean(confirmDelete)} onOpenChange={(o) => !o && setConfirmDelete(null)}>
@@ -110,11 +86,9 @@ export default function ProfileList() {
 interface CardProps {
   profile: ProfileSummary
   onDelete?: () => void
-  onFork?: () => void
-  forkPending?: boolean
 }
 
-function ProfileCard({ profile, onDelete, onFork, forkPending }: CardProps) {
+function ProfileCard({ profile, onDelete }: CardProps) {
   const { t } = useTranslation()
   return (
     <div className="flex flex-col gap-2 rounded-lg border bg-card p-4">
@@ -143,11 +117,6 @@ function ProfileCard({ profile, onDelete, onFork, forkPending }: CardProps) {
             onClick={onDelete}
           >
             {t('workspaces.actions.delete')}
-          </Button>
-        )}
-        {onFork && (
-          <Button size="sm" variant="outline" onClick={onFork} disabled={forkPending}>
-            {t('profiles.fork')}
           </Button>
         )}
       </div>

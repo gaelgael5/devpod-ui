@@ -10,29 +10,16 @@ describe('ProfileList', () => {
     useUserStore.setState({ user: { login: 'alice', roles: ['dev'] } })
   })
 
-  it('affiche les deux sections Mes profils et Partagés', async () => {
-    renderWithProviders(<ProfileList />)
-    expect(await screen.findByRole('heading', { name: /mes profils|my profiles/i })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /profils partagés|shared profiles/i })).toBeInTheDocument()
-  })
-
-  it('affiche le nom des profils', async () => {
+  it('affiche les profils personnels', async () => {
     renderWithProviders(<ProfileList />)
     expect(await screen.findByText('Frontend React')).toBeInTheDocument()
-    expect(screen.getByText('Python Dev')).toBeInTheDocument()
   })
 
-  it('affiche le bouton Forker sur les profils partagés', async () => {
-    renderWithProviders(<ProfileList />)
-    await screen.findByText('Python Dev')
-    expect(screen.getByRole('button', { name: /forker|fork/i })).toBeInTheDocument()
-  })
-
-  it("n'affiche pas de bouton Forker sur les profils user", async () => {
+  it("n'affiche pas les profils partagés ni le bouton Fork", async () => {
     renderWithProviders(<ProfileList />)
     await screen.findByText('Frontend React')
-    const forkButtons = screen.queryAllByRole('button', { name: /forker|fork/i })
-    expect(forkButtons).toHaveLength(1)
+    expect(screen.queryByText('Python Dev')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /forker|fork/i })).not.toBeInTheDocument()
   })
 
   it('affiche le bouton Nouveau profil', async () => {
