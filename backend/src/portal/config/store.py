@@ -17,11 +17,6 @@ def _data_root() -> Path:
     return Path(os.environ.get("PORTAL_DATA_ROOT", "/data"))
 
 
-def _builtin_recipes_dir() -> Path | None:
-    val = os.environ.get("PORTAL_BUILTIN_RECIPES_DIR")
-    return Path(val) if val else None
-
-
 def safe_user_path(login: str, *parts: str) -> Path:
     if not _LOGIN_RE.fullmatch(login):
         raise ValueError(f"Invalid login: {login!r}")

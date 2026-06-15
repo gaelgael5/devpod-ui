@@ -64,10 +64,6 @@ COPY scripts/ ./scripts/
 COPY backend/src/ ./src/
 RUN uv sync --no-dev --frozen
 
-# Recettes builtin — baked dans l'image, non modifiables via l'API admin
-COPY recipes/ ./recipes/
-ENV PORTAL_BUILTIN_RECIPES_DIR=/app/recipes
-
 # Assets frontend buildés dans le stage précédent
 COPY --from=frontend-builder /build/dist ./static
 
