@@ -115,6 +115,15 @@
     "addHypervisorType": "Ajouter un type d'hyperviseur",
     "editHypervisorType": "Modifier le type",
     "sharedProfiles": "Profils partagés",
+    "profileSources": {
+      "navLabel": "Sources de profils",
+      "sources": "Sources configurées",
+      "gallery": "Galerie de profils",
+      "empty": "Aucun profil disponible. Ajoutez une source et actualisez.",
+      "import": "Importer",
+      "importing": "Import…",
+      "imported": "Profil «{{name}}» importé"
+    },
     "profilesEmpty": "Aucun profil partagé.",
     "addProfile": "Ajouter un profil",
     "editProfile": "Modifier le profil",

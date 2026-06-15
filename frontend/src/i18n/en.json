@@ -115,6 +115,15 @@
     "addHypervisorType": "Add hypervisor type",
     "editHypervisorType": "Edit type",
     "sharedProfiles": "Shared profiles",
+    "profileSources": {
+      "navLabel": "Profile Sources",
+      "sources": "Configured Sources",
+      "gallery": "Profile Gallery",
+      "empty": "No profiles available. Add a source and refresh.",
+      "import": "Import",
+      "importing": "Importing…",
+      "imported": "Profile «{{name}}» imported"
+    },
     "profilesEmpty": "No shared profiles.",
     "addProfile": "Add profile",
     "editProfile": "Edit profile",

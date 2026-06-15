@@ -106,6 +106,9 @@ export default function AppShell() {
                   <DropdownMenuItem onClick={() => navigate('/admin/profiles')}>
                     {t('admin.sharedProfiles')}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/profile-sources')}>
+                    {t('admin.profileSources.navLabel')}
+                  </DropdownMenuItem>
                 </>
               )}
 

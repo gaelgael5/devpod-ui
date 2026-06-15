@@ -17,6 +17,7 @@ const AdminHypervisorTypes = lazy(() => import('@/features/admin/AdminHypervisor
 const ProfileList = lazy(() => import('@/features/profiles/ProfileList'))
 const ProfileEditor = lazy(() => import('@/features/profiles/ProfileEditor'))
 const AdminProfiles = lazy(() => import('@/features/admin/AdminProfiles'))
+const AdminProfileSources = lazy(() => import('@/features/admin/AdminProfileSources'))
 
 function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -50,6 +51,10 @@ export const router = createBrowserRouter([
       {
         path: '/admin/profiles',
         element: <AdminGuard><Wrap><AdminProfiles /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/profile-sources',
+        element: <AdminGuard><Wrap><AdminProfileSources /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/hypervisors',

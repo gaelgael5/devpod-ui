@@ -139,6 +139,24 @@ export const handlers = [
   ),
   http.delete('/admin/profiles/:slug', () => new HttpResponse(null, { status: 204 })),
 
+  // Admin profile-sources
+  http.get('/admin/profile-sources', () =>
+    HttpResponse.json({ sources: [] })
+  ),
+  http.get('/admin/profile-sources/preview', () =>
+    HttpResponse.json({ profiles: [] })
+  ),
+  http.put('/admin/profile-sources', async ({ request }) => {
+    const body = await request.json() as { sources: string[] }
+    return HttpResponse.json({ sources: body.sources })
+  }),
+  http.post('/admin/profile-sources/import', () =>
+    HttpResponse.json(
+      { slug: 'python-dev', name: 'Python Dev', scope: 'shared', description: '', extensions: [], settings: {} },
+      { status: 201 }
+    )
+  ),
+
   // Handlers plugins
   http.get('/plugins/search', () =>
     HttpResponse.json({
