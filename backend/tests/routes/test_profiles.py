@@ -1,6 +1,7 @@
 """Tests des routes /profiles/* et /admin/profiles/* via ASGITransport."""
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from unittest.mock import MagicMock
 
 import pytest
@@ -8,7 +9,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from portal.auth.rbac import UserInfo, require_admin, require_user
-from portal.profiles.models import Profile, ProfileBody, ProfileSummary
+from portal.profiles.models import Profile, ProfileSummary
 from portal.profiles.repository import ProfileError, ProfileRepository
 from portal.routes.profiles import get_repo, router, router_admin
 
@@ -55,7 +56,7 @@ def profiles_app(mock_repo: MagicMock) -> FastAPI:
 
 
 @pytest.fixture
-async def client(profiles_app: FastAPI) -> AsyncClient:
+async def client(profiles_app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(transport=ASGITransport(app=profiles_app), base_url="http://test") as c:
         yield c
 
