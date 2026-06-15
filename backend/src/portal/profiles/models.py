@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 Scope = Literal["shared", "user"]
 
 
 class ProfileBody(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=80, pattern=r"^[\w\s\-+.]{1,80}$")
     description: str = ""
     extensions: list[str] = Field(default_factory=list)
     settings: dict[str, Any] = Field(default_factory=dict)
