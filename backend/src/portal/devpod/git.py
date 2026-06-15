@@ -5,6 +5,7 @@ import base64
 import ipaddress
 import os
 import socket as _socket
+import tempfile
 from urllib.parse import urlparse
 
 import structlog
@@ -72,8 +73,16 @@ async def run_git_ls_remote(
 
     _check_git_ssrf(git_url)
 
-    git_config: list[tuple[str, str]] = [("http.followRedirects", "false")]
+    # `git -c` est portable depuis git 1.7. On désactive le credential store
+    # système pour éviter qu'il injecte un credential qui entrerait en conflit
+    # avec celui qu'on fournit via include.path.
+    git_cmd: list[str] = [
+        "git",
+        "-c", "http.followRedirects=false",
+        "-c", "credential.helper=",
+    ]
     env: dict[str, str] = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
+    tmp_config: str | None = None
 
     if credential_name:
         cfg = load_user(login)
@@ -87,16 +96,24 @@ async def run_git_ls_remote(
             elif cred.kind == "token" and cred.token:
                 username = cred.username or "oauth2"
                 b64 = base64.b64encode(f"{username}:{cred.token}".encode()).decode()
-                git_config.append(("http.extraHeader", f"Authorization: Basic {b64}"))
+                # Le token ne transite PAS via argv (visible dans /proc/PID/cmdline).
+                # On l'écrit dans un fichier temporaire 0o600 inclus via include.path.
+                fd, tmp_config = tempfile.mkstemp(suffix=".gitconfig")
+                try:
+                    with os.fdopen(fd, "w") as fh:
+                        fh.write(f"[http]\n\textraHeader = Authorization: Basic {b64}\n")
+                    os.chmod(tmp_config, 0o600)
+                except Exception:
+                    os.unlink(tmp_config)
+                    tmp_config = None
+                    raise
+                git_cmd.extend(["-c", f"include.path={tmp_config}"])
 
-    for i, (key, val) in enumerate(git_config):
-        env[f"GIT_CONFIG_KEY_{i}"] = key
-        env[f"GIT_CONFIG_VALUE_{i}"] = val
-    env["GIT_CONFIG_COUNT"] = str(len(git_config))
+    git_cmd.extend(["ls-remote", "--symref", "--heads", git_url])
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "git", "ls-remote", "--symref", "--heads", git_url,
+            *git_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
@@ -106,5 +123,11 @@ async def run_git_ls_remote(
         raise HTTPException(status_code=504, detail="git ls-remote timed out") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        if tmp_config:
+            try:
+                os.unlink(tmp_config)
+            except OSError:
+                pass
 
     return proc.returncode if proc.returncode is not None else -1, stdout, stderr
