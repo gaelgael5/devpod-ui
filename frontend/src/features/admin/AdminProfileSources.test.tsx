@@ -31,6 +31,18 @@ describe('AdminProfileSources', () => {
     ).toBeInTheDocument()
   })
 
+  it('affiche la section des profils importés', () => {
+    renderWithProviders(<AdminProfileSources />)
+    expect(
+      screen.getByRole('heading', { name: /profils importés|imported profiles/i })
+    ).toBeInTheDocument()
+  })
+
+  it('affiche les profils partagés dans la liste locale', async () => {
+    renderWithProviders(<AdminProfileSources />)
+    expect(await screen.findByText('Python Dev')).toBeInTheDocument()
+  })
+
   it("permet d'ajouter une source via le champ texte", async () => {
     const { server } = await import('@/test/server')
     const { http, HttpResponse } = await import('msw')

@@ -122,12 +122,16 @@
       "empty": "No profiles available. Add a source and refresh.",
       "import": "Import",
       "importing": "Importing…",
-      "imported": "Profile «{{name}}» imported"
+      "imported": "Profile «{{name}}» imported",
+      "localProfiles": "Imported Profiles",
+      "localEmpty": "No imported profiles yet."
     },
     "profilesEmpty": "No shared profiles.",
     "addProfile": "Add profile",
     "editProfile": "Edit profile",
     "extensionsHint": "Extensions (one per line)",
+    "settingsHint": "Settings (JSON)",
+    "settingsInvalid": "Invalid JSON",
     "col": {
       "name": "Name",
       "type": "Type",
