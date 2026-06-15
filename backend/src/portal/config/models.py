@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from portal.profiles.models import Scope
+
 
 class LogConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -177,8 +179,8 @@ class GlobalConfig(BaseModel):
 class ProfileRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    scope: Literal["shared", "user"]
-    slug: str
+    scope: Scope
+    slug: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
 
 
 _WORKSPACE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")

@@ -38,6 +38,16 @@ def test_profile_ref_forbids_extra_fields() -> None:
         ProfileRef(scope="shared", slug="x", unknown_field="oops")
 
 
+def test_profile_ref_rejects_invalid_slug() -> None:
+    from portal.config.models import ProfileRef
+
+    with pytest.raises(ValidationError):
+        ProfileRef(scope="shared", slug="../hack")
+
+    with pytest.raises(ValidationError):
+        ProfileRef(scope="shared", slug="")
+
+
 def test_workspace_spec_retro_compat_without_profile() -> None:
     """Une spec YAML sans 'profile' se charge correctement (rétro-compat)."""
     import yaml
