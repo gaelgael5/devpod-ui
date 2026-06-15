@@ -115,6 +115,7 @@
     "profilesEmpty": "Aucun profil partagé.",
     "addProfile": "Ajouter un profil",
     "editProfile": "Modifier le profil",
+    "extensionsHint": "Extensions (une par ligne)",
     "col": {
       "name": "Nom",
       "type": "Type",

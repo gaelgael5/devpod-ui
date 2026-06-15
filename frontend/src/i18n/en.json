@@ -115,6 +115,7 @@
     "profilesEmpty": "No shared profiles.",
     "addProfile": "Add profile",
     "editProfile": "Edit profile",
+    "extensionsHint": "Extensions (one per line)",
     "col": {
       "name": "Name",
       "type": "Type",

@@ -24,6 +24,7 @@ class Profile(ProfileBody):
 
 
 class ProfileSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     slug: str
     scope: Scope
     name: str

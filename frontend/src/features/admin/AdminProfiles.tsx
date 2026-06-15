@@ -132,7 +132,7 @@ export default function AdminProfiles() {
                 value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               />
-              <Label htmlFor="ap-ext">Extensions (une par ligne)</Label>
+              <Label htmlFor="ap-ext">{t('admin.extensionsHint')}</Label>
               <textarea
                 id="ap-ext"
                 className="min-h-[80px] w-full rounded-md border bg-background px-3 py-2 text-sm font-mono"
