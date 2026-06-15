@@ -132,7 +132,7 @@ export default function SourceRow({
           <Label className="text-xs">{t('workspaces.form.credential')}</Label>
           <Select
             value={entry.credential || CRED_NONE}
-            onValueChange={v => onChange({ ...entry, credential: v === CRED_NONE ? '' : v })}
+            onValueChange={v => onChange({ ...entry, credential: v === CRED_NONE ? '' : v, branch: '' })}
           >
             <SelectTrigger className="mt-1">
               <SelectValue />
