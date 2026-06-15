@@ -179,3 +179,49 @@ async def test_list_workspaces_isolates_by_login(
     bob_workspaces = await svc.list_workspaces(login="bob")
     assert len(bob_workspaces) == 1
     assert bob_workspaces[0]["ws_id"] == "bob-myapp"
+
+
+@pytest.mark.asyncio
+async def test_up_docker_tls_passes_profile_to_write_devcontainer(
+    tmp_data_root: Path, global_cfg, fake_devpod_bin: list[str]
+) -> None:
+    """up() transmet le profil à _write_devcontainer sur docker-tls."""
+    import asyncio
+    import json
+    from unittest.mock import patch
+
+    from portal.auth.router import provision_user
+    from portal.config.models import WorkspaceSpec
+    from portal.devpod.service import DevPodService
+    from portal.profiles.models import Profile
+
+    await provision_user(login="alice", sub="sub", data_root=tmp_data_root)
+
+    profile = Profile(
+        slug="py", scope="user", name="Python Dev",
+        extensions=["ms-python.python"], settings={},
+    )
+    svc = DevPodService(global_cfg=global_cfg, devpod_bin=fake_devpod_bin)
+    ws = WorkspaceSpec(name="myapp", source="github.com/org/repo")
+
+    captured: list[Profile | None] = []
+    original = svc._write_devcontainer
+
+    def spy(*args, **kwargs):  # type: ignore[no-untyped-def]
+        captured.append(kwargs.get("profile"))
+        return original(*args, **kwargs)
+
+    with patch.object(svc, "_write_devcontainer", side_effect=spy):
+        ws_id = await svc.up(login="alice", ws_spec=ws, profile=profile)
+
+    assert len(captured) == 1
+    assert captured[0] is profile
+
+    # Attendre la fin de la tâche de fond
+    status_path = tmp_data_root / "routes" / f"{ws_id}.json"
+    for _ in range(50):
+        await asyncio.sleep(0.2)
+        if status_path.exists():
+            data = json.loads(status_path.read_text(encoding="utf-8"))
+            if data.get("status") in ("running", "failed"):
+                break

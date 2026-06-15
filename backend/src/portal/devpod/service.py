@@ -85,6 +85,7 @@ class DevPodService:
         feature_env: dict[str, str] | None = None,
         generate_ssh_key: bool = False,
         request_host: str = "",
+        profile: Profile | None = None,
     ) -> str:
         """Lance un workspace en tâche de fond. Retourne ws_id immédiatement."""
         ws_id = self._ws_id(login, ws_spec.name)
@@ -140,6 +141,7 @@ class DevPodService:
                 recipes=recipes,
                 feature_env=feature_env,
                 extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
+                profile=profile,
             )
 
         # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
