@@ -55,7 +55,7 @@ export default function AppShell() {
         <NavLink
           to="/profiles"
           className={({ isActive }) => cn(RAIL_LINK, isActive && RAIL_ACTIVE)}
-          title={t('profiles.plugins.title')}
+          title={t('profiles.title')}
         >
           <SquareLibrary size={18} />
         </NavLink>
@@ -102,6 +102,9 @@ export default function AppShell() {
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/recipes')}>
                     {t('admin.sharedRecipes')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/profiles')}>
+                    {t('admin.sharedProfiles')}
                   </DropdownMenuItem>
                 </>
               )}
