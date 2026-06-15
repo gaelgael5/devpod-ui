@@ -38,7 +38,10 @@
       "generateSshKey": "Generate an SSH key for this workspace",
       "addRecipe": "Add recipe",
       "noMoreRecipes": "All recipes already selected.",
-      "removeRecipeLabel": "Remove {{id}}"
+      "removeRecipeLabel": "Remove {{id}}",
+      "profile": "VSCode Profile",
+      "profileNone": "— no profile —",
+      "profileShared": "(shared)"
     },
     "confirm": {
       "deleteTitle": "Delete workspace?",
