@@ -1,0 +1,14 @@
+name: Java Dev
+description: Java — Language Support, débogueur, tests, Maven, gestion des dépendances
+extensions:
+  - redhat.java
+  - vscjava.vscode-java-debug
+  - vscjava.vscode-java-test
+  - vscjava.vscode-maven
+  - vscjava.vscode-java-dependency
+settings:
+  editor.formatOnSave: true
+  "[java]":
+    editor.defaultFormatter: redhat.java
+  java.format.enabled: true
+  java.saveActions.organizeImports: true

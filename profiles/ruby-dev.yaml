@@ -1,0 +1,19 @@
+name: Ruby Dev
+description: Ruby — Ruby LSP (Shopify), débogueur rdbg, format auto
+extensions:
+  - Shopify.ruby-lsp
+  - KoichiSasada.vscode-rdbg
+settings:
+  editor.formatOnSave: true
+  "[ruby]":
+    editor.defaultFormatter: Shopify.ruby-lsp
+  rubyLsp.formatter: auto
+  rubyLsp.enabledFeatures:
+    - documentHighlights
+    - documentSymbols
+    - foldingRanges
+    - selectionRanges
+    - semanticHighlighting
+    - formatting
+    - diagnostics
+    - codeActions

@@ -2,3 +2,13 @@ python-dev.yaml | Python Dev | Python 3.12+ — IntelliSense, Ruff (lint+format)
 dotnet-dev.yaml | .NET Dev | C# / F# — C# Dev Kit, IntelliCode, tests, débogueur intégré | 3
 rust-dev.yaml | Rust Dev | Rust — rust-analyzer, CodeLLDB, crates.io, TOML | 4
 go-dev.yaml | Go Dev | Go 1.22+ — gopls, débogueur Delve, goimports, tests intégrés | 1
+typescript-node.yaml | TypeScript / Node.js | TypeScript & Node.js — ESLint, Prettier, npm IntelliSense, Error Lens | 4
+java-dev.yaml | Java Dev | Java — Language Support, débogueur, tests, Maven, gestion des dépendances | 5
+cpp-dev.yaml | C/C++ Dev | C & C++ — IntelliSense, débogueur, CMake, C++20 / C17 | 2
+terraform-dev.yaml | Terraform / IaC | Terraform & HCL — language server HashiCorp, format auto, validation | 2
+ansible-dev.yaml | Ansible | Ansible — Red Hat extension, lint, autocomplétion, YAML intégré | 2
+kubernetes-dev.yaml | Kubernetes / Helm | Kubernetes & Helm — kubectl, manifests, schémas YAML, port-forward intégré | 2
+php-dev.yaml | PHP Dev | PHP 8.3+ — Intelephense (LSP), Xdebug, PHPDoc | 3
+ruby-dev.yaml | Ruby Dev | Ruby — Ruby LSP (Shopify), débogueur rdbg, format auto | 2
+scala-dev.yaml | Scala Dev | Scala — Metals (LSP), build tool auto-détecté (sbt, Mill, Gradle) | 2
+swift-dev.yaml | Swift Dev | Swift — SourceKit-LSP, débogueur intégré, Swift Package Manager | 1
