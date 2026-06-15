@@ -35,3 +35,11 @@ Adapter `/api/plugins` en `/plugins` pour cohérence avec les autres routes du p
 `OpenVsxSettings` utilise `OPENVSX_` — si un test lit ces variables d'env, utiliser `monkeypatch.setenv` pour garantir l'isolation (pas `os.environ` direct).
 
 ## [plugins] GET /api/plugins/search : q est désormais optionnel (min_length=1 si présent). Sans q, la clé `query` est absente de la requête Open VSX → l'API renvoie le top global trié par sortBy.
+
+## [devpod/service] Profil et recettes : docker-tls uniquement
+`_write_devcontainer` n'est appelé que pour les hosts `docker-tls`. Sur SSH, DevPod tourne
+sur la VM distante — `--devcontainer-path` y est inexploitable (chemin local du portail).
+Profil et recettes sont donc silencieusement ignorés sur SSH. Limitation préexistante, hors
+périmètre du chantier 20. Ne pas contourner via `postCreateCommand` (interdit par PITFALLS).
+Dégradation gracieuse : si le profil référencé est introuvable au moment du `up`, le workspace
+démarre quand même sans profil (warning loggé, pas d'erreur HTTP).
