@@ -16,6 +16,7 @@ import structlog
 
 from ..config.models import GlobalConfig, SourceSpec, WorkspaceSpec
 from ..config.store import _data_root, load_global, safe_user_path
+from ..profiles.models import Profile
 from ..recipes.models import RecipeMeta
 from .env import _find_host, build_env
 from .provider import ensure_provider
@@ -337,6 +338,7 @@ class DevPodService:
         recipes: list[RecipeMeta] | None = None,
         feature_env: dict[str, str] | None = None,
         extra_sources: list[SourceSpec] | None = None,
+        profile: Profile | None = None,
     ) -> Path:
         """Écrit devcontainer.json + Feature dirs dans un tmpdir. Retourne le chemin du JSON."""
         user_dir = safe_user_path(login, "devpod")
@@ -389,6 +391,19 @@ class DevPodService:
                         )
                 if clone_cmds:
                     content["postCreateCommand"] = " && ".join(clone_cmds)
+
+            if profile is not None:
+                frag = profile.to_customizations()["vscode"]
+                if frag["extensions"] or frag["settings"]:
+                    vscode = content.setdefault("customizations", {}).setdefault("vscode", {})
+                    existing = vscode.get("extensions") or []
+                    vscode["extensions"] = list(
+                        dict.fromkeys([*existing, *frag["extensions"]])
+                    )
+                    vscode["settings"] = {
+                        **(vscode.get("settings") or {}),
+                        **frag["settings"],
+                    }
 
             dc_path = tmp_dir / "devcontainer.json"
             dc_path.write_text(json.dumps(content, indent=2), encoding="utf-8")
