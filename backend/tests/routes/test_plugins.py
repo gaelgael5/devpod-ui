@@ -172,3 +172,15 @@ async def test_readme_upstream_error_returns_502(
     mock_openvsx_client.readme.side_effect = httpx.HTTPError("timeout")
     response = await client.get("/plugins/ms-python/python/readme")
     assert response.status_code == 502
+
+
+async def test_search_without_q_returns_results(
+    client: AsyncClient, mock_openvsx_client: AsyncMock
+) -> None:
+    """GET /plugins/search sans q → appelle client.search(None, ...) → 200."""
+    mock_openvsx_client.search.return_value = PluginSearchResult(
+        total=1, offset=0, items=[MOCK_SUMMARY]
+    )
+    response = await client.get("/plugins/search")
+    assert response.status_code == 200
+    mock_openvsx_client.search.assert_called_once_with(None, sort="relevance", offset=0, size=24)

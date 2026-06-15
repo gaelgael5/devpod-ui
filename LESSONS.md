@@ -33,3 +33,5 @@ Adapter `/api/plugins` en `/plugins` pour cohérence avec les autres routes du p
 
 ## [openvsx] env_prefix pydantic-settings
 `OpenVsxSettings` utilise `OPENVSX_` — si un test lit ces variables d'env, utiliser `monkeypatch.setenv` pour garantir l'isolation (pas `os.environ` direct).
+
+## [plugins] GET /api/plugins/search : q est désormais optionnel (min_length=1 si présent). Sans q, la clé `query` est absente de la requête Open VSX → l'API renvoie le top global trié par sortBy.

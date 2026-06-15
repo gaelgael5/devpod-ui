@@ -94,23 +94,22 @@ class OpenVsxClient:
         self._readme_cache: _TtlCache[str] = _TtlCache(settings.cache_ttl_s)
 
     async def search(
-        self, query: str, sort: str = "relevance", offset: int = 0, size: int = 24
+        self, query: str | None = None, sort: str = "relevance", offset: int = 0, size: int = 24
     ) -> PluginSearchResult:
         sort_by = _SORT_MAP.get(sort, "relevance")
-        key = f"search:{query}:{sort_by}:{offset}:{size}"
+        key = f"search:{query or ''}:{sort_by}:{offset}:{size}"
         if cached := await self._search_cache.get(key):
             return cached
-        raw = await self._get(
-            "/api/-/search",
-            params={
-                "query": query,
-                "sortBy": sort_by,
-                "sortOrder": "desc",
-                "offset": offset,
-                "size": size,
-                "includeAllVersions": "false",
-            },
-        )
+        params: dict[str, Any] = {
+            "sortBy": sort_by,
+            "sortOrder": "desc",
+            "offset": offset,
+            "size": size,
+            "includeAllVersions": "false",
+        }
+        if query:
+            params["query"] = query
+        raw = await self._get("/api/-/search", params=params)
         result = PluginSearchResult(
             total=raw.get("totalSize", 0),
             offset=raw.get("offset", offset),

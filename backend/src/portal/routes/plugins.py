@@ -22,7 +22,7 @@ def get_openvsx() -> OpenVsxClient:
 
 @router.get("/search", response_model=PluginSearchResult)
 async def search_plugins(
-    q: str = Query(min_length=1),
+    q: str | None = Query(default=None, min_length=1),
     sort: str = Query("relevance", pattern="^(relevance|popular|recent|rating)$"),
     offset: int = Query(0, ge=0),
     size: int = Query(24, ge=1, le=50),

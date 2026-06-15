@@ -276,3 +276,25 @@ async def test_readme_ssrf_blocked_on_foreign_host():
     content = await client.readme("ms-python", "python")
 
     assert content == ""  # bloqué sans lever d'exception
+
+
+# ---------------------------------------------------------------------------
+# search — query optionnelle
+# ---------------------------------------------------------------------------
+
+
+async def test_search_without_query_omits_query_param():
+    """search(None, sort='popular') → param 'query' absent de la requête HTTP."""
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=SEARCH_PAYLOAD)
+
+    client = _make_client(handler)
+    result = await client.search(None, sort="popular")
+
+    assert isinstance(result, PluginSearchResult)
+    assert len(captured) == 1
+    assert "query" not in captured[0].url.params
+    assert captured[0].url.params["sortBy"] == "downloadCount"
