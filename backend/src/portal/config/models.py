@@ -174,6 +174,13 @@ class GlobalConfig(BaseModel):
         return data
 
 
+class ProfileRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: Literal["shared", "user"]
+    slug: str
+
+
 _WORKSPACE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
 
 
@@ -232,6 +239,7 @@ class WorkspaceSpec(BaseModel):
     expose: WorkspaceExpose = Field(default_factory=WorkspaceExpose)
     extra_sources: list[SourceSpec] = Field(default_factory=list)
     ssh_key: bool = False
+    profile: ProfileRef | None = None
 
     @field_validator("name")
     @classmethod
