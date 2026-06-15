@@ -287,6 +287,45 @@
       }
     }
   },
+  "gitCredentials": {
+    "title": "Credentials Git",
+    "empty": "Aucun credential configuré.",
+    "add": "Ajouter un credential",
+    "name": "Nom",
+    "namePlaceholder": "mon-token-github",
+    "nameHint": "Minuscules, chiffres, tirets/underscores — 2 à 32 caractères",
+    "host": "Hôte git",
+    "kind": "Authentification",
+    "kindPat": "Token d'accès personnel (PAT)",
+    "kindSsh": "Clé privée SSH",
+    "username": "Nom d'utilisateur",
+    "usernamePlaceholder": "oauth2",
+    "usernameHint": "Laisser vide pour utiliser «oauth2» (défaut GitHub/GitLab)",
+    "token": "Token",
+    "tokenPlaceholder": "ghp_…",
+    "privateKey": "Clé privée",
+    "privateKeyPlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n…\n-----END OPENSSH PRIVATE KEY-----",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "deleteConfirm": "Supprimer le credential «{{name}}» ?",
+    "deleteDescription": "Cette action est irréversible. Les workspaces utilisant ce credential échoueront au prochain lancement.",
+    "added": "Credential «{{name}}» ajouté.",
+    "deleted": "Credential «{{name}}» supprimé.",
+    "errors": {
+      "load": "Impossible de charger les credentials.",
+      "add": "Impossible d'ajouter le credential.",
+      "delete": "Impossible de supprimer le credential."
+    },
+    "hosts": {
+      "github": "GitHub (github.com)",
+      "gitlab": "GitLab (gitlab.com)",
+      "bitbucket": "Bitbucket (bitbucket.org)",
+      "azure": "Azure DevOps (dev.azure.com)",
+      "codeberg": "Codeberg (codeberg.org)",
+      "other": "Autre…"
+    }
+  },
   "common": {
     "loading": "Chargement…",
     "save": "Enregistrer",

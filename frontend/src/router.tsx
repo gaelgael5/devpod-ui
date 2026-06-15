@@ -19,6 +19,7 @@ const ProfileEditor = lazy(() => import('@/features/profiles/ProfileEditor'))
 const AdminProfiles = lazy(() => import('@/features/admin/AdminProfiles'))
 const AdminProfileEditor = lazy(() => import('@/features/admin/AdminProfileEditor'))
 const AdminProfileSources = lazy(() => import('@/features/admin/AdminProfileSources'))
+const GitCredentialManager = lazy(() => import('@/features/git-credentials/GitCredentialManager'))
 
 function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -41,6 +42,7 @@ export const router = createBrowserRouter([
       { path: '/profiles', element: <Wrap><ProfileList /></Wrap> },
       { path: '/profiles/new', element: <Wrap><ProfileEditor /></Wrap> },
       { path: '/profiles/:slug', element: <Wrap><ProfileEditor /></Wrap> },
+      { path: '/git-credentials', element: <Wrap><GitCredentialManager /></Wrap> },
       {
         path: '/admin/hosts',
         element: <AdminGuard><Wrap><AdminHosts /></Wrap></AdminGuard>,

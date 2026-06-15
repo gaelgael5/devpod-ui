@@ -42,6 +42,24 @@ export default function SourceRow({
 
   const { data: gitBranches } = useGitBranches(entry.url, entry.credential)
 
+  // Auto-sélectionner le credential qui correspond à l'hôte de l'URL
+  useEffect(() => {
+    if (!entry.url || entry.credential || credentials.length === 0) return
+    const url = entry.url.trim()
+    let host = ''
+    if (url.startsWith('git@')) {
+      host = url.slice(4).split(':')[0].split('/')[0].toLowerCase()
+    } else {
+      try {
+        host = new URL(url.startsWith('http') ? url : `https://${url}`).hostname.toLowerCase()
+      } catch { /* URL pas encore valide */ }
+    }
+    if (!host) return
+    const match = credentials.find(c => c.host === host)
+    if (match) onChange({ ...entry, credential: match.name })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.url])
+
   // Auto-remplir la branche par défaut dès que le repo est résolu
   useEffect(() => {
     if (gitBranches?.default && !entry.branch) {
@@ -98,7 +116,7 @@ export default function SourceRow({
             className="mt-1"
           />
           <datalist id={branchListId}>
-            {gitBranches?.branches.map(b => (
+            {gitBranches?.branches.map((b: string) => (
               <option key={b} value={b} />
             ))}
           </datalist>

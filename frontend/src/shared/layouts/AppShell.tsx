@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary } from 'lucide-react'
+import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   DropdownMenu,
@@ -58,6 +58,13 @@ export default function AppShell() {
           title={t('profiles.title')}
         >
           <SquareLibrary size={18} />
+        </NavLink>
+        <NavLink
+          to="/git-credentials"
+          className={({ isActive }) => cn(RAIL_LINK, isActive && RAIL_ACTIVE)}
+          title={t('gitCredentials.title')}
+        >
+          <KeyRound size={18} />
         </NavLink>
 
         {/* Profile menu at bottom */}

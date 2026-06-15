@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import re
+from pathlib import Path
+from typing import Literal
+
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict
 
 from ..auth.rbac import UserInfo, require_user
-from ..config.models import UserConfig, WorkspaceSpec
-from ..config.store import load_user, save_user
+from ..config.models import GitCredential, UserConfig, WorkspaceSpec
+from ..config.store import load_user, safe_user_path, save_user
 from ..devpod.git import run_git_ls_remote
+
+_CRED_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}[a-z0-9]$")
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["me"])
@@ -88,6 +95,17 @@ async def list_git_branches(
     return {"branches": branches, "default": default}
 
 
+class _GitCredentialCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    host: str
+    kind: Literal["ssh", "token"]
+    username: str = ""
+    token: str = ""
+    private_key: str = ""
+
+
 @router.get("/git-credentials")
 async def list_git_credentials(
     user: UserInfo = Depends(require_user),
@@ -97,6 +115,71 @@ async def list_git_credentials(
         {"name": c.name, "host": c.host, "kind": c.kind}
         for c in cfg.git_credentials
     ]
+
+
+@router.post("/git-credentials", status_code=201)
+async def add_git_credential(
+    body: _GitCredentialCreate,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, object]:
+    if not _CRED_NAME_RE.fullmatch(body.name):
+        raise HTTPException(status_code=422, detail=f"Invalid credential name: {body.name!r}")
+    host = body.host.strip().lower().removeprefix("https://").removeprefix("http://").rstrip("/")
+    if not host:
+        raise HTTPException(status_code=422, detail="host is required")
+
+    cfg = load_user(user.login)
+    if any(c.name == body.name for c in cfg.git_credentials):
+        raise HTTPException(status_code=409, detail=f"Credential {body.name!r} already exists")
+
+    key_path = ""
+    if body.kind == "ssh":
+        if not body.private_key.strip():
+            raise HTTPException(
+                status_code=422, detail="private_key is required for SSH credentials"
+            )
+        key_dir = safe_user_path(user.login, "keys", "git", body.name)
+        key_dir.mkdir(parents=True, exist_ok=True)
+        key_file = key_dir / "id_ed25519"
+        key_file.write_text(body.private_key.strip() + "\n", encoding="utf-8")
+        key_file.chmod(0o600)
+        key_path = str(key_file)
+    elif body.kind == "token":
+        if not body.token.strip():
+            raise HTTPException(status_code=422, detail="token is required for PAT credentials")
+
+    cfg.git_credentials.append(
+        GitCredential(
+            name=body.name,
+            host=host,
+            kind=body.kind,
+            key_path=key_path,
+            username=body.username.strip(),
+            token=body.token.strip() if body.kind == "token" else "",
+        )
+    )
+    save_user(user.login, cfg)
+    _log.info("git_credential_added", login=user.login, name=body.name, kind=body.kind)
+    return {"name": body.name, "host": host, "kind": body.kind}
+
+
+@router.delete("/git-credentials/{name}")
+async def delete_git_credential(
+    name: str,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, object]:
+    cfg = load_user(user.login)
+    cred = next((c for c in cfg.git_credentials if c.name == name), None)
+    if not cred:
+        raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
+    cfg.git_credentials = [c for c in cfg.git_credentials if c.name != name]
+    save_user(user.login, cfg)
+    if cred.kind == "ssh" and cred.key_path:
+        key_file = Path(cred.key_path)
+        if key_file.exists():
+            key_file.unlink()
+    _log.info("git_credential_deleted", login=user.login, name=name)
+    return {"deleted": name}
 
 
 @router.delete("/workspaces/{name}")
