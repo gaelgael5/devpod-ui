@@ -148,6 +148,15 @@ async def preview_profile_sources(
     all_profiles: list[dict[str, Any]] = []
     async with httpx.AsyncClient() as http:
         for src_url in sources:
+            try:
+                await asyncio.to_thread(_check_ssrf, src_url)
+            except HTTPException as exc:
+                _log.warning(
+                    "profile_source_ssrf_blocked",
+                    url=src_url,
+                    detail=exc.detail,
+                )
+                continue
             profiles = await _preview_one_source(http, src_url)
             all_profiles.extend(profiles)
     return {"profiles": all_profiles}
@@ -177,14 +186,19 @@ async def import_profile_from_source(
         ) from exc
 
     data_root = _data_root()
-    slug = slugify(profile_body.name)
+    expected_slug = slugify(profile_body.name)
     shared_dir = data_root / "profiles"
     shared_dir.mkdir(parents=True, exist_ok=True)
 
-    if (shared_dir / f"{slug}.yaml").exists():
-        raise HTTPException(status_code=409, detail="profile_slug_conflict")
-
     repo = ProfileRepository(data_root)
     profile = await asyncio.to_thread(repo.create_shared, profile_body)
+
+    if profile.slug != expected_slug:
+        # create_shared a auto-renommé → conflit de slug (race condition TOCTOU)
+        await asyncio.to_thread(
+            lambda: (shared_dir / f"{profile.slug}.yaml").unlink(missing_ok=True)
+        )
+        raise HTTPException(status_code=409, detail="profile_slug_conflict")
+
     _log.info("profile_imported", slug=profile.slug, source=body.source_url, by=user.login)
     return profile.model_dump()
