@@ -4,7 +4,7 @@ import type { PluginDetail, PluginSearchResult, PluginSort } from './types'
 export const PLUGINS_PAGE_SIZE = 24
 
 export function searchPlugins(params: {
-  q: string
+  q?: string
   sort: PluginSort
   offset: number
   size?: number
@@ -14,7 +14,7 @@ export function searchPlugins(params: {
     offset: String(params.offset),
     size: String(params.size ?? PLUGINS_PAGE_SIZE),
   })
-  if (params.q.trim()) qs.set('q', params.q.trim())
+  if (params.q?.trim()) qs.set('q', params.q.trim())
   return apiFetchJson<PluginSearchResult>(`/plugins/search?${qs}`)
 }
 

@@ -37,6 +37,8 @@ export const handlers = [
   http.get('/admin/recipes', () => HttpResponse.json([])),
   http.delete('/admin/recipes/:id', () => HttpResponse.json({ deleted: 'ok' })),
   http.delete('/me/recipes/:id', () => HttpResponse.json({ deleted: 'ok' })),
+  http.get('/admin/recipe-sources', () => HttpResponse.json({ sources: [] })),
+  http.get('/admin/recipe-sources/preview', () => HttpResponse.json({ recipes: [] })),
 
   // Handlers plugins
   http.get('/plugins/search', () =>

@@ -11,6 +11,6 @@ describe('AdminRecipes', () => {
 
   it('affiche le titre', () => {
     renderWithProviders(<AdminRecipes />)
-    expect(screen.getByRole('heading', { name: /shared recipes|recettes partagées/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /local recipes|recettes locales/i })).toBeInTheDocument()
   })
 })

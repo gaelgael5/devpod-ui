@@ -44,7 +44,7 @@ export function PluginDetailDialog({ plugin, selected, onToggle, onClose }: Prop
             >
               {t(selected ? 'profiles.plugins.remove' : 'profiles.plugins.add')}
             </Button>
-            <div className="prose prose-sm prose-invert mt-4 max-w-none">
+            <div className="prose prose-sm dark:prose-invert mt-4 max-w-none">
               {isLoading ? (
                 <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
               ) : readmeError ? (
