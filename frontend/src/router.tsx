@@ -14,6 +14,7 @@ const AdminHosts = lazy(() => import('@/features/admin/AdminHosts'))
 const AdminRecipes = lazy(() => import('@/features/admin/AdminRecipes'))
 const AdminProxmox = lazy(() => import('@/features/admin/AdminProxmox'))
 const AdminHypervisorTypes = lazy(() => import('@/features/admin/AdminHypervisorTypes'))
+const PluginBrowserPage = lazy(() => import('@/features/profiles/PluginBrowserPage'))
 
 function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { path: '/workspaces', element: <Wrap><WorkspaceList /></Wrap> },
       { path: '/workspaces/new', element: <Wrap><WorkspaceCreate /></Wrap> },
       { path: '/recipes', element: <Wrap><RecipeCatalog /></Wrap> },
+      { path: '/profiles', element: <Wrap><PluginBrowserPage /></Wrap> },
       {
         path: '/admin/hosts',
         element: <AdminGuard><Wrap><AdminHosts /></Wrap></AdminGuard>,

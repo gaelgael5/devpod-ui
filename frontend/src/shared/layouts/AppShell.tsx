@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe } from 'lucide-react'
+import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   DropdownMenu,
@@ -51,6 +51,13 @@ export default function AppShell() {
           title={t('recipes.title')}
         >
           <Puzzle size={18} />
+        </NavLink>
+        <NavLink
+          to="/profiles"
+          className={({ isActive }) => cn(RAIL_LINK, isActive && RAIL_ACTIVE)}
+          title={t('profiles.plugins.title')}
+        >
+          <SquareLibrary size={18} />
         </NavLink>
 
         {/* Profile menu at bottom */}
