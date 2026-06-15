@@ -19,6 +19,7 @@ ARG DEVPOD_VERSION=0.6.15
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        git \
         gnupg \
         openssl \
         openssh-client \
