@@ -75,6 +75,12 @@ async def list_git_branches(
     returncode, stdout, _ = await run_git_ls_remote(url, credential, user.login)
 
     if returncode != 0:
+        _log.warning(
+            "git_ls_remote_failed",
+            login=user.login,
+            url=url,
+            returncode=returncode,
+        )
         return {"branches": [], "default": None}
 
     branches: list[str] = []
