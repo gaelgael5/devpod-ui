@@ -76,7 +76,14 @@ class ExposureService:
         """
         return await self._registry.allocate(ws_id)
 
-    async def expose(self, ws_id: str, node_ip: str, host_port: int, request_host: str = "", workspace_folder: str = "") -> str:
+    async def expose(
+        self,
+        ws_id: str,
+        node_ip: str,
+        host_port: int,
+        request_host: str = "",
+        workspace_folder: str = "",
+    ) -> str:
         """Crée la route Caddy (prod) ou génère une URL directe (dev) et persiste les métadonnées.
 
         En mode dev, bypasse Caddy : le tunnel SSH est déjà bindé sur 0.0.0.0:{host_port}
