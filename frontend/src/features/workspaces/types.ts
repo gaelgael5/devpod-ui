@@ -14,6 +14,7 @@ export interface WorkspaceSpec {
   env: Record<string, string>
   extra_sources: SourceSpec[]
   ssh_key?: boolean
+  profile?: { scope: 'shared' | 'user'; slug: string } | null
 }
 
 export type WorkspaceStatusValue =
