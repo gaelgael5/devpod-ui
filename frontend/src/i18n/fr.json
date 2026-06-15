@@ -257,6 +257,10 @@
       "mine": "Aucun profil personnel. Créez-en un ou forkez un profil partagé.",
       "shared": "Aucun profil partagé."
     },
+    "tabs": {
+      "extensions": "Extensions",
+      "settings": "Paramètres"
+    },
     "plugins": {
       "title": "Plugins VSCode",
       "searchPlaceholder": "Rechercher une extension…",

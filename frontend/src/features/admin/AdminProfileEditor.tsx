@@ -4,7 +4,9 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { PluginBrowser } from '@/features/profiles/components/PluginBrowser'
+import JsonEditor from '@/features/profiles/components/JsonEditor'
 import { useProfile, useSaveSharedProfile } from '@/features/profiles/hooks/useProfiles'
 
 export default function AdminProfileEditor() {
@@ -84,28 +86,24 @@ export default function AdminProfileEditor() {
         />
       </div>
 
-      <section>
-        <h2 className="mb-2 text-lg font-medium">{t('profiles.plugins.title')}</h2>
-        <PluginBrowser selectedIds={selected} onToggle={toggle} />
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-medium">{t('admin.settingsHint')}</h2>
-        <textarea
-          className={`min-h-[120px] w-full max-w-xl rounded-md border bg-background px-3 py-2 text-sm font-mono${
-            settingsError ? ' border-destructive' : ''
-          }`}
-          value={settingsJson}
-          onChange={(e) => {
-            setSettingsJson(e.target.value)
-            setSettingsError(false)
-          }}
-          placeholder="{}"
-        />
-        {settingsError && (
-          <p className="mt-1 text-xs text-destructive">{t('admin.settingsInvalid')}</p>
-        )}
-      </section>
+      <Tabs defaultValue="extensions">
+        <TabsList>
+          <TabsTrigger value="extensions">{t('profiles.tabs.extensions')}</TabsTrigger>
+          <TabsTrigger value="settings">{t('profiles.tabs.settings')}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="extensions">
+          <PluginBrowser selectedIds={selected} onToggle={toggle} />
+        </TabsContent>
+        <TabsContent value="settings">
+          <JsonEditor
+            value={settingsJson}
+            onChange={(v) => { setSettingsJson(v); setSettingsError(false) }}
+          />
+          {settingsError && (
+            <p className="mt-1 text-xs text-destructive">{t('admin.settingsInvalid')}</p>
+          )}
+        </TabsContent>
+      </Tabs>
 
       <section>
         <h2 className="mb-2 text-lg font-medium">{t('profiles.preview')}</h2>

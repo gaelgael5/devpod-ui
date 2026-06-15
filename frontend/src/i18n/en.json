@@ -257,6 +257,10 @@
       "mine": "No personal profiles yet. Create one or fork a shared profile.",
       "shared": "No shared profiles."
     },
+    "tabs": {
+      "extensions": "Extensions",
+      "settings": "Settings"
+    },
     "plugins": {
       "title": "VSCode Plugins",
       "searchPlaceholder": "Search extensions…",
