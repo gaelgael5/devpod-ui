@@ -72,7 +72,7 @@ async def list_git_branches(
     user: UserInfo = Depends(require_user),
 ) -> dict[str, object]:
     """Retourne les branches d'un dépôt git distant via git ls-remote."""
-    returncode, stdout, _ = await run_git_ls_remote(url, credential, user.login)
+    returncode, stdout, stderr = await run_git_ls_remote(url, credential, user.login)
 
     if returncode != 0:
         _log.warning(
@@ -80,6 +80,7 @@ async def list_git_branches(
             login=user.login,
             url=url,
             returncode=returncode,
+            stderr=stderr.decode(errors="replace").strip() if stderr else "",
         )
         return {"branches": [], "default": None}
 
