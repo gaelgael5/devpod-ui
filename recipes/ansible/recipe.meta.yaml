@@ -1,0 +1,5 @@
+id: ansible
+version: 1.0.0
+description: "Ansible + ansible-lint dans un venv /opt/ansible (requiert Python)"
+installs_after:
+  - python

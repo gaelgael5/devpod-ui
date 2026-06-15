@@ -1,0 +1,8 @@
+id: swift
+version: 1.0.0
+description: "Swift via tarball officiel swift.org — 5.10 ou 6.0"
+options:
+  version:
+    type: string
+    default: "6.0"
+    description: "Version Swift à installer (5.10 | 6.0)"

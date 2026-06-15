@@ -1,0 +1,10 @@
+id: scala
+version: 1.0.0
+description: "Scala + sbt via Coursier — Scala 2 ou 3 (requiert Java)"
+options:
+  version:
+    type: string
+    default: "3"
+    description: "Série Scala à installer (2 | 3)"
+installs_after:
+  - java

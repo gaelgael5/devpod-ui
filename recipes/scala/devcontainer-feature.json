@@ -1,0 +1,14 @@
+{
+  "id": "scala",
+  "version": "1.0.0",
+  "name": "Scala",
+  "description": "Scala + sbt via Coursier — Scala 2 ou 3 (requiert Java)",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "3",
+      "description": "Série Scala à installer",
+      "proposals": ["2", "3"]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+id: ruby
+version: 1.0.0
+description: "Ruby via rbenv + ruby-build — compilation depuis source"
+options:
+  version:
+    type: string
+    default: "3.3.6"
+    description: "Version Ruby exacte à compiler (ex : 3.3.6, 3.2.6)"

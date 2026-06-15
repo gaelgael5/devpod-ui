@@ -1,0 +1,8 @@
+id: nodejs
+version: 1.0.0
+description: "Node.js via NodeSource — LTS 20, 22 ou Current"
+options:
+  version:
+    type: string
+    default: "22"
+    description: "Version majeure Node.js à installer (18 | 20 | 22)"
