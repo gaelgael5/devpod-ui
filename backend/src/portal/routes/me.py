@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..auth.rbac import UserInfo, require_user
 from ..config.models import UserConfig, WorkspaceSpec
 from ..config.store import load_user, save_user
+from ..devpod.git import run_git_ls_remote
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["me"])
@@ -55,6 +56,36 @@ async def add_workspace(
     save_user(user.login, cfg)
     _log.info("workspace_added", login=user.login, name=workspace.name)
     return workspace.model_dump(mode="json")
+
+
+@router.get("/git/branches")
+async def list_git_branches(
+    url: str,
+    credential: str = "",
+    user: UserInfo = Depends(require_user),
+) -> dict[str, object]:
+    """Retourne les branches d'un dépôt git distant via git ls-remote."""
+    returncode, stdout, _ = await run_git_ls_remote(url, credential, user.login)
+
+    if returncode != 0:
+        raise HTTPException(
+            status_code=422, detail="Cannot list branches (check URL and credentials)"
+        )
+
+    branches: list[str] = []
+    default: str | None = None
+    for line in stdout.decode(errors="replace").splitlines():
+        if line.startswith("ref: refs/heads/") and "\t" in line:
+            default = line.split("\t")[0][len("ref: refs/heads/"):]
+        elif "\trefs/heads/" in line:
+            branches.append(line.split("\t")[1][len("refs/heads/"):])
+
+    if default and default in branches:
+        branches.remove(default)
+        branches.insert(0, default)
+
+    _log.info("git_branches_listed", login=user.login, url=url, count=len(branches))
+    return {"branches": branches, "default": default}
 
 
 @router.get("/git-credentials")

@@ -5,10 +5,24 @@ import json
 import os
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 FAKE_DEVPOD = Path(__file__).parent.parent / "devpod" / "fake_devpod.py"
+
+
+@pytest.fixture(autouse=True)
+def _mock_git_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock du pre-flight git : évite les appels réseau réels dans tous les tests."""
+    import portal.routes.workspace_ops as ws_ops_mod
+
+    monkeypatch.setattr(
+        ws_ops_mod,
+        "run_git_ls_remote",
+        AsyncMock(return_value=(0, b"", b"")),
+    )
 
 
 def _build_global_config(tmp_path: Path) -> None:
@@ -445,3 +459,30 @@ def test_up_with_valid_profile_ref_returns_202(tmp_path: Path) -> None:
             },
         )
     assert resp.status_code == 202
+
+
+# ---------------------------------------------------------------------------
+# Git pre-flight — test du rejet avant devpod up
+# ---------------------------------------------------------------------------
+
+
+def test_up_rejects_inaccessible_git_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pre-flight git échoué (exit 128) → 422 avant même de lancer devpod up."""
+    import portal.routes.workspace_ops as ws_ops_mod
+
+    monkeypatch.setattr(
+        ws_ops_mod,
+        "run_git_ls_remote",
+        AsyncMock(return_value=(128, b"", b"fatal: repository not found")),
+    )
+
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/workspaces/myapp/up",
+            json={"source": "git@github.com:private/repo.git"},
+        )
+    assert resp.status_code == 422
+    assert "inaccessible" in resp.json()["detail"].lower()

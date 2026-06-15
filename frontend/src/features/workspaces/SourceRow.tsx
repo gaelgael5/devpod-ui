@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -11,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import type { SourceEntry } from './useWorkspaceOps'
+import { useGitBranches } from './useGitBranches'
 
 /** Valeur sentinelle Radix Select pour "pas de credential" (Radix refuse les strings vides). */
 const CRED_NONE = '__none__'
@@ -36,6 +38,17 @@ export default function SourceRow({
   const isPrimary = index === 0
   const urlId = `ws-source-${index}-url`
   const branchId = `ws-source-${index}-branch`
+  const branchListId = `ws-source-${index}-branches`
+
+  const { data: gitBranches } = useGitBranches(entry.url, entry.credential)
+
+  // Auto-remplir la branche par défaut dès que le repo est résolu
+  useEffect(() => {
+    if (gitBranches?.default && !entry.branch) {
+      onChange({ ...entry, branch: gitBranches.default })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gitBranches?.default])
 
   return (
     <div className="rounded-md border p-3 flex flex-col gap-2">
@@ -81,8 +94,14 @@ export default function SourceRow({
             value={entry.branch}
             onChange={e => onChange({ ...entry, branch: e.target.value })}
             placeholder={t('workspaces.form.branchPlaceholder')}
+            list={branchListId}
             className="mt-1"
           />
+          <datalist id={branchListId}>
+            {gitBranches?.branches.map(b => (
+              <option key={b} value={b} />
+            ))}
+          </datalist>
         </div>
 
         {credentials.length > 0 && (

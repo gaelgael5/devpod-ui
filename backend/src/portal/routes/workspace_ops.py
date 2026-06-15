@@ -15,6 +15,7 @@ from ..auth.rbac import UserInfo, require_user
 from ..config.models import ProfileRef, SourceSpec, WorkspaceSpec
 from ..config.store import _data_root, load_global, safe_user_path
 from ..devpod.env import UnknownHostError
+from ..devpod.git import run_git_ls_remote
 from ..devpod.service import DevPodService
 from ..profiles.models import Profile
 from ..profiles.repository import ProfileError, ProfileRepository
@@ -231,6 +232,28 @@ async def workspace_up(
         )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # Pre-flight git : vérifie l'accès au dépôt avant de lancer devpod up
+    if req.source:
+        returncode, _, stderr = await run_git_ls_remote(
+            req.source, req.git_credential, user.login
+        )
+        if returncode != 0:
+            err = stderr.decode(errors="replace").strip() if stderr else ""
+            _log.warning(
+                "workspace_git_preflight_failed",
+                login=user.login,
+                source=req.source,
+                returncode=returncode,
+                err=err[:300],
+            )
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Dépôt git inaccessible — vérifiez l'URL et les credentials"
+                    f" ({req.source})"
+                ),
+            )
 
     svc = _get_service()
     request_host = request.headers.get("x-forwarded-host") or request.url.hostname or ""
