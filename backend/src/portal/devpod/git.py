@@ -113,6 +113,13 @@ async def run_git_ls_remote(
                     fh.write(f"[http]\n\textraHeader = Authorization: Basic {b64}\n")
                 os.chmod(gitconfig, 0o600)
                 env["HOME"] = tmpdir
+                _log.info(
+                    "git_home_override",
+                    login=login,
+                    credential=credential_name,
+                    tmpdir=tmpdir,
+                    token_len=len(cred.token),
+                )
 
     git_cmd.extend(["ls-remote", "--symref", "--heads", git_url])
 
