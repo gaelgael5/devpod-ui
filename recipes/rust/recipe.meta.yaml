@@ -1,0 +1,8 @@
+id: rust
+version: 1.0.0
+description: "Rust via rustup — stable (recommandé), beta ou nightly"
+options:
+  channel:
+    type: string
+    default: "stable"
+    description: "Canal rustup à installer (stable | beta | nightly)"

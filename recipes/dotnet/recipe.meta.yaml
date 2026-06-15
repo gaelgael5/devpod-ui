@@ -1,0 +1,8 @@
+id: dotnet
+version: 1.0.0
+description: "SDK .NET (C#/F#/VB) via dotnet-install.sh — LTS 8.0 ou dernière 9.0"
+options:
+  version:
+    type: string
+    default: "8.0"
+    description: "Canal .NET à installer (8.0 LTS | 9.0)"
