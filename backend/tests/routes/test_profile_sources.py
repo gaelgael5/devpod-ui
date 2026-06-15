@@ -28,13 +28,15 @@ def _make_admin_app(tmp_path: Path):
     return app
 
 
-def test_get_profile_sources_empty(tmp_path: Path) -> None:
-    """Sans fichier profile-sources.yaml, retourne une liste vide."""
+def test_get_profile_sources_default(tmp_path: Path) -> None:
+    """Sans fichier profile-sources.yaml, retourne la source par défaut (dev branch)."""
+    from portal.routes.profile_sources import _DEFAULT_SOURCE
+
     app = _make_admin_app(tmp_path)
     with TestClient(app) as client:
         resp = client.get("/admin/profile-sources")
     assert resp.status_code == 200
-    assert resp.json() == {"sources": []}
+    assert resp.json() == {"sources": [_DEFAULT_SOURCE]}
 
 
 def test_put_profile_sources_saves(tmp_path: Path) -> None:

@@ -26,6 +26,10 @@ router_admin = APIRouter(tags=["profile-sources"])
 
 _YAML_FNAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.yaml$")
 
+_DEFAULT_SOURCE = (
+    "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/profiles/"
+)
+
 
 class ProfileSourcesPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -44,9 +48,9 @@ def _sources_path() -> Path:
 def _load_sources() -> list[str]:
     path = _sources_path()
     if not path.exists():
-        return []
+        return [_DEFAULT_SOURCE]
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return list(data.get("sources", []))
+    return list(data.get("sources", [_DEFAULT_SOURCE]))
 
 
 def _save_sources(sources: list[str]) -> None:
