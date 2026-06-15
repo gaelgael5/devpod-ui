@@ -4,6 +4,7 @@ import asyncio
 import base64
 import ipaddress
 import os
+import shutil
 import socket as _socket
 import tempfile
 from urllib.parse import urlparse
@@ -73,16 +74,23 @@ async def run_git_ls_remote(
 
     _check_git_ssrf(git_url)
 
-    # `git -c` est portable depuis git 1.7. On désactive le credential store
-    # système pour éviter qu'il injecte un credential qui entrerait en conflit
-    # avec celui qu'on fournit via include.path.
+    # Répertoire HOME isolé : la config git ne transite ni par argv ni par env
+    # public — le token ne sera visible que dans le fichier 0o600.
+    tmpdir: str | None = None
+
     git_cmd: list[str] = [
         "git",
         "-c", "http.followRedirects=false",
-        "-c", "credential.helper=",
+        "-c", "credential.helper=",   # désactive le credential store système
     ]
-    env: dict[str, str] = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
-    tmp_config: str | None = None
+    env: dict[str, str] = {
+        **os.environ,
+        "GIT_TERMINAL_PROMPT": "0",
+        # /bin/false : l'askpass échoue → git n'essaie pas d'envoyer un credential
+        # issu du prompt à la place de notre http.extraHeader.
+        "GIT_ASKPASS": "/bin/false",
+        "GIT_CONFIG_NOSYSTEM": "1",   # ignore /etc/gitconfig
+    }
 
     if credential_name:
         cfg = load_user(login)
@@ -96,18 +104,15 @@ async def run_git_ls_remote(
             elif cred.kind == "token" and cred.token:
                 username = cred.username or "oauth2"
                 b64 = base64.b64encode(f"{username}:{cred.token}".encode()).decode()
-                # Le token ne transite PAS via argv (visible dans /proc/PID/cmdline).
-                # On l'écrit dans un fichier temporaire 0o600 inclus via include.path.
-                fd, tmp_config = tempfile.mkstemp(suffix=".gitconfig")
-                try:
-                    with os.fdopen(fd, "w") as fh:
-                        fh.write(f"[http]\n\textraHeader = Authorization: Basic {b64}\n")
-                    os.chmod(tmp_config, 0o600)
-                except Exception:
-                    os.unlink(tmp_config)
-                    tmp_config = None
-                    raise
-                git_cmd.extend(["-c", f"include.path={tmp_config}"])
+                # HOME temporaire 0o700 avec .gitconfig 0o600 — le token ne
+                # transite pas par argv (visible dans /proc/PID/cmdline).
+                tmpdir = tempfile.mkdtemp(prefix="portal-git-")
+                os.chmod(tmpdir, 0o700)
+                gitconfig = os.path.join(tmpdir, ".gitconfig")
+                with open(gitconfig, "w") as fh:
+                    fh.write(f"[http]\n\textraHeader = Authorization: Basic {b64}\n")
+                os.chmod(gitconfig, 0o600)
+                env["HOME"] = tmpdir
 
     git_cmd.extend(["ls-remote", "--symref", "--heads", git_url])
 
@@ -124,10 +129,7 @@ async def run_git_ls_remote(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     finally:
-        if tmp_config:
-            try:
-                os.unlink(tmp_config)
-            except OSError:
-                pass
+        if tmpdir:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     return proc.returncode if proc.returncode is not None else -1, stdout, stderr
