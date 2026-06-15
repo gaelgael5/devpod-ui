@@ -1,9 +1,10 @@
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
+import { useUserStore } from '@/store/user'
 import WorkspaceCreate from './WorkspaceCreate'
 
 describe('WorkspaceCreate', () => {
@@ -112,5 +113,107 @@ describe('WorkspaceCreate', () => {
       expect(capturedBody).toBeDefined()
     })
     expect(capturedBody).toMatchObject({ generate_ssh_key: true })
+  })
+})
+
+// MSW handlers fournissent GET /profiles avec 2 profils :
+// - { slug: 'frontend-react', scope: 'user',   name: 'Frontend React' }
+// - { slug: 'python-dev',     scope: 'shared', name: 'Python Dev'     }
+// i18n en test = anglais : label "VSCode Profile", option vide "— no profile —", suffixe "(shared)"
+//
+// Radix Select génère un <select> natif aria-hidden en plus du trigger custom.
+// jsdom ne supporte pas hasPointerCapture (utilisé par Radix pour le pointer tracking),
+// donc on interagit avec le <select> natif via fireEvent.change pour changer la valeur.
+describe('WorkspaceCreate — sélecteur profil', () => {
+  beforeEach(() => {
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev'] } })
+  })
+
+  /** Retourne le <select> natif aria-hidden que Radix génère sous le hood. */
+  function getProfileNativeSelect(): HTMLSelectElement {
+    // Le select natif Radix a aria-hidden="true" et contient les options encodées scope:slug
+    const selects = document.querySelectorAll<HTMLSelectElement>('select[aria-hidden="true"]')
+    if (selects.length === 0) throw new Error('No native select found')
+    // Le dernier select aria-hidden est celui du profil (les autres Select du form
+    // ont les mêmes options mais ne sont présents que si des sources ou un host sont ajoutés)
+    return selects[selects.length - 1]
+  }
+
+  it('affiche le label et l\'option "no profile" par défaut', async () => {
+    renderWithProviders(<WorkspaceCreate />)
+    // Le label "VSCode Profile" apparaît dès que les profils sont chargés
+    expect(await screen.findByText('VSCode Profile')).toBeInTheDocument()
+    // L'option par défaut rendue dans le span du trigger Radix
+    const spans = screen.getAllByText('— no profile —')
+    expect(spans.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('le select natif liste les profils user et partagés', async () => {
+    renderWithProviders(<WorkspaceCreate />)
+    await screen.findByText('VSCode Profile')
+
+    const nativeSelect = getProfileNativeSelect()
+    const options = Array.from(nativeSelect.options).map((o) => o.value)
+    expect(options).toContain('user:frontend-react')
+    expect(options).toContain('shared:python-dev')
+  })
+
+  it('création avec profil → profile inclus dans les deux requêtes', async () => {
+    const capturedBodies: unknown[] = []
+    server.use(
+      http.post('/me/workspaces', async ({ request }) => {
+        capturedBodies.push(await request.json())
+        return HttpResponse.json({}, { status: 201 })
+      }),
+      http.post('/me/workspaces/:name/up', async ({ request }) => {
+        capturedBodies.push(await request.json())
+        return HttpResponse.json({ ws_id: 'alice-my-ws', status: 'provisioning' }, { status: 202 })
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<WorkspaceCreate />)
+
+    await screen.findByText('VSCode Profile')
+
+    await user.type(screen.getByLabelText(/^name$/i), 'my-ws')
+
+    // Sélectionner Python Dev via le select natif Radix (évite le problème hasPointerCapture)
+    fireEvent.change(getProfileNativeSelect(), { target: { value: 'shared:python-dev' } })
+
+    await user.click(screen.getByRole('button', { name: /create workspace/i }))
+
+    await waitFor(() => expect(capturedBodies).toHaveLength(2))
+    const [specBody, upBody] = capturedBodies as Array<{ profile?: unknown }>
+    expect(specBody.profile).toEqual({ scope: 'shared', slug: 'python-dev' })
+    expect(upBody.profile).toEqual({ scope: 'shared', slug: 'python-dev' })
+  })
+
+  it('création sans profil → profile null dans les deux requêtes', async () => {
+    const capturedBodies: unknown[] = []
+    server.use(
+      http.post('/me/workspaces', async ({ request }) => {
+        capturedBodies.push(await request.json())
+        return HttpResponse.json({}, { status: 201 })
+      }),
+      http.post('/me/workspaces/:name/up', async ({ request }) => {
+        capturedBodies.push(await request.json())
+        return HttpResponse.json({ ws_id: 'alice-my-ws', status: 'provisioning' }, { status: 202 })
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<WorkspaceCreate />)
+
+    await screen.findByText('VSCode Profile')
+
+    await user.type(screen.getByLabelText(/^name$/i), 'my-ws')
+    // Aucun profil sélectionné — on soumet directement
+    await user.click(screen.getByRole('button', { name: /create workspace/i }))
+
+    await waitFor(() => expect(capturedBodies).toHaveLength(2))
+    const [specBody, upBody] = capturedBodies as Array<{ profile?: unknown }>
+    expect(specBody.profile).toBeNull()
+    expect(upBody.profile).toBeNull()
   })
 })
