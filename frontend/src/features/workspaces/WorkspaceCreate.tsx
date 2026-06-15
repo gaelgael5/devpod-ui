@@ -15,6 +15,7 @@ import {
 import { useWorkspaceOps, type SourceEntry } from './useWorkspaceOps'
 import { useGitCredentials } from './useGitCredentials'
 import { useRecipes } from '@/features/recipes/useRecipes'
+import { useProfiles } from '@/features/profiles/hooks/useProfiles'
 import OrderedRecipePicker from '@/features/recipes/OrderedRecipePicker'
 import { useUserStore } from '@/store/user'
 import { useHosts, type HostConfig } from '@/features/admin/useHosts'
@@ -22,6 +23,7 @@ import { useHosts, type HostConfig } from '@/features/admin/useHosts'
 /** Valeur sentinelle Radix Select pour "pas de nœud choisi" (Radix refuse les strings vides). */
 const HOST_DEFAULT = '__default__'
 const CRED_NONE = '__none__'
+const PROFILE_NONE = '__none__'
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/
 
@@ -149,12 +151,14 @@ export default function WorkspaceCreate() {
   const { data: recipes = [] } = useRecipes()
   const { data: hosts = [] } = useHosts()
   const { data: credentials = [] } = useGitCredentials()
+  const { data: profiles = [] } = useProfiles()
 
   const [name, setName] = useState('')
   const [sources, setSources] = useState<SourceEntry[]>([])
   const [host, setHost] = useState('')
   const [selectedRecipes, setSelectedRecipes] = useState<string[]>([])
   const [generateSshKey, setGenerateSshKey] = useState(false)
+  const [profile, setProfile] = useState('')
   const [nameError, setNameError] = useState('')
   const [sourceErrors, setSourceErrors] = useState<Record<number, string>>({})
   const [serverError, setServerError] = useState('')
@@ -205,7 +209,20 @@ export default function WorkspaceCreate() {
     if (!validate()) return
 
     try {
-      await createWorkspace.mutateAsync({ name, sources, host, recipes: selectedRecipes, generateSshKey })
+      const profileRef = profile
+        ? (() => {
+            const [scope, slug] = profile.split(':') as ['shared' | 'user', string]
+            return { scope, slug }
+          })()
+        : undefined
+      await createWorkspace.mutateAsync({
+        name,
+        sources,
+        host,
+        recipes: selectedRecipes,
+        generateSshKey,
+        profile: profileRef,
+      })
       navigate('/workspaces')
     } catch (err) {
       setServerError(extractErrorMessage(err) || t('errors.generic'))
@@ -298,6 +315,36 @@ export default function WorkspaceCreate() {
                 onChange={setSelectedRecipes}
               />
             </div>
+          </div>
+        )}
+
+        {profiles.length > 0 && (
+          <div>
+            <Label className="text-xs">{t('workspaces.form.profile')}</Label>
+            <Select
+              value={profile || PROFILE_NONE}
+              onValueChange={(v) => setProfile(v === PROFILE_NONE ? '' : v)}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={PROFILE_NONE}>
+                  {t('workspaces.form.profileNone')}
+                </SelectItem>
+                {profiles.map((p) => (
+                  <SelectItem
+                    key={`${p.scope}:${p.slug}`}
+                    value={`${p.scope}:${p.slug}`}
+                  >
+                    {p.name}
+                    {p.scope === 'shared'
+                      ? ` ${t('workspaces.form.profileShared')}`
+                      : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 
