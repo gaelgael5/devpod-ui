@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Plus, X } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -17,13 +17,13 @@ import { useGitCredentials } from './useGitCredentials'
 import { useRecipes } from '@/features/recipes/useRecipes'
 import { useProfiles } from '@/features/profiles/hooks/useProfiles'
 import OrderedRecipePicker from '@/features/recipes/OrderedRecipePicker'
+import ProfileSelector from './ProfileSelector'
+import SourceRow from './SourceRow'
 import { useUserStore } from '@/store/user'
 import { useHosts, type HostConfig } from '@/features/admin/useHosts'
 
 /** Valeur sentinelle Radix Select pour "pas de nœud choisi" (Radix refuse les strings vides). */
 const HOST_DEFAULT = '__default__'
-const CRED_NONE = '__none__'
-const PROFILE_NONE = '__none__'
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/
 
@@ -43,102 +43,6 @@ function extractErrorMessage(err: unknown): string {
 
 function emptySource(): SourceEntry {
   return { url: '', branch: '', credential: '' }
-}
-
-// ─── Composant ligne de source ────────────────────────────────────────────────
-
-function SourceRow({
-  index,
-  entry,
-  onChange,
-  onRemove,
-  credentials,
-  urlError,
-}: {
-  index: number
-  entry: SourceEntry
-  onChange: (updated: SourceEntry) => void
-  onRemove?: () => void
-  credentials: { name: string; host: string; kind: string }[]
-  urlError?: string
-}) {
-  const { t } = useTranslation()
-  const isPrimary = index === 0
-  const urlId = `ws-source-${index}-url`
-  const branchId = `ws-source-${index}-branch`
-
-  return (
-    <div className="rounded-md border p-3 flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-muted-foreground">
-          {isPrimary
-            ? t('workspaces.form.primarySource')
-            : t('workspaces.form.additionalSource', { n: index })}
-        </span>
-        {onRemove && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={onRemove}
-            aria-label={t('workspaces.form.removeSource')}
-          >
-            <X className="h-3.5 w-3.5" />
-          </Button>
-        )}
-      </div>
-
-      <div>
-        <Label htmlFor={urlId} className="text-xs">URL</Label>
-        <Input
-          id={urlId}
-          value={entry.url}
-          onChange={e => onChange({ ...entry, url: e.target.value })}
-          placeholder="github.com/org/repo"
-          className="mt-1"
-        />
-        {urlError && (
-          <p role="alert" className="mt-1 text-xs text-destructive">{urlError}</p>
-        )}
-      </div>
-
-      <div className={credentials.length > 0 ? 'grid grid-cols-2 gap-2' : ''}>
-        <div>
-          <Label htmlFor={branchId} className="text-xs">{t('workspaces.form.branch')}</Label>
-          <Input
-            id={branchId}
-            value={entry.branch}
-            onChange={e => onChange({ ...entry, branch: e.target.value })}
-            placeholder={t('workspaces.form.branchPlaceholder')}
-            className="mt-1"
-          />
-        </div>
-
-        {credentials.length > 0 && (
-          <div>
-            <Label className="text-xs">{t('workspaces.form.credential')}</Label>
-            <Select
-              value={entry.credential || CRED_NONE}
-              onValueChange={v => onChange({ ...entry, credential: v === CRED_NONE ? '' : v })}
-            >
-              <SelectTrigger className="mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={CRED_NONE}>{t('workspaces.form.credentialNone')}</SelectItem>
-                {credentials.map(c => (
-                  <SelectItem key={c.name} value={c.name}>
-                    {c.name} ({c.host})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-      </div>
-    </div>
-  )
 }
 
 // ─── Composant principal ──────────────────────────────────────────────────────
@@ -318,35 +222,7 @@ export default function WorkspaceCreate() {
           </div>
         )}
 
-        {profiles.length > 0 && (
-          <div>
-            <Label className="text-xs">{t('workspaces.form.profile')}</Label>
-            <Select
-              value={profile || PROFILE_NONE}
-              onValueChange={(v) => setProfile(v === PROFILE_NONE ? '' : v)}
-            >
-              <SelectTrigger className="mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={PROFILE_NONE}>
-                  {t('workspaces.form.profileNone')}
-                </SelectItem>
-                {profiles.map((p) => (
-                  <SelectItem
-                    key={`${p.scope}:${p.slug}`}
-                    value={`${p.scope}:${p.slug}`}
-                  >
-                    {p.name}
-                    {p.scope === 'shared'
-                      ? ` ${t('workspaces.form.profileShared')}`
-                      : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+        <ProfileSelector profiles={profiles} value={profile} onChange={setProfile} />
 
         <div className="flex items-center gap-2">
           <input
