@@ -205,5 +205,32 @@
     "networkError": "Network error, please try again.",
     "or": "or",
     "notConfigured": "No authentication method configured. Check /data/.env (LOCAL_USER / LOCAL_PASSWORD_HASH)."
+  },
+  "profiles": {
+    "plugins": {
+      "title": "VSCode Plugins",
+      "searchPlaceholder": "Search extensions…",
+      "empty": "No plugins found.",
+      "loadMore": "Load more",
+      "add": "Add",
+      "remove": "Remove",
+      "downloadsLabel": "dl",
+      "selectedCount_one": "{{count}} plugin selected",
+      "selectedCount_other": "{{count}} plugins selected",
+      "sort": {
+        "relevance": "Relevance",
+        "popular": "Popular",
+        "recent": "Recent",
+        "rating": "Highest rated"
+      },
+      "errors": {
+        "search": "Could not reach the plugin registry.",
+        "detail": "Could not load plugin details.",
+        "readme": "Could not load plugin README."
+      }
+    }
+  },
+  "common": {
+    "loading": "Loading…"
   }
 }

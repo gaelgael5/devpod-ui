@@ -205,5 +205,32 @@
     "networkError": "Erreur réseau, veuillez réessayer.",
     "or": "ou",
     "notConfigured": "Aucune méthode d'authentification configurée. Vérifier /data/.env (LOCAL_USER / LOCAL_PASSWORD_HASH)."
+  },
+  "profiles": {
+    "plugins": {
+      "title": "Plugins VSCode",
+      "searchPlaceholder": "Rechercher une extension…",
+      "empty": "Aucun plugin trouvé.",
+      "loadMore": "Charger plus",
+      "add": "Ajouter",
+      "remove": "Retirer",
+      "downloadsLabel": "téléch.",
+      "selectedCount_one": "{{count}} plugin sélectionné",
+      "selectedCount_other": "{{count}} plugins sélectionnés",
+      "sort": {
+        "relevance": "Pertinence",
+        "popular": "Populaires",
+        "recent": "Récents",
+        "rating": "Mieux notés"
+      },
+      "errors": {
+        "search": "Impossible de contacter le registre de plugins.",
+        "detail": "Impossible de charger les détails du plugin.",
+        "readme": "Impossible de charger le README."
+      }
+    }
+  },
+  "common": {
+    "loading": "Chargement…"
   }
 }
