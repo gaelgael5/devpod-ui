@@ -19,6 +19,9 @@ from .routes.me import router as me_router
 from .routes.nodes import router as nodes_router
 from .routes.plugins import get_openvsx
 from .routes.plugins import router as plugins_router
+from .routes.profiles import get_repo as get_profile_repo
+from .routes.profiles import router as profiles_router
+from .routes.profiles import router_admin as profiles_admin_router
 from .routes.proxmox import router as proxmox_router
 from .routes.recipe_sources import router_admin as recipe_sources_admin_router
 from .routes.recipes import router_admin as recipes_admin_router
@@ -65,9 +68,14 @@ class SPAMiddleware(BaseHTTPMiddleware):
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from .openvsx import OpenVsxClient, OpenVsxSettings
+    from .profiles.repository import ProfileRepository
 
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()
+    settings_obj = get_settings()
+    data_dir = Path(settings_obj.portal_data_root)
+    profile_repo = ProfileRepository(data_dir)
+    app.dependency_overrides[get_profile_repo] = lambda: profile_repo
     async with httpx.AsyncClient(headers={"User-Agent": "devpod-ui/1.0"}) as http:
         client = OpenVsxClient(OpenVsxSettings(), http)
         app.dependency_overrides[get_openvsx] = lambda: client
@@ -115,6 +123,8 @@ def create_app() -> FastAPI:
     app.include_router(recipes_admin_router, prefix="/admin")
     app.include_router(recipe_sources_admin_router, prefix="/admin")
     app.include_router(ssh_proxy_router, prefix="/admin")
+    app.include_router(profiles_router)
+    app.include_router(profiles_admin_router, prefix="/admin")
     # static_router en dernier : son catch-all /{full_path:path} ne doit pas
     # intercepter les routes API enregistrées avant lui.
     app.include_router(static_router)
