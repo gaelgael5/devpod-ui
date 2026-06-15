@@ -111,6 +111,10 @@
     "editRecipe": "Modifier la recette",
     "addHypervisorType": "Ajouter un type d'hyperviseur",
     "editHypervisorType": "Modifier le type",
+    "sharedProfiles": "Profils partagés",
+    "profilesEmpty": "Aucun profil partagé.",
+    "addProfile": "Ajouter un profil",
+    "editProfile": "Modifier le profil",
     "col": {
       "name": "Nom",
       "type": "Type",
@@ -207,6 +211,35 @@
     "notConfigured": "Aucune méthode d'authentification configurée. Vérifier /data/.env (LOCAL_USER / LOCAL_PASSWORD_HASH)."
   },
   "profiles": {
+    "title": "Profils VSCode",
+    "new": "Nouveau profil",
+    "fork": "Forker",
+    "forked": "Profil forké avec succès.",
+    "preview": "Aperçu devcontainer.json",
+    "fields": {
+      "name": "Nom",
+      "description": "Description"
+    },
+    "sections": {
+      "mine": "Mes profils",
+      "shared": "Profils partagés"
+    },
+    "delete": {
+      "confirm": "Supprimer ce profil ?",
+      "description": "Cette action supprime définitivement le profil « {{name}} ».",
+      "cancel": "Annuler",
+      "confirm_btn": "Supprimer"
+    },
+    "errors": {
+      "load": "Impossible de charger les profils.",
+      "save": "Erreur lors de la sauvegarde.",
+      "delete": "Erreur lors de la suppression.",
+      "fork": "Erreur lors du fork."
+    },
+    "empty": {
+      "mine": "Aucun profil personnel. Créez-en un ou forkez un profil partagé.",
+      "shared": "Aucun profil partagé."
+    },
     "plugins": {
       "title": "Plugins VSCode",
       "searchPlaceholder": "Rechercher une extension…",
@@ -231,6 +264,8 @@
     }
   },
   "common": {
-    "loading": "Chargement…"
+    "loading": "Chargement…",
+    "save": "Enregistrer",
+    "cancel": "Annuler"
   }
 }

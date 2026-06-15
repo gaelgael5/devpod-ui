@@ -111,6 +111,10 @@
     "editRecipe": "Edit recipe",
     "addHypervisorType": "Add hypervisor type",
     "editHypervisorType": "Edit type",
+    "sharedProfiles": "Shared profiles",
+    "profilesEmpty": "No shared profiles.",
+    "addProfile": "Add profile",
+    "editProfile": "Edit profile",
     "col": {
       "name": "Name",
       "type": "Type",
@@ -207,6 +211,35 @@
     "notConfigured": "No authentication method configured. Check /data/.env (LOCAL_USER / LOCAL_PASSWORD_HASH)."
   },
   "profiles": {
+    "title": "VSCode Profiles",
+    "new": "New profile",
+    "fork": "Fork",
+    "forked": "Profile forked successfully.",
+    "preview": "devcontainer.json preview",
+    "fields": {
+      "name": "Name",
+      "description": "Description"
+    },
+    "sections": {
+      "mine": "My profiles",
+      "shared": "Shared profiles"
+    },
+    "delete": {
+      "confirm": "Delete this profile?",
+      "description": "This will permanently delete profile \"{{name}}\".",
+      "cancel": "Cancel",
+      "confirm_btn": "Delete"
+    },
+    "errors": {
+      "load": "Could not load profiles.",
+      "save": "Error while saving.",
+      "delete": "Error while deleting.",
+      "fork": "Error while forking."
+    },
+    "empty": {
+      "mine": "No personal profiles yet. Create one or fork a shared profile.",
+      "shared": "No shared profiles."
+    },
     "plugins": {
       "title": "VSCode Plugins",
       "searchPlaceholder": "Search extensions…",
@@ -231,6 +264,8 @@
     }
   },
   "common": {
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "save": "Save",
+    "cancel": "Cancel"
   }
 }
