@@ -7,7 +7,7 @@ Couche anti-corruption : le frontend ne voit que des DTOs normalisés
 from __future__ import annotations
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 
 from ..auth.rbac import UserInfo, require_user
 from ..openvsx import OpenVsxClient, PluginDetail, PluginSearchResult
@@ -37,8 +37,8 @@ async def search_plugins(
 
 @router.get("/{namespace}/{name}/readme")
 async def plugin_readme(
-    namespace: str,
-    name: str,
+    namespace: str = Path(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"),
+    name: str = Path(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"),
     _user: UserInfo = Depends(require_user),
     client: OpenVsxClient = Depends(get_openvsx),
 ) -> Response:
@@ -52,8 +52,8 @@ async def plugin_readme(
 
 @router.get("/{namespace}/{name}", response_model=PluginDetail)
 async def plugin_detail(
-    namespace: str,
-    name: str,
+    namespace: str = Path(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"),
+    name: str = Path(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"),
     _user: UserInfo = Depends(require_user),
     client: OpenVsxClient = Depends(get_openvsx),
 ) -> PluginDetail:
