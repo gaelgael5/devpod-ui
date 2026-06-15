@@ -89,6 +89,4 @@ def test_write_devcontainer_empty_profile_no_customizations_block(
     profile = Profile(slug="empty", scope="user", name="Empty", extensions=[], settings={})
     dc_path = svc._write_devcontainer("alice", "alice-myapp", profile=profile)
     content = json.loads(dc_path.read_text(encoding="utf-8"))
-    cust = content.get("customizations", {})
-    exts = cust.get("vscode", {}).get("extensions", [])
-    assert exts == []
+    assert "customizations" not in content
