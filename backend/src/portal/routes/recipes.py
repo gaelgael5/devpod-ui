@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..auth.rbac import UserInfo, require_admin, require_user
-from ..config.store import _data_root, safe_user_path
+from ..config.store import _builtin_recipes_dir, _data_root, safe_user_path
 from ..recipes.models import _RECIPE_ID_RE, RecipeMeta
 from ..recipes.registry import RecipeRegistry
 
@@ -69,7 +69,7 @@ async def list_recipes(user: UserInfo = Depends(require_user)) -> list[dict[str,
     data_root = _data_root()
     shared_dir = data_root / "recipes"
     personal_dir = safe_user_path(user.login, "recipes")
-    registry = RecipeRegistry(builtin_dir=None, shared_dir=shared_dir)
+    registry = RecipeRegistry(builtin_dir=_builtin_recipes_dir(), shared_dir=shared_dir)
     shared = registry.load_shared()
     personal = registry.load_dir(personal_dir)
     available = {**shared, **personal}

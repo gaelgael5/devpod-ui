@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 import structlog
 
 from ..config.models import GlobalConfig, SourceSpec, WorkspaceSpec
-from ..config.store import _data_root, load_global, safe_user_path
+from ..config.store import _builtin_recipes_dir, _data_root, load_global, safe_user_path
 from ..profiles.models import Profile
 from ..recipes.models import RecipeMeta
 from .env import _find_host, build_env
@@ -356,9 +356,16 @@ class DevPodService:
 
             if recipes:
                 features_block: dict[str, dict[str, Any]] = {}
+                builtin_root = _builtin_recipes_dir()
                 for recipe in recipes:
-                    recipe_dir = _data_root() / "recipes" / recipe.id
-                    if recipe_dir.is_dir():
+                    shared_recipe_dir = _data_root() / "recipes" / recipe.id
+                    builtin_recipe_dir = builtin_root / recipe.id if builtin_root else None
+                    recipe_dir: Path | None = None
+                    if shared_recipe_dir.is_dir():
+                        recipe_dir = shared_recipe_dir
+                    elif builtin_recipe_dir is not None and builtin_recipe_dir.is_dir():
+                        recipe_dir = builtin_recipe_dir
+                    if recipe_dir is not None:
                         shutil.copytree(recipe_dir, tmp_dir / recipe.id)
                         features_block[f"./{recipe.id}"] = {}
                 if features_block:

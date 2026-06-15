@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth.rbac import UserInfo, require_user
 from ..config.models import ProfileRef, SourceSpec, WorkspaceSpec
-from ..config.store import _data_root, load_global, safe_user_path
+from ..config.store import _builtin_recipes_dir, _data_root, load_global, safe_user_path
 from ..devpod.env import UnknownHostError
 from ..devpod.service import DevPodService
 from ..profiles.models import Profile
@@ -58,7 +58,7 @@ _recipe_registry: RecipeRegistry | None = None
 def _get_recipe_registry() -> RecipeRegistry:
     global _recipe_registry
     if _recipe_registry is None:
-        _recipe_registry = RecipeRegistry(builtin_dir=None, shared_dir=_data_root() / "recipes")
+        _recipe_registry = RecipeRegistry(builtin_dir=_builtin_recipes_dir(), shared_dir=_data_root() / "recipes")
     return _recipe_registry
 
 
