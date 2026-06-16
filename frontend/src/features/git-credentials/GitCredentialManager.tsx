@@ -134,6 +134,11 @@ export default function GitCredentialManager() {
     e.preventDefault()
     setFormError('')
 
+    if (form.kind === 'ssh' && !form.privateKey.trim()) {
+      setFormError(t('gitCredentials.errors.add'))
+      return
+    }
+
     const payload = {
       name: form.name.trim(),
       host: effectiveHost,
