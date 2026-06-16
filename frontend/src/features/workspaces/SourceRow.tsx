@@ -38,6 +38,12 @@ function extractHost(url: string): string {
   }
 }
 
+/** 'ssh' pour git@… ou ssh://…, 'https' pour tout le reste. */
+function getUrlScheme(url: string): 'ssh' | 'https' {
+  const trimmed = url.trim()
+  return trimmed.startsWith('git@') || trimmed.startsWith('ssh://') ? 'ssh' : 'https'
+}
+
 export default function SourceRow({
   index,
   entry,
@@ -58,7 +64,12 @@ export default function SourceRow({
   const { data: gitBranches, error: branchError } = useGitBranches(committed.url, committed.credential)
 
   const urlHost = extractHost(entry.url)
-  const filteredCredentials = credentials.filter(c => !urlHost || c.host === urlHost)
+  const urlScheme = urlHost ? getUrlScheme(entry.url) : null
+  const filteredCredentials = credentials.filter(c => {
+    if (urlHost && c.host !== urlHost) return false
+    if (urlScheme && c.kind !== (urlScheme === 'ssh' ? 'ssh' : 'token')) return false
+    return true
+  })
 
   // Ref pour éviter le stale closure sur entry dans les effets
   const entryRef = useRef(entry)
@@ -93,7 +104,12 @@ export default function SourceRow({
     const url = entry.url.trim().replace(/\.git$/, '')
     if (url.length <= 5) return
     const host = extractHost(url)
-    const filtered = credentials.filter(c => !host || c.host === host)
+    const scheme = host ? getUrlScheme(url) : null
+    const filtered = credentials.filter(c => {
+      if (host && c.host !== host) return false
+      if (scheme && c.kind !== (scheme === 'ssh' ? 'ssh' : 'token')) return false
+      return true
+    })
     let credential = entry.credential
     if (!credential && filtered.length >= 1) {
       credential = filtered[0].name

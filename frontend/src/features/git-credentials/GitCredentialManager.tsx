@@ -202,9 +202,9 @@ export default function GitCredentialManager() {
             ...f,
             kind: newKind,
             tokenValue: '',
-            tokenTouched: newKind === 'token',
+            tokenTouched: false,
             privateKey: '',
-            keyTouched: newKind === 'ssh',
+            keyTouched: false,
           }
         : f,
     )

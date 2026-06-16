@@ -268,6 +268,8 @@ async def patch_git_credential(
                     key_to_delete = old_file
                 new_key_path = str(new_key_file)
         else:
+            if not body.private_key.strip():
+                raise HTTPException(status_code=422, detail="La clé privée ne peut pas être vide")
             old_key_path = cred.key_path
             key_dir = safe_user_path(user.login, "keys", "git", effective_name)
             key_dir.mkdir(parents=True, exist_ok=True)
