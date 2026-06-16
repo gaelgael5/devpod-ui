@@ -114,6 +114,15 @@ async def workspace_ssh_terminal(
     devpod_bin = shlex.split(cfg.devpod.binary, posix=(os.name != "nt"))
     cmd = [*devpod_bin, "ssh", ws_id, "--command", tmux_cmd]
 
+    # DEVPOD_HOME doit pointer vers le répertoire per-user ; sans ça devpod
+    # ne trouve pas la config du workspace et sort avec returncode=1.
+    # HOME est requis pour que ssh(1) trouve ~/.ssh/config écrit par DevPod.
+    devpod_env = {
+        **dict(os.environ),
+        "DEVPOD_HOME": str(safe_user_path(login, "devpod")),
+        "HOME": os.environ.get("HOME", "/root"),
+    }
+
     _log.info("ws_workspace_ssh_open", ws_id=ws_id, login=login, start=start)
 
     proc = await asyncio.create_subprocess_exec(
@@ -121,6 +130,7 @@ async def workspace_ssh_terminal(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
+        env=devpod_env,
     )
 
     async def _ws_to_ssh() -> None:
