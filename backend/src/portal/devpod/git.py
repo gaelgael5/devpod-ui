@@ -111,7 +111,11 @@ async def run_git_ls_remote(
                 with open(gitconfig, "w") as fh:
                     fh.write(f"[http]\n\textraHeader = Authorization: Basic {b64}\n")
                 os.chmod(gitconfig, 0o600)
+                # HOME pour les vieilles versions de git (< 2.32) ;
+                # GIT_CONFIG_GLOBAL pour les versions récentes — prend la
+                # priorité sur ~/ et évite toute interférence XDG.
                 env["HOME"] = tmpdir
+                env["GIT_CONFIG_GLOBAL"] = gitconfig
                 _log.info(
                     "git_home_override",
                     login=login,

@@ -85,10 +85,17 @@ async def list_git_branches(
             returncode=returncode,
             stderr=err,
         )
-        raise HTTPException(
-            status_code=422,
-            detail=err or "git ls-remote a échoué",
-        )
+        if "terminal prompts disabled" in err or "could not read Username" in err or "Authentication failed" in err:
+            detail = "Authentification git échouée. Vérifiez le token et ses permissions d'accès au dépôt."
+        elif "Repository not found" in err or "not found" in err.lower():
+            detail = "Dépôt introuvable ou accès refusé. Vérifiez l'URL et les permissions du token."
+        elif "Could not resolve host" in err or "unable to resolve" in err.lower():
+            detail = "Hôte introuvable. Vérifiez l'URL du dépôt."
+        elif "timed out" in err.lower():
+            detail = "Délai dépassé lors de la connexion au dépôt."
+        else:
+            detail = err or "git ls-remote a échoué"
+        raise HTTPException(status_code=422, detail=detail)
 
     branches: list[str] = []
     default: str | None = None
