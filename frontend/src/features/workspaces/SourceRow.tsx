@@ -64,10 +64,8 @@ export default function SourceRow({
   const { data: gitBranches, error: branchError } = useGitBranches(committed.url, committed.credential)
 
   const urlHost = extractHost(entry.url)
-  const urlScheme = urlHost ? getUrlScheme(entry.url) : null
   const filteredCredentials = credentials.filter(c => {
     if (urlHost && c.host !== urlHost) return false
-    if (urlScheme && c.kind !== (urlScheme === 'ssh' ? 'ssh' : 'token')) return false
     return true
   })
 
@@ -104,12 +102,7 @@ export default function SourceRow({
     const url = entry.url.trim().replace(/\.git$/, '')
     if (url.length <= 5) return
     const host = extractHost(url)
-    const scheme = host ? getUrlScheme(url) : null
-    const filtered = credentials.filter(c => {
-      if (host && c.host !== host) return false
-      if (scheme && c.kind !== (scheme === 'ssh' ? 'ssh' : 'token')) return false
-      return true
-    })
+    const filtered = credentials.filter(c => host ? c.host === host : true)
     let credential = entry.credential
     if (!credential && filtered.length >= 1) {
       credential = filtered[0].name
