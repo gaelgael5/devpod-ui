@@ -38,11 +38,6 @@ function extractHost(url: string): string {
   }
 }
 
-/** 'ssh' pour git@… ou ssh://…, 'https' pour tout le reste. */
-function getUrlScheme(url: string): 'ssh' | 'https' {
-  const trimmed = url.trim()
-  return trimmed.startsWith('git@') || trimmed.startsWith('ssh://') ? 'ssh' : 'https'
-}
 
 export default function SourceRow({
   index,
