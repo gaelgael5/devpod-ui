@@ -315,11 +315,19 @@
     "deleteDescription": "Cette action est irréversible. Les workspaces utilisant ce credential échoueront au prochain lancement.",
     "added": "Credential «{{name}}» ajouté.",
     "deleted": "Credential «{{name}}» supprimé.",
+    "loadKeyFile": "Charger depuis un fichier",
+    "generateKey": "Générer une clé",
+    "viewPublicKey": "Voir la clé publique",
+    "publicKeyDialogTitle": "Clé publique SSH",
+    "publicKeyHint": "Copiez cette clé dans GitHub → Settings → SSH keys ou GitLab → Dépôt → Paramètres → Clés de déploiement.",
+    "publicKeyCopy": "Copier",
+    "publicKeyCopied": "Copié !",
     "errors": {
       "load": "Impossible de charger les credentials.",
       "add": "Impossible d'ajouter le credential.",
       "delete": "Impossible de supprimer le credential.",
-      "update": "Impossible de mettre à jour le credential."
+      "update": "Impossible de mettre à jour le credential.",
+      "publicKey": "Impossible de récupérer la clé publique."
     },
     "hosts": {
       "github": "GitHub (github.com)",

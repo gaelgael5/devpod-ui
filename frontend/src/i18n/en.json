@@ -315,11 +315,19 @@
     "deleteDescription": "This action cannot be undone. Workspaces using this credential will fail at next launch.",
     "added": "Credential «{{name}}» added.",
     "deleted": "Credential «{{name}}» deleted.",
+    "loadKeyFile": "Load from file",
+    "generateKey": "Generate key",
+    "viewPublicKey": "View public key",
+    "publicKeyDialogTitle": "SSH Public Key",
+    "publicKeyHint": "Paste this key into GitHub → Settings → SSH keys or GitLab → Repository → Settings → Deploy Keys.",
+    "publicKeyCopy": "Copy",
+    "publicKeyCopied": "Copied!",
     "errors": {
       "load": "Could not load credentials.",
       "add": "Could not add credential.",
       "delete": "Could not delete credential.",
-      "update": "Failed to update credential."
+      "update": "Failed to update credential.",
+      "publicKey": "Could not retrieve public key."
     },
     "hosts": {
       "github": "GitHub (github.com)",
