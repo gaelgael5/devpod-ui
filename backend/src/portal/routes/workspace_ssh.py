@@ -91,8 +91,14 @@ async def workspace_ssh_terminal(
         # Localiser le répertoire de la recette (personal a priorité)
         if (personal_dir / start).exists():
             recipe_dir = personal_dir / start
+            if not recipe_dir.is_relative_to(personal_dir):
+                await websocket.close(code=4022, reason="Path traversal detected")
+                return
         else:
             recipe_dir = shared_dir / start
+            if not recipe_dir.is_relative_to(shared_dir):
+                await websocket.close(code=4022, reason="Path traversal detected")
+                return
         start_sh_path = recipe_dir / "start.sh"
         if not start_sh_path.exists():
             await websocket.close(code=4022, reason=f"start.sh missing for {start!r}")

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -53,6 +54,7 @@ function emptySource(): SourceEntry {
 export default function WorkspaceCreate() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const isAdmin = useUserStore((s) => s.isAdmin())
   const { createWorkspace } = useWorkspaceOps()
   const { data: recipes = [] } = useRecipes()
@@ -302,6 +304,7 @@ export default function WorkspaceCreate() {
                       body: JSON.stringify({ id: newStartId, script: newStartScript }),
                     })
                     toast.success(t('workspaces.form.startRecipeCreated', { id: newStartId }))
+                    queryClient.invalidateQueries({ queryKey: ['recipes', 'start'] })
                     setSelectedStartRecipes(prev => [...prev, newStartId])
                     setNewStartId('')
                     setNewStartScript('#!/usr/bin/env bash\nset -euo pipefail\n')

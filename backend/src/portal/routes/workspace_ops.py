@@ -346,7 +346,11 @@ async def get_workspace_start_recipes(
     personal = await asyncio.to_thread(reg.load_dir, personal_dir)
     available = {**shared, **personal}
 
-    return [available[rid].model_dump() for rid in ws_spec.start_recipes if rid in available]
+    return [
+        available[rid].model_dump()
+        for rid in ws_spec.start_recipes
+        if rid in available and available[rid].type == "start"
+    ]
 
 
 @router.get("/workspaces/{name}/logs", response_class=PlainTextResponse)
