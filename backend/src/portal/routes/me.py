@@ -92,9 +92,9 @@ async def list_git_branches(
     default: str | None = None
     for line in stdout.decode(errors="replace").splitlines():
         if line.startswith("ref: refs/heads/") and "\t" in line:
-            default = line.split("\t")[0][len("ref: refs/heads/"):]
+            default = line.split("\t")[0][len("ref: refs/heads/") :]
         elif "\trefs/heads/" in line:
-            branches.append(line.split("\t")[1][len("refs/heads/"):])
+            branches.append(line.split("\t")[1][len("refs/heads/") :])
 
     if default and default in branches:
         branches.remove(default)
@@ -170,6 +170,109 @@ async def add_git_credential(
     save_user(user.login, cfg)
     _log.info("git_credential_added", login=user.login, name=body.name, kind=body.kind)
     return {"name": body.name, "host": host, "kind": body.kind}
+
+
+class _GitCredentialUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    new_name: str | None = None
+    host: str | None = None
+    kind: Literal["ssh", "token"] | None = None
+    username: str | None = None
+    token: str | None = None
+    private_key: str | None = None
+
+
+@router.patch("/git-credentials/{name}")
+async def patch_git_credential(
+    name: str,
+    body: _GitCredentialUpdate,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, object]:
+    cfg = load_user(user.login)
+    cred = next((c for c in cfg.git_credentials if c.name == name), None)
+    if not cred:
+        raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
+
+    if body.new_name is not None:
+        if not _CRED_NAME_RE.fullmatch(body.new_name):
+            raise HTTPException(
+                status_code=422, detail=f"Invalid credential name: {body.new_name!r}"
+            )
+        if body.new_name != name and any(c.name == body.new_name for c in cfg.git_credentials):
+            raise HTTPException(
+                status_code=409, detail=f"Credential {body.new_name!r} already exists"
+            )
+
+    effective_kind = body.kind if body.kind is not None else cred.kind
+    effective_name = body.new_name if body.new_name is not None else name
+    effective_host = (
+        body.host.strip().lower().removeprefix("https://").removeprefix("http://").rstrip("/")
+        if body.host is not None
+        else cred.host
+    )
+    effective_username = body.username.strip() if body.username is not None else cred.username
+
+    new_key_path = cred.key_path
+    new_token = cred.token
+
+    if effective_kind == "ssh":
+        new_token = ""
+        if body.private_key is None or body.private_key == "__UNCHANGED__":
+            if cred.kind != "ssh":
+                raise HTTPException(
+                    status_code=422, detail="private_key is required when changing kind to ssh"
+                )
+        else:
+            old_key_path = cred.key_path
+            key_dir = safe_user_path(user.login, "keys", "git", effective_name)
+            key_dir.mkdir(parents=True, exist_ok=True)
+            key_file = key_dir / "id_ed25519"
+            key_file.write_text(body.private_key.strip() + "\n", encoding="utf-8")
+            key_file.chmod(0o600)
+            new_key_path = str(key_file)
+            if old_key_path and old_key_path != new_key_path:
+                old = Path(old_key_path)
+                if old.exists():
+                    old.unlink()
+    else:
+        new_key_path = ""
+        if body.token is None or body.token == "__UNCHANGED__":
+            if cred.kind != "token":
+                raise HTTPException(
+                    status_code=422, detail="token is required when changing kind to token"
+                )
+            new_token = cred.token
+        else:
+            if not body.token.strip():
+                raise HTTPException(status_code=422, detail="token cannot be empty")
+            new_token = body.token.strip()
+        if cred.kind == "ssh" and cred.key_path:
+            old = Path(cred.key_path)
+            if old.exists():
+                old.unlink()
+
+    updated = GitCredential(
+        name=effective_name,
+        host=effective_host,
+        kind=effective_kind,
+        key_path=new_key_path,
+        username=effective_username,
+        token=new_token,
+    )
+    cfg.git_credentials = [updated if c.name == name else c for c in cfg.git_credentials]
+
+    if effective_name != name:
+        for ws in cfg.workspaces:
+            if ws.git_credential == name:
+                ws.git_credential = effective_name
+            for src in ws.extra_sources:
+                if src.git_credential == name:
+                    src.git_credential = effective_name
+
+    save_user(user.login, cfg)
+    _log.info("git_credential_updated", login=user.login, name=name, new_name=effective_name)
+    return {"name": effective_name, "host": effective_host, "kind": effective_kind}
 
 
 @router.delete("/git-credentials/{name}")

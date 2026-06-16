@@ -121,15 +121,180 @@ def test_get_git_credentials_includes_username(tmp_path: Path) -> None:
     _provision_alice(tmp_path)
     app = _make_app(tmp_path)
     with TestClient(app) as client:
-        client.post("/me/git-credentials", json={
-            "name": "gh", "host": "github.com", "kind": "token",
-            "username": "oauth2", "token": "ghp_test123",
-        })
+        client.post(
+            "/me/git-credentials",
+            json={
+                "name": "gh",
+                "host": "github.com",
+                "kind": "token",
+                "username": "oauth2",
+                "token": "ghp_test123",
+            },
+        )
         resp = client.get("/me/git-credentials")
     assert resp.status_code == 200
     creds = resp.json()
     assert len(creds) == 1
     assert creds[0]["username"] == "oauth2"
+
+
+# ── helpers ────────────────────────────────────────────────────────────────
+
+_FAKE_SSH_KEY = (
+    "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+    "dGVzdC1rZXktZm9yLXRlc3Rpbmctb25seQ==\n"
+    "-----END OPENSSH PRIVATE KEY-----"
+)
+
+
+def _add_token_cred(client: TestClient, name: str = "gh") -> None:
+    client.post(
+        "/me/git-credentials",
+        json={
+            "name": name,
+            "host": "github.com",
+            "kind": "token",
+            "username": "oauth2",
+            "token": "ghp_old",
+        },
+    )
+
+
+def _add_ssh_cred(client: TestClient, name: str = "gl-ssh") -> None:
+    client.post(
+        "/me/git-credentials",
+        json={
+            "name": name,
+            "host": "gitlab.com",
+            "kind": "ssh",
+            "private_key": _FAKE_SSH_KEY,
+        },
+    )
+
+
+# ── PATCH tests ─────────────────────────────────────────────────────────────
+
+
+def test_patch_git_credential_updates_host(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        _add_token_cred(client)
+        resp = client.patch("/me/git-credentials/gh", json={"host": "github.enterprise.com"})
+    assert resp.status_code == 200
+    assert resp.json()["host"] == "github.enterprise.com"
+    with TestClient(app) as client:
+        creds = client.get("/me/git-credentials").json()
+    assert creds[0]["host"] == "github.enterprise.com"
+
+
+def test_patch_git_credential_updates_token(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        _add_token_cred(client)
+        resp = client.patch("/me/git-credentials/gh", json={"token": "ghp_new"})
+    assert resp.status_code == 200
+    from portal.config.store import load_user
+
+    cfg = load_user("alice")
+    assert cfg.git_credentials[0].token == "ghp_new"
+
+
+def test_patch_git_credential_unchanged_token_preserved(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        _add_token_cred(client)
+        resp = client.patch("/me/git-credentials/gh", json={"token": "__UNCHANGED__"})
+    assert resp.status_code == 200
+    from portal.config.store import load_user
+
+    cfg = load_user("alice")
+    assert cfg.git_credentials[0].token == "ghp_old"
+
+
+def test_patch_git_credential_token_to_ssh(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        _add_token_cred(client)
+        resp = client.patch(
+            "/me/git-credentials/gh",
+            json={
+                "kind": "ssh",
+                "private_key": _FAKE_SSH_KEY,
+            },
+        )
+    assert resp.status_code == 200
+    from portal.config.store import load_user
+
+    cfg = load_user("alice")
+    cred = cfg.git_credentials[0]
+    assert cred.kind == "ssh"
+    assert cred.token == ""
+    assert cred.key_path != ""
+
+
+def test_patch_git_credential_ssh_to_token(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        _add_ssh_cred(client)
+        resp = client.patch(
+            "/me/git-credentials/gl-ssh",
+            json={
+                "kind": "token",
+                "token": "glpat-new",
+            },
+        )
+    assert resp.status_code == 200
+    from portal.config.store import load_user
+
+    cfg = load_user("alice")
+    cred = cfg.git_credentials[0]
+    assert cred.kind == "token"
+    assert cred.token == "glpat-new"
+    assert cred.key_path == ""
+
+
+def test_patch_git_credential_rename_cascades_workspaces(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        _add_token_cred(client, name="gh")
+        client.post(
+            "/me/workspaces",
+            json={
+                "name": "myapp",
+                "source": "github.com/org/repo",
+                "git_credential": "gh",
+            },
+        )
+        resp = client.patch("/me/git-credentials/gh", json={"new_name": "github"})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "github"
+    with TestClient(app) as client:
+        ws_list = client.get("/me/workspaces").json()
+    assert ws_list[0]["git_credential"] == "github"
+
+
+def test_patch_git_credential_duplicate_name_returns_409(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        _add_token_cred(client, name="gh")
+        _add_token_cred(client, name="gh2")
+        resp = client.patch("/me/git-credentials/gh", json={"new_name": "gh2"})
+    assert resp.status_code == 409
+
+
+def test_patch_git_credential_not_found_returns_404(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.patch("/me/git-credentials/nope", json={"host": "example.com"})
+    assert resp.status_code == 404
 
 
 def test_require_user_blocks_unauthenticated(tmp_path: Path) -> None:
