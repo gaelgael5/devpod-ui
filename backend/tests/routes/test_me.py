@@ -334,6 +334,135 @@ def test_patch_git_credential_invalid_new_name_returns_422(tmp_path: Path) -> No
     assert resp.status_code == 422
 
 
+# ── SSH key management tests ────────────────────────────────────────────────
+
+def _real_ssh_pem() -> str:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
+    key = Ed25519PrivateKey.generate()
+    return key.private_bytes(Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption()).decode("utf-8")
+
+
+def test_post_git_credential_generate_key_creates_credential(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/git-credentials",
+            json={"name": "my-key", "host": "github.com", "kind": "ssh", "generate_key": True},
+        )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["kind"] == "ssh"
+    assert "public_key" in data
+    assert data["public_key"].startswith("ssh-ed25519 ")
+    from portal.config.store import load_user
+    cfg = load_user("alice")
+    cred = next(c for c in cfg.git_credentials if c.name == "my-key")
+    assert cred.key_path != ""
+    from pathlib import Path as P
+    priv = P(cred.key_path)
+    assert priv.exists()
+    assert (priv.parent / "id_ed25519.pub").exists()
+
+
+def test_post_git_credential_generate_key_with_token_kind_returns_422(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/git-credentials",
+            json={"name": "my-key", "host": "github.com", "kind": "token", "generate_key": True},
+        )
+    assert resp.status_code == 422
+
+
+def test_post_git_credential_ssh_upload_derives_pub_for_valid_key(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    pem = _real_ssh_pem()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/git-credentials",
+            json={"name": "gl-ssh", "host": "gitlab.com", "kind": "ssh", "private_key": pem},
+        )
+    assert resp.status_code == 201
+    from portal.config.store import load_user
+    from pathlib import Path as P
+    cfg = load_user("alice")
+    cred = next(c for c in cfg.git_credentials if c.name == "gl-ssh")
+    assert (P(cred.key_path).parent / "id_ed25519.pub").exists()
+
+
+def test_get_git_credential_public_key_on_generated(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        client.post(
+            "/me/git-credentials",
+            json={"name": "my-key", "host": "github.com", "kind": "ssh", "generate_key": True},
+        )
+        resp = client.get("/me/git-credentials/my-key/public-key")
+    assert resp.status_code == 200
+    assert resp.json()["public_key"].startswith("ssh-ed25519 ")
+
+
+def test_get_git_credential_public_key_derives_on_the_fly(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    pem = _real_ssh_pem()
+    with TestClient(app) as client:
+        client.post(
+            "/me/git-credentials",
+            json={"name": "my-key", "host": "github.com", "kind": "ssh", "private_key": pem},
+        )
+        from portal.config.store import load_user as _lu
+        from pathlib import Path as P
+        cfg = _lu("alice")
+        cred = next(c for c in cfg.git_credentials if c.name == "my-key")
+        pub = P(cred.key_path).parent / "id_ed25519.pub"
+        if pub.exists():
+            pub.unlink()
+        resp = client.get("/me/git-credentials/my-key/public-key")
+    assert resp.status_code == 200
+    assert resp.json()["public_key"].startswith("ssh-ed25519 ")
+
+
+def test_get_git_credential_public_key_on_token_returns_404(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        _add_token_cred(client, name="gh")
+        resp = client.get("/me/git-credentials/gh/public-key")
+    assert resp.status_code == 404
+
+
+def test_get_git_credential_public_key_not_found_returns_404(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.get("/me/git-credentials/nope/public-key")
+    assert resp.status_code == 404
+
+
+def test_patch_git_credential_updates_pub_on_new_key(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    pem = _real_ssh_pem()
+    with TestClient(app) as client:
+        client.post(
+            "/me/git-credentials",
+            json={"name": "my-key", "host": "github.com", "kind": "ssh", "generate_key": True},
+        )
+        resp = client.patch("/me/git-credentials/my-key", json={"private_key": pem})
+    assert resp.status_code == 200
+    from portal.config.store import load_user
+    from pathlib import Path as P
+    cfg = load_user("alice")
+    cred = next(c for c in cfg.git_credentials if c.name == "my-key")
+    assert (P(cred.key_path).parent / "id_ed25519.pub").exists()
+
+
 def test_require_user_blocks_unauthenticated(tmp_path: Path) -> None:
     _provision_alice(tmp_path)
     import portal.settings as mod

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import re
 import shutil
 from pathlib import Path
@@ -13,6 +14,7 @@ from ..auth.rbac import UserInfo, require_user
 from ..config.models import GitCredential, UserConfig, WorkspaceSpec
 from ..config.store import load_user, safe_user_path, save_user
 from ..devpod.git import run_git_ls_remote
+from ..ssh_keys import derive_git_credential_public_key, generate_git_credential_ssh_key
 
 _CRED_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}[a-z0-9]$")
 
@@ -114,6 +116,7 @@ class _GitCredentialCreate(BaseModel):
     username: str = ""
     token: str = ""
     private_key: str = ""
+    generate_key: bool = False
 
 
 @router.get("/git-credentials")
@@ -143,18 +146,28 @@ async def add_git_credential(
         raise HTTPException(status_code=409, detail=f"Credential {body.name!r} already exists")
 
     key_path = ""
+    public_key: str | None = None
     if body.kind == "ssh":
-        if not body.private_key.strip():
-            raise HTTPException(
-                status_code=422, detail="private_key is required for SSH credentials"
-            )
-        key_dir = safe_user_path(user.login, "keys", "git", body.name)
-        key_dir.mkdir(parents=True, exist_ok=True)
-        key_file = key_dir / "id_ed25519"
-        key_file.write_text(body.private_key.strip() + "\n", encoding="utf-8")
-        key_file.chmod(0o600)
-        key_path = str(key_file)
+        if body.generate_key:
+            key_path, public_key = generate_git_credential_ssh_key(user.login, body.name)
+        else:
+            if not body.private_key.strip():
+                raise HTTPException(
+                    status_code=422, detail="private_key is required for SSH credentials"
+                )
+            key_dir = safe_user_path(user.login, "keys", "git", body.name)
+            key_dir.mkdir(parents=True, exist_ok=True)
+            key_file = key_dir / "id_ed25519"
+            key_file.write_text(body.private_key.strip() + "\n", encoding="utf-8")
+            key_file.chmod(0o600)
+            key_path = str(key_file)
+            with contextlib.suppress(Exception):
+                derive_git_credential_public_key(key_path)
     elif body.kind == "token":
+        if body.generate_key:
+            raise HTTPException(
+                status_code=422, detail="generate_key is only supported for SSH credentials"
+            )
         if not body.token.strip():
             raise HTTPException(status_code=422, detail="token is required for PAT credentials")
 
@@ -170,7 +183,10 @@ async def add_git_credential(
     )
     save_user(user.login, cfg)
     _log.info("git_credential_added", login=user.login, name=body.name, kind=body.kind)
-    return {"name": body.name, "host": host, "kind": body.kind}
+    result: dict[str, object] = {"name": body.name, "host": host, "kind": body.kind}
+    if public_key is not None:
+        result["public_key"] = public_key
+    return result
 
 
 class _GitCredentialUpdate(BaseModel):
@@ -246,6 +262,8 @@ async def patch_git_credential(
             key_file.write_text(body.private_key.strip() + "\n", encoding="utf-8")
             key_file.chmod(0o600)
             new_key_path = str(key_file)
+            with contextlib.suppress(Exception):
+                derive_git_credential_public_key(new_key_path)
             if old_key_path and old_key_path != new_key_path:
                 key_to_delete = Path(old_key_path)
     else:
@@ -288,6 +306,26 @@ async def patch_git_credential(
 
     _log.info("git_credential_updated", login=user.login, name=name, new_name=effective_name)
     return {"name": effective_name, "host": effective_host, "kind": effective_kind}
+
+
+@router.get("/git-credentials/{name}/public-key")
+async def get_git_credential_public_key(
+    name: str,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, object]:
+    cfg = load_user(user.login)
+    cred = next((c for c in cfg.git_credentials if c.name == name), None)
+    if not cred:
+        raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
+    if cred.kind != "ssh":
+        raise HTTPException(status_code=404, detail="Public key only available for SSH credentials")
+    if not cred.key_path:
+        raise HTTPException(status_code=404, detail="No key file for this credential")
+    try:
+        public_key = derive_git_credential_public_key(cred.key_path)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Could not read public key") from exc
+    return {"public_key": public_key}
 
 
 @router.delete("/git-credentials/{name}")
