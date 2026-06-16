@@ -105,3 +105,26 @@ def test_installs_after_invalid_id_rejected() -> None:
 
     with pytest.raises(ValidationError, match="installs_after"):
         RecipeMeta(id="my-recipe", installs_after=["../evil"])
+
+
+def test_recipe_meta_type_defaults_to_install() -> None:
+    from portal.recipes.models import RecipeMeta
+
+    meta = RecipeMeta(id="my-recipe")
+    assert meta.type == "install"
+
+
+def test_recipe_meta_type_start_accepted() -> None:
+    from portal.recipes.models import RecipeMeta
+
+    meta = RecipeMeta(id="claude-rc", type="start")
+    assert meta.type == "start"
+
+
+def test_recipe_meta_type_invalid_rejected() -> None:
+    from pydantic import ValidationError
+
+    from portal.recipes.models import RecipeMeta
+
+    with pytest.raises(ValidationError):
+        RecipeMeta(id="bad", type="unknown")

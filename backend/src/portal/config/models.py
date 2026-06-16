@@ -242,6 +242,21 @@ class WorkspaceSpec(BaseModel):
     extra_sources: list[SourceSpec] = Field(default_factory=list)
     ssh_key: bool = False
     profile: ProfileRef | None = None
+    start_recipes: list[str] = Field(default_factory=list)
+    default_start: str = ""
+
+    @field_validator("start_recipes")
+    @classmethod
+    def validate_start_recipe_ids(cls, v: list[str]) -> list[str]:
+        from portal.recipes.models import _RECIPE_ID_RE
+
+        for rid in v:
+            if not _RECIPE_ID_RE.fullmatch(rid):
+                raise ValueError(
+                    f"start_recipes: id {rid!r} must match"
+                    " ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$"
+                )
+        return v
 
     @field_validator("name")
     @classmethod

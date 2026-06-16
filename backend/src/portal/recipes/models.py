@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -46,6 +46,7 @@ class RecipeMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
+    type: Literal["install", "start"] = "install"
     version: str = "1.0.0"
     description: str = ""
     options: dict[str, RecipeOption] = Field(default_factory=dict)
