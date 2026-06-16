@@ -8,7 +8,7 @@
 ## 0. Contrainte d'architecture à connaître AVANT (importante)
 
 `DevPodService._write_devcontainer` n'est appelé **que pour les hosts `docker-tls`**
-(`devpod/service.py::up`, vers la ligne 130). Pour les hosts **SSH**, aucun `devcontainer.json`
+(`devpod/service.py::up`, vers la ligne 130). Pour les hosts **SSH**, aucun `devcopourtantainer.json`
 n'est généré côté portail (l'agent DevPod est distant ; `--devcontainer-path` y est inexploitable).
 
 **Conséquence :** le profil s'applique exactement là où les **recipes** s'appliquent

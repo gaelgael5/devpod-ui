@@ -347,6 +347,7 @@ export default function GitCredentialManager() {
                     id="cred-token"
                     type={showToken ? 'text' : 'password'}
                     value={form.token}
+                    autoComplete="new-password"
                     onChange={e => setForm(f => ({ ...f, token: e.target.value }))}
                     placeholder={t('gitCredentials.tokenPlaceholder')}
                     className="pr-9"
@@ -605,6 +606,7 @@ export default function GitCredentialManager() {
                         id="edit-cred-token"
                         type={showToken ? 'text' : 'password'}
                         value={editForm.tokenValue}
+                        autoComplete="new-password"
                         onFocus={() => {
                           if (!editForm.tokenTouched) {
                             setEditForm(f => f ? { ...f, tokenValue: '' } : f)
@@ -645,6 +647,7 @@ export default function GitCredentialManager() {
                   <Textarea
                     id="edit-cred-key"
                     value={editForm.privateKey}
+                    autoComplete="off"
                     onChange={e =>
                       setEditForm(f =>
                         f

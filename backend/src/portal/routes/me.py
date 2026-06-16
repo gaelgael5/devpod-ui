@@ -325,6 +325,9 @@ async def patch_git_credential(
 
     if key_to_delete and key_to_delete.exists():
         key_to_delete.unlink()
+        pub_to_delete = key_to_delete.parent / "id_ed25519.pub"
+        if pub_to_delete.exists():
+            pub_to_delete.unlink()
 
     _log.info("git_credential_updated", login=user.login, name=name, new_name=effective_name)
     return {"name": effective_name, "host": effective_host, "kind": effective_kind}
@@ -365,6 +368,9 @@ async def delete_git_credential(
         key_file = Path(cred.key_path)
         if key_file.exists():
             key_file.unlink()
+        pub_file = key_file.parent / "id_ed25519.pub"
+        if pub_file.exists():
+            pub_file.unlink()
     _log.info("git_credential_deleted", login=user.login, name=name)
     return {"deleted": name}
 
