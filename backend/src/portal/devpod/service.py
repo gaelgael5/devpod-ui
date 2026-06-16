@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 import structlog
 
 from ..config.models import GlobalConfig, SourceSpec, WorkspaceSpec
-from ..config.store import _data_root, load_global, safe_user_path
+from ..config.store import _data_root, load_global, load_user, safe_user_path
 from ..profiles.models import Profile
 from ..recipes.models import RecipeMeta
 from .env import _find_host, build_env
@@ -152,12 +152,38 @@ class DevPodService:
         # le subprocess env UNIQUEMENT — jamais dans devcontainer.json ni dans les logs.
         subprocess_env = {**base_env, **ws_spec.env}
 
+        # Résolution du credential git pour l'injection dans devpod up
+        git_ssh_key_path = ""
+        effective_source = ws_spec.source
+        if ws_spec.git_credential and ws_spec.source:
+            try:
+                user_cfg = load_user(login)
+                cred = next(
+                    (c for c in user_cfg.git_credentials if c.name == ws_spec.git_credential),
+                    None,
+                )
+                if cred and cred.kind == "ssh" and cred.key_path:
+                    git_ssh_key_path = cred.key_path
+                    # DevPod ne supporte pas --git-token ; pour SSH on convertit l'URL
+                    # en git@host:path afin que le forwarding SSH agent fonctionne.
+                    if effective_source.startswith(("https://", "http://")):
+                        parsed = urlparse(effective_source)
+                        ssh_path = parsed.path.lstrip("/")
+                        effective_source = f"git@{parsed.hostname}:{ssh_path}"
+                        _log.info(
+                            "devpod_source_converted_to_ssh",
+                            login=login,
+                            source=effective_source,
+                        )
+            except Exception:
+                _log.warning("git_credential_lookup_failed", login=login, exc_info=True)
+
         # Combiner source et branche : "github.com/org/repo@feature-branch"
         # Sans source explicite, utiliser l'image de base pour que DevPod puisse
         # initialiser le workspace (sans source DevPod cherche un WS existant → erreur).
-        devpod_source = ws_spec.source or _DEFAULT_IMAGE
-        if ws_spec.branch and ws_spec.source:
-            devpod_source = f"{ws_spec.source}@{ws_spec.branch}"
+        devpod_source = effective_source or _DEFAULT_IMAGE
+        if ws_spec.branch and effective_source:
+            devpod_source = f"{effective_source}@{ws_spec.branch}"
 
         # Pour SSH : devpod ssh -L bind sur 0.0.0.0 dans le container portal ;
         # Caddy atteint portal:{host_port} via le réseau Docker interne.
@@ -189,6 +215,7 @@ class DevPodService:
                 request_host=request_host,
                 workspace_folder=workspace_folder,
                 host_name=host_cfg.name,
+                git_ssh_key_path=git_ssh_key_path,
             )
         )
         self._background_tasks.add(task)
@@ -511,6 +538,7 @@ class DevPodService:
         request_host: str = "",
         workspace_folder: str = "",
         host_name: str = "",
+        git_ssh_key_path: str = "",
     ) -> None:
         """Tâche de fond : exécute devpod up, expose le workspace si running."""
         try:
@@ -527,6 +555,10 @@ class DevPodService:
                 cmd += ["--devcontainer-path", str(dc_path)]
             if provider_name:
                 cmd += ["--provider", provider_name]
+            if git_ssh_key_path:
+                # Forward la clé SSH git via SSH agent au nœud distant,
+                # ce qui permet au git clone SSH d'utiliser la clé deploy GitHub.
+                cmd += ["--git-ssh-signing-key", git_ssh_key_path]
             if source:
                 cmd += [
                     "--",  # fin des flags — défense en profondeur contre l'injection argv
