@@ -556,9 +556,13 @@ ${SUDO} apt-get -o "DPkg::Lock::Timeout=300" install -y --no-install-recommends 
 # Docker CE + compose v2 : script officiel (docker-compose-plugin absent des dépôts Debian)
 curl -fsSL https://get.docker.com | ${SUDO} sh
 ${SUDO} systemctl enable --now docker
+# DevPod SSH provider pilote Docker en tant qu'utilisateur non-root :
+# l'utilisateur doit être dans le groupe docker pour éviter l'erreur "rerun as root".
+${SUDO} usermod -aG docker "${CI_USER}"
 REMOTE
 
 echo "    Paquets installés (git, openssl, docker CE + compose v2)."
+echo "    Utilisateur '${CI_USER}' ajouté au groupe docker."
 
 # ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
 echo ""

@@ -48,7 +48,7 @@ async def _update_provider_ssh_options(
     """Met à jour HOST et EXTRA_FLAGS sur un provider SSH existant."""
     args = [*cmd, "provider", "set-options", provider_name, "--option", f"HOST={host_value}"]
     if ssh_key_path:
-        args += ["--option", f"EXTRA_FLAGS=-i {ssh_key_path}"]
+        args += ["--option", f"EXTRA_FLAGS=-i {ssh_key_path} -A"]
     set_proc = await asyncio.create_subprocess_exec(
         *args,
         env=env,
@@ -144,8 +144,10 @@ async def ensure_provider(
             f"HOST={host_value}",
         ]
         if ssh_key_path:
-            # EXTRA_FLAGS est inséré tel quel dans la commande SSH du provider
-            add_args += ["--option", f"EXTRA_FLAGS=-i {ssh_key_path}"]
+            # EXTRA_FLAGS est inséré tel quel dans la commande SSH du provider.
+            # -A (ForwardAgent) permet de transmettre l'agent SSH du portail à la VM
+            # distante, ce qui rend la clé deploy git disponible pour git clone.
+            add_args += ["--option", f"EXTRA_FLAGS=-i {ssh_key_path} -A"]
 
     add_proc = await asyncio.create_subprocess_exec(
         *add_args,
