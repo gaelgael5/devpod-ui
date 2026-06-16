@@ -71,6 +71,17 @@ def derive_git_credential_public_key(key_path: str) -> str:
     public_bytes = private_key.public_key().public_bytes(Encoding.OpenSSH, PublicFormat.OpenSSH)
     public_str = public_bytes.decode("ascii")
 
+    # Reconstituer le commentaire depuis la structure du chemin
+    # Structure : .../users/{login}/keys/git/{cred_name}/id_ed25519
+    parts = priv_path.parts
+    try:
+        keys_idx = next(i for i, p in enumerate(parts) if p == "keys")
+        cred_name = parts[keys_idx + 2]  # keys/git/{cred_name}
+        login = parts[keys_idx - 1]      # users/{login}/keys
+        public_str = public_str + f" devpod-git:{login}/{cred_name}"
+    except (StopIteration, IndexError):
+        pass  # commentaire non reconstituable, clé toujours valide
+
     _atomic_write(pub_path, public_str.encode("ascii"), mode=0o644)
     return public_str
 

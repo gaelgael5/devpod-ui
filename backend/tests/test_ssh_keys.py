@@ -134,6 +134,7 @@ def test_derive_git_credential_public_key_recreates_missing_pub(
     derived = derive_git_credential_public_key(key_path)
 
     assert derived.startswith("ssh-ed25519 ")
+    assert "devpod-git:alice/my-key" in derived
     assert pub_path.exists()
 
 
