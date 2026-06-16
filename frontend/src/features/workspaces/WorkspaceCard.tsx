@@ -152,10 +152,11 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('workspaces.confirm.deleteTitle')}</DialogTitle>
-            <DialogDescription className="space-y-2">
-              {t('workspaces.confirm.deleteDescription', { name: spec.name })}
-              {' '}
-              {t('workspaces.confirm.deleteShelveHint')}
+            <DialogDescription asChild>
+              <div className="space-y-2">
+                <p>{t('workspaces.confirm.deleteDescription', { name: spec.name })}</p>
+                <p>{t('workspaces.confirm.deleteShelveHint')}</p>
+              </div>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
