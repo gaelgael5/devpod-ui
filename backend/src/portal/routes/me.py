@@ -121,7 +121,7 @@ async def list_git_credentials(
 ) -> list[dict[str, object]]:
     cfg = load_user(user.login)
     return [
-        {"name": c.name, "host": c.host, "kind": c.kind}
+        {"name": c.name, "host": c.host, "kind": c.kind, "username": c.username}
         for c in cfg.git_credentials
     ]
 

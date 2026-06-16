@@ -117,6 +117,21 @@ def test_delete_me_workspace_removes_workspace(tmp_path: Path) -> None:
     assert not any(w["name"] == "todelete" for w in resp2.json())
 
 
+def test_get_git_credentials_includes_username(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        client.post("/me/git-credentials", json={
+            "name": "gh", "host": "github.com", "kind": "token",
+            "username": "oauth2", "token": "ghp_test123",
+        })
+        resp = client.get("/me/git-credentials")
+    assert resp.status_code == 200
+    creds = resp.json()
+    assert len(creds) == 1
+    assert creds[0]["username"] == "oauth2"
+
+
 def test_require_user_blocks_unauthenticated(tmp_path: Path) -> None:
     _provision_alice(tmp_path)
     import portal.settings as mod
