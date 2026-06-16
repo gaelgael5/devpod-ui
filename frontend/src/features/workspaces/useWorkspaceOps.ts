@@ -17,6 +17,8 @@ interface CreateInput {
   recipes: string[]
   generateSshKey?: boolean
   profile?: { scope: 'shared' | 'user'; slug: string }
+  startRecipes?: string[]
+  defaultStart?: string
 }
 
 function toSourceSpec(entry: SourceEntry): SourceSpec {
@@ -28,7 +30,7 @@ export function useWorkspaceOps() {
   const { t } = useTranslation()
 
   const createWorkspace = useMutation({
-    mutationFn: async ({ name, sources, host, recipes, generateSshKey, profile }: CreateInput) => {
+    mutationFn: async ({ name, sources, host, recipes, generateSshKey, profile, startRecipes, defaultStart }: CreateInput) => {
       const primary = sources[0] ?? { url: '', branch: '', credential: '' }
       const extra = sources.slice(1).map(toSourceSpec)
 
@@ -43,6 +45,8 @@ export function useWorkspaceOps() {
         extra_sources: extra,
         ssh_key: generateSshKey ?? false,
         profile: profile ?? null,
+        start_recipes: startRecipes ?? [],
+        default_start: defaultStart ?? '',
       }
       // Add to config (ignore 409 — already exists)
       const addRes = await apiFetch('/me/workspaces', {

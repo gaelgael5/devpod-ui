@@ -15,6 +15,8 @@ export interface WorkspaceSpec {
   extra_sources: SourceSpec[]
   ssh_key?: boolean
   profile?: { scope: 'shared' | 'user'; slug: string } | null
+  start_recipes?: string[]
+  default_start?: string
 }
 
 export type WorkspaceStatusValue =
