@@ -142,12 +142,14 @@ export default function GitCredentialManager() {
     setToEdit(c)
     setEditForm(initEditForm(c))
     setEditError('')
+    setShowToken(false)
   }
 
   function closeEdit() {
     setToEdit(null)
     setEditForm(null)
     setEditError('')
+    setShowToken(false)
   }
 
   function handleEditKindChange(newKind: 'ssh' | 'token') {
@@ -176,10 +178,10 @@ export default function GitCredentialManager() {
     const payload: UpdateCredentialPayload = {
       host: effectiveHost,
       kind: editForm.kind,
-      username: editForm.username,
     }
-    if (editForm.name !== toEdit.name) payload.new_name = editForm.name
+    if (editForm.name.trim() !== toEdit.name) payload.new_name = editForm.name.trim()
     if (editForm.kind === 'token') {
+      payload.username = editForm.username.trim()
       payload.token = editForm.tokenTouched ? editForm.tokenValue : '__UNCHANGED__'
     } else {
       payload.private_key = editForm.keyTouched ? editForm.privateKey : '__UNCHANGED__'
@@ -525,8 +527,8 @@ export default function GitCredentialManager() {
                         }
                         onBlur={() => {
                           setEditForm(f => {
-                            if (!f || f.tokenTouched || f.tokenValue !== '') return f
-                            return { ...f, tokenValue: SENTINEL }
+                            if (!f || f.tokenValue !== '') return f
+                            return { ...f, tokenValue: SENTINEL, tokenTouched: false }
                           })
                         }}
                         className="pr-9"
