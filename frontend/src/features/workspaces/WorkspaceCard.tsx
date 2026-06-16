@@ -29,7 +29,7 @@ interface Props {
   spec: WorkspaceSpec
   status: WorkspaceStatus
   onStop: (name: string) => void
-  onDelete: (name: string) => void
+  onDelete: (name: string, shelve: boolean) => void
   onStart?: (name: string) => void
 }
 
@@ -201,23 +201,33 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
             <DialogDescription asChild>
               <div className="space-y-2">
                 <p>{t('workspaces.confirm.deleteDescription', { name: spec.name })}</p>
-                <p>{t('workspaces.confirm.deleteShelveHint')}</p>
+                <p>{t('workspaces.confirm.deleteShelveChoice')}</p>
               </div>
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
             <Button variant="ghost" size="sm" onClick={() => setConfirmOpen(false)}>
               {t('workspaces.confirm.cancel')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setConfirmOpen(false)
+                onDelete(spec.name, true)
+              }}
+            >
+              {t('workspaces.confirm.confirmShelve')}
             </Button>
             <Button
               variant="destructive"
               size="sm"
               onClick={() => {
                 setConfirmOpen(false)
-                onDelete(spec.name)
+                onDelete(spec.name, false)
               }}
             >
-              {t('workspaces.confirm.confirm')}
+              {t('workspaces.confirm.confirmForce')}
             </Button>
           </DialogFooter>
         </DialogContent>

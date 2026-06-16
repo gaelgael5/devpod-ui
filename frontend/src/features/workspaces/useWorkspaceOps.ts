@@ -94,13 +94,14 @@ export function useWorkspaceOps() {
   const deleteWorkspace = useMutation<
     { deleted: boolean; recovery_branch: string | null },
     Error,
-    string
+    { name: string; shelve?: boolean }
   >({
-    mutationFn: async (name: string) => {
+    mutationFn: async ({ name, shelve = true }) => {
+      const url = `/me/workspaces/${name}/delete?shelve=${shelve}`
       const result = await apiFetchJson<{
         deleted: boolean
         recovery_branch: string | null
-      }>(`/me/workspaces/${name}/delete`, { method: 'POST' })
+      }>(url, { method: 'POST' })
       await apiFetch(`/me/workspaces/${name}`, { method: 'DELETE' })
       return result
     },

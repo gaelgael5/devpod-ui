@@ -289,11 +289,12 @@ async def workspace_stop(
 async def workspace_delete(
     name: str,
     user: UserInfo = Depends(require_user),
+    shelve: bool = True,
 ) -> dict[str, Any]:
     _validate_name(name)
     ws_id = f"{user.login}-{name}"
     svc = _get_service()
-    result = await svc.delete(login=user.login, ws_id=ws_id)
+    result = await svc.delete(login=user.login, ws_id=ws_id, shelve=shelve)
     return {"ws_id": ws_id, **result}
 
 

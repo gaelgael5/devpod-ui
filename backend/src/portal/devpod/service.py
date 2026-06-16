@@ -260,11 +260,13 @@ class DevPodService:
         self._write_status(ws_id, "stopped", login=login)
         _log.info("workspace_stopped", ws_id=ws_id, login=login)
 
-    async def delete(self, login: str, ws_id: str) -> dict[str, Any]:
-        """Supprime un workspace (force). Shelve le travail en attente avant."""
-        # shelve_if_pending lance devpod ssh (git dans le conteneur), pas une opération
-        # lifecycle DevPod — intentionnellement en dehors du verrou workspace de run_subprocess.
-        branch = await shelve_if_pending(self._devpod_bin, ws_id, self._minimal_env(login))
+    async def delete(self, login: str, ws_id: str, *, shelve: bool = True) -> dict[str, Any]:
+        """Supprime un workspace (force). Shelve le travail en attente si shelve=True."""
+        branch: str | None = None
+        if shelve:
+            # shelve_if_pending lance devpod ssh (git dans le conteneur), pas une opération
+            # lifecycle DevPod — intentionnellement en dehors du verrou workspace de run_subprocess.
+            branch = await shelve_if_pending(self._devpod_bin, ws_id, self._minimal_env(login))
         await self._stop_port_forward(ws_id)
         if self._exposure is not None:
             try:

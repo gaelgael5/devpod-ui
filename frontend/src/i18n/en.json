@@ -63,6 +63,9 @@
       "confirm": "Delete",
       "cancel": "Cancel",
       "deleteShelveHint": "Any uncommitted work will be pushed to a recovery branch before deletion.",
+      "deleteShelveChoice": "Do you want to save uncommitted work to a recovery branch before deleting?",
+      "confirmShelve": "Shelve & Delete",
+      "confirmForce": "Delete without shelving",
       "recoverySaved": "Work saved to branch {{branch}}."
     },
     "sshKey": {

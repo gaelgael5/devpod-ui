@@ -18,7 +18,7 @@ function WorkspaceRow(spec: WorkspaceSpec) {
       spec={spec}
       status={liveStatus}
       onStop={(n) => stopWorkspace.mutate(n)}
-      onDelete={(n) => deleteWorkspace.mutate(n)}
+      onDelete={(n, shelve) => deleteWorkspace.mutate({ name: n, shelve })}
       onStart={(n) =>
         createWorkspace.mutate({
           name: n,

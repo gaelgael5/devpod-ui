@@ -63,6 +63,9 @@
       "confirm": "Supprimer",
       "cancel": "Annuler",
       "deleteShelveHint": "Tout travail non committé sera poussé sur une branche recovery avant la suppression.",
+      "deleteShelveChoice": "Voulez-vous sauvegarder le travail non committé sur une branche recovery avant la suppression ?",
+      "confirmShelve": "Shelver et supprimer",
+      "confirmForce": "Supprimer sans shelver",
       "recoverySaved": "Travail sauvegardé sur la branche {{branch}}."
     },
     "sshKey": {
