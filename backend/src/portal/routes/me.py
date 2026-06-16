@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import re
 import shutil
 from pathlib import Path
@@ -161,8 +160,15 @@ async def add_git_credential(
             key_file.write_text(body.private_key.strip() + "\n", encoding="utf-8")
             key_file.chmod(0o600)
             key_path = str(key_file)
-            with contextlib.suppress(Exception):
+            try:
                 derive_git_credential_public_key(key_path)
+            except Exception:
+                _log.warning(
+                    "pub_key_derivation_failed",
+                    login=user.login,
+                    name=body.name,
+                    exc_info=True,
+                )
     elif body.kind == "token":
         if body.generate_key:
             raise HTTPException(
@@ -262,8 +268,15 @@ async def patch_git_credential(
             key_file.write_text(body.private_key.strip() + "\n", encoding="utf-8")
             key_file.chmod(0o600)
             new_key_path = str(key_file)
-            with contextlib.suppress(Exception):
+            try:
                 derive_git_credential_public_key(new_key_path)
+            except Exception:
+                _log.warning(
+                    "pub_key_derivation_failed",
+                    login=user.login,
+                    name=effective_name,
+                    exc_info=True,
+                )
             if old_key_path and old_key_path != new_key_path:
                 key_to_delete = Path(old_key_path)
     else:
