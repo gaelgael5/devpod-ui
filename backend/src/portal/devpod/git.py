@@ -97,6 +97,18 @@ async def run_git_ls_remote(
         cred = next((c for c in cfg.git_credentials if c.name == credential_name), None)
         if cred:
             if cred.kind == "ssh" and cred.key_path:
+                # Une URL https:// ne peut pas s'authentifier via SSH.
+                # On la convertit en git@host:path pour que GIT_SSH_COMMAND soit effectif.
+                if git_url.startswith(("https://", "http://")):
+                    parsed = urlparse(git_url)
+                    ssh_path = parsed.path.lstrip("/")
+                    git_url = f"git@{parsed.hostname}:{ssh_path}"
+                    _log.info(
+                        "git_url_converted_to_ssh",
+                        login=login,
+                        credential=credential_name,
+                        git_url=git_url,
+                    )
                 env["GIT_SSH_COMMAND"] = (
                     f"ssh -i {cred.key_path} -o StrictHostKeyChecking=no -o BatchMode=yes"
                 )
