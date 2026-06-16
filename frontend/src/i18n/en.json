@@ -47,7 +47,9 @@
       "deleteTitle": "Delete workspace?",
       "deleteDescription": "This will permanently delete {{name}} and its container.",
       "confirm": "Delete",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "deleteShelveHint": "Any uncommitted work will be pushed to a recovery branch before deletion.",
+      "recoverySaved": "Work saved to branch {{branch}}."
     },
     "sshKey": {
       "button": "SSH Key",

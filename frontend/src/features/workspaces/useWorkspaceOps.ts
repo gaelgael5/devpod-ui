@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { apiFetch, apiFetchJson } from '@/shared/api/client'
 import type { SourceSpec, WorkspaceSpec, WorkspaceStatus } from './types'
 
@@ -24,6 +25,7 @@ function toSourceSpec(entry: SourceEntry): SourceSpec {
 
 export function useWorkspaceOps() {
   const qc = useQueryClient()
+  const { t } = useTranslation()
 
   const createWorkspace = useMutation({
     mutationFn: async ({ name, sources, host, recipes, generateSshKey, profile }: CreateInput) => {
@@ -85,15 +87,37 @@ export function useWorkspaceOps() {
     onError: (err: Error) => toast.error(err.message),
   })
 
-  const deleteWorkspace = useMutation({
+  const deleteWorkspace = useMutation<
+    { deleted: boolean; recovery_branch: string | null },
+    Error,
+    string
+  >({
     mutationFn: async (name: string) => {
-      await apiFetchJson(`/me/workspaces/${name}/delete`, { method: 'POST' })
+      const result = await apiFetchJson<{
+        deleted: boolean
+        recovery_branch: string | null
+      }>(`/me/workspaces/${name}/delete`, { method: 'POST' })
       await apiFetch(`/me/workspaces/${name}`, { method: 'DELETE' })
+      return result
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['workspaces'] })
+      if (data.recovery_branch) {
+        toast.success(t('workspaces.confirm.recoverySaved', { branch: data.recovery_branch }))
+      }
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => {
+      let msg = err.message
+      try {
+        const parsed: unknown = JSON.parse(err.message)
+        if (parsed && typeof parsed === 'object' && 'detail' in parsed) {
+          msg = String((parsed as { detail: unknown }).detail)
+        }
+      } catch {
+        // message n'est pas du JSON, on l'utilise tel quel
+      }
+      toast.error(msg)
+    },
   })
 
   return { createWorkspace, stopWorkspace, deleteWorkspace }

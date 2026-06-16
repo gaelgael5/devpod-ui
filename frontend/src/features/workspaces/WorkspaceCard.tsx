@@ -3,6 +3,14 @@ import { useTranslation } from 'react-i18next'
 import { FileText, Key } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import type { WorkspaceSpec, WorkspaceStatus, WorkspaceStatusValue } from './types'
 import SshKeyDialog from './SshKeyDialog'
@@ -28,6 +36,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
   const { t } = useTranslation()
   const [sshKeyOpen, setSshKeyOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const s = status.status
 
   return (
@@ -92,7 +101,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
             size="sm"
             variant="ghost"
             className="text-destructive hover:text-destructive"
-            onClick={() => onDelete(spec.name)}
+            onClick={() => setConfirmOpen(true)}
           >
             {t('workspaces.actions.delete')}
           </Button>
@@ -139,6 +148,33 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
         open={logsOpen}
         onOpenChange={setLogsOpen}
       />
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('workspaces.confirm.deleteTitle')}</DialogTitle>
+            <DialogDescription className="space-y-2">
+              {t('workspaces.confirm.deleteDescription', { name: spec.name })}
+              {' '}
+              {t('workspaces.confirm.deleteShelveHint')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmOpen(false)}>
+              {t('workspaces.confirm.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setConfirmOpen(false)
+                onDelete(spec.name)
+              }}
+            >
+              {t('workspaces.confirm.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

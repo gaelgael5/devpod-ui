@@ -47,7 +47,9 @@
       "deleteTitle": "Supprimer le workspace ?",
       "deleteDescription": "Cette action supprime définitivement {{name}} et son conteneur.",
       "confirm": "Supprimer",
-      "cancel": "Annuler"
+      "cancel": "Annuler",
+      "deleteShelveHint": "Tout travail non committé sera poussé sur une branche recovery avant la suppression.",
+      "recoverySaved": "Travail sauvegardé sur la branche {{branch}}."
     },
     "sshKey": {
       "button": "Clé SSH",
