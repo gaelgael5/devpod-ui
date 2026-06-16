@@ -5,6 +5,7 @@ export interface GitCredentialSummary {
   name: string
   host: string
   kind: 'ssh' | 'token'
+  username: string
 }
 
 interface AddCredentialPayload {
@@ -14,6 +15,15 @@ interface AddCredentialPayload {
   username?: string
   token?: string
   private_key?: string
+}
+
+export interface UpdateCredentialPayload {
+  new_name?: string
+  host?: string
+  kind?: 'ssh' | 'token'
+  username?: string
+  token?: string         // "__UNCHANGED__" pour conserver l'existant
+  private_key?: string   // "__UNCHANGED__" pour conserver l'existant
 }
 
 const QK = ['git-credentials'] as const
@@ -34,6 +44,22 @@ export function useAddGitCredential() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK }),
+  })
+}
+
+export function useUpdateGitCredential() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, payload }: { name: string; payload: UpdateCredentialPayload }) =>
+      apiFetchJson<GitCredentialSummary>(
+        `/me/git-credentials/${encodeURIComponent(name)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK }),
   })
 }
