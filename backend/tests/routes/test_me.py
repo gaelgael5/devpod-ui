@@ -387,8 +387,9 @@ def test_post_git_credential_ssh_upload_derives_pub_for_valid_key(tmp_path: Path
             json={"name": "gl-ssh", "host": "gitlab.com", "kind": "ssh", "private_key": pem},
         )
     assert resp.status_code == 201
-    from portal.config.store import load_user
     from pathlib import Path as P
+
+    from portal.config.store import load_user
     cfg = load_user("alice")
     cred = next(c for c in cfg.git_credentials if c.name == "gl-ssh")
     assert (P(cred.key_path).parent / "id_ed25519.pub").exists()
@@ -416,8 +417,9 @@ def test_get_git_credential_public_key_derives_on_the_fly(tmp_path: Path) -> Non
             "/me/git-credentials",
             json={"name": "my-key", "host": "github.com", "kind": "ssh", "private_key": pem},
         )
-        from portal.config.store import load_user as _lu
         from pathlib import Path as P
+
+        from portal.config.store import load_user as _lu
         cfg = _lu("alice")
         cred = next(c for c in cfg.git_credentials if c.name == "my-key")
         pub = P(cred.key_path).parent / "id_ed25519.pub"
@@ -456,8 +458,9 @@ def test_patch_git_credential_updates_pub_on_new_key(tmp_path: Path) -> None:
         )
         resp = client.patch("/me/git-credentials/my-key", json={"private_key": pem})
     assert resp.status_code == 200
-    from portal.config.store import load_user
     from pathlib import Path as P
+
+    from portal.config.store import load_user
     cfg = load_user("alice")
     cred = next(c for c in cfg.git_credentials if c.name == "my-key")
     assert (P(cred.key_path).parent / "id_ed25519.pub").exists()
