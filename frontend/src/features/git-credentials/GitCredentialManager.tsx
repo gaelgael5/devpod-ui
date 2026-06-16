@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, KeyRound, Eye, EyeOff, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -26,9 +26,11 @@ import {
   useAddGitCredential,
   useDeleteGitCredential,
   useUpdateGitCredential,
+  useGitCredentialPublicKey,
   type GitCredentialSummary,
   type UpdateCredentialPayload,
 } from './useGitCredentials'
+import GitCredentialPublicKeyDialog from './GitCredentialPublicKeyDialog'
 
 const KNOWN_HOSTS = [
   { value: 'github.com', labelKey: 'gitCredentials.hosts.github' },
@@ -99,6 +101,23 @@ export default function GitCredentialManager() {
   const [toEdit, setToEdit] = useState<GitCredentialSummary | null>(null)
   const [editForm, setEditForm] = useState<EditFormState | null>(null)
   const [editError, setEditError] = useState('')
+  const [publicKeyDialog, setPublicKeyDialog] = useState<{ name: string; key: string } | null>(null)
+  const [publicKeyFetchName, setPublicKeyFetchName] = useState<string | null>(null)
+
+  const publicKeyQuery = useGitCredentialPublicKey(publicKeyFetchName ?? '', !!publicKeyFetchName)
+
+  useEffect(() => {
+    if (publicKeyQuery.isSuccess && publicKeyFetchName && publicKeyQuery.data) {
+      setPublicKeyDialog({ name: publicKeyFetchName, key: publicKeyQuery.data.public_key })
+      setPublicKeyFetchName(null)
+    }
+  }, [publicKeyQuery.isSuccess, publicKeyQuery.data, publicKeyFetchName])
+
+  useEffect(() => {
+    if (publicKeyQuery.isError && publicKeyFetchName) {
+      setPublicKeyFetchName(null)
+    }
+  }, [publicKeyQuery.isError, publicKeyFetchName])
 
   const credentialList: GitCredentialSummary[] = credentials ?? []
   const effectiveHost =
@@ -136,6 +155,23 @@ export default function GitCredentialManager() {
     deleteMutation.mutate(toDelete.name, {
       onSuccess: () => setToDelete(null),
     })
+  }
+
+  function handleGenerate() {
+    setFormError('')
+    addMutation.mutate(
+      { name: form.name.trim(), host: effectiveHost, kind: 'ssh', generate_key: true, private_key: '' },
+      {
+        onSuccess: data => {
+          if (data.public_key) {
+            setPublicKeyDialog({ name: data.name, key: data.public_key })
+          }
+          resetForm()
+        },
+        onError: (err: unknown) =>
+          setFormError(err instanceof Error ? err.message : t('gitCredentials.errors.add')),
+      },
+    )
   }
 
   function openEdit(c: GitCredentialSummary) {
@@ -335,8 +371,29 @@ export default function GitCredentialManager() {
                 placeholder={t('gitCredentials.privateKeyPlaceholder')}
                 className="mt-1 font-mono text-xs"
                 rows={6}
-                required
               />
+              <div className="mt-1.5">
+                <input
+                  type="file"
+                  accept=".pem,.key"
+                  id="cred-key-file"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    const reader = new FileReader()
+                    reader.onload = ev =>
+                      setForm(f => ({ ...f, privateKey: (ev.target?.result as string) ?? '' }))
+                    reader.readAsText(file)
+                    e.target.value = ''
+                  }}
+                />
+                <Button type="button" variant="outline" size="sm" asChild>
+                  <label htmlFor="cred-key-file" className="cursor-pointer">
+                    {t('gitCredentials.loadKeyFile')}
+                  </label>
+                </Button>
+              </div>
             </div>
           )}
 
@@ -348,6 +405,17 @@ export default function GitCredentialManager() {
             <Button type="button" variant="ghost" size="sm" onClick={resetForm}>
               {t('gitCredentials.cancel')}
             </Button>
+            {form.kind === 'ssh' && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={!form.name.trim() || !effectiveHost || addMutation.isPending}
+                onClick={handleGenerate}
+              >
+                {addMutation.isPending ? '…' : t('gitCredentials.generateKey')}
+              </Button>
+            )}
             <Button type="submit" size="sm" disabled={addMutation.isPending}>
               {addMutation.isPending ? '…' : t('gitCredentials.save')}
             </Button>
@@ -377,6 +445,18 @@ export default function GitCredentialManager() {
               </Badge>
             </div>
             <div className="flex items-center gap-1">
+              {c.kind === 'ssh' && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8"
+                  onClick={() => setPublicKeyFetchName(c.name)}
+                  aria-label={t('gitCredentials.viewPublicKey')}
+                  disabled={publicKeyFetchName === c.name}
+                >
+                  <KeyRound className="h-4 w-4" />
+                </Button>
+              )}
               <Button
                 size="icon"
                 variant="ghost"
@@ -566,6 +646,36 @@ export default function GitCredentialManager() {
                     className="mt-1 font-mono text-xs"
                     rows={6}
                   />
+                  <div className="mt-1.5">
+                    <input
+                      type="file"
+                      accept=".pem,.key"
+                      id="edit-cred-key-file"
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        const reader = new FileReader()
+                        reader.onload = ev =>
+                          setEditForm(f =>
+                            f
+                              ? {
+                                  ...f,
+                                  privateKey: (ev.target?.result as string) ?? '',
+                                  keyTouched: true,
+                                }
+                              : f,
+                          )
+                        reader.readAsText(file)
+                        e.target.value = ''
+                      }}
+                    />
+                    <Button type="button" variant="outline" size="sm" asChild>
+                      <label htmlFor="edit-cred-key-file" className="cursor-pointer">
+                        {t('gitCredentials.loadKeyFile')}
+                      </label>
+                    </Button>
+                  </div>
                   {!editForm.keyTouched && (
                     <p className="mt-1 text-xs text-muted-foreground">
                       {t('gitCredentials.sshKeyUnchangedHint')}
@@ -590,6 +700,13 @@ export default function GitCredentialManager() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ── Dialog clé publique ──────────────────────────────────────── */}
+      <GitCredentialPublicKeyDialog
+        open={!!publicKeyDialog}
+        publicKey={publicKeyDialog?.key ?? ''}
+        onClose={() => setPublicKeyDialog(null)}
+      />
     </div>
   )
 }
