@@ -543,3 +543,79 @@ def test_delete_push_failure_returns_409(tmp_path: Path) -> None:
     finally:
         ws_ops_mod._get_service = original_get_service
         ws_ops_mod._reset_service()
+
+
+# ---------------------------------------------------------------------------
+# GET /workspaces/{name}/start-recipes
+# ---------------------------------------------------------------------------
+
+
+def test_get_workspace_start_recipes_returns_list(tmp_path: Path) -> None:
+    """GET /workspaces/{name}/start-recipes retourne les start recipes attachées."""
+    import yaml
+
+    # Créer une recette start partagée
+    recipe_dir = tmp_path / "recipes" / "claude-rc"
+    recipe_dir.mkdir(parents=True, exist_ok=True)
+    (recipe_dir / "recipe.meta.yaml").write_text(
+        yaml.dump({"id": "claude-rc", "type": "start", "description": "Claude RC"}),
+        encoding="utf-8",
+    )
+    (recipe_dir / "start.sh").write_text("#!/bin/bash\nexec claude --rc\n", encoding="utf-8")
+
+    app = _make_app(tmp_path)
+
+    # Mettre à jour le config utilisateur alice pour référencer la recette start
+    login = "alice"
+    ws_name = "my-ws"
+    user_dir = tmp_path / "users" / login
+    user_config_path = user_dir / "config.yaml"
+    user_cfg = yaml.safe_load(user_config_path.read_text(encoding="utf-8"))
+    user_cfg["workspaces"] = [
+        {
+            "name": ws_name,
+            "source": "https://github.com/x/y",
+            "start_recipes": ["claude-rc"],
+        }
+    ]
+    user_config_path.write_text(yaml.dump(user_cfg), encoding="utf-8")
+
+    with TestClient(app) as client:
+        resp = client.get(f"/me/workspaces/{ws_name}/start-recipes")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+    assert any(r["id"] == "claude-rc" for r in data)
+
+
+def test_get_workspace_start_recipes_returns_empty_list(tmp_path: Path) -> None:
+    """GET /workspaces/{name}/start-recipes retourne [] si start_recipes est vide."""
+    import yaml
+
+    app = _make_app(tmp_path)
+
+    login = "alice"
+    ws_name = "empty-ws"
+    user_dir = tmp_path / "users" / login
+    user_config_path = user_dir / "config.yaml"
+    user_cfg = yaml.safe_load(user_config_path.read_text(encoding="utf-8"))
+    user_cfg["workspaces"] = [
+        {
+            "name": ws_name,
+            "source": "https://github.com/x/y",
+        }
+    ]
+    user_config_path.write_text(yaml.dump(user_cfg), encoding="utf-8")
+
+    with TestClient(app) as client:
+        resp = client.get(f"/me/workspaces/{ws_name}/start-recipes")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_get_workspace_start_recipes_404_if_not_found(tmp_path: Path) -> None:
+    """GET /workspaces/{name}/start-recipes retourne 404 si le workspace n'existe pas."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.get("/me/workspaces/nonexistent/start-recipes")
+    assert resp.status_code == 404

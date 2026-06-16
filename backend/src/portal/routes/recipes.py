@@ -12,7 +12,7 @@ from typing import Any
 
 import structlog
 import yaml
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..auth.rbac import UserInfo, require_admin, require_user
@@ -62,16 +62,74 @@ def _validate_recipe_id(recipe_id: str) -> None:
 
 
 @router_public.get("/recipes")
-async def list_recipes(user: UserInfo = Depends(require_user)) -> list[dict[str, Any]]:
-    """Liste les recettes partagées + personnelles visibles par l'utilisateur."""
+async def list_recipes(
+    user: UserInfo = Depends(require_user),
+    recipe_type: str | None = Query(default=None, alias="type"),
+) -> list[dict[str, Any]]:
+    """Liste les recettes partagées + personnelles visibles par l'utilisateur.
+
+    Paramètre optionnel `?type=install|start` pour filtrer par type.
+    """
     data_root = _data_root()
     shared_dir = data_root / "recipes"
     personal_dir = safe_user_path(user.login, "recipes")
     registry = RecipeRegistry(builtin_dir=None, shared_dir=shared_dir)
-    shared = registry.load_shared()
-    personal = registry.load_dir(personal_dir)
+    shared = await asyncio.to_thread(registry.load_shared)
+    personal = await asyncio.to_thread(registry.load_dir, personal_dir)
     available = {**shared, **personal}
+    if recipe_type in ("install", "start"):
+        available = RecipeRegistry.filter_by_type(available, recipe_type)
     return [m.model_dump() for m in available.values()]
+
+
+class StartRecipeCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    version: str = "1.0.0"
+    description: str = ""
+    script: str = "#!/usr/bin/env bash\nset -euo pipefail\n"
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, v: str) -> str:
+        if not _RECIPE_ID_RE.fullmatch(v):
+            raise ValueError(f"id {v!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$")
+        return v
+
+
+@router_me.post("/start-recipes", status_code=201)
+async def create_personal_start_recipe(
+    body: StartRecipeCreateRequest,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, Any]:
+    """Crée une recette start personnelle avec son start.sh."""
+    personal_dir = safe_user_path(user.login, "recipes")
+    recipe_path = personal_dir / body.id
+
+    if recipe_path.exists():
+        raise HTTPException(status_code=409, detail=f"Recipe {body.id!r} already exists")
+
+    meta = RecipeMeta(id=body.id, version=body.version, description=body.description, type="start")
+
+    def _write() -> None:
+        tmp = personal_dir / f".tmp-{body.id}"
+        try:
+            tmp.mkdir(parents=True, exist_ok=False)
+            (tmp / "recipe.meta.yaml").write_text(
+                yaml.dump(meta.model_dump(), default_flow_style=False), encoding="utf-8"
+            )
+            start_sh = tmp / "start.sh"
+            start_sh.write_text(body.script, encoding="utf-8")
+            start_sh.chmod(0o755)
+            tmp.rename(recipe_path)
+        except Exception:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+
+    await asyncio.to_thread(_write)
+    _log.info("personal_start_recipe_created", recipe_id=body.id, login=user.login)
+    return meta.model_dump()
 
 
 @router_me.delete("/recipes/{recipe_id}")

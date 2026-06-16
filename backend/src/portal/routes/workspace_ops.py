@@ -323,6 +323,32 @@ async def get_workspace_ssh_key(
     return {"public_key": pub_path.read_text(encoding="utf-8").strip()}
 
 
+@router.get("/workspaces/{name}/start-recipes")
+async def get_workspace_start_recipes(
+    name: str,
+    user: UserInfo = Depends(require_user),
+) -> list[dict[str, Any]]:
+    """Liste les recettes start attachées à un workspace."""
+    _validate_name(name)
+
+    from ..config.store import load_user
+
+    user_cfg = await asyncio.to_thread(load_user, user.login)
+    ws_spec = next((ws for ws in user_cfg.workspaces if ws.name == name), None)
+    if ws_spec is None:
+        raise HTTPException(status_code=404, detail=f"Workspace {name!r} not found")
+    if not ws_spec.start_recipes:
+        return []
+
+    reg = _get_recipe_registry()
+    shared = await asyncio.to_thread(reg.load_shared)
+    personal_dir = safe_user_path(user.login, "recipes")
+    personal = await asyncio.to_thread(reg.load_dir, personal_dir)
+    available = {**shared, **personal}
+
+    return [available[rid].model_dump() for rid in ws_spec.start_recipes if rid in available]
+
+
 @router.get("/workspaces/{name}/logs", response_class=PlainTextResponse)
 async def get_workspace_logs(
     name: str,
