@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 from typing import Literal
 
@@ -213,11 +214,12 @@ async def patch_git_credential(
     )
     effective_username = body.username.strip() if body.username is not None else cred.username
 
-    new_key_path = cred.key_path
-    new_token = cred.token
-
     if body.host is not None and not effective_host:
         raise HTTPException(status_code=422, detail="host is required")
+
+    new_key_path = cred.key_path
+    new_token = cred.token
+    key_to_delete: Path | None = None
 
     if effective_kind == "ssh":
         new_token = ""
@@ -232,8 +234,9 @@ async def patch_git_credential(
                 new_key_dir.mkdir(parents=True, exist_ok=True)
                 new_key_file = new_key_dir / "id_ed25519"
                 if old_file.exists():
-                    old_file.rename(new_key_file)
+                    shutil.copy2(str(old_file), str(new_key_file))
                     new_key_file.chmod(0o600)
+                    key_to_delete = old_file
                 new_key_path = str(new_key_file)
         else:
             old_key_path = cred.key_path
@@ -244,9 +247,7 @@ async def patch_git_credential(
             key_file.chmod(0o600)
             new_key_path = str(key_file)
             if old_key_path and old_key_path != new_key_path:
-                old = Path(old_key_path)
-                if old.exists():
-                    old.unlink()
+                key_to_delete = Path(old_key_path)
     else:
         new_key_path = ""
         if body.token is None or body.token == "__UNCHANGED__":
@@ -260,9 +261,7 @@ async def patch_git_credential(
                 raise HTTPException(status_code=422, detail="token cannot be empty")
             new_token = body.token.strip()
         if cred.kind == "ssh" and cred.key_path:
-            old = Path(cred.key_path)
-            if old.exists():
-                old.unlink()
+            key_to_delete = Path(cred.key_path)
 
     updated = GitCredential(
         name=effective_name,
@@ -283,6 +282,10 @@ async def patch_git_credential(
                     src.git_credential = effective_name
 
     save_user(user.login, cfg)
+
+    if key_to_delete and key_to_delete.exists():
+        key_to_delete.unlink()
+
     _log.info("git_credential_updated", login=user.login, name=name, new_name=effective_name)
     return {"name": effective_name, "host": effective_host, "kind": effective_kind}
 
