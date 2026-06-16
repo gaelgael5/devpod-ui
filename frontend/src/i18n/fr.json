@@ -291,6 +291,9 @@
     "title": "Credentials Git",
     "empty": "Aucun credential configuré.",
     "add": "Ajouter un credential",
+    "edit": "Modifier",
+    "editDialogTitle": "Modifier le credential",
+    "sshKeyUnchangedHint": "Laisser vide pour conserver la clé existante",
     "name": "Nom",
     "namePlaceholder": "mon-token-github",
     "nameHint": "Minuscules, chiffres, tirets/underscores — 2 à 32 caractères",
@@ -315,7 +318,8 @@
     "errors": {
       "load": "Impossible de charger les credentials.",
       "add": "Impossible d'ajouter le credential.",
-      "delete": "Impossible de supprimer le credential."
+      "delete": "Impossible de supprimer le credential.",
+      "update": "Impossible de mettre à jour le credential."
     },
     "hosts": {
       "github": "GitHub (github.com)",

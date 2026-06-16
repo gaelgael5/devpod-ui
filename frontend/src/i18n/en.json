@@ -291,6 +291,9 @@
     "title": "Git Credentials",
     "empty": "No credentials configured.",
     "add": "Add credential",
+    "edit": "Edit",
+    "editDialogTitle": "Edit credential",
+    "sshKeyUnchangedHint": "Leave empty to keep the existing key",
     "name": "Name",
     "namePlaceholder": "my-github-token",
     "nameHint": "Lowercase, numbers, hyphens/underscores — 2 to 32 chars",
@@ -315,7 +318,8 @@
     "errors": {
       "load": "Could not load credentials.",
       "add": "Could not add credential.",
-      "delete": "Could not delete credential."
+      "delete": "Could not delete credential.",
+      "update": "Failed to update credential."
     },
     "hosts": {
       "github": "GitHub (github.com)",
