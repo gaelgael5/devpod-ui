@@ -297,6 +297,33 @@ def test_patch_git_credential_not_found_returns_404(tmp_path: Path) -> None:
     assert resp.status_code == 404
 
 
+def test_patch_git_credential_ssh_rename_moves_key_file(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        _add_ssh_cred(client, name="gl-ssh")
+        resp = client.patch("/me/git-credentials/gl-ssh", json={"new_name": "gitlab-ssh"})
+    assert resp.status_code == 200
+    from portal.config.store import load_user
+
+    cfg = load_user("alice")
+    cred = cfg.git_credentials[0]
+    assert cred.name == "gitlab-ssh"
+    assert "gitlab-ssh" in cred.key_path
+    from pathlib import Path as P
+
+    assert P(cred.key_path).exists()
+
+
+def test_patch_git_credential_invalid_new_name_returns_422(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        _add_token_cred(client)
+        resp = client.patch("/me/git-credentials/gh", json={"new_name": "a"})
+    assert resp.status_code == 422
+
+
 def test_require_user_blocks_unauthenticated(tmp_path: Path) -> None:
     _provision_alice(tmp_path)
     import portal.settings as mod

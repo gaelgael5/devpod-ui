@@ -216,6 +216,9 @@ async def patch_git_credential(
     new_key_path = cred.key_path
     new_token = cred.token
 
+    if body.host is not None and not effective_host:
+        raise HTTPException(status_code=422, detail="host is required")
+
     if effective_kind == "ssh":
         new_token = ""
         if body.private_key is None or body.private_key == "__UNCHANGED__":
@@ -223,6 +226,15 @@ async def patch_git_credential(
                 raise HTTPException(
                     status_code=422, detail="private_key is required when changing kind to ssh"
                 )
+            if effective_name != name and cred.key_path:
+                old_file = Path(cred.key_path)
+                new_key_dir = safe_user_path(user.login, "keys", "git", effective_name)
+                new_key_dir.mkdir(parents=True, exist_ok=True)
+                new_key_file = new_key_dir / "id_ed25519"
+                if old_file.exists():
+                    old_file.rename(new_key_file)
+                    new_key_file.chmod(0o600)
+                new_key_path = str(new_key_file)
         else:
             old_key_path = cred.key_path
             key_dir = safe_user_path(user.login, "keys", "git", effective_name)
