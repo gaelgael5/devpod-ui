@@ -241,6 +241,9 @@ def test_patch_git_credential_ssh_to_token(tmp_path: Path) -> None:
     app = _make_app(tmp_path)
     with TestClient(app) as client:
         _add_ssh_cred(client)
+        from portal.config.store import load_user as _lu
+
+        key_path_before = _lu("alice").git_credentials[0].key_path
         resp = client.patch(
             "/me/git-credentials/gl-ssh",
             json={
@@ -256,6 +259,7 @@ def test_patch_git_credential_ssh_to_token(tmp_path: Path) -> None:
     assert cred.kind == "token"
     assert cred.token == "glpat-new"
     assert cred.key_path == ""
+    assert not Path(key_path_before).exists()
 
 
 def test_patch_git_credential_rename_cascades_workspaces(tmp_path: Path) -> None:
@@ -269,14 +273,18 @@ def test_patch_git_credential_rename_cascades_workspaces(tmp_path: Path) -> None
                 "name": "myapp",
                 "source": "github.com/org/repo",
                 "git_credential": "gh",
+                "extra_sources": [{"url": "github.com/org/lib", "git_credential": "gh"}],
             },
         )
         resp = client.patch("/me/git-credentials/gh", json={"new_name": "github"})
     assert resp.status_code == 200
     assert resp.json()["name"] == "github"
-    with TestClient(app) as client:
-        ws_list = client.get("/me/workspaces").json()
-    assert ws_list[0]["git_credential"] == "github"
+    from portal.config.store import load_user
+
+    cfg = load_user("alice")
+    ws = cfg.workspaces[0]
+    assert ws.git_credential == "github"
+    assert ws.extra_sources[0].git_credential == "github"
 
 
 def test_patch_git_credential_duplicate_name_returns_409(tmp_path: Path) -> None:
@@ -302,6 +310,9 @@ def test_patch_git_credential_ssh_rename_moves_key_file(tmp_path: Path) -> None:
     app = _make_app(tmp_path)
     with TestClient(app) as client:
         _add_ssh_cred(client, name="gl-ssh")
+        from portal.config.store import load_user as _lu
+
+        old_key_path = Path(_lu("alice").git_credentials[0].key_path)
         resp = client.patch("/me/git-credentials/gl-ssh", json={"new_name": "gitlab-ssh"})
     assert resp.status_code == 200
     from portal.config.store import load_user
@@ -310,9 +321,8 @@ def test_patch_git_credential_ssh_rename_moves_key_file(tmp_path: Path) -> None:
     cred = cfg.git_credentials[0]
     assert cred.name == "gitlab-ssh"
     assert "gitlab-ssh" in cred.key_path
-    from pathlib import Path as P
-
-    assert P(cred.key_path).exists()
+    assert Path(cred.key_path).exists()
+    assert not old_key_path.exists()
 
 
 def test_patch_git_credential_invalid_new_name_returns_422(tmp_path: Path) -> None:
