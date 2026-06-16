@@ -5,7 +5,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -485,3 +485,61 @@ def test_up_rejects_inaccessible_git_repo(tmp_path: Path, monkeypatch: pytest.Mo
         )
     assert resp.status_code == 422
     assert "inaccessible" in resp.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Delete avec shelve — tests d'intégration
+# ---------------------------------------------------------------------------
+
+
+def test_delete_nothing_to_shelve_returns_no_branch(tmp_path: Path) -> None:
+    """Suppression normale — recovery_branch None dans la réponse."""
+    app, exposure_mock, ws_ops_mod, original_get_service = _make_app_with_exposure_mock(tmp_path)
+    try:
+        with patch(
+            "portal.devpod.service.shelve_if_pending",
+            AsyncMock(return_value=None),
+        ), TestClient(app) as client:
+            resp = client.post("/me/workspaces/myapp/delete")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted"] is True
+        assert data["recovery_branch"] is None
+    finally:
+        ws_ops_mod._get_service = original_get_service
+        ws_ops_mod._reset_service()
+
+
+def test_delete_shelved_returns_branch(tmp_path: Path) -> None:
+    """Suppression avec shelve — recovery_branch présent dans la réponse."""
+    app, exposure_mock, ws_ops_mod, original_get_service = _make_app_with_exposure_mock(tmp_path)
+    try:
+        with patch(
+            "portal.devpod.service.shelve_if_pending",
+            AsyncMock(return_value="recovery-16-06-26-10-30"),
+        ), TestClient(app) as client:
+            resp = client.post("/me/workspaces/myapp/delete")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted"] is True
+        assert data["recovery_branch"] == "recovery-16-06-26-10-30"
+    finally:
+        ws_ops_mod._get_service = original_get_service
+        ws_ops_mod._reset_service()
+
+
+def test_delete_push_failure_returns_409(tmp_path: Path) -> None:
+    """Push échoue → 409, workspace non supprimé."""
+    from fastapi import HTTPException
+
+    app, exposure_mock, ws_ops_mod, original_get_service = _make_app_with_exposure_mock(tmp_path)
+    try:
+        with patch(
+            "portal.devpod.service.shelve_if_pending",
+            AsyncMock(side_effect=HTTPException(409, "Shelve impossible")),
+        ), TestClient(app) as client:
+            resp = client.post("/me/workspaces/myapp/delete")
+        assert resp.status_code == 409
+    finally:
+        ws_ops_mod._get_service = original_get_service
+        ws_ops_mod._reset_service()
