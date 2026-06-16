@@ -103,6 +103,7 @@ export default function GitCredentialManager() {
   const [editError, setEditError] = useState('')
   const [publicKeyDialog, setPublicKeyDialog] = useState<{ name: string; key: string } | null>(null)
   const [publicKeyFetchName, setPublicKeyFetchName] = useState<string | null>(null)
+  const [publicKeyError, setPublicKeyError] = useState('')
 
   const publicKeyQuery = useGitCredentialPublicKey(publicKeyFetchName ?? '', !!publicKeyFetchName)
 
@@ -115,9 +116,10 @@ export default function GitCredentialManager() {
 
   useEffect(() => {
     if (publicKeyQuery.isError && publicKeyFetchName) {
+      setPublicKeyError(t('gitCredentials.errors.publicKey'))
       setPublicKeyFetchName(null)
     }
-  }, [publicKeyQuery.isError, publicKeyFetchName])
+  }, [publicKeyQuery.isError, publicKeyFetchName, t])
 
   const credentialList: GitCredentialSummary[] = credentials ?? []
   const effectiveHost =
@@ -429,6 +431,9 @@ export default function GitCredentialManager() {
       )}
 
       {/* ── Liste des credentials ────────────────────────────────────── */}
+      {publicKeyError && (
+        <p role="alert" className="text-xs text-destructive">{publicKeyError}</p>
+      )}
       {credentialList.length === 0 && !showForm && (
         <p className="text-sm text-muted-foreground">{t('gitCredentials.empty')}</p>
       )}
@@ -455,7 +460,7 @@ export default function GitCredentialManager() {
                   size="icon"
                   variant="ghost"
                   className="h-8 w-8"
-                  onClick={() => setPublicKeyFetchName(c.name)}
+                  onClick={() => { setPublicKeyError(''); setPublicKeyFetchName(c.name) }}
                   aria-label={t('gitCredentials.viewPublicKey')}
                   disabled={publicKeyFetchName === c.name}
                 >
