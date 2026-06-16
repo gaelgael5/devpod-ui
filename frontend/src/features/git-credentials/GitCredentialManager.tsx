@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, KeyRound, Eye, EyeOff } from 'lucide-react'
+import { Plus, Trash2, KeyRound, Eye, EyeOff, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,7 +25,9 @@ import {
   useGitCredentials,
   useAddGitCredential,
   useDeleteGitCredential,
+  useUpdateGitCredential,
   type GitCredentialSummary,
+  type UpdateCredentialPayload,
 } from './useGitCredentials'
 
 const KNOWN_HOSTS = [
@@ -49,17 +51,54 @@ const EMPTY_FORM = {
   privateKey: '',
 }
 
+const SENTINEL = '••••••••'
+
+type EditFormState = {
+  name: string
+  hostSelect: KnownHostValue
+  hostCustom: string
+  kind: 'ssh' | 'token'
+  username: string
+  tokenValue: string
+  tokenTouched: boolean
+  privateKey: string
+  keyTouched: boolean
+}
+
+function toHostSelect(host: string): KnownHostValue {
+  const known = KNOWN_HOSTS.find(h => h.value !== '__other__' && h.value === host)
+  return known ? (known.value as KnownHostValue) : '__other__'
+}
+
+function initEditForm(c: GitCredentialSummary): EditFormState {
+  return {
+    name: c.name,
+    hostSelect: toHostSelect(c.host),
+    hostCustom: c.host,
+    kind: c.kind,
+    username: c.username,
+    tokenValue: SENTINEL,
+    tokenTouched: false,
+    privateKey: '',
+    keyTouched: false,
+  }
+}
+
 export default function GitCredentialManager() {
   const { t } = useTranslation()
   const { data: credentials, isError } = useGitCredentials()
   const addMutation = useAddGitCredential()
   const deleteMutation = useDeleteGitCredential()
+  const updateMutation = useUpdateGitCredential()
 
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [showToken, setShowToken] = useState(false)
   const [formError, setFormError] = useState('')
   const [toDelete, setToDelete] = useState<GitCredentialSummary | null>(null)
+  const [toEdit, setToEdit] = useState<GitCredentialSummary | null>(null)
+  const [editForm, setEditForm] = useState<EditFormState | null>(null)
+  const [editError, setEditError] = useState('')
 
   const credentialList: GitCredentialSummary[] = credentials ?? []
   const effectiveHost =
@@ -97,6 +136,63 @@ export default function GitCredentialManager() {
     deleteMutation.mutate(toDelete.name, {
       onSuccess: () => setToDelete(null),
     })
+  }
+
+  function openEdit(c: GitCredentialSummary) {
+    setToEdit(c)
+    setEditForm(initEditForm(c))
+    setEditError('')
+  }
+
+  function closeEdit() {
+    setToEdit(null)
+    setEditForm(null)
+    setEditError('')
+  }
+
+  function handleEditKindChange(newKind: 'ssh' | 'token') {
+    setEditForm(f =>
+      f
+        ? {
+            ...f,
+            kind: newKind,
+            tokenValue: '',
+            tokenTouched: newKind === 'token',
+            privateKey: '',
+            keyTouched: newKind === 'ssh',
+          }
+        : f,
+    )
+  }
+
+  function handleEditSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!toEdit || !editForm) return
+    setEditError('')
+
+    const effectiveHost =
+      editForm.hostSelect === '__other__' ? editForm.hostCustom.trim() : editForm.hostSelect
+
+    const payload: UpdateCredentialPayload = {
+      host: effectiveHost,
+      kind: editForm.kind,
+      username: editForm.username,
+    }
+    if (editForm.name !== toEdit.name) payload.new_name = editForm.name
+    if (editForm.kind === 'token') {
+      payload.token = editForm.tokenTouched ? editForm.tokenValue : '__UNCHANGED__'
+    } else {
+      payload.private_key = editForm.keyTouched ? editForm.privateKey : '__UNCHANGED__'
+    }
+
+    updateMutation.mutate(
+      { name: toEdit.name, payload },
+      {
+        onSuccess: () => closeEdit(),
+        onError: (err: unknown) =>
+          setEditError(err instanceof Error ? err.message : t('gitCredentials.errors.update')),
+      },
+    )
   }
 
   return (
@@ -278,15 +374,26 @@ export default function GitCredentialManager() {
                 {c.kind === 'token' ? 'PAT' : 'SSH'}
               </Badge>
             </div>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8 text-destructive hover:text-destructive"
-              onClick={() => setToDelete(c)}
-              aria-label={t('gitCredentials.delete')}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                onClick={() => openEdit(c)}
+                aria-label={t('gitCredentials.edit')}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 text-destructive hover:text-destructive"
+                onClick={() => setToDelete(c)}
+                aria-label={t('gitCredentials.delete')}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         ))}
       </div>
@@ -312,6 +419,173 @@ export default function GitCredentialManager() {
               {deleteMutation.isPending ? '…' : t('gitCredentials.delete')}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog d'édition ────────────────────────────────────────── */}
+      <Dialog open={!!toEdit} onOpenChange={open => { if (!open) closeEdit() }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('gitCredentials.editDialogTitle')}</DialogTitle>
+          </DialogHeader>
+
+          {editForm && (
+            <form onSubmit={handleEditSubmit} className="flex flex-col gap-4 pt-2">
+              {/* Nom */}
+              <div>
+                <Label htmlFor="edit-cred-name" className="text-xs">{t('gitCredentials.name')}</Label>
+                <Input
+                  id="edit-cred-name"
+                  value={editForm.name}
+                  onChange={e => setEditForm(f => f ? { ...f, name: e.target.value } : f)}
+                  className="mt-1"
+                  required
+                />
+              </div>
+
+              {/* Hôte */}
+              <div>
+                <Label className="text-xs">{t('gitCredentials.host')}</Label>
+                <Select
+                  value={editForm.hostSelect}
+                  onValueChange={v => setEditForm(f => f ? { ...f, hostSelect: v as KnownHostValue } : f)}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {KNOWN_HOSTS.map(h => (
+                      <SelectItem key={h.value} value={h.value}>
+                        {t(h.labelKey)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {editForm.hostSelect === '__other__' && (
+                  <Input
+                    value={editForm.hostCustom}
+                    onChange={e => setEditForm(f => f ? { ...f, hostCustom: e.target.value } : f)}
+                    placeholder="git.example.com"
+                    className="mt-2"
+                    required
+                  />
+                )}
+              </div>
+
+              {/* Type */}
+              <div>
+                <Label className="text-xs">{t('gitCredentials.kind')}</Label>
+                <Select
+                  value={editForm.kind}
+                  onValueChange={v => handleEditKindChange(v as 'ssh' | 'token')}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="token">{t('gitCredentials.kindPat')}</SelectItem>
+                    <SelectItem value="ssh">{t('gitCredentials.kindSsh')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Champs PAT */}
+              {editForm.kind === 'token' && (
+                <>
+                  <div>
+                    <Label htmlFor="edit-cred-username" className="text-xs">
+                      {t('gitCredentials.username')}
+                    </Label>
+                    <Input
+                      id="edit-cred-username"
+                      value={editForm.username}
+                      onChange={e => setEditForm(f => f ? { ...f, username: e.target.value } : f)}
+                      placeholder={t('gitCredentials.usernamePlaceholder')}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-cred-token" className="text-xs">
+                      {t('gitCredentials.token')}
+                    </Label>
+                    <div className="relative mt-1">
+                      <Input
+                        id="edit-cred-token"
+                        type={showToken ? 'text' : 'password'}
+                        value={editForm.tokenValue}
+                        onFocus={() => {
+                          if (!editForm.tokenTouched) {
+                            setEditForm(f => f ? { ...f, tokenValue: '' } : f)
+                          }
+                        }}
+                        onChange={e =>
+                          setEditForm(f =>
+                            f ? { ...f, tokenValue: e.target.value, tokenTouched: true } : f,
+                          )
+                        }
+                        onBlur={() => {
+                          setEditForm(f => {
+                            if (!f || f.tokenTouched || f.tokenValue !== '') return f
+                            return { ...f, tokenValue: SENTINEL }
+                          })
+                        }}
+                        className="pr-9"
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowToken(v => !v)}
+                        tabIndex={-1}
+                      >
+                        {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Champ SSH */}
+              {editForm.kind === 'ssh' && (
+                <div>
+                  <Label htmlFor="edit-cred-key" className="text-xs">
+                    {t('gitCredentials.privateKey')}
+                  </Label>
+                  <Textarea
+                    id="edit-cred-key"
+                    value={editForm.privateKey}
+                    onChange={e =>
+                      setEditForm(f =>
+                        f
+                          ? { ...f, privateKey: e.target.value, keyTouched: e.target.value !== '' }
+                          : f,
+                      )
+                    }
+                    placeholder={t('gitCredentials.privateKeyPlaceholder')}
+                    className="mt-1 font-mono text-xs"
+                    rows={6}
+                  />
+                  {!editForm.keyTouched && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('gitCredentials.sshKeyUnchangedHint')}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {editError && (
+                <p role="alert" className="text-xs text-destructive">{editError}</p>
+              )}
+
+              <DialogFooter>
+                <Button type="button" variant="ghost" size="sm" onClick={closeEdit}>
+                  {t('gitCredentials.cancel')}
+                </Button>
+                <Button type="submit" size="sm" disabled={updateMutation.isPending}>
+                  {updateMutation.isPending ? '…' : t('gitCredentials.save')}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
     </div>
