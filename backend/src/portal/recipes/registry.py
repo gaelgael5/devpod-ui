@@ -92,13 +92,21 @@ class RecipeRegistry:
         return result
 
     @staticmethod
+    def filter_by_type(
+        recipes: dict[str, RecipeMeta],
+        type_filter: str,
+    ) -> dict[str, RecipeMeta]:
+        """Retourne les recettes dont le champ `type` correspond à `type_filter`."""
+        return {k: v for k, v in recipes.items() if v.type == type_filter}
+
+    @staticmethod
     def _load_meta(recipe_dir: Path) -> RecipeMeta | None:
         meta_file = recipe_dir / "recipe.meta.yaml"
         if not meta_file.exists():
             return None
         try:
             data: object = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
-            return RecipeMeta.model_validate(data)
+            meta = RecipeMeta.model_validate(data)
         except Exception as exc:
             _log.warning(
                 "recipe_meta_invalid",
@@ -106,3 +114,12 @@ class RecipeRegistry:
                 error=str(exc),
             )
             return None
+        # Validation structure fichiers selon le type
+        if meta.type == "start":
+            if not (recipe_dir / "start.sh").exists():
+                _log.warning("recipe_start_missing_start_sh", path=str(recipe_dir))
+                return None
+            if (recipe_dir / "devcontainer-feature.json").exists():
+                _log.warning("recipe_start_has_feature_json", path=str(recipe_dir))
+                return None
+        return meta
