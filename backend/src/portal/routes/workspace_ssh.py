@@ -106,9 +106,10 @@ async def workspace_ssh_terminal(
 
         script_content = start_sh_path.read_text(encoding="utf-8")
         b64 = base64.b64encode(script_content.encode()).decode()
-        tmux_cmd = f"tmux new -A -s {start} -- bash -lc \"$(echo {b64} | base64 -d)\""
+        run_script = f'bash -lc "$(echo {b64} | base64 -d)"'
+        tmux_cmd = f"command -v tmux >/dev/null 2>&1 && tmux new -A -s {start} -- {run_script} || {run_script}"
     else:
-        tmux_cmd = "tmux new -A -s main"
+        tmux_cmd = "command -v tmux >/dev/null 2>&1 && tmux new -A -s main || bash -l"
 
     # ── Build commande devpod ssh ─────────────────────────────────────────────
     devpod_bin = shlex.split(cfg.devpod.binary, posix=(os.name != "nt"))
