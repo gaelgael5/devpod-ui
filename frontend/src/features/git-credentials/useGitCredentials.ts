@@ -6,6 +6,7 @@ export interface GitCredentialSummary {
   host: string
   kind: 'ssh' | 'token'
   username: string
+  public_key?: string
 }
 
 interface AddCredentialPayload {
@@ -15,6 +16,7 @@ interface AddCredentialPayload {
   username?: string
   token?: string
   private_key?: string
+  generate_key?: boolean
 }
 
 export interface UpdateCredentialPayload {
@@ -70,5 +72,17 @@ export function useDeleteGitCredential() {
     mutationFn: (name: string) =>
       apiFetch(`/me/git-credentials/${encodeURIComponent(name)}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK }),
+  })
+}
+
+export function useGitCredentialPublicKey(name: string, enabled: boolean) {
+  return useQuery<{ public_key: string }>({
+    queryKey: ['git-credential-public-key', name],
+    queryFn: () =>
+      apiFetchJson<{ public_key: string }>(
+        `/me/git-credentials/${encodeURIComponent(name)}/public-key`,
+      ),
+    enabled,
+    retry: false,
   })
 }
