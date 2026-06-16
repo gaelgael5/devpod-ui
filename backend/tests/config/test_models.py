@@ -172,11 +172,13 @@ def test_workspace_name_accepts_valid(name: str):
 
 def test_workspace_spec_ssh_key_defaults_to_false() -> None:
     from portal.config.models import WorkspaceSpec
+
     ws = WorkspaceSpec(name="myapp", source="git@github.com:org/repo.git")
     assert ws.ssh_key is False
 
 
 def test_workspace_spec_ssh_key_can_be_set() -> None:
     from portal.config.models import WorkspaceSpec
+
     ws = WorkspaceSpec(name="myapp", source="git@github.com:org/repo.git", ssh_key=True)
     assert ws.ssh_key is True

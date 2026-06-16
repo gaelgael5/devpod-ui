@@ -29,9 +29,7 @@ def test_write_devcontainer_no_recipes(tmp_data_root, global_cfg, fake_devpod_bi
     from portal.auth.router import provision_user
     from portal.devpod.service import DevPodService
 
-    asyncio.run(
-        provision_user(login="alice", sub="sub", data_root=tmp_data_root)
-    )
+    asyncio.run(provision_user(login="alice", sub="sub", data_root=tmp_data_root))
     svc = DevPodService(global_cfg=global_cfg, devpod_bin=fake_devpod_bin)
     dc_path = svc._write_devcontainer("alice", "alice-myapp")
     try:
@@ -53,9 +51,7 @@ def test_write_devcontainer_with_recipe_copies_feature_dir(
     from portal.devpod.service import DevPodService
     from portal.recipes.models import RecipeMeta
 
-    asyncio.run(
-        provision_user(login="alice", sub="sub", data_root=tmp_data_root)
-    )
+    asyncio.run(provision_user(login="alice", sub="sub", data_root=tmp_data_root))
     _make_recipe_dir(tmp_data_root / "recipes", "claude-code")
     recipe = RecipeMeta(id="claude-code")
 
@@ -80,9 +76,7 @@ def test_write_devcontainer_secrets_in_remote_env_not_features(
     from portal.devpod.service import DevPodService
     from portal.recipes.models import RecipeMeta
 
-    asyncio.run(
-        provision_user(login="alice", sub="sub", data_root=tmp_data_root)
-    )
+    asyncio.run(provision_user(login="alice", sub="sub", data_root=tmp_data_root))
     _make_recipe_dir(tmp_data_root / "recipes", "aider")
     recipe = RecipeMeta(id="aider")
     feature_env = {"ANTHROPIC_API_KEY": "sk-secret-value"}
@@ -112,9 +106,7 @@ def test_write_devcontainer_missing_feature_dir_ignored(
     from portal.devpod.service import DevPodService
     from portal.recipes.models import RecipeMeta
 
-    asyncio.run(
-        provision_user(login="alice", sub="sub", data_root=tmp_data_root)
-    )
+    asyncio.run(provision_user(login="alice", sub="sub", data_root=tmp_data_root))
     recipe = RecipeMeta(id="nonexistent")
     svc = DevPodService(global_cfg=global_cfg, devpod_bin=fake_devpod_bin)
     dc_path = svc._write_devcontainer("alice", "alice-myapp", recipes=[recipe])

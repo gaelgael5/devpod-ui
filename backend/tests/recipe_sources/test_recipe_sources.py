@@ -17,9 +17,7 @@ _MOCK_PUBLIC_ADDR = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34
 # Mock address that triggers the SSRF block (private RFC-1918 range)
 _MOCK_INTERNAL_ADDR = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.1", 0))]
 
-_DEFAULT_SOURCE = (
-    "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/recipes/toc.txt"
-)
+_DEFAULT_SOURCE = "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/recipes/toc.txt"
 
 
 def _write_global_config(tmp_path: Path) -> None:
@@ -172,11 +170,7 @@ def test_preview_recipe_sources_returns_parsed_recipes(tmp_path: Path) -> None:
     toc_url = "https://example.com/recipes/toc.txt"
     sh_url = "https://example.com/recipes/git.sh"
     sh_content = (
-        "# name: Git\n"
-        "# description: Configure Git\n"
-        "# version: 1.0.0\n"
-        "#!/usr/bin/env bash\n"
-        "set -e\n"
+        "# name: Git\n# description: Configure Git\n# version: 1.0.0\n#!/usr/bin/env bash\nset -e\n"
     )
 
     respx.get(toc_url).mock(return_value=Response(200, text="git.sh\n"))
@@ -263,11 +257,7 @@ def test_import_recipe_from_source_basic(tmp_path: Path) -> None:
 
     sh_url = "https://example.com/recipes/git.sh"
     sh_content = (
-        "# name: Git\n"
-        "# description: Configure Git\n"
-        "# version: 1.0.0\n"
-        "#!/usr/bin/env bash\n"
-        "set -e\n"
+        "# name: Git\n# description: Configure Git\n# version: 1.0.0\n#!/usr/bin/env bash\nset -e\n"
     )
     respx.get(sh_url).mock(return_value=Response(200, text=sh_content))
 
@@ -276,9 +266,7 @@ def test_import_recipe_from_source_basic(tmp_path: Path) -> None:
         return_value=_MOCK_PUBLIC_ADDR,
     ):
         with TestClient(app) as client:
-            resp = client.post(
-                "/admin/recipe-sources/import", json={"source_url": sh_url}
-            )
+            resp = client.post("/admin/recipe-sources/import", json={"source_url": sh_url})
 
     assert resp.status_code == 201
     data = resp.json()
@@ -304,11 +292,7 @@ def test_import_recipe_collision_generates_suffix(tmp_path: Path) -> None:
 
     sh_url = "https://example.com/recipes/git.sh"
     sh_content = (
-        "# name: Git\n"
-        "# description: Configure Git\n"
-        "# version: 1.0.0\n"
-        "#!/usr/bin/env bash\n"
-        "set -e\n"
+        "# name: Git\n# description: Configure Git\n# version: 1.0.0\n#!/usr/bin/env bash\nset -e\n"
     )
     respx.get(sh_url).mock(return_value=Response(200, text=sh_content))
 
@@ -317,12 +301,8 @@ def test_import_recipe_collision_generates_suffix(tmp_path: Path) -> None:
         return_value=_MOCK_PUBLIC_ADDR,
     ):
         with TestClient(app) as client:
-            resp1 = client.post(
-                "/admin/recipe-sources/import", json={"source_url": sh_url}
-            )
-            resp2 = client.post(
-                "/admin/recipe-sources/import", json={"source_url": sh_url}
-            )
+            resp1 = client.post("/admin/recipe-sources/import", json={"source_url": sh_url})
+            resp2 = client.post("/admin/recipe-sources/import", json={"source_url": sh_url})
 
     assert resp1.status_code == 201
     assert resp1.json()["id"] == "git"

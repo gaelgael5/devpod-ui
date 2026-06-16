@@ -75,8 +75,10 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         return
     if not key_path.exists():
         _log.warning(
-            "ws_ssh_key_not_found", host=name,
-            key_path=str(key_path), data_root=str(data_root),
+            "ws_ssh_key_not_found",
+            host=name,
+            key_path=str(key_path),
+            data_root=str(data_root),
         )
         await websocket.close(code=4022, reason=f"key_path does not exist: {host.key_path}")
         return
@@ -90,11 +92,16 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
 
     proc = await asyncio.create_subprocess_exec(
         "ssh",
-        "-t", "-t",  # force PTY même quand stdin est un pipe
-        "-i", str(key_path),
-        "-o", "StrictHostKeyChecking=accept-new",
-        "-o", f"UserKnownHostsFile={known_hosts}",
-        "-o", "BatchMode=no",
+        "-t",
+        "-t",  # force PTY même quand stdin est un pipe
+        "-i",
+        str(key_path),
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        f"UserKnownHostsFile={known_hosts}",
+        "-o",
+        "BatchMode=no",
         address,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,

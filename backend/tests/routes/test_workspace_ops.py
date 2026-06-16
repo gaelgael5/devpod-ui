@@ -356,6 +356,7 @@ def test_get_ssh_key_returns_200_when_key_exists(tmp_path: Path) -> None:
 
     # Générer la clé directement via le module (simule DevPodService.up avec generate_ssh_key=True)
     from portal.ssh_keys import ensure_workspace_ssh_key
+
     expected_pub = ensure_workspace_ssh_key("alice", "myapp")
 
     with TestClient(app) as client:
@@ -466,9 +467,7 @@ def test_up_with_valid_profile_ref_returns_202(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_up_rejects_inaccessible_git_repo(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_up_rejects_inaccessible_git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Pre-flight git échoué (exit 128) → 422 avant même de lancer devpod up."""
     import portal.routes.workspace_ops as ws_ops_mod
 

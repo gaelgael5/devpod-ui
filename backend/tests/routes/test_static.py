@@ -22,9 +22,7 @@ def _make_app(tmp_path: Path):
 def test_install_node_script_served(tmp_path: Path) -> None:
     scripts_dir = tmp_path / "scripts"
     scripts_dir.mkdir()
-    (scripts_dir / "install-node.sh").write_text(
-        "#!/usr/bin/env bash\necho ok\n", encoding="utf-8"
-    )
+    (scripts_dir / "install-node.sh").write_text("#!/usr/bin/env bash\necho ok\n", encoding="utf-8")
     app = _make_app(tmp_path)
     with TestClient(app) as client:
         resp = client.get("/install-node.sh")

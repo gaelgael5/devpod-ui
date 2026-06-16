@@ -141,8 +141,11 @@ async def generate_host_ssh_key(
 async def _run_script_on_pve(node: Hypervisor, script: str, timeout: float = 30.0) -> str:
     """Exécute un script bash sur un nœud PVE via SSH stdin ; lève RuntimeError si erreur."""
     from .proxmox import _ssh_opts
+
     proc = await asyncio.create_subprocess_exec(
-        "ssh", *_ssh_opts(node), f"{node.ssh_user}@{node.address}",
+        "ssh",
+        *_ssh_opts(node),
+        f"{node.ssh_user}@{node.address}",
         "bash -s",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
@@ -187,9 +190,7 @@ def _generate_or_load_key(key_path: Path, host_name: str, requester: str) -> str
 
 
 @router.get("/hosts/{name}/cert")
-async def get_host_cert(
-    name: str, user: UserInfo = Depends(require_admin)
-) -> dict[str, str]:
+async def get_host_cert(name: str, user: UserInfo = Depends(require_admin)) -> dict[str, str]:
     """Retourne le contenu de ca.pem et cert.pem du répertoire key_path du host.
 
     Seuls les fichiers publics sont exposés (jamais key.pem).
@@ -230,6 +231,7 @@ async def get_host_cert(
 
 # ── Bootstrap SSH ─────────────────────────────────────────────────────────────
 
+
 class BootstrapSshRequest(BaseModel):
     address: str  # user@host — ex: debian@192.168.10.179
     proxmox_node: str = ""  # optionnel si host.proxmox_node est déjà connu
@@ -269,9 +271,7 @@ async def bootstrap_host_ssh(
         )
     pve_node = next((n for n in cfg.hypervisors if n.name == resolved_pve), None)
     if pve_node is None:
-        raise HTTPException(
-            status_code=404, detail=f"Nœud Proxmox {resolved_pve!r} introuvable"
-        )
+        raise HTTPException(status_code=404, detail=f"Nœud Proxmox {resolved_pve!r} introuvable")
 
     # Génère ou charge la clé ed25519
     key_path = _data_root() / "keys" / "hosts" / f"{name}_ed25519"

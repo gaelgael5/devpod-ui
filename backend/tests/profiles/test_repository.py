@@ -1,4 +1,5 @@
 """Tests du ProfileRepository sur un répertoire temporaire."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,6 +13,7 @@ from portal.profiles.repository import ProfileError, ProfileRepository, slugify
 # ---------------------------------------------------------------------------
 # slugify
 # ---------------------------------------------------------------------------
+
 
 def test_slugify_basic() -> None:
     assert slugify("Frontend React") == "frontend-react"
@@ -28,6 +30,7 @@ def test_slugify_empty_fallback() -> None:
 # ---------------------------------------------------------------------------
 # Modèles
 # ---------------------------------------------------------------------------
+
 
 def test_profile_body_defaults() -> None:
     body = ProfileBody(name="Test")
@@ -57,6 +60,7 @@ def test_profile_to_customizations() -> None:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def repo(tmp_path: Path) -> ProfileRepository:
     return ProfileRepository(tmp_path)
@@ -71,6 +75,7 @@ BODY = ProfileBody(name="Frontend React", extensions=["esbenp.prettier-vscode"])
 # ---------------------------------------------------------------------------
 # create user
 # ---------------------------------------------------------------------------
+
 
 def test_create_writes_yaml_file(repo: ProfileRepository) -> None:
     profile = repo.create(ALICE, BODY)
@@ -110,6 +115,7 @@ def test_create_user_isolation(repo: ProfileRepository) -> None:
 # update user
 # ---------------------------------------------------------------------------
 
+
 def test_update_modifies_yaml(repo: ProfileRepository) -> None:
     repo.create(ALICE, BODY)
     updated_body = ProfileBody(name="Frontend React", description="Updated", extensions=[])
@@ -130,6 +136,7 @@ def test_update_not_found_raises(repo: ProfileRepository) -> None:
 # delete user
 # ---------------------------------------------------------------------------
 
+
 def test_delete_removes_file(repo: ProfileRepository) -> None:
     repo.create(ALICE, BODY)
     repo.delete(ALICE, "frontend-react")
@@ -145,6 +152,7 @@ def test_delete_not_found_raises(repo: ProfileRepository) -> None:
 # ---------------------------------------------------------------------------
 # get
 # ---------------------------------------------------------------------------
+
 
 def test_get_returns_profile(repo: ProfileRepository) -> None:
     repo.create(ALICE, BODY)
@@ -163,6 +171,7 @@ def test_get_not_found_raises(repo: ProfileRepository) -> None:
 # ---------------------------------------------------------------------------
 # list
 # ---------------------------------------------------------------------------
+
 
 def test_list_includes_user_and_shared(repo: ProfileRepository) -> None:
     repo.create(ALICE, BODY)
@@ -194,6 +203,7 @@ def test_list_editable_admin_can_edit_shared(repo: ProfileRepository) -> None:
 # fork
 # ---------------------------------------------------------------------------
 
+
 def test_fork_creates_independent_copy(repo: ProfileRepository) -> None:
     shared_body = ProfileBody(name="Shared", extensions=["ms-python.python"])
     repo.create_shared(shared_body)
@@ -215,6 +225,7 @@ def test_fork_not_found_raises(repo: ProfileRepository) -> None:
 # ---------------------------------------------------------------------------
 # shared (admin)
 # ---------------------------------------------------------------------------
+
 
 def test_create_shared_writes_to_data_profiles(repo: ProfileRepository) -> None:
     # "Partage" sans accent — slugify("[^a-z0-9]+" → "-") donne "partage"
@@ -240,6 +251,7 @@ def test_delete_shared_removes_file(repo: ProfileRepository) -> None:
 # écriture atomique
 # ---------------------------------------------------------------------------
 
+
 def test_atomic_write_no_tmp_residual(repo: ProfileRepository) -> None:
     repo.create(ALICE, BODY)
     tmp_files = list((repo._data / "users" / ALICE / "profiles").glob("*.tmp"))
@@ -249,6 +261,7 @@ def test_atomic_write_no_tmp_residual(repo: ProfileRepository) -> None:
 # ---------------------------------------------------------------------------
 # sécurité — path traversal
 # ---------------------------------------------------------------------------
+
 
 def test_path_traversal_slug_rejected(repo: ProfileRepository) -> None:
     with pytest.raises(ProfileError) as exc:

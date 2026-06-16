@@ -21,15 +21,19 @@ def _build_route(
     """
     handlers: list[dict[str, object]] = []
     if require_auth:
-        handlers.append({
-            "handler": "forward_auth",
-            "uri": verify_uri,
-            "copy_headers": ["Cookie"],
-        })
-    handlers.append({
-        "handler": "reverse_proxy",
-        "upstreams": [{"dial": upstream}],
-    })
+        handlers.append(
+            {
+                "handler": "forward_auth",
+                "uri": verify_uri,
+                "copy_headers": ["Cookie"],
+            }
+        )
+    handlers.append(
+        {
+            "handler": "reverse_proxy",
+            "upstreams": [{"dial": upstream}],
+        }
+    )
     return {
         "@id": route_id,
         "match": [{"host": [match_host]}],

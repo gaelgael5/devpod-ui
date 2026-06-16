@@ -33,9 +33,7 @@ def _check_git_ssrf(url: str) -> None:
     try:
         infos = _socket.getaddrinfo(host, None)
     except _socket.gaierror as exc:
-        raise HTTPException(
-            status_code=422, detail=f"Hostname introuvable : '{host}'"
-        ) from exc
+        raise HTTPException(status_code=422, detail=f"Hostname introuvable : '{host}'") from exc
     for _fam, _type, _proto, _canon, sa in infos:
         try:
             ip = ipaddress.ip_address(sa[0])
@@ -80,8 +78,10 @@ async def run_git_ls_remote(
 
     git_cmd: list[str] = [
         "git",
-        "-c", "http.followRedirects=false",
-        "-c", "credential.helper=",   # désactive le credential store système
+        "-c",
+        "http.followRedirects=false",
+        "-c",
+        "credential.helper=",  # désactive le credential store système
     ]
     env: dict[str, str] = {
         **os.environ,
@@ -89,7 +89,7 @@ async def run_git_ls_remote(
         # /bin/false : l'askpass échoue → git n'essaie pas d'envoyer un credential
         # issu du prompt à la place de notre http.extraHeader.
         "GIT_ASKPASS": "/bin/false",
-        "GIT_CONFIG_NOSYSTEM": "1",   # ignore /etc/gitconfig
+        "GIT_CONFIG_NOSYSTEM": "1",  # ignore /etc/gitconfig
     }
 
     if credential_name:
@@ -98,8 +98,7 @@ async def run_git_ls_remote(
         if cred:
             if cred.kind == "ssh" and cred.key_path:
                 env["GIT_SSH_COMMAND"] = (
-                    f"ssh -i {cred.key_path}"
-                    " -o StrictHostKeyChecking=no -o BatchMode=yes"
+                    f"ssh -i {cred.key_path} -o StrictHostKeyChecking=no -o BatchMode=yes"
                 )
             elif cred.kind == "token" and cred.token:
                 username = cred.username or "oauth2"

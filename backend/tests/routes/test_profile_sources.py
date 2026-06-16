@@ -22,9 +22,7 @@ def _make_admin_app(tmp_path: Path):
     from portal.auth.rbac import UserInfo, require_admin
 
     app = create_app()
-    app.dependency_overrides[require_admin] = lambda: UserInfo(
-        login="admin", roles=["admin"]
-    )
+    app.dependency_overrides[require_admin] = lambda: UserInfo(login="admin", roles=["admin"])
     return app
 
 
@@ -43,8 +41,9 @@ def test_put_profile_sources_saves(tmp_path: Path) -> None:
     """PUT /admin/profile-sources sauvegarde les URLs et les relit."""
     app = _make_admin_app(tmp_path)
     urls = ["https://example.com/profiles/"]
-    with TestClient(app) as client, patch(
-        "portal.routes.profile_sources._check_ssrf", return_value=None
+    with (
+        TestClient(app) as client,
+        patch("portal.routes.profile_sources._check_ssrf", return_value=None),
     ):
         resp = client.put(
             "/admin/profile-sources",
@@ -52,9 +51,7 @@ def test_put_profile_sources_saves(tmp_path: Path) -> None:
         )
     assert resp.status_code == 200
     assert resp.json()["sources"] == urls
-    saved = yaml.safe_load(
-        (tmp_path / "profile-sources.yaml").read_text(encoding="utf-8")
-    )
+    saved = yaml.safe_load((tmp_path / "profile-sources.yaml").read_text(encoding="utf-8"))
     assert saved["sources"] == urls
 
 
@@ -109,12 +106,14 @@ def test_import_profile_from_source(tmp_path: Path) -> None:
     """POST /admin/profile-sources/import crée un profil partagé."""
     import yaml as _yaml
 
-    profile_yaml = _yaml.dump({
-        "name": "Python Dev",
-        "description": "Profil Python",
-        "extensions": ["ms-python.python"],
-        "settings": {},
-    })
+    profile_yaml = _yaml.dump(
+        {
+            "name": "Python Dev",
+            "description": "Profil Python",
+            "extensions": ["ms-python.python"],
+            "settings": {},
+        }
+    )
 
     mock_resp = MagicMock()
     mock_resp.raise_for_status = MagicMock()
@@ -155,12 +154,14 @@ def test_import_profile_conflict(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    profile_yaml = _yaml.dump({
-        "name": "Python Dev",
-        "description": "Autre profil",
-        "extensions": [],
-        "settings": {},
-    })
+    profile_yaml = _yaml.dump(
+        {
+            "name": "Python Dev",
+            "description": "Autre profil",
+            "extensions": [],
+            "settings": {},
+        }
+    )
 
     mock_resp = MagicMock()
     mock_resp.raise_for_status = MagicMock()

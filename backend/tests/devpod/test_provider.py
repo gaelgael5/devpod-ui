@@ -129,9 +129,7 @@ async def test_ensure_provider_uses_ssh_for_ssh_host(
 
     assert provider == "ssh-node-ssh"
     calls = _read_calls(devpod_home)
-    assert any("provider add ssh" in c for c in calls), (
-        f"Expected 'provider add ssh', got: {calls}"
-    )
+    assert any("provider add ssh" in c for c in calls), f"Expected 'provider add ssh', got: {calls}"
     assert any("HOST=devops@192.168.1.40" in c for c in calls), (
         f"Expected HOST=user@ip option, got: {calls}"
     )

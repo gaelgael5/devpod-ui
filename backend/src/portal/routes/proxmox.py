@@ -25,6 +25,7 @@ _MAX_KEY_BYTES = 16 * 1024  # 16 Ko — largement suffisant pour une clé SSH
 
 # ─── Helpers filesystem ───────────────────────────────────────────────────────
 
+
 def _data_root() -> Path:
     return Path(os.environ.get("PORTAL_DATA_ROOT", "/data"))
 
@@ -68,16 +69,25 @@ def _validate_key_bytes(key_bytes: bytes) -> None:
 
 # ─── Helpers SSH ──────────────────────────────────────────────────────────────
 
+
 def _ssh_opts(node: Hypervisor) -> list[str]:
     return [
-        "-i", node.ssh_key_path,
-        "-p", str(node.ssh_port),
-        "-o", "BatchMode=yes",
-        "-o", "StrictHostKeyChecking=accept-new",
-        "-o", "ConnectTimeout=15",
-        "-o", "ServerAliveInterval=10",
-        "-o", "ServerAliveCountMax=30",
-        "-o", "TCPKeepAlive=yes",
+        "-i",
+        node.ssh_key_path,
+        "-p",
+        str(node.ssh_port),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        "ConnectTimeout=15",
+        "-o",
+        "ServerAliveInterval=10",
+        "-o",
+        "ServerAliveCountMax=30",
+        "-o",
+        "TCPKeepAlive=yes",
     ]
 
 
@@ -87,7 +97,9 @@ async def _ssh_run(node: Hypervisor, command: str, timeout: float = 30.0) -> str
     Lève RuntimeError si le code de retour est non-zéro.
     """
     proc = await asyncio.create_subprocess_exec(
-        "ssh", *_ssh_opts(node), f"{node.ssh_user}@{node.address}",
+        "ssh",
+        *_ssh_opts(node),
+        f"{node.ssh_user}@{node.address}",
         command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -106,7 +118,9 @@ async def _ssh_run(node: Hypervisor, command: str, timeout: float = 30.0) -> str
 async def _ssh_run_nocheck(node: Hypervisor, command: str, timeout: float = 30.0) -> int:
     """Exécute une commande SSH et retourne le code de retour sans lever d'exception."""
     proc = await asyncio.create_subprocess_exec(
-        "ssh", *_ssh_opts(node), f"{node.ssh_user}@{node.address}",
+        "ssh",
+        *_ssh_opts(node),
+        f"{node.ssh_user}@{node.address}",
         command,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
@@ -137,7 +151,9 @@ async def _ssh_stream(node: Hypervisor, commands: list[str]) -> AsyncIterator[by
     """Exécute des commandes shell sur le nœud SSH et streame stdout+stderr."""
     script = "set -euo pipefail\n" + "\n".join(commands) + "\n"
     proc = await asyncio.create_subprocess_exec(
-        "ssh", *_ssh_opts(node), f"{node.ssh_user}@{node.address}",
+        "ssh",
+        *_ssh_opts(node),
+        f"{node.ssh_user}@{node.address}",
         "bash -s",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
@@ -178,6 +194,7 @@ def _substitute(template: str, args: dict[str, str]) -> str:
 
 # ─── CRUD types d'hyperviseurs ────────────────────────────────────────────────
 
+
 class HypervisorTypeRequest(BaseModel):
     label: str = ""
     name: str
@@ -207,8 +224,10 @@ async def add_hypervisor_type(
     if any(t.name == body.name for t in cfg.hypervisor_types):
         raise HTTPException(status_code=409, detail=f"Hypervisor type {body.name!r} already exists")
     ht = HypervisorType(
-        label=body.label, name=body.name,
-        add_script=body.add_script, destroy_script=body.destroy_script,
+        label=body.label,
+        name=body.name,
+        add_script=body.add_script,
+        destroy_script=body.destroy_script,
     )
     cfg.hypervisor_types.append(ht)
     save_global(cfg)
@@ -227,8 +246,10 @@ async def update_hypervisor_type(
     if ht is None:
         raise HTTPException(status_code=404, detail=f"Hypervisor type {name!r} not found")
     updated = HypervisorType(
-        label=body.label, name=name,
-        add_script=body.add_script, destroy_script=body.destroy_script,
+        label=body.label,
+        name=name,
+        add_script=body.add_script,
+        destroy_script=body.destroy_script,
     )
     cfg.hypervisor_types = [updated if t.name == name else t for t in cfg.hypervisor_types]
     save_global(cfg)
@@ -250,6 +271,7 @@ async def delete_hypervisor_type(
 
 
 # ─── CRUD hyperviseurs ────────────────────────────────────────────────────────
+
 
 @router.get("/hypervisors")
 async def list_hypervisors(
@@ -361,6 +383,7 @@ async def delete_hypervisor(
 
 # ─── Test de connexion SSH ────────────────────────────────────────────────────
 
+
 @router.post("/hypervisors/test-connection")
 async def test_hypervisor_connection(
     address: str = Form(...),
@@ -379,8 +402,11 @@ async def test_hypervisor_connection(
             f.write(key_bytes)
         os.chmod(tmp_path, 0o600)
         node = Hypervisor(
-            name="test", address=address,
-            ssh_user=ssh_user, ssh_port=ssh_port, ssh_key_path=tmp_path,
+            name="test",
+            address=address,
+            ssh_user=ssh_user,
+            ssh_port=ssh_port,
+            ssh_key_path=tmp_path,
         )
         out = await _ssh_run(node, "echo OK", timeout=15.0)
         if out.strip() == "OK":
@@ -413,6 +439,7 @@ async def ping_hypervisor(
 
 # ─── Exécution de script via SSH ──────────────────────────────────────────────
 
+
 class ExecuteRequest(BaseModel):
     args: dict[str, str]
 
@@ -441,7 +468,8 @@ async def _fetch_spec(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
             return dict(resp.json())
         except httpx.HTTPError as exc:
             raise HTTPException(
-                status_code=502, detail=f"Failed to fetch script spec: {exc}",
+                status_code=502,
+                detail=f"Failed to fetch script spec: {exc}",
             ) from exc
 
 

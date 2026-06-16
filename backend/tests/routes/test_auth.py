@@ -12,8 +12,14 @@ def _hash(password: str) -> str:
     return _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
 
 
-def _make_app(tmp_path: Path, *, oidc_issuer: str = "", oidc_client_id: str = "",
-              local_user: str = "", local_password_hash: str = "") -> TestClient:
+def _make_app(
+    tmp_path: Path,
+    *,
+    oidc_issuer: str = "",
+    oidc_client_id: str = "",
+    local_user: str = "",
+    local_password_hash: str = "",
+) -> TestClient:
     import portal.settings as mod
 
     mod._settings = None

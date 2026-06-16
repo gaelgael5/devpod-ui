@@ -26,9 +26,7 @@ router_admin = APIRouter(tags=["profile-sources"])
 
 _YAML_FNAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.yaml$")
 
-_DEFAULT_SOURCE = (
-    "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/profiles/"
-)
+_DEFAULT_SOURCE = "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/profiles/"
 
 
 class ProfileSourcesPayload(BaseModel):
@@ -92,9 +90,7 @@ async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
     return resp.text
 
 
-async def _preview_one_source(
-    client: httpx.AsyncClient, base_url: str
-) -> list[dict[str, Any]]:
+async def _preview_one_source(client: httpx.AsyncClient, base_url: str) -> list[dict[str, Any]]:
     toc_url = base_url.rstrip("/") + "/toc.txt"
     try:
         toc = await _fetch_text(client, toc_url)
@@ -135,9 +131,7 @@ async def put_profile_sources(
 ) -> dict[str, Any]:
     for url in body.sources:
         if not url.startswith("https://"):
-            raise HTTPException(
-                status_code=422, detail=f"URL must be HTTPS: {url!r}"
-            )
+            raise HTTPException(status_code=422, detail=f"URL must be HTTPS: {url!r}")
         await asyncio.to_thread(_check_ssrf, url)
     await asyncio.to_thread(_save_sources, body.sources)
     _log.info("profile_sources_updated", count=len(body.sources), by=user.login)
@@ -177,17 +171,13 @@ async def import_profile_from_source(
         try:
             content = await _fetch_text(http, body.source_url)
         except Exception as exc:
-            raise HTTPException(
-                status_code=502, detail=f"Cannot fetch profile: {exc}"
-            ) from exc
+            raise HTTPException(status_code=502, detail=f"Cannot fetch profile: {exc}") from exc
 
     try:
         raw = yaml.safe_load(content) or {}
         profile_body = ProfileBody(**raw)
     except Exception as exc:
-        raise HTTPException(
-            status_code=422, detail=f"Invalid profile YAML: {exc}"
-        ) from exc
+        raise HTTPException(status_code=422, detail=f"Invalid profile YAML: {exc}") from exc
 
     data_root = _data_root()
     expected_slug = slugify(profile_body.name)

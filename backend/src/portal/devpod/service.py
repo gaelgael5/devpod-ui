@@ -92,6 +92,7 @@ class DevPodService:
 
         if generate_ssh_key:
             from ..ssh_keys import ensure_workspace_ssh_key
+
             await asyncio.to_thread(ensure_workspace_ssh_key, login, ws_spec.name)
 
         # Rechargement systématique : la liste des hosts évolue pendant la vie du singleton
@@ -101,6 +102,7 @@ class DevPodService:
 
         if host_cfg.type == "ssh" and not host_cfg.key_path:
             from .env import UnknownHostError
+
             raise UnknownHostError(
                 f"Host {host_cfg.name!r} : clé SSH manquante — lancez d'abord 'Configurer SSH'"
             )
@@ -136,7 +138,8 @@ class DevPodService:
         dc_path: Path | None = None
         if host_cfg.type == "docker-tls":
             dc_path = self._write_devcontainer(
-                login, ws_id,
+                login,
+                ws_id,
                 host_port=host_port,
                 recipes=recipes,
                 feature_env=feature_env,
@@ -164,18 +167,20 @@ class DevPodService:
 
         # Plusieurs sources → ouvrir /workspaces pour voir tous les repos clonés.
         # Source unique ou image seule → ouvrir directement /workspaces/{ws_id}.
-        workspace_folder = (
-            "/workspaces"
-            if ws_spec.extra_sources
-            else f"/workspaces/{ws_id}"
-        )
+        workspace_folder = "/workspaces" if ws_spec.extra_sources else f"/workspaces/{ws_id}"
 
         self._write_status(ws_id, "provisioning", login=login)
 
         task = asyncio.create_task(
             self._run_up_task(
-                ws_id, devpod_source, dc_path, subprocess_env, login,
-                host_port, node_ip, provider_name=provider_name,
+                ws_id,
+                devpod_source,
+                dc_path,
+                subprocess_env,
+                login,
+                host_port,
+                node_ip,
+                provider_name=provider_name,
                 host_type=host_cfg.type,
                 ssh_host=ssh_host,
                 ssh_user=ssh_user,
@@ -229,8 +234,11 @@ class DevPodService:
             _log.info("reconcile_port_forward", ws_id=ws_id, host_port=host_port)
             try:
                 await self._start_port_forward(
-                    ws_id, minimal_env, host_port,
-                    ssh_host=ssh_host, ssh_user=ssh_user,
+                    ws_id,
+                    minimal_env,
+                    host_port,
+                    ssh_host=ssh_host,
+                    ssh_user=ssh_user,
                     ssh_key_path=host_cfg.key_path or "",
                 )
             except Exception as exc:
@@ -388,9 +396,7 @@ class DevPodService:
                             f"{shlex.quote(url)} {shlex.quote(target)}"
                         )
                     else:
-                        clone_cmds.append(
-                            f"git clone -- {shlex.quote(url)} {shlex.quote(target)}"
-                        )
+                        clone_cmds.append(f"git clone -- {shlex.quote(url)} {shlex.quote(target)}")
                 if clone_cmds:
                     content["postCreateCommand"] = " && ".join(clone_cmds)
 
@@ -399,9 +405,7 @@ class DevPodService:
                 if frag["extensions"] or frag["settings"]:
                     vscode = content.setdefault("customizations", {}).setdefault("vscode", {})
                     existing = vscode.get("extensions") or []
-                    vscode["extensions"] = list(
-                        dict.fromkeys([*existing, *frag["extensions"]])
-                    )
+                    vscode["extensions"] = list(dict.fromkeys([*existing, *frag["extensions"]]))
                     vscode["settings"] = {
                         **(vscode.get("settings") or {}),
                         **frag["settings"],
@@ -417,6 +421,7 @@ class DevPodService:
     def _resolve_node_ip(self, host_cfg: Any) -> str:
         """Résout l'IP du nœud Docker/SSH depuis l'HostConfig."""
         from ..config.models import HostConfig
+
         if not isinstance(host_cfg, HostConfig):
             return "127.0.0.1"
         if host_cfg.type == "docker-tls" and host_cfg.docker_host:
@@ -454,8 +459,10 @@ class DevPodService:
         # HOME est requis pour que ssh(1) trouve /root/.ssh/config écrit par DevPod.
         ssh_env = {**env, "HOME": os.environ.get("HOME", "/root")}
         cmd = [
-            "ssh", "-N",
-            "-L", f"0.0.0.0:{host_port}:localhost:{_OPENVSCODE_SERVER_PORT}",
+            "ssh",
+            "-N",
+            "-L",
+            f"0.0.0.0:{host_port}:localhost:{_OPENVSCODE_SERVER_PORT}",
             f"{ws_id}.devpod",
         ]
         proc = await asyncio.create_subprocess_exec(
@@ -530,8 +537,12 @@ class DevPodService:
 
             if status == "running" and host_type == "ssh" and host_port is not None:
                 await self._start_port_forward(
-                    ws_id, env, host_port,
-                    ssh_host=ssh_host, ssh_user=ssh_user, ssh_key_path=ssh_key_path,
+                    ws_id,
+                    env,
+                    host_port,
+                    ssh_host=ssh_host,
+                    ssh_user=ssh_user,
+                    ssh_key_path=ssh_key_path,
                 )
 
             if status == "running" and self._exposure is not None and host_port is not None:

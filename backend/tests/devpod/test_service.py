@@ -198,8 +198,11 @@ async def test_up_docker_tls_passes_profile_to_write_devcontainer(
     await provision_user(login="alice", sub="sub", data_root=tmp_data_root)
 
     profile = Profile(
-        slug="py", scope="user", name="Python Dev",
-        extensions=["ms-python.python"], settings={},
+        slug="py",
+        scope="user",
+        name="Python Dev",
+        extensions=["ms-python.python"],
+        settings={},
     )
     svc = DevPodService(global_cfg=global_cfg, devpod_bin=fake_devpod_bin)
     ws = WorkspaceSpec(name="myapp", source="github.com/org/repo")

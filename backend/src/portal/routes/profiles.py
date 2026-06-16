@@ -4,6 +4,7 @@ Deux routers :
 - router       : préfixe /profiles  (user, monté sans préfixe dans app.py)
 - router_admin : préfixe /profiles  (admin, monté sous /admin dans app.py → /admin/profiles)
 """
+
 from __future__ import annotations
 
 from typing import Annotated

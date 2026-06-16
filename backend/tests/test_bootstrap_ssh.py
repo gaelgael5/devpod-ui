@@ -66,10 +66,12 @@ _PAYLOAD = {"address": "debian@192.168.10.179", "proxmox_node": "pve1"}
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def data_root(tmp_data_root: Path, monkeypatch) -> Path:
     monkeypatch.setenv("DEV_MODE", "true")
     import portal.settings as mod
+
     mod._settings = None
     (tmp_data_root / "config.yaml").write_text(_CONFIG)
     return tmp_data_root
@@ -77,6 +79,7 @@ def data_root(tmp_data_root: Path, monkeypatch) -> Path:
 
 def _admin_client(data_root: Path) -> TestClient:
     from portal.app import create_app
+
     app = create_app()
     test_router = APIRouter()
 
@@ -93,6 +96,7 @@ def _admin_client(data_root: Path) -> TestClient:
 
 def _anon_client(data_root: Path) -> TestClient:
     from portal.app import create_app
+
     return TestClient(create_app())
 
 
@@ -116,9 +120,11 @@ def _proc_fail(msg: str = "Connection refused") -> MagicMock:
 
 # ── Tests nominaux ────────────────────────────────────────────────────────────
 
+
 def test_bootstrap_returns_public_key_and_updates_config(data_root: Path) -> None:
     """Nominal : génère la clé, met à jour le config, retourne public_key + address + key_path."""
     from portal.config.store import load_global
+
     client = _admin_client(data_root)
 
     with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
@@ -177,6 +183,7 @@ def test_bootstrap_calls_ssh_inject(data_root: Path) -> None:
 
 # ── Tests de rejet de validation ──────────────────────────────────────────────
 
+
 def test_bootstrap_host_not_found(data_root: Path) -> None:
     """Host inexistant → 404."""
     client = _admin_client(data_root)
@@ -218,6 +225,7 @@ def test_bootstrap_invalid_address(data_root: Path) -> None:
 
 # ── Tests d'authentification ──────────────────────────────────────────────────
 
+
 def test_bootstrap_requires_admin_auth(data_root: Path) -> None:
     """Sans session → 401 ou 403."""
     resp = _anon_client(data_root).post("/admin/hosts/ssh-host/bootstrap-ssh", json=_PAYLOAD)
@@ -225,6 +233,7 @@ def test_bootstrap_requires_admin_auth(data_root: Path) -> None:
 
 
 # ── Tests de gestion des erreurs SSH ─────────────────────────────────────────
+
 
 def test_bootstrap_ssh_inject_fails_returns_502(data_root: Path) -> None:
     """Échec de l'injection SSH → 502."""

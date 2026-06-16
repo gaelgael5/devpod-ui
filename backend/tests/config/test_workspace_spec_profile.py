@@ -54,8 +54,6 @@ def test_workspace_spec_retro_compat_without_profile() -> None:
 
     from portal.config.models import WorkspaceSpec
 
-    raw = yaml.safe_load(
-        "name: myapp\nsource: github.com/org/repo\nrecipes: []\n"
-    )
+    raw = yaml.safe_load("name: myapp\nsource: github.com/org/repo\nrecipes: []\n")
     spec = WorkspaceSpec.model_validate(raw)
     assert spec.profile is None

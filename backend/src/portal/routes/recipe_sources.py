@@ -27,9 +27,7 @@ _log = structlog.get_logger(__name__)
 
 router_admin = APIRouter(tags=["recipe-sources"])
 
-_DEFAULT_SOURCE = (
-    "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/recipes/toc.txt"
-)
+_DEFAULT_SOURCE = "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/recipes/toc.txt"
 
 
 class RecipeSourcesPayload(BaseModel):
@@ -67,9 +65,7 @@ def _save_sources(sources: list[str]) -> None:
 def _check_ssrf(url: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
-        raise HTTPException(
-            status_code=422, detail=f"URL scheme must be http or https: {url!r}"
-        )
+        raise HTTPException(status_code=422, detail=f"URL scheme must be http or https: {url!r}")
     host = (parsed.hostname or "").rstrip(".").lower()
     if not host:
         raise HTTPException(status_code=422, detail="URL has no hostname")
@@ -190,9 +186,7 @@ async def _fetch_dir_recipe(
     }
 
 
-async def _preview_one_source(
-    client: httpx.AsyncClient, toc_url: str
-) -> list[dict[str, Any]]:
+async def _preview_one_source(client: httpx.AsyncClient, toc_url: str) -> list[dict[str, Any]]:
     base = toc_url.rsplit("/", 1)[0]
     try:
         toc = await _fetch_text(client, toc_url)
@@ -295,9 +289,7 @@ def _write_recipe(
         )
         feature_json: dict[str, Any] = {"id": recipe_id, "version": version}
         if meta.options:
-            feature_json["options"] = {
-                k: v.model_dump() for k, v in meta.options.items()
-            }
+            feature_json["options"] = {k: v.model_dump() for k, v in meta.options.items()}
         (tmp / "devcontainer-feature.json").write_text(
             _json.dumps(feature_json, indent=2), encoding="utf-8"
         )
@@ -349,9 +341,7 @@ async def import_recipe_from_source(
             try:
                 install_script = await _fetch_text(http, body.source_url)
             except Exception as exc:
-                raise HTTPException(
-                    status_code=502, detail=f"Cannot fetch recipe: {exc}"
-                ) from exc
+                raise HTTPException(status_code=502, detail=f"Cannot fetch recipe: {exc}") from exc
         headers = _parse_sh_headers(install_script)
         base_id = fname[:-3] if fname.endswith(".sh") else fname
         version = headers.get("version", "1.0.0")

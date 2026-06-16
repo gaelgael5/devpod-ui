@@ -63,6 +63,7 @@ def data_root_with_ssh(tmp_data_root: Path, monkeypatch) -> Path:
     """Répertoire temporaire avec config SSH et clé factice."""
     monkeypatch.setenv("DEV_MODE", "true")
     import portal.settings as mod
+
     mod._settings = None
 
     key_dir = tmp_data_root / "keys" / "hosts"
@@ -114,8 +115,10 @@ def _assert_ws_closes_with(client: TestClient, path: str, expected_code: int) ->
 
 # ── Tests d'authentification ──────────────────────────────────────────────────
 
+
 def test_ws_rejects_unauthenticated(data_root_with_ssh):
     from portal.app import create_app
+
     app = create_app()
     client = TestClient(app)  # pas de login → pas de session
 
@@ -124,6 +127,7 @@ def test_ws_rejects_unauthenticated(data_root_with_ssh):
 
 def test_ws_rejects_non_admin(data_root_with_ssh):
     from portal.app import create_app
+
     app = create_app()
     test_router = APIRouter()
 
@@ -141,6 +145,7 @@ def test_ws_rejects_non_admin(data_root_with_ssh):
 
 # ── Tests de validation de la config ─────────────────────────────────────────
 
+
 def test_ws_rejects_unknown_host(data_root_with_ssh):
     client = _make_client(data_root_with_ssh)
     _assert_ws_closes_with(client, "/admin/hosts/inexistant/ssh", 4004)
@@ -154,12 +159,14 @@ def test_ws_rejects_docker_tls_host(data_root_with_ssh):
 def test_ws_rejects_empty_key_path(tmp_data_root, monkeypatch):
     monkeypatch.setenv("DEV_MODE", "true")
     import portal.settings as mod
+
     mod._settings = None
 
     config = SSH_HOST_CONFIG.format(key_path="")
     (tmp_data_root / "config.yaml").write_text(config)
 
     from portal.app import create_app
+
     app = create_app()
     client = _inject_admin_session(app)
 
@@ -171,6 +178,7 @@ def test_ws_rejects_key_path_outside_data_root(tmp_data_root, monkeypatch):
 
     monkeypatch.setenv("DEV_MODE", "true")
     import portal.settings as mod
+
     mod._settings = None
 
     # Crée un répertoire totalement séparé de tmp_data_root
@@ -181,6 +189,7 @@ def test_ws_rejects_key_path_outside_data_root(tmp_data_root, monkeypatch):
         (tmp_data_root / "config.yaml").write_text(config)
 
     from portal.app import create_app
+
     app = create_app()
     client = _inject_admin_session(app)
 
@@ -190,12 +199,14 @@ def test_ws_rejects_key_path_outside_data_root(tmp_data_root, monkeypatch):
 def test_ws_rejects_missing_key_file(tmp_data_root, monkeypatch):
     monkeypatch.setenv("DEV_MODE", "true")
     import portal.settings as mod
+
     mod._settings = None
 
     config = SSH_HOST_CONFIG.format(key_path=(tmp_data_root / "keys" / "absent").as_posix())
     (tmp_data_root / "config.yaml").write_text(config)
 
     from portal.app import create_app
+
     app = create_app()
     client = _inject_admin_session(app)
 
@@ -205,6 +216,7 @@ def test_ws_rejects_missing_key_file(tmp_data_root, monkeypatch):
 def test_ws_rejects_bad_origin(tmp_data_root, monkeypatch):
     """Rejette une connexion WebSocket avec un Origin non autorisé (anti-CSWSH)."""
     import portal.settings as mod
+
     monkeypatch.setattr(mod, "_settings", None)
     monkeypatch.setenv("SESSION_SECRET_KEY", "test-secret-for-cswsh")
     monkeypatch.setenv("DEV_MODE", "false")
@@ -218,14 +230,17 @@ def test_ws_rejects_bad_origin(tmp_data_root, monkeypatch):
     (tmp_data_root / "config.yaml").write_text(config)
 
     from portal.app import create_app
+
     app = create_app()
     client = _inject_admin_session(app)
 
-    with pytest.raises(WebSocketDisconnect) as exc_info, \
-         client.websocket_connect(
-             "/admin/hosts/ssh-dev/ssh",
-             headers={"Origin": "https://evil.example.com"},
-         ) as ws:
+    with (
+        pytest.raises(WebSocketDisconnect) as exc_info,
+        client.websocket_connect(
+            "/admin/hosts/ssh-dev/ssh",
+            headers={"Origin": "https://evil.example.com"},
+        ) as ws,
+    ):
         ws.receive_text()
     assert exc_info.value.code == 4003
 

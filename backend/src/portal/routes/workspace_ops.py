@@ -235,9 +235,7 @@ async def workspace_up(
 
     # Pre-flight git : vérifie l'accès au dépôt avant de lancer devpod up
     if req.source:
-        returncode, _, stderr = await run_git_ls_remote(
-            req.source, req.git_credential, user.login
-        )
+        returncode, _, stderr = await run_git_ls_remote(req.source, req.git_credential, user.login)
         if returncode != 0:
             err = stderr.decode(errors="replace").strip() if stderr else ""
             _log.warning(
@@ -250,8 +248,7 @@ async def workspace_up(
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "Dépôt git inaccessible — vérifiez l'URL et les credentials"
-                    f" ({req.source})"
+                    f"Dépôt git inaccessible — vérifiez l'URL et les credentials ({req.source})"
                 ),
             )
 
@@ -340,7 +337,5 @@ async def get_workspace_logs(
     if not log_file.exists():
         raise HTTPException(status_code=404, detail="Log file not found")
     _log.info("workspace_logs_fetched", login=user.login, ws_id=ws_id)
-    content = await asyncio.to_thread(
-        log_file.read_text, encoding="utf-8", errors="replace"
-    )
+    content = await asyncio.to_thread(log_file.read_text, encoding="utf-8", errors="replace")
     return content[-100_000:]

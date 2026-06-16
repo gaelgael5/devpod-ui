@@ -1,4 +1,5 @@
 """Tests des routes /profiles/* et /admin/profiles/* via ASGITransport."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
@@ -65,6 +66,7 @@ async def client(profiles_app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
 # GET /profiles
 # ---------------------------------------------------------------------------
 
+
 async def test_list_returns_200(client: AsyncClient, mock_repo: MagicMock) -> None:
     mock_repo.list.return_value = [MOCK_SUMMARY]
     response = await client.get("/profiles")
@@ -78,6 +80,7 @@ async def test_list_returns_200(client: AsyncClient, mock_repo: MagicMock) -> No
 # ---------------------------------------------------------------------------
 # GET /profiles/{scope}/{slug}
 # ---------------------------------------------------------------------------
+
 
 async def test_get_returns_profile(client: AsyncClient, mock_repo: MagicMock) -> None:
     mock_repo.get.return_value = MOCK_PROFILE
@@ -101,6 +104,7 @@ async def test_get_invalid_scope_returns_422(client: AsyncClient) -> None:
 # POST /profiles
 # ---------------------------------------------------------------------------
 
+
 async def test_create_returns_201(client: AsyncClient, mock_repo: MagicMock) -> None:
     mock_repo.create.return_value = MOCK_PROFILE
     response = await client.post(
@@ -114,6 +118,7 @@ async def test_create_returns_201(client: AsyncClient, mock_repo: MagicMock) -> 
 # ---------------------------------------------------------------------------
 # PUT /profiles/{slug}
 # ---------------------------------------------------------------------------
+
 
 async def test_update_returns_200(client: AsyncClient, mock_repo: MagicMock) -> None:
     mock_repo.update.return_value = MOCK_PROFILE
@@ -137,6 +142,7 @@ async def test_update_not_found_returns_404(client: AsyncClient, mock_repo: Magi
 # DELETE /profiles/{slug}
 # ---------------------------------------------------------------------------
 
+
 async def test_delete_returns_204(client: AsyncClient, mock_repo: MagicMock) -> None:
     mock_repo.delete.return_value = None
     response = await client.delete("/profiles/frontend-react")
@@ -152,6 +158,7 @@ async def test_delete_not_found_returns_404(client: AsyncClient, mock_repo: Magi
 # ---------------------------------------------------------------------------
 # POST /profiles/shared/{slug}/fork
 # ---------------------------------------------------------------------------
+
 
 async def test_fork_returns_201(client: AsyncClient, mock_repo: MagicMock) -> None:
     forked = Profile(
@@ -178,6 +185,7 @@ async def test_fork_not_found_returns_404(client: AsyncClient, mock_repo: MagicM
 # ---------------------------------------------------------------------------
 # Routes admin
 # ---------------------------------------------------------------------------
+
 
 async def test_admin_create_shared_returns_201(client: AsyncClient, mock_repo: MagicMock) -> None:
     shared = Profile(

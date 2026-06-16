@@ -56,9 +56,7 @@ class RecipeMeta(BaseModel):
     @classmethod
     def validate_id(cls, v: str) -> str:
         if not _RECIPE_ID_RE.fullmatch(v):
-            raise ValueError(
-                f"id {v!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$"
-            )
+            raise ValueError(f"id {v!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$")
         return v
 
     @field_validator("requires_secrets", mode="before")
