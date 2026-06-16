@@ -75,14 +75,18 @@ async def list_git_branches(
     returncode, stdout, stderr = await run_git_ls_remote(url, credential, user.login)
 
     if returncode != 0:
+        err = stderr.decode(errors="replace").strip() if stderr else ""
         _log.warning(
             "git_ls_remote_failed",
             login=user.login,
             url=url,
             returncode=returncode,
-            stderr=stderr.decode(errors="replace").strip() if stderr else "",
+            stderr=err,
         )
-        return {"branches": [], "default": None}
+        raise HTTPException(
+            status_code=422,
+            detail=err or "git ls-remote a échoué",
+        )
 
     branches: list[str] = []
     default: str | None = None
