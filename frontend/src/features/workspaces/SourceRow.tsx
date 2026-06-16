@@ -55,7 +55,7 @@ export default function SourceRow({
   // Committed = ce qui déclenche réellement la requête de branches
   const [committed, setCommitted] = useState({ url: '', credential: '' })
 
-  const { data: gitBranches } = useGitBranches(committed.url, committed.credential)
+  const { data: gitBranches, error: branchError } = useGitBranches(committed.url, committed.credential)
 
   const urlHost = extractHost(entry.url)
   const filteredCredentials = credentials.filter(c => !urlHost || c.host === urlHost)
@@ -83,13 +83,19 @@ export default function SourceRow({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entry.credential])
 
+  function handleBranchFocus() {
+    const url = entry.url.trim().replace(/\.git$/, '')
+    if (url.length <= 5) return
+    setCommitted({ url, credential: entry.credential })
+  }
+
   function handleUrlBlur() {
     const url = entry.url.trim().replace(/\.git$/, '')
     if (url.length <= 5) return
     const host = extractHost(url)
     const filtered = credentials.filter(c => !host || c.host === host)
     let credential = entry.credential
-    if (!credential && filtered.length === 1) {
+    if (!credential && filtered.length >= 1) {
       credential = filtered[0].name
       onChange({ ...entry, credential })
     }
@@ -161,10 +167,16 @@ export default function SourceRow({
           id={branchId}
           value={entry.branch}
           onChange={e => onChange({ ...entry, branch: e.target.value })}
+          onFocus={handleBranchFocus}
           placeholder={t('workspaces.form.branchPlaceholder')}
           list={branchListId}
           className="mt-1"
         />
+        {branchError && (
+          <p role="alert" className="mt-1 text-xs text-destructive">
+            {(branchError as Error).message}
+          </p>
+        )}
         <datalist id={branchListId}>
           {gitBranches?.branches.map((b: string) => (
             <option key={b} value={b} />
