@@ -21,6 +21,7 @@ from ..recipes.models import RecipeMeta
 from .env import _find_host, build_env
 from .provider import ensure_provider
 from .runner import run_subprocess
+from .shelve import shelve_if_pending
 
 if TYPE_CHECKING:
     from ..exposure import ExposureService
@@ -259,8 +260,11 @@ class DevPodService:
         self._write_status(ws_id, "stopped", login=login)
         _log.info("workspace_stopped", ws_id=ws_id, login=login)
 
-    async def delete(self, login: str, ws_id: str) -> None:
-        """Supprime un workspace (force)."""
+    async def delete(self, login: str, ws_id: str) -> dict[str, Any]:
+        """Supprime un workspace (force). Shelve le travail en attente avant."""
+        # shelve_if_pending lance devpod ssh (git dans le conteneur), pas une opération
+        # lifecycle DevPod — intentionnellement en dehors du verrou workspace de run_subprocess.
+        branch = await shelve_if_pending(self._devpod_bin, ws_id, self._minimal_env(login))
         await self._stop_port_forward(ws_id)
         if self._exposure is not None:
             try:
@@ -276,7 +280,8 @@ class DevPodService:
         status_path = self._status_path(ws_id)
         if status_path.exists():
             status_path.unlink()
-        _log.info("workspace_deleted", ws_id=ws_id, login=login)
+        _log.info("workspace_deleted", ws_id=ws_id, login=login, recovery_branch=branch)
+        return {"deleted": True, "recovery_branch": branch}
 
     async def status(self, login: str, ws_id: str) -> dict[str, Any]:
         """Retourne l'état courant depuis le fichier de statut."""

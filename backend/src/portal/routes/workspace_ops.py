@@ -293,8 +293,8 @@ async def workspace_delete(
     _validate_name(name)
     ws_id = f"{user.login}-{name}"
     svc = _get_service()
-    await svc.delete(login=user.login, ws_id=ws_id)
-    return {"ws_id": ws_id, "deleted": True}
+    result = await svc.delete(login=user.login, ws_id=ws_id)
+    return {"ws_id": ws_id, **result}
 
 
 @router.get("/workspaces/{name}/status")
