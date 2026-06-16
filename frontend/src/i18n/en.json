@@ -12,11 +12,17 @@
     },
     "actions": {
       "open": "Open",
+      "openVscode": "Open VSCode",
       "stop": "Stop",
       "start": "Start",
       "delete": "Delete",
       "retry": "Retry",
       "edit": "Edit"
+    },
+    "ssh": {
+      "newSession": "New SSH session",
+      "shell": "Shell",
+      "closeLabel": "Close SSH session"
     },
     "form": {
       "name": "Name",
@@ -41,7 +47,15 @@
       "removeRecipeLabel": "Remove {{id}}",
       "profile": "VSCode Profile",
       "profileNone": "— no profile —",
-      "profileShared": "(shared)"
+      "profileShared": "(shared)",
+      "startRecipes": "Start recipes",
+      "addStartRecipe": "Add start recipe",
+      "newStartRecipe": "New start recipe",
+      "startRecipeId": "Recipe ID",
+      "startRecipeScript": "Script (start.sh)",
+      "startRecipeIdHint": "Lowercase letters, numbers, hyphens — 2 to 32 chars",
+      "startRecipeScriptDefault": "#!/usr/bin/env bash\nset -euo pipefail\n",
+      "startRecipeCreated": "Start recipe \"{{id}}\" created."
     },
     "confirm": {
       "deleteTitle": "Delete workspace?",

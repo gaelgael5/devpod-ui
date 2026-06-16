@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Plus } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,11 +17,13 @@ import { useWorkspaceOps, type SourceEntry } from './useWorkspaceOps'
 import { useGitCredentials } from './useGitCredentials'
 import { useRecipes } from '@/features/recipes/useRecipes'
 import { useProfiles } from '@/features/profiles/hooks/useProfiles'
+import { useStartRecipes } from './useStartRecipes'
 import OrderedRecipePicker from '@/features/recipes/OrderedRecipePicker'
 import ProfileSelector from './ProfileSelector'
 import SourceRow from './SourceRow'
 import { useUserStore } from '@/store/user'
 import { useHosts, type HostConfig } from '@/features/admin/useHosts'
+import { apiFetchJson } from '@/shared/api/client'
 
 /** Valeur sentinelle Radix Select pour "pas de nœud choisi" (Radix refuse les strings vides). */
 const HOST_DEFAULT = '__default__'
@@ -56,11 +59,17 @@ export default function WorkspaceCreate() {
   const { data: hosts = [] } = useHosts()
   const { data: credentials = [] } = useGitCredentials()
   const { data: profiles = [] } = useProfiles()
+  const { data: startRecipes = [] } = useStartRecipes()
 
   const [name, setName] = useState('')
   const [sources, setSources] = useState<SourceEntry[]>([])
   const [host, setHost] = useState('')
   const [selectedRecipes, setSelectedRecipes] = useState<string[]>([])
+  const [selectedStartRecipes, setSelectedStartRecipes] = useState<string[]>([])
+  const [showNewStart, setShowNewStart] = useState(false)
+  const [newStartId, setNewStartId] = useState('')
+  const [newStartScript, setNewStartScript] = useState('#!/usr/bin/env bash\nset -euo pipefail\n')
+  const [newStartSaving, setNewStartSaving] = useState(false)
   const [generateSshKey, setGenerateSshKey] = useState(false)
   const [profile, setProfile] = useState('')
   const [nameError, setNameError] = useState('')
@@ -126,6 +135,7 @@ export default function WorkspaceCreate() {
         recipes: selectedRecipes,
         generateSshKey,
         profile: profileRef,
+        startRecipes: selectedStartRecipes,
       })
       navigate('/workspaces')
     } catch (err) {
@@ -221,6 +231,93 @@ export default function WorkspaceCreate() {
             </div>
           </div>
         )}
+
+        {/* ─── Start recipes ──────────────────────────────────────────────── */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <Label>{t('workspaces.form.startRecipes')}</Label>
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowNewStart(s => !s)}>
+              {t('workspaces.form.newStartRecipe')}
+            </Button>
+          </div>
+
+          {startRecipes.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-2">
+              {startRecipes.map((r) => {
+                const selected = selectedStartRecipes.includes(r.id)
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() =>
+                      setSelectedStartRecipes(prev =>
+                        selected ? prev.filter(id => id !== r.id) : [...prev, r.id]
+                      )
+                    }
+                    className={`rounded-sm px-2 py-0.5 text-xs border transition-colors ${
+                      selected
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-muted text-muted-foreground border-border hover:border-primary'
+                    }`}
+                  >
+                    {r.id}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          {showNewStart && (
+            <div className="mt-2 rounded-md border bg-muted/30 p-3 flex flex-col gap-2">
+              <div>
+                <Label htmlFor="new-start-id">{t('workspaces.form.startRecipeId')}</Label>
+                <Input
+                  id="new-start-id"
+                  value={newStartId}
+                  onChange={e => setNewStartId(e.target.value)}
+                  placeholder="my-start"
+                />
+                <p className="text-xs text-muted-foreground mt-0.5">{t('workspaces.form.startRecipeIdHint')}</p>
+              </div>
+              <div>
+                <Label htmlFor="new-start-script">{t('workspaces.form.startRecipeScript')}</Label>
+                <textarea
+                  id="new-start-script"
+                  value={newStartScript}
+                  onChange={e => setNewStartScript(e.target.value)}
+                  rows={4}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono"
+                />
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                disabled={newStartSaving || !newStartId.trim()}
+                onClick={async () => {
+                  setNewStartSaving(true)
+                  try {
+                    await apiFetchJson('/me/start-recipes', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ id: newStartId, script: newStartScript }),
+                    })
+                    toast.success(t('workspaces.form.startRecipeCreated', { id: newStartId }))
+                    setSelectedStartRecipes(prev => [...prev, newStartId])
+                    setNewStartId('')
+                    setNewStartScript('#!/usr/bin/env bash\nset -euo pipefail\n')
+                    setShowNewStart(false)
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : t('errors.generic'))
+                  } finally {
+                    setNewStartSaving(false)
+                  }
+                }}
+              >
+                {t('workspaces.form.addStartRecipe')}
+              </Button>
+            </div>
+          )}
+        </div>
 
         <ProfileSelector profiles={profiles} value={profile} onChange={setProfile} />
 
