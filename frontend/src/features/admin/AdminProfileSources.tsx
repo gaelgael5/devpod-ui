@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, RefreshCw } from 'lucide-react'
+import { Plus, Trash2, RefreshCw, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -19,9 +19,19 @@ export default function AdminProfileSources() {
   } = previewQuery
 
   const [newSourceUrl, setNewSourceUrl] = useState('')
+  const [galleryFilter, setGalleryFilter] = useState('')
 
   const sources = sourcesData?.sources ?? []
   const galleryProfiles = previewData?.profiles ?? []
+  const filteredProfiles = useMemo(() => {
+    const q = galleryFilter.trim().toLowerCase()
+    if (!q) return galleryProfiles
+    return galleryProfiles.filter(
+      (p: RemoteProfile) =>
+        p.name?.toLowerCase().includes(q) ||
+        p.description?.toLowerCase().includes(q)
+    )
+  }, [galleryProfiles, galleryFilter])
 
   function addSource() {
     const url = newSourceUrl.trim()
@@ -104,6 +114,17 @@ export default function AdminProfileSources() {
             {t('admin.refreshGallery')}
           </Button>
         </div>
+        {galleryProfiles.length > 0 && (
+          <div className="relative mb-4">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder={t('admin.profileSources.filter')}
+              value={galleryFilter}
+              onChange={(e) => setGalleryFilter(e.target.value)}
+              className="pl-8 text-sm"
+            />
+          </div>
+        )}
         {isLoadingGallery && (
           <p className="text-sm text-muted-foreground">…</p>
         )}
@@ -112,8 +133,13 @@ export default function AdminProfileSources() {
             {t('admin.profileSources.empty')}
           </p>
         )}
+        {!isLoadingGallery && galleryProfiles.length > 0 && filteredProfiles.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            {t('admin.profileSources.noMatch')}
+          </p>
+        )}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {galleryProfiles.map((p: RemoteProfile) => (
+          {filteredProfiles.map((p: RemoteProfile) => (
             <div key={p.source_url} className="rounded-lg border bg-card p-4">
               <div className="mb-1 flex items-start justify-between gap-2">
                 <div>

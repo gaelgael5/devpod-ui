@@ -158,6 +158,8 @@
       "sources": "Configured Sources",
       "gallery": "Profile Gallery",
       "empty": "No profiles available. Add a source and refresh.",
+      "filter": "Filter profiles…",
+      "noMatch": "No profile matches the filter.",
       "import": "Import",
       "importing": "Importing…",
       "imported": "Profile «{{name}}» imported",
