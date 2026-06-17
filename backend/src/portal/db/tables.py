@@ -114,3 +114,17 @@ profile_sources = Table(
     Column("enabled", Boolean, nullable=False, server_default="true"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
+
+# ─── Tour 3 : Tokens de jointure nœuds ────────────────────────────────────────
+
+node_join_tokens = Table(
+    "node_join_tokens",
+    metadata,
+    Column("token_hash", Text, primary_key=True),
+    Column("node_name", Text, nullable=False),
+    Column("address", Text, nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("used", Boolean, nullable=False, server_default="false"),
+    Column("used_at", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)

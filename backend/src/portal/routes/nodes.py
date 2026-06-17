@@ -6,10 +6,13 @@ import re
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, field_validator
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
 from ..config.store import load_global
-from ..nodes.enroll import CsrValidationError, enroll_node, generate_token
+from ..db.engine import get_conn
+from ..db.tokens import create_token
+from ..nodes.enroll import CsrValidationError, enroll_node
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["nodes"])
@@ -57,9 +60,10 @@ class EnrollRequest(BaseModel):
 async def create_join_token(
     req: TokenRequest,
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
     """Génère un join token à usage unique pour enrôler un nœud. §E-27."""
-    token = generate_token(node_name=req.node_name, address=req.address)
+    token = await create_token(node_name=req.node_name, address=req.address, conn=conn)
     cfg = load_global()
     ext = cfg.server.external_url
     install_cmd = (
@@ -75,13 +79,14 @@ async def create_join_token(
 async def enroll_node_endpoint(
     req: EnrollRequest,
     authorization: str = Header(...),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
     """Enrôlement : auth Bearer join token (pas de session OIDC). §E-27, §E-28."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Bearer token required")
     token = authorization[len("Bearer ") :]
     try:
-        result = await enroll_node(token=token, csr_pem=req.csr)
+        result = await enroll_node(token=token, csr_pem=req.csr, conn=conn)
     except CsrValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ValueError as exc:
