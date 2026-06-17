@@ -5,7 +5,6 @@ import base64
 import contextlib
 import os
 import re
-import shlex
 from urllib.parse import urlparse
 
 import structlog
@@ -111,13 +110,23 @@ async def workspace_ssh_terminal(
     else:
         tmux_cmd = "command -v tmux >/dev/null 2>&1 && tmux new -A -s main || bash -l"
 
-    # ── Build commande devpod ssh ─────────────────────────────────────────────
-    devpod_bin = shlex.split(cfg.devpod.binary, posix=(os.name != "nt"))
-    cmd = [*devpod_bin, "ssh", ws_id, "--command", tmux_cmd]
+    # ── Build commande SSH ────────────────────────────────────────────────────
+    # `devpod up` écrit l'entrée "{ws_id}.devpod" dans ~/.ssh/config avec le
+    # ProxyCommand approprié. On utilise ssh directement avec -t -t pour forcer
+    # l'allocation de PTY côté remote même quand notre stdin est un pipe ;
+    # `devpod ssh --command` n'a pas d'équivalent --pty et produit une session
+    # sans TTY → tmux/bash n'affichent rien.
+    ssh_host = f"{ws_id}.devpod"
+    # Défense contre le flag-smuggling : ws_id contient login+name, tous deux
+    # validés, mais on garde la sentinelle "--" et la vérification de préfixe
+    # comme protection en profondeur.
+    if ssh_host.startswith("-"):
+        await websocket.close(code=4022, reason="Invalid workspace SSH host")
+        return
+    cmd = ["ssh", "-t", "-t", "--", ssh_host, tmux_cmd]
 
-    # DEVPOD_HOME doit pointer vers le répertoire per-user ; sans ça devpod
-    # ne trouve pas la config du workspace et sort avec returncode=1.
-    # HOME est requis pour que ssh(1) trouve ~/.ssh/config écrit par DevPod.
+    # HOME → ssh(1) trouve ~/.ssh/config écrit par devpod up.
+    # DEVPOD_HOME → ProxyCommand "devpod ssh --stdio" trouve la config workspace.
     devpod_env = {
         **dict(os.environ),
         "DEVPOD_HOME": str(safe_user_path(login, "devpod")),
