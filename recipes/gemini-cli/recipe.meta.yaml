@@ -1,0 +1,6 @@
+id: gemini-cli
+key: 7aeaefba-90d2-4e6c-afd4-671f630d7df9
+version: 1.0.0
+description: "Install Gemini CLI (Google) — requiert Node.js"
+installs_after:
+  - 08d27187-d87f-4140-a65e-0891b59441f1
