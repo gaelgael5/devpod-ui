@@ -33,6 +33,7 @@ from .routes.workspace_ssh import router as workspace_ssh_router
 from .routes.static import router as static_router
 from .routes.workspace_ops import _get_service
 from .routes.workspace_ops import router as workspace_ops_router
+from .routes.workspace_sessions import router as workspace_sessions_router
 from .settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -116,6 +117,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(me_router, prefix="/me")
     app.include_router(workspace_ops_router, prefix="/me")
+    app.include_router(workspace_sessions_router, prefix="/me")
     app.include_router(plugins_router)
     app.include_router(recipes_public_router)
     app.include_router(recipes_me_router, prefix="/me")

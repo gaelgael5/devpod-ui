@@ -5,6 +5,7 @@ import base64
 import contextlib
 import os
 import re
+import shlex
 from urllib.parse import urlparse
 
 import structlog
@@ -20,12 +21,14 @@ _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-ssh"])
 
 _WS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
+_SESSION_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,29}$")
 
 
 @router.websocket("/workspaces/{name}/ssh")
 async def workspace_ssh_terminal(
     name: str,
     websocket: WebSocket,
+    session: str | None = None,
     start: str | None = None,
 ) -> None:
     await websocket.accept()
@@ -65,9 +68,16 @@ async def workspace_ssh_terminal(
 
     ws_id = f"{login}-{name}"
 
-    # ── Résolution de la start recipe (si fournie) ────────────────────────────
+    # ── Résolution de la commande tmux ───────────────────────────────────────
     tmux_cmd: str
-    if start is not None:
+    if session is not None:
+        if not _SESSION_NAME_RE.fullmatch(session):
+            await websocket.close(code=4022, reason="Invalid session name")
+            return
+        # Attacher à la session tmux nommée (créée via POST /me/workspaces/{n}/sessions).
+        # `new-session -A` crée si absente — robuste en cas de race condition.
+        tmux_cmd = f"tmux new-session -A -s {shlex.quote(session)}"
+    elif start is not None:
         from ..recipes.models import _RECIPE_ID_RE
 
         if not _RECIPE_ID_RE.fullmatch(start):

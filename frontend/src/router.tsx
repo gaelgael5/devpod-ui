@@ -9,6 +9,7 @@ import AuthCallbackPage from '@/features/auth/AuthCallbackPage'
 
 const WorkspaceList = lazy(() => import('@/features/workspaces/WorkspaceList'))
 const WorkspaceCreate = lazy(() => import('@/features/workspaces/WorkspaceCreate'))
+const WorkspaceTerminals = lazy(() => import('@/features/workspaces/WorkspaceTerminals'))
 const RecipeCatalog = lazy(() => import('@/features/recipes/RecipeCatalog'))
 const AdminHosts = lazy(() => import('@/features/admin/AdminHosts'))
 const AdminRecipes = lazy(() => import('@/features/admin/AdminRecipes'))
@@ -27,6 +28,15 @@ function Wrap({ children }: { children: ReactNode }) {
 export const router = createBrowserRouter([
   { path: '/auth/login', element: <LoginPage /> },
   { path: '/auth/callback', element: <AuthCallbackPage /> },
+  {
+    // Page plein-écran gestion des sessions terminal — hors AppShell
+    path: '/workspaces/:wsName/terminals',
+    element: (
+      <RequireAuth>
+        <Wrap><WorkspaceTerminals /></Wrap>
+      </RequireAuth>
+    ),
+  },
   {
     element: (
       <RequireAuth>

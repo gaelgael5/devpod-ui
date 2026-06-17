@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { FileText, Key } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -15,7 +16,6 @@ import { cn } from '@/lib/utils'
 import type { WorkspaceSpec, WorkspaceStatus, WorkspaceStatusValue } from './types'
 import SshKeyDialog from './SshKeyDialog'
 import LogDialog from './LogDialog'
-import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
   running: 'bg-green-500/10 text-green-600 border-green-500/30',
@@ -38,14 +38,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
   const [sshKeyOpen, setSshKeyOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [sshOpen, setSshOpen] = useState(false)
-  const [sshStartId, setSshStartId] = useState<string | undefined>(undefined)
   const s = status.status
-
-  function openSsh(startId?: string) {
-    setSshStartId(startId)
-    setSshOpen(true)
-  }
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -95,35 +88,11 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
           </Button>
         )}
         {s === 'running' && (
-          <>
-            {spec.start_recipes && spec.start_recipes.length > 0 ? (
-              <div className="relative">
-                <select
-                  className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-                  defaultValue=""
-                  onChange={(e) => {
-                    if (e.target.value === '') return
-                    if (e.target.value === '__shell__') {
-                      openSsh(undefined)
-                    } else {
-                      openSsh(e.target.value)
-                    }
-                    e.target.value = ''
-                  }}
-                >
-                  <option value="" disabled>{t('workspaces.ssh.newSession')}</option>
-                  {spec.start_recipes.map((rid) => (
-                    <option key={rid} value={rid}>{rid}</option>
-                  ))}
-                  <option value="__shell__">{t('workspaces.ssh.shell')}</option>
-                </select>
-              </div>
-            ) : (
-              <Button size="sm" variant="outline" onClick={() => openSsh(undefined)}>
-                {t('workspaces.ssh.shell')}
-              </Button>
-            )}
-          </>
+          <Button size="sm" variant="outline" asChild>
+            <Link to={`/workspaces/${spec.name}/terminals`}>
+              {t('workspaces.terminals.open')}
+            </Link>
+          </Button>
         )}
         {s === 'stopped' && (
           <Button
@@ -187,13 +156,6 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
         open={logsOpen}
         onOpenChange={setLogsOpen}
       />
-      {sshOpen && (
-        <WorkspaceSshTerminalWindow
-          wsName={spec.name}
-          startId={sshStartId}
-          onClose={() => setSshOpen(false)}
-        />
-      )}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

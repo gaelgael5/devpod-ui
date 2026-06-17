@@ -24,6 +24,21 @@
       "shell": "Shell",
       "closeLabel": "Close SSH session"
     },
+    "terminals": {
+      "title": "Sessions",
+      "open": "Terminal",
+      "back": "Workspaces",
+      "newSession": "New session",
+      "noSession": "No active session",
+      "noSessionAction": "Create a session",
+      "createTitle": "New session",
+      "nameLabel": "Name",
+      "namePlaceholder": "session1",
+      "startRecipeLabel": "Startup script",
+      "startRecipeNone": "— none —",
+      "create": "Create",
+      "cancel": "Cancel"
+    },
     "form": {
       "name": "Name",
       "sources": "Git sources",

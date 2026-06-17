@@ -1,0 +1,238 @@
+import { useState, useEffect } from 'react'
+import { useParams, Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { ArrowLeft, Plus, Terminal } from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
+import WorkspaceSessionTerminal from './WorkspaceSessionTerminal'
+import {
+  useWorkspaceSessions,
+  useWorkspaceStartRecipes,
+  useCreateSession,
+  type WorkspaceStartRecipe,
+} from './useWorkspaceSessions'
+
+function computeNextName(sessions: string[]): string {
+  const existing = new Set(sessions)
+  for (let i = 1; i <= 100; i++) {
+    const n = `session${i}`
+    if (!existing.has(n)) return n
+  }
+  return `session${sessions.length + 1}`
+}
+
+// ── Dialog "Nouvelle session" ─────────────────────────────────────────────────
+
+interface CreateDialogProps {
+  wsName: string
+  sessions: string[]
+  startRecipes: WorkspaceStartRecipe[]
+  onClose: () => void
+  onCreate: (name: string) => void
+}
+
+function CreateSessionDialog({ wsName, sessions, startRecipes, onClose, onCreate }: CreateDialogProps) {
+  const { t } = useTranslation()
+  const [name, setName] = useState(() => computeNextName(sessions))
+  const [startRecipe, setStartRecipe] = useState('')
+  const create = useCreateSession()
+
+  function handleSubmit() {
+    create.mutate(
+      { wsName, name, startRecipe: startRecipe || undefined },
+      {
+        onSuccess: () => { onCreate(name); onClose() },
+        onError: (err) => toast.error(err.message),
+      }
+    )
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{t('workspaces.terminals.createTitle')}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="session-name">{t('workspaces.terminals.nameLabel')}</Label>
+            <Input
+              id="session-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t('workspaces.terminals.namePlaceholder')}
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter' && name) handleSubmit() }}
+            />
+          </div>
+          {startRecipes.length > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="session-recipe">{t('workspaces.terminals.startRecipeLabel')}</Label>
+              <select
+                id="session-recipe"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={startRecipe}
+                onChange={(e) => setStartRecipe(e.target.value)}
+              >
+                <option value="">{t('workspaces.terminals.startRecipeNone')}</option>
+                {startRecipes.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.id}{r.description ? ` — ${r.description}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            {t('workspaces.terminals.cancel')}
+          </Button>
+          <Button onClick={handleSubmit} disabled={!name || create.isPending}>
+            {create.isPending ? '…' : t('workspaces.terminals.create')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Page principale ───────────────────────────────────────────────────────────
+
+export default function WorkspaceTerminals() {
+  const { wsName } = useParams<{ wsName: string }>()
+  const { t } = useTranslation()
+  const { data: sessions = [] } = useWorkspaceSessions(wsName)
+  const { data: startRecipes = [] } = useWorkspaceStartRecipes(wsName)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+
+  // Auto-sélection de la première session dès qu'elle est disponible
+  useEffect(() => {
+    if (sessions.length > 0 && selected === null) setSelected(sessions[0])
+  }, [sessions, selected])
+
+  // Si la session sélectionnée disparaît (close tmux), choisir la suivante
+  useEffect(() => {
+    if (selected !== null && sessions.length > 0 && !sessions.includes(selected)) {
+      setSelected(sessions[0])
+    } else if (selected !== null && sessions.length === 0) {
+      setSelected(null)
+    }
+  }, [sessions, selected])
+
+  return (
+    <div className="flex h-screen flex-col bg-background">
+      {/* En-tête */}
+      <header className="flex h-12 flex-shrink-0 items-center gap-3 border-b bg-card px-4">
+        <Button variant="ghost" size="sm" asChild className="gap-1.5 text-muted-foreground hover:text-foreground">
+          <Link to="/workspaces">
+            <ArrowLeft size={14} />
+            {t('workspaces.terminals.back')}
+          </Link>
+        </Button>
+        <div className="h-4 w-px bg-border" />
+        <Terminal size={14} className="text-muted-foreground" />
+        <span className="text-sm font-medium">{wsName}</span>
+      </header>
+
+      {/* Corps */}
+      <div className="flex min-h-0 flex-1">
+        {/* Panneau sessions */}
+        <aside className="flex w-56 flex-shrink-0 flex-col border-r bg-card">
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {t('workspaces.terminals.title')}
+            </span>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              onClick={() => setCreateOpen(true)}
+              title={t('workspaces.terminals.newSession')}
+            >
+              <Plus size={14} />
+            </Button>
+          </div>
+
+          <ul className="flex-1 overflow-y-auto">
+            {sessions.length === 0 ? (
+              <li className="px-3 py-3 text-xs text-muted-foreground">
+                {t('workspaces.terminals.noSession')}
+              </li>
+            ) : (
+              sessions.map((s) => (
+                <li key={s}>
+                  <button
+                    className={cn(
+                      'flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-muted',
+                      selected === s ? 'bg-muted text-foreground' : 'text-muted-foreground'
+                    )}
+                    onClick={() => setSelected(s)}
+                  >
+                    <span className={cn(
+                      'h-1.5 w-1.5 flex-shrink-0 rounded-full',
+                      selected === s ? 'bg-green-500' : 'bg-muted-foreground/40'
+                    )} />
+                    <span className="truncate">{s}</span>
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+
+          <div className="border-t p-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full gap-1.5"
+              onClick={() => setCreateOpen(true)}
+            >
+              <Plus size={13} />
+              {t('workspaces.terminals.newSession')}
+            </Button>
+          </div>
+        </aside>
+
+        {/* Zone terminal */}
+        <div className="flex min-h-0 min-w-0 flex-1">
+          {selected ? (
+            <WorkspaceSessionTerminal
+              key={selected}
+              wsName={wsName!}
+              session={selected}
+            />
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3">
+              <Terminal size={32} className="text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">{t('workspaces.terminals.noSession')}</p>
+              <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
+                {t('workspaces.terminals.noSessionAction')}
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {createOpen && (
+        <CreateSessionDialog
+          wsName={wsName!}
+          sessions={sessions}
+          startRecipes={startRecipes}
+          onClose={() => setCreateOpen(false)}
+          onCreate={(name) => setSelected(name)}
+        />
+      )}
+    </div>
+  )
+}
