@@ -146,3 +146,19 @@ async def create_session(
 
     _log.info("session_created", ws_id=ws_id, session=req.name, start_recipe=req.start_recipe)
     return {"name": req.name}
+
+
+@router.delete("/workspaces/{name}/sessions/{session_name}", status_code=204)
+async def delete_session(
+    name: str,
+    session_name: str,
+    user: UserInfo = Depends(require_user),
+) -> None:
+    _validate_ws_name(name)
+    if not _SESSION_NAME_RE.fullmatch(session_name):
+        raise HTTPException(status_code=422, detail=f"Invalid session name {session_name!r}")
+    ws_id = f"{user.login}-{name}"
+    rc, output = await _ssh(ws_id, user.login, f"tmux kill-session -t {shlex.quote(session_name)}")
+    if rc != 0:
+        raise HTTPException(status_code=502, detail=f"Failed to kill tmux session: {output}")
+    _log.info("session_deleted", ws_id=ws_id, session=session_name)

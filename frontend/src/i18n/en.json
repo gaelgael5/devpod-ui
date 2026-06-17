@@ -37,7 +37,8 @@
       "startRecipeLabel": "Startup script",
       "startRecipeNone": "— none —",
       "create": "Create",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "deleteSession": "Delete session"
     },
     "form": {
       "name": "Name",

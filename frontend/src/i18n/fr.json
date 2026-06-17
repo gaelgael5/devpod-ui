@@ -37,7 +37,8 @@
       "startRecipeLabel": "Script de démarrage",
       "startRecipeNone": "— aucun —",
       "create": "Créer",
-      "cancel": "Annuler"
+      "cancel": "Annuler",
+      "deleteSession": "Supprimer la session"
     },
     "form": {
       "name": "Nom",

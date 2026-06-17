@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, Plus, Terminal } from 'lucide-react'
+import { ArrowLeft, Plus, Terminal, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,6 +19,7 @@ import {
   useWorkspaceSessions,
   useWorkspaceStartRecipes,
   useCreateSession,
+  useDeleteSession,
   type WorkspaceStartRecipe,
 } from './useWorkspaceSessions'
 
@@ -123,6 +124,7 @@ export default function WorkspaceTerminals() {
   const { data: startRecipes = [] } = useWorkspaceStartRecipes(wsName)
   const [selected, setSelected] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const deleteSession = useDeleteSession()
 
   // Auto-sélection de la première session dès qu'elle est disponible
   useEffect(() => {
@@ -179,10 +181,10 @@ export default function WorkspaceTerminals() {
               </li>
             ) : (
               sessions.map((s) => (
-                <li key={s}>
+                <li key={s} className="group relative">
                   <button
                     className={cn(
-                      'flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-muted',
+                      'flex w-full items-center gap-2 px-3 py-2 pr-8 text-sm transition-colors hover:bg-muted',
                       selected === s ? 'bg-muted text-foreground' : 'text-muted-foreground'
                     )}
                     onClick={() => setSelected(s)}
@@ -192,6 +194,19 @@ export default function WorkspaceTerminals() {
                       selected === s ? 'bg-green-500' : 'bg-muted-foreground/40'
                     )} />
                     <span className="truncate">{s}</span>
+                  </button>
+                  <button
+                    className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                    title={t('workspaces.terminals.deleteSession')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteSession.mutate(
+                        { wsName: wsName!, sessionName: s },
+                        { onError: (err) => toast.error(err.message) },
+                      )
+                    }}
+                  >
+                    <X size={12} />
                   </button>
                 </li>
               ))

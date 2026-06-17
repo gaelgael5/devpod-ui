@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson, apiFetch } from '@/shared/api/client'
 
 export interface WorkspaceStartRecipe {
   id: string
@@ -40,6 +40,29 @@ export function useCreateSession() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, start_recipe: startRecipe ?? null }),
       }),
+    onSuccess: (_, { wsName }) => {
+      qc.invalidateQueries({ queryKey: ['workspace-sessions', wsName] })
+    },
+  })
+}
+
+interface DeleteInput {
+  wsName: string
+  sessionName: string
+}
+
+export function useDeleteSession() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ wsName, sessionName }: DeleteInput) => {
+      const res = await apiFetch(`/me/workspaces/${wsName}/sessions/${sessionName}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(text || res.statusText)
+      }
+    },
     onSuccess: (_, { wsName }) => {
       qc.invalidateQueries({ queryKey: ['workspace-sessions', wsName] })
     },
