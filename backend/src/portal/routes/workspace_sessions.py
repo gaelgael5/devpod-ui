@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ..auth.rbac import UserInfo, require_user
 from ..config.store import _data_root, safe_user_path
+from ..recipes.builtin import BUILTIN_RECIPES_DIR
 from ..recipes.models import _RECIPE_ID_RE
 from ..recipes.registry import RecipeRegistry
 
@@ -82,13 +83,27 @@ async def create_session(
         raise HTTPException(status_code=422, detail=f"Invalid session name {req.name!r}")
     ws_id = f"{user.login}-{name}"
 
-    # Vérification de la disponibilité de tmux dans le devcontainer
+    # Vérification de la disponibilité de tmux — auto-installation si absent (fallback B)
     rc_check, _ = await _ssh(ws_id, user.login, "command -v tmux >/dev/null 2>&1")
     if rc_check != 0:
-        raise HTTPException(
-            status_code=422,
-            detail="tmux n'est pas installé dans ce devcontainer — ajoutez-le via une Feature ou dans le Dockerfile.",
+        _log.info("tmux_absent_auto_installing", ws_id=ws_id)
+        rc_inst, out_inst = await _ssh(
+            ws_id,
+            user.login,
+            "DEBIAN_FRONTEND=noninteractive sudo apt-get update -qq 2>&1"
+            " && DEBIAN_FRONTEND=noninteractive sudo apt-get install -y -q tmux 2>&1",
+            timeout=120.0,
         )
+        if rc_inst != 0:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "tmux absent et installation automatique échouée."
+                    " Ajoutez la recipe 'tmux' lors de la création du workspace."
+                    f" Détail : {out_inst}"
+                ),
+            )
+        _log.info("tmux_auto_installed", ws_id=ws_id)
 
     if req.start_recipe is not None:
         if not _RECIPE_ID_RE.fullmatch(req.start_recipe):
@@ -96,7 +111,7 @@ async def create_session(
         data_root = _data_root()
         shared_dir = data_root / "recipes"
         personal_dir = safe_user_path(user.login, "recipes")
-        registry = RecipeRegistry(builtin_dir=None, shared_dir=shared_dir)
+        registry = RecipeRegistry(builtin_dir=BUILTIN_RECIPES_DIR, shared_dir=shared_dir)
         shared = await asyncio.to_thread(registry.load_shared)
         personal = await asyncio.to_thread(registry.load_dir, personal_dir)
         available = {**shared, **personal}

@@ -13,6 +13,7 @@ from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 from ..config.store import _data_root, load_global, safe_user_path
+from ..recipes.builtin import BUILTIN_RECIPES_DIR
 from ..recipes.registry import RecipeRegistry
 from ..settings import get_settings
 
@@ -87,7 +88,7 @@ async def workspace_ssh_terminal(
         data_root = _data_root()
         shared_dir = data_root / "recipes"
         personal_dir = safe_user_path(login, "recipes")
-        registry = RecipeRegistry(builtin_dir=None, shared_dir=shared_dir)
+        registry = RecipeRegistry(builtin_dir=BUILTIN_RECIPES_DIR, shared_dir=shared_dir)
         shared = registry.load_shared()
         personal = registry.load_dir(personal_dir)
         available = {**shared, **personal}

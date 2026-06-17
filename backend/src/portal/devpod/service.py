@@ -17,6 +17,7 @@ import structlog
 from ..config.models import GlobalConfig, SourceSpec, WorkspaceSpec
 from ..config.store import _data_root, load_global, load_user, safe_user_path
 from ..profiles.models import Profile
+from ..recipes.builtin import BUILTIN_RECIPES_DIR
 from ..recipes.models import RecipeMeta
 from .env import HostNotReadyError, _find_host, build_env
 from .provider import ensure_provider
@@ -397,7 +398,11 @@ class DevPodService:
             if recipes:
                 features_block: dict[str, dict[str, Any]] = {}
                 for recipe in recipes:
+                    # Cherche d'abord dans les recettes admin (/data/recipes/),
+                    # puis dans les builtins livrés avec l'image.
                     recipe_dir = _data_root() / "recipes" / recipe.id
+                    if not recipe_dir.is_dir():
+                        recipe_dir = BUILTIN_RECIPES_DIR / recipe.id
                     if recipe_dir.is_dir():
                         shutil.copytree(recipe_dir, tmp_dir / recipe.id)
                         features_block[f"./{recipe.id}"] = {}
