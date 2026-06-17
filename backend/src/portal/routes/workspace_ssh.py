@@ -13,7 +13,8 @@ from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 from ..config.store import _data_root, load_global, safe_user_path
-from ..recipes.registry import RecipeRegistry
+from ..db.engine import _get_engine
+from ..db.recipes import load_recipes_as_dict
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -41,7 +42,11 @@ async def workspace_ssh_terminal(
         allowed_origin = f"{parsed.scheme}://{parsed.netloc}"
         request_origin = websocket.headers.get("origin", "").rstrip("/")
         if request_origin != allowed_origin:
-            _log.warning("ws_workspace_ssh_bad_origin", origin=request_origin, allowed=allowed_origin)
+            _log.warning(
+                "ws_workspace_ssh_bad_origin",
+                origin=request_origin,
+                allowed=allowed_origin,
+            )
             await websocket.close(code=4003, reason="Bad origin")
             return
 
@@ -89,13 +94,10 @@ async def workspace_ssh_terminal(
         data_root = _data_root()
         shared_dir = data_root / "recipes"
         personal_dir = safe_user_path(login, "recipes")
-        registry = RecipeRegistry(builtin_dir=None, shared_dir=shared_dir)
-        shared = registry.load_shared()
-        personal = registry.load_dir(personal_dir)
-        available = {**shared, **personal}
-
+        async with _get_engine().connect() as _conn:
+            available = await load_recipes_as_dict(login, _conn, type_filter="start")
         recipe = available.get(start)
-        if recipe is None or recipe.type != "start":
+        if recipe is None:
             await websocket.close(code=4022, reason=f"Start recipe {start!r} not found")
             return
 
@@ -118,9 +120,12 @@ async def workspace_ssh_terminal(
         script_content = start_sh_path.read_text(encoding="utf-8")
         b64 = base64.b64encode(script_content.encode()).decode()
         run_script = f'bash -lc "$(echo {b64} | base64 -d)"'
-        tmux_cmd = f"command -v tmux >/dev/null 2>&1 && TERM=xterm-256color tmux new -A -s {start} -- {run_script} || {run_script}"
+        tmux_new = f"tmux new -A -s {start} -- {run_script}"
+        has_tmux = "command -v tmux >/dev/null 2>&1"
+        tmux_cmd = f"{has_tmux} && TERM=xterm-256color {tmux_new} || {run_script}"
     else:
-        tmux_cmd = "command -v tmux >/dev/null 2>&1 && TERM=xterm-256color tmux new -A -s main || bash -l"
+        tmux_main = "tmux new -A -s main || bash -l"
+        tmux_cmd = f"command -v tmux >/dev/null 2>&1 && TERM=xterm-256color {tmux_main}"
 
     # ── Build commande SSH ────────────────────────────────────────────────────
     # `devpod up` écrit l'entrée "{ws_id}.devpod" dans ~/.ssh/config avec le

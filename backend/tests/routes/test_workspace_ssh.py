@@ -13,7 +13,6 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 from starlette.websockets import WebSocketDisconnect
 
-
 BASE_CONFIG = {
     "version": "1",
     "server": {
@@ -35,7 +34,10 @@ BASE_CONFIG = {
             "username_claim": "preferred_username",
         }
     },
-    "secrets": {"backend": "inline", "harpocrate": {"url": "", "api_key": "", "base_path": "devpod"}},
+    "secrets": {
+        "backend": "inline",
+        "harpocrate": {"url": "", "api_key": "", "base_path": "devpod"},
+    },
     "devpod": {
         "binary": "devpod",
         "defaults": {"ide": "openvscode", "idle_timeout": "2h", "dotfiles": ""},
@@ -69,7 +71,9 @@ def _make_client(tmp_path: Path, monkeypatch, login: str = "alice") -> TestClien
     return client
 
 
-def _write_start_recipe(data_root: Path, recipe_id: str, scope: str = "shared", login: str = "alice") -> None:
+def _write_start_recipe(
+    data_root: Path, recipe_id: str, scope: str = "shared", login: str = "alice"
+) -> None:
     if scope == "shared":
         recipe_dir = data_root / "recipes" / recipe_id
     else:

@@ -16,6 +16,15 @@ import structlog
 
 from ..config.models import GlobalConfig, SourceSpec, WorkspaceSpec
 from ..config.store import _data_root, load_global, load_user, safe_user_path
+from ..db.engine import _get_engine
+from ..db.log_blobs import persist_log_blob_from_file
+from ..db.workspace_status import (
+    delete_status_db,
+    get_status_db,
+    list_by_login_db,
+    list_running_db,
+    upsert_status_db,
+)
 from ..profiles.models import Profile
 from ..recipes.models import RecipeMeta
 from .env import HostNotReadyError, _find_host, build_env
@@ -92,9 +101,15 @@ class DevPodService:
         ws_id = self._ws_id(login, ws_spec.name)
 
         if generate_ssh_key:
-            from ..ssh_keys import ensure_workspace_ssh_key
+            from ..db.ssh_keys import upsert_ssh_key_db
+            from ..ssh_keys import ensure_workspace_ssh_key, get_workspace_ssh_key_path
 
-            await asyncio.to_thread(ensure_workspace_ssh_key, login, ws_spec.name)
+            pub_key = await asyncio.to_thread(ensure_workspace_ssh_key, login, ws_spec.name)
+            priv_path = get_workspace_ssh_key_path(login, ws_spec.name)
+            async with _get_engine().begin() as _conn:
+                await upsert_ssh_key_db(
+                    login, ws_spec.name, str(priv_path), pub_key, _conn
+                )
 
         # Rechargement systématique : la liste des hosts évolue pendant la vie du singleton
         global_cfg = load_global()
@@ -194,7 +209,7 @@ class DevPodService:
         # Source unique ou image seule → ouvrir directement /workspaces/{ws_id}.
         workspace_folder = "/workspaces" if ws_spec.extra_sources else f"/workspaces/{ws_id}"
 
-        self._write_status(ws_id, "provisioning", login=login)
+        await self._write_status(ws_id, "provisioning", login=login)
 
         task = asyncio.create_task(
             self._run_up_task(
@@ -222,23 +237,18 @@ class DevPodService:
         return ws_id
 
     async def reconcile_port_forwards(self) -> None:
-        """Au démarrage, relance les tunnels SSH des workspaces running persistés sur disque.
+        """Au démarrage, relance les tunnels SSH des workspaces running persistés en DB.
 
         Si le container portal redémarre, les process ssh -L sont perdus mais le devcontainer
-        reste actif sur le nœud distant.  Cette méthode relit les routes/*.json et rétablit
+        reste actif sur le nœud distant.  Cette méthode relit workspace_status et rétablit
         les tunnels manquants sans relancer devpod up.
         """
-        routes_dir = _data_root() / "routes"
-        if not routes_dir.exists():
-            return
         global_cfg = load_global()
         minimal_env = {"HOME": os.environ.get("HOME", "/root")}
-        for f in routes_dir.glob("*.json"):
-            try:
-                data = json.loads(f.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                continue
-            if data.get("status") != "running" or data.get("host_type") != "ssh":
+        async with _get_engine().connect() as conn:
+            running_rows = await list_running_db(conn)
+        for data in running_rows:
+            if data.get("host_type") != "ssh":
                 continue
             ws_id: str = data.get("ws_id", "")
             host_port_raw = data.get("host_port")
@@ -282,7 +292,9 @@ class DevPodService:
         cmd = [*self._devpod_bin, "stop", ws_id]
         log_path = self._log_path(login, f"{ws_id}-stop")
         await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
-        self._write_status(ws_id, "stopped", login=login)
+        async with _get_engine().begin() as _conn:
+            await persist_log_blob_from_file(ws_id, login, "stop", log_path, _conn)
+        await self._write_status(ws_id, "stopped", login=login)
         _log.info("workspace_stopped", ws_id=ws_id, login=login)
 
     async def delete(self, login: str, ws_id: str, *, shelve: bool = True) -> dict[str, Any]:
@@ -304,73 +316,46 @@ class DevPodService:
         rc = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
         if rc != 0:
             _log.warning("workspace_delete_failed", ws_id=ws_id, returncode=rc)
-        status_path = self._status_path(ws_id)
-        if status_path.exists():
-            status_path.unlink()
+        async with _get_engine().begin() as conn:
+            await persist_log_blob_from_file(ws_id, login, "delete", log_path, conn)
+            await delete_status_db(ws_id, conn)
         _log.info("workspace_deleted", ws_id=ws_id, login=login, recovery_branch=branch)
         return {"deleted": True, "recovery_branch": branch}
 
     async def status(self, login: str, ws_id: str) -> dict[str, Any]:
-        """Retourne l'état courant depuis le fichier de statut."""
-        path = self._status_path(ws_id)
-        if not path.exists():
+        """Retourne l'état courant depuis la DB."""
+        async with _get_engine().connect() as conn:
+            row = await get_status_db(ws_id, conn)
+        if row is None:
             return {"ws_id": ws_id, "status": "unknown"}
-        return json.loads(path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+        return {k: v for k, v in row.items() if v is not None or k in ("ws_id", "status", "login")}
 
     async def list_workspaces(self, login: str) -> list[dict[str, Any]]:
-        """Liste les workspaces du user depuis les fichiers de statut."""
-        routes_dir = _data_root() / "routes"
-        if not routes_dir.exists():
-            return []
-        results: list[dict[str, Any]] = []
-        for f in routes_dir.glob("*.json"):
-            try:
-                data = json.loads(f.read_text(encoding="utf-8"))
-                if data.get("login") == login:
-                    results.append(data)
-            except json.JSONDecodeError:
-                pass
-        return results
+        """Liste les workspaces du user depuis la DB."""
+        async with _get_engine().connect() as conn:
+            rows = await list_by_login_db(login, conn)
+        return [{k: v for k, v in r.items() if v is not None} for r in rows]
 
-    def get_port(self, ws_id: str) -> int | None:
-        """Retourne le port hôte alloué depuis le fichier de statut."""
-        path = self._status_path(ws_id)
-        if not path.exists():
+    async def get_port(self, ws_id: str) -> int | None:
+        """Retourne le port hôte alloué depuis la DB."""
+        async with _get_engine().connect() as conn:
+            row = await get_status_db(ws_id, conn)
+        if row is None:
             return None
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            p = data.get("host_port")
-            return int(p) if p is not None else None
-        except (json.JSONDecodeError, ValueError, OSError):
-            return None
+        p = row.get("host_port")
+        return int(p) if p is not None else None
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _status_path(self, ws_id: str) -> Path:
-        return _data_root() / "routes" / f"{ws_id}.json"
-
     def _log_path(self, login: str, ws_id: str) -> Path:
         return _data_root() / "logs" / login / f"{ws_id}.log"
 
-    def _write_status(self, ws_id: str, status: str, login: str = "", **extra: Any) -> None:
-        """Écrit atomiquement le fichier de statut."""
-        path = self._status_path(ws_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        data: dict[str, Any] = {"ws_id": ws_id, "status": status}
-        if login:
-            data["login"] = login
-        data.update(extra)
-        fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=f"-{ws_id}.tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(data, f)
-            os.replace(tmp_path, path)
-        except Exception:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp_path)
-            raise
+    async def _write_status(self, ws_id: str, status: str, login: str = "", **extra: Any) -> None:
+        """Persiste le statut du workspace en DB."""
+        async with _get_engine().begin() as conn:
+            await upsert_status_db(ws_id, status, conn, login=login, **extra)
 
     def _write_devcontainer(
         self,
@@ -604,6 +589,8 @@ class DevPodService:
             returncode = await run_subprocess(
                 cmd=cmd, env=subprocess_env, log_path=log_path, ws_id=ws_id
             )
+            async with _get_engine().begin() as _conn:
+                await persist_log_blob_from_file(ws_id, login, "up", log_path, _conn)
             status = "running" if returncode == 0 else "failed"
             extra: dict[str, Any] = {
                 "returncode": returncode,
@@ -640,13 +627,13 @@ class DevPodService:
                     )
             elif host_port is not None:
                 extra["host_port"] = host_port
-            self._write_status(ws_id, status, login=login, **extra)
+            await self._write_status(ws_id, status, login=login, **extra)
             if returncode != 0:
                 _log.warning("workspace_up_failed", ws_id=ws_id, returncode=returncode)
             else:
                 _log.info("workspace_up_done", ws_id=ws_id, login=login)
         except Exception as exc:
-            self._write_status(ws_id, "failed", login=login, error=type(exc).__name__)
+            await self._write_status(ws_id, "failed", login=login, error=type(exc).__name__)
             _log.error("workspace_up_crashed", ws_id=ws_id, error=type(exc).__name__)
         finally:
             if dc_path is not None:

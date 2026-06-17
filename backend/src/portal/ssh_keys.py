@@ -18,7 +18,12 @@ from .config.store import safe_user_path
 
 
 def ensure_workspace_ssh_key(login: str, workspace_name: str) -> str:
-    """Génère la paire Ed25519 pour un workspace si absente. Retourne la clé publique."""
+    """Génère la paire Ed25519 pour un workspace si absente. Retourne la clé publique.
+
+    Dual-store : clé privée sur filesystem (0o600), métadonnées en DB via
+    `ensure_workspace_ssh_key_db` appelé séparément par les routes (évite les
+    dépendances circulaires entre ce module sync et la couche async DB).
+    """
     key_dir = safe_user_path(login, "keys", "workspaces", workspace_name)
     pub_path = key_dir / "id_ed25519.pub"
     priv_path = key_dir / "id_ed25519"
@@ -37,6 +42,11 @@ def ensure_workspace_ssh_key(login: str, workspace_name: str) -> str:
     _atomic_write(pub_path, public_str.encode("ascii"), mode=0o644)
 
     return public_str
+
+
+def get_workspace_ssh_key_path(login: str, workspace_name: str) -> Path:
+    """Retourne le chemin absolu de la clé privée (peut ne pas exister)."""
+    return safe_user_path(login, "keys", "workspaces", workspace_name) / "id_ed25519"
 
 
 def generate_git_credential_ssh_key(login: str, cred_name: str) -> tuple[str, str]:

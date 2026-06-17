@@ -169,6 +169,8 @@ async def _register_host(node_name: str, address: str) -> None:
 
 async def enroll_node(token: str, csr_pem: str, conn: AsyncConnection) -> dict[str, str]:
     """Consomme le token, valide + signe la CSR, enregistre le nœud."""
+    from ..db.node_certs import save_node_cert_db
+
     node_name, address = await consume_token_db(token, conn)
     _log.info("join_token_consumed", node_name=node_name)
 
@@ -188,6 +190,22 @@ async def enroll_node(token: str, csr_pem: str, conn: AsyncConnection) -> dict[s
     )
     _save_node_cert(node_name, cert_pem)
     await _register_host(node_name, address)
+
+    # Persistance en DB : extraction des métadonnées depuis le certificat signé
+    cert_obj = x509.load_pem_x509_certificate(cert_pem)
+    serial_hex = format(cert_obj.serial_number, "x")
+    signed_at = cert_obj.not_valid_before_utc
+    expires_at = cert_obj.not_valid_after_utc
+    await save_node_cert_db(
+        node_name=node_name,
+        address=address,
+        cert_pem=cert_pem.decode(),
+        serial_number=serial_hex,
+        signed_at=signed_at,
+        expires_at=expires_at,
+        conn=conn,
+    )
+
     return {
         "cert_pem": cert_pem.decode(),
         "ca_pem": ca_pem.decode(),

@@ -1,38 +1,19 @@
 from __future__ import annotations
 
-import asyncio
-import contextlib
-import json
-import os
 import re
-import tempfile
-from pathlib import Path
 from urllib.parse import urlparse
 
 import structlog
 
+from ..db.engine import _get_engine
+from ..db.workspace_status import get_status_db, upsert_status_db
 from .caddy import CaddyClient
 from .ports import PortRegistry
 
 _log = structlog.get_logger(__name__)
 
-# Regex de validation des ws_id : même contrainte que les logins utilisateur.
-# Format : alphanumérique, tirets, points, underscores ; 2–40 caractères.
+# Regex de validation des ws_id (défense en profondeur, les ws_id sont générés en interne).
 _WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,38}[a-z0-9]$")
-
-
-def _safe_route_path(ws_id: str, data_root: Path) -> Path:
-    """Retourne le chemin vers routes/<ws_id>.json après validation du ws_id.
-
-    Lève ValueError si ws_id contient des caractères interdits (path traversal, etc.).
-    """
-    if not _WS_ID_RE.fullmatch(ws_id):
-        raise ValueError(f"Invalid ws_id: {ws_id!r}")
-    routes_dir = data_root / "routes"
-    path = routes_dir / f"{ws_id}.json"
-    if not path.is_relative_to(routes_dir):
-        raise ValueError(f"Path escapes routes directory: {path!r}")
-    return path
 
 
 class ExposureService:
@@ -49,7 +30,6 @@ class ExposureService:
         self,
         caddy: CaddyClient,
         registry: PortRegistry,
-        data_root: Path,
         base_domain: str,
         url_scheme: str = "https",
         dev_mode: bool = False,
@@ -58,7 +38,6 @@ class ExposureService:
     ) -> None:
         self._caddy = caddy
         self._registry = registry
-        self._data_root = data_root
         self._base_domain = base_domain
         self._url_scheme = url_scheme
         self._dev_mode = dev_mode
@@ -98,6 +77,8 @@ class ExposureService:
         Returns:
             URL publique du workspace.
         """
+        if not _WS_ID_RE.fullmatch(ws_id):
+            raise ValueError(f"Invalid ws_id: {ws_id!r}")
         folder = workspace_folder or f"/workspaces/{ws_id}"
         if self._dev_mode:
             host = (
@@ -107,9 +88,7 @@ class ExposureService:
                 or "localhost"
             )
             url = f"http://{host}:{host_port}/?folder={folder}"
-            await asyncio.to_thread(
-                self._write_exposure, ws_id, hostname=f"{host}:{host_port}", url=url
-            )
+            await self._write_exposure(ws_id, hostname=f"{host}:{host_port}", url=url)
             _log.info("workspace_exposed", ws_id=ws_id, url=url)
             return url
 
@@ -122,7 +101,7 @@ class ExposureService:
             upstream=upstream,
         )
         url = f"{self._url_scheme}://{match_host}/?folder={folder}"
-        await asyncio.to_thread(self._write_exposure, ws_id, hostname=match_host, url=url)
+        await self._write_exposure(ws_id, hostname=match_host, url=url)
         _log.info("workspace_exposed", ws_id=ws_id, url=url)
         return url
 
@@ -137,63 +116,46 @@ class ExposureService:
         if not self._dev_mode:
             route_id = f"ws-{ws_id}"
             await self._caddy.remove_route(route_id)
-        await asyncio.to_thread(self._clear_exposure, ws_id)
+        await self._clear_exposure(ws_id)
         _log.info("workspace_unexposed", ws_id=ws_id)
 
     # ------------------------------------------------------------------
-    # Helpers d'écriture atomique
+    # Helpers DB
     # ------------------------------------------------------------------
 
-    def _read_route(self, ws_id: str) -> dict[str, object]:
-        """Lit routes/<ws_id>.json ; retourne un dict vide (avec ws_id) si absent/corrompu."""
-        path = self._data_root / "routes" / f"{ws_id}.json"
-        if path.exists():
-            try:
-                parsed = json.loads(path.read_text(encoding="utf-8"))
-                if isinstance(parsed, dict):
-                    return parsed
-            except (json.JSONDecodeError, OSError):
-                pass
-        return {"ws_id": ws_id}
+    async def _write_exposure(self, ws_id: str, hostname: str, url: str) -> None:
+        """Met à jour workspace_status avec hostname et url (préserve les autres champs)."""
+        async with _get_engine().begin() as conn:
+            existing = await get_status_db(ws_id, conn)
+            if existing is not None:
+                await upsert_status_db(
+                    ws_id,
+                    existing["status"],
+                    conn,
+                    login=existing.get("login", ""),
+                    hostname=hostname,
+                    url=url,
+                    host_port=existing.get("host_port"),
+                    host_type=existing.get("host_type"),
+                    host_name=existing.get("host_name"),
+                )
+            else:
+                await upsert_status_db(ws_id, "running", conn, hostname=hostname, url=url)
 
-    def _write_exposure(self, ws_id: str, hostname: str, url: str) -> None:
-        """Met à jour (ou crée) routes/<ws_id>.json avec hostname et url.
-
-        Préserve les champs existants (status, login, etc.).
-        Écriture atomique : tempfile dans le même répertoire + os.replace.
-        """
-        path = _safe_route_path(ws_id, self._data_root)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        data = self._read_route(ws_id)
-        data.update({"hostname": hostname, "url": url})
-        self._atomic_write(path, data)
-
-    def _clear_exposure(self, ws_id: str) -> None:
-        """Vide hostname et url dans routes/<ws_id>.json.
-
-        No-op si le fichier n'existe pas.
-        """
-        path = _safe_route_path(ws_id, self._data_root)
-        if not path.exists():
-            return
-        data = self._read_route(ws_id)
-        data.update({"hostname": "", "url": ""})
-        self._atomic_write(path, data)
-
-    @staticmethod
-    def _atomic_write(path: Path, data: dict[str, object]) -> None:
-        """Écrit data en JSON de façon atomique via tempfile + os.replace."""
-        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=f"-{path.stem}.tmp")
-        fd_open = False
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                fd_open = True
-                json.dump(data, f)
-            os.replace(tmp, path)
-        except Exception:
-            if not fd_open:
-                with contextlib.suppress(OSError):
-                    os.close(fd)
-            with contextlib.suppress(OSError):
-                os.unlink(tmp)
-            raise
+    async def _clear_exposure(self, ws_id: str) -> None:
+        """Vide hostname et url dans workspace_status. No-op si absent."""
+        async with _get_engine().begin() as conn:
+            existing = await get_status_db(ws_id, conn)
+            if existing is None:
+                return
+            await upsert_status_db(
+                ws_id,
+                existing["status"],
+                conn,
+                login=existing.get("login", ""),
+                hostname=None,
+                url=None,
+                host_port=existing.get("host_port"),
+                host_type=existing.get("host_type"),
+                host_name=existing.get("host_name"),
+            )

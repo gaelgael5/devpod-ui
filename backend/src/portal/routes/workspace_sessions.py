@@ -9,11 +9,13 @@ import shlex
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..config.store import _data_root, safe_user_path
+from ..db.engine import get_conn
+from ..db.recipes import load_recipes_as_dict
 from ..recipes.models import _RECIPE_ID_RE
-from ..recipes.registry import RecipeRegistry
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-sessions"])
@@ -45,7 +47,7 @@ async def _ssh(ws_id: str, login: str, command: str, timeout: float = 10.0) -> t
     )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.wait()
         return 1, "SSH command timed out"
@@ -76,6 +78,7 @@ async def create_session(
     name: str,
     req: CreateSessionRequest,
     user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
     _validate_ws_name(name)
     if not _SESSION_NAME_RE.fullmatch(req.name):
@@ -112,16 +115,14 @@ async def create_session(
     if req.start_recipe is not None:
         if not _RECIPE_ID_RE.fullmatch(req.start_recipe):
             raise HTTPException(status_code=422, detail=f"Invalid recipe id {req.start_recipe!r}")
-        data_root = _data_root()
-        shared_dir = data_root / "recipes"
+        shared_dir = _data_root() / "recipes"
         personal_dir = safe_user_path(user.login, "recipes")
-        registry = RecipeRegistry(builtin_dir=None, shared_dir=shared_dir)
-        shared = await asyncio.to_thread(registry.load_shared)
-        personal = await asyncio.to_thread(registry.load_dir, personal_dir)
-        available = {**shared, **personal}
+        available = await load_recipes_as_dict(user.login, conn, type_filter="start")
         recipe = available.get(req.start_recipe)
-        if recipe is None or recipe.type != "start":
-            raise HTTPException(status_code=422, detail=f"Start recipe {req.start_recipe!r} not found")
+        if recipe is None:
+            raise HTTPException(
+                status_code=422, detail=f"Start recipe {req.start_recipe!r} not found"
+            )
         recipe_dir = (
             personal_dir / req.start_recipe
             if (personal_dir / req.start_recipe).exists()
@@ -129,7 +130,9 @@ async def create_session(
         )
         start_sh = recipe_dir / "start.sh"
         if not start_sh.exists():
-            raise HTTPException(status_code=422, detail=f"start.sh missing for {req.start_recipe!r}")
+            raise HTTPException(
+                status_code=422, detail=f"start.sh missing for {req.start_recipe!r}"
+            )
         script = await asyncio.to_thread(start_sh.read_text, encoding="utf-8")
         b64 = base64.b64encode(script.encode()).decode()
         run_cmd = f'bash -lc "$(echo {b64} | base64 -d)"'

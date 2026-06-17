@@ -12,11 +12,11 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
-from ..config.store import _data_root
 from ..db.engine import get_conn
+from ..db.profiles import AsyncProfileRepository
 from ..db.sources import load_profile_sources, save_profile_sources
 from ..profiles.models import ProfileBody
-from ..profiles.repository import ProfileRepository, slugify
+from ..profiles.repository import slugify
 from .recipe_sources import _check_ssrf
 
 _log = structlog.get_logger(__name__)
@@ -155,19 +155,14 @@ async def import_profile_from_source(
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Invalid profile YAML: {exc}") from exc
 
-    data_root = _data_root()
     expected_slug = slugify(profile_body.name)
-    shared_dir = data_root / "profiles"
-    shared_dir.mkdir(parents=True, exist_ok=True)
 
-    repo = ProfileRepository(data_root)
-    profile = await asyncio.to_thread(repo.create_shared, profile_body)
+    repo = AsyncProfileRepository()
+    profile = await repo.create_shared(profile_body)
 
     if profile.slug != expected_slug:
-        # create_shared a auto-renommé → conflit de slug (race condition TOCTOU)
-        await asyncio.to_thread(
-            lambda: (shared_dir / f"{profile.slug}.yaml").unlink(missing_ok=True)
-        )
+        # create_shared a auto-renommé → conflit de slug
+        await repo.delete_shared(profile.slug)
         raise HTTPException(status_code=409, detail="profile_slug_conflict")
 
     _log.info("profile_imported", slug=profile.slug, source=body.source_url, by=user.login)

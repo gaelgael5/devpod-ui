@@ -1,19 +1,11 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 
-@pytest.fixture
-def data_root(tmp_path: Path) -> Path:
-    (tmp_path / "routes").mkdir(parents=True)
-    return tmp_path
-
-
-def _make_exposure_service(data_root: Path, caddy_mock=None, registry_mock=None):
+def _make_exposure_service(caddy_mock=None, registry_mock=None):
     """Fabrique un ExposureService avec CaddyClient et PortRegistry mockés."""
     from portal.exposure import ExposureService
     from portal.exposure.caddy import CaddyClient
@@ -30,7 +22,6 @@ def _make_exposure_service(data_root: Path, caddy_mock=None, registry_mock=None)
         ExposureService(
             caddy=caddy,
             registry=registry,
-            data_root=data_root,
             base_domain="dev.yoops.org",
         ),
         caddy,
@@ -39,9 +30,9 @@ def _make_exposure_service(data_root: Path, caddy_mock=None, registry_mock=None)
 
 
 @pytest.mark.asyncio
-async def test_expose_calls_caddy_upsert_route(data_root: Path) -> None:
+async def test_expose_calls_caddy_upsert_route(db_engine) -> None:
     """expose() appelle caddy.upsert_route avec les bons paramètres."""
-    svc, caddy, _ = _make_exposure_service(data_root)
+    svc, caddy, _ = _make_exposure_service()
     url = await svc.expose(ws_id="alice-myapp", node_ip="192.168.1.50", host_port=41000)
     caddy.upsert_route.assert_awaited_once_with(
         route_id="ws-alice-myapp",
@@ -52,88 +43,96 @@ async def test_expose_calls_caddy_upsert_route(data_root: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_expose_writes_hostname_and_url_to_routes_file(data_root: Path) -> None:
-    """expose() écrit hostname et url dans routes/<ws_id>.json."""
-    svc, _, _ = _make_exposure_service(data_root)
+async def test_expose_writes_hostname_and_url_to_db(db_engine) -> None:
+    """expose() écrit hostname et url en DB (workspace_status)."""
+    from portal.db.engine import _get_engine
+    from portal.db.workspace_status import get_status_db
+
+    svc, _, _ = _make_exposure_service()
     await svc.expose(ws_id="alice-myapp", node_ip="192.168.1.50", host_port=41000)
-    route_file = data_root / "routes" / "alice-myapp.json"
-    assert route_file.exists()
-    data = json.loads(route_file.read_text(encoding="utf-8"))
-    assert data["hostname"] == "ws-alice-myapp.dev.yoops.org"
-    assert data["url"] == "https://ws-alice-myapp.dev.yoops.org/?folder=/workspaces/alice-myapp"
+
+    async with _get_engine().connect() as conn:
+        row = await get_status_db("alice-myapp", conn)
+    assert row is not None
+    assert row["hostname"] == "ws-alice-myapp.dev.yoops.org"
+    assert row["url"] == "https://ws-alice-myapp.dev.yoops.org/?folder=/workspaces/alice-myapp"
 
 
 @pytest.mark.asyncio
-async def test_expose_preserves_existing_fields(data_root: Path) -> None:
-    """expose() ne supprime pas les champs existants dans routes/<ws_id>.json."""
-    # Pré-remplir le fichier avec un status existant
-    route_file = data_root / "routes" / "alice-myapp.json"
-    route_file.write_text(
-        json.dumps({"ws_id": "alice-myapp", "status": "running", "login": "alice"}),
-        encoding="utf-8",
-    )
-    svc, _, _ = _make_exposure_service(data_root)
+async def test_expose_preserves_existing_fields(db_engine) -> None:
+    """expose() ne supprime pas les champs existants dans workspace_status."""
+    from portal.db.engine import _get_engine
+    from portal.db.workspace_status import get_status_db, upsert_status_db
+
+    async with _get_engine().begin() as conn:
+        await upsert_status_db("alice-myapp", "running", conn, login="alice")
+
+    svc, _, _ = _make_exposure_service()
     await svc.expose(ws_id="alice-myapp", node_ip="192.168.1.50", host_port=41000)
-    data = json.loads(route_file.read_text(encoding="utf-8"))
-    assert data["status"] == "running"
-    assert data["login"] == "alice"
-    assert data["hostname"] == "ws-alice-myapp.dev.yoops.org"
-    assert data["url"] == "https://ws-alice-myapp.dev.yoops.org/?folder=/workspaces/alice-myapp"
+
+    async with _get_engine().connect() as conn:
+        row = await get_status_db("alice-myapp", conn)
+    assert row is not None
+    assert row["status"] == "running"
+    assert row["login"] == "alice"
+    assert row["hostname"] == "ws-alice-myapp.dev.yoops.org"
 
 
 @pytest.mark.asyncio
-async def test_unexpose_calls_caddy_remove_route(data_root: Path) -> None:
+async def test_unexpose_calls_caddy_remove_route(db_engine) -> None:
     """unexpose() appelle caddy.remove_route avec le bon route_id."""
-    svc, caddy, _ = _make_exposure_service(data_root)
+    svc, caddy, _ = _make_exposure_service()
     await svc.unexpose(ws_id="alice-myapp")
     caddy.remove_route.assert_awaited_once_with("ws-alice-myapp")
 
 
 @pytest.mark.asyncio
-async def test_unexpose_clears_hostname_and_url(data_root: Path) -> None:
-    """unexpose() vide hostname et url dans routes/<ws_id>.json sans supprimer le fichier."""
-    route_file = data_root / "routes" / "alice-myapp.json"
-    route_file.write_text(
-        json.dumps(
-            {
-                "ws_id": "alice-myapp",
-                "status": "stopped",
-                "login": "alice",
-                "hostname": "ws-alice-myapp.dev.yoops.org",
-                "url": "https://ws-alice-myapp.dev.yoops.org",
-            }
-        ),
-        encoding="utf-8",
-    )
-    svc, _, _ = _make_exposure_service(data_root)
+async def test_unexpose_clears_hostname_and_url(db_engine) -> None:
+    """unexpose() vide hostname et url dans workspace_status sans supprimer la ligne."""
+    from portal.db.engine import _get_engine
+    from portal.db.workspace_status import get_status_db, upsert_status_db
+
+    async with _get_engine().begin() as conn:
+        await upsert_status_db(
+            "alice-myapp",
+            "stopped",
+            conn,
+            login="alice",
+            hostname="ws-alice-myapp.dev.yoops.org",
+            url="https://ws-alice-myapp.dev.yoops.org",
+        )
+
+    svc, _, _ = _make_exposure_service()
     await svc.unexpose(ws_id="alice-myapp")
-    data = json.loads(route_file.read_text(encoding="utf-8"))
-    assert data["hostname"] == ""
-    assert data["url"] == ""
-    assert data["status"] == "stopped"  # autres champs préservés
+
+    async with _get_engine().connect() as conn:
+        row = await get_status_db("alice-myapp", conn)
+    assert row is not None
+    assert row["hostname"] is None
+    assert row["url"] is None
+    assert row["status"] == "stopped"
 
 
 @pytest.mark.asyncio
-async def test_unexpose_no_op_if_no_file(data_root: Path) -> None:
-    """unexpose() ne lève pas d'exception si le fichier de route n'existe pas."""
-    svc, caddy, _ = _make_exposure_service(data_root)
-    # Pas d'exception attendue
+async def test_unexpose_no_op_if_not_in_db(db_engine) -> None:
+    """unexpose() ne lève pas d'exception si le ws_id n'est pas en DB."""
+    svc, caddy, _ = _make_exposure_service()
     await svc.unexpose(ws_id="ghost-workspace")
     caddy.remove_route.assert_awaited_once_with("ws-ghost-workspace")
 
 
 @pytest.mark.asyncio
-async def test_allocate_port_delegates_to_registry(data_root: Path) -> None:
+async def test_allocate_port_delegates_to_registry(db_engine) -> None:
     """allocate_port() délègue à registry.allocate() et retourne le port."""
-    svc, _, registry = _make_exposure_service(data_root)
+    svc, _, registry = _make_exposure_service()
     port = await svc.allocate_port("alice-myapp")
     assert port == 41000
     registry.allocate.assert_awaited_once_with("alice-myapp")
 
 
 @pytest.mark.asyncio
-async def test_expose_rejects_path_traversal_ws_id(data_root: Path) -> None:
+async def test_expose_rejects_path_traversal_ws_id(db_engine) -> None:
     """expose() rejette un ws_id contenant un path traversal."""
-    svc, _, _ = _make_exposure_service(data_root)
+    svc, _, _ = _make_exposure_service()
     with pytest.raises(ValueError):
         await svc.expose(ws_id="../secret", node_ip="192.168.1.50", host_port=41000)

@@ -1,4 +1,3 @@
-# backend/src/portal/routes/recipes.py
 from __future__ import annotations
 
 import asyncio
@@ -14,11 +13,13 @@ import structlog
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, field_validator
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin, require_user
 from ..config.store import _data_root, safe_user_path
+from ..db.engine import get_conn
+from ..db.recipes import delete_recipe_db, list_recipes_db, load_recipes_as_dict, upsert_recipe_db
 from ..recipes.models import _RECIPE_ID_RE, RecipeMeta
-from ..recipes.registry import RecipeRegistry
 
 _log = structlog.get_logger(__name__)
 
@@ -65,20 +66,14 @@ def _validate_recipe_id(recipe_id: str) -> None:
 async def list_recipes(
     user: UserInfo = Depends(require_user),
     recipe_type: str | None = Query(default=None, alias="type"),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, Any]]:
     """Liste les recettes partagées + personnelles visibles par l'utilisateur.
 
     Paramètre optionnel `?type=install|start` pour filtrer par type.
     """
-    data_root = _data_root()
-    shared_dir = data_root / "recipes"
-    personal_dir = safe_user_path(user.login, "recipes")
-    registry = RecipeRegistry(builtin_dir=None, shared_dir=shared_dir)
-    shared = await asyncio.to_thread(registry.load_shared)
-    personal = await asyncio.to_thread(registry.load_dir, personal_dir)
-    available = {**shared, **personal}
-    if recipe_type in ("install", "start"):
-        available = RecipeRegistry.filter_by_type(available, recipe_type)
+    type_filter = recipe_type if recipe_type in ("install", "start") else None
+    available = await load_recipes_as_dict(user.login, conn, type_filter=type_filter)
     return [m.model_dump() for m in available.values()]
 
 
@@ -102,6 +97,7 @@ class StartRecipeCreateRequest(BaseModel):
 async def create_personal_start_recipe(
     body: StartRecipeCreateRequest,
     user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     """Crée une recette start personnelle avec son start.sh."""
     personal_dir = safe_user_path(user.login, "recipes")
@@ -128,6 +124,7 @@ async def create_personal_start_recipe(
             raise
 
     await asyncio.to_thread(_write)
+    await upsert_recipe_db(meta, "user", user.login, conn)
     _log.info("personal_start_recipe_created", recipe_id=body.id, login=user.login)
     return meta.model_dump()
 
@@ -136,6 +133,7 @@ async def create_personal_start_recipe(
 async def delete_personal_recipe(
     recipe_id: str,
     user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     """Supprime une recette personnelle."""
     _validate_recipe_id(recipe_id)
@@ -149,6 +147,7 @@ async def delete_personal_recipe(
     if not recipe_path.exists():
         raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
     await asyncio.to_thread(shutil.rmtree, recipe_path)
+    await delete_recipe_db(recipe_id, "user", user.login, conn)
     _log.info("personal_recipe_deleted", login=user.login, recipe_id=recipe_id)
     return {"deleted": recipe_id}
 
@@ -156,15 +155,14 @@ async def delete_personal_recipe(
 @router_admin.get("/recipes")
 async def admin_list_recipes(
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, Any]]:
     """Liste les recettes partagées (importées / créées) avec install_script (admin only)."""
     data_root = _data_root()
     shared_recipes_dir = data_root / "recipes"
-    shared_metas = await asyncio.to_thread(
-        RecipeRegistry(builtin_dir=None, shared_dir=shared_recipes_dir).load_shared
-    )
+    entries = await list_recipes_db(user.login, conn, scope_filter="shared")
     results: list[dict[str, Any]] = []
-    for meta in shared_metas.values():
+    for _scope, meta in entries:
         entry = meta.model_dump()
         install_sh = shared_recipes_dir / meta.id / "install.sh"
         entry["install_script"] = (
@@ -178,6 +176,7 @@ async def admin_list_recipes(
 async def admin_create_shared_recipe(
     body: RecipeCreateRequest,
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     """Crée une recette partagée avec son install.sh."""
     data_root = _data_root()
@@ -208,6 +207,7 @@ async def admin_create_shared_recipe(
             raise
 
     await asyncio.to_thread(_write)
+    await upsert_recipe_db(meta, "shared", None, conn)
     _log.info("shared_recipe_created", recipe_id=body.id, by=user.login)
     return meta.model_dump()
 
@@ -217,6 +217,7 @@ async def admin_update_shared_recipe(
     recipe_id: str,
     body: RecipeUpdateRequest,
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     """Met à jour version, description et install.sh d'une recette partagée."""
     _validate_recipe_id(recipe_id)
@@ -254,6 +255,7 @@ async def admin_update_shared_recipe(
         (recipe_path / "install.sh").chmod(0o755)
 
     await asyncio.to_thread(_update)
+    await upsert_recipe_db(meta, "shared", None, conn)
     _log.info("shared_recipe_updated", recipe_id=recipe_id, by=user.login)
     entry = meta.model_dump()
     entry["install_script"] = body.install_script
@@ -264,6 +266,7 @@ async def admin_update_shared_recipe(
 async def admin_delete_shared_recipe(
     recipe_id: str,
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     """Supprime une recette partagée admin (ne supprime pas les builtin)."""
     _validate_recipe_id(recipe_id)
@@ -275,5 +278,6 @@ async def admin_delete_shared_recipe(
     if not recipe_path.exists():
         raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
     await asyncio.to_thread(shutil.rmtree, recipe_path)
+    await delete_recipe_db(recipe_id, "shared", None, conn)
     _log.info("shared_recipe_deleted", login=user.login, recipe_id=recipe_id)
     return {"deleted": recipe_id}

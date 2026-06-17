@@ -74,9 +74,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     from .db.engine import _get_engine
     from .db.global_config import warm_global_cache
+    from .db.profiles import AsyncProfileRepository
     from .openvsx import OpenVsxClient, OpenVsxSettings
-    from .profiles.repository import ProfileRepository
-    from .recipes.sync import sync_bundled_recipes
+    from .recipes.sync import sync_bundled_recipes, sync_recipes_to_db
 
     settings_obj = get_settings()
     if settings_obj.database_url:
@@ -93,8 +93,12 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         Path(settings_obj.bundled_recipes_dir),
         data_dir / "recipes",
     )
+    # Synchronisation des métadonnées recipes filesystem → DB
+    if settings_obj.database_url:
+        async with _get_engine().begin() as conn:
+            await sync_recipes_to_db(data_dir / "recipes", conn)
 
-    profile_repo = ProfileRepository(data_dir)
+    profile_repo = AsyncProfileRepository()
     app.dependency_overrides[get_profile_repo] = lambda: profile_repo
     async with httpx.AsyncClient(headers={"User-Agent": "devpod-ui/1.0"}) as http:
         client = OpenVsxClient(OpenVsxSettings(), http)

@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 import structlog
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 _log = structlog.get_logger(__name__)
 
@@ -35,3 +36,13 @@ def sync_bundled_recipes(bundled_dir: Path, data_recipes_dir: Path) -> None:
         except Exception:
             shutil.rmtree(tmp, ignore_errors=True)
             raise
+
+
+async def sync_recipes_to_db(
+    data_recipes_dir: Path, conn: AsyncConnection, *, login: str | None = None
+) -> None:
+    """Synchronise les métadonnées des recipes filesystem → DB. Idempotent."""
+    from ..db.recipes import load_recipes_from_dir_to_db
+
+    scope = "user" if login else "shared"
+    await load_recipes_from_dir_to_db(data_recipes_dir, scope, login, conn)

@@ -1,6 +1,19 @@
 from __future__ import annotations
 
-from sqlalchemy import ARRAY, Boolean, Column, DateTime, ForeignKey, Integer, MetaData, Table, Text, func
+from sqlalchemy import (
+    ARRAY,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    MetaData,
+    Table,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 metadata = MetaData()
@@ -183,15 +196,125 @@ workspaces = Table(
     Column("default_start", Text, nullable=False, server_default=""),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("login", "name", name="uq_workspaces_login_name"),
 )
 
 workspace_extra_sources = Table(
     "workspace_extra_sources",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("workspace_id", Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False),
+    Column(
+        "workspace_id", Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    ),
     Column("position", Integer, nullable=False),
     Column("url", Text, nullable=False),
     Column("branch", Text, nullable=False, server_default=""),
     Column("git_credential", Text, nullable=False, server_default=""),
+)
+
+# ─── Tour 10 : node_certificates (Groupe 4 — dépend de hosts) ───────────────
+
+node_certificates = Table(
+    "node_certificates",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("node_name", Text, nullable=False, unique=True),
+    Column("address", Text, nullable=False),
+    Column("cert_pem", Text, nullable=False),
+    Column("serial_number", Text, nullable=False, server_default=""),
+    Column("signed_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("revoked_at", DateTime(timezone=True), nullable=True),
+)
+
+# ─── Tour 9 : workspace_log_blobs (option B — log complet par opération) ─────
+
+workspace_log_blobs = Table(
+    "workspace_log_blobs",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("ws_id", Text, nullable=False),
+    Column("login", Text, nullable=False),
+    Column("operation", Text, nullable=False, server_default="up"),
+    Column("content", Text, nullable=False),
+    Column("started_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("finished_at", DateTime(timezone=True), nullable=True),
+    UniqueConstraint("ws_id", "operation", "started_at", name="uq_workspace_log_blobs"),
+)
+
+# ─── Tour 8 : workspace_ssh_keys ─────────────────────────────────────────────
+
+workspace_ssh_keys = Table(
+    "workspace_ssh_keys",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("login", Text, nullable=False),
+    Column("workspace_name", Text, nullable=False),
+    Column("private_key_path", Text, nullable=False),
+    Column("public_key", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    ForeignKeyConstraint(
+        ["login", "workspace_name"],
+        ["workspaces.login", "workspaces.name"],
+        ondelete="CASCADE",
+        name="fk_workspace_ssh_keys_workspace",
+    ),
+    UniqueConstraint("login", "workspace_name", name="uq_workspace_ssh_keys_login_ws"),
+)
+
+# ─── Tour 7 : recipes (métadonnées — scripts restent filesystem) ─────────────
+
+recipes = Table(
+    "recipes",
+    metadata,
+    Column("id", Text, nullable=False),
+    # login_key = login or '' — PK composite sans NULL
+    Column("login_key", Text, nullable=False, server_default=""),
+    Column("scope", Text, nullable=False, server_default="shared"),
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=True),
+    Column("key", Text, nullable=False),  # UUID stable, UNIQUE
+    Column("type", Text, nullable=False, server_default="install"),
+    Column("version", Text, nullable=False, server_default="1.0.0"),
+    Column("description", Text, nullable=False, server_default=""),
+    Column("options", JSONB, nullable=False, server_default="{}"),
+    Column("requires_secrets", JSONB, nullable=False, server_default="[]"),
+    Column("installs_after", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# ─── Tour 6 : workspace_status ───────────────────────────────────────────────
+
+workspace_status = Table(
+    "workspace_status",
+    metadata,
+    Column("ws_id", Text, primary_key=True),
+    Column("status", Text, nullable=False),
+    Column("login", Text, nullable=False, server_default=""),
+    Column("host_port", Integer, nullable=True),
+    Column("host_type", Text, nullable=True),
+    Column("host_name", Text, nullable=True),
+    Column("url", Text, nullable=True),
+    Column("hostname", Text, nullable=True),
+    Column("returncode", Integer, nullable=True),
+    Column("error", Text, nullable=True),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# ─── Tour 5 : Profiles ────────────────────────────────────────────────────────
+
+profiles = Table(
+    "profiles",
+    metadata,
+    Column("slug", Text, nullable=False),
+    Column("scope", Text, nullable=False),
+    # login_key = login or '' — permet une PK composite sans NULL
+    Column("login_key", Text, nullable=False, server_default=""),
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=True),
+    Column("name", Text, nullable=False),
+    Column("description", Text, nullable=False, server_default=""),
+    Column("extensions", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("settings", JSONB, nullable=False, server_default="{}"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )

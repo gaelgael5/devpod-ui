@@ -4,7 +4,6 @@ from __future__ import annotations
 import pytest
 import yaml
 
-
 _NODEJS_KEY = "08d27187-d87f-4140-a65e-0891b59441f1"
 
 

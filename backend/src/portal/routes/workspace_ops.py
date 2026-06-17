@@ -10,15 +10,19 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..config.models import ProfileRef, SourceSpec, WorkspaceSpec
 from ..config.store import _data_root, load_global, safe_user_path
+from ..db.engine import get_conn
+from ..db.profiles import AsyncProfileRepository
+from ..db.recipes import load_recipes_as_dict
 from ..devpod.env import HostNotReadyError, UnknownHostError
 from ..devpod.git import run_git_ls_remote
 from ..devpod.service import DevPodService
 from ..profiles.models import Profile
-from ..profiles.repository import ProfileError, ProfileRepository
+from ..profiles.repository import ProfileError
 from ..recipes.models import _RECIPE_ID_RE as _RECIPE_ID_PATTERN
 from ..recipes.models import RecipeMeta, SecretRef
 from ..recipes.registry import DependencyNotFoundError, RecipeRegistry
@@ -98,7 +102,6 @@ def _build_service() -> DevPodService:
         exposure = ExposureService(
             caddy=caddy,
             registry=registry,
-            data_root=data_root,
             base_domain=global_cfg.server.base_domain,
             url_scheme="http" if dev_mode else "https",
             dev_mode=dev_mode,
@@ -147,6 +150,7 @@ async def workspace_up(
     req: UpRequest,
     request: Request,
     user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     _validate_name(name)
 
@@ -173,10 +177,7 @@ async def workspace_up(
 
     if req.recipes:
         reg = _get_recipe_registry()
-        shared = await asyncio.to_thread(reg.load_shared)
-        personal_dir = safe_user_path(user.login, "recipes")
-        personal = await asyncio.to_thread(reg.load_dir, personal_dir)
-        available = {**shared, **personal}
+        available = await load_recipes_as_dict(user.login, conn)
 
         try:
             expanded = reg.expand_with_deps(req.recipes, available)
@@ -214,10 +215,8 @@ async def workspace_up(
     profile_obj: Profile | None = None
     if req.profile is not None:
         try:
-            repo = ProfileRepository(_data_root())
-            profile_obj = await asyncio.to_thread(
-                repo.get, req.profile.scope, req.profile.slug, user.login
-            )
+            repo = AsyncProfileRepository()
+            profile_obj = await repo.get(req.profile.scope, req.profile.slug, user.login)
         except ProfileError:
             _log.warning(
                 "workspace.profile_missing",
@@ -336,6 +335,7 @@ async def get_workspace_ssh_key(
 async def get_workspace_start_recipes(
     name: str,
     user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, Any]]:
     """Liste les recettes start attachées à un workspace."""
     _validate_name(name)
@@ -349,16 +349,12 @@ async def get_workspace_start_recipes(
     if not ws_spec.start_recipes:
         return []
 
-    reg = _get_recipe_registry()
-    shared = await asyncio.to_thread(reg.load_shared)
-    personal_dir = safe_user_path(user.login, "recipes")
-    personal = await asyncio.to_thread(reg.load_dir, personal_dir)
-    available = {**shared, **personal}
+    available = await load_recipes_as_dict(user.login, conn, type_filter="start")
 
     return [
         available[rid].model_dump()
         for rid in ws_spec.start_recipes
-        if rid in available and available[rid].type == "start"
+        if rid in available
     ]
 
 

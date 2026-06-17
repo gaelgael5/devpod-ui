@@ -324,7 +324,11 @@ def test_post_me_start_recipe_creates_recipe(tmp_path: Path) -> None:
     with TestClient(app) as client:
         resp = client.post(
             "/me/start-recipes",
-            json={"id": "my-start", "description": "Mon script", "script": "#!/bin/bash\necho ok\n"},
+            json={
+                "id": "my-start",
+                "description": "Mon script",
+                "script": "#!/bin/bash\necho ok\n",
+            },
         )
     assert resp.status_code == 201
     data = resp.json()
