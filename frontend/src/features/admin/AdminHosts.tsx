@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Copy, KeyRound, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, type HostConfig } from './useHosts'
+import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, type HostConfig } from './useHosts'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import SshTerminalWindow from './SshTerminalWindow'
@@ -64,6 +64,27 @@ function CertViewer({ name }: { name: string }) {
   )
 }
 
+// ─── Logs streaming destroy ───────────────────────────────────────────────────
+
+function DestroyLog({ logs, running, error }: { logs: string; running: boolean; error: string | null }) {
+  const { t } = useTranslation()
+  const logRef = useRef<HTMLPreElement>(null)
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [logs])
+
+  return (
+    <pre
+      ref={logRef}
+      className="h-56 overflow-y-auto rounded-md bg-muted p-3 text-xs font-mono leading-relaxed whitespace-pre-wrap"
+    >
+      {logs || (running ? t('admin.destroyVm.running') : '')}
+      {error && <span className="text-destructive">{'\n'}{error}</span>}
+    </pre>
+  )
+}
+
 // ─── Composant principal ──────────────────────────────────────────────────────
 
 export default function AdminHosts() {
@@ -78,9 +99,12 @@ export default function AdminHosts() {
   const [showCert, setShowCert] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [destroyTarget, setDestroyTarget] = useState<HostConfig | null>(null)
   const [form, setForm] = useState<HostConfig>(EMPTY)
   const [sshTarget, setSshTarget] = useState<HostConfig | null>(null)
   const [bootstrapTarget, setBootstrapTarget] = useState<HostConfig | null>(null)
+  const destroyVm = useDestroyVm()
+  const destroyStartedRef = useRef(false)
 
   function set<K extends keyof HostConfig>(k: K, v: HostConfig[K]) {
     setForm((f) => ({ ...f, [k]: v }))
@@ -109,11 +133,42 @@ export default function AdminHosts() {
     setForm(config); setMode('add'); setShowCert(false); setOpen(true)
   }
 
-  function confirmDelete(name: string) { setDeleteTarget(name) }
+  function confirmDelete(h: HostConfig) {
+    if (h.vmid && h.proxmox_node) {
+      destroyVm.reset()
+      destroyStartedRef.current = false
+      setDestroyTarget(h)
+    } else {
+      setDeleteTarget(h.name)
+    }
+  }
   function cancelDelete() { setDeleteTarget(null) }
   function doDelete() {
     if (deleteTarget) deleteHost.mutate(deleteTarget, { onSuccess: () => setDeleteTarget(null) })
   }
+
+  function cancelDestroy() {
+    setDestroyTarget(null)
+    destroyVm.reset()
+    destroyStartedRef.current = false
+  }
+  function doDestroyAndDelete() {
+    if (!destroyTarget) return
+    deleteHost.mutate(destroyTarget.name, {
+      onSuccess: () => {
+        setDestroyTarget(null)
+        destroyVm.reset()
+        destroyStartedRef.current = false
+      },
+    })
+  }
+
+  useEffect(() => {
+    if (destroyTarget && destroyTarget.proxmox_node && destroyTarget.vmid && !destroyStartedRef.current) {
+      destroyStartedRef.current = true
+      void destroyVm.execute(destroyTarget.proxmox_node, destroyTarget.vmid)
+    }
+  }, [destroyTarget, destroyVm.execute])
 
   const isPending = addHost.isPending || updateHost.isPending
 
@@ -164,7 +219,7 @@ export default function AdminHosts() {
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive"
-                        onClick={() => confirmDelete(h.name)} aria-label={t('admin.deleteHost')}>
+                        onClick={() => confirmDelete(h)} aria-label={t('admin.deleteHost')}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                       {h.type === 'ssh' && (
@@ -302,6 +357,34 @@ export default function AdminHosts() {
             <Button variant="outline" onClick={cancelDelete}>{t('workspaces.confirm.cancel')}</Button>
             <Button variant="destructive" onClick={doDelete} disabled={deleteHost.isPending}>
               {t('workspaces.confirm.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialogue destroy VM (host avec vmid) ── */}
+      <Dialog open={destroyTarget !== null} onOpenChange={(o) => { if (!o) cancelDestroy() }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t('admin.destroyVm.title', { name: destroyTarget?.name ?? '' })}</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground -mt-1">
+            {t('admin.destroyVm.vmidOnNode', {
+              vmid: destroyTarget?.vmid ?? '',
+              node: destroyTarget?.proxmox_node ?? '',
+            })}
+          </p>
+          <DestroyLog logs={destroyVm.logs} running={destroyVm.running} error={destroyVm.error} />
+          <DialogFooter>
+            <Button variant="outline" onClick={cancelDestroy} disabled={deleteHost.isPending}>
+              {t('admin.destroyVm.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={doDestroyAndDelete}
+              disabled={destroyVm.running || deleteHost.isPending}
+            >
+              {t('admin.destroyVm.deleteHost')}
             </Button>
           </DialogFooter>
         </DialogContent>

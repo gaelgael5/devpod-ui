@@ -46,10 +46,11 @@ function initValues(args: ScriptArgOrSub[]): Record<string, string> {
   )
 }
 
-function mapToHostConfig(json: Record<string, unknown>): HostConfig {
+function mapToHostConfig(json: Record<string, unknown>, vmid?: string): HostConfig {
   const name = String(json.name ?? '')
   const address = String(json.address ?? '')
   const sshUser = String(json.ssh_user ?? 'debian')
+  const resolvedVmid = String(json.vmid ?? vmid ?? '')
   if (json.type === 'docker-tls') {
     return {
       name,
@@ -58,6 +59,7 @@ function mapToHostConfig(json: Record<string, unknown>): HostConfig {
       address: '',
       key_path: String(json.key_path ?? '/data/certs/portal'),
       default: false,
+      vmid: resolvedVmid,
     }
   }
   return {
@@ -67,6 +69,7 @@ function mapToHostConfig(json: Record<string, unknown>): HostConfig {
     address: `${sshUser}@${address}`,
     key_path: '',
     default: false,
+    vmid: resolvedVmid,
   }
 }
 
@@ -401,7 +404,7 @@ function StepLog({
   }, [logs])
 
   const result = done && !error ? extractLastJson(logs) : null
-  const hostConfig = result?.status === 'ok' ? mapToHostConfig(result) : null
+  const hostConfig = result?.status === 'ok' ? mapToHostConfig(result, args.NEW_VMID) : null
 
   function handleRetry() {
     reset()

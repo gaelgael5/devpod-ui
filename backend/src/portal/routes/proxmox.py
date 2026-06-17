@@ -550,6 +550,73 @@ async def execute_hypervisor_script(
     return StreamingResponse(_stream(), media_type="text/plain; charset=utf-8")
 
 
+class DestroyRequest(BaseModel):
+    vmid: str
+
+
+@router.post("/hypervisors/{name}/execute-destroy")
+async def execute_hypervisor_destroy_script(
+    name: str,
+    body: DestroyRequest,
+    user: UserInfo = Depends(require_admin),
+) -> StreamingResponse:
+    """Exécute le destroy_script de l'hyperviseur pour supprimer la VM identifiée par vmid."""
+    cfg = load_global()
+    node = next((n for n in cfg.hypervisors if n.name == name), None)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Hypervisor {name!r} not found")
+    if not node.hypervisor_type:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Hypervisor {node.name!r} has no type configured",
+        )
+    hyp_type = next((t for t in cfg.hypervisor_types if t.name == node.hypervisor_type), None)
+    if hyp_type is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Hypervisor type {node.hypervisor_type!r} not found",
+        )
+    if not hyp_type.destroy_script:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Hypervisor type {node.hypervisor_type!r} has no destroy_script configured",
+        )
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(hyp_type.destroy_script, timeout=15.0, follow_redirects=True)
+            resp.raise_for_status()
+            spec = dict(resp.json())
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch destroy script spec: {exc}",
+            ) from exc
+
+    commands_raw: list[str] = list(spec.get("commands", []))
+    settings = get_settings()
+    args = {
+        "VMID": body.vmid,
+        "PORTAL_URL": cfg.server.external_url,
+        "PORTAL_TOKEN": settings.portal_api_key,
+        "PORTAL_PVE_NODE": node.name,
+    }
+    commands = [_substitute(cmd, args) for cmd in commands_raw]
+    redacted_args = {**args, "PORTAL_TOKEN": "***"}
+    display_commands = [_substitute(cmd, redacted_args) for cmd in commands_raw]
+
+    _log.info("hypervisor_destroy_script_execute", node=name, vmid=body.vmid, by=user.login)
+
+    async def _stream() -> AsyncIterator[bytes]:
+        lines = "\n".join(f"    {cmd}" for cmd in display_commands)
+        header = f"==> Commandes exécutées :\n{lines}\n\n"
+        yield header.encode("utf-8")
+        async for chunk in _ssh_stream(node, commands):
+            yield chunk
+
+    return StreamingResponse(_stream(), media_type="text/plain; charset=utf-8")
+
+
 class ValidateArgRequest(BaseModel):
     arg: str
     args: dict[str, str]

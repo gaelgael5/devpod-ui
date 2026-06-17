@@ -202,6 +202,13 @@
     "deleteHost": "Delete host",
     "deleteHostTitle": "Delete host",
     "deleteHostDescription": "Are you sure you want to delete host \"{{name}}\"? This action cannot be undone.",
+    "destroyVm": {
+      "title": "Destroy VM — {{name}}",
+      "vmidOnNode": "VMID {{vmid}} on node {{node}}",
+      "running": "Running…",
+      "deleteHost": "Delete host",
+      "cancel": "Cancel"
+    },
     "sshTerminal": {
       "openBtn": "SSH",
       "windowTitle": "SSH Terminal",

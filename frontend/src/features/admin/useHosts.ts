@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiFetch, apiFetchJson } from '@/shared/api/client'
@@ -10,6 +11,7 @@ export interface HostConfig {
   address?: string
   key_path?: string
   proxmox_node?: string
+  vmid?: string
 }
 
 export function useHosts() {
@@ -81,6 +83,57 @@ export function useProxmoxNodes() {
     },
     staleTime: 5 * 60 * 1000,
   })
+}
+
+export interface DestroyVmState {
+  logs: string
+  running: boolean
+  done: boolean
+  error: string | null
+}
+
+export function useDestroyVm() {
+  const [state, setState] = useState<DestroyVmState>({
+    logs: '',
+    running: false,
+    done: false,
+    error: null,
+  })
+
+  const reset = useCallback(() => {
+    setState({ logs: '', running: false, done: false, error: null })
+  }, [])
+
+  const execute = useCallback(async (hypervisorName: string, vmid: string) => {
+    setState({ logs: '', running: true, done: false, error: null })
+    try {
+      const res = await apiFetch(`/admin/hypervisors/${encodeURIComponent(hypervisorName)}/execute-destroy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vmid }),
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(text || `HTTP ${res.status}`)
+      }
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let accum = ''
+      while (true) {
+        const { done: streamDone, value } = await reader.read()
+        if (streamDone) break
+        accum += decoder.decode(value, { stream: true })
+        const snap = accum
+        setState(s => ({ ...s, logs: snap }))
+      }
+      setState(s => ({ ...s, logs: accum, running: false, done: true }))
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setState(s => ({ ...s, error: msg, running: false, done: true }))
+    }
+  }, [])
+
+  return { ...state, execute, reset }
 }
 
 export interface BootstrapSshPayload {
