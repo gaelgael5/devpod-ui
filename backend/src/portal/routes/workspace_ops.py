@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..auth.rbac import UserInfo, require_user
 from ..config.models import ProfileRef, SourceSpec, WorkspaceSpec
 from ..config.store import _data_root, load_global, safe_user_path
-from ..devpod.env import UnknownHostError
+from ..devpod.env import HostNotReadyError, UnknownHostError
 from ..devpod.git import run_git_ls_remote
 from ..devpod.service import DevPodService
 from ..profiles.models import Profile
@@ -264,6 +264,8 @@ async def workspace_up(
             request_host=request_host,
             profile=profile_obj,
         )
+    except HostNotReadyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except UnknownHostError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

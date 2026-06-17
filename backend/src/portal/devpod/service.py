@@ -18,7 +18,7 @@ from ..config.models import GlobalConfig, SourceSpec, WorkspaceSpec
 from ..config.store import _data_root, load_global, load_user, safe_user_path
 from ..profiles.models import Profile
 from ..recipes.models import RecipeMeta
-from .env import _find_host, build_env
+from .env import HostNotReadyError, _find_host, build_env
 from .provider import ensure_provider
 from .runner import run_subprocess
 from .shelve import shelve_if_pending
@@ -102,9 +102,7 @@ class DevPodService:
         host_cfg = _find_host(ws_spec.host, global_cfg)
 
         if host_cfg.type == "ssh" and not host_cfg.key_path:
-            from .env import UnknownHostError
-
-            raise UnknownHostError(
+            raise HostNotReadyError(
                 f"Host {host_cfg.name!r} : clé SSH manquante — lancez d'abord 'Configurer SSH'"
             )
 
