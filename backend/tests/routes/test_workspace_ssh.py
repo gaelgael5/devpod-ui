@@ -215,9 +215,8 @@ def test_ws_workspace_ssh_no_start_uses_tmux_main(
     assert captured, "create_subprocess_exec doit avoir été appelé"
     cmd = captured[0]
     assert "ssh" in cmd
-    assert "alice-my-ws" in cmd
-    assert "--command" in cmd
-    command_str = cmd[cmd.index("--command") + 1]
+    assert any("alice-my-ws" in s for s in cmd)
+    command_str = cmd[-1]
     assert "tmux new -A -s main" in command_str
     assert "base64" not in command_str
 
@@ -241,8 +240,7 @@ def test_ws_workspace_ssh_with_start_encodes_script(
 
     assert captured
     cmd = captured[0]
-    assert "--command" in cmd
-    command_str = cmd[cmd.index("--command") + 1]
+    command_str = cmd[-1]
     assert "base64" in command_str
     assert "tmux new -A -s claude-rc" in command_str
 

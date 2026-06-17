@@ -19,6 +19,10 @@ class RecipeNotFoundError(KeyError):
     """Recette demandée introuvable dans le registre disponible."""
 
 
+class DependencyNotFoundError(KeyError):
+    """GUID de dépendance introuvable dans le registre."""
+
+
 class RecipeRegistry:
     def __init__(
         self,
@@ -48,15 +52,66 @@ class RecipeRegistry:
                     recipes[meta.id] = meta
         return recipes
 
+    @staticmethod
+    def build_key_index(available: dict[str, RecipeMeta]) -> dict[str, RecipeMeta]:
+        """Construit un index key (GUID) → RecipeMeta depuis un dict id → RecipeMeta."""
+        return {m.key: m for m in available.values()}
+
+    def expand_with_deps(
+        self,
+        selected_ids: list[str],
+        available: dict[str, RecipeMeta],
+    ) -> list[str]:
+        """Étend la liste des IDs sélectionnés avec leurs dépendances transitives.
+
+        Résout récursivement les `installs_after` (GUIDs) de chaque recipe sélectionnée
+        et des dépendances elles-mêmes. Les dépendances auto-ajoutées s'intercalent avant
+        la recipe qui en dépend.
+
+        Lève RecipeNotFoundError si un id sélectionné est inconnu.
+        Lève DependencyNotFoundError si un GUID de dépendance est introuvable.
+        """
+        for rid in selected_ids:
+            if rid not in available:
+                raise RecipeNotFoundError(f"Recipe {rid!r} introuvable dans le registre")
+
+        key_index = self.build_key_index(available)
+
+        # BFS : on part des sélectionnés, on ajoute les dépendances en tête
+        seen_keys: set[str] = set()
+        result_ids: list[str] = []
+
+        def _visit(recipe: RecipeMeta) -> None:
+            if recipe.key in seen_keys:
+                return
+            seen_keys.add(recipe.key)
+            for dep_key in recipe.installs_after:
+                dep = key_index.get(dep_key)
+                if dep is None:
+                    raise DependencyNotFoundError(
+                        f"Recipe {recipe.id!r} dépend du GUID {dep_key!r}"
+                        " introuvable dans le registre"
+                    )
+                _visit(dep)
+            result_ids.append(recipe.id)
+
+        for rid in selected_ids:
+            _visit(available[rid])
+
+        return result_ids
+
     def resolve_order(
         self,
         selected_ids: list[str],
         available: dict[str, RecipeMeta],
     ) -> list[RecipeMeta]:
-        """Tri topologique Kahn sur installs_after.
+        """Tri topologique Kahn sur installs_after (GUIDs).
 
         Lève RecipeNotFoundError si un id est inconnu.
         Lève CycleError si un cycle est détecté.
+        Lève DependencyNotFoundError si un GUID de dépendance est introuvable.
+
+        Note : appeler expand_with_deps avant pour inclure les dépendances transitives.
         """
         for rid in selected_ids:
             if rid not in available:
@@ -65,15 +120,23 @@ class RecipeRegistry:
         if len(selected_ids) != len(set(selected_ids)):
             raise ValueError(f"selected_ids contient des doublons : {selected_ids}")
 
+        key_index = self.build_key_index(available)
         selected_set = set(selected_ids)
+
         in_degree: dict[str, int] = {rid: 0 for rid in selected_ids}
         dependents: defaultdict[str, list[str]] = defaultdict(list)
 
         for rid in selected_ids:
-            for dep in available[rid].installs_after:
-                if dep in selected_set:
+            recipe = available[rid]
+            for dep_key in recipe.installs_after:
+                dep = key_index.get(dep_key)
+                if dep is None:
+                    raise DependencyNotFoundError(
+                        f"Recipe {rid!r} dépend du GUID {dep_key!r} introuvable"
+                    )
+                if dep.id in selected_set:
                     in_degree[rid] += 1
-                    dependents[dep].append(rid)
+                    dependents[dep.id].append(rid)
 
         queue: deque[str] = deque(rid for rid in selected_ids if in_degree[rid] == 0)
         result: list[RecipeMeta] = []
@@ -114,7 +177,6 @@ class RecipeRegistry:
                 error=str(exc),
             )
             return None
-        # Validation structure fichiers selon le type
         if meta.type == "start":
             if not (recipe_dir / "start.sh").exists():
                 _log.warning("recipe_start_missing_start_sh", path=str(recipe_dir))

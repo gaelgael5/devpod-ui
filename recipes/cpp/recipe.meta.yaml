@@ -1,4 +1,5 @@
 id: cpp
+key: 56e6a173-95e1-4cd3-a83e-9e4331032049
 version: 1.0.0
 description: "Install C/C++ — build-essential + CMake + GDB (GCC ou Clang)"
 options:

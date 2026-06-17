@@ -21,7 +21,7 @@ from ..profiles.models import Profile
 from ..profiles.repository import ProfileError, ProfileRepository
 from ..recipes.models import _RECIPE_ID_RE as _RECIPE_ID_PATTERN
 from ..recipes.models import RecipeMeta, SecretRef
-from ..recipes.registry import RecipeRegistry
+from ..recipes.registry import DependencyNotFoundError, RecipeRegistry
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-ops"])
@@ -179,7 +179,10 @@ async def workspace_up(
         available = {**shared, **personal}
 
         try:
-            resolved_recipes = reg.resolve_order(req.recipes, available)
+            expanded = reg.expand_with_deps(req.recipes, available)
+            resolved_recipes = reg.resolve_order(expanded, available)
+        except DependencyNotFoundError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except ValueError as exc:

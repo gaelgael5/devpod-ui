@@ -1,4 +1,5 @@
 id: swift
+key: 26fe01aa-e50d-49e7-8cd1-2db076dc9441
 version: 1.0.0
 description: "Install Swift via tarball officiel swift.org — 5.10 ou 6.0"
 options:

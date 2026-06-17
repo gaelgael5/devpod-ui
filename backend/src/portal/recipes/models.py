@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from pathlib import Path
 from typing import Any, Literal
 
@@ -11,6 +12,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 _RECIPE_ID_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
 _SECRET_PATH_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9/_-]{0,127}$")
 _ENV_VAR_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 class RecipeOption(BaseModel):
@@ -46,11 +51,14 @@ class RecipeMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
+    key: str = Field(default_factory=lambda: str(uuid.uuid4()))
     type: Literal["install", "start"] = "install"
     version: str = "1.0.0"
     description: str = ""
     options: dict[str, RecipeOption] = Field(default_factory=dict)
     requires_secrets: list[SecretRef] = Field(default_factory=list)
+    # Liste de GUIDs (key) des recipes à installer avant celle-ci.
+    # Auto-incluses même si non sélectionnées par l'utilisateur.
     installs_after: list[str] = Field(default_factory=list)
 
     @field_validator("id")
@@ -59,6 +67,23 @@ class RecipeMeta(BaseModel):
         if not _RECIPE_ID_RE.fullmatch(v):
             raise ValueError(f"id {v!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$")
         return v
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, v: str) -> str:
+        if not _UUID_RE.fullmatch(v):
+            raise ValueError(f"key {v!r} must be a valid UUID")
+        return v.lower()
+
+    @field_validator("installs_after", mode="before")
+    @classmethod
+    def validate_installs_after(cls, v: list[str]) -> list[str]:
+        for item in v:
+            if not _UUID_RE.fullmatch(item):
+                raise ValueError(
+                    f"installs_after item {item!r} must be a valid UUID (recipe key)"
+                )
+        return [i.lower() for i in v]
 
     @field_validator("requires_secrets", mode="before")
     @classmethod
@@ -72,17 +97,6 @@ class RecipeMeta(BaseModel):
             else:
                 result.append(item)
         return result
-
-    @field_validator("installs_after", mode="before")
-    @classmethod
-    def validate_installs_after(cls, v: list[str]) -> list[str]:
-        for item in v:
-            if not _RECIPE_ID_RE.fullmatch(item):
-                raise ValueError(
-                    f"installs_after item {item!r} must match"
-                    " ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$"
-                )
-        return v
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> RecipeMeta:

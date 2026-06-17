@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, Plus, Terminal, X } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Plus, Terminal, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import WorkspaceSessionTerminal from './WorkspaceSessionTerminal'
+import { useWorkspaceStatus } from './useWorkspaceStatus'
 import {
   useWorkspaceSessions,
   useWorkspaceStartRecipes,
@@ -122,6 +123,7 @@ export default function WorkspaceTerminals() {
   const { t } = useTranslation()
   const { data: sessions = [] } = useWorkspaceSessions(wsName)
   const { data: startRecipes = [] } = useWorkspaceStartRecipes(wsName)
+  const { data: wsStatus } = useWorkspaceStatus(wsName!)
   const [selected, setSelected] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const deleteSession = useDeleteSession()
@@ -153,6 +155,17 @@ export default function WorkspaceTerminals() {
         <div className="h-4 w-px bg-border" />
         <Terminal size={14} className="text-muted-foreground" />
         <span className="text-sm font-medium">{wsName}</span>
+        {wsStatus?.url && (
+          <>
+            <div className="ml-auto h-4 w-px bg-border" />
+            <Button size="sm" variant="outline" className="gap-1.5" asChild>
+              <a href={wsStatus.url} target="_blank" rel="noopener noreferrer">
+                <ExternalLink size={13} />
+                {t('workspaces.actions.openVscode')}
+              </a>
+            </Button>
+          </>
+        )}
       </header>
 
       {/* Corps */}

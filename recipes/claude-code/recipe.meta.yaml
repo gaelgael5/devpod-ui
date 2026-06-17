@@ -1,5 +1,6 @@
 id: claude-code
+key: ff184539-18c7-4849-9ef3-943174113c49
 version: "1.0.0"
 description: "Claude Code CLI (Anthropic)"
 installs_after:
-  - nodejs
+  - 08d27187-d87f-4140-a65e-0891b59441f1

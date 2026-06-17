@@ -5,6 +5,9 @@ import pytest
 import yaml
 
 
+_NODEJS_KEY = "08d27187-d87f-4140-a65e-0891b59441f1"
+
+
 def test_recipe_meta_valid() -> None:
     from portal.recipes.models import RecipeMeta
 
@@ -13,9 +16,10 @@ def test_recipe_meta_valid() -> None:
         version="1.0.0",
         description="Claude Code CLI",
         requires_secrets=[{"path": "llm/anthropic_key", "env": "ANTHROPIC_API_KEY"}],
-        installs_after=["node"],
+        installs_after=[_NODEJS_KEY],
     )
     assert meta.id == "claude-code"
+    assert meta.installs_after == [_NODEJS_KEY]
     assert meta.requires_secrets[0].path == "llm/anthropic_key"
     assert meta.requires_secrets[0].env == "ANTHROPIC_API_KEY"
 
@@ -75,10 +79,11 @@ def test_recipe_meta_from_yaml(tmp_path) -> None:
 
     data = {
         "id": "claude-code",
+        "key": "ff184539-18c7-4849-9ef3-943174113c49",
         "version": "1.0.0",
         "description": "Claude Code CLI",
         "requires_secrets": [{"path": "llm/anthropic_key", "env": "ANTHROPIC_API_KEY"}],
-        "installs_after": ["node"],
+        "installs_after": [_NODEJS_KEY],
         "options": {"version": {"type": "string", "default": "latest"}},
     }
     meta_file = tmp_path / "recipe.meta.yaml"

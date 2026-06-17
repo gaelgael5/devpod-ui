@@ -1,4 +1,5 @@
 id: go
+key: a4b340e7-62e9-4c17-b392-76a4ff69ec02
 version: 1.0.0
 description: "Install Go (Golang) via tarball officiel go.dev — dernière version patch du canal choisi"
 options:
