@@ -44,12 +44,14 @@ async def _ssh(ws_id: str, login: str, command: str, timeout: float = 10.0) -> t
         env=env,
     )
     try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        return 1, "timeout"
-    return proc.returncode or 0, stdout.decode(errors="replace")
+        return 1, "SSH command timed out"
+    # Combine stdout+stderr — les erreurs SSH vont souvent dans stderr
+    output = (stdout.decode(errors="replace") + stderr.decode(errors="replace")).strip()
+    return proc.returncode or 0, output
 
 
 @router.get("/workspaces/{name}/sessions")
@@ -79,6 +81,14 @@ async def create_session(
     if not _SESSION_NAME_RE.fullmatch(req.name):
         raise HTTPException(status_code=422, detail=f"Invalid session name {req.name!r}")
     ws_id = f"{user.login}-{name}"
+
+    # Vérification de la disponibilité de tmux dans le devcontainer
+    rc_check, _ = await _ssh(ws_id, user.login, "command -v tmux >/dev/null 2>&1")
+    if rc_check != 0:
+        raise HTTPException(
+            status_code=422,
+            detail="tmux n'est pas installé dans ce devcontainer — ajoutez-le via une Feature ou dans le Dockerfile.",
+        )
 
     if req.start_recipe is not None:
         if not _RECIPE_ID_RE.fullmatch(req.start_recipe):
@@ -113,7 +123,7 @@ async def create_session(
 
     rc, output = await _ssh(ws_id, user.login, command)
     if rc != 0:
-        raise HTTPException(status_code=502, detail=f"Failed to create tmux session: {output.strip()}")
+        raise HTTPException(status_code=502, detail=f"Failed to create tmux session: {output}")
 
     _log.info("session_created", ws_id=ws_id, session=req.name, start_recipe=req.start_recipe)
     return {"name": req.name}
