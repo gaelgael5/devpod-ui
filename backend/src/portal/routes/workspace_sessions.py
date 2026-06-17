@@ -38,12 +38,7 @@ async def _ssh(ws_id: str, login: str, command: str, timeout: float = 10.0) -> t
         "HOME": os.environ.get("HOME", "/root"),
     }
     proc = await asyncio.create_subprocess_exec(
-        "ssh",
-        "-o", "LogLevel=ERROR",
-        "-o", "BatchMode=yes",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "ConnectTimeout=10",
-        "--", ssh_host, command,
+        "ssh", "-o", "LogLevel=ERROR", "--", ssh_host, command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,

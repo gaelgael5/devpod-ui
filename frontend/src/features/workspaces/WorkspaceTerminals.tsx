@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, Plus, Terminal } from 'lucide-react'
@@ -44,8 +44,15 @@ interface CreateDialogProps {
 function CreateSessionDialog({ wsName, sessions, startRecipes, onClose, onCreate }: CreateDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = useState(() => computeNextName(sessions))
+  const nameEdited = useRef(false)
   const [startRecipe, setStartRecipe] = useState('')
   const create = useCreateSession()
+
+  // Recalcule le nom auto quand la liste de sessions se met à jour (refetch après
+  // création), sauf si l'utilisateur a déjà modifié le nom manuellement.
+  useEffect(() => {
+    if (!nameEdited.current) setName(computeNextName(sessions))
+  }, [sessions])
 
   function handleSubmit() {
     create.mutate(
@@ -69,7 +76,7 @@ function CreateSessionDialog({ wsName, sessions, startRecipes, onClose, onCreate
             <Input
               id="session-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => { nameEdited.current = true; setName(e.target.value) }}
               placeholder={t('workspaces.terminals.namePlaceholder')}
               autoFocus
               onKeyDown={(e) => { if (e.key === 'Enter' && name) handleSubmit() }}
