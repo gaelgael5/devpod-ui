@@ -59,6 +59,8 @@
       "generateSshKey": "Générer une clé SSH pour ce workspace",
       "addRecipe": "Ajouter une recette",
       "noMoreRecipes": "Toutes les recettes sont déjà sélectionnées.",
+      "filterRecipes": "Filtrer les recettes…",
+      "noRecipeMatch": "Aucune recette ne correspond.",
       "removeRecipeLabel": "Retirer {{id}}",
       "profile": "Profil VSCode",
       "profileNone": "— aucun profil —",
@@ -128,6 +130,8 @@
     "deleteSource": "Supprimer la source",
     "recipeImported": "Recette \"{{id}}\" importée",
     "refreshGallery": "Rafraîchir",
+    "filterGallery": "Filtrer les recettes…",
+    "galleryNoMatch": "Aucune recette ne correspond au filtre.",
     "builtinBadge": "Intégré",
     "recipeDialogDescription": "Formulaire de gestion de la recette partagée.",
     "generate": {

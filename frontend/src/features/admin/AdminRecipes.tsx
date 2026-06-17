@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, RefreshCw } from 'lucide-react'
+import { Plus, Trash2, RefreshCw, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -53,9 +53,20 @@ export default function AdminRecipes() {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<FormState>(EMPTY)
   const [newSourceUrl, setNewSourceUrl] = useState('')
+  const [galleryFilter, setGalleryFilter] = useState('')
 
   const sources = sourcesData?.sources ?? []
   const galleryRecipes = previewData?.recipes ?? []
+  const filteredGallery = useMemo(() => {
+    const q = galleryFilter.trim().toLowerCase()
+    if (!q) return galleryRecipes
+    return galleryRecipes.filter(
+      (r: RemoteRecipe) =>
+        r.id.toLowerCase().includes(q) ||
+        r.name?.toLowerCase().includes(q) ||
+        r.description?.toLowerCase().includes(q)
+    )
+  }, [galleryRecipes, galleryFilter])
   const isEditing = editingId !== null
   const isPending = addRecipe.isPending || updateRecipe.isPending
 
@@ -165,14 +176,28 @@ export default function AdminRecipes() {
             {t('admin.refreshGallery')}
           </Button>
         </div>
+        {galleryRecipes.length > 0 && (
+          <div className="relative mb-4">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder={t('admin.filterGallery')}
+              value={galleryFilter}
+              onChange={(e) => setGalleryFilter(e.target.value)}
+              className="pl-8 text-sm"
+            />
+          </div>
+        )}
         {isLoadingGallery && (
           <p className="text-sm text-muted-foreground">…</p>
         )}
         {!isLoadingGallery && galleryRecipes.length === 0 && (
           <p className="text-sm text-muted-foreground">{t('admin.recipesEmpty')}</p>
         )}
+        {!isLoadingGallery && galleryRecipes.length > 0 && filteredGallery.length === 0 && (
+          <p className="text-sm text-muted-foreground">{t('admin.galleryNoMatch')}</p>
+        )}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {galleryRecipes.map((r: RemoteRecipe) => (
+          {filteredGallery.map((r: RemoteRecipe) => (
             <div key={r.source_url} className="rounded-lg border bg-card p-4">
               <div className="mb-1 flex items-start justify-between gap-2">
                 <div>
