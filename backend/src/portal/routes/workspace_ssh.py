@@ -76,7 +76,9 @@ async def workspace_ssh_terminal(
             return
         # Attacher à la session tmux nommée (créée via POST /me/workspaces/{n}/sessions).
         # `new-session -A` crée si absente — robuste en cas de race condition.
-        tmux_cmd = f"tmux new-session -A -s {shlex.quote(session)}"
+        # TERM=xterm-256color forcé : le processus portal n'a pas de terminal réel,
+        # SSH propagerait TERM=dumb → tmux échoue au clear.
+        tmux_cmd = f"TERM=xterm-256color tmux new-session -A -s {shlex.quote(session)}"
     elif start is not None:
         from ..recipes.models import _RECIPE_ID_RE
 
@@ -116,9 +118,9 @@ async def workspace_ssh_terminal(
         script_content = start_sh_path.read_text(encoding="utf-8")
         b64 = base64.b64encode(script_content.encode()).decode()
         run_script = f'bash -lc "$(echo {b64} | base64 -d)"'
-        tmux_cmd = f"command -v tmux >/dev/null 2>&1 && tmux new -A -s {start} -- {run_script} || {run_script}"
+        tmux_cmd = f"command -v tmux >/dev/null 2>&1 && TERM=xterm-256color tmux new -A -s {start} -- {run_script} || {run_script}"
     else:
-        tmux_cmd = "command -v tmux >/dev/null 2>&1 && tmux new -A -s main || bash -l"
+        tmux_cmd = "command -v tmux >/dev/null 2>&1 && TERM=xterm-256color tmux new -A -s main || bash -l"
 
     # ── Build commande SSH ────────────────────────────────────────────────────
     # `devpod up` écrit l'entrée "{ws_id}.devpod" dans ~/.ssh/config avec le
@@ -141,6 +143,9 @@ async def workspace_ssh_terminal(
         **dict(os.environ),
         "DEVPOD_HOME": str(safe_user_path(login, "devpod")),
         "HOME": os.environ.get("HOME", "/root"),
+        # SSH propage TERM local vers le PTY remote avec -t -t.
+        # Le processus portal n'a pas de vrai terminal → forcer xterm-256color.
+        "TERM": "xterm-256color",
     }
 
     _log.info("ws_workspace_ssh_open", ws_id=ws_id, login=login, start=start)
