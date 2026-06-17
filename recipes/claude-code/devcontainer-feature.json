@@ -1,0 +1,7 @@
+{
+  "id": "claude-code",
+  "version": "1.0.0",
+  "name": "Claude Code",
+  "description": "Claude Code CLI (Anthropic) — auth via ANTHROPIC_API_KEY injecté à l'exécution",
+  "installsAfter": ["ghcr.io/devcontainers/features/node"]
+}

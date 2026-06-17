@@ -10,7 +10,13 @@
 # Dev : HTTP plain (préfixe http:// désactive TLS + redirect auto de Caddy).
 # Prod : retirer le préfixe http:// et ajouter tls { dns cloudflare {$CF_API_TOKEN} }
 http://{$BASE_DOMAIN} {
-    reverse_proxy portal:8080
+    reverse_proxy portal:8080 {
+        flush_interval -1
+        transport http {
+            read_timeout 0
+            write_timeout 0
+        }
+    }
 }
 
 # Wildcard workspaces — routes dynamiques ajoutées par l'API admin en M6

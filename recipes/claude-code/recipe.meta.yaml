@@ -1,0 +1,5 @@
+id: claude-code
+version: "1.0.0"
+description: "Claude Code CLI (Anthropic)"
+installs_after:
+  - nodejs

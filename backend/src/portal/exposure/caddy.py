@@ -32,6 +32,11 @@ def _build_route(
         {
             "handler": "reverse_proxy",
             "upstreams": [{"dial": upstream}],
+            "flush_interval": -1,
+            "transport": {
+                "protocol": "http",
+                "read_buffer_size": 0,
+            },
         }
     )
     return {
