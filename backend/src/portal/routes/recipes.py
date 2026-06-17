@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..auth.rbac import UserInfo, require_admin, require_user
 from ..config.store import _data_root, safe_user_path
-from ..recipes.builtin import BUILTIN_RECIPES_DIR
 from ..recipes.models import _RECIPE_ID_RE, RecipeMeta
 from ..recipes.registry import RecipeRegistry
 
@@ -74,7 +73,7 @@ async def list_recipes(
     data_root = _data_root()
     shared_dir = data_root / "recipes"
     personal_dir = safe_user_path(user.login, "recipes")
-    registry = RecipeRegistry(builtin_dir=BUILTIN_RECIPES_DIR, shared_dir=shared_dir)
+    registry = RecipeRegistry(builtin_dir=None, shared_dir=shared_dir)
     shared = await asyncio.to_thread(registry.load_shared)
     personal = await asyncio.to_thread(registry.load_dir, personal_dir)
     available = {**shared, **personal}
@@ -158,14 +157,12 @@ async def delete_personal_recipe(
 async def admin_list_recipes(
     user: UserInfo = Depends(require_admin),
 ) -> list[dict[str, Any]]:
-    """Liste les recettes partagées (importées / créées) avec install_script (admin only).
-
-    Les recettes builtin (baked-in) ne sont pas listées ici : elles ne peuvent
-    pas être supprimées ni modifiées via l'API admin.
-    """
+    """Liste les recettes partagées (importées / créées) avec install_script (admin only)."""
     data_root = _data_root()
     shared_recipes_dir = data_root / "recipes"
-    shared_metas = RecipeRegistry(builtin_dir=BUILTIN_RECIPES_DIR, shared_dir=shared_recipes_dir).load_shared()
+    shared_metas = await asyncio.to_thread(
+        RecipeRegistry(builtin_dir=None, shared_dir=shared_recipes_dir).load_shared
+    )
     results: list[dict[str, Any]] = []
     for meta in shared_metas.values():
         entry = meta.model_dump()

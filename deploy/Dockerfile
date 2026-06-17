@@ -68,6 +68,9 @@ RUN uv sync --no-dev --frozen
 # Assets frontend buildés dans le stage précédent
 COPY --from=frontend-builder /build/dist ./static
 
+# Catalogue de recettes bundlées — synchronisées vers /data/recipes/ au démarrage
+COPY recipes/ /app/recipes/
+
 # Exposer le venv uv sur PATH — évite le surcoût de `uv run` à chaque démarrage
 ENV PATH="/app/.venv/bin:$PATH"
 

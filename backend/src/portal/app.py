@@ -70,13 +70,23 @@ class SPAMiddleware(BaseHTTPMiddleware):
 
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    import asyncio
     from .openvsx import OpenVsxClient, OpenVsxSettings
     from .profiles.repository import ProfileRepository
+    from .recipes.sync import sync_bundled_recipes
 
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()
     settings_obj = get_settings()
     data_dir = Path(settings_obj.portal_data_root)
+
+    # Synchronisation des recettes bundlées → /data/recipes/ (idempotent)
+    await asyncio.to_thread(
+        sync_bundled_recipes,
+        Path(settings_obj.bundled_recipes_dir),
+        data_dir / "recipes",
+    )
+
     profile_repo = ProfileRepository(data_dir)
     app.dependency_overrides[get_profile_repo] = lambda: profile_repo
     async with httpx.AsyncClient(headers={"User-Agent": "devpod-ui/1.0"}) as http:

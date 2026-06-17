@@ -21,7 +21,6 @@ from ..profiles.models import Profile
 from ..profiles.repository import ProfileError, ProfileRepository
 from ..recipes.models import _RECIPE_ID_RE as _RECIPE_ID_PATTERN
 from ..recipes.models import RecipeMeta, SecretRef
-from ..recipes.builtin import BUILTIN_RECIPES_DIR
 from ..recipes.registry import RecipeRegistry
 
 _log = structlog.get_logger(__name__)
@@ -60,7 +59,7 @@ _recipe_registry: RecipeRegistry | None = None
 def _get_recipe_registry() -> RecipeRegistry:
     global _recipe_registry
     if _recipe_registry is None:
-        _recipe_registry = RecipeRegistry(builtin_dir=BUILTIN_RECIPES_DIR, shared_dir=_data_root() / "recipes")
+        _recipe_registry = RecipeRegistry(builtin_dir=None, shared_dir=_data_root() / "recipes")
     return _recipe_registry
 
 

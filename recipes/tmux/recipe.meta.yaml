@@ -1,4 +1,3 @@
 id: tmux
-type: install
 version: "1.0.0"
 description: "Installe tmux — requis pour les sessions terminal persistantes du portail"

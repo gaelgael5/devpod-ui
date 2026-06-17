@@ -1,3 +1,4 @@
+tmux/
 git.sh
 node.sh
 python.sh
