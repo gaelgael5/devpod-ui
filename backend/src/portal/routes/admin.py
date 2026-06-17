@@ -47,7 +47,7 @@ async def put_admin_config(
         new_cfg = GlobalConfig.model_validate(merged)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    save_global(new_cfg)
+    await save_global(new_cfg)
     _log.info("global_config_updated", by=user.login)
     return new_cfg.model_dump(mode="json")
 
@@ -64,7 +64,7 @@ async def add_host(host: HostConfig, user: UserInfo = Depends(require_admin)) ->
     if any(h.name == host.name for h in cfg.hosts):
         raise HTTPException(status_code=409, detail=f"Host {host.name!r} already exists")
     cfg.hosts.append(host)
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("host_added", name=host.name, by=user.login)
     return host.model_dump(mode="json")
 
@@ -80,7 +80,7 @@ async def update_host(
     if idx is None:
         raise HTTPException(status_code=404, detail=f"Host {name!r} not found")
     cfg.hosts[idx] = host
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("host_updated", name=name, by=user.login)
     return host.model_dump(mode="json")
 
@@ -92,7 +92,7 @@ async def delete_host(name: str, user: UserInfo = Depends(require_admin)) -> Non
     cfg.hosts = [h for h in cfg.hosts if h.name != name]
     if len(cfg.hosts) == before:
         raise HTTPException(status_code=404, detail=f"Host {name!r} not found")
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("host_deleted", name=name, by=user.login)
 
 
@@ -133,7 +133,7 @@ async def generate_host_ssh_key(
     if updates:
         idx = next(i for i, h in enumerate(cfg.hosts) if h.name == name)
         cfg.hosts[idx] = cfg.hosts[idx].model_copy(update=updates)
-        save_global(cfg)
+        await save_global(cfg)
 
     return {"public_key": public_key}
 
@@ -282,7 +282,7 @@ async def bootstrap_host_ssh(
     cfg.hosts[idx] = cfg.hosts[idx].model_copy(
         update={"address": body.address, "key_path": str(key_path), "proxmox_node": resolved_pve}
     )
-    save_global(cfg)
+    await save_global(cfg)
 
     # Injecte la pubkey dans la VM via un saut PVE
     # Sécurité du quoting : pubkey ed25519 = alphanum + "+/= " (pas d'apostrophe) ;

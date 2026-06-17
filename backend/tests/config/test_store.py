@@ -5,9 +5,9 @@ import os
 import pytest
 import yaml
 
+from portal.config.models import GlobalConfig
 from portal.config.store import (
     ensure_user_dir,
-    load_global,
     load_user,
     load_user_config,
     safe_user_path,
@@ -69,21 +69,6 @@ def test_ensure_user_dir_is_idempotent(tmp_data_root):
     ensure_user_dir("alice")  # pas d'erreur
 
 
-# ─── load_global ──────────────────────────────────────────────────────────────
-
-
-def test_load_global_parses_yaml(tmp_data_root, global_config_yaml):
-    (tmp_data_root / "config.yaml").write_text(global_config_yaml)
-    cfg = load_global()
-    assert cfg.server.base_domain == "dev.yoops.org"
-    assert cfg.hosts[0].name == "local"
-
-
-def test_load_global_raises_on_missing_file(tmp_data_root):
-    with pytest.raises(FileNotFoundError):
-        load_global()
-
-
 # ─── load_user ────────────────────────────────────────────────────────────────
 
 
@@ -134,10 +119,15 @@ def test_save_user_atomic_crash_leaves_original_intact(
 
 
 # ─── load_user_config (validation croisée) ────────────────────────────────────
+# Ces tests construisent la GlobalConfig directement (indépendant de load_global / DB).
 
 
-def test_load_user_config_passes_when_host_exists(tmp_data_root, global_config_yaml):
-    (tmp_data_root / "config.yaml").write_text(global_config_yaml)
+@pytest.fixture
+def sample_global_config(global_config_yaml: str) -> GlobalConfig:
+    return GlobalConfig.model_validate(yaml.safe_load(global_config_yaml))
+
+
+def test_load_user_config_passes_when_host_exists(tmp_data_root, sample_global_config):
     ensure_user_dir("alice")
     user_yaml = """\
 version: "1"
@@ -149,13 +139,11 @@ workspaces:
     host: "local"
 """
     (tmp_data_root / "users" / "alice" / "config.yaml").write_text(user_yaml)
-    global_cfg = load_global()
-    cfg = load_user_config("alice", global_cfg)
+    cfg = load_user_config("alice", sample_global_config)
     assert cfg.workspaces[0].host == "local"
 
 
-def test_load_user_config_rejects_unknown_host(tmp_data_root, global_config_yaml):
-    (tmp_data_root / "config.yaml").write_text(global_config_yaml)
+def test_load_user_config_rejects_unknown_host(tmp_data_root, sample_global_config):
     ensure_user_dir("alice")
     user_yaml = """\
 version: "1"
@@ -167,13 +155,11 @@ workspaces:
     host: "nonexistent-host"
 """
     (tmp_data_root / "users" / "alice" / "config.yaml").write_text(user_yaml)
-    global_cfg = load_global()
     with pytest.raises(ValueError, match="nonexistent-host"):
-        load_user_config("alice", global_cfg)
+        load_user_config("alice", sample_global_config)
 
 
-def test_load_user_config_rejects_unknown_git_credential(tmp_data_root, global_config_yaml):
-    (tmp_data_root / "config.yaml").write_text(global_config_yaml)
+def test_load_user_config_rejects_unknown_git_credential(tmp_data_root, sample_global_config):
     ensure_user_dir("alice")
     user_yaml = """\
 version: "1"
@@ -185,6 +171,5 @@ workspaces:
     git_credential: "ghost-cred"
 """
     (tmp_data_root / "users" / "alice" / "config.yaml").write_text(user_yaml)
-    global_cfg = load_global()
     with pytest.raises(ValueError, match="ghost-cred"):
-        load_user_config("alice", global_cfg)
+        load_user_config("alice", sample_global_config)

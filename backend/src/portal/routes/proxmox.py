@@ -230,7 +230,7 @@ async def add_hypervisor_type(
         destroy_script=body.destroy_script,
     )
     cfg.hypervisor_types.append(ht)
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("hypervisor_type_added", name=body.name, by=user.login)
     return ht.model_dump(mode="json")
 
@@ -252,7 +252,7 @@ async def update_hypervisor_type(
         destroy_script=body.destroy_script,
     )
     cfg.hypervisor_types = [updated if t.name == name else t for t in cfg.hypervisor_types]
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("hypervisor_type_updated", name=name, by=user.login)
     return updated.model_dump(mode="json")
 
@@ -266,7 +266,7 @@ async def delete_hypervisor_type(
     if not any(t.name == name for t in cfg.hypervisor_types):
         raise HTTPException(status_code=404, detail=f"Hypervisor type {name!r} not found")
     cfg.hypervisor_types = [t for t in cfg.hypervisor_types if t.name != name]
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("hypervisor_type_deleted", name=name, by=user.login)
 
 
@@ -320,7 +320,7 @@ async def add_hypervisor(
         password=password,
     )
     cfg.hypervisors.append(node)
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("hypervisor_added", name=name, address=address, by=user.login)
     return node.model_dump(mode="json")
 
@@ -361,7 +361,7 @@ async def update_hypervisor(
         password=password if password else node.password,
     )
     cfg.hypervisors = [updated if n.name == name else n for n in cfg.hypervisors]
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("hypervisor_updated", name=name, address=address, by=user.login)
     return updated.model_dump(mode="json")
 
@@ -376,7 +376,7 @@ async def delete_hypervisor(
     if node is None:
         raise HTTPException(status_code=404, detail=f"Hypervisor {name!r} not found")
     cfg.hypervisors = [n for n in cfg.hypervisors if n.name != name]
-    save_global(cfg)
+    await save_global(cfg)
     Path(node.ssh_key_path).unlink(missing_ok=True)
     _log.info("hypervisor_deleted", name=name, by=user.login)
 

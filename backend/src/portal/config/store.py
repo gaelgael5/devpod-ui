@@ -49,10 +49,9 @@ def ensure_user_dir(login: str) -> None:
 
 
 def load_global() -> GlobalConfig:
-    path = _data_root() / "config.yaml"
-    with open(path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-    return GlobalConfig.model_validate(data)
+    from portal.db.global_config import get_cached_global
+
+    return get_cached_global()
 
 
 def load_user(login: str) -> UserConfig:
@@ -90,15 +89,9 @@ def save_user(login: str, cfg: UserConfig) -> None:
         raise
 
 
-def save_global(cfg: GlobalConfig) -> None:
-    path = _data_root() / "config.yaml"
-    parent = path.parent
-    fd, tmp_path = tempfile.mkstemp(dir=parent, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            yaml.dump(cfg.model_dump(mode="json"), f, default_flow_style=False)
-        os.replace(tmp_path, path)
-    except Exception:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        raise
+async def save_global(cfg: GlobalConfig) -> None:
+    from portal.db.engine import _get_engine
+    from portal.db.global_config import save_global_db
+
+    async with _get_engine().begin() as conn:
+        await save_global_db(cfg, conn)

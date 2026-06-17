@@ -224,8 +224,8 @@ def _save_node_cert(node_name: str, cert_pem: bytes) -> None:
         raise
 
 
-def _register_host(node_name: str, address: str) -> None:
-    """Ajoute le nœud dans config.yaml global — écriture atomique."""
+async def _register_host(node_name: str, address: str) -> None:
+    """Ajoute le nœud dans global_config en DB."""
     cfg = load_global()
     if any(h.name == node_name for h in cfg.hosts):
         raise ValueError(f"Host {node_name!r} already registered — delete it first")
@@ -237,7 +237,7 @@ def _register_host(node_name: str, address: str) -> None:
             docker_host=f"tcp://{address}:2376",
         )
     )
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("node_host_registered", node_name=node_name, address=address)
 
 
@@ -260,7 +260,7 @@ async def enroll_node(token: str, csr_pem: str) -> dict[str, str]:
         ca_key_path=ca_key_path,
     )
     _save_node_cert(node_name, cert_pem)
-    _register_host(node_name, address)
+    await _register_host(node_name, address)
     return {
         "cert_pem": cert_pem.decode(),
         "ca_pem": ca_pem.decode(),

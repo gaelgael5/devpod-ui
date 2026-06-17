@@ -19,21 +19,21 @@ from .routes.me import router as me_router
 from .routes.nodes import router as nodes_router
 from .routes.plugins import get_openvsx
 from .routes.plugins import router as plugins_router
+from .routes.profile_sources import router_admin as profile_sources_admin_router
 from .routes.profiles import get_repo as get_profile_repo
 from .routes.profiles import router as profiles_router
 from .routes.profiles import router_admin as profiles_admin_router
 from .routes.proxmox import router as proxmox_router
-from .routes.profile_sources import router_admin as profile_sources_admin_router
 from .routes.recipe_sources import router_admin as recipe_sources_admin_router
 from .routes.recipes import router_admin as recipes_admin_router
 from .routes.recipes import router_me as recipes_me_router
 from .routes.recipes import router_public as recipes_public_router
 from .routes.ssh_proxy import router as ssh_proxy_router
-from .routes.workspace_ssh import router as workspace_ssh_router
 from .routes.static import router as static_router
 from .routes.workspace_ops import _get_service
 from .routes.workspace_ops import router as workspace_ops_router
 from .routes.workspace_sessions import router as workspace_sessions_router
+from .routes.workspace_ssh import router as workspace_ssh_router
 from .settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -71,13 +71,20 @@ class SPAMiddleware(BaseHTTPMiddleware):
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     import asyncio
+
+    from .db.engine import _get_engine
+    from .db.global_config import warm_global_cache
     from .openvsx import OpenVsxClient, OpenVsxSettings
     from .profiles.repository import ProfileRepository
     from .recipes.sync import sync_bundled_recipes
 
+    settings_obj = get_settings()
+    if settings_obj.database_url:
+        async with _get_engine().begin() as conn:
+            await warm_global_cache(conn)
+
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()
-    settings_obj = get_settings()
     data_dir = Path(settings_obj.portal_data_root)
 
     # Synchronisation des recettes bundlées → /data/recipes/ (idempotent)

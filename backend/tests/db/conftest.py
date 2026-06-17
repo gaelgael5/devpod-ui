@@ -26,8 +26,15 @@ def postgres_url() -> str:
     """Démarre un container PostgreSQL et retourne son URL asyncpg.
 
     Le container vit toute la session pytest et est détruit à la fin.
-    Nécessite Docker disponible sur la machine.
+    Nécessite Docker disponible sur la machine — skippe si absent.
     """
+    try:
+        import docker
+
+        docker.from_env()
+    except Exception as exc:
+        pytest.skip(f"Docker non disponible (tests DB skippés) : {exc}")
+
     from testcontainers.postgres import PostgresContainer
 
     with PostgresContainer("postgres:16-alpine") as pg:
