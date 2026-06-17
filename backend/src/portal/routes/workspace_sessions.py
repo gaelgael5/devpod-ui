@@ -38,7 +38,12 @@ async def _ssh(ws_id: str, login: str, command: str, timeout: float = 10.0) -> t
         "HOME": os.environ.get("HOME", "/root"),
     }
     proc = await asyncio.create_subprocess_exec(
-        "ssh", "-o", "LogLevel=QUIET", "--", ssh_host, command,
+        "ssh",
+        "-o", "LogLevel=ERROR",
+        "-o", "BatchMode=yes",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=10",
+        "--", ssh_host, command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
@@ -86,13 +91,18 @@ async def create_session(
     rc_check, _ = await _ssh(ws_id, user.login, "command -v tmux >/dev/null 2>&1")
     if rc_check != 0:
         _log.info("tmux_absent_auto_installing", ws_id=ws_id)
-        rc_inst, out_inst = await _ssh(
-            ws_id,
-            user.login,
-            "DEBIAN_FRONTEND=noninteractive sudo apt-get update -qq 2>&1"
-            " && DEBIAN_FRONTEND=noninteractive sudo apt-get install -y -q tmux 2>&1",
-            timeout=120.0,
+        # Détection root vs non-root — sudo n'est pas toujours installé dans
+        # les devcontainers qui tournent déjà en uid 0.
+        _apt = (
+            "if [ \"$(id -u)\" = '0' ]; then"
+            " DEBIAN_FRONTEND=noninteractive apt-get update -qq"
+            " && DEBIAN_FRONTEND=noninteractive apt-get install -y -q tmux;"
+            " else"
+            " DEBIAN_FRONTEND=noninteractive sudo -n apt-get update -qq"
+            " && DEBIAN_FRONTEND=noninteractive sudo -n apt-get install -y -q tmux;"
+            " fi"
         )
+        rc_inst, out_inst = await _ssh(ws_id, user.login, _apt, timeout=120.0)
         if rc_inst != 0:
             raise HTTPException(
                 status_code=422,
