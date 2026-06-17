@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import ipaddress
 import json as _json
-import os
 import re
 import shutil
 import socket as _socket
@@ -18,9 +16,12 @@ import structlog
 import yaml
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
 from ..config.store import _data_root
+from ..db.engine import get_conn
+from ..db.sources import load_recipe_sources, save_recipe_sources
 from ..recipes.models import _RECIPE_ID_RE, RecipeMeta
 
 _log = structlog.get_logger(__name__)
@@ -34,32 +35,6 @@ class RecipeSourcesPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     sources: list[str]
-
-
-def _sources_path() -> Path:
-    return _data_root() / "recipe-sources.yaml"
-
-
-def _load_sources() -> list[str]:
-    path = _sources_path()
-    if not path.exists():
-        return [_DEFAULT_SOURCE]
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return list(data.get("sources", [_DEFAULT_SOURCE]))
-
-
-def _save_sources(sources: list[str]) -> None:
-    path = _sources_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, suffix=".yaml")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(yaml.dump({"sources": sources}, default_flow_style=False))
-        os.replace(tmp_name, path)
-    except Exception:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_name)
-        raise
 
 
 def _check_ssrf(url: str) -> None:
@@ -97,8 +72,9 @@ def _check_ssrf(url: str) -> None:
 @router_admin.get("/recipe-sources")
 async def get_recipe_sources(
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
-    sources = await asyncio.to_thread(_load_sources)
+    sources = await load_recipe_sources(conn)
     return {"sources": sources}
 
 
@@ -220,8 +196,9 @@ async def _preview_one_source(client: httpx.AsyncClient, toc_url: str) -> list[d
 @router_admin.get("/recipe-sources/preview")
 async def preview_recipe_sources(
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
-    sources = await asyncio.to_thread(_load_sources)
+    sources = await load_recipe_sources(conn)
     all_recipes: list[dict[str, Any]] = []
     async with httpx.AsyncClient() as http:
         for src_url in sources:
@@ -234,10 +211,11 @@ async def preview_recipe_sources(
 async def put_recipe_sources(
     body: RecipeSourcesPayload,
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     for url in body.sources:
         await asyncio.to_thread(_check_ssrf, url)
-    await asyncio.to_thread(_save_sources, body.sources)
+    await save_recipe_sources(body.sources, conn)
     _log.info("recipe_sources_updated", count=len(body.sources), by=user.login)
     return {"sources": body.sources}
 

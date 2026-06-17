@@ -92,3 +92,25 @@ hosts = Table(
     Column("vmid", Text, nullable=False, server_default=""),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
+
+# ─── Tour 2 : Sources distantes ───────────────────────────────────────────────
+
+recipe_sources = Table(
+    "recipe_sources",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("url", Text, nullable=False, unique=True),
+    Column("position", Integer, nullable=False, server_default="0"),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+profile_sources = Table(
+    "profile_sources",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("url", Text, nullable=False, unique=True),
+    Column("position", Integer, nullable=False, server_default="0"),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)

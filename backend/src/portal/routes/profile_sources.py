@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import os
 import re
-import tempfile
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -13,9 +9,12 @@ import structlog
 import yaml
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
 from ..config.store import _data_root
+from ..db.engine import get_conn
+from ..db.sources import load_profile_sources, save_profile_sources
 from ..profiles.models import ProfileBody
 from ..profiles.repository import ProfileRepository, slugify
 from .recipe_sources import _check_ssrf
@@ -37,32 +36,6 @@ class ProfileSourcesPayload(BaseModel):
 class ProfileImportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source_url: str
-
-
-def _sources_path() -> Path:
-    return _data_root() / "profile-sources.yaml"
-
-
-def _load_sources() -> list[str]:
-    path = _sources_path()
-    if not path.exists():
-        return [_DEFAULT_SOURCE]
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return list(data.get("sources", [_DEFAULT_SOURCE]))
-
-
-def _save_sources(sources: list[str]) -> None:
-    path = _sources_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, suffix=".yaml")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(yaml.dump({"sources": sources}, default_flow_style=False))
-        os.replace(tmp_name, path)
-    except Exception:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_name)
-        raise
 
 
 def _parse_toc_line(line: str) -> dict[str, Any] | None:
@@ -119,8 +92,9 @@ async def _preview_one_source(client: httpx.AsyncClient, base_url: str) -> list[
 @router_admin.get("/profile-sources")
 async def get_profile_sources(
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
-    sources = await asyncio.to_thread(_load_sources)
+    sources = await load_profile_sources(conn)
     return {"sources": sources}
 
 
@@ -128,12 +102,13 @@ async def get_profile_sources(
 async def put_profile_sources(
     body: ProfileSourcesPayload,
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     for url in body.sources:
         if not url.startswith("https://"):
             raise HTTPException(status_code=422, detail=f"URL must be HTTPS: {url!r}")
         await asyncio.to_thread(_check_ssrf, url)
-    await asyncio.to_thread(_save_sources, body.sources)
+    await save_profile_sources(body.sources, conn)
     _log.info("profile_sources_updated", count=len(body.sources), by=user.login)
     return {"sources": body.sources}
 
@@ -141,8 +116,9 @@ async def put_profile_sources(
 @router_admin.get("/profile-sources/preview")
 async def preview_profile_sources(
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
-    sources = await asyncio.to_thread(_load_sources)
+    sources = await load_profile_sources(conn)
     all_profiles: list[dict[str, Any]] = []
     async with httpx.AsyncClient() as http:
         for src_url in sources:
