@@ -37,6 +37,9 @@ class AppSettings(BaseSettings):
     bundled_recipes_dir: str = "/app/recipes"
     portal_api_key: str = ""
 
+    # Base de données PostgreSQL (format : postgresql+asyncpg://user:pass@host/db)
+    database_url: str = ""
+
 
 _settings: AppSettings | None = None
 
