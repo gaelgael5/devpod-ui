@@ -93,7 +93,7 @@ async def run_git_ls_remote(
     }
 
     if credential_name:
-        cfg = load_user(login)
+        cfg = await load_user(login)
         cred = next((c for c in cfg.git_credentials if c.name == credential_name), None)
         if cred:
             if cred.kind == "ssh" and cred.key_path:

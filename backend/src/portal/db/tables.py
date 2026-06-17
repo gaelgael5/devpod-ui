@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from sqlalchemy import ARRAY, Boolean, Column, DateTime, Integer, MetaData, Table, Text, func
+from sqlalchemy import ARRAY, Boolean, Column, DateTime, ForeignKey, Integer, MetaData, Table, Text, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 metadata = MetaData()
 
@@ -127,4 +128,70 @@ node_join_tokens = Table(
     Column("used", Boolean, nullable=False, server_default="false"),
     Column("used_at", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# ─── Tour 4 : UserConfig ──────────────────────────────────────────────────────
+
+users = Table(
+    "users",
+    metadata,
+    Column("login", Text, primary_key=True),
+    Column("version", Text, nullable=False),
+    Column("secret_ns", UUID(as_uuid=False), nullable=False, unique=True),
+    Column("default_ide", Text, nullable=False, server_default="openvscode"),
+    Column("default_idle_timeout", Text, nullable=False, server_default="4h"),
+    Column("harpocrate_api_key", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+git_credentials = Table(
+    "git_credentials",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("name", Text, nullable=False),
+    Column("host", Text, nullable=False),
+    Column("kind", Text, nullable=False),
+    Column("key_path", Text, nullable=False, server_default=""),
+    Column("public_key", Text, nullable=False, server_default=""),
+    Column("username", Text, nullable=False, server_default=""),
+    Column("token", Text, nullable=False, server_default=""),
+)
+
+workspaces = Table(
+    "workspaces",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("name", Text, nullable=False),
+    Column("source", Text, nullable=False),
+    Column("branch", Text, nullable=False, server_default=""),
+    Column("git_credential", Text, nullable=False, server_default=""),
+    Column("host", Text, nullable=False, server_default=""),
+    Column("template", Text, nullable=False, server_default=""),
+    Column("devcontainer_path", Text, nullable=False, server_default=""),
+    Column("recipes", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("ide", Text, nullable=False, server_default=""),
+    Column("idle_timeout", Text, nullable=False, server_default=""),
+    Column("env", JSONB, nullable=False, server_default="{}"),
+    Column("expose_hostname", Text, nullable=False, server_default=""),
+    Column("ssh_key", Boolean, nullable=False, server_default="false"),
+    Column("profile_scope", Text, nullable=True),
+    Column("profile_slug", Text, nullable=True),
+    Column("start_recipes", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("default_start", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+workspace_extra_sources = Table(
+    "workspace_extra_sources",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("workspace_id", Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False),
+    Column("position", Integer, nullable=False),
+    Column("url", Text, nullable=False),
+    Column("branch", Text, nullable=False, server_default=""),
+    Column("git_credential", Text, nullable=False, server_default=""),
 )

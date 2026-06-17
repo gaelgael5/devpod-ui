@@ -155,7 +155,7 @@ class DevPodService:
         effective_source = ws_spec.source
         if ws_spec.git_credential and ws_spec.source:
             try:
-                user_cfg = load_user(login)
+                user_cfg = await load_user(login)
                 cred = next(
                     (c for c in user_cfg.git_credentials if c.name == ws_spec.git_credential),
                     None,
@@ -601,7 +601,9 @@ class DevPodService:
                 ]
             log_path = self._log_path(login, ws_id)
             # Seul le returncode est logué — la valeur des env vars (secrets) n'est jamais écrite
-            returncode = await run_subprocess(cmd=cmd, env=subprocess_env, log_path=log_path, ws_id=ws_id)
+            returncode = await run_subprocess(
+                cmd=cmd, env=subprocess_env, log_path=log_path, ws_id=ws_id
+            )
             status = "running" if returncode == 0 else "failed"
             extra: dict[str, Any] = {
                 "returncode": returncode,

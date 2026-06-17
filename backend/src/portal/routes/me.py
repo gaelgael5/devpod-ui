@@ -28,7 +28,7 @@ async def get_current_user(user: UserInfo = Depends(require_user)) -> dict[str, 
 
 @router.get("/config")
 async def get_config(user: UserInfo = Depends(require_user)) -> dict[str, object]:
-    cfg = load_user(user.login)
+    cfg = await load_user(user.login)
     return cfg.model_dump(mode="json")
 
 
@@ -36,21 +36,21 @@ async def get_config(user: UserInfo = Depends(require_user)) -> dict[str, object
 async def put_config(
     updates: dict[str, object], user: UserInfo = Depends(require_user)
 ) -> dict[str, object]:
-    cfg = load_user(user.login)
+    cfg = await load_user(user.login)
     merged = cfg.model_dump(mode="json")
     merged.update(updates)
     try:
         new_cfg = UserConfig.model_validate(merged)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    save_user(user.login, new_cfg)
+    await save_user(user.login,new_cfg)
     _log.info("user_config_updated", login=user.login)
     return new_cfg.model_dump(mode="json")
 
 
 @router.get("/workspaces")
 async def list_workspaces(user: UserInfo = Depends(require_user)) -> list[dict[str, object]]:
-    cfg = load_user(user.login)
+    cfg = await load_user(user.login)
     return [ws.model_dump(mode="json") for ws in cfg.workspaces]
 
 
@@ -58,11 +58,11 @@ async def list_workspaces(user: UserInfo = Depends(require_user)) -> list[dict[s
 async def add_workspace(
     workspace: WorkspaceSpec, user: UserInfo = Depends(require_user)
 ) -> dict[str, object]:
-    cfg = load_user(user.login)
+    cfg = await load_user(user.login)
     if any(ws.name == workspace.name for ws in cfg.workspaces):
         raise HTTPException(status_code=409, detail=f"Workspace {workspace.name!r} already exists")
     cfg.workspaces.append(workspace)
-    save_user(user.login, cfg)
+    await save_user(user.login,cfg)
     _log.info("workspace_added", login=user.login, name=workspace.name)
     return workspace.model_dump(mode="json")
 
@@ -85,10 +85,20 @@ async def list_git_branches(
             returncode=returncode,
             stderr=err,
         )
-        if "terminal prompts disabled" in err or "could not read Username" in err or "Authentication failed" in err:
-            detail = "Authentification git échouée. Vérifiez le token et ses permissions d'accès au dépôt."
+        if (
+            "terminal prompts disabled" in err
+            or "could not read Username" in err
+            or "Authentication failed" in err
+        ):
+            detail = (
+                "Authentification git échouée."
+                " Vérifiez le token et ses permissions d'accès au dépôt."
+            )
         elif "Repository not found" in err or "not found" in err.lower():
-            detail = "Dépôt introuvable ou accès refusé. Vérifiez l'URL et les permissions du token."
+            detail = (
+                "Dépôt introuvable ou accès refusé."
+                " Vérifiez l'URL et les permissions du token."
+            )
         elif "Could not resolve host" in err or "unable to resolve" in err.lower():
             detail = "Hôte introuvable. Vérifiez l'URL du dépôt."
         elif "timed out" in err.lower():
@@ -129,7 +139,7 @@ class _GitCredentialCreate(BaseModel):
 async def list_git_credentials(
     user: UserInfo = Depends(require_user),
 ) -> list[dict[str, object]]:
-    cfg = load_user(user.login)
+    cfg = await load_user(user.login)
     return [
         {"name": c.name, "host": c.host, "kind": c.kind, "username": c.username}
         for c in cfg.git_credentials
@@ -147,7 +157,7 @@ async def add_git_credential(
     if not host:
         raise HTTPException(status_code=422, detail="host is required")
 
-    cfg = load_user(user.login)
+    cfg = await load_user(user.login)
     if any(c.name == body.name for c in cfg.git_credentials):
         raise HTTPException(status_code=409, detail=f"Credential {body.name!r} already exists")
 
@@ -194,7 +204,7 @@ async def add_git_credential(
             token=body.token.strip() if body.kind == "token" else "",
         )
     )
-    save_user(user.login, cfg)
+    await save_user(user.login,cfg)
     _log.info("git_credential_added", login=user.login, name=body.name, kind=body.kind)
     result: dict[str, object] = {"name": body.name, "host": host, "kind": body.kind}
     if public_key is not None:
@@ -219,7 +229,7 @@ async def patch_git_credential(
     body: _GitCredentialUpdate,
     user: UserInfo = Depends(require_user),
 ) -> dict[str, object]:
-    cfg = load_user(user.login)
+    cfg = await load_user(user.login)
     cred = next((c for c in cfg.git_credentials if c.name == name), None)
     if not cred:
         raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
@@ -321,7 +331,7 @@ async def patch_git_credential(
                 if src.git_credential == name:
                     src.git_credential = effective_name
 
-    save_user(user.login, cfg)
+    await save_user(user.login,cfg)
 
     if key_to_delete and key_to_delete.exists():
         key_to_delete.unlink()
@@ -338,7 +348,7 @@ async def get_git_credential_public_key(
     name: str,
     user: UserInfo = Depends(require_user),
 ) -> dict[str, object]:
-    cfg = load_user(user.login)
+    cfg = await load_user(user.login)
     cred = next((c for c in cfg.git_credentials if c.name == name), None)
     if not cred:
         raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
@@ -358,12 +368,12 @@ async def delete_git_credential(
     name: str,
     user: UserInfo = Depends(require_user),
 ) -> dict[str, object]:
-    cfg = load_user(user.login)
+    cfg = await load_user(user.login)
     cred = next((c for c in cfg.git_credentials if c.name == name), None)
     if not cred:
         raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
     cfg.git_credentials = [c for c in cfg.git_credentials if c.name != name]
-    save_user(user.login, cfg)
+    await save_user(user.login,cfg)
     if cred.kind == "ssh" and cred.key_path:
         key_file = Path(cred.key_path)
         if key_file.exists():
@@ -377,11 +387,11 @@ async def delete_git_credential(
 
 @router.delete("/workspaces/{name}")
 async def delete_workspace(name: str, user: UserInfo = Depends(require_user)) -> dict[str, object]:
-    cfg = load_user(user.login)
+    cfg = await load_user(user.login)
     before = len(cfg.workspaces)
     cfg.workspaces = [ws for ws in cfg.workspaces if ws.name != name]
     if len(cfg.workspaces) == before:
         raise HTTPException(status_code=404, detail=f"Workspace {name!r} not found")
-    save_user(user.login, cfg)
+    await save_user(user.login,cfg)
     _log.info("workspace_deleted", login=user.login, name=name)
     return {"deleted": name}

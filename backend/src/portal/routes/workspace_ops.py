@@ -116,14 +116,14 @@ def _reset_service() -> None:
     _recipe_registry = None
 
 
-def _resolve_feature_secrets(login: str, secret_refs: list[SecretRef]) -> dict[str, str]:
+def _resolve_feature_secrets(
+    login: str, secret_ns: str, secret_refs: list[SecretRef]
+) -> dict[str, str]:
     """Résout les secrets de recettes. Appelée via asyncio.to_thread."""
-    from ..config.store import load_user
     from ..secrets.factory import create_backend
     from ..secrets.resolver import Scope, resolve
     from ..secrets.types import Secret
 
-    user_cfg = load_user(login)
     global_cfg = load_global()
     user_secrets_path = safe_user_path(login, "secrets.yaml")
     backend = create_backend(
@@ -133,7 +133,7 @@ def _resolve_feature_secrets(login: str, secret_refs: list[SecretRef]) -> dict[s
         base_path=global_cfg.secrets.harpocrate.base_path,
         user_secrets_path=user_secrets_path,
     )
-    scope = Scope(kind="user", secret_ns=user_cfg.secret_ns, login=login)
+    scope = Scope(kind="user", secret_ns=secret_ns, login=login)
     result: dict[str, str] = {}
     for ref in secret_refs:
         val = resolve(ref.path, scope, backend)
@@ -192,9 +192,12 @@ async def workspace_up(
             ref for recipe in resolved_recipes for ref in recipe.requires_secrets
         ]
         if all_refs:
+            from ..config.store import load_user
+
+            user_cfg_for_secrets = await load_user(user.login)
             try:
                 feature_env = await asyncio.to_thread(
-                    _resolve_feature_secrets, user.login, all_refs
+                    _resolve_feature_secrets, user.login, user_cfg_for_secrets.secret_ns, all_refs
                 )
             except Exception as exc:
                 _log.warning(
@@ -339,7 +342,7 @@ async def get_workspace_start_recipes(
 
     from ..config.store import load_user
 
-    user_cfg = await asyncio.to_thread(load_user, user.login)
+    user_cfg = await load_user(user.login)
     ws_spec = next((ws for ws in user_cfg.workspaces if ws.name == name), None)
     if ws_spec is None:
         raise HTTPException(status_code=404, detail=f"Workspace {name!r} not found")

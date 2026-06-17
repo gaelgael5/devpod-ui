@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import contextlib
 import os
 import re
-import tempfile
 from pathlib import Path
-
-import yaml
 
 from .models import GlobalConfig, UserConfig
 
@@ -54,15 +50,16 @@ def load_global() -> GlobalConfig:
     return get_cached_global()
 
 
-def load_user(login: str) -> UserConfig:
-    path = safe_user_path(login, "config.yaml")
-    with open(path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-    return UserConfig.model_validate(data)
+async def load_user(login: str) -> UserConfig:
+    from portal.db.engine import _get_engine
+    from portal.db.user_config import load_user_db
+
+    async with _get_engine().connect() as conn:
+        return await load_user_db(login, conn)
 
 
-def load_user_config(login: str, global_cfg: GlobalConfig) -> UserConfig:
-    cfg = load_user(login)
+async def load_user_config(login: str, global_cfg: GlobalConfig) -> UserConfig:
+    cfg = await load_user(login)
     known_hosts = {h.name for h in global_cfg.hosts}
     known_creds = {c.name for c in cfg.git_credentials}
     for ws in cfg.workspaces:
@@ -75,18 +72,12 @@ def load_user_config(login: str, global_cfg: GlobalConfig) -> UserConfig:
     return cfg
 
 
-def save_user(login: str, cfg: UserConfig) -> None:
-    path = safe_user_path(login, "config.yaml")
-    parent = path.parent
-    fd, tmp_path = tempfile.mkstemp(dir=parent, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            yaml.dump(cfg.model_dump(mode="json"), f, default_flow_style=False)
-        os.replace(tmp_path, path)
-    except Exception:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        raise
+async def save_user(login: str, cfg: UserConfig) -> None:
+    from portal.db.engine import _get_engine
+    from portal.db.user_config import save_user_db
+
+    async with _get_engine().begin() as conn:
+        await save_user_db(login, cfg, conn)
 
 
 async def save_global(cfg: GlobalConfig) -> None:
