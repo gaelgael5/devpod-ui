@@ -63,7 +63,7 @@ export default function AdminProfileEditor() {
         slug: isNew ? undefined : slug,
         body: { name, description, extensions: [...selected], settings },
       },
-      { onSuccess: () => navigate('/admin/profiles') },
+      { onSuccess: () => navigate('/admin/profile-sources') },
     )
   }
 
@@ -119,7 +119,7 @@ export default function AdminProfileEditor() {
         <Button onClick={onSave} disabled={!name.trim() || save.isPending}>
           {t('common.save')}
         </Button>
-        <Button variant="ghost" onClick={() => navigate('/admin/profiles')}>
+        <Button variant="ghost" onClick={() => navigate('/admin/profile-sources')}>
           {t('common.cancel')}
         </Button>
       </div>

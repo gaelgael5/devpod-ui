@@ -110,7 +110,7 @@
   },
   "admin": {
     "hosts": "Docker hosts",
-    "sharedRecipes": "Shared recipes",
+    "sharedRecipes": "Script Gallery",
     "proxmox": "Proxmox nodes",
     "hypervisors": "Hypervisors",
     "hypervisorTypes": "Hypervisor types",
@@ -124,7 +124,7 @@
     "addRecipe": "Add recipe",
     "gallery": "Gallery",
     "localRecipes": "Local recipes",
-    "recipeSource": "Recipe sources",
+    "recipeSource": "Script Gallery",
     "addSource": "Add",
     "importRecipe": "Import",
     "importing": "Importing…",
@@ -155,8 +155,8 @@
     "editHypervisorType": "Edit type",
     "sharedProfiles": "Shared profiles",
     "profileSources": {
-      "navLabel": "Profile Sources",
-      "sources": "Configured Sources",
+      "navLabel": "VS Code Profile Gallery",
+      "sources": "VS Code Profile Gallery",
       "gallery": "Profile Gallery",
       "empty": "No profiles available. Add a source and refresh.",
       "filter": "Filter profiles…",

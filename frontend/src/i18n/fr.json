@@ -110,7 +110,7 @@
   },
   "admin": {
     "hosts": "Hôtes Docker",
-    "sharedRecipes": "Recettes partagées",
+    "sharedRecipes": "Galerie scripts",
     "proxmox": "Nœuds Proxmox",
     "hypervisors": "Hyperviseurs",
     "hypervisorTypes": "Types d'hyperviseurs",
@@ -124,7 +124,7 @@
     "addRecipe": "Ajouter une recette",
     "gallery": "Galerie",
     "localRecipes": "Recettes locales",
-    "recipeSource": "Sources de recettes",
+    "recipeSource": "Galerie scripts",
     "addSource": "Ajouter",
     "importRecipe": "Importer",
     "importing": "Import…",
@@ -155,8 +155,8 @@
     "editHypervisorType": "Modifier le type",
     "sharedProfiles": "Profils partagés",
     "profileSources": {
-      "navLabel": "Sources de profils",
-      "sources": "Sources configurées",
+      "navLabel": "Galerie profils VS Code",
+      "sources": "Galerie profils VS Code",
       "gallery": "Galerie de profils",
       "empty": "Aucun profil disponible. Ajoutez une source et actualisez.",
       "filter": "Filtrer les profils…",

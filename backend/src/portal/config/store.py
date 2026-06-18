@@ -45,9 +45,23 @@ def ensure_user_dir(login: str) -> None:
 
 
 def load_global() -> GlobalConfig:
-    from portal.db.global_config import get_cached_global
+    """Retourne la GlobalConfig depuis le cache DB.
 
-    return get_cached_global()
+    Si aucune config n'a encore été sauvegardée (premier démarrage),
+    retourne une config bootstrap vide pour permettre le CRUD admin
+    (hyperviseurs, types…) avant la configuration initiale.
+    """
+    from portal.db.global_config import get_cached_global
+    from .models import AuthConfig, OidcConfig, ServerConfig
+
+    try:
+        return get_cached_global()
+    except RuntimeError:
+        return GlobalConfig(
+            version="1",
+            server=ServerConfig(base_domain="", external_url=""),
+            auth=AuthConfig(oidc=OidcConfig(issuer="", client_id="", client_secret="")),
+        )
 
 
 async def load_user(login: str) -> UserConfig:
