@@ -71,13 +71,10 @@ class SPAMiddleware(BaseHTTPMiddleware):
 
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    import asyncio
-
     from .db.engine import _get_engine
     from .db.global_config import warm_global_cache
     from .db.profiles import AsyncProfileRepository
     from .openvsx import OpenVsxClient, OpenVsxSettings
-    from .recipes.sync import sync_bundled_recipes, sync_recipes_to_db
 
     settings_obj = get_settings()
     if settings_obj.database_url:
@@ -89,18 +86,6 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()
-    data_dir = Path(settings_obj.portal_data_root)
-
-    # Synchronisation des recettes bundlées → /data/recipes/ (idempotent)
-    await asyncio.to_thread(
-        sync_bundled_recipes,
-        Path(settings_obj.bundled_recipes_dir),
-        data_dir / "recipes",
-    )
-    # Synchronisation des métadonnées recipes filesystem → DB
-    if settings_obj.database_url:
-        async with _get_engine().begin() as conn:
-            await sync_recipes_to_db(data_dir / "recipes", conn)
 
     profile_repo = AsyncProfileRepository()
     app.dependency_overrides[get_profile_repo] = lambda: profile_repo
