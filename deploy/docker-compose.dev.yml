@@ -2,10 +2,11 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    # POSTGRES_USER et POSTGRES_PASSWORD lus depuis /data/.env (pas de substitution YAML)
+    env_file: /data/.env
     environment:
+      # Base fixe — pas un secret, pas besoin d'être dans .env
       POSTGRES_DB: portal
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -13,7 +14,7 @@ services:
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U portal"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-portal}"]
       interval: 10s
       timeout: 5s
       retries: 5
