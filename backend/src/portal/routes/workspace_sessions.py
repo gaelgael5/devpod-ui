@@ -60,10 +60,13 @@ async def _ssh(ws_id: str, login: str, command: str, timeout: float = 10.0) -> t
 async def list_sessions(name: str, user: UserInfo = Depends(require_user)) -> list[str]:
     _validate_ws_name(name)
     ws_id = f"{user.login}-{name}"
-    _, output = await _ssh(
+    rc, output = await _ssh(
         ws_id, user.login,
         "tmux list-sessions -F '#{session_name}' 2>/dev/null || true",
     )
+    if rc != 0:
+        _log.warning("list_sessions_ssh_failed", ws_id=ws_id, output=output)
+        return []
     return [s for s in output.strip().splitlines() if s]
 
 
