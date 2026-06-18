@@ -40,8 +40,8 @@ export default function VaultSetup() {
           <CardTitle>Créer votre PIN</CardTitle>
           <CardDescription>6 chiffres pour protéger vos clés Harpocrate.</CardDescription>
         </CardHeader>
-        <CardContent className="flex justify-center pt-2">
-          <PinInput onComplete={handlePin} disabled={isPending} />
+        <CardContent className="pt-2">
+          <PinInput onComplete={handlePin} disabled={isPending} showSubmit />
         </CardContent>
       </Card>
     </div>
