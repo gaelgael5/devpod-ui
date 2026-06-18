@@ -40,6 +40,9 @@ class AppSettings(BaseSettings):
     # Base de données PostgreSQL (format : postgresql+asyncpg://user:pass@host/db)
     database_url: str = ""
 
+    # Vault : KEK 32 bytes hex (64 chars). Obligatoire en production.
+    portal_vault_kek: str = ""
+
 
 _settings: AppSettings | None = None
 
