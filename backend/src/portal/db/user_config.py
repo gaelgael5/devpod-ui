@@ -1,8 +1,12 @@
 """Persistance UserConfig (users, git_credentials, workspaces, workspace_extra_sources)."""
 from __future__ import annotations
 
+import uuid
+from pathlib import Path
 from typing import Any
 
+import structlog
+import yaml
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -17,6 +21,38 @@ from ..config.models import (
     WorkspaceSpec,
 )
 from .tables import git_credentials, users, workspace_extra_sources, workspaces
+
+_log = structlog.get_logger(__name__)
+
+
+async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
+    """Garantit l'existence de la row users — idempotent.
+
+    Appelé comme garde-FK avant toute opération qui dépend de users.login
+    (pin setup, workspaces…). Couvre le cas où la session cookie survit à un
+    restart/wipe DB sans que l'utilisateur soit repassé par le login.
+    """
+    existing = (
+        await conn.execute(select(users.c.login).where(users.c.login == login))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return
+
+    # Lire le secret_ns depuis le YAML (cohérence filesystem ↔ DB)
+    from ..config.store import _data_root  # import lazy pour éviter les cycles
+
+    config_path: Path = _data_root() / "users" / login / "config.yaml"
+    try:
+        with config_path.open(encoding="utf-8") as f:
+            raw: dict[str, object] = yaml.safe_load(f) or {}
+        secret_ns_str = str(raw.get("secret_ns", uuid.uuid4()))
+    except OSError:
+        secret_ns_str = str(uuid.uuid4())
+
+    await conn.execute(
+        insert(users).values(login=login, version="1", secret_ns=secret_ns_str)
+    )
+    _log.info("user_db_row_lazy_created", login=login)
 
 
 async def load_user_db(login: str, conn: AsyncConnection) -> UserConfig:

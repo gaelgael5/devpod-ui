@@ -6,6 +6,7 @@ from typing import Literal, NamedTuple
 import structlog
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from ..db.user_config import ensure_user_db
 from ..db.vault_pin import (
     create_pin_config,
     get_pin_config,
@@ -57,6 +58,7 @@ def _kek() -> bytes:
 async def setup_pin(
     login: str, pin: str, session_id: str, conn: AsyncConnection
 ) -> PinSetupResult:
+    await ensure_user_db(login, conn)  # FK guard : users.login doit exister
     if await has_pin_config(login, conn):
         raise ValueError(f"PIN already set for {login!r}")
     master_key = generate_master_key()
