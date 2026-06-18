@@ -16,9 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Contrainte UNIQUE nécessaire pour la FK composite dans workspace_ssh_keys
-    op.create_unique_constraint("uq_workspaces_login_name", "workspaces", ["login", "name"])
-
+    # uq_workspaces_login_name existe déjà depuis migration 004 — pas à recréer.
     op.create_table(
         "workspace_ssh_keys",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
@@ -44,4 +42,3 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("workspace_ssh_keys")
-    op.drop_constraint("uq_workspaces_login_name", "workspaces", type_="unique")

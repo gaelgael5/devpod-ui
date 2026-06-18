@@ -32,7 +32,10 @@ async def warm_global_cache(conn: AsyncConnection) -> None:
     """Charge la GlobalConfig depuis la DB et peuple le cache. Appelé au lifespan."""
     global _cache
     _cache = await _load_from_db(conn)
-    _log.info("global_config_cache_warmed")
+    if _cache is None:
+        _log.warning("global_config_empty", msg="Aucune GlobalConfig en base — premier démarrage, configurez via /admin/config")
+    else:
+        _log.info("global_config_cache_warmed")
 
 
 def invalidate_cache() -> None:
@@ -41,7 +44,7 @@ def invalidate_cache() -> None:
     _cache = None
 
 
-async def load_global_db(conn: AsyncConnection) -> GlobalConfig:
+async def load_global_db(conn: AsyncConnection) -> GlobalConfig | None:
     """Lecture depuis la DB (sans cache). Utilisé par warm_global_cache et les tests."""
     return await _load_from_db(conn)
 
@@ -57,13 +60,13 @@ async def save_global_db(cfg: GlobalConfig, conn: AsyncConnection) -> None:
 # ─── Fonctions internes ───────────────────────────────────────────────────────
 
 
-async def _load_from_db(conn: AsyncConnection) -> GlobalConfig:
+async def _load_from_db(conn: AsyncConnection) -> GlobalConfig | None:
     row_result = await conn.execute(
         select(global_config).where(global_config.c.id == 1)
     )
     row = row_result.mappings().one_or_none()
     if row is None:
-        raise FileNotFoundError("global_config absente de la base de données (non initialisée)")
+        return None
 
     ht_rows = (await conn.execute(select(hypervisor_types))).mappings().all()
     hyp_rows = (await conn.execute(select(hypervisors))).mappings().all()

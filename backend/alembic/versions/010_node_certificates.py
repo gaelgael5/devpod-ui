@@ -37,7 +37,7 @@ def upgrade() -> None:
         "idx_node_certificates_expires",
         "node_certificates",
         ["expires_at"],
-        postgresql_where="revoked_at IS NULL",
+        postgresql_where=sa.text("revoked_at IS NULL"),
     )
 
 
