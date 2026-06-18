@@ -25,6 +25,10 @@ export function PinInput({ onComplete, disabled, showSubmit = false, className }
   )
 
   useEffect(() => {
+    inputRefs.current[0]?.focus()
+  }, [])
+
+  useEffect(() => {
     const timers = maskTimers.current
     return () => timers.forEach(t => clearTimeout(t))
   }, [])
