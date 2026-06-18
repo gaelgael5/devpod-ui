@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Integer,
+    LargeBinary,
     MetaData,
     Table,
     Text,
@@ -317,4 +318,33 @@ profiles = Table(
     Column("settings", JSONB, nullable=False, server_default="{}"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# ─── Phase 2 : Vault PIN utilisateur ─────────────────────────────────────────
+
+user_pin_config = Table(
+    "user_pin_config",
+    metadata,
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), primary_key=True),
+    Column("encrypted_master_key", LargeBinary, nullable=False),
+    Column("pin_salt", LargeBinary, nullable=False),
+    Column("encrypted_master_key_recovery", LargeBinary, nullable=False),
+    Column("recovery_salt", LargeBinary, nullable=False),
+    Column("pin_attempts", Integer, nullable=False, server_default="0"),
+    Column("locked_until", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+user_harpocrate_keys = Table(
+    "user_harpocrate_keys",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("identifier", Text, nullable=False),
+    Column("encrypted_token", LargeBinary, nullable=False),
+    Column("url", Text, nullable=False),
+    Column("description", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("login", "identifier", name="uq_user_harpocrate_keys_login_id"),
 )
