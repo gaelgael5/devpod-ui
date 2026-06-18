@@ -101,6 +101,7 @@ def _parse_sh_headers(content: str) -> dict[str, str]:
 
 
 async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
+    await asyncio.to_thread(_check_ssrf, url)
     resp = await client.get(url, timeout=5.0, follow_redirects=False)
     resp.raise_for_status()
     return resp.text
@@ -161,6 +162,7 @@ async def _fetch_dir_recipe(
 
     return {
         "id": meta.id,
+        "key": meta.key,
         "name": meta.id,
         "description": meta.description,
         "version": meta.version,
@@ -292,51 +294,46 @@ def _write_recipe(
         raise
 
 
-@router_admin.post("/recipe-sources/import", status_code=201)
-async def import_recipe_from_source(
-    body: RecipeImportRequest,
-    user: UserInfo = Depends(require_admin),
-    conn: AsyncConnection = Depends(get_conn),
-) -> dict[str, Any]:
-    await asyncio.to_thread(_check_ssrf, body.source_url)
+async def _find_recipe_by_key(
+    key: str,
+    sources: list[str],
+    http: httpx.AsyncClient,
+) -> dict[str, Any] | None:
+    """Parcourt les sources configurées pour trouver la recette dont key == UUID donné."""
+    for toc_url in sources:
+        for r in await _preview_one_source(http, toc_url):
+            if r.get("key") == key:
+                return r
+    return None
 
-    url_path = Path(urlparse(body.source_url).path)
+
+async def _import_single_recipe(
+    source_url: str,
+    shared_dir: Path,
+    http: httpx.AsyncClient,
+    conn: AsyncConnection,
+) -> tuple[str, RecipeMeta]:
+    """Télécharge et écrit sur disque une recette. Retourne (recipe_id, meta)."""
+    from ..db.recipes import upsert_recipe_db
+
+    url_path = Path(urlparse(source_url).path)
     fname = url_path.name
 
     recipe_type: Literal["install", "start"] = "install"
     if fname == "install.sh":
-        # Format répertoire : fetcher aussi recipe.meta.yaml depuis le même dossier
-        dir_base_url = body.source_url.rsplit("/", 1)[0]
+        dir_base_url = source_url.rsplit("/", 1)[0]
         meta_url = f"{dir_base_url}/recipe.meta.yaml"
-        async with httpx.AsyncClient() as http:
-            try:
-                install_script = await _fetch_text(http, body.source_url)
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=502, detail=f"Cannot fetch install.sh: {exc}"
-                ) from exc
-            try:
-                meta_text = await _fetch_text(http, meta_url)
-                meta = RecipeMeta.model_validate(
-                    _normalize_recipe_yaml(yaml.safe_load(meta_text))
-                )
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=502, detail=f"Cannot fetch recipe.meta.yaml: {exc}"
-                ) from exc
-        base_id = meta.id
-        version = meta.version
-        description = meta.description
+        install_script = await _fetch_text(http, source_url)
+        meta_text = await _fetch_text(http, meta_url)
+        meta = RecipeMeta.model_validate(_normalize_recipe_yaml(yaml.safe_load(meta_text)))
         recipe_type = meta.type
         options_dict = {k: v.model_dump() for k, v in meta.options.items()}
         installs_after = meta.installs_after
+        base_id = meta.id
+        version = meta.version
+        description = meta.description
     else:
-        # Format legacy .sh avec headers commentés
-        async with httpx.AsyncClient() as http:
-            try:
-                install_script = await _fetch_text(http, body.source_url)
-            except Exception as exc:
-                raise HTTPException(status_code=502, detail=f"Cannot fetch recipe: {exc}") from exc
+        install_script = await _fetch_text(http, source_url)
         headers = _parse_sh_headers(install_script)
         base_id = fname[:-3] if fname.endswith(".sh") else fname
         version = headers.get("version", "1.0.0")
@@ -345,18 +342,14 @@ async def import_recipe_from_source(
         recipe_type = raw_type if raw_type in ("install", "start") else "install"
         options_dict = {}
         installs_after = []
-
-    if not _RECIPE_ID_RE.fullmatch(base_id):
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid recipe id derived from URL: {base_id!r}",
+        meta = RecipeMeta(
+            id=base_id, version=version, description=description, type=recipe_type
         )
 
-    data_root = _data_root()
-    shared_dir = data_root / "recipes"
-    shared_dir.mkdir(parents=True, exist_ok=True)
-    recipe_id = await asyncio.to_thread(_unique_recipe_id, base_id, shared_dir)
+    if not _RECIPE_ID_RE.fullmatch(base_id):
+        raise ValueError(f"Invalid recipe id: {base_id!r}")
 
+    recipe_id = await asyncio.to_thread(_unique_recipe_id, base_id, shared_dir)
     await asyncio.to_thread(
         _write_recipe,
         shared_dir,
@@ -368,18 +361,109 @@ async def import_recipe_from_source(
         installs_after,
         recipe_type,
     )
-
-    from ..db.recipes import upsert_recipe_db
-
-    imported_meta = RecipeMeta(
+    final_meta = RecipeMeta(
         id=recipe_id,
+        key=meta.key,
         version=version,
         description=description,
         type=recipe_type,
-        options={},
-        installs_after=installs_after or [],
+        installs_after=installs_after,
     )
-    await upsert_recipe_db(imported_meta, "shared", None, conn)
+    await upsert_recipe_db(final_meta, "shared", None, conn)
+    return recipe_id, final_meta
 
-    _log.info("recipe_imported", recipe_id=recipe_id, source=body.source_url, by=user.login)
-    return {"id": recipe_id, "version": version, "description": description}
+
+async def _import_with_deps(
+    source_url: str,
+    shared_dir: Path,
+    http: httpx.AsyncClient,
+    sources: list[str],
+    conn: AsyncConnection,
+    seen_keys: set[str],
+) -> list[str]:
+    """Importe une recette et ses dépendances (installs_after) récursivement.
+
+    Retourne la liste des recipe_id importés (dépendances en premier).
+    """
+    from ..db.recipes import recipe_key_exists
+
+    imported: list[str] = []
+
+    url_path = Path(urlparse(source_url).path)
+    if url_path.name == "install.sh":
+        dir_base_url = source_url.rsplit("/", 1)[0]
+        meta_url = f"{dir_base_url}/recipe.meta.yaml"
+        try:
+            meta_text = await _fetch_text(http, meta_url)
+            meta = RecipeMeta.model_validate(_normalize_recipe_yaml(yaml.safe_load(meta_text)))
+        except Exception as exc:
+            _log.warning("dep_meta_fetch_failed", url=meta_url, error=str(exc))
+            meta = None
+    else:
+        meta = None
+
+    if meta is not None and meta.key in seen_keys:
+        return imported
+    if meta is not None:
+        seen_keys.add(meta.key)
+        if await recipe_key_exists(meta.key, conn):
+            return imported
+
+        for dep_key in meta.installs_after:
+            if dep_key in seen_keys:
+                continue
+            if await recipe_key_exists(dep_key, conn):
+                seen_keys.add(dep_key)
+                continue
+            dep = await _find_recipe_by_key(dep_key, sources, http)
+            if dep is None:
+                _log.warning("dep_recipe_not_found", key=dep_key)
+                continue
+            dep_imported = await _import_with_deps(
+                dep["source_url"], shared_dir, http, sources, conn, seen_keys
+            )
+            imported.extend(dep_imported)
+
+    recipe_id, _ = await _import_single_recipe(source_url, shared_dir, http, conn)
+    imported.append(recipe_id)
+    return imported
+
+
+@router_admin.post("/recipe-sources/import", status_code=201)
+async def import_recipe_from_source(
+    body: RecipeImportRequest,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    await asyncio.to_thread(_check_ssrf, body.source_url)
+
+    data_root = _data_root()
+    shared_dir = data_root / "recipes"
+    shared_dir.mkdir(parents=True, exist_ok=True)
+
+    configured_sources = await load_recipe_sources(conn)
+
+    try:
+        async with httpx.AsyncClient() as http:
+            imported_ids = await _import_with_deps(
+                body.source_url,
+                shared_dir,
+                http,
+                configured_sources,
+                conn,
+                seen_keys=set(),
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    main_id = imported_ids[-1] if imported_ids else ""
+    _log.info(
+        "recipe_imported",
+        recipe_id=main_id,
+        deps=imported_ids[:-1],
+        source=body.source_url,
+        by=user.login,
+    )
+    return {"id": main_id, "imported": imported_ids}

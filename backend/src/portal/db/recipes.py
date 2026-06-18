@@ -110,6 +110,12 @@ async def get_recipe_db(
     return _row_to_meta(dict(row)) if row is not None else None
 
 
+async def recipe_key_exists(key: str, conn: AsyncConnection) -> bool:
+    """Retourne True si une recette avec ce key (UUID) existe déjà en DB."""
+    result = await conn.execute(select(recipes.c.id).where(recipes.c.key == key))
+    return result.scalar_one_or_none() is not None
+
+
 async def delete_recipe_db(
     recipe_id: str, scope: str, login: str | None, conn: AsyncConnection
 ) -> bool:
