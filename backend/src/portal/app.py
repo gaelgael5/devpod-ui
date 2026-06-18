@@ -30,6 +30,7 @@ from .routes.recipes import router_me as recipes_me_router
 from .routes.recipes import router_public as recipes_public_router
 from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
+from .routes.vault import router as vault_router
 from .routes.workspace_ops import _get_service
 from .routes.workspace_ops import router as workspace_ops_router
 from .routes.workspace_sessions import router as workspace_sessions_router
@@ -164,6 +165,7 @@ def create_app() -> FastAPI:
     app.include_router(workspace_ssh_router, prefix="/me")
     app.include_router(profiles_router)
     app.include_router(profiles_admin_router, prefix="/admin")
+    app.include_router(vault_router)
     # static_router en dernier : son catch-all /{full_path:path} ne doit pas
     # intercepter les routes API enregistrées avant lui.
     app.include_router(static_router)

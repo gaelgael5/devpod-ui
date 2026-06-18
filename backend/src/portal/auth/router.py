@@ -66,6 +66,7 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
         _log.warning("local_login_failed", username=credentials.username)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     await provision_user(login=settings.local_user, sub="local", data_root=_data_root())
+    request.session.setdefault("session_id", str(uuid.uuid4()))
     request.session["user"] = {
         "login": settings.local_user,
         "roles": [settings.oidc_admin_role],
@@ -104,6 +105,7 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
 
     await provision_user(login=login_name, sub=sub, data_root=_data_root())
 
+    request.session.setdefault("session_id", str(uuid.uuid4()))
     request.session["user"] = {"login": login_name, "roles": roles, "sub": sub}
     _log.info("user_logged_in", login=login_name, roles=roles)
     return RedirectResponse("/", status_code=302)
@@ -112,6 +114,11 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
 @router.get("/logout")
 async def logout(request: Request) -> RedirectResponse:
     login_name = request.session.get("user", {}).get("login", "?")
+    sid = request.session.get("session_id", "")
+    if sid:
+        from ..vault import session as vault_session
+
+        vault_session.clear_session(sid)
     request.session.clear()
     _log.info("user_logged_out", login=login_name)
     return RedirectResponse("/", status_code=302)
