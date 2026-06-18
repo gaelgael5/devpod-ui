@@ -36,12 +36,29 @@ fi
 
 cd "$APP_DIR"
 
+# ─── Auto-mise à jour : git pull d'abord, puis ré-exécution si le script a changé ──
+echo "==> Mise à jour du dépôt..."
+git fetch origin
+if [[ -n "$TARGET_BRANCH" ]]; then
+    git checkout "$TARGET_BRANCH"
+fi
+CURRENT="$(git branch --show-current)"
+BEFORE="$(git rev-parse HEAD)"
+git pull --ff-only origin "$CURRENT"
+AFTER="$(git rev-parse HEAD)"
+
+if [[ "$BEFORE" != "$AFTER" ]]; then
+    echo "    Dépôt mis à jour — ré-exécution du script..."
+    exec "$0" "$@"
+fi
+
 # ─── Fonctions utilitaires .env ───────────────────────────────────────────────
 
 # Lit la valeur d'une clé dans $ENV_FILE (retourne "" si absente ou vide).
+# tr -d '\r' protège contre les fichiers à fins de ligne CRLF (copie depuis Windows).
 _get_env() {
     local key="$1"
-    grep -m1 "^${key}=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- || true
+    grep -m1 "^${key}=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '\r' || true
 }
 
 # Écrit (ou remplace) une clé=valeur dans $ENV_FILE.
@@ -61,6 +78,12 @@ if [[ ! -f "$ENV_FILE" ]]; then
     echo "    ${ENV_FILE} absent — copie depuis deploy/.env.example"
     cp deploy/.env.example "$ENV_FILE"
     chmod 600 "$ENV_FILE"
+fi
+
+# Normaliser les fins de ligne CRLF → LF (fichier potentiellement édité sur Windows)
+if grep -qP '\r' "$ENV_FILE" 2>/dev/null; then
+    sed -i 's/\r$//' "$ENV_FILE"
+    echo "    Fins de ligne CRLF converties en LF"
 fi
 
 # Générer POSTGRES_USER si vide
@@ -92,6 +115,15 @@ if [[ -z "$(_get_env SESSION_SECRET_KEY)" ]]; then
     echo "    SESSION_SECRET_KEY généré"
 fi
 
+# Validation : échouer explicitement si une variable critique est encore vide
+for _required_key in POSTGRES_USER POSTGRES_PASSWORD SESSION_SECRET_KEY; do
+    if [[ -z "$(_get_env "$_required_key")" ]]; then
+        echo "ERREUR : ${_required_key} vide dans ${ENV_FILE} après génération automatique." >&2
+        echo "  → Éditer manuellement ${ENV_FILE} et définir ${_required_key}." >&2
+        exit 1
+    fi
+done
+
 # Charger toutes les variables du .env dans l'environnement shell :
 # docker compose résout ${VAR} depuis l'env shell en priorité sur --env-file.
 set -a
@@ -99,27 +131,13 @@ set -a
 source "$ENV_FILE"
 set +a
 
-# ─── 1) Git pull ──────────────────────────────────────────────────────────────
-if [[ -n "$TARGET_BRANCH" ]]; then
-    echo ""
-    echo "==> [1/3] Switch vers ${TARGET_BRANCH} + pull..."
-    git fetch origin
-    git checkout "$TARGET_BRANCH"
-    git pull --ff-only origin "$TARGET_BRANCH"
-else
-    CURRENT="$(git branch --show-current)"
-    echo ""
-    echo "==> [1/3] Pull (${CURRENT})..."
-    git pull --ff-only
-fi
-
-# ─── 2) Build + redémarrage ───────────────────────────────────────────────────
+# ─── 1) Build + redémarrage ───────────────────────────────────────────────────
 echo ""
-echo "==> [2/3] Build de l'image Docker..."
+echo "==> [1/3] Build de l'image Docker..."
 docker compose -f "$COMPOSE_FILE" build
 
 echo ""
-echo "==> Redémarrage de la stack..."
+echo "==> [2/3] Redémarrage de la stack..."
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down --remove-orphans || true
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
 
