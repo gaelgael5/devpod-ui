@@ -46,7 +46,7 @@ export function usePinSetup() {
         method: 'POST',
         body: JSON.stringify({ pin }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: vaultQueryKeys.status() }),
+    onSuccess: () => qc.setQueryData(vaultQueryKeys.status(), { status: 'unlocked' }),
   })
 }
 
@@ -58,7 +58,7 @@ export function usePinUnlock() {
         method: 'POST',
         body: JSON.stringify({ pin }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: vaultQueryKeys.status() }),
+    onSuccess: () => qc.setQueryData(vaultQueryKeys.status(), { status: 'unlocked' }),
   })
 }
 
