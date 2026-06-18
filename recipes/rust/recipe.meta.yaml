@@ -1,7 +1,8 @@
-id: rust
+﻿id: rust
 key: 3b4e6ed7-2307-4801-b0c2-7b0b5fc006d1
 version: 1.0.0
 description: "Install Rust via rustup — stable (recommandé), beta ou nightly"
+type: install
 options:
   channel:
     type: string

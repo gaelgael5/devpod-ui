@@ -1,6 +1,7 @@
-id: aider
+﻿id: aider
 key: 47b57fe3-6d5e-442e-a5ce-e2cfded16065
 version: 1.0.0
 description: "Install Aider — AI pair programmer en CLI (requiert Python)"
+type: install
 installs_after:
   - fa25de9a-ef97-4e68-bea6-8353393db92a

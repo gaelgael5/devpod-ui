@@ -18,6 +18,7 @@ interface FormState {
   id: string
   version: string
   description: string
+  type: 'install' | 'start'
   install_script: string
 }
 
@@ -25,6 +26,7 @@ const EMPTY: FormState = {
   id: '',
   version: '1.0.0',
   description: '',
+  type: 'install',
   install_script: DEFAULT_SCRIPT,
 }
 
@@ -33,6 +35,7 @@ function recipeToForm(r: Recipe): FormState {
     id: r.id,
     version: r.version,
     description: r.description,
+    type: r.type ?? 'install',
     install_script: r.install_script ?? DEFAULT_SCRIPT,
   }
 }
@@ -296,6 +299,18 @@ export default function AdminRecipes() {
                   onChange={(e) => set('version', e.target.value)}
                   required
                 />
+              </div>
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Label htmlFor="r-type">{t('admin.form.type')}</Label>
+                <select
+                  id="r-type"
+                  value={form.type}
+                  onChange={(e) => set('type', e.target.value as 'install' | 'start')}
+                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                >
+                  <option value="install">{t('admin.form.typeInstall')}</option>
+                  <option value="start">{t('admin.form.typeStart')}</option>
+                </select>
               </div>
               <div className="flex flex-1 flex-col gap-1.5">
                 <Label htmlFor="r-desc">{t('admin.form.description')}</Label>

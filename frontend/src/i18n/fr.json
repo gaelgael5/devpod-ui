@@ -105,6 +105,8 @@
   "recipes": {
     "title": "Recettes",
     "empty": "Aucune recette disponible.",
+    "search": "Rechercher une recette…",
+    "noMatch": "Aucune recette ne correspond.",
     "personal": "Mes recettes",
     "shared": "Recettes partagées"
   },
@@ -192,6 +194,9 @@
       "recipeId": "ID de la recette",
       "version": "Version",
       "description": "Description",
+      "type": "Catégorie",
+      "typeInstall": "Installation",
+      "typeStart": "Démarrage",
       "installScript": "install.sh",
       "save": "Enregistrer",
       "sshUser": "Utilisateur SSH",

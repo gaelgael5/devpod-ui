@@ -1,7 +1,8 @@
-id: ruby
+﻿id: ruby
 key: 7de9ce83-8188-4307-b5a4-f311c29d7d2d
 version: 1.0.0
 description: "Install Ruby via rbenv + ruby-build — compilation depuis source"
+type: install
 options:
   version:
     type: string

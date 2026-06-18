@@ -57,7 +57,7 @@ export default function WorkspaceCreate() {
   const queryClient = useQueryClient()
   const isAdmin = useUserStore((s) => s.isAdmin())
   const { createWorkspace } = useWorkspaceOps()
-  const { data: recipes = [] } = useRecipes()
+  const { data: recipes = [] } = useRecipes('install')
   const { data: hosts = [] } = useHosts()
   const { data: credentials = [] } = useGitCredentials()
   const { data: profiles = [] } = useProfiles()

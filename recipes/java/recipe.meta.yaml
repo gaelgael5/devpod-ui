@@ -1,7 +1,8 @@
-id: java
+﻿id: java
 key: 2263f4ce-5423-43ba-8641-3286a9571633
 version: 1.0.0
 description: "Install OpenJDK via apt — 11 LTS, 17 LTS ou 21 LTS (défaut)"
+type: install
 options:
   version:
     type: string

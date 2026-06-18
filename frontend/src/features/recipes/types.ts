@@ -7,6 +7,7 @@ export interface Recipe {
   id: string
   version: string
   description: string
+  type: 'install' | 'start'
   installs_after: string[]
   requires_secrets: SecretRef[]
   install_script?: string

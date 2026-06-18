@@ -1,7 +1,8 @@
-id: terraform
+﻿id: terraform
 key: 8ce842ee-81e3-49f1-a47b-a14264f48165
 version: 1.0.0
 description: "Install Terraform via dépôt officiel HashiCorp apt"
+type: install
 options:
   version:
     type: string

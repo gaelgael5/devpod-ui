@@ -1,7 +1,8 @@
-id: scala
+﻿id: scala
 key: 95d399a7-1da5-45d7-a542-228d98786114
 version: 1.0.0
 description: "Install Scala + sbt via Coursier — Scala 2 ou 3 (requiert Java)"
+type: install
 options:
   version:
     type: string

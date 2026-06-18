@@ -1,7 +1,8 @@
-id: dotnet
+﻿id: dotnet
 key: 3c42b67f-95bb-4de6-8843-0a1e8cf4452d
 version: 1.0.0
 description: "Install SDK .NET (C#/F#/VB) via dotnet-install.sh — LTS 8.0 ou dernière 9.0"
+type: install
 options:
   version:
     type: string

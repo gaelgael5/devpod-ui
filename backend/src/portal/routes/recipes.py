@@ -7,7 +7,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 import yaml
@@ -36,6 +36,7 @@ class RecipeCreateRequest(BaseModel):
     id: str
     version: str = "1.0.0"
     description: str = ""
+    type: Literal["install", "start"] = "install"
     install_script: str = _DEFAULT_INSTALL_SH
 
     @field_validator("id")
@@ -51,6 +52,7 @@ class RecipeUpdateRequest(BaseModel):
 
     version: str
     description: str
+    type: Literal["install", "start"] = "install"
     install_script: str
 
 
@@ -185,7 +187,9 @@ async def admin_create_shared_recipe(
     if recipe_path.exists():
         raise HTTPException(status_code=409, detail=f"Recipe {body.id!r} already exists")
 
-    meta = RecipeMeta(id=body.id, version=body.version, description=body.description)
+    meta = RecipeMeta(
+        id=body.id, version=body.version, description=body.description, type=body.type
+    )
 
     def _write() -> None:
         tmp = shared_recipes_dir / f".tmp-{body.id}"
@@ -229,7 +233,9 @@ async def admin_update_shared_recipe(
     if not recipe_path.exists():
         raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
 
-    meta = RecipeMeta(id=recipe_id, version=body.version, description=body.description)
+    meta = RecipeMeta(
+        id=recipe_id, version=body.version, description=body.description, type=body.type
+    )
 
     def _update() -> None:
         def _write_atomic(path: Path, content: str) -> None:

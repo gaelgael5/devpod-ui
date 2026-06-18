@@ -1,7 +1,8 @@
-id: nodejs
+﻿id: nodejs
 key: 08d27187-d87f-4140-a65e-0891b59441f1
 version: 1.0.0
 description: "Install Node.js via NodeSource — LTS 20, 22 ou Current"
+type: install
 options:
   version:
     type: string

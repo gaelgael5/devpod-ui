@@ -7,6 +7,7 @@ export interface RecipeCreateRequest {
   id: string
   version: string
   description: string
+  type: 'install' | 'start'
   install_script: string
 }
 
@@ -14,6 +15,7 @@ export interface RecipeUpdateRequest {
   id: string
   version: string
   description: string
+  type: 'install' | 'start'
   install_script: string
 }
 

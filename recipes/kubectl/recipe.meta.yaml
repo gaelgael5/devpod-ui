@@ -1,7 +1,8 @@
-id: kubectl
+﻿id: kubectl
 key: 49e7c498-ed09-45cf-85aa-f3a52fbea4d5
 version: 1.0.0
 description: "Install kubectl + Helm — pilotage de clusters Kubernetes"
+type: install
 options:
   kubectl_version:
     type: string

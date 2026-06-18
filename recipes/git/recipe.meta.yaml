@@ -1,7 +1,8 @@
-id: git
+﻿id: git
 key: b744a99d-d483-4faf-aa77-c263f48f896b
 version: 1.0.0
 description: "Configure Git globalement (user.name / user.email via variables d'environnement)"
+type: install
 options:
   user_name:
     type: string

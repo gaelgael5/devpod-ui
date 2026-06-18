@@ -1,0 +1,7 @@
+id: start-claude-code
+key: 44b2a157-824d-4a5a-81f7-818f898dc276
+version: "1.0.0"
+description: "Démarre Claude Code en mode remote-control (MCP socket)"
+type: start
+installs_after:
+  - ff184539-18c7-4849-9ef3-943174113c49
