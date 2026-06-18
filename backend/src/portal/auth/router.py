@@ -125,35 +125,55 @@ async def logout(request: Request) -> RedirectResponse:
 
 
 async def provision_user(login: str, sub: str, data_root: Path) -> None:
-    """Crée le répertoire et config initiale si absent. Idempotent."""
+    """Crée le répertoire, config YAML initiale si absent, et upsert la row users en DB. Idempotent."""
     validate_username(login)
     user_dir = data_root / "users" / login
     config_path = user_dir / "config.yaml"
 
     if config_path.exists():
-        _log.debug("user_already_provisioned", login=login)
-        return
+        _log.debug("user_already_provisioned_yaml", login=login)
+        with config_path.open(encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        secret_ns_str = str(raw.get("secret_ns", uuid.uuid4()))
+    else:
+        ensure_user_dir(login)
+        secret_ns_str = str(uuid.uuid4())
+        initial_config = {
+            "version": "1",
+            "secret_ns": secret_ns_str,
+            "defaults": {},
+            "harpocrate": {"api_key": ""},
+            "git_credentials": [],
+            "workspaces": [],
+        }
+        fd, tmp = tempfile.mkstemp(dir=user_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                yaml.dump(initial_config, f, default_flow_style=False)
+            os.replace(tmp, str(config_path))
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
+        _log.info("user_provisioned", login=login, sub=sub)
 
-    ensure_user_dir(login)
-    initial_config = {
-        "version": "1",
-        "secret_ns": str(uuid.uuid4()),
-        "defaults": {},
-        "harpocrate": {"api_key": ""},
-        "git_credentials": [],
-        "workspaces": [],
-    }
-    fd, tmp = tempfile.mkstemp(dir=user_dir, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            yaml.dump(initial_config, f, default_flow_style=False)
-        os.replace(tmp, str(config_path))
-    except Exception:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
+    # Upsert dans la table users (nécessaire pour les FK vault, workspaces, etc.)
+    settings = get_settings()
+    if settings.database_url:
+        from sqlalchemy import insert, select
 
-    _log.info("user_provisioned", login=login, sub=sub)
+        from ..db.engine import _get_engine
+        from ..db.tables import users
+
+        async with _get_engine().begin() as conn:
+            existing = (
+                await conn.execute(select(users.c.login).where(users.c.login == login))
+            ).scalar_one_or_none()
+            if existing is None:
+                await conn.execute(
+                    insert(users).values(login=login, version="1", secret_ns=secret_ns_str)
+                )
+                _log.info("user_db_row_created", login=login)
 
 
 @router.get("/caddy/verify")
