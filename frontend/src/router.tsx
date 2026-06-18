@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react'
 import type { ReactNode } from 'react'
 import AppShell from '@/shared/layouts/AppShell'
 import AdminGuard from '@/shared/layouts/AdminGuard'
+import VaultGuard from '@/shared/layouts/VaultGuard'
 import RequireAuth from '@/features/auth/RequireAuth'
 import LoginPage from '@/features/auth/LoginPage'
 import AuthCallbackPage from '@/features/auth/AuthCallbackPage'
@@ -20,6 +21,10 @@ const ProfileEditor = lazy(() => import('@/features/profiles/ProfileEditor'))
 const AdminProfileEditor = lazy(() => import('@/features/admin/AdminProfileEditor'))
 const AdminProfileSources = lazy(() => import('@/features/admin/AdminProfileSources'))
 const GitCredentialManager = lazy(() => import('@/features/git-credentials/GitCredentialManager'))
+const VaultSetup = lazy(() => import('@/features/vault/VaultSetup'))
+const VaultUnlock = lazy(() => import('@/features/vault/VaultUnlock'))
+const VaultRecover = lazy(() => import('@/features/vault/VaultRecover'))
+const VaultKeys = lazy(() => import('@/features/vault/VaultKeys'))
 
 function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -33,14 +38,49 @@ export const router = createBrowserRouter([
     path: '/workspaces/:wsName/terminals',
     element: (
       <RequireAuth>
-        <Wrap><WorkspaceTerminals /></Wrap>
+        <Wrap>
+          <WorkspaceTerminals />
+        </Wrap>
+      </RequireAuth>
+    ),
+  },
+  // Routes vault : authentifiées mais hors VaultGuard (accessibles même coffre verrouillé)
+  {
+    path: '/vault/setup',
+    element: (
+      <RequireAuth>
+        <Wrap>
+          <VaultSetup />
+        </Wrap>
+      </RequireAuth>
+    ),
+  },
+  {
+    path: '/vault/unlock',
+    element: (
+      <RequireAuth>
+        <Wrap>
+          <VaultUnlock />
+        </Wrap>
+      </RequireAuth>
+    ),
+  },
+  {
+    path: '/vault/recover',
+    element: (
+      <RequireAuth>
+        <Wrap>
+          <VaultRecover />
+        </Wrap>
       </RequireAuth>
     ),
   },
   {
     element: (
       <RequireAuth>
-        <AppShell />
+        <VaultGuard>
+          <AppShell />
+        </VaultGuard>
       </RequireAuth>
     ),
     children: [
@@ -52,6 +92,7 @@ export const router = createBrowserRouter([
       { path: '/profiles/new', element: <Wrap><ProfileEditor /></Wrap> },
       { path: '/profiles/:slug', element: <Wrap><ProfileEditor /></Wrap> },
       { path: '/git-credentials', element: <Wrap><GitCredentialManager /></Wrap> },
+      { path: '/vault/keys', element: <Wrap><VaultKeys /></Wrap> },
       {
         path: '/admin/hosts',
         element: <AdminGuard><Wrap><AdminHosts /></Wrap></AdminGuard>,
