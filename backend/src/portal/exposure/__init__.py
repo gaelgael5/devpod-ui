@@ -29,9 +29,9 @@ class ExposureService:
 
     def __init__(
         self,
-        caddy: CaddyClient,
         registry: PortRegistry,
         base_domain: str,
+        caddy: CaddyClient | None = None,
         url_scheme: str = "https",
         dev_mode: bool = False,
         external_url: str = "",
@@ -124,11 +124,12 @@ class ExposureService:
         route_id = f"ws-{ws_id}"
         match_host = f"{route_id}.{self._base_domain}"
         upstream = f"{node_ip}:{host_port}"
-        await self._caddy.upsert_route(
-            route_id=route_id,
-            match_host=match_host,
-            upstream=upstream,
-        )
+        if self._caddy is not None:
+            await self._caddy.upsert_route(
+                route_id=route_id,
+                match_host=match_host,
+                upstream=upstream,
+            )
         url = f"{self._url_scheme}://{match_host}/?folder={folder}"
         await self._write_exposure(ws_id, hostname=match_host, url=url)
         _log.info("workspace_exposed", ws_id=ws_id, url=url)
@@ -142,7 +143,7 @@ class ExposureService:
         Args:
             ws_id: identifiant du workspace à désexposer.
         """
-        if not self._dev_mode:
+        if not self._dev_mode and self._caddy is not None:
             route_id = f"ws-{ws_id}"
             await self._caddy.remove_route(route_id)
         await self._clear_exposure(ws_id)

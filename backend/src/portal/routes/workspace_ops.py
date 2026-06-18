@@ -87,27 +87,26 @@ def _build_service() -> DevPodService:
     # like "/usr/local/bin/devpod"; using posix=False is safe for both platforms.
     devpod_bin = shlex.split(global_cfg.devpod.binary, posix=(os.name != "nt"))
 
-    exposure: ExposureService | None = None
+    dev_mode = global_cfg.server.dev_mode
+    registry = PortRegistry()
+    caddy: CaddyClient | None = None
     if global_cfg.caddy.admin_api:
-        data_root = _data_root()
         verify_uri = f"{global_cfg.server.external_url}/auth/caddy/verify"
-        dev_mode = global_cfg.server.dev_mode
         caddy = CaddyClient(
             admin_api=global_cfg.caddy.admin_api,
             http_client=httpx.AsyncClient(),
             verify_uri=verify_uri,
             require_auth=not dev_mode,
         )
-        registry = PortRegistry(data_root)
-        exposure = ExposureService(
-            caddy=caddy,
-            registry=registry,
-            base_domain=global_cfg.server.base_domain,
-            url_scheme="http" if dev_mode else "https",
-            dev_mode=dev_mode,
-            external_url=global_cfg.server.external_url,
-            workspace_host=global_cfg.server.workspace_host,
-        )
+    exposure = ExposureService(
+        registry=registry,
+        base_domain=global_cfg.server.base_domain,
+        caddy=caddy,
+        url_scheme="http" if dev_mode else "https",
+        dev_mode=dev_mode,
+        external_url=global_cfg.server.external_url,
+        workspace_host=global_cfg.server.workspace_host,
+    )
 
     return DevPodService(global_cfg=global_cfg, devpod_bin=devpod_bin, exposure=exposure)
 
