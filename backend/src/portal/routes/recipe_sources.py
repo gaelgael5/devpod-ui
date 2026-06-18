@@ -8,7 +8,7 @@ import shutil
 import socket as _socket
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -27,6 +27,14 @@ from ..recipes.models import _RECIPE_ID_RE, RecipeMeta
 _log = structlog.get_logger(__name__)
 
 router_admin = APIRouter(tags=["recipe-sources"])
+
+
+def _normalize_recipe_yaml(data: Any) -> Any:
+    """Renomme le champ legacy 'category' en 'type' avant validation du modèle."""
+    if isinstance(data, dict) and "category" in data and "type" not in data:
+        data = dict(data)
+        data["type"] = data.pop("category")
+    return data
 
 _DEFAULT_SOURCE = "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/recipes/toc.txt"
 
@@ -140,7 +148,7 @@ async def _fetch_dir_recipe(
 
     try:
         meta_text = await _fetch_text(client, meta_url)
-        meta = RecipeMeta.model_validate(yaml.safe_load(meta_text))
+        meta = RecipeMeta.model_validate(_normalize_recipe_yaml(yaml.safe_load(meta_text)))
     except Exception as exc:
         _log.warning("recipe_meta_fetch_failed", url=meta_url, error=str(exc))
         return None
@@ -252,6 +260,7 @@ def _write_recipe(
     install_script: str,
     options: dict[str, Any] | None = None,
     installs_after: list[str] | None = None,
+    recipe_type: Literal["install", "start"] = "install",
 ) -> None:
     recipe_path = shared_dir / recipe_id
     tmp_str = tempfile.mkdtemp(dir=shared_dir, prefix=f".tmp-{recipe_id}-")
@@ -261,6 +270,7 @@ def _write_recipe(
             id=recipe_id,
             version=version,
             description=description,
+            type=recipe_type,
             options=options or {},
             installs_after=installs_after or [],
         )
@@ -286,12 +296,14 @@ def _write_recipe(
 async def import_recipe_from_source(
     body: RecipeImportRequest,
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     await asyncio.to_thread(_check_ssrf, body.source_url)
 
     url_path = Path(urlparse(body.source_url).path)
     fname = url_path.name
 
+    recipe_type: Literal["install", "start"] = "install"
     if fname == "install.sh":
         # Format répertoire : fetcher aussi recipe.meta.yaml depuis le même dossier
         dir_base_url = body.source_url.rsplit("/", 1)[0]
@@ -305,7 +317,9 @@ async def import_recipe_from_source(
                 ) from exc
             try:
                 meta_text = await _fetch_text(http, meta_url)
-                meta = RecipeMeta.model_validate(yaml.safe_load(meta_text))
+                meta = RecipeMeta.model_validate(
+                    _normalize_recipe_yaml(yaml.safe_load(meta_text))
+                )
             except Exception as exc:
                 raise HTTPException(
                     status_code=502, detail=f"Cannot fetch recipe.meta.yaml: {exc}"
@@ -313,6 +327,7 @@ async def import_recipe_from_source(
         base_id = meta.id
         version = meta.version
         description = meta.description
+        recipe_type = meta.type
         options_dict = {k: v.model_dump() for k, v in meta.options.items()}
         installs_after = meta.installs_after
     else:
@@ -326,6 +341,8 @@ async def import_recipe_from_source(
         base_id = fname[:-3] if fname.endswith(".sh") else fname
         version = headers.get("version", "1.0.0")
         description = headers.get("description", "")
+        raw_type = headers.get("type", "install")
+        recipe_type = raw_type if raw_type in ("install", "start") else "install"
         options_dict = {}
         installs_after = []
 
@@ -349,6 +366,20 @@ async def import_recipe_from_source(
         install_script,
         options_dict,
         installs_after,
+        recipe_type,
     )
+
+    from ..db.recipes import upsert_recipe_db
+
+    imported_meta = RecipeMeta(
+        id=recipe_id,
+        version=version,
+        description=description,
+        type=recipe_type,
+        options={},
+        installs_after=installs_after or [],
+    )
+    await upsert_recipe_db(imported_meta, "shared", None, conn)
+
     _log.info("recipe_imported", recipe_id=recipe_id, source=body.source_url, by=user.login)
     return {"id": recipe_id, "version": version, "description": description}

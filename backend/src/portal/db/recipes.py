@@ -141,11 +141,17 @@ async def load_recipes_from_dir_to_db(
         if not meta_file.exists():
             continue
         try:
-            data: object = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
-            meta = RecipeMeta.model_validate(data)
+            raw: object = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
+            if isinstance(raw, dict) and "category" in raw and "type" not in raw:
+                raw = dict(raw)
+                raw["type"] = raw.pop("category")
+            meta = RecipeMeta.model_validate(raw)
             await upsert_recipe_db(meta, scope, login, conn)
-        except Exception:
-            pass
+        except Exception as exc:
+            import structlog as _sl
+            _sl.get_logger(__name__).warning(
+                "recipe_sync_skip", path=str(meta_file), error=str(exc)
+            )
 
 
 async def load_recipes_as_dict(
