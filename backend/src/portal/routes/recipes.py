@@ -283,6 +283,20 @@ async def admin_delete_shared_recipe(
         raise HTTPException(status_code=422, detail="Path traversal detected")
     if not recipe_path.exists():
         raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
+
+    from ..db.recipes import find_recipe_dependents, get_recipe_db
+
+    target = await get_recipe_db(recipe_id, "shared", None, conn)
+    if target is not None:
+        dependents = await find_recipe_dependents(target.key, conn)
+        if dependents:
+            names = ", ".join(dependents)
+            raise HTTPException(
+                status_code=409,
+                detail=f"Impossible de supprimer « {recipe_id} » : "
+                f"les recettes suivantes en dépendent : {names}",
+            )
+
     await asyncio.to_thread(shutil.rmtree, recipe_path)
     await delete_recipe_db(recipe_id, "shared", None, conn)
     _log.info("shared_recipe_deleted", login=user.login, recipe_id=recipe_id)

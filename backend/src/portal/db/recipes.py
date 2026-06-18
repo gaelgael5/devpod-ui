@@ -110,6 +110,20 @@ async def get_recipe_db(
     return _row_to_meta(dict(row)) if row is not None else None
 
 
+async def find_recipe_dependents(key: str, conn: AsyncConnection) -> list[str]:
+    """Retourne les recipe_id qui ont `key` dans leur installs_after."""
+    from sqlalchemy import literal
+
+    rows = (
+        await conn.execute(
+            select(recipes.c.id).where(
+                literal(key).op("= ANY")(recipes.c.installs_after)
+            )
+        )
+    ).scalars().all()
+    return list(rows)
+
+
 async def recipe_key_exists(key: str, conn: AsyncConnection) -> bool:
     """Retourne True si une recette avec ce key (UUID) existe déjà en DB."""
     result = await conn.execute(select(recipes.c.id).where(recipes.c.key == key))
