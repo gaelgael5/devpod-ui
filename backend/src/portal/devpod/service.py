@@ -377,7 +377,7 @@ class DevPodService:
                 "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
             }
             if host_port is not None:
-                content["appPorts"] = [f"{host_port}:3000"]
+                content["appPorts"] = [f"{host_port}:{_OPENVSCODE_SERVER_PORT}"]
 
             if recipes:
                 features_block: dict[str, dict[str, Any]] = {}
@@ -609,6 +609,7 @@ class DevPodService:
                 )
 
             if status == "running" and self._exposure is not None and host_port is not None:
+                extra["host_port"] = host_port
                 try:
                     url = await self._exposure.expose(
                         ws_id=ws_id,
@@ -618,7 +619,6 @@ class DevPodService:
                         workspace_folder=workspace_folder,
                     )
                     extra["url"] = url
-                    extra["host_port"] = host_port
                 except Exception as exc:
                     _log.error(
                         "workspace_expose_failed",

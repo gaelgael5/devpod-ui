@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import re
 from urllib.parse import urlparse
 
@@ -90,6 +91,34 @@ class ExposureService:
             url = f"http://{host}:{host_port}/?folder={folder}"
             await self._write_exposure(ws_id, hostname=f"{host}:{host_port}", url=url)
             _log.info("workspace_exposed", ws_id=ws_id, url=url)
+            return url
+
+        if not self._base_domain:
+            # Pas de base_domain → impossible de router par sous-domaine.
+            # Fallback URL directe : priorité à l'IP routable du nœud Docker,
+            # puis workspace_host configuré, puis l'hôte de la requête.
+            def _is_ip(s: str) -> bool:
+                try:
+                    ipaddress.ip_address(s)
+                    return True
+                except ValueError:
+                    return False
+
+            host = (
+                self._workspace_host
+                or (node_ip if _is_ip(node_ip) else None)
+                or request_host
+                or urlparse(self._external_url).hostname
+                or "localhost"
+            )
+            url = f"http://{host}:{host_port}/?folder={folder}"
+            await self._write_exposure(ws_id, hostname=f"{host}:{host_port}", url=url)
+            _log.warning(
+                "workspace_exposed_no_domain_fallback",
+                ws_id=ws_id,
+                url=url,
+                hint="Configurez server.base_domain pour le routing Caddy",
+            )
             return url
 
         route_id = f"ws-{ws_id}"
