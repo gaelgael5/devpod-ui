@@ -17,6 +17,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.29",
     "alembic>=1.13",
+    "harpocrate",
 ]
 
 [project.optional-dependencies]
@@ -55,3 +56,6 @@ mypy_path = "src"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.uv.sources]
+harpocrate = { path = "../Sdk/harpocrate-0.6.0", editable = true }

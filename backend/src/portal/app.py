@@ -121,6 +121,18 @@ def create_app() -> FastAPI:
                 "Starting without a session secret key is not allowed in production."
             )
 
+    if not settings.portal_vault_kek:
+        if settings.dev_mode:
+            _log.warning(
+                "portal_vault_kek_missing",
+                msg="PORTAL_VAULT_KEK not set — vault feature disabled (dev mode only)",
+            )
+        else:
+            raise RuntimeError(
+                "PORTAL_VAULT_KEK must be set in .env. "
+                "Generate with: openssl rand -hex 32"
+            )
+
     app = FastAPI(title="workspace-portal", version="0.1.0", lifespan=_lifespan)
 
     # Starlette insère chaque middleware en tête de liste (prepend).
