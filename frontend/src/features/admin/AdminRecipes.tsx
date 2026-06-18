@@ -57,19 +57,22 @@ export default function AdminRecipes() {
   const [form, setForm] = useState<FormState>(EMPTY)
   const [newSourceUrl, setNewSourceUrl] = useState('')
   const [galleryFilter, setGalleryFilter] = useState('')
+  const [galleryTypeFilter, setGalleryTypeFilter] = useState<'all' | 'install' | 'start'>('all')
 
   const sources = sourcesData?.sources ?? []
   const galleryRecipes = previewData?.recipes ?? []
   const filteredGallery = useMemo(() => {
     const q = galleryFilter.trim().toLowerCase()
-    if (!q) return galleryRecipes
-    return galleryRecipes.filter(
-      (r: RemoteRecipe) =>
+    return galleryRecipes.filter((r: RemoteRecipe) => {
+      if (galleryTypeFilter !== 'all' && r.type !== galleryTypeFilter) return false
+      if (!q) return true
+      return (
         r.id.toLowerCase().includes(q) ||
         r.name?.toLowerCase().includes(q) ||
         r.description?.toLowerCase().includes(q)
-    )
-  }, [galleryRecipes, galleryFilter])
+      )
+    })
+  }, [galleryRecipes, galleryFilter, galleryTypeFilter])
   const isEditing = editingId !== null
   const isPending = addRecipe.isPending || updateRecipe.isPending
 
@@ -180,14 +183,28 @@ export default function AdminRecipes() {
           </Button>
         </div>
         {galleryRecipes.length > 0 && (
-          <div className="relative mb-4">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder={t('admin.filterGallery')}
-              value={galleryFilter}
-              onChange={(e) => setGalleryFilter(e.target.value)}
-              className="pl-8 text-sm"
-            />
+          <div className="mb-4 flex flex-col gap-2">
+            <div className="flex gap-1">
+              {(['all', 'install', 'start'] as const).map((v) => (
+                <Button
+                  key={v}
+                  size="sm"
+                  variant={galleryTypeFilter === v ? 'default' : 'outline'}
+                  onClick={() => setGalleryTypeFilter(v)}
+                >
+                  {t(`admin.galleryType.${v}`)}
+                </Button>
+              ))}
+            </div>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder={t('admin.filterGallery')}
+                value={galleryFilter}
+                onChange={(e) => setGalleryFilter(e.target.value)}
+                className="pl-8 text-sm"
+              />
+            </div>
           </div>
         )}
         {isLoadingGallery && (

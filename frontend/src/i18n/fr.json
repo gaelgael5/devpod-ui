@@ -135,6 +135,11 @@
     "refreshGallery": "Rafraîchir",
     "filterGallery": "Filtrer les recettes…",
     "galleryNoMatch": "Aucune recette ne correspond au filtre.",
+    "galleryType": {
+      "all": "Toutes",
+      "install": "Installation",
+      "start": "Démarrage"
+    },
     "builtinBadge": "Intégré",
     "recipeDialogDescription": "Formulaire de gestion de la recette partagée.",
     "generate": {

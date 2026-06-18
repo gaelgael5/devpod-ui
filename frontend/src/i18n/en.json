@@ -135,6 +135,11 @@
     "refreshGallery": "Refresh",
     "filterGallery": "Filter recipes…",
     "galleryNoMatch": "No recipe matches the filter.",
+    "galleryType": {
+      "all": "All",
+      "install": "Install",
+      "start": "Start"
+    },
     "builtinBadge": "Built-in",
     "recipeDialogDescription": "Shared recipe management form.",
     "generate": {
