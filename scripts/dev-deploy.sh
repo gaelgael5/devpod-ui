@@ -92,6 +92,13 @@ if [[ -z "$(_get_env SESSION_SECRET_KEY)" ]]; then
     echo "    SESSION_SECRET_KEY généré"
 fi
 
+# Charger toutes les variables du .env dans l'environnement shell :
+# docker compose résout ${VAR} depuis l'env shell en priorité sur --env-file.
+set -a
+# shellcheck source=/dev/null
+source "$ENV_FILE"
+set +a
+
 # ─── 1) Git pull ──────────────────────────────────────────────────────────────
 if [[ -n "$TARGET_BRANCH" ]]; then
     echo ""
