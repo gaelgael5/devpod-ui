@@ -54,6 +54,10 @@ RUN pip install --no-cache-dir uv
 
 WORKDIR /app
 
+# SDK harpocrate — dépendance locale path = "../Sdk/harpocrate-0.6.0"
+# Doit être copié avant uv sync pour que le lockfile puisse le résoudre.
+COPY Sdk/ /Sdk/
+
 # Étape 1 : installer les dépendances depuis le lockfile (layer cachée si seul le code change)
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --no-dev --no-install-project --frozen
