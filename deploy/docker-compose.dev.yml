@@ -1,4 +1,23 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: portal
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   portal:
     build:
       context: ..
@@ -12,6 +31,9 @@ services:
       # Plage de ports du tunnel SSH workspace — accès direct en dev (bypass DNS/Caddy)
       # Correspond à la plage PortRegistry (40000-49999) ; 20 suffisent pour le dev local.
       - "40000-40019:40000-40019"
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - internal
     healthcheck:
@@ -41,3 +63,4 @@ networks:
 volumes:
   caddy_data:
   caddy_config:
+  postgres_data:
