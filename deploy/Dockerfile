@@ -69,6 +69,10 @@ COPY scripts/ ./scripts/
 COPY backend/src/ ./src/
 RUN uv sync --no-dev --frozen
 
+# Migrations Alembic — nécessaires au démarrage (run_migrations dans le lifespan)
+COPY backend/alembic/ ./alembic/
+COPY backend/alembic.ini ./
+
 # Assets frontend buildés dans le stage précédent
 COPY --from=frontend-builder /build/dist ./static
 

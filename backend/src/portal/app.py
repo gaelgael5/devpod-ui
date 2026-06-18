@@ -81,6 +81,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     settings_obj = get_settings()
     if settings_obj.database_url:
+        from .db.migration import run_migrations
+
+        await run_migrations(settings_obj.database_url)
         async with _get_engine().begin() as conn:
             await warm_global_cache(conn)
 
