@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
@@ -68,6 +68,13 @@ export default function WorkspaceCreate() {
   const [host, setHost] = useState('')
   const [selectedRecipes, setSelectedRecipes] = useState<string[]>([])
   const [selectedStartRecipes, setSelectedStartRecipes] = useState<string[]>([])
+  const recipesByKey = useMemo(() => {
+    const map = new Map<string, typeof recipes[number]>()
+    for (const r of recipes) map.set(r.key, r)
+    for (const r of startRecipes) map.set(r.key, r)
+    return map
+  }, [recipes, startRecipes])
+
   const [showNewStart, setShowNewStart] = useState(false)
   const [newStartId, setNewStartId] = useState('')
   const [newStartScript, setNewStartScript] = useState('#!/usr/bin/env bash\nset -euo pipefail\n')
@@ -94,6 +101,55 @@ export default function WorkspaceCreate() {
     setSourceErrors(e => {
       const next = { ...e }
       delete next[index]
+      return next
+    })
+  }
+
+  function handleStartRecipeToggle(id: string) {
+    const isSelected = selectedStartRecipes.includes(id)
+    if (isSelected) {
+      setSelectedStartRecipes(prev => prev.filter(r => r !== id))
+      return
+    }
+
+    const recipe = startRecipes.find(r => r.id === id)
+
+    function gatherDeps(
+      keys: string[],
+      visited: Set<string>,
+    ): { installIds: string[]; startIds: string[] } {
+      const installIds: string[] = []
+      const startIds: string[] = []
+      for (const key of keys) {
+        if (visited.has(key)) continue
+        visited.add(key)
+        const dep = recipesByKey.get(key)
+        if (!dep) continue
+        if (dep.type === 'install') {
+          installIds.push(dep.id)
+        } else {
+          startIds.push(dep.id)
+          const sub = gatherDeps(dep.installs_after, visited)
+          installIds.push(...sub.installIds)
+          startIds.push(...sub.startIds)
+        }
+      }
+      return { installIds, startIds }
+    }
+
+    const visited = new Set<string>(recipe ? [recipe.key] : [])
+    const { installIds, startIds } = recipe
+      ? gatherDeps(recipe.installs_after, visited)
+      : { installIds: [], startIds: [] }
+
+    setSelectedStartRecipes(prev => {
+      const next = [...prev, id]
+      for (const s of startIds) if (!next.includes(s)) next.push(s)
+      return next
+    })
+    setSelectedRecipes(prev => {
+      const next = [...prev]
+      for (const r of installIds) if (!next.includes(r)) next.push(r)
       return next
     })
   }
@@ -251,11 +307,7 @@ export default function WorkspaceCreate() {
                   <button
                     key={r.id}
                     type="button"
-                    onClick={() =>
-                      setSelectedStartRecipes(prev =>
-                        selected ? prev.filter(id => id !== r.id) : [...prev, r.id]
-                      )
-                    }
+                    onClick={() => handleStartRecipeToggle(r.id)}
                     className={`rounded-sm px-2 py-0.5 text-xs border transition-colors ${
                       selected
                         ? 'bg-primary text-primary-foreground border-primary'

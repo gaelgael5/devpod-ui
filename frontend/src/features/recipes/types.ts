@@ -5,6 +5,7 @@ export interface SecretRef {
 
 export interface Recipe {
   id: string
+  key: string
   version: string
   description: string
   type: 'install' | 'start'

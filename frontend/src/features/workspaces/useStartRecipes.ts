@@ -1,17 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiFetchJson } from '@/shared/api/client'
-
-export interface StartRecipe {
-  id: string
-  version: string
-  description: string
-  type: 'start'
-}
+import type { Recipe } from '@/features/recipes/types'
 
 export function useStartRecipes() {
-  return useQuery<StartRecipe[]>({
+  return useQuery<Recipe[]>({
     queryKey: ['recipes', 'start'],
-    queryFn: () => apiFetchJson<StartRecipe[]>('/recipes?type=start'),
+    queryFn: () => apiFetchJson<Recipe[]>('/recipes?type=start'),
     staleTime: 10 * 60 * 1000,
   })
 }
