@@ -1,15 +1,14 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, RefreshCw, Search } from 'lucide-react'
+import { Plus, Trash2, RefreshCw, Search, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { useNavigate } from 'react-router-dom'
 import { useProfileSources, type RemoteProfile } from './useProfileSources'
+import { useProfiles } from '@/features/profiles/hooks/useProfiles'
 
 export default function AdminProfileSources() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const { sourcesQuery, updateSources, previewQuery, importProfile } = useProfileSources()
   const { data: sourcesData } = sourcesQuery
   const {
@@ -18,11 +17,19 @@ export default function AdminProfileSources() {
     refetch: refetchGallery,
   } = previewQuery
 
+  const { data: localProfiles } = useProfiles()
+
   const [newSourceUrl, setNewSourceUrl] = useState('')
   const [galleryFilter, setGalleryFilter] = useState('')
 
   const sources = sourcesData?.sources ?? []
   const galleryProfiles = previewData?.profiles ?? []
+
+  const importedSlugs = useMemo(() => {
+    const shared = (localProfiles ?? []).filter(p => p.scope === 'shared')
+    return new Set(shared.map(p => p.slug))
+  }, [localProfiles])
+
   const filteredProfiles = useMemo(() => {
     const q = galleryFilter.trim().toLowerCase()
     if (!q) return galleryProfiles
@@ -42,6 +49,11 @@ export default function AdminProfileSources() {
 
   function removeSource(idx: number) {
     updateSources.mutate(sources.filter((_, i) => i !== idx))
+  }
+
+  function isImported(p: RemoteProfile): boolean {
+    const slug = p.filename.replace(/\.[^/.]+$/, '')
+    return importedSlugs.has(slug)
   }
 
   return (
@@ -139,37 +151,45 @@ export default function AdminProfileSources() {
           </p>
         )}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filteredProfiles.map((p: RemoteProfile) => (
-            <div key={p.source_url} className="rounded-lg border bg-card p-4">
-              <div className="mb-1 flex items-start justify-between gap-2">
-                <div>
-                  <div className="font-medium">{p.name}</div>
-                  <Badge variant="secondary" className="mt-1 text-xs">
-                    {p.extension_count} ext.
-                  </Badge>
+          {filteredProfiles.map((p: RemoteProfile) => {
+            const imported = isImported(p)
+            return (
+              <div key={p.source_url} className="rounded-lg border bg-card p-4">
+                <div className="mb-1 flex items-start justify-between gap-2">
+                  <div>
+                    <div className="font-medium">{p.name}</div>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      <Badge variant="secondary" className="text-xs">
+                        {p.extension_count} ext.
+                      </Badge>
+                      {imported && (
+                        <Badge variant="outline" className="gap-1 text-xs text-green-600 border-green-600">
+                          <CheckCircle2 className="h-3 w-3" />
+                          {t('admin.profileSources.flagImported')}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={imported ? 'ghost' : 'default'}
+                    onClick={() => importProfile.mutate(p.source_url)}
+                    disabled={imported || importProfile.isPending}
+                  >
+                    {importProfile.isPending
+                      ? t('admin.profileSources.importing')
+                      : t('admin.profileSources.import')}
+                  </Button>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    importProfile.mutate(p.source_url, {
-                      onSuccess: (data) => navigate(`/admin/profiles/${data.slug}`),
-                    })
-                  }
-                  disabled={importProfile.isPending}
-                >
-                  {importProfile.isPending
-                    ? t('admin.profileSources.importing')
-                    : t('admin.profileSources.import')}
-                </Button>
+                <div className="mt-2 text-sm text-muted-foreground">
+                  {p.description}
+                </div>
+                <div className="mt-2 truncate text-xs text-muted-foreground font-mono">
+                  {p.source_base}
+                </div>
               </div>
-              <div className="mt-2 text-sm text-muted-foreground">
-                {p.description}
-              </div>
-              <div className="mt-2 truncate text-xs text-muted-foreground font-mono">
-                {p.source_base}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </section>
     </div>

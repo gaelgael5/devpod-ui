@@ -171,6 +171,7 @@
       "import": "Importer",
       "importing": "Import…",
       "imported": "Profil «{{name}}» importé",
+      "flagImported": "Importé",
       "localProfiles": "Profils importés",
       "localEmpty": "Aucun profil importé."
     },
