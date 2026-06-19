@@ -460,6 +460,7 @@
     "ownedBy": "Propriétaire : {{login}}",
     "dialogGenerateTitle": "Générer une paire de clés",
     "dialogRegisterTitle": "Enregistrer une paire de clés",
+    "dialogEditTitle": "Modifier le certificat",
     "revealPrivate": "Révéler la clé privée",
     "hidePrivate": "Masquer la clé privée",
     "privateKeyLabel": "Clé privée",

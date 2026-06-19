@@ -460,6 +460,7 @@
     "ownedBy": "Owner: {{login}}",
     "dialogGenerateTitle": "Generate a key pair",
     "dialogRegisterTitle": "Register a key pair",
+    "dialogEditTitle": "Edit certificate",
     "revealPrivate": "Reveal private key",
     "hidePrivate": "Hide private key",
     "privateKeyLabel": "Private key",

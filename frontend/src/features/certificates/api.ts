@@ -88,6 +88,29 @@ export function useRevealPrivateKey() {
   })
 }
 
+export interface EditCertBody {
+  label: string
+  description?: string
+  new_public_key?: string | null
+  new_private_key_pem?: string | null
+}
+
+export function useUpdateCertificate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ slug, ...body }: EditCertBody & { slug: string }) =>
+      apiFetchJson<{ slug: string }>(
+        `/me/certificates/${encodeURIComponent(slug)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.list() }),
+  })
+}
+
 export function useSetCertVisibility() {
   const qc = useQueryClient()
   return useMutation({

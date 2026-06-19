@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { KeyRound, Plus, Eye, EyeOff, Copy, Check } from 'lucide-react'
+import { KeyRound, Plus, Eye, EyeOff, Copy, Check, Pencil } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -27,8 +27,10 @@ import {
   useRegisterCertificate,
   useDeleteCertificate,
   useRevealPrivateKey,
+  useUpdateCertificate,
   type Certificate,
   type CertType,
+  type EditCertBody,
   type GenerateBody,
 } from './api'
 import { useVaultKeys } from '@/features/vault/api'
@@ -306,6 +308,85 @@ function AddDialog({ open, onClose }: AddDialogProps) {
   )
 }
 
+interface EditDialogProps {
+  cert: Certificate | null
+  onClose: () => void
+}
+
+function EditDialog({ cert, onClose }: EditDialogProps) {
+  const { t } = useTranslation()
+  const update = useUpdateCertificate()
+  const [label, setLabel] = useState('')
+  const [description, setDescription] = useState('')
+  const [newPubKey, setNewPubKey] = useState('')
+  const [newPrivKey, setNewPrivKey] = useState('')
+
+  useEffect(() => {
+    if (cert) {
+      setLabel(cert.label)
+      setDescription(cert.description)
+      setNewPubKey('')
+      setNewPrivKey('')
+      update.reset()
+    }
+  }, [cert?.slug]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleSave() {
+    if (!cert) return
+    const body: EditCertBody & { slug: string } = {
+      slug: cert.slug,
+      label,
+      description,
+      new_public_key: newPubKey.trim() || null,
+      new_private_key_pem: newPrivKey.trim() || null,
+    }
+    update.mutate(body, { onSuccess: onClose })
+  }
+
+  const canSave = !!label.trim() && !update.isPending
+
+  return (
+    <Dialog open={!!cert} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t('certificates.dialogEditTitle')}</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('certificates.form.label')}</Label>
+            <Input value={label} onChange={(e) => setLabel(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('certificates.form.description')}</Label>
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('certificates.form.publicKey')} <span className="text-muted-foreground text-xs">({t('common.optional', 'optionnel')})</span></Label>
+            <Textarea rows={2} value={newPubKey} onChange={(e) => setNewPubKey(e.target.value)} className="font-mono text-xs" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('certificates.form.privateKey')} <span className="text-muted-foreground text-xs">({t('common.optional', 'optionnel')})</span></Label>
+            <Textarea rows={4} value={newPrivKey} onChange={(e) => setNewPrivKey(e.target.value)} className="font-mono text-xs" />
+          </div>
+          {update.error && (
+            <Alert variant="destructive">
+              <AlertDescription>
+                {update.error instanceof Error ? update.error.message : t('errors.generic')}
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button onClick={handleSave} disabled={!canSave}>
+            {update.isPending ? t('certificates.form.saving') : t('certificates.form.save')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function CertRow({ cert }: { cert: Certificate }) {
   const { t } = useTranslation()
   const deleteC = useDeleteCertificate()
@@ -313,6 +394,7 @@ function CertRow({ cert }: { cert: Certificate }) {
   const [showPrivate, setShowPrivate] = useState(false)
   const [privateKey, setPrivateKey] = useState<string | null>(null)
   const [confirmDel, setConfirmDel] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
 
   function toggleReveal() {
     if (showPrivate) {
@@ -386,6 +468,13 @@ function CertRow({ cert }: { cert: Certificate }) {
         )}
 
         {cert.is_own && (
+          <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+            <Pencil className="mr-1 h-3.5 w-3.5" />
+            {t('workspaces.actions.edit')}
+          </Button>
+        )}
+
+        {cert.is_own && (
           confirmDel ? (
             <div className="flex gap-1">
               <Button
@@ -412,6 +501,7 @@ function CertRow({ cert }: { cert: Certificate }) {
           )
         )}
       </div>
+      <EditDialog cert={editOpen ? cert : null} onClose={() => setEditOpen(false)} />
     </div>
   )
 }

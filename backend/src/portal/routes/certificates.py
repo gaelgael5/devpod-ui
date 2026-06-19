@@ -13,6 +13,7 @@ from ..certificates.service import (
     CertAlreadyExists,
     CertNotFound,
     VaultLocked,
+    edit_certificate,
     generate_and_register,
     list_user_certificates,
     register_certificate,
@@ -174,6 +175,35 @@ async def delete_cert(
     except Exception as exc:
         _handle_common(exc)
         raise
+
+
+class EditCertBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str
+    description: str = ""
+    new_public_key: str | None = None
+    new_private_key_pem: str | None = None
+
+
+@router_me.patch("/certificates/{slug}")
+async def edit_cert(
+    body: EditCertBody,
+    request: Request,
+    slug: str = Path(..., pattern=r"^[a-z0-9][a-z0-9_-]{0,62}$"),
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str]:
+    try:
+        await edit_certificate(
+            user.login, _sid(request), slug,
+            body.label, body.description,
+            body.new_public_key, body.new_private_key_pem,
+            conn,
+        )
+    except Exception as exc:
+        _handle_common(exc)
+        raise
+    return {"slug": slug}
 
 
 # ---------------------------------------------------------------------------

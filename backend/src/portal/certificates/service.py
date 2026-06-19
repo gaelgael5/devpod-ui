@@ -14,6 +14,7 @@ from ..db.certificates import (
     get_certificate,
     get_private_key_local,
     list_certificates,
+    update_certificate,
 )
 from ..vault import session as vault_session
 from ..vault.crypto import decrypt_token, encrypt_token
@@ -166,3 +167,57 @@ async def remove_certificate(
             except Exception:
                 _log.warning("cert_vault_delete_failed", slug=slug, path=path)
     _log.info("certificate_removed", login=login, slug=slug)
+
+
+def _make_harpo_update_cert(client: object, path: str, value: str) -> Callable[[], None]:
+    def _update() -> None:
+        client.secrets.put(path, value)  # type: ignore[attr-defined]
+    return _update
+
+
+async def edit_certificate(
+    login: str,
+    session_id: str,
+    slug: str,
+    label: str,
+    description: str,
+    new_public_key: str | None,
+    new_private_key_pem: str | None,
+    conn: AsyncConnection,
+) -> None:
+    master_key = _require_master_key(session_id)
+    row = await get_certificate(login, slug, conn)
+    if row is None or row.get("owner_login") != login:
+        raise CertNotFound(f"Certificat '{slug}' introuvable ou non autorisé")
+
+    new_local: bytes | None = None
+    new_vault_ref: str | None = None
+
+    if new_private_key_pem is not None:
+        if row["storage_type"] == "local":
+            new_local = encrypt_token(new_private_key_pem, master_key)
+        else:
+            client = await get_vault_client(login, session_id, row["vault_identifier"], conn)
+            path_priv = f"certificats/{slug}/private"
+            await anyio.to_thread.run_sync(
+                _make_harpo_update_cert(client, path_priv, new_private_key_pem)
+            )
+            if new_public_key is not None:
+                path_pub = f"certificats/{slug}/public"
+                await anyio.to_thread.run_sync(
+                    _make_harpo_update_cert(client, path_pub, new_public_key)
+                )
+            new_vault_ref = row.get("private_key_vault_ref")
+
+    ok = await update_certificate(
+        login, slug,
+        label=label,
+        description=description,
+        public_key=new_public_key,
+        private_key_local=new_local,
+        private_key_vault_ref=new_vault_ref,
+        conn=conn,
+    )
+    if not ok:
+        raise CertNotFound(f"Certificat '{slug}' introuvable")
+    _log.info("certificate_edited", login=login, slug=slug)

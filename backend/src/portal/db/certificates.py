@@ -116,3 +116,36 @@ async def set_public(
     )
     row = (await conn.execute(q)).first()
     return row is not None
+
+
+async def update_certificate(
+    login: str,
+    slug: str,
+    *,
+    label: str,
+    description: str,
+    public_key: str | None,
+    private_key_local: bytes | None,
+    private_key_vault_ref: str | None,
+    conn: AsyncConnection,
+) -> bool:
+    values: dict[str, Any] = {"label": label, "description": description}
+    if public_key is not None:
+        values["public_key"] = public_key
+    if private_key_local is not None:
+        values["private_key_local"] = private_key_local
+        values["private_key_vault_ref"] = None
+    elif private_key_vault_ref is not None:
+        values["private_key_vault_ref"] = private_key_vault_ref
+        values["private_key_local"] = None
+    q = (
+        update(harpo_certificates)
+        .where(
+            harpo_certificates.c.owner_login == login,
+            harpo_certificates.c.slug == slug,
+        )
+        .values(**values)
+        .returning(harpo_certificates.c.slug)
+    )
+    row = (await conn.execute(q)).first()
+    return row is not None
