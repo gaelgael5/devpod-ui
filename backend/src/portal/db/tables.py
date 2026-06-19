@@ -372,3 +372,24 @@ harpo_certificates = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("owner_login", "slug", name="uq_harpo_certs_login_slug"),
 )
+
+# ─── Tour 12 : harpo_secrets ─────────────────────────────────────────────────
+
+harpo_secrets = Table(
+    "harpo_secrets",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("slug", Text, nullable=False),
+    Column("label", Text, nullable=False),
+    Column("description", Text, nullable=False, server_default=""),
+    # PAT_GITHUB | PAT_GITLAB | PAT_AZURE | API_KEY | … (extensible)
+    Column("secret_type", Text, nullable=False),
+    Column("secret_value_local", LargeBinary, nullable=True),
+    Column("secret_value_vault_ref", Text, nullable=True),
+    Column("storage_type", Text, nullable=False),
+    Column("vault_identifier", Text, nullable=True),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("is_public", Boolean, nullable=False, server_default="false"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("owner_login", "slug", name="uq_harpo_secrets_login_slug"),
+)
