@@ -51,9 +51,13 @@ export default function AdminProfileSources() {
     updateSources.mutate(sources.filter((_, i) => i !== idx))
   }
 
+  function slugify(name: string): string {
+    const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    return slug || 'profil'
+  }
+
   function isImported(p: RemoteProfile): boolean {
-    const slug = p.filename.replace(/\.[^/.]+$/, '')
-    return importedSlugs.has(slug)
+    return importedSlugs.has(slugify(p.name))
   }
 
   return (
