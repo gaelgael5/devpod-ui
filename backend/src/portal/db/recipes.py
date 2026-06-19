@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import any_, delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..recipes.models import RecipeMeta
@@ -114,7 +114,7 @@ async def find_recipe_dependents(key: str, conn: AsyncConnection) -> list[str]:
     """Retourne les recipe_id qui ont `key` dans leur installs_after."""
     rows = (
         await conn.execute(
-            select(recipes.c.id).where(recipes.c.installs_after.contains([key]))
+            select(recipes.c.id).where(any_(recipes.c.installs_after) == key)
         )
     ).scalars().all()
     return list(rows)
