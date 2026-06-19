@@ -6,19 +6,26 @@ from pathlib import Path
 from typing import Literal
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
+from ..certificates import service as cert_svc
 from ..config.models import GitCredential, UserConfig, WorkspaceSpec
 from ..config.store import load_user, safe_user_path, save_user
+from ..db.engine import get_conn
 from ..devpod.git import run_git_ls_remote
-from ..ssh_keys import derive_git_credential_public_key, generate_git_credential_ssh_key
+from ..secrets import service as secret_svc
 
 _CRED_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}[a-z0-9]$")
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["me"])
+
+
+def _sid(request: Request) -> str:
+    return str(request.session.get("id", ""))
 
 
 @router.get("")
@@ -130,9 +137,8 @@ class _GitCredentialCreate(BaseModel):
     host: str
     kind: Literal["ssh", "token"]
     username: str = ""
-    token: str = ""
-    private_key: str = ""
-    generate_key: bool = False
+    cert_slug: str = ""    # si kind=ssh : slug dans harpo_certificates
+    secret_slug: str = ""  # si kind=token : slug dans harpo_secrets
 
 
 @router.get("/git-credentials")
@@ -149,7 +155,9 @@ async def list_git_credentials(
 @router.post("/git-credentials", status_code=201)
 async def add_git_credential(
     body: _GitCredentialCreate,
+    request: Request,
     user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, object]:
     if not _CRED_NAME_RE.fullmatch(body.name):
         raise HTTPException(status_code=422, detail=f"Invalid credential name: {body.name!r}")
@@ -162,37 +170,36 @@ async def add_git_credential(
         raise HTTPException(status_code=409, detail=f"Credential {body.name!r} already exists")
 
     key_path = ""
-    public_key: str | None = None
+    token = ""
+
     if body.kind == "ssh":
-        if body.generate_key:
-            key_path, public_key = generate_git_credential_ssh_key(user.login, body.name)
-        else:
-            if not body.private_key.strip():
-                raise HTTPException(
-                    status_code=422, detail="private_key is required for SSH credentials"
-                )
-            key_dir = safe_user_path(user.login, "keys", "git", body.name)
-            key_dir.mkdir(parents=True, exist_ok=True)
-            key_file = key_dir / "id_ed25519"
-            key_file.write_text(body.private_key.strip() + "\n", encoding="utf-8")
-            key_file.chmod(0o600)
-            key_path = str(key_file)
-            try:
-                derive_git_credential_public_key(key_path)
-            except Exception:
-                _log.warning(
-                    "pub_key_derivation_failed",
-                    login=user.login,
-                    name=body.name,
-                    exc_info=True,
-                )
-    elif body.kind == "token":
-        if body.generate_key:
-            raise HTTPException(
-                status_code=422, detail="generate_key is only supported for SSH credentials"
+        if not body.cert_slug:
+            raise HTTPException(status_code=422, detail="cert_slug requis pour un credential SSH")
+        try:
+            pem = await cert_svc.reveal_private_key(
+                user.login, _sid(request), body.cert_slug, conn
             )
-        if not body.token.strip():
-            raise HTTPException(status_code=422, detail="token is required for PAT credentials")
+        except cert_svc.VaultLocked:
+            raise HTTPException(status_code=403, detail="vault_locked") from None
+        except cert_svc.CertNotFound:
+            raise HTTPException(status_code=404, detail="cert_not_found") from None
+        key_dir = safe_user_path(user.login, "keys", "git", body.name)
+        key_dir.mkdir(parents=True, exist_ok=True)
+        key_file = key_dir / "id_ed25519"
+        key_file.write_text(pem.strip() + "\n", encoding="utf-8")
+        key_file.chmod(0o600)
+        key_path = str(key_file)
+    elif body.kind == "token":
+        if not body.secret_slug:
+            raise HTTPException(status_code=422, detail="secret_slug requis pour un credential PAT")
+        try:
+            token = await secret_svc.reveal_secret(
+                user.login, _sid(request), body.secret_slug, conn
+            )
+        except secret_svc.VaultLocked:
+            raise HTTPException(status_code=403, detail="vault_locked") from None
+        except secret_svc.SecretNotFound:
+            raise HTTPException(status_code=404, detail="secret_not_found") from None
 
     cfg.git_credentials.append(
         GitCredential(
@@ -201,15 +208,12 @@ async def add_git_credential(
             kind=body.kind,
             key_path=key_path,
             username=body.username.strip(),
-            token=body.token.strip() if body.kind == "token" else "",
+            token=token,
         )
     )
-    await save_user(user.login,cfg)
+    await save_user(user.login, cfg)
     _log.info("git_credential_added", login=user.login, name=body.name, kind=body.kind)
-    result: dict[str, object] = {"name": body.name, "host": host, "kind": body.kind}
-    if public_key is not None:
-        result["public_key"] = public_key
-    return result
+    return {"name": body.name, "host": host, "kind": body.kind}
 
 
 class _GitCredentialUpdate(BaseModel):
@@ -219,15 +223,17 @@ class _GitCredentialUpdate(BaseModel):
     host: str | None = None
     kind: Literal["ssh", "token"] | None = None
     username: str | None = None
-    token: str | None = None
-    private_key: str | None = None
+    cert_slug: str | None = None    # si kind=ssh : nouveau cert depuis harpo_certificates
+    secret_slug: str | None = None  # si kind=token : nouveau secret depuis harpo_secrets
 
 
 @router.patch("/git-credentials/{name}")
 async def patch_git_credential(
     name: str,
     body: _GitCredentialUpdate,
+    request: Request,
     user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, object]:
     cfg = await load_user(user.login)
     cred = next((c for c in cfg.git_credentials if c.name == name), None)
@@ -262,56 +268,58 @@ async def patch_git_credential(
 
     if effective_kind == "ssh":
         new_token = ""
-        if body.private_key is None or body.private_key == "__UNCHANGED__":
-            if cred.kind != "ssh":
-                raise HTTPException(
-                    status_code=422, detail="private_key is required when changing kind to ssh"
+        if body.cert_slug is not None:
+            # Nouveau certificat fourni : révéler et réécrire le fichier
+            try:
+                pem = await cert_svc.reveal_private_key(
+                    user.login, _sid(request), body.cert_slug, conn
                 )
-            if effective_name != name and cred.key_path:
-                old_file = Path(cred.key_path)
-                new_key_dir = safe_user_path(user.login, "keys", "git", effective_name)
-                new_key_dir.mkdir(parents=True, exist_ok=True)
-                new_key_file = new_key_dir / "id_ed25519"
-                if old_file.exists():
-                    shutil.copy2(str(old_file), str(new_key_file))
-                    new_key_file.chmod(0o600)
-                    key_to_delete = old_file
-                new_key_path = str(new_key_file)
-        else:
-            if not body.private_key.strip():
-                raise HTTPException(status_code=422, detail="La clé privée ne peut pas être vide")
+            except cert_svc.VaultLocked:
+                raise HTTPException(status_code=403, detail="vault_locked") from None
+            except cert_svc.CertNotFound:
+                raise HTTPException(status_code=404, detail="cert_not_found") from None
             old_key_path = cred.key_path
             key_dir = safe_user_path(user.login, "keys", "git", effective_name)
             key_dir.mkdir(parents=True, exist_ok=True)
             key_file = key_dir / "id_ed25519"
-            key_file.write_text(body.private_key.strip() + "\n", encoding="utf-8")
+            key_file.write_text(pem.strip() + "\n", encoding="utf-8")
             key_file.chmod(0o600)
             new_key_path = str(key_file)
-            try:
-                derive_git_credential_public_key(new_key_path)
-            except Exception:
-                _log.warning(
-                    "pub_key_derivation_failed",
-                    login=user.login,
-                    name=effective_name,
-                    exc_info=True,
-                )
             if old_key_path and old_key_path != new_key_path:
                 key_to_delete = Path(old_key_path)
+        elif cred.kind != "ssh":
+            raise HTTPException(
+                status_code=422, detail="cert_slug requis pour passer en mode SSH"
+            )
+        elif effective_name != name and cred.key_path:
+            # Renommage sans changement de cert : déplacer le fichier
+            old_file = Path(cred.key_path)
+            new_key_dir = safe_user_path(user.login, "keys", "git", effective_name)
+            new_key_dir.mkdir(parents=True, exist_ok=True)
+            new_key_file = new_key_dir / "id_ed25519"
+            if old_file.exists():
+                shutil.copy2(str(old_file), str(new_key_file))
+                new_key_file.chmod(0o600)
+                key_to_delete = old_file
+            new_key_path = str(new_key_file)
     else:
         new_key_path = ""
-        if body.token is None or body.token == "__UNCHANGED__":
-            if cred.kind != "token":
-                raise HTTPException(
-                    status_code=422, detail="token is required when changing kind to token"
-                )
-            new_token = cred.token
-        else:
-            if not body.token.strip():
-                raise HTTPException(status_code=422, detail="token cannot be empty")
-            new_token = body.token.strip()
         if cred.kind == "ssh" and cred.key_path:
             key_to_delete = Path(cred.key_path)
+        if body.secret_slug is not None:
+            # Nouveau secret fourni : révéler et stocker
+            try:
+                new_token = await secret_svc.reveal_secret(
+                    user.login, _sid(request), body.secret_slug, conn
+                )
+            except secret_svc.VaultLocked:
+                raise HTTPException(status_code=403, detail="vault_locked") from None
+            except secret_svc.SecretNotFound:
+                raise HTTPException(status_code=404, detail="secret_not_found") from None
+        elif cred.kind != "token":
+            raise HTTPException(
+                status_code=422, detail="secret_slug requis pour passer en mode PAT"
+            )
 
     updated = GitCredential(
         name=effective_name,
@@ -331,7 +339,7 @@ async def patch_git_credential(
                 if src.git_credential == name:
                     src.git_credential = effective_name
 
-    await save_user(user.login,cfg)
+    await save_user(user.login, cfg)
 
     if key_to_delete and key_to_delete.exists():
         key_to_delete.unlink()
@@ -341,26 +349,6 @@ async def patch_git_credential(
 
     _log.info("git_credential_updated", login=user.login, name=name, new_name=effective_name)
     return {"name": effective_name, "host": effective_host, "kind": effective_kind}
-
-
-@router.get("/git-credentials/{name}/public-key")
-async def get_git_credential_public_key(
-    name: str,
-    user: UserInfo = Depends(require_user),
-) -> dict[str, object]:
-    cfg = await load_user(user.login)
-    cred = next((c for c in cfg.git_credentials if c.name == name), None)
-    if not cred:
-        raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
-    if cred.kind != "ssh":
-        raise HTTPException(status_code=404, detail="Public key only available for SSH credentials")
-    if not cred.key_path:
-        raise HTTPException(status_code=404, detail="No key file for this credential")
-    try:
-        public_key = derive_git_credential_public_key(cred.key_path)
-    except Exception as exc:
-        raise HTTPException(status_code=404, detail="Could not read public key") from exc
-    return {"public_key": public_key}
 
 
 @router.delete("/git-credentials/{name}")

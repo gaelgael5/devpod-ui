@@ -1,10 +1,9 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, KeyRound, Eye, EyeOff, Pencil } from 'lucide-react'
+import { Plus, Trash2, KeyRound, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import {
   Select,
@@ -26,12 +25,11 @@ import {
   useAddGitCredential,
   useDeleteGitCredential,
   useUpdateGitCredential,
-  useGitCredentialPublicKey,
   type GitCredentialSummary,
   type UpdateCredentialPayload,
 } from './useGitCredentials'
-import GitCredentialPublicKeyDialog from './GitCredentialPublicKeyDialog'
-import { useSecrets, useRevealSecret } from '@/features/secrets/api'
+import { useCertificates } from '@/features/certificates/api'
+import { useSecrets } from '@/features/secrets/api'
 
 const KNOWN_HOSTS = [
   { value: 'github.com', labelKey: 'gitCredentials.hosts.github' },
@@ -44,18 +42,6 @@ const KNOWN_HOSTS = [
 
 type KnownHostValue = (typeof KNOWN_HOSTS)[number]['value']
 
-const EMPTY_FORM = {
-  name: '',
-  hostSelect: 'github.com' as KnownHostValue,
-  hostCustom: '',
-  kind: 'token' as 'ssh' | 'token',
-  username: '',
-  token: '',
-  privateKey: '',
-}
-
-const SENTINEL = '••••••••'
-
 const HOST_TO_SECRET_TYPE: Record<string, string> = {
   'github.com': 'PAT_GITHUB',
   'gitlab.com': 'PAT_GITLAB',
@@ -67,18 +53,24 @@ function hostSecretType(host: string): string {
   return HOST_TO_SECRET_TYPE[host] ?? 'API_KEY'
 }
 
+const EMPTY_FORM = {
+  name: '',
+  hostSelect: 'github.com' as KnownHostValue,
+  hostCustom: '',
+  kind: 'token' as 'ssh' | 'token',
+  username: '',
+  cert_slug: '',
+  secret_slug: '',
+}
+
 type EditFormState = {
   name: string
   hostSelect: KnownHostValue
   hostCustom: string
   kind: 'ssh' | 'token'
   username: string
-  tokenValue: string
-  tokenTouched: boolean
-  privateKey: string
-  keyTouched: boolean
-  useSecretForToken: boolean
-  selectedSecretSlug: string
+  cert_slug: string
+  secret_slug: string
 }
 
 function toHostSelect(host: string): KnownHostValue {
@@ -93,12 +85,8 @@ function initEditForm(c: GitCredentialSummary): EditFormState {
     hostCustom: c.host,
     kind: c.kind,
     username: c.username,
-    tokenValue: SENTINEL,
-    tokenTouched: false,
-    privateKey: '',
-    keyTouched: false,
-    useSecretForToken: false,
-    selectedSecretSlug: '',
+    cert_slug: '',
+    secret_slug: '',
   }
 }
 
@@ -111,105 +99,72 @@ export default function GitCredentialManager() {
 
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
-  const [showToken, setShowToken] = useState(false)
   const [formError, setFormError] = useState('')
   const [toDelete, setToDelete] = useState<GitCredentialSummary | null>(null)
   const [toEdit, setToEdit] = useState<GitCredentialSummary | null>(null)
   const [editForm, setEditForm] = useState<EditFormState | null>(null)
   const [editError, setEditError] = useState('')
-  const [publicKeyDialog, setPublicKeyDialog] = useState<{ name: string; key: string } | null>(null)
-  const [publicKeyFetchName, setPublicKeyFetchName] = useState<string | null>(null)
-  const [publicKeyError, setPublicKeyError] = useState('')
-
-  // Add form: secret selector states
-  const [useSecretForToken, setUseSecretForToken] = useState(false)
-  const [selectedSecretSlug, setSelectedSecretSlug] = useState('')
-
-  const publicKeyQuery = useGitCredentialPublicKey(publicKeyFetchName ?? '', !!publicKeyFetchName)
 
   const effectiveHost =
     form.hostSelect === '__other__' ? form.hostCustom.trim() : form.hostSelect
 
-  const secretType = hostSecretType(effectiveHost)
-  const { data: availableSecrets = [] } = useSecrets(useSecretForToken ? secretType : undefined)
-  const revealSecret = useRevealSecret()
-
-  // Edit form: secret selector
-  const editSecretType = editForm
-    ? hostSecretType(editForm.hostSelect === '__other__' ? editForm.hostCustom.trim() : editForm.hostSelect)
-    : 'API_KEY'
-  const { data: editAvailableSecrets = [] } = useSecrets(
-    editForm?.useSecretForToken ? editSecretType : undefined,
+  const { data: certificates = [] } = useCertificates()
+  const { data: addSecrets = [] } = useSecrets(
+    form.kind === 'token' ? hostSecretType(effectiveHost) : undefined,
   )
-  const revealSecretEdit = useRevealSecret()
 
-  useEffect(() => {
-    if (publicKeyQuery.isSuccess && publicKeyFetchName && publicKeyQuery.data) {
-      setPublicKeyDialog({ name: publicKeyFetchName, key: publicKeyQuery.data.public_key })
-      setPublicKeyFetchName(null)
-    }
-  }, [publicKeyQuery.isSuccess, publicKeyQuery.data, publicKeyFetchName])
+  const editEffectiveHost = editForm
+    ? editForm.hostSelect === '__other__' ? editForm.hostCustom.trim() : editForm.hostSelect
+    : ''
+  const { data: editSecrets = [] } = useSecrets(
+    editForm?.kind === 'token' ? hostSecretType(editEffectiveHost) : undefined,
+  )
 
-  useEffect(() => {
-    if (publicKeyQuery.isError && publicKeyFetchName) {
-      setPublicKeyError(t('gitCredentials.errors.publicKey'))
-      setPublicKeyFetchName(null)
-    }
-  }, [publicKeyQuery.isError, publicKeyFetchName, t])
+  const ownCertificates = certificates.filter(c => c.is_own)
+  const ownAddSecrets = addSecrets.filter(s => s.is_own)
+  const ownEditSecrets = editSecrets.filter(s => s.is_own)
 
   const credentialList: GitCredentialSummary[] = credentials ?? []
 
+  // Réinitialiser les slugs quand le kind change
+  useEffect(() => {
+    setForm(f => ({ ...f, cert_slug: '', secret_slug: '' }))
+  }, [form.kind])
+
   function resetForm() {
     setForm(EMPTY_FORM)
-    setShowToken(false)
     setFormError('')
     setShowForm(false)
-    setUseSecretForToken(false)
-    setSelectedSecretSlug('')
   }
 
-  async function handleSubmit(e: FormEvent) {
+  function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setFormError('')
 
-    if (form.kind === 'ssh' && !form.privateKey.trim()) {
-      setFormError(t('gitCredentials.errors.add'))
+    if (form.kind === 'ssh' && !form.cert_slug) {
+      setFormError(t('gitCredentials.errors.selectCert'))
+      return
+    }
+    if (form.kind === 'token' && !form.secret_slug) {
+      setFormError(t('gitCredentials.errors.selectSecret'))
       return
     }
 
-    let tokenValue: string | undefined = undefined
-    if (form.kind === 'token') {
-      if (useSecretForToken) {
-        if (!selectedSecretSlug) {
-          setFormError(t('gitCredentials.selectSecret'))
-          return
-        }
-        try {
-          const res = await revealSecret.mutateAsync(selectedSecretSlug)
-          tokenValue = res.secret_value
-        } catch {
-          setFormError(t('gitCredentials.errors.add'))
-          return
-        }
-      } else {
-        tokenValue = form.token.trim()
-      }
-    }
-
-    const payload = {
-      name: form.name.trim(),
-      host: effectiveHost,
-      kind: form.kind,
-      username: form.username.trim() || undefined,
-      token: tokenValue,
-      private_key: form.kind === 'ssh' ? form.privateKey : undefined,
-    }
-
-    addMutation.mutate(payload, {
-      onSuccess: () => resetForm(),
-      onError: (err: unknown) =>
-        setFormError(err instanceof Error ? err.message : t('gitCredentials.errors.add')),
-    })
+    addMutation.mutate(
+      {
+        name: form.name.trim(),
+        host: effectiveHost,
+        kind: form.kind,
+        username: form.username.trim() || undefined,
+        cert_slug: form.kind === 'ssh' ? form.cert_slug : undefined,
+        secret_slug: form.kind === 'token' ? form.secret_slug : undefined,
+      },
+      {
+        onSuccess: () => resetForm(),
+        onError: (err: unknown) =>
+          setFormError(err instanceof Error ? err.message : t('gitCredentials.errors.add')),
+      },
+    )
   }
 
   function handleDelete() {
@@ -219,87 +174,34 @@ export default function GitCredentialManager() {
     })
   }
 
-  function handleGenerate() {
-    setFormError('')
-    addMutation.mutate(
-      { name: form.name.trim(), host: effectiveHost, kind: 'ssh', generate_key: true, private_key: '' },
-      {
-        onSuccess: data => {
-          if (data.public_key) {
-            setPublicKeyDialog({ name: data.name, key: data.public_key })
-          }
-          resetForm()
-        },
-        onError: (err: unknown) =>
-          setFormError(err instanceof Error ? err.message : t('gitCredentials.errors.add')),
-      },
-    )
-  }
-
   function openEdit(c: GitCredentialSummary) {
     setToEdit(c)
     setEditForm(initEditForm(c))
     setEditError('')
-    setShowToken(false)
   }
 
   function closeEdit() {
     setToEdit(null)
     setEditForm(null)
     setEditError('')
-    setShowToken(false)
   }
 
-  function handleEditKindChange(newKind: 'ssh' | 'token') {
-    setEditForm(f =>
-      f
-        ? {
-            ...f,
-            kind: newKind,
-            tokenValue: '',
-            tokenTouched: false,
-            privateKey: '',
-            keyTouched: false,
-            useSecretForToken: false,
-            selectedSecretSlug: '',
-          }
-        : f,
-    )
-  }
-
-  async function handleEditSubmit(e: FormEvent) {
+  function handleEditSubmit(e: FormEvent) {
     e.preventDefault()
     if (!toEdit || !editForm) return
     setEditError('')
 
-    const effectiveEditHost =
+    const editEffHost =
       editForm.hostSelect === '__other__' ? editForm.hostCustom.trim() : editForm.hostSelect
 
     const payload: UpdateCredentialPayload = {
-      host: effectiveEditHost,
+      host: editEffHost,
       kind: editForm.kind,
+      username: editForm.username.trim(),
     }
     if (editForm.name.trim() !== toEdit.name) payload.new_name = editForm.name.trim()
-    if (editForm.kind === 'token') {
-      payload.username = editForm.username.trim()
-      if (editForm.useSecretForToken) {
-        if (!editForm.selectedSecretSlug) {
-          setEditError(t('gitCredentials.selectSecret'))
-          return
-        }
-        try {
-          const res = await revealSecretEdit.mutateAsync(editForm.selectedSecretSlug)
-          payload.token = res.secret_value
-        } catch {
-          setEditError(t('gitCredentials.errors.update'))
-          return
-        }
-      } else {
-        payload.token = editForm.tokenTouched ? editForm.tokenValue : '__UNCHANGED__'
-      }
-    } else {
-      payload.private_key = editForm.keyTouched ? editForm.privateKey : '__UNCHANGED__'
-    }
+    if (editForm.kind === 'ssh' && editForm.cert_slug) payload.cert_slug = editForm.cert_slug
+    if (editForm.kind === 'token' && editForm.secret_slug) payload.secret_slug = editForm.secret_slug
 
     updateMutation.mutate(
       { name: toEdit.name, payload },
@@ -352,7 +254,14 @@ export default function GitCredentialManager() {
             <Label className="text-xs">{t('gitCredentials.host')}</Label>
             <Select
               value={form.hostSelect}
-              onValueChange={v => setForm(f => ({ ...f, hostSelect: v as KnownHostValue }))}
+              onValueChange={v =>
+                setForm(f => ({
+                  ...f,
+                  hostSelect: v as KnownHostValue,
+                  cert_slug: '',
+                  secret_slug: '',
+                }))
+              }
             >
               <SelectTrigger className="mt-1">
                 <SelectValue />
@@ -381,11 +290,14 @@ export default function GitCredentialManager() {
             <Label className="text-xs">{t('gitCredentials.kind')}</Label>
             <Select
               value={form.kind}
-              onValueChange={v => {
-                setForm(f => ({ ...f, kind: v as 'ssh' | 'token' }))
-                setUseSecretForToken(false)
-                setSelectedSecretSlug('')
-              }}
+              onValueChange={v =>
+                setForm(f => ({
+                  ...f,
+                  kind: v as 'ssh' | 'token',
+                  cert_slug: '',
+                  secret_slug: '',
+                }))
+              }
             >
               <SelectTrigger className="mt-1">
                 <SelectValue />
@@ -397,29 +309,37 @@ export default function GitCredentialManager() {
             </Select>
           </div>
 
-          {/* Champs PAT */}
+          {/* Sélection du certificat SSH */}
+          {form.kind === 'ssh' && (
+            <div>
+              <Label className="text-xs">{t('gitCredentials.certificate')}</Label>
+              <Select
+                value={form.cert_slug}
+                onValueChange={v => setForm(f => ({ ...f, cert_slug: v }))}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder={t('gitCredentials.selectCertificate')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {ownCertificates.map(c => (
+                    <SelectItem key={c.slug} value={c.slug}>
+                      {c.label}
+                      <span className="ml-1 text-xs text-muted-foreground">({c.cert_type})</span>
+                    </SelectItem>
+                  ))}
+                  {ownCertificates.length === 0 && (
+                    <div className="p-2 text-xs text-muted-foreground">
+                      {t('gitCredentials.noCertificates')}
+                    </div>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Sélection du secret PAT */}
           {form.kind === 'token' && (
             <>
-              {/* Bascule inline / secret enregistré */}
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={!useSecretForToken ? 'default' : 'outline'}
-                  onClick={() => { setUseSecretForToken(false); setSelectedSecretSlug('') }}
-                >
-                  {t('gitCredentials.tokenInline')}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={useSecretForToken ? 'default' : 'outline'}
-                  onClick={() => { setUseSecretForToken(true); setSelectedSecretSlug('') }}
-                >
-                  {t('gitCredentials.useRegisteredSecret')}
-                </Button>
-              </div>
-
               <div>
                 <Label htmlFor="cred-username" className="text-xs">
                   {t('gitCredentials.username')}
@@ -435,96 +355,30 @@ export default function GitCredentialManager() {
                   {t('gitCredentials.usernameHint')}
                 </p>
               </div>
-
-              {useSecretForToken ? (
-                <div>
-                  <Label className="text-xs">{t('gitCredentials.token')}</Label>
-                  <Select
-                    value={selectedSecretSlug}
-                    onValueChange={setSelectedSecretSlug}
-                  >
-                    <SelectTrigger className="mt-1">
-                      <SelectValue placeholder={t('gitCredentials.selectSecret')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableSecrets.filter(s => s.is_own).map(s => (
-                        <SelectItem key={s.slug} value={s.slug}>
-                          {s.label}
-                        </SelectItem>
-                      ))}
-                      {availableSecrets.filter(s => s.is_own).length === 0 && (
-                        <div className="p-2 text-xs text-muted-foreground">
-                          {t('gitCredentials.noSecretsForHost')}
-                        </div>
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (
-                <div>
-                  <Label htmlFor="cred-token" className="text-xs">{t('gitCredentials.token')}</Label>
-                  <div className="relative mt-1">
-                    <Input
-                      id="cred-token"
-                      type={showToken ? 'text' : 'password'}
-                      value={form.token}
-                      autoComplete="new-password"
-                      onChange={e => setForm(f => ({ ...f, token: e.target.value }))}
-                      placeholder={t('gitCredentials.tokenPlaceholder')}
-                      className="pr-9"
-                      required
-                    />
-                    <button
-                      type="button"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      onClick={() => setShowToken(v => !v)}
-                      tabIndex={-1}
-                    >
-                      {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Champs SSH */}
-          {form.kind === 'ssh' && (
-            <div>
-              <Label htmlFor="cred-key" className="text-xs">
-                {t('gitCredentials.privateKey')}
-              </Label>
-              <Textarea
-                id="cred-key"
-                value={form.privateKey}
-                onChange={e => setForm(f => ({ ...f, privateKey: e.target.value }))}
-                placeholder={t('gitCredentials.privateKeyPlaceholder')}
-                className="mt-1 font-mono text-xs"
-                rows={6}
-              />
-              <div className="mt-1.5">
-                <input
-                  type="file"
-                  accept=".pem,.key"
-                  id="cred-key-file"
-                  className="hidden"
-                  onChange={e => {
-                    const file = e.target.files?.[0]
-                    if (!file) return
-                    const reader = new FileReader()
-                    reader.onload = ev =>
-                      setForm(f => ({ ...f, privateKey: (ev.target?.result as string) ?? '' }))
-                    reader.readAsText(file)
-                    e.target.value = ''
-                  }}
-                />
-                <Button type="button" variant="outline" size="sm" asChild>
-                  <label htmlFor="cred-key-file" className="cursor-pointer">
-                    {t('gitCredentials.loadKeyFile')}
-                  </label>
-                </Button>
+              <div>
+                <Label className="text-xs">{t('gitCredentials.token')}</Label>
+                <Select
+                  value={form.secret_slug}
+                  onValueChange={v => setForm(f => ({ ...f, secret_slug: v }))}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder={t('gitCredentials.selectSecret')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ownAddSecrets.map(s => (
+                      <SelectItem key={s.slug} value={s.slug}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                    {ownAddSecrets.length === 0 && (
+                      <div className="p-2 text-xs text-muted-foreground">
+                        {t('gitCredentials.noSecretsForHost')}
+                      </div>
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
+            </>
           )}
 
           {formError && (
@@ -535,32 +389,14 @@ export default function GitCredentialManager() {
             <Button type="button" variant="ghost" size="sm" onClick={resetForm}>
               {t('gitCredentials.cancel')}
             </Button>
-            {form.kind === 'ssh' && (
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled={!form.name.trim() || !effectiveHost || addMutation.isPending}
-                onClick={handleGenerate}
-              >
-                {addMutation.isPending ? '…' : t('gitCredentials.generateKey')}
-              </Button>
-            )}
-            <Button
-              type="submit"
-              size="sm"
-              disabled={addMutation.isPending || revealSecret.isPending}
-            >
-              {addMutation.isPending || revealSecret.isPending ? '…' : t('gitCredentials.save')}
+            <Button type="submit" size="sm" disabled={addMutation.isPending}>
+              {addMutation.isPending ? '…' : t('gitCredentials.save')}
             </Button>
           </div>
         </form>
       )}
 
       {/* ── Liste des credentials ────────────────────────────────────── */}
-      {publicKeyError && (
-        <p role="alert" className="text-xs text-destructive">{publicKeyError}</p>
-      )}
       {credentialList.length === 0 && !showForm && (
         <p className="text-sm text-muted-foreground">{t('gitCredentials.empty')}</p>
       )}
@@ -582,18 +418,6 @@ export default function GitCredentialManager() {
               </Badge>
             </div>
             <div className="flex items-center gap-1">
-              {c.kind === 'ssh' && (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8"
-                  onClick={() => { setPublicKeyError(''); setPublicKeyFetchName(c.name) }}
-                  aria-label={t('gitCredentials.viewPublicKey')}
-                  disabled={publicKeyFetchName === c.name}
-                >
-                  <KeyRound className="h-4 w-4" />
-                </Button>
-              )}
               <Button
                 size="icon"
                 variant="ghost"
@@ -667,7 +491,13 @@ export default function GitCredentialManager() {
                 <Label className="text-xs">{t('gitCredentials.host')}</Label>
                 <Select
                   value={editForm.hostSelect}
-                  onValueChange={v => setEditForm(f => f ? { ...f, hostSelect: v as KnownHostValue } : f)}
+                  onValueChange={v =>
+                    setEditForm(f =>
+                      f
+                        ? { ...f, hostSelect: v as KnownHostValue, cert_slug: '', secret_slug: '' }
+                        : f,
+                    )
+                  }
                 >
                   <SelectTrigger className="mt-1">
                     <SelectValue />
@@ -696,7 +526,13 @@ export default function GitCredentialManager() {
                 <Label className="text-xs">{t('gitCredentials.kind')}</Label>
                 <Select
                   value={editForm.kind}
-                  onValueChange={v => handleEditKindChange(v as 'ssh' | 'token')}
+                  onValueChange={v =>
+                    setEditForm(f =>
+                      f
+                        ? { ...f, kind: v as 'ssh' | 'token', cert_slug: '', secret_slug: '' }
+                        : f,
+                    )
+                  }
                 >
                   <SelectTrigger className="mt-1">
                     <SelectValue />
@@ -708,37 +544,42 @@ export default function GitCredentialManager() {
                 </Select>
               </div>
 
-              {/* Champs PAT */}
+              {/* Certificat SSH */}
+              {editForm.kind === 'ssh' && (
+                <div>
+                  <Label className="text-xs">
+                    {t('gitCredentials.certificate')}
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      ({t('gitCredentials.leaveEmptyToKeep')})
+                    </span>
+                  </Label>
+                  <Select
+                    value={editForm.cert_slug}
+                    onValueChange={v => setEditForm(f => f ? { ...f, cert_slug: v } : f)}
+                  >
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder={t('gitCredentials.selectCertificate')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ownCertificates.map(c => (
+                        <SelectItem key={c.slug} value={c.slug}>
+                          {c.label}
+                          <span className="ml-1 text-xs text-muted-foreground">({c.cert_type})</span>
+                        </SelectItem>
+                      ))}
+                      {ownCertificates.length === 0 && (
+                        <div className="p-2 text-xs text-muted-foreground">
+                          {t('gitCredentials.noCertificates')}
+                        </div>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Secret PAT */}
               {editForm.kind === 'token' && (
                 <>
-                  {/* Bascule inline / secret enregistré */}
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={!editForm.useSecretForToken ? 'default' : 'outline'}
-                      onClick={() =>
-                        setEditForm(f =>
-                          f ? { ...f, useSecretForToken: false, selectedSecretSlug: '' } : f,
-                        )
-                      }
-                    >
-                      {t('gitCredentials.tokenInline')}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={editForm.useSecretForToken ? 'default' : 'outline'}
-                      onClick={() =>
-                        setEditForm(f =>
-                          f ? { ...f, useSecretForToken: true, selectedSecretSlug: '' } : f,
-                        )
-                      }
-                    >
-                      {t('gitCredentials.useRegisteredSecret')}
-                    </Button>
-                  </div>
-
                   <div>
                     <Label htmlFor="edit-cred-username" className="text-xs">
                       {t('gitCredentials.username')}
@@ -751,133 +592,35 @@ export default function GitCredentialManager() {
                       className="mt-1"
                     />
                   </div>
-
-                  {editForm.useSecretForToken ? (
-                    <div>
-                      <Label className="text-xs">{t('gitCredentials.token')}</Label>
-                      <Select
-                        value={editForm.selectedSecretSlug}
-                        onValueChange={v =>
-                          setEditForm(f => f ? { ...f, selectedSecretSlug: v } : f)
-                        }
-                      >
-                        <SelectTrigger className="mt-1">
-                          <SelectValue placeholder={t('gitCredentials.selectSecret')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {editAvailableSecrets.filter(s => s.is_own).map(s => (
-                            <SelectItem key={s.slug} value={s.slug}>
-                              {s.label}
-                            </SelectItem>
-                          ))}
-                          {editAvailableSecrets.filter(s => s.is_own).length === 0 && (
-                            <div className="p-2 text-xs text-muted-foreground">
-                              {t('gitCredentials.noSecretsForHost')}
-                            </div>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ) : (
-                    <div>
-                      <Label htmlFor="edit-cred-token" className="text-xs">
-                        {t('gitCredentials.token')}
-                      </Label>
-                      <div className="relative mt-1">
-                        <Input
-                          id="edit-cred-token"
-                          type={showToken ? 'text' : 'password'}
-                          value={editForm.tokenValue}
-                          autoComplete="new-password"
-                          onFocus={() => {
-                            if (!editForm.tokenTouched) {
-                              setEditForm(f => f ? { ...f, tokenValue: '' } : f)
-                            }
-                          }}
-                          onChange={e =>
-                            setEditForm(f =>
-                              f ? { ...f, tokenValue: e.target.value, tokenTouched: true } : f,
-                            )
-                          }
-                          onBlur={() => {
-                            setEditForm(f => {
-                              if (!f || f.tokenValue !== '') return f
-                              return { ...f, tokenValue: SENTINEL, tokenTouched: false }
-                            })
-                          }}
-                          className="pr-9"
-                        />
-                        <button
-                          type="button"
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                          onClick={() => setShowToken(v => !v)}
-                          tabIndex={-1}
-                        >
-                          {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* Champ SSH */}
-              {editForm.kind === 'ssh' && (
-                <div>
-                  <Label htmlFor="edit-cred-key" className="text-xs">
-                    {t('gitCredentials.privateKey')}
-                  </Label>
-                  <Textarea
-                    id="edit-cred-key"
-                    value={editForm.privateKey}
-                    autoComplete="off"
-                    onChange={e =>
-                      setEditForm(f =>
-                        f
-                          ? { ...f, privateKey: e.target.value, keyTouched: e.target.value !== '' }
-                          : f,
-                      )
-                    }
-                    placeholder={t('gitCredentials.privateKeyPlaceholder')}
-                    className="mt-1 font-mono text-xs"
-                    rows={6}
-                  />
-                  <div className="mt-1.5">
-                    <input
-                      type="file"
-                      accept=".pem,.key"
-                      id="edit-cred-key-file"
-                      className="hidden"
-                      onChange={e => {
-                        const file = e.target.files?.[0]
-                        if (!file) return
-                        const reader = new FileReader()
-                        reader.onload = ev =>
-                          setEditForm(f =>
-                            f
-                              ? {
-                                  ...f,
-                                  privateKey: (ev.target?.result as string) ?? '',
-                                  keyTouched: true,
-                                }
-                              : f,
-                          )
-                        reader.readAsText(file)
-                        e.target.value = ''
-                      }}
-                    />
-                    <Button type="button" variant="outline" size="sm" asChild>
-                      <label htmlFor="edit-cred-key-file" className="cursor-pointer">
-                        {t('gitCredentials.loadKeyFile')}
-                      </label>
-                    </Button>
+                  <div>
+                    <Label className="text-xs">
+                      {t('gitCredentials.token')}
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        ({t('gitCredentials.leaveEmptyToKeep')})
+                      </span>
+                    </Label>
+                    <Select
+                      value={editForm.secret_slug}
+                      onValueChange={v => setEditForm(f => f ? { ...f, secret_slug: v } : f)}
+                    >
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder={t('gitCredentials.selectSecret')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ownEditSecrets.map(s => (
+                          <SelectItem key={s.slug} value={s.slug}>
+                            {s.label}
+                          </SelectItem>
+                        ))}
+                        {ownEditSecrets.length === 0 && (
+                          <div className="p-2 text-xs text-muted-foreground">
+                            {t('gitCredentials.noSecretsForHost')}
+                          </div>
+                        )}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  {!editForm.keyTouched && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t('gitCredentials.sshKeyUnchangedHint')}
-                    </p>
-                  )}
-                </div>
+                </>
               )}
 
               {editError && (
@@ -888,27 +631,14 @@ export default function GitCredentialManager() {
                 <Button type="button" variant="ghost" size="sm" onClick={closeEdit}>
                   {t('gitCredentials.cancel')}
                 </Button>
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={updateMutation.isPending || revealSecretEdit.isPending}
-                >
-                  {updateMutation.isPending || revealSecretEdit.isPending
-                    ? '…'
-                    : t('gitCredentials.save')}
+                <Button type="submit" size="sm" disabled={updateMutation.isPending}>
+                  {updateMutation.isPending ? '…' : t('gitCredentials.save')}
                 </Button>
               </DialogFooter>
             </form>
           )}
         </DialogContent>
       </Dialog>
-
-      {/* ── Dialog clé publique ──────────────────────────────────────── */}
-      <GitCredentialPublicKeyDialog
-        open={!!publicKeyDialog}
-        publicKey={publicKeyDialog?.key ?? ''}
-        onClose={() => setPublicKeyDialog(null)}
-      />
     </div>
   )
 }

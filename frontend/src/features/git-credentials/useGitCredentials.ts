@@ -1,22 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiFetchJson, apiFetch } from '@/shared/api/client'
+import { apiFetch, apiFetchJson } from '@/shared/api/client'
 
 export interface GitCredentialSummary {
   name: string
   host: string
   kind: 'ssh' | 'token'
   username: string
-  public_key?: string
 }
 
-interface AddCredentialPayload {
+export interface AddCredentialPayload {
   name: string
   host: string
   kind: 'ssh' | 'token'
   username?: string
-  token?: string
-  private_key?: string
-  generate_key?: boolean
+  cert_slug?: string    // si kind=ssh
+  secret_slug?: string  // si kind=token
 }
 
 export interface UpdateCredentialPayload {
@@ -24,8 +22,8 @@ export interface UpdateCredentialPayload {
   host?: string
   kind?: 'ssh' | 'token'
   username?: string
-  token?: string         // "__UNCHANGED__" pour conserver l'existant
-  private_key?: string   // "__UNCHANGED__" pour conserver l'existant
+  cert_slug?: string | null    // si kind=ssh
+  secret_slug?: string | null  // si kind=token
 }
 
 const QK = ['git-credentials'] as const
@@ -72,17 +70,5 @@ export function useDeleteGitCredential() {
     mutationFn: (name: string) =>
       apiFetch(`/me/git-credentials/${encodeURIComponent(name)}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK }),
-  })
-}
-
-export function useGitCredentialPublicKey(name: string, enabled: boolean) {
-  return useQuery<{ public_key: string }>({
-    queryKey: ['git-credential-public-key', name],
-    queryFn: () =>
-      apiFetchJson<{ public_key: string }>(
-        `/me/git-credentials/${encodeURIComponent(name)}/public-key`,
-      ),
-    enabled,
-    retry: false,
   })
 }
