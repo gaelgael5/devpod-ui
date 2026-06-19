@@ -20,7 +20,7 @@ const ProfileList = lazy(() => import('@/features/profiles/ProfileList'))
 const ProfileEditor = lazy(() => import('@/features/profiles/ProfileEditor'))
 const AdminProfileEditor = lazy(() => import('@/features/admin/AdminProfileEditor'))
 const AdminProfileSources = lazy(() => import('@/features/admin/AdminProfileSources'))
-const GitCredentialManager = lazy(() => import('@/features/git-credentials/GitCredentialManager'))
+const CredentialsPage = lazy(() => import('@/features/git-credentials/CredentialsPage'))
 const VaultSetup = lazy(() => import('@/features/vault/VaultSetup'))
 const VaultUnlock = lazy(() => import('@/features/vault/VaultUnlock'))
 const VaultRecover = lazy(() => import('@/features/vault/VaultRecover'))
@@ -91,7 +91,7 @@ export const router = createBrowserRouter([
       { path: '/profiles', element: <Wrap><ProfileList /></Wrap> },
       { path: '/profiles/new', element: <Wrap><ProfileEditor /></Wrap> },
       { path: '/profiles/:slug', element: <Wrap><ProfileEditor /></Wrap> },
-      { path: '/git-credentials', element: <Wrap><GitCredentialManager /></Wrap> },
+      { path: '/git-credentials', element: <Wrap><CredentialsPage /></Wrap> },
       { path: '/vault/keys', element: <Wrap><VaultKeys /></Wrap> },
       {
         path: '/admin/hosts',

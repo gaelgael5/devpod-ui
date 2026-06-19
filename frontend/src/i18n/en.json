@@ -422,6 +422,30 @@
       "other": "Other…"
     }
   },
+  "vault": {
+    "tabLabel": "Vault",
+    "securityTitle": "Secret management",
+    "securityInfo": "Keys you register here are stored in the database. Sensitive columns (tokens, API keys) are encrypted by the database engine at rest — they are never readable in plain text in backups or exports. Your Harpocrate API key lets the application retrieve your secrets from your workspaces.",
+    "addKey": "Register a Harpocrate key",
+    "keys": "Registered keys",
+    "noKeys": "No keys registered yet.",
+    "test": "Test",
+    "testFailed": "Failed",
+    "confirmDelete": "Confirm deletion",
+    "form": {
+      "label": "Label",
+      "labelPlaceholder": "My production space",
+      "slug": "Identifier",
+      "slugEmpty": "automatic",
+      "slugHint": "Auto-computed from the label",
+      "description": "Description",
+      "descriptionPlaceholder": "Optional",
+      "apiKey": "API key",
+      "url": "Harpocrate URL",
+      "add": "Add",
+      "saving": "Adding…"
+    }
+  },
   "common": {
     "loading": "Loading…",
     "save": "Save",

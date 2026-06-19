@@ -422,6 +422,30 @@
       "other": "Autre…"
     }
   },
+  "vault": {
+    "tabLabel": "Vault",
+    "securityTitle": "Gestion des secrets",
+    "securityInfo": "Les clés que vous enregistrez ici sont stockées en base de données. Les colonnes sensibles (tokens, clés API) sont chiffrées par le moteur de base de données au repos — elles ne sont jamais lisibles en clair dans les sauvegardes ni les exports. Votre clé API Harpocrate permet à l'application de récupérer vos secrets depuis vos workspaces.",
+    "addKey": "Enregistrer une clé Harpocrate",
+    "keys": "Clés enregistrées",
+    "noKeys": "Aucune clé enregistrée.",
+    "test": "Tester",
+    "testFailed": "Échec",
+    "confirmDelete": "Confirmer la suppression",
+    "form": {
+      "label": "Libellé",
+      "labelPlaceholder": "Mon espace de production",
+      "slug": "Identifiant",
+      "slugEmpty": "automatique",
+      "slugHint": "Calculé automatiquement depuis le libellé",
+      "description": "Description",
+      "descriptionPlaceholder": "Optionnel",
+      "apiKey": "Clé API",
+      "url": "URL Harpocrate",
+      "add": "Ajouter",
+      "saving": "Ajout…"
+    }
+  },
   "common": {
     "loading": "Chargement…",
     "save": "Enregistrer",
