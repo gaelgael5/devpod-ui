@@ -316,6 +316,7 @@ profiles = Table(
     Column("description", Text, nullable=False, server_default=""),
     Column("extensions", ARRAY(Text), nullable=False, server_default="{}"),
     Column("settings", JSONB, nullable=False, server_default="{}"),
+    Column("gallery_source", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )

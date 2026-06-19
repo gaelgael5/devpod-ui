@@ -4,8 +4,16 @@ import { Plus, Trash2, RefreshCw, Search, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useProfileSources, type RemoteProfile } from './useProfileSources'
-import { useProfiles } from '@/features/profiles/hooks/useProfiles'
+import { useProfiles, useDeleteSharedProfile } from '@/features/profiles/hooks/useProfiles'
 
 export default function AdminProfileSources() {
   const { t } = useTranslation()
@@ -18,9 +26,11 @@ export default function AdminProfileSources() {
   } = previewQuery
 
   const { data: localProfiles } = useProfiles()
+  const deleteSharedMutation = useDeleteSharedProfile()
 
   const [newSourceUrl, setNewSourceUrl] = useState('')
   const [galleryFilter, setGalleryFilter] = useState('')
+  const [confirmRemove, setConfirmRemove] = useState<RemoteProfile | null>(null)
 
   const sources = sourcesData?.sources ?? []
   const galleryProfiles = previewData?.profiles ?? []
@@ -58,6 +68,13 @@ export default function AdminProfileSources() {
 
   function isImported(p: RemoteProfile): boolean {
     return importedSlugs.has(slugify(p.name))
+  }
+
+  function handleRemoveConfirm() {
+    if (!confirmRemove) return
+    deleteSharedMutation.mutate(slugify(confirmRemove.name), {
+      onSuccess: () => setConfirmRemove(null),
+    })
   }
 
   return (
@@ -167,10 +184,15 @@ export default function AdminProfileSources() {
                         {p.extension_count} ext.
                       </Badge>
                       {imported && (
-                        <Badge variant="outline" className="gap-1 text-xs text-green-600 border-green-600">
+                        <button
+                          type="button"
+                          onClick={() => setConfirmRemove(p)}
+                          className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-green-600 px-2 py-0.5 text-xs text-green-600 transition-colors hover:bg-green-50 dark:hover:bg-green-950"
+                          title={t('admin.profileSources.removeImported')}
+                        >
                           <CheckCircle2 className="h-3 w-3" />
                           {t('admin.profileSources.flagImported')}
-                        </Badge>
+                        </button>
                       )}
                     </div>
                   </div>
@@ -196,6 +218,30 @@ export default function AdminProfileSources() {
           })}
         </div>
       </section>
+
+      {/* ── Dialog confirmation retrait ──────────────────────────────── */}
+      <Dialog open={Boolean(confirmRemove)} onOpenChange={(o) => !o && setConfirmRemove(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('admin.profileSources.removeConfirmTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('admin.profileSources.removeConfirmDescription', { name: confirmRemove?.name })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmRemove(null)}>
+              {t('profiles.delete.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleRemoveConfirm}
+              disabled={deleteSharedMutation.isPending}
+            >
+              {t('admin.profileSources.removeImported')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

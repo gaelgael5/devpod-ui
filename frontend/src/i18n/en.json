@@ -172,6 +172,9 @@
       "importing": "Importing…",
       "imported": "Profile «{{name}}» imported",
       "flagImported": "Imported",
+      "removeImported": "Remove",
+      "removeConfirmTitle": "Remove imported profile?",
+      "removeConfirmDescription": "Profile «{{name}}» will be deleted from shared profiles. This action cannot be undone.",
       "localProfiles": "Imported Profiles",
       "localEmpty": "No imported profiles yet."
     },

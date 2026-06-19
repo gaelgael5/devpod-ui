@@ -39,6 +39,7 @@ async def list_profiles_db(
                 description=r["description"],
                 extension_count=len(r["extensions"] or []),
                 editable=editable,
+                gallery_source=r.get("gallery_source"),
             )
         )
     return out
@@ -132,6 +133,18 @@ async def _write_profile_db(
     return Profile(slug=final_slug, scope=scope, **body.model_dump())
 
 
+async def set_gallery_source_db(slug: str, source_url: str, conn: AsyncConnection) -> None:
+    await conn.execute(
+        update(profiles)
+        .where(
+            (profiles.c.slug == slug)
+            & (profiles.c.scope == "shared")
+            & (profiles.c.login_key == "")
+        )
+        .values(gallery_source=source_url)
+    )
+
+
 def _row_to_profile(row: dict[str, Any]) -> Profile:
     return Profile(
         slug=row["slug"],
@@ -222,3 +235,7 @@ class AsyncProfileRepository:
             )
             if result.rowcount == 0:
                 raise ProfileError("not_found")
+
+    async def set_gallery_source(self, slug: str, source_url: str) -> None:
+        async with _get_engine().begin() as conn:
+            await set_gallery_source_db(slug, source_url, conn)

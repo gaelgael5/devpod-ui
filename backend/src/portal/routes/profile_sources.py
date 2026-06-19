@@ -165,5 +165,6 @@ async def import_profile_from_source(
         await repo.delete_shared(profile.slug)
         raise HTTPException(status_code=409, detail="profile_slug_conflict")
 
+    await repo.set_gallery_source(profile.slug, body.source_url)
     _log.info("profile_imported", slug=profile.slug, source=body.source_url, by=user.login)
     return profile.model_dump()

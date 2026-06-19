@@ -79,7 +79,7 @@ export default function ProfileList() {
                 profile={p}
                 onFork={() => forkMutation.mutate(p.slug)}
                 forking={forkMutation.isPending && forkMutation.variables === p.slug}
-                onDelete={p.editable ? () => setConfirmDelete(p) : undefined}
+                onDelete={p.editable && !p.gallery_source ? () => setConfirmDelete(p) : undefined}
               />
             ))}
           </div>

@@ -16,6 +16,7 @@ export interface ProfileSummary {
   description: string
   extension_count: number
   editable: boolean
+  gallery_source?: string | null
 }
 
 export interface Profile extends ProfileBody {

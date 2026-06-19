@@ -172,6 +172,9 @@
       "importing": "Import…",
       "imported": "Profil «{{name}}» importé",
       "flagImported": "Importé",
+      "removeImported": "Retirer",
+      "removeConfirmTitle": "Retirer le profil importé ?",
+      "removeConfirmDescription": "Le profil «{{name}}» sera supprimé des profils partagés. Cette action est irréversible.",
       "localProfiles": "Profils importés",
       "localEmpty": "Aucun profil importé."
     },

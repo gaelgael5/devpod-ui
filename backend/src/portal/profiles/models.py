@@ -31,3 +31,4 @@ class ProfileSummary(BaseModel):
     description: str
     extension_count: int
     editable: bool
+    gallery_source: str | None = None
