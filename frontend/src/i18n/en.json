@@ -461,6 +461,7 @@
     "dialogGenerateTitle": "Generate a key pair",
     "dialogRegisterTitle": "Register a key pair",
     "revealPrivate": "Reveal private key",
+    "hidePrivate": "Hide private key",
     "privateKeyLabel": "Private key",
     "publicKeyLabel": "Public key",
     "copied": "Copied!",

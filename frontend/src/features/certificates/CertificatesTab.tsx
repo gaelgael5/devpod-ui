@@ -143,7 +143,11 @@ function AddDialog({ open, onClose }: AddDialogProps) {
   }
 
   const error = generate.error ?? register.error
-  const canSubmit = !!slug && !isPending && (mode === 'generate' || (!!pubKey && !!privKey))
+  const canSubmit =
+    !!slug &&
+    !isPending &&
+    (mode === 'generate' || (!!pubKey && !!privKey)) &&
+    (storage !== 'harpocrate' || !!vaultId)
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) close() }}>
@@ -311,8 +315,15 @@ function CertRow({ cert }: { cert: Certificate }) {
   const [confirmDel, setConfirmDel] = useState(false)
 
   function toggleReveal() {
+    if (showPrivate) {
+      // Masquer : effacer la clé de la mémoire
+      setShowPrivate(false)
+      setPrivateKey(null)
+      return
+    }
+    // Révéler
     if (privateKey) {
-      setShowPrivate((v) => !v)
+      setShowPrivate(true)
       return
     }
     reveal.mutate(cert.slug, {
@@ -368,7 +379,9 @@ function CertRow({ cert }: { cert: Certificate }) {
             {showPrivate
               ? <EyeOff className="mr-1 h-3.5 w-3.5" />
               : <Eye className="mr-1 h-3.5 w-3.5" />}
-            {t('certificates.revealPrivate')}
+            {showPrivate
+              ? t('certificates.hidePrivate')
+              : t('certificates.revealPrivate')}
           </Button>
         )}
 

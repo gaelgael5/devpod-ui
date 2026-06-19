@@ -461,6 +461,7 @@
     "dialogGenerateTitle": "Générer une paire de clés",
     "dialogRegisterTitle": "Enregistrer une paire de clés",
     "revealPrivate": "Révéler la clé privée",
+    "hidePrivate": "Masquer la clé privée",
     "privateKeyLabel": "Clé privée",
     "publicKeyLabel": "Clé publique",
     "copied": "Copié !",
