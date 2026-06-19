@@ -98,11 +98,11 @@ export default function AppShell() {
               {isAdmin && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => navigate('/admin/hypervisors')}>
-                    {t('admin.hypervisors')}
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/hypervisor-types')}>
                     {t('admin.hypervisorTypes')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/hypervisors')}>
+                    {t('admin.hypervisors')}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/hosts')}>
                     {t('admin.hosts')}
