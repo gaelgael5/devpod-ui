@@ -91,9 +91,9 @@ export function useRevealPrivateKey() {
 export function useSetCertVisibility() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ slug, is_public }: { slug: string; is_public: boolean }) =>
-      apiFetchJson<{ slug: string; is_public: boolean }>(
-        `/admin/certificates/${encodeURIComponent(slug)}/visibility`,
+    mutationFn: ({ owner_login, slug, is_public }: { owner_login: string; slug: string; is_public: boolean }) =>
+      apiFetchJson<{ owner_login: string; slug: string; is_public: boolean }>(
+        `/admin/certificates/${encodeURIComponent(owner_login)}/${encodeURIComponent(slug)}/visibility`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },

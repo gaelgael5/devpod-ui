@@ -102,10 +102,15 @@ async def delete_certificate(
     return dict(row) if row else None
 
 
-async def set_public(slug: str, is_public: bool, conn: AsyncConnection) -> bool:
+async def set_public(
+    owner_login: str, slug: str, is_public: bool, conn: AsyncConnection
+) -> bool:
     q = (
         update(harpo_certificates)
-        .where(harpo_certificates.c.slug == slug)
+        .where(
+            harpo_certificates.c.owner_login == owner_login,
+            harpo_certificates.c.slug == slug,
+        )
         .values(is_public=is_public)
         .returning(harpo_certificates.c.slug)
     )

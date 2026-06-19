@@ -181,14 +181,15 @@ async def delete_cert(
 # ---------------------------------------------------------------------------
 
 
-@router_admin.patch("/certificates/{slug}/visibility")
+@router_admin.patch("/certificates/{owner_login}/{slug}/visibility")
 async def set_visibility(
+    owner_login: str = Path(..., min_length=1, max_length=128),
     slug: str = Path(..., pattern=r"^[a-z0-9][a-z0-9_-]{0,62}$"),
     body: VisibilityBody = Body(...),
     _user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
-    ok = await set_public(slug, body.is_public, conn)
+    ok = await set_public(owner_login, slug, body.is_public, conn)
     if not ok:
         raise HTTPException(status_code=404, detail="cert_not_found")
-    return {"slug": slug, "is_public": body.is_public}
+    return {"owner_login": owner_login, "slug": slug, "is_public": body.is_public}
