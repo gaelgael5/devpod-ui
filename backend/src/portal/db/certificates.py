@@ -60,7 +60,7 @@ async def list_certificates(login: str, conn: AsyncConnection) -> list[dict[str,
         )
     ).order_by(harpo_certificates.c.created_at)
     rows = (await conn.execute(q)).mappings().all()
-    return [dict(r) for r in rows]
+    return [{**dict(r), "is_own": r["owner_login"] == login} for r in rows]
 
 
 async def get_certificate(login: str, slug: str, conn: AsyncConnection) -> dict[str, Any] | None:
@@ -72,7 +72,9 @@ async def get_certificate(login: str, slug: str, conn: AsyncConnection) -> dict[
         ),
     )
     row = (await conn.execute(q)).mappings().first()
-    return dict(row) if row else None
+    if row is None:
+        return None
+    return {**dict(row), "is_own": row["owner_login"] == login}
 
 
 async def get_private_key_local(login: str, slug: str, conn: AsyncConnection) -> bytes | None:
