@@ -61,6 +61,13 @@ class RegisterBody(BaseModel):
             raise ValueError("slug: alphanum minuscules + tirets/underscores")
         return v
 
+    @field_validator("secret_type")
+    @classmethod
+    def validate_secret_type(cls, v: str) -> str:
+        if not re.fullmatch(r"^[A-Z][A-Z0-9_]{0,31}$", v):
+            raise ValueError("secret_type: majuscules, chiffres, underscores — 1 à 32 caractères")
+        return v
+
 
 class EditBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -81,7 +88,7 @@ class VisibilityBody(BaseModel):
 
 @router_me.get("/secrets")
 async def list_secrets_route(
-    secret_type: str | None = Query(default=None),
+    secret_type: str | None = Query(default=None, pattern=r"^[A-Z][A-Z0-9_]{0,31}$"),
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, Any]]:
