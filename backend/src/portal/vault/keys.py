@@ -90,11 +90,11 @@ async def test_key_connection(
     login: str, session_id: str, identifier: str, conn: AsyncConnection
 ) -> dict[str, Any]:
     client = await get_vault_client(login, session_id, identifier, conn)
-    # TODO: REMOVE — debug temporaire, token en clair dans les logs
-    _log.warning("DEBUG_vault_token", token=client._http._token, url=client._http._base_url)
-    info = await anyio.to_thread.run_sync(client.whoami)
+    # whoami() → GET /v1/api-keys/{id} retourne 404 sur vault.yoops.org.
+    # _resolve_wallet_id() → GET /v1/api-keys/{id}/wallet-id fonctionne correctement.
+    wallet_id = await anyio.to_thread.run_sync(client._resolve_wallet_id)
     return {
-        "api_key_id": str(info.api_key_id),
-        "wallet_id": str(info.wallet_id),
-        "permissions": info.permissions,
+        "api_key_id": str(client._parsed.api_key_id),
+        "wallet_id": str(wallet_id),
+        "permissions": client._parsed.permissions,
     }
