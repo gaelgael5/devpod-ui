@@ -118,7 +118,10 @@ async def register_secret(
 
     if _harpo_write is not None:
         client_, slug_, val_ = _harpo_write
-        await anyio.to_thread.run_sync(_make_harpo_write(client_, slug_, val_))
+        try:
+            await anyio.to_thread.run_sync(_make_harpo_write(client_, slug_, val_))
+        except Exception:
+            _log.warning("secret_vault_write_failed", login=login, slug=slug)
 
     _log.info("secret_registered", login=login, slug=slug, storage_type=storage_type)
 
@@ -191,7 +194,10 @@ async def edit_secret(
 
     if _harpo_update is not None:
         client_, slug_, val_ = _harpo_update
-        await anyio.to_thread.run_sync(_make_harpo_update(client_, slug_, val_))
+        try:
+            await anyio.to_thread.run_sync(_make_harpo_update(client_, slug_, val_))
+        except Exception:
+            _log.warning("secret_vault_write_failed", login=login, slug=slug)
 
     _log.info("secret_edited", login=login, slug=slug)
 
