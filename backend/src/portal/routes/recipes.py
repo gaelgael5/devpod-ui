@@ -275,35 +275,49 @@ async def admin_delete_shared_recipe(
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     """Supprime une recette partagée admin (ne supprime pas les builtin)."""
+    import traceback as _tb
+
     print(f"[DIAG] DELETE /admin/recipes/{recipe_id} reçu", flush=True)
-    _log.info("delete_recipe_attempt", recipe_id=recipe_id, login=user.login)
-    _validate_recipe_id(recipe_id)
-    data_root = _data_root()
-    shared_recipes_dir = data_root / "recipes"
-    recipe_path = shared_recipes_dir / recipe_id
-    if not recipe_path.is_relative_to(shared_recipes_dir):
-        raise HTTPException(status_code=422, detail="Path traversal detected")
+    try:
+        _validate_recipe_id(recipe_id)
+        data_root = _data_root()
+        shared_recipes_dir = data_root / "recipes"
+        recipe_path = shared_recipes_dir / recipe_id
+        if not recipe_path.is_relative_to(shared_recipes_dir):
+            raise HTTPException(status_code=422, detail="Path traversal detected")
 
-    from ..db.recipes import find_recipe_dependents, get_recipe_db
+        from ..db.recipes import find_recipe_dependents, get_recipe_db
 
-    target = await get_recipe_db(recipe_id, "shared", None, conn)
-    disk_exists = recipe_path.exists()
+        print(f"[DIAG] appel get_recipe_db({recipe_id!r})", flush=True)
+        target = await get_recipe_db(recipe_id, "shared", None, conn)
+        print(f"[DIAG] get_recipe_db ok, target={target!r}", flush=True)
+        disk_exists = recipe_path.exists()
 
-    if target is None and not disk_exists:
-        raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
+        if target is None and not disk_exists:
+            raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
 
-    if target is not None:
-        dependents = await find_recipe_dependents(target.key, conn)
-        if dependents:
-            names = ", ".join(dependents)
-            raise HTTPException(
-                status_code=409,
-                detail=f"Impossible de supprimer « {recipe_id} » : "
-                f"les recettes suivantes en dépendent : {names}",
-            )
+        if target is not None:
+            print(f"[DIAG] find_recipe_dependents(key={target.key!r})", flush=True)
+            dependents = await find_recipe_dependents(target.key, conn)
+            print(f"[DIAG] dependents={dependents}", flush=True)
+            if dependents:
+                names = ", ".join(dependents)
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Impossible de supprimer « {recipe_id} » : "
+                    f"les recettes suivantes en dépendent : {names}",
+                )
 
-    if disk_exists:
-        await asyncio.to_thread(shutil.rmtree, recipe_path)
-    await delete_recipe_db(recipe_id, "shared", None, conn)
-    _log.info("shared_recipe_deleted", login=user.login, recipe_id=recipe_id)
-    return {"deleted": recipe_id}
+        print(f"[DIAG] disk_exists={disk_exists}, suppression...", flush=True)
+        if disk_exists:
+            await asyncio.to_thread(shutil.rmtree, recipe_path)
+        await delete_recipe_db(recipe_id, "shared", None, conn)
+        _log.info("shared_recipe_deleted", login=user.login, recipe_id=recipe_id)
+        print(f"[DIAG] DELETE OK", flush=True)
+        return {"deleted": recipe_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[DIAG] EXCEPTION: {type(exc).__name__}: {exc}", flush=True)
+        print(_tb.format_exc(), flush=True)
+        raise
