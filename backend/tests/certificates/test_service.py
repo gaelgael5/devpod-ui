@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import uuid
+
 import pytest
 from sqlalchemy import insert
-from portal.db.tables import users
+from sqlalchemy.ext.asyncio import AsyncConnection
+
 from portal.certificates.service import (
     CertAlreadyExists,
     CertNotFound,
@@ -14,6 +16,7 @@ from portal.certificates.service import (
     remove_certificate,
     reveal_private_key,
 )
+from portal.db.tables import users
 from portal.vault import session as vault_session
 
 pytestmark = pytest.mark.asyncio
@@ -24,11 +27,11 @@ _SID = "test-session-123"
 _MASTER = b"\x01" * 32
 
 
-async def _user(conn, login: str = "alice") -> None:
+async def _user(conn: AsyncConnection, login: str = "alice") -> None:
     await conn.execute(insert(users).values(login=login, version="1", secret_ns=str(uuid.uuid4())))
 
 
-async def test_register_local_and_list(db_conn):
+async def test_register_local_and_list(db_conn: AsyncConnection) -> None:
     await _user(db_conn)
     vault_session.set_master_key(_SID, _MASTER)
     await register_certificate(
@@ -41,7 +44,7 @@ async def test_register_local_and_list(db_conn):
     assert "private_key_local" not in certs[0]
 
 
-async def test_register_duplicate_raises(db_conn):
+async def test_register_duplicate_raises(db_conn: AsyncConnection) -> None:
     await _user(db_conn)
     vault_session.set_master_key(_SID, _MASTER)
     await register_certificate(
@@ -55,7 +58,7 @@ async def test_register_duplicate_raises(db_conn):
         )
 
 
-async def test_register_vault_locked_raises(db_conn):
+async def test_register_vault_locked_raises(db_conn: AsyncConnection) -> None:
     await _user(db_conn)
     vault_session.clear_session("no-session")
     with pytest.raises(VaultLocked):
@@ -65,7 +68,7 @@ async def test_register_vault_locked_raises(db_conn):
         )
 
 
-async def test_reveal_private_key(db_conn):
+async def test_reveal_private_key(db_conn: AsyncConnection) -> None:
     await _user(db_conn)
     vault_session.set_master_key(_SID, _MASTER)
     await register_certificate(
@@ -76,7 +79,7 @@ async def test_reveal_private_key(db_conn):
     assert plain == _PRIV
 
 
-async def test_reveal_vault_locked(db_conn):
+async def test_reveal_vault_locked(db_conn: AsyncConnection) -> None:
     await _user(db_conn)
     vault_session.set_master_key(_SID, _MASTER)
     await register_certificate(
@@ -88,7 +91,7 @@ async def test_reveal_vault_locked(db_conn):
         await reveal_private_key("alice", _SID, "gh", db_conn)
 
 
-async def test_generate_and_register(db_conn):
+async def test_generate_and_register(db_conn: AsyncConnection) -> None:
     await _user(db_conn)
     vault_session.set_master_key(_SID, _MASTER)
     pub = await generate_and_register(
@@ -100,7 +103,7 @@ async def test_generate_and_register(db_conn):
     assert certs[0]["slug"] == "new-key"
 
 
-async def test_remove_certificate(db_conn):
+async def test_remove_certificate(db_conn: AsyncConnection) -> None:
     await _user(db_conn)
     vault_session.set_master_key(_SID, _MASTER)
     await register_certificate(
@@ -111,7 +114,7 @@ async def test_remove_certificate(db_conn):
     assert await list_user_certificates("alice", db_conn) == []
 
 
-async def test_remove_nonexistent_raises(db_conn):
+async def test_remove_nonexistent_raises(db_conn: AsyncConnection) -> None:
     await _user(db_conn)
     vault_session.set_master_key(_SID, _MASTER)
     with pytest.raises(CertNotFound):

@@ -290,4 +290,53 @@ Avant de considérer la migration terminée :
 - **Ne jamais construire** le header Authorization à la main sans avoir lu le spec OpenAPI : si tu n'utilises pas le SDK, la séparation entre secret d'authentification et clé de déchiffrement doit être respectée exactement.
 - **Si le projet a des dépendances** sur des secrets dynamiques (rotation fréquente, secrets éphémères), gère le cache avec invalidation et retry plutôt qu'un simple lookup au démarrage.
 
+
+## Pièges opérationnels confirmés en production
+
+### `whoami()` retourne 404 sur vault.yoops.org
+
+La méthode `VaultClient.whoami()` du SDK appelle `GET /v1/api-keys/{api_key_id}` — cet endpoint **n'existe pas** sur vault.yoops.org et retourne systématiquement `{"detail": "Not Found"}`.
+
+Pour tester la validité d'un token, utiliser `_resolve_wallet_id()` qui appelle `GET /v1/api-keys/{api_key_id}/wallet-id` et retourne le `wallet_id` avec un 200 si le token est valide :
+
+```python
+# ❌ whoami() → GET /v1/api-keys/{id} → 404 sur vault.yoops.org
+info = client.whoami()
+
+# ✓ _resolve_wallet_id() → GET /v1/api-keys/{id}/wallet-id → 200
+wallet_id = client._resolve_wallet_id()
+return {
+    "api_key_id": str(client._parsed.api_key_id),
+    "wallet_id": str(wallet_id),
+    "permissions": client._parsed.permissions,
+}
+```
+
+Ce comportement est confirmé par le projet de référence `rag/` qui évite explicitement `whoami()` pour la même raison.
+
+### Docker bridge + IPv6 : urllib3 échoue sans fallback
+
+Dans un container Docker sur réseau bridge, l'IPv6 n'est pas routé. Le DNS retourne des adresses AAAA (IPv6) **et** A (IPv4) pour `vault.yoops.org`. Python/urllib3 tente l'IPv6 en premier et **abandonne sans fallback**, contrairement à curl.
+
+Fix à appliquer au démarrage du process Python (avant tout import de librairie réseau) :
+
+```python
+import socket as _socket
+
+_orig_getaddrinfo = _socket.getaddrinfo
+
+def _prefer_ipv4(*args: object, **kwargs: object) -> object:
+    results = _orig_getaddrinfo(*args, **kwargs)  # type: ignore[arg-type]
+    family = args[2] if len(args) > 2 else kwargs.get("family", 0)
+    if family == 0:
+        ipv4 = [r for r in results if r[0] == _socket.AF_INET]
+        if ipv4:
+            return ipv4 + [r for r in results if r[0] != _socket.AF_INET]
+    return results
+
+_socket.getaddrinfo = _prefer_ipv4  # type: ignore[assignment]
+```
+
+Placer ce bloc **après** tous les imports (pour passer ruff E402), mais avant toute connexion réseau runtime. urllib3 et httpx ne capturent pas `getaddrinfo` à l'import — le patch reste efficace.
+
 Bonne migration.

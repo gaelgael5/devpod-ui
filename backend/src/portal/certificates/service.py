@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import anyio
@@ -68,7 +69,7 @@ async def register_certificate(
         if vault_identifier is None:
             raise ValueError("vault_identifier requis pour storage_type != 'local'")
         encrypted = None
-        vault_ref = "${vault://" + vault_identifier + ":certificats/" + slug + "/private}"
+        vault_ref = f"${{vault://{vault_identifier}:certificats/{slug}/private}}"
         client = await get_vault_client(login, session_id, vault_identifier, conn)
         _write_harpocrate = (client, slug, public_key, private_key_pem)
 
@@ -84,7 +85,7 @@ async def register_certificate(
     except IntegrityError as exc:
         raise CertAlreadyExists(f"Un certificat '{slug}' existe déjà") from exc
 
-    if _write_harpocrate:
+    if _write_harpocrate is not None:
         client, slug_, pub, priv = _write_harpocrate
         await anyio.to_thread.run_sync(
             lambda: client.secrets.create(_VAULT_PATH_PUBLIC.format(slug=slug_), pub)
@@ -150,7 +151,7 @@ async def remove_certificate(
         raise CertNotFound(f"Certificat '{slug}' introuvable ou non autorisé")
     if row["storage_type"] == "harpocrate" and row.get("vault_identifier"):
         client = await get_vault_client(login, session_id, row["vault_identifier"], conn)
-        def _make_delete(p: str) -> Any:
+        def _make_delete(p: str) -> Callable[[], None]:
             def _delete() -> None:
                 client.secrets.delete(p)
 

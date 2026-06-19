@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Shield, Plus, Pencil } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -337,12 +336,15 @@ export default function VaultTab() {
                   </Button>
                 </div>
                 {testResult && (
-                  <Badge
-                    variant={testResult.ok ? 'secondary' : 'destructive'}
-                    className="w-fit text-xs"
+                  <span
+                    className={`inline-flex w-fit rounded px-2 py-0.5 text-xs font-medium ${
+                      testResult.ok
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                    }`}
                   >
                     {testResult.text}
-                  </Badge>
+                  </span>
                 )}
               </div>
               <div className="flex flex-col gap-1.5">

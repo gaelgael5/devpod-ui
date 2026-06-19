@@ -36,6 +36,12 @@ Adapter `/api/plugins` en `/plugins` pour cohérence avec les autres routes du p
 
 ## [plugins] GET /api/plugins/search : q est désormais optionnel (min_length=1 si présent). Sans q, la clé `query` est absente de la requête Open VSX → l'API renvoie le top global trié par sortBy.
 
+## [vault] `whoami()` du SDK harpocrate retourne 404 sur vault.yoops.org
+`VaultClient.whoami()` appelle `GET /v1/api-keys/{id}` — endpoint inexistant sur vault.yoops.org. Utiliser `client._resolve_wallet_id()` qui appelle `GET /v1/api-keys/{id}/wallet-id` et retourne un 200 si le token est valide. Reconstruire la réponse depuis `client._parsed.api_key_id` et `client._parsed.permissions`.
+
+## [docker] Docker bridge + IPv6 : urllib3 échoue sans fallback IPv4
+En réseau Docker bridge, l'IPv6 n'est pas routé. Le DNS retourne des AAAA en premier ; urllib3/httpx tentent IPv6 et abandonnent sans essayer IPv4 (contrairement à curl). Fix : patcher `socket.getaddrinfo` au démarrage du process Python pour retourner les entrées AF_INET en premier quand `family=0`. Placer le patch après tous les imports (ruff E402) mais avant toute connexion runtime — urllib3 ne met pas `getaddrinfo` en cache à l'import.
+
 ## [devpod/service] Profil et recettes : docker-tls uniquement
 `_write_devcontainer` n'est appelé que pour les hosts `docker-tls`. Sur SSH, DevPod tourne
 sur la VM distante — `--devcontainer-path` y est inexploitable (chemin local du portail).
