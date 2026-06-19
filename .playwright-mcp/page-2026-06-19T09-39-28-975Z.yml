@@ -1,0 +1,57 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - navigation [ref=e4]:
+      - link "Workspaces" [ref=e5] [cursor=pointer]:
+        - /url: /workspaces
+        - img [ref=e6]
+      - link "Recettes" [ref=e11] [cursor=pointer]:
+        - /url: /recipes
+        - img [ref=e12]
+      - link "Profils VSCode" [ref=e14] [cursor=pointer]:
+        - /url: /profiles
+        - img [ref=e15]
+      - link "Credentials Git" [ref=e18] [cursor=pointer]:
+        - /url: /git-credentials
+        - img [ref=e19]
+      - button "ad" [ref=e23] [cursor=pointer]:
+        - generic [ref=e24]: ad
+    - main [ref=e25]:
+      - generic [ref=e26]:
+        - tablist [ref=e27]:
+          - tab "Credentials Git" [ref=e28] [cursor=pointer]
+          - tab "Vault" [active] [selected] [ref=e29] [cursor=pointer]
+        - tabpanel "Vault" [ref=e49]:
+          - generic [ref=e50]:
+            - generic [ref=e51]:
+              - generic [ref=e52]:
+                - img [ref=e53]
+                - generic [ref=e55]: Gestion des secrets
+              - paragraph [ref=e56]: Les clés que vous enregistrez ici sont stockées en base de données. Les colonnes sensibles (tokens, clés API) sont chiffrées par le moteur de base de données au repos — elles ne sont jamais lisibles en clair dans les sauvegardes ni les exports. Votre clé API Harpocrate permet à l'application de récupérer vos secrets depuis vos workspaces.
+            - generic [ref=e57]:
+              - heading "Enregistrer une clé Harpocrate" [level=2] [ref=e58]
+              - generic [ref=e59]:
+                - generic [ref=e60]:
+                  - generic [ref=e61]:
+                    - generic [ref=e62]: Libellé
+                    - textbox "Libellé" [ref=e63]:
+                      - /placeholder: Mon espace de production
+                  - generic [ref=e64]:
+                    - generic [ref=e65]: Identifiant
+                    - generic [ref=e67]: automatique
+                    - paragraph [ref=e68]: Calculé automatiquement depuis le libellé
+                - generic [ref=e69]:
+                  - generic [ref=e70]: Description
+                  - textbox "Description" [ref=e71]:
+                    - /placeholder: Optionnel
+                - generic [ref=e72]:
+                  - generic [ref=e73]: Clé API
+                  - textbox "Clé API" [ref=e74]:
+                    - /placeholder: hrpv_1_…
+                - generic [ref=e75]:
+                  - generic [ref=e76]: URL Harpocrate
+                  - textbox "URL Harpocrate" [ref=e77]: https://harpocrate.yoops.org
+                - button "Ajouter" [disabled]
+            - generic [ref=e78]:
+              - heading "Clés enregistrées" [level=2] [ref=e79]
+              - paragraph [ref=e80]: Aucune clé enregistrée.
+  - region "Notifications alt+T"
