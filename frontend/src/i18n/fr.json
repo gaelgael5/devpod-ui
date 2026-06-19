@@ -413,7 +413,8 @@
       "update": "Impossible de mettre à jour le credential.",
       "publicKey": "Impossible de récupérer la clé publique."
     },
-    "useRegisteredSecret": "Utiliser un secret enregistré",
+    "tokenInline": "Saisir le token",
+    "useRegisteredSecret": "Secret enregistré",
     "selectSecret": "Choisir un secret…",
     "noSecretsForHost": "Aucun secret disponible pour cet hôte — enregistrez-en un dans l'onglet Secrets",
     "hosts": {

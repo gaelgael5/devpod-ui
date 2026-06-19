@@ -400,20 +400,24 @@ export default function GitCredentialManager() {
           {/* Champs PAT */}
           {form.kind === 'token' && (
             <>
-              {/* Toggle secret enregistré */}
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="use-secret-add"
-                  checked={useSecretForToken}
-                  onChange={e => {
-                    setUseSecretForToken(e.target.checked)
-                    setSelectedSecretSlug('')
-                  }}
-                />
-                <label htmlFor="use-secret-add" className="text-sm cursor-pointer">
+              {/* Bascule inline / secret enregistré */}
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={!useSecretForToken ? 'default' : 'outline'}
+                  onClick={() => { setUseSecretForToken(false); setSelectedSecretSlug('') }}
+                >
+                  {t('gitCredentials.tokenInline')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={useSecretForToken ? 'default' : 'outline'}
+                  onClick={() => { setUseSecretForToken(true); setSelectedSecretSlug('') }}
+                >
                   {t('gitCredentials.useRegisteredSecret')}
-                </label>
+                </Button>
               </div>
 
               <div>
@@ -707,23 +711,32 @@ export default function GitCredentialManager() {
               {/* Champs PAT */}
               {editForm.kind === 'token' && (
                 <>
-                  {/* Toggle secret enregistré */}
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="use-secret-edit"
-                      checked={editForm.useSecretForToken}
-                      onChange={e =>
+                  {/* Bascule inline / secret enregistré */}
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={!editForm.useSecretForToken ? 'default' : 'outline'}
+                      onClick={() =>
                         setEditForm(f =>
-                          f
-                            ? { ...f, useSecretForToken: e.target.checked, selectedSecretSlug: '' }
-                            : f,
+                          f ? { ...f, useSecretForToken: false, selectedSecretSlug: '' } : f,
                         )
                       }
-                    />
-                    <label htmlFor="use-secret-edit" className="text-sm cursor-pointer">
+                    >
+                      {t('gitCredentials.tokenInline')}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={editForm.useSecretForToken ? 'default' : 'outline'}
+                      onClick={() =>
+                        setEditForm(f =>
+                          f ? { ...f, useSecretForToken: true, selectedSecretSlug: '' } : f,
+                        )
+                      }
+                    >
                       {t('gitCredentials.useRegisteredSecret')}
-                    </label>
+                    </Button>
                   </div>
 
                   <div>

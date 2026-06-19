@@ -413,7 +413,8 @@
       "update": "Failed to update credential.",
       "publicKey": "Could not retrieve public key."
     },
-    "useRegisteredSecret": "Use a registered secret",
+    "tokenInline": "Enter token",
+    "useRegisteredSecret": "Registered secret",
     "selectSecret": "Select a secret…",
     "noSecretsForHost": "No secret available for this host — register one in the Secrets tab",
     "hosts": {
