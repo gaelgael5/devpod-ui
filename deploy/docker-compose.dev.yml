@@ -35,9 +35,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    sysctls:
-      net.ipv6.conf.all.disable_ipv6: 1
-      net.ipv6.conf.default.disable_ipv6: 1
     networks:
       - internal
     healthcheck:
