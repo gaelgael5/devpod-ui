@@ -38,7 +38,7 @@ export default function VaultUnlock() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          <PinInput onComplete={handlePin} disabled={isPending} showSubmit />
+          <PinInput onComplete={handlePin} disabled={isPending} showSubmit maskDelay={0} />
           <p className="text-muted-foreground text-center text-sm">
             <Link to="/vault/recover" className="underline">
               Code de secours oublié ?

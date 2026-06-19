@@ -9,13 +9,18 @@ interface PinInputProps {
   disabled?: boolean
   /** Affiche un bouton Valider et déplace le focus dessus au dernier chiffre. */
   showSubmit?: boolean
+  /**
+   * Délai en ms avant de masquer un chiffre saisi.
+   * 0 = masquage immédiat (jamais visible) — pour la saisie de déverrouillage.
+   * >0 = le chiffre reste visible le temps indiqué — pour l'initialisation du PIN.
+   */
+  maskDelay?: number
   className?: string
 }
 
 const PIN_LENGTH = 6
-const MASK_DELAY_MS = 1000
 
-export function PinInput({ onComplete, disabled, showSubmit = false, className }: PinInputProps) {
+export function PinInput({ onComplete, disabled, showSubmit = false, maskDelay = 2000, className }: PinInputProps) {
   const [digits, setDigits] = useState<string[]>(Array(PIN_LENGTH).fill(''))
   const [visible, setVisible] = useState<Set<number>>(new Set())
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
@@ -44,10 +49,12 @@ export function PinInput({ onComplete, disabled, showSubmit = false, className }
     setDigits(d)
 
     if (digit) {
-      setVisible(prev => { const next = new Set(prev); next.add(i); return next })
-      maskTimers.current[i] = setTimeout(() => {
-        setVisible(v => { const s = new Set(v); s.delete(i); return s })
-      }, MASK_DELAY_MS)
+      if (maskDelay > 0) {
+        setVisible(prev => { const next = new Set(prev); next.add(i); return next })
+        maskTimers.current[i] = setTimeout(() => {
+          setVisible(v => { const s = new Set(v); s.delete(i); return s })
+        }, maskDelay)
+      }
     } else {
       setVisible(prev => { const next = new Set(prev); next.delete(i); return next })
     }
@@ -75,19 +82,22 @@ export function PinInput({ onComplete, disabled, showSubmit = false, className }
     if (!pasted) return
 
     const d = [...digits]
-    const newVisible = new Set<number>()
-
     for (let j = 0; j < pasted.length; j++) {
       d[j] = pasted[j]
-      newVisible.add(j)
-      clearTimeout(maskTimers.current[j])
-      maskTimers.current[j] = setTimeout(() => {
-        setVisible(v => { const s = new Set(v); s.delete(j); return s })
-      }, MASK_DELAY_MS)
     }
-
     setDigits(d)
-    setVisible(newVisible)
+
+    if (maskDelay > 0) {
+      const newVisible = new Set<number>()
+      for (let j = 0; j < pasted.length; j++) {
+        newVisible.add(j)
+        clearTimeout(maskTimers.current[j])
+        maskTimers.current[j] = setTimeout(() => {
+          setVisible(v => { const s = new Set(v); s.delete(j); return s })
+        }, maskDelay)
+      }
+      setVisible(newVisible)
+    }
 
     const allFilled = pasted.length === PIN_LENGTH
     if (allFilled) {

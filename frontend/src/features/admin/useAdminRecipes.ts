@@ -30,7 +30,7 @@ export function useAdminRecipes() {
 
   const deleteRecipe = useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/admin/recipes/${id}`, { method: 'DELETE' }),
+      apiFetchJson<{ deleted: string }>(`/admin/recipes/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'recipes'] }),
     onError: (err: Error) => toast.error(err.message),
   })
