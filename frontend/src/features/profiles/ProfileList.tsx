@@ -11,13 +11,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useProfiles, useDeleteProfile, useForkProfile } from './hooks/useProfiles'
+import { useProfiles, useDeleteProfile, useDeleteSharedProfile, useForkProfile } from './hooks/useProfiles'
 import type { ProfileSummary } from './api/profiles'
 
 export default function ProfileList() {
   const { t } = useTranslation()
   const { data: profiles, isLoading, isError } = useProfiles()
   const deleteMutation = useDeleteProfile()
+  const deleteSharedMutation = useDeleteSharedProfile()
   const forkMutation = useForkProfile()
   const [confirmDelete, setConfirmDelete] = useState<ProfileSummary | null>(null)
 
@@ -25,8 +26,12 @@ export default function ProfileList() {
   const shared = profiles?.filter((p: ProfileSummary) => p.scope === 'shared') ?? []
 
   function handleDeleteConfirm() {
-    if (confirmDelete) {
-      deleteMutation.mutate(confirmDelete.slug, { onSuccess: () => setConfirmDelete(null) })
+    if (!confirmDelete) return
+    const onSuccess = () => setConfirmDelete(null)
+    if (confirmDelete.scope === 'shared') {
+      deleteSharedMutation.mutate(confirmDelete.slug, { onSuccess })
+    } else {
+      deleteMutation.mutate(confirmDelete.slug, { onSuccess })
     }
   }
 
@@ -74,6 +79,7 @@ export default function ProfileList() {
                 profile={p}
                 onFork={() => forkMutation.mutate(p.slug)}
                 forking={forkMutation.isPending && forkMutation.variables === p.slug}
+                onDelete={p.editable ? () => setConfirmDelete(p) : undefined}
               />
             ))}
           </div>
@@ -96,7 +102,7 @@ export default function ProfileList() {
             <Button
               variant="destructive"
               onClick={handleDeleteConfirm}
-              disabled={deleteMutation.isPending}
+              disabled={deleteMutation.isPending || deleteSharedMutation.isPending}
             >
               {t('profiles.delete.confirm_btn')}
             </Button>
