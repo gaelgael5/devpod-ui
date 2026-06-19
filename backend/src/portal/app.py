@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import socket as _socket
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from pathlib import Path
 
@@ -38,6 +39,24 @@ from .routes.workspace_ssh import router as workspace_ssh_router
 from .settings import get_settings
 
 _log = structlog.get_logger(__name__)
+
+# L'environnement Docker n'a pas de routage IPv6. urllib3 (requests/harpocrate)
+# tente IPv6 en premier et échoue sans fallback. On réordonne getaddrinfo pour
+# que l'IPv4 soit toujours essayé en premier quand la famille est non spécifiée.
+_orig_getaddrinfo = _socket.getaddrinfo
+
+
+def _prefer_ipv4(*args: object, **kwargs: object) -> object:
+    results = _orig_getaddrinfo(*args, **kwargs)  # type: ignore[arg-type]
+    family = args[2] if len(args) > 2 else kwargs.get("family", 0)
+    if family == 0:
+        ipv4 = [r for r in results if r[0] == _socket.AF_INET]
+        if ipv4:
+            return ipv4 + [r for r in results if r[0] != _socket.AF_INET]
+    return results
+
+
+_socket.getaddrinfo = _prefer_ipv4  # type: ignore[assignment]
 
 _SPA_INDEX = Path("static") / "index.html"
 _NO_CACHE = "no-cache, no-store, must-revalidate"
