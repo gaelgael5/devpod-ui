@@ -275,6 +275,8 @@ async def admin_delete_shared_recipe(
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     """Supprime une recette partagée admin (ne supprime pas les builtin)."""
+    print(f"[DIAG] DELETE /admin/recipes/{recipe_id} reçu", flush=True)
+    _log.info("delete_recipe_attempt", recipe_id=recipe_id, login=user.login)
     _validate_recipe_id(recipe_id)
     data_root = _data_root()
     shared_recipes_dir = data_root / "recipes"
