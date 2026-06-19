@@ -90,6 +90,8 @@ async def test_key_connection(
     login: str, session_id: str, identifier: str, conn: AsyncConnection
 ) -> dict[str, Any]:
     client = await get_vault_client(login, session_id, identifier, conn)
+    # TODO: REMOVE — debug temporaire, token en clair dans les logs
+    _log.warning("DEBUG_vault_token", token=client._http._token, url=client._http._base_url)
     info = await anyio.to_thread.run_sync(client.whoami)
     return {
         "api_key_id": str(info.api_key_id),
