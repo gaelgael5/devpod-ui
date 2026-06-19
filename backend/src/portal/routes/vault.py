@@ -208,9 +208,20 @@ async def vault_test_key(
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
+    _log.info("vault_key_test_requested", identifier=identifier, login=user.login)
     try:
-        return await test_key_connection(user.login, _sid(request), identifier, conn)
+        result = await test_key_connection(user.login, _sid(request), identifier, conn)
+        _log.info("vault_key_tested", identifier=identifier, login=user.login)
+        return result
     except VaultLocked as exc:
         raise HTTPException(status_code=403, detail="vault_locked") from exc
     except KeyNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        _log.warning(
+            "vault_key_test_failed",
+            identifier=identifier,
+            login=user.login,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
