@@ -25,7 +25,7 @@ router = APIRouter(tags=["me"])
 
 
 def _sid(request: Request) -> str:
-    return str(request.session.get("id", ""))
+    return str(request.session.get("session_id", ""))
 
 
 @router.get("")
