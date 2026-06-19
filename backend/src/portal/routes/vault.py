@@ -224,4 +224,4 @@ async def vault_test_key(
             login=user.login,
             error=str(exc),
         )
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail="key_test_failed") from exc
