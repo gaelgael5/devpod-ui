@@ -108,7 +108,29 @@
     "search": "Rechercher une recette…",
     "noMatch": "Aucune recette ne correspond.",
     "personal": "Mes recettes",
-    "shared": "Recettes partagées"
+    "shared": "Recettes partagées",
+    "fork": "Forker",
+    "forking": "Fork…",
+    "new": "Nouvelle recette",
+    "createTitle": "Créer une recette",
+    "editTitle": "Modifier la recette",
+    "delete": {
+      "confirm": "Supprimer cette recette ?",
+      "description": "La recette « {{id}} » sera définitivement supprimée.",
+      "cancel": "Annuler",
+      "confirm_btn": "Supprimer"
+    },
+    "form": {
+      "id": "Identifiant",
+      "idHint": "Lettres minuscules, chiffres, tirets",
+      "version": "Version",
+      "type": "Type",
+      "typeInstall": "Installation",
+      "typeStart": "Démarrage",
+      "description": "Description",
+      "script": "Script",
+      "save": "Enregistrer"
+    }
   },
   "admin": {
     "hosts": "Hôtes Docker",

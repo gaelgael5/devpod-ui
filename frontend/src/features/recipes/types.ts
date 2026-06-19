@@ -9,6 +9,7 @@ export interface Recipe {
   version: string
   description: string
   type: 'install' | 'start'
+  scope: 'builtin' | 'shared' | 'user'
   installs_after: string[]
   requires_secrets: SecretRef[]
   install_script?: string

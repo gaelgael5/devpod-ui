@@ -108,7 +108,29 @@
     "search": "Search recipes…",
     "noMatch": "No recipe matches.",
     "personal": "My recipes",
-    "shared": "Shared recipes"
+    "shared": "Shared recipes",
+    "fork": "Fork",
+    "forking": "Forking…",
+    "new": "New recipe",
+    "createTitle": "Create recipe",
+    "editTitle": "Edit recipe",
+    "delete": {
+      "confirm": "Delete this recipe?",
+      "description": "Recipe « {{id}} » will be permanently deleted.",
+      "cancel": "Cancel",
+      "confirm_btn": "Delete"
+    },
+    "form": {
+      "id": "Identifier",
+      "idHint": "Lowercase letters, digits, hyphens",
+      "version": "Version",
+      "type": "Type",
+      "typeInstall": "Install",
+      "typeStart": "Start",
+      "description": "Description",
+      "script": "Script",
+      "save": "Save"
+    }
   },
   "admin": {
     "hosts": "Docker hosts",

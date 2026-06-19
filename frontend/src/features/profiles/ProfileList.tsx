@@ -136,7 +136,7 @@ function ProfileCard({ profile, onDelete, onFork, forking }: CardProps) {
         <p className="line-clamp-2 text-sm text-muted-foreground">{profile.description}</p>
       )}
       <div className="mt-auto flex gap-2 pt-2">
-        {profile.editable && (
+        {profile.scope === 'user' && profile.editable && (
           <Button size="sm" variant="outline" asChild>
             <Link to={`/profiles/${profile.slug}`}>{t('workspaces.actions.edit')}</Link>
           </Button>
