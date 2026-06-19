@@ -490,6 +490,46 @@
       "save": "Enregistrer"
     }
   },
+  "secrets": {
+    "tabLabel": "Secrets",
+    "title": "Secrets & Tokens",
+    "info": "Gérez vos tokens d'API et PAT. Les valeurs sont chiffrées avec votre PIN vault.",
+    "addSecret": "Ajouter",
+    "noSecrets": "Aucun secret enregistré.",
+    "publicBadge": "Public",
+    "revealValue": "Révéler la valeur",
+    "hideValue": "Masquer la valeur",
+    "valueLabel": "Valeur",
+    "copied": "Copié !",
+    "copy": "Copier",
+    "confirmDelete": "Confirmer la suppression",
+    "dialogAddTitle": "Enregistrer un secret",
+    "dialogEditTitle": "Modifier le secret",
+    "form": {
+      "label": "Nom",
+      "labelPlaceholder": "ex : GitHub Personal Token",
+      "slug": "Identifiant (slug)",
+      "slugEmpty": "auto",
+      "description": "Description",
+      "descriptionPlaceholder": "À quoi sert ce token ?",
+      "secretType": "Type",
+      "secretValue": "Valeur du secret",
+      "secretValuePlaceholder": "ghp_…",
+      "newValue": "Nouvelle valeur (laisser vide pour conserver l'actuelle)",
+      "storageType": "Stockage",
+      "storageLocal": "Local (chiffré en base)",
+      "storageHarpocrate": "Wallet Harpocrate",
+      "vaultWallet": "Wallet",
+      "saving": "Enregistrement…",
+      "save": "Enregistrer"
+    },
+    "types": {
+      "PAT_GITHUB": "Personal Access Token — GitHub",
+      "PAT_GITLAB": "Personal Access Token — GitLab",
+      "PAT_AZURE": "Personal Access Token — Azure DevOps",
+      "API_KEY": "Clé API générique"
+    }
+  },
   "common": {
     "loading": "Chargement…",
     "save": "Enregistrer",

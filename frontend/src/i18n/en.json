@@ -490,6 +490,46 @@
       "save": "Save"
     }
   },
+  "secrets": {
+    "tabLabel": "Secrets",
+    "title": "Secrets & Tokens",
+    "info": "Manage your API tokens and PATs. Values are encrypted with your vault PIN.",
+    "addSecret": "Add",
+    "noSecrets": "No secrets registered.",
+    "publicBadge": "Public",
+    "revealValue": "Reveal value",
+    "hideValue": "Hide value",
+    "valueLabel": "Value",
+    "copied": "Copied!",
+    "copy": "Copy",
+    "confirmDelete": "Confirm deletion",
+    "dialogAddTitle": "Register a secret",
+    "dialogEditTitle": "Edit secret",
+    "form": {
+      "label": "Name",
+      "labelPlaceholder": "e.g. GitHub Personal Token",
+      "slug": "Identifier (slug)",
+      "slugEmpty": "auto",
+      "description": "Description",
+      "descriptionPlaceholder": "What is this token for?",
+      "secretType": "Type",
+      "secretValue": "Secret value",
+      "secretValuePlaceholder": "ghp_…",
+      "newValue": "New value (leave empty to keep current)",
+      "storageType": "Storage",
+      "storageLocal": "Local (encrypted in database)",
+      "storageHarpocrate": "Harpocrate Wallet",
+      "vaultWallet": "Wallet",
+      "saving": "Saving…",
+      "save": "Save"
+    },
+    "types": {
+      "PAT_GITHUB": "Personal Access Token — GitHub",
+      "PAT_GITLAB": "Personal Access Token — GitLab",
+      "PAT_AZURE": "Personal Access Token — Azure DevOps",
+      "API_KEY": "Generic API Key"
+    }
+  },
   "common": {
     "loading": "Loading…",
     "save": "Save",

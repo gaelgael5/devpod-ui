@@ -3,6 +3,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import GitCredentialManager from './GitCredentialManager'
 import VaultTab from '@/features/vault/VaultTab'
 import CertificatesTab from '@/features/certificates/CertificatesTab'
+import SecretsTab from '@/features/secrets/SecretsTab'
 
 export default function CredentialsPage() {
   const { t } = useTranslation()
@@ -11,6 +12,7 @@ export default function CredentialsPage() {
       <TabsList className="self-start">
         <TabsTrigger value="vault">{t('vault.tabLabel')}</TabsTrigger>
         <TabsTrigger value="certificates">{t('certificates.tabLabel')}</TabsTrigger>
+        <TabsTrigger value="secrets">{t('secrets.tabLabel')}</TabsTrigger>
         <TabsTrigger value="git">{t('gitCredentials.title')}</TabsTrigger>
       </TabsList>
       <TabsContent value="vault" className="mt-0">
@@ -18,6 +20,9 @@ export default function CredentialsPage() {
       </TabsContent>
       <TabsContent value="certificates" className="mt-0">
         <CertificatesTab />
+      </TabsContent>
+      <TabsContent value="secrets" className="mt-0">
+        <SecretsTab />
       </TabsContent>
       <TabsContent value="git" className="mt-0">
         <GitCredentialManager />
