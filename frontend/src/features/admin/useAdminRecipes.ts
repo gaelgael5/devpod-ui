@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson } from '@/shared/api/client'
 import type { Recipe } from '@/features/recipes/types'
 
 export interface RecipeCreateRequest {
