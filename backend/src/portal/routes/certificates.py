@@ -4,7 +4,7 @@ import re
 from typing import Any, Literal
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -49,9 +49,9 @@ def _handle_common(exc: Exception) -> None:
     if isinstance(exc, VaultLocked):
         raise HTTPException(status_code=403, detail="vault_locked") from exc
     if isinstance(exc, CertAlreadyExists):
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail="cert_already_exists") from exc
     if isinstance(exc, CertNotFound):
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="cert_not_found") from exc
 
 
 class GenerateBody(BaseModel):
@@ -148,8 +148,8 @@ async def register_cert(
 
 @router_me.get("/certificates/{slug}/private")
 async def get_private(
-    slug: str,
     request: Request,
+    slug: str = Path(..., pattern=r"^[a-z0-9][a-z0-9_-]{0,62}$"),
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
@@ -158,13 +158,14 @@ async def get_private(
     except Exception as exc:
         _handle_common(exc)
         raise
+    _log.info("certificate_private_key_accessed", login=user.login, slug=slug)
     return {"private_key_pem": pem}
 
 
 @router_me.delete("/certificates/{slug}", status_code=204)
 async def delete_cert(
-    slug: str,
     request: Request,
+    slug: str = Path(..., pattern=r"^[a-z0-9][a-z0-9_-]{0,62}$"),
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
@@ -182,12 +183,12 @@ async def delete_cert(
 
 @router_admin.patch("/certificates/{slug}/visibility")
 async def set_visibility(
-    slug: str,
-    body: VisibilityBody,
+    slug: str = Path(..., pattern=r"^[a-z0-9][a-z0-9_-]{0,62}$"),
+    body: VisibilityBody = Body(...),
     _user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     ok = await set_public(slug, body.is_public, conn)
     if not ok:
-        raise HTTPException(status_code=404, detail=f"Certificat '{slug}' introuvable")
+        raise HTTPException(status_code=404, detail="cert_not_found")
     return {"slug": slug, "is_public": body.is_public}
