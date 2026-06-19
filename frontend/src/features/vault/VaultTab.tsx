@@ -116,11 +116,22 @@ export default function VaultTab() {
   }
 
   function handleTest() {
-    if (!editTarget) return
+    if (!editTarget || !editForm.apiKey.startsWith('hrpv_')) return
     setTestResult(null)
-    testKey.mutate(editTarget.identifier, {
-      onSuccess: (r) => setTestResult({ ok: true, text: `wallet: ${r.wallet_id.slice(0, 8)}…` }),
-      onError: () => setTestResult({ ok: false, text: t('vault.testFailed') }),
+    // Sauvegarde d'abord (delete + re-add), puis teste la nouvelle clé
+    deleteKey.mutate(editTarget.identifier, {
+      onSuccess: () =>
+        addKey.mutate(
+          { identifier: editTarget.identifier, token: editForm.apiKey, url: editForm.url, description: editForm.description },
+          {
+            onSuccess: () =>
+              testKey.mutate(editTarget.identifier, {
+                onSuccess: (r) => setTestResult({ ok: true, text: `wallet: ${r.wallet_id.slice(0, 8)}…` }),
+                onError: () => setTestResult({ ok: false, text: t('vault.testFailed') }),
+              }),
+            onError: () => setTestResult({ ok: false, text: t('errors.generic') }),
+          },
+        ),
     })
   }
 
