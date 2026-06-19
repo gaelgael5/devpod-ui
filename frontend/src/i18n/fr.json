@@ -407,7 +407,10 @@
       "delete": "Impossible de supprimer le credential.",
       "update": "Impossible de mettre à jour le credential.",
       "selectCert": "Veuillez sélectionner un certificat SSH.",
-      "selectSecret": "Veuillez sélectionner un secret PAT."
+      "selectSecret": "Veuillez sélectionner un secret PAT.",
+      "vaultLocked": "Vault verrouillé — déverrouillez votre vault avec votre PIN avant de continuer.",
+      "certNotFound": "Certificat introuvable ou accès refusé.",
+      "secretNotFound": "Secret introuvable ou accès refusé."
     },
     "hosts": {
       "github": "GitHub (github.com)",

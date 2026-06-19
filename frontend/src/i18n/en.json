@@ -407,7 +407,10 @@
       "delete": "Could not delete credential.",
       "update": "Failed to update credential.",
       "selectCert": "Please select an SSH certificate.",
-      "selectSecret": "Please select a PAT secret."
+      "selectSecret": "Please select a PAT secret.",
+      "vaultLocked": "Vault locked — unlock your vault with your PIN before continuing.",
+      "certNotFound": "Certificate not found or access denied.",
+      "secretNotFound": "Secret not found or access denied."
     },
     "hosts": {
       "github": "GitHub (github.com)",

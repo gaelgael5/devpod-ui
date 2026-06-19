@@ -97,6 +97,14 @@ export default function GitCredentialManager() {
   const deleteMutation = useDeleteGitCredential()
   const updateMutation = useUpdateGitCredential()
 
+  function mapApiError(err: unknown, fallbackKey: string): string {
+    const msg = err instanceof Error ? err.message : ''
+    if (msg.includes('vault_locked')) return t('gitCredentials.errors.vaultLocked')
+    if (msg.includes('cert_not_found')) return t('gitCredentials.errors.certNotFound')
+    if (msg.includes('secret_not_found')) return t('gitCredentials.errors.secretNotFound')
+    return msg || t(fallbackKey)
+  }
+
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [formError, setFormError] = useState('')
@@ -161,8 +169,7 @@ export default function GitCredentialManager() {
       },
       {
         onSuccess: () => resetForm(),
-        onError: (err: unknown) =>
-          setFormError(err instanceof Error ? err.message : t('gitCredentials.errors.add')),
+        onError: (err: unknown) => setFormError(mapApiError(err, 'gitCredentials.errors.add')),
       },
     )
   }
@@ -207,8 +214,7 @@ export default function GitCredentialManager() {
       { name: toEdit.name, payload },
       {
         onSuccess: () => closeEdit(),
-        onError: (err: unknown) =>
-          setEditError(err instanceof Error ? err.message : t('gitCredentials.errors.update')),
+        onError: (err: unknown) => setEditError(mapApiError(err, 'gitCredentials.errors.update')),
       },
     )
   }
