@@ -196,6 +196,41 @@ else
     exit 1
 fi
 
+# 12. Builder buildx docker-container (§A-6)
+# Le driver docker intégré n'autorise qu'une session buildkit à la fois → "only one connection allowed"
+# quand plusieurs builds se chevauchent. Le driver docker-container lance un container BuildKit dédié
+# sans cette contrainte. Ce builder doit être créé pour l'utilisateur qui exécutera DevPod (SSH user).
+echo "==> Configuration du builder buildx docker-container..."
+_DEVPOD_USER=""
+while IFS=: read -r _u _ _uid _ _ _ _; do
+    if [[ "$_uid" -ge 1000 && "$_uid" -lt 65534 ]]; then
+        _DEVPOD_USER="$_u"
+        break
+    fi
+done < /etc/passwd
+
+if [[ -n "$_DEVPOD_USER" ]]; then
+    # S'assurer que l'utilisateur est dans le groupe docker (effectif aux prochaines connexions SSH)
+    if ! id -nG "$_DEVPOD_USER" 2>/dev/null | grep -qw docker; then
+        usermod -aG docker "$_DEVPOD_USER"
+        echo "    $_DEVPOD_USER ajouté au groupe docker."
+    fi
+    if ! sudo -u "$_DEVPOD_USER" docker buildx inspect devpod-builder &>/dev/null 2>&1; then
+        sudo -u "$_DEVPOD_USER" docker buildx create \
+            --name devpod-builder \
+            --driver docker-container \
+            --bootstrap \
+            --use
+        echo "    Builder 'devpod-builder' (docker-container) créé pour $_DEVPOD_USER."
+    else
+        sudo -u "$_DEVPOD_USER" docker buildx use devpod-builder
+        echo "    Builder 'devpod-builder' déjà présent pour $_DEVPOD_USER — réactivé."
+    fi
+else
+    echo "    ATTENTION : aucun utilisateur non-root trouvé dans /etc/passwd." >&2
+    echo "    Créez manuellement : docker buildx create --name devpod-builder --driver docker-container --use" >&2
+fi
+
 echo ""
 echo "Nœud ${NODE_NAME} enrôlé avec succès."
 echo "Testez depuis le portail avec : devpod up --provider docker ..."
