@@ -96,12 +96,11 @@ async def delete_host(
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
     cfg = load_global()
-    before = len(cfg.hosts)
-    cfg.hosts = [h for h in cfg.hosts if h.name != name]
-    if len(cfg.hosts) == before:
+    host_cfg = next((h for h in cfg.hosts if h.name == name), None)
+    if host_cfg is None:
         raise HTTPException(status_code=404, detail=f"Host {name!r} not found")
 
-    # Supprimer tous les workspaces sur ce host avant de retirer le host de la config
+    # 1. Supprimer tous les workspaces sur ce host
     rows = (
         await conn.execute(
             select(_ws_table.c.login, _ws_table.c.name).where(_ws_table.c.host == name)
@@ -122,6 +121,13 @@ async def delete_host(
 
         await asyncio.gather(*[_delete_one(r["login"], r["name"]) for r in rows])
 
+    # 2. Exécuter le destroy_script de l'hyperviseur (si VM gérée par Proxmox)
+    from .proxmox import _run_destroy_script
+
+    await _run_destroy_script(cfg, host_cfg)
+
+    # 3. Retirer le host de la config
+    cfg.hosts = [h for h in cfg.hosts if h.name != name]
     await save_global(cfg)
     _log.info("host_deleted", name=name, by=user.login, workspaces_deleted=len(rows))
 

@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..auth.rbac import UserInfo, require_admin
-from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, Hypervisor, HypervisorType
+from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor, HypervisorType
 from ..config.store import load_global, save_global
 from ..settings import get_settings
 
@@ -190,6 +190,65 @@ def _substitute(template: str, args: dict[str, str]) -> str:
     for k, v in args.items():
         template = template.replace(f"{{{k}}}", v)
     return template
+
+
+async def _run_destroy_script(cfg: GlobalConfig, host_cfg: HostConfig) -> None:
+    """Exécute le destroy_script de l'hyperviseur pour la VM associée au host.
+
+    Sans effet si proxmox_node/vmid manquants ou si destroy_script non configuré.
+    Les erreurs sont loguées sans lever d'exception — la suppression du host continue.
+    """
+    if not host_cfg.proxmox_node or not host_cfg.vmid:
+        return
+
+    node = next((n for n in cfg.hypervisors if n.name == host_cfg.proxmox_node), None)
+    if node is None:
+        _log.warning(
+            "host_destroy_hypervisor_not_found",
+            host=host_cfg.name,
+            proxmox_node=host_cfg.proxmox_node,
+        )
+        return
+
+    if not node.hypervisor_type:
+        return
+
+    hyp_type = next((t for t in cfg.hypervisor_types if t.name == node.hypervisor_type), None)
+    if hyp_type is None or not hyp_type.destroy_script:
+        return
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(hyp_type.destroy_script, timeout=15.0, follow_redirects=True)
+            resp.raise_for_status()
+            spec = dict(resp.json())
+        except httpx.HTTPError as exc:
+            _log.error("host_destroy_script_fetch_failed", host=host_cfg.name, error=str(exc))
+            return
+
+    from ..settings import get_settings
+
+    settings = get_settings()
+    commands_raw: list[str] = list(spec.get("commands", []))
+    args = {
+        "VMID": host_cfg.vmid,
+        "PORTAL_URL": cfg.server.external_url,
+        "PORTAL_TOKEN": settings.portal_api_key,
+        "PORTAL_PVE_NODE": node.name,
+    }
+    commands = [_substitute(cmd, args) for cmd in commands_raw]
+
+    _log.info("host_destroy_script_starting", host=host_cfg.name, vmid=host_cfg.vmid)
+    chunks: list[bytes] = []
+    async for chunk in _ssh_stream(node, commands):
+        chunks.append(chunk)
+    output = b"".join(chunks).decode("utf-8", errors="replace")
+    _log.info(
+        "host_destroy_script_done",
+        host=host_cfg.name,
+        vmid=host_cfg.vmid,
+        output=output[:500],
+    )
 
 
 # ─── CRUD types d'hyperviseurs ────────────────────────────────────────────────
