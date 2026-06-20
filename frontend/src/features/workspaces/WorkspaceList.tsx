@@ -9,7 +9,7 @@ import type { WorkspaceSpec } from './types'
 
 function WorkspaceRow(spec: WorkspaceSpec) {
   const { data: status } = useWorkspaceStatus(spec.name)
-  const { stopWorkspace, deleteWorkspace, createWorkspace } = useWorkspaceOps()
+  const { stopWorkspace, deleteWorkspace, createWorkspace, recreateWorkspace } = useWorkspaceOps()
 
   const liveStatus = status ?? { ws_id: `?-${spec.name}`, status: 'unknown' as const }
 
@@ -30,6 +30,7 @@ function WorkspaceRow(spec: WorkspaceSpec) {
           recipes: spec.recipes,
         })
       }
+      onRecreate={(n) => recreateWorkspace.mutate(n)}
     />
   )
 }

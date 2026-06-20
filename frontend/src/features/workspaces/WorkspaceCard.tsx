@@ -31,13 +31,15 @@ interface Props {
   onStop: (name: string) => void
   onDelete: (name: string, shelve: boolean) => void
   onStart?: (name: string) => void
+  onRecreate?: (name: string) => void
 }
 
-export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart }: Props) {
+export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart, onRecreate }: Props) {
   const { t } = useTranslation()
   const [sshKeyOpen, setSshKeyOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [recreateOpen, setRecreateOpen] = useState(false)
   const s = status.status
 
   return (
@@ -107,6 +109,16 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
         {(s === 'stopped' || s === 'unknown' || s === 'failed') && (
           <Button
             size="sm"
+            variant="outline"
+            onClick={() => setRecreateOpen(true)}
+            disabled={!onRecreate}
+          >
+            {t('workspaces.actions.recreate')}
+          </Button>
+        )}
+        {(s === 'stopped' || s === 'unknown' || s === 'failed') && (
+          <Button
+            size="sm"
             variant="ghost"
             className="text-destructive hover:text-destructive"
             onClick={() => setConfirmOpen(true)}
@@ -156,6 +168,32 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
         open={logsOpen}
         onOpenChange={setLogsOpen}
       />
+      <Dialog open={recreateOpen} onOpenChange={setRecreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('workspaces.confirm.recreateTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('workspaces.confirm.recreateDescription', { name: spec.name })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button variant="ghost" size="sm" onClick={() => setRecreateOpen(false)}>
+              {t('workspaces.confirm.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setRecreateOpen(false)
+                onRecreate?.(spec.name)
+              }}
+            >
+              {t('workspaces.confirm.confirmRecreate')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

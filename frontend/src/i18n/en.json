@@ -17,7 +17,8 @@
       "start": "Start",
       "delete": "Delete",
       "retry": "Retry",
-      "edit": "Edit"
+      "edit": "Edit",
+      "recreate": "Recreate"
     },
     "ssh": {
       "newSession": "New SSH session",
@@ -84,7 +85,10 @@
       "deleteShelveChoice": "Do you want to save uncommitted work to a recovery branch before deleting?",
       "confirmShelve": "Shelve & Delete",
       "confirmForce": "Delete without shelving",
-      "recoverySaved": "Work saved to branch {{branch}}."
+      "recoverySaved": "Work saved to branch {{branch}}.",
+      "recreateTitle": "Recreate workspace?",
+      "recreateDescription": "The container for {{name}} will be deleted and recreated with the same parameters. Uncommitted work will be lost.",
+      "confirmRecreate": "Recreate"
     },
     "sshKey": {
       "button": "SSH Key",

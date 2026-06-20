@@ -17,7 +17,8 @@
       "start": "Démarrer",
       "delete": "Supprimer",
       "retry": "Réessayer",
-      "edit": "Modifier"
+      "edit": "Modifier",
+      "recreate": "Recréer"
     },
     "ssh": {
       "newSession": "Nouvelle session SSH",
@@ -84,7 +85,10 @@
       "deleteShelveChoice": "Voulez-vous sauvegarder le travail non committé sur une branche recovery avant la suppression ?",
       "confirmShelve": "Shelver et supprimer",
       "confirmForce": "Supprimer sans shelver",
-      "recoverySaved": "Travail sauvegardé sur la branche {{branch}}."
+      "recoverySaved": "Travail sauvegardé sur la branche {{branch}}.",
+      "recreateTitle": "Recréer le workspace ?",
+      "recreateDescription": "Le conteneur de {{name}} sera supprimé et recréé avec les mêmes paramètres. Le travail non committé sera perdu.",
+      "confirmRecreate": "Recréer"
     },
     "sshKey": {
       "button": "Clé SSH",

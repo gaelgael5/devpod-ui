@@ -125,5 +125,16 @@ export function useWorkspaceOps() {
     },
   })
 
-  return { createWorkspace, stopWorkspace, deleteWorkspace }
+  const recreateWorkspace = useMutation<{ ws_id: string; status: string }, Error, string>({
+    mutationFn: (name: string) =>
+      apiFetchJson<{ ws_id: string; status: string }>(`/me/workspaces/${name}/recreate`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['workspaces'] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  return { createWorkspace, stopWorkspace, deleteWorkspace, recreateWorkspace }
 }

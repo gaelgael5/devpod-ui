@@ -304,6 +304,86 @@ async def workspace_delete(
     return {"ws_id": ws_id, **result}
 
 
+@router.post("/workspaces/{name}/recreate", status_code=202)
+async def workspace_recreate(
+    name: str,
+    request: Request,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Supprime le workspace DevPod et le recrée avec les paramètres stockés."""
+    _validate_name(name)
+
+    from ..config.store import load_user
+
+    cfg = await load_user(user.login)
+    ws = next((w for w in cfg.workspaces if w.name == name), None)
+    if ws is None:
+        raise HTTPException(status_code=404, detail=f"Workspace {name!r} introuvable")
+
+    ws_id = f"{user.login}-{name}"
+    svc = _get_service()
+
+    # Supprimer le workspace DevPod sans shelve — recréation immédiate
+    await svc.delete(login=user.login, ws_id=ws_id, shelve=False)
+
+    # Résolution des recettes
+    resolved_recipes: list[RecipeMeta] = []
+    feature_env: dict[str, str] = {}
+    if ws.recipes:
+        reg = _get_recipe_registry()
+        available = await load_recipes_as_dict(user.login, conn)
+        try:
+            expanded = reg.expand_with_deps(ws.recipes, available)
+            resolved_recipes = reg.resolve_order(expanded, available)
+        except DependencyNotFoundError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        all_refs: list[SecretRef] = [ref for r in resolved_recipes for ref in r.requires_secrets]
+        if all_refs:
+            try:
+                feature_env = await asyncio.to_thread(
+                    _resolve_feature_secrets, user.login, cfg.secret_ns, all_refs
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Secret resolution failed: {type(exc).__name__}",
+                ) from exc
+
+    # Résolution du profil
+    profile_obj: Profile | None = None
+    if ws.profile is not None:
+        try:
+            repo = AsyncProfileRepository()
+            profile_obj = await repo.get(ws.profile.scope, ws.profile.slug, user.login)
+        except ProfileError:
+            _log.warning("workspace_recreate_profile_missing", login=user.login, name=name)
+
+    request_host = request.headers.get("x-forwarded-host") or request.url.hostname or ""
+    try:
+        ws_id = await svc.up(
+            login=user.login,
+            ws_spec=ws,
+            recipes=resolved_recipes or None,
+            feature_env=feature_env or None,
+            generate_ssh_key=ws.ssh_key,
+            request_host=request_host,
+            profile=profile_obj,
+        )
+    except HostNotReadyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except UnknownHostError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    _log.info("workspace_recreate_requested", login=user.login, ws_id=ws_id)
+    return {"ws_id": ws_id, "status": "provisioning"}
+
+
 @router.get("/workspaces/{name}/status")
 async def workspace_status(
     name: str,
