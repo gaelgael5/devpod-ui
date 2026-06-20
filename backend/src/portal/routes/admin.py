@@ -18,10 +18,14 @@ from cryptography.hazmat.primitives.serialization import (
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin, require_admin_or_api_key
 from ..config.models import GlobalConfig, HostConfig, Hypervisor
 from ..config.store import _data_root, load_global, save_global
+from ..db.engine import get_conn
+from ..db.tables import workspaces as _ws_table
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["admin"])
@@ -86,14 +90,40 @@ async def update_host(
 
 
 @router.delete("/hosts/{name}", status_code=204)
-async def delete_host(name: str, user: UserInfo = Depends(require_admin)) -> None:
+async def delete_host(
+    name: str,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> None:
     cfg = load_global()
     before = len(cfg.hosts)
     cfg.hosts = [h for h in cfg.hosts if h.name != name]
     if len(cfg.hosts) == before:
         raise HTTPException(status_code=404, detail=f"Host {name!r} not found")
+
+    # Supprimer tous les workspaces sur ce host avant de retirer le host de la config
+    rows = (
+        await conn.execute(
+            select(_ws_table.c.login, _ws_table.c.name).where(_ws_table.c.host == name)
+        )
+    ).mappings().all()
+
+    if rows:
+        from .workspace_ops import _get_service
+
+        svc = _get_service()
+
+        async def _delete_one(login: str, ws_name: str) -> None:
+            ws_id = f"{login}-{ws_name}"
+            try:
+                await svc.delete(login=login, ws_id=ws_id, shelve=False)
+            except Exception:
+                _log.warning("host_delete_ws_failed", host=name, ws_id=ws_id, exc_info=True)
+
+        await asyncio.gather(*[_delete_one(r["login"], r["name"]) for r in rows])
+
     await save_global(cfg)
-    _log.info("host_deleted", name=name, by=user.login)
+    _log.info("host_deleted", name=name, by=user.login, workspaces_deleted=len(rows))
 
 
 @router.post("/hosts/{name}/generate-ssh-key")
