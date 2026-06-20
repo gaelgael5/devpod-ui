@@ -32,6 +32,25 @@ from .provider import ensure_provider
 from .runner import run_subprocess
 from .shelve import shelve_if_pending
 
+
+async def _materialize_system_cert(slug: str) -> str:
+    """Résout la clé privée PEM depuis harpo et l'écrit dans un fichier temp sécurisé.
+
+    Retourne le chemin du fichier. Le caller doit le supprimer dans finally.
+    """
+    from ..secrets.system import reveal_system_cert
+
+    async with _get_engine().begin() as conn:
+        pem = await reveal_system_cert(slug, conn)
+
+    fd, path = tempfile.mkstemp(suffix=".pem", prefix="devpod-host-")
+    try:
+        os.write(fd, pem.encode())
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+    return path
+
 if TYPE_CHECKING:
     from ..exposure import ExposureService
 
@@ -116,7 +135,7 @@ class DevPodService:
         base_env = build_env(login=login, ws_spec=ws_spec, global_cfg=global_cfg)
         host_cfg = _find_host(ws_spec.host, global_cfg)
 
-        if host_cfg.type == "ssh" and not host_cfg.key_path:
+        if host_cfg.type == "ssh" and not host_cfg.host_cert_slug:
             raise HostNotReadyError(
                 f"Host {host_cfg.name!r} : clé SSH manquante — lancez d'abord 'Configurer SSH'"
             )
@@ -129,6 +148,11 @@ class DevPodService:
             else:
                 ssh_host = host_cfg.address
 
+        # Matérialiser la clé SSH si besoin (supprimée par _run_up_task dans finally)
+        tmp_key_path = ""
+        if host_cfg.type == "ssh" and host_cfg.host_cert_slug:
+            tmp_key_path = await _materialize_system_cert(host_cfg.host_cert_slug)
+
         provider_name = await ensure_provider(
             login=login,
             host_type=host_cfg.type,
@@ -136,7 +160,7 @@ class DevPodService:
             host_name=host_cfg.name,
             ssh_host=ssh_host,
             ssh_user=ssh_user,
-            ssh_key_path=host_cfg.key_path,
+            ssh_key_path=tmp_key_path,
             devpod_bin=self._devpod_bin,
         )
 
@@ -223,7 +247,7 @@ class DevPodService:
                 host_type=host_cfg.type,
                 ssh_host=ssh_host,
                 ssh_user=ssh_user,
-                ssh_key_path=host_cfg.key_path or "",
+                ssh_key_path=tmp_key_path,
                 request_host=request_host,
                 workspace_folder=workspace_folder,
                 host_name=host_cfg.name,
@@ -267,17 +291,24 @@ class DevPodService:
                 else:
                     ssh_host = host_cfg.address
             _log.info("reconcile_port_forward", ws_id=ws_id, host_port=host_port)
+            tmp_key_path = ""
             try:
+                if host_cfg.host_cert_slug:
+                    tmp_key_path = await _materialize_system_cert(host_cfg.host_cert_slug)
                 await self._start_port_forward(
                     ws_id,
                     minimal_env,
                     host_port,
                     ssh_host=ssh_host,
                     ssh_user=ssh_user,
-                    ssh_key_path=host_cfg.key_path or "",
+                    ssh_key_path=tmp_key_path,
                 )
             except Exception as exc:
                 _log.warning("reconcile_port_forward_failed", ws_id=ws_id, error=str(exc))
+            finally:
+                if tmp_key_path and tmp_key_path.startswith(tempfile.gettempdir()):
+                    with contextlib.suppress(OSError):
+                        os.unlink(tmp_key_path)
 
     async def stop(self, login: str, ws_id: str) -> None:
         """Arrête un workspace en cours d'exécution."""
@@ -796,3 +827,6 @@ class DevPodService:
                     )
                     await kill_proc.communicate()
                     _log.info("git_ssh_agent_stopped", ws_id=ws_id)
+            if ssh_key_path and ssh_key_path.startswith(tempfile.gettempdir()):
+                with contextlib.suppress(OSError):
+                    os.unlink(ssh_key_path)

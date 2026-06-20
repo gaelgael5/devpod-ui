@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -10,6 +11,7 @@ from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 from ..config.store import _data_root, load_global
+from ..devpod.service import _materialize_system_cert
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -61,26 +63,21 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         _log.warning("ws_ssh_not_ssh_type", host=name, host_type=host.type)
         await websocket.close(code=4022, reason=f"Host {name!r} is not of type ssh")
         return
-    if not host.key_path:
-        _log.warning("ws_ssh_empty_key_path", host=name)
-        await websocket.close(code=4022, reason="key_path not configured for this host")
+    if not host.host_cert_slug:
+        _log.warning("ws_ssh_empty_host_cert_slug", host=name)
+        await websocket.close(code=4022, reason="host_cert_slug not configured for this host")
         return
 
-    # ── Sécurité key_path ─────────────────────────────────────────────────────
-    key_path = Path(host.key_path).resolve()
-    data_root = _data_root().resolve()
-    if not key_path.is_relative_to(data_root):
-        _log.warning("ws_ssh_key_path_traversal", key_path=str(key_path))
-        await websocket.close(code=4022, reason="key_path must be under data root")
+    # ── Matérialisation de la clé SSH depuis harpo ────────────────────────────
+    try:
+        tmp_key_path = await _materialize_system_cert(host.host_cert_slug)
+    except KeyError:
+        _log.warning("ws_ssh_cert_not_found", host=name, slug=host.host_cert_slug)
+        await websocket.close(code=4022, reason=f"SSH cert not found: {host.host_cert_slug}")
         return
-    if not key_path.exists():
-        _log.warning(
-            "ws_ssh_key_not_found",
-            host=name,
-            key_path=str(key_path),
-            data_root=str(data_root),
-        )
-        await websocket.close(code=4022, reason=f"key_path does not exist: {host.key_path}")
+    except Exception:
+        _log.error("ws_ssh_cert_materialize_failed", host=name, exc_info=True)
+        await websocket.close(code=4022, reason="Failed to retrieve SSH key")
         return
 
     # ── Proxy SSH ─────────────────────────────────────────────────────────────
@@ -95,7 +92,7 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         "-t",
         "-t",  # force PTY même quand stdin est un pipe
         "-i",
-        str(key_path),
+        tmp_key_path,
         "-o",
         "StrictHostKeyChecking=accept-new",
         "-o",
@@ -153,5 +150,8 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
             await proc.wait()
         with contextlib.suppress(Exception):
             await websocket.close()
+        if tmp_key_path.startswith(tempfile.gettempdir()):
+            with contextlib.suppress(OSError):
+                Path(tmp_key_path).unlink()
 
     _log.info("ws_ssh_closed", host=name, returncode=proc.returncode)

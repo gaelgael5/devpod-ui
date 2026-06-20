@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -228,3 +229,35 @@ async def test_up_docker_tls_passes_profile_to_write_devcontainer(
             data = json.loads(status_path.read_text(encoding="utf-8"))
             if data.get("status") in ("running", "failed"):
                 break
+
+
+@pytest.mark.asyncio
+async def test_up_raises_host_not_ready_when_no_cert_slug(
+    tmp_data_root: Path, global_cfg
+) -> None:
+    """up() lève HostNotReadyError pour SSH host sans host_cert_slug."""
+    from portal.config.models import HostConfig, WorkspaceSpec
+    from portal.devpod.service import DevPodService, HostNotReadyError
+
+    ssh_host = HostConfig(
+        name="my-ssh-host",
+        type="ssh",
+        address="debian@10.0.0.1",
+        host_cert_slug="",  # pas encore bootstrappé
+    )
+    mock_global = MagicMock()
+    mock_global.hosts = [ssh_host]
+
+    ws_spec = WorkspaceSpec(
+        name="my-ws",
+        source="https://github.com/org/repo",
+        host="my-ssh-host",
+    )
+
+    svc = DevPodService.__new__(DevPodService)
+
+    with (
+        patch("portal.devpod.service.load_global", return_value=mock_global),
+        pytest.raises(HostNotReadyError, match="clé SSH"),
+    ):
+        await svc.up(login="alice", ws_spec=ws_spec)

@@ -73,7 +73,6 @@ def global_cfg(tmp_data_root: Path):
                 "type": "docker-tls",
                 "docker_host": "tcp://192.168.1.50:2376",
                 "address": "",
-                "key_path": "",
             },
             {
                 "name": "node-ssh",
@@ -81,7 +80,7 @@ def global_cfg(tmp_data_root: Path):
                 "type": "ssh",
                 "docker_host": "",
                 "address": "devops@192.168.1.40",
-                "key_path": "/data/keys/hosts/pve1",
+                "host_cert_slug": "pve1-ssh-key",
             },
         ],
         "caddy": {"admin_api": "http://caddy:2019"},
