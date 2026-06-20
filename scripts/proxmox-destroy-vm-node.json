@@ -17,7 +17,7 @@
   "commands": [
     "curl -fsSL -o /tmp/proxmox-destroy-vm-node.sh https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/proxmox-destroy-vm-node.sh",
     "chmod +x /tmp/proxmox-destroy-vm-node.sh",
-    "/tmp/proxmox-destroy-vm-node.sh {VMID}"
+    "/tmp/proxmox-destroy-vm-node.sh {VMID} --force"
   ],
   "tags": ["destroy_vm"]
 }
