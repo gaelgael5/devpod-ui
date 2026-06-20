@@ -663,6 +663,7 @@ class DevPodService:
         try:
             cmd = [
                 *self._devpod_bin,
+                "--debug",
                 "up",
                 "--id",
                 ws_id,
