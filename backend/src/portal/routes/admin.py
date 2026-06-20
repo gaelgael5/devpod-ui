@@ -299,14 +299,20 @@ async def bootstrap_host_ssh(
     Idempotent : l'injection n'ajoute la clé que si elle n'est pas déjà présente.
     La clé privée ne sort JAMAIS de cette route.
     """
+    log = _log.bind(host=name, address=body.address, by=user.login)
+    log.info("bootstrap_ssh_start")
+
     if not _ADDRESS_RE.fullmatch(body.address):
+        log.warning("bootstrap_ssh_invalid_address")
         raise HTTPException(status_code=422, detail="address invalide (attendu : user@host)")
 
     cfg = load_global()
     host = next((h for h in cfg.hosts if h.name == name), None)
     if host is None:
+        log.warning("bootstrap_ssh_host_not_found")
         raise HTTPException(status_code=404, detail=f"Host {name!r} introuvable")
     if host.type != "ssh":
+        log.warning("bootstrap_ssh_wrong_type", host_type=host.type)
         raise HTTPException(
             status_code=422,
             detail="bootstrap-ssh disponible pour les hosts de type ssh uniquement",
@@ -315,44 +321,59 @@ async def bootstrap_host_ssh(
     # Résolution du nœud PVE : corps de la requête → host.proxmox_node → 422
     resolved_pve = body.proxmox_node or host.proxmox_node
     if not resolved_pve:
+        log.warning("bootstrap_ssh_no_proxmox_node")
         raise HTTPException(
             status_code=422,
             detail="proxmox_node requis (non mémorisé sur le host)",
         )
     pve_node = next((n for n in cfg.hypervisors if n.name == resolved_pve), None)
     if pve_node is None:
+        log.warning("bootstrap_ssh_pve_not_found", pve=resolved_pve)
         raise HTTPException(status_code=404, detail=f"Nœud Proxmox {resolved_pve!r} introuvable")
 
+    log.info("bootstrap_ssh_pve_resolved", pve=resolved_pve, pve_address=pve_node.address)
+
     # Génère une paire ed25519 en mémoire (jamais sur disque)
-    private_key_obj = Ed25519PrivateKey.generate()
-    private_pem = private_key_obj.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.OpenSSH,
-        encryption_algorithm=serialization.NoEncryption(),
-    ).decode()
-    public_key = (
-        private_key_obj.public_key()
-        .public_bytes(
-            encoding=serialization.Encoding.OpenSSH,
-            format=serialization.PublicFormat.OpenSSH,
+    try:
+        private_key_obj = Ed25519PrivateKey.generate()
+        private_pem = private_key_obj.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.OpenSSH,
+            encryption_algorithm=serialization.NoEncryption(),
+        ).decode()
+        public_key = (
+            private_key_obj.public_key()
+            .public_bytes(
+                encoding=serialization.Encoding.OpenSSH,
+                format=serialization.PublicFormat.OpenSSH,
+            )
+            .decode()
+            .strip()
         )
-        .decode()
-        .strip()
-    )
+    except Exception:
+        log.exception("bootstrap_ssh_keygen_failed")
+        raise
+
+    log.info("bootstrap_ssh_keygen_ok")
 
     # La clé SSH du host est un secret d'infrastructure : toujours local (PORTAL_VAULT_KEK).
-    # Le portail doit y accéder à runtime sans PIN utilisateur.
     cert_slug = f"host.{name}.cert"
-    await store_system_cert(
-        slug=cert_slug,
-        label=f"SSH key — {name}",
-        private_pem=private_pem,
-        public_key=public_key,
-        cert_type="ssh-ed25519",
-        storage_type="local",
-        vault_identifier="",
-        conn=conn,
-    )
+    try:
+        await store_system_cert(
+            slug=cert_slug,
+            label=f"SSH key — {name}",
+            private_pem=private_pem,
+            public_key=public_key,
+            cert_type="ssh-ed25519",
+            storage_type="local",
+            vault_identifier="",
+            conn=conn,
+        )
+    except Exception:
+        log.exception("bootstrap_ssh_store_cert_failed", slug=cert_slug)
+        raise
+
+    log.info("bootstrap_ssh_cert_stored", slug=cert_slug)
 
     # Injecte la pubkey dans la VM via un saut PVE
     inner_cmd = (
@@ -370,26 +391,37 @@ async def bootstrap_host_ssh(
 
     from .proxmox import _ssh_opts
 
-    proc = await asyncio.create_subprocess_exec(
-        "ssh",
-        *_ssh_opts(pve_node),
-        f"{pve_node.ssh_user}@{pve_node.address}",
-        "bash -s",
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    ssh_cmd = ["ssh", *_ssh_opts(pve_node), f"{pve_node.ssh_user}@{pve_node.address}", "bash -s"]
+    log.info("bootstrap_ssh_inject_start", ssh_cmd=ssh_cmd)
+
     try:
+        proc = await asyncio.create_subprocess_exec(
+            *ssh_cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
         _, stderr = await asyncio.wait_for(
             proc.communicate(input=inject_script.encode()), timeout=30.0
         )
     except TimeoutError:
         proc.kill()
+        log.error("bootstrap_ssh_inject_timeout")
         raise HTTPException(status_code=504, detail="Injection de clé SSH : timeout") from None
+    except Exception:
+        log.exception("bootstrap_ssh_inject_exec_failed")
+        raise
+
+    stderr_str = stderr.decode("utf-8", errors="replace").strip()
+    log.info(
+        "bootstrap_ssh_inject_done",
+        returncode=proc.returncode,
+        stderr=stderr_str or "(empty)",
+    )
+
     if proc.returncode != 0:
-        msg = stderr.decode("utf-8", errors="replace").strip()
         raise HTTPException(
-            status_code=502, detail=f"Injection de clé SSH échouée : {msg or '(no stderr)'}"
+            status_code=502, detail=f"Injection de clé SSH échouée : {stderr_str or '(no stderr)'}"
         )
 
     # Met à jour address, proxmox_node et host_cert_slug dans le config
@@ -401,9 +433,13 @@ async def bootstrap_host_ssh(
             "host_cert_slug": cert_slug,
         }
     )
-    await save_global_db(cfg, conn)
+    try:
+        await save_global_db(cfg, conn)
+    except Exception:
+        log.exception("bootstrap_ssh_save_failed")
+        raise
 
-    _log.info("host_ssh_bootstrapped", host=name, address=body.address, by=user.login)
+    log.info("bootstrap_ssh_done")
     return {"public_key": public_key, "address": body.address, "host_cert_slug": cert_slug}
 
 
