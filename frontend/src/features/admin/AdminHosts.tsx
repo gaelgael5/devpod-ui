@@ -187,7 +187,8 @@ export default function AdminHosts() {
   }
 
   function openAdd() {
-    setForm(EMPTY); setMode('add'); setShowCert(false); setOpen(true)
+    const isFirst = !hosts || hosts.length === 0
+    setForm({ ...EMPTY, default: isFirst }); setMode('add'); setShowCert(false); setOpen(true)
   }
 
   function openEdit(host: HostConfig) {
@@ -225,10 +226,11 @@ export default function AdminHosts() {
   }
 
   function handleGenerated(config: HostConfig, ciPassword?: string) {
+    const isFirst = !hosts || hosts.length === 0
     setForm({
       name: config.name,
       type: config.type,
-      default: config.default ?? false,
+      default: config.default ?? isFirst,
       docker_host: config.docker_host ?? '',
       address: config.address ?? '',
       proxmox_node: config.proxmox_node ?? '',
