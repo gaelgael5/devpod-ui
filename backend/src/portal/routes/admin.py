@@ -25,6 +25,7 @@ from ..auth.rbac import UserInfo, require_admin, require_admin_or_api_key
 from ..config.models import GlobalConfig, HostConfig, Hypervisor
 from ..config.store import _data_root, load_global, save_global
 from ..db.engine import get_conn
+from ..db.tables import workspace_status as _ws_status_table
 from ..db.tables import workspaces as _ws_table
 
 _log = structlog.get_logger(__name__)
@@ -130,6 +131,42 @@ async def delete_host(
     cfg.hosts = [h for h in cfg.hosts if h.name != name]
     await save_global(cfg)
     _log.info("host_deleted", name=name, by=user.login, workspaces_deleted=len(rows))
+
+
+@router.get("/hosts/{name}/workspaces")
+async def list_host_workspaces(
+    name: str,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[dict[str, object]]:
+    """Retourne les workspaces du host groupés par utilisateur, avec leur statut."""
+    from sqlalchemy import func as _func
+
+    ws_id_expr = _func.concat(_ws_table.c.login, "-", _ws_table.c.name)
+    rows = (
+        await conn.execute(
+            select(
+                _ws_table.c.login,
+                _ws_table.c.name,
+                _ws_status_table.c.status,
+            )
+            .select_from(
+                _ws_table.outerjoin(
+                    _ws_status_table, _ws_status_table.c.ws_id == ws_id_expr
+                )
+            )
+            .where(_ws_table.c.host == name)
+            .order_by(_ws_table.c.login, _ws_table.c.name)
+        )
+    ).mappings().all()
+
+    by_login: dict[str, list[dict[str, str]]] = {}
+    for r in rows:
+        by_login.setdefault(r["login"], []).append(
+            {"name": r["name"], "status": r["status"] or "unknown"}
+        )
+
+    return [{"login": login, "workspaces": wss} for login, wss in by_login.items()]
 
 
 @router.post("/hosts/{name}/generate-ssh-key")

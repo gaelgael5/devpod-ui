@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Copy, KeyRound, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, type HostConfig } from './useHosts'
+import { cn } from '@/lib/utils'
+import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, type HostConfig, type HostUserWorkspaces } from './useHosts'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import SshTerminalWindow from './SshTerminalWindow'
@@ -82,6 +83,62 @@ function DestroyLog({ logs, running, error }: { logs: string; running: boolean; 
       {logs || (running ? t('admin.destroyVm.running') : '')}
       {error && <span className="text-destructive">{'\n'}{error}</span>}
     </pre>
+  )
+}
+
+// ─── Workspaces par utilisateur ──────────────────────────────────────────────
+
+const STATUS_DOT: Record<string, string> = {
+  running:      'bg-green-500',
+  stopped:      'bg-yellow-500',
+  provisioning: 'bg-primary',
+  failed:       'bg-destructive',
+  unknown:      'bg-muted-foreground',
+}
+
+const STATUS_TEXT: Record<string, string> = {
+  running:      'text-green-600',
+  stopped:      'text-yellow-600',
+  provisioning: 'text-primary',
+  failed:       'text-destructive',
+  unknown:      'text-muted-foreground',
+}
+
+function HostWorkspacesPanel({ name }: { name: string }) {
+  const { t } = useTranslation()
+  const { data, isLoading } = useHostWorkspaces(name)
+
+  if (isLoading) return <span className="text-xs text-muted-foreground">…</span>
+  if (!data || data.length === 0) {
+    return <span className="text-xs text-muted-foreground">—</span>
+  }
+
+  return (
+    <div className="flex flex-wrap gap-x-6 gap-y-1">
+      {(data as HostUserWorkspaces[]).map((u) => (
+        <div key={u.login} className="flex items-start gap-2">
+          <span className="text-xs font-medium text-foreground whitespace-nowrap">{u.login}</span>
+          <div className="flex flex-wrap gap-1">
+            {u.workspaces.map((ws) => {
+              const s = ws.status
+              return (
+                <span
+                  key={ws.name}
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs',
+                    STATUS_TEXT[s] ?? STATUS_TEXT.unknown,
+                  )}
+                >
+                  <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', STATUS_DOT[s] ?? STATUS_DOT.unknown)} />
+                  {ws.name}
+                  <span className="opacity-60">({t(`workspaces.status.${s}`, s)})</span>
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -203,56 +260,63 @@ export default function AdminHosts() {
             </thead>
             <tbody>
               {hosts.map((h: HostConfig) => (
-                <tr key={h.name} className="border-b last:border-0">
-                  <td className="px-4 py-2 font-medium">{h.name}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{h.type}</td>
-                  <td className="px-4 py-2 text-muted-foreground font-mono text-xs">{h.docker_host || '—'}</td>
-                  <td className="px-4 py-2">
-                    {h.default
-                      ? <span className="text-green-600">✓</span>
-                      : <span className="text-muted-foreground">—</span>}
-                  </td>
-                  <td className="px-4 py-2">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(h)}
-                        aria-label={t('workspaces.actions.edit')}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive"
-                        onClick={() => confirmDelete(h)} aria-label={t('admin.deleteHost')}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                      {h.type === 'ssh' && (
-                        <>
-                          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
-                          {!h.key_path && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
-                              onClick={() => setBootstrapTarget(h)}
-                              aria-label={t('admin.bootstrap.btn')}
-                            >
-                              {t('admin.bootstrap.btn')}
-                            </Button>
-                          )}
-                          {h.key_path && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
-                              data-ssh=""
-                              onClick={() => setSshTarget(h)}
-                              aria-label={t('admin.sshTerminal.openBtn')}
-                            >
-                              {t('admin.sshTerminal.openBtn')}
-                            </Button>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
+                <Fragment key={h.name}>
+                  <tr className="border-b">
+                    <td className="px-4 py-2 font-medium">{h.name}</td>
+                    <td className="px-4 py-2 text-muted-foreground">{h.type}</td>
+                    <td className="px-4 py-2 text-muted-foreground font-mono text-xs">{h.docker_host || '—'}</td>
+                    <td className="px-4 py-2">
+                      {h.default
+                        ? <span className="text-green-600">✓</span>
+                        : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(h)}
+                          aria-label={t('workspaces.actions.edit')}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive"
+                          onClick={() => confirmDelete(h)} aria-label={t('admin.deleteHost')}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                        {h.type === 'ssh' && (
+                          <>
+                            <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+                            {!h.key_path && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
+                                onClick={() => setBootstrapTarget(h)}
+                                aria-label={t('admin.bootstrap.btn')}
+                              >
+                                {t('admin.bootstrap.btn')}
+                              </Button>
+                            )}
+                            {h.key_path && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
+                                data-ssh=""
+                                onClick={() => setSshTarget(h)}
+                                aria-label={t('admin.sshTerminal.openBtn')}
+                              >
+                                {t('admin.sshTerminal.openBtn')}
+                              </Button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                  <tr className="border-b last:border-0 bg-muted/20">
+                    <td colSpan={5} className="px-4 py-2">
+                      <HostWorkspacesPanel name={h.name} />
+                    </td>
+                  </tr>
+                </Fragment>
               ))}
             </tbody>
           </table>

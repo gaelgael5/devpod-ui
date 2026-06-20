@@ -136,6 +136,28 @@ export function useDestroyVm() {
   return { ...state, execute, reset }
 }
 
+export interface HostWorkspaceEntry {
+  name: string
+  status: string
+}
+
+export interface HostUserWorkspaces {
+  login: string
+  workspaces: HostWorkspaceEntry[]
+}
+
+export function useHostWorkspaces(name: string) {
+  return useQuery<HostUserWorkspaces[]>({
+    queryKey: ['admin', 'hosts', name, 'workspaces'],
+    queryFn: () =>
+      apiFetchJson<HostUserWorkspaces[]>(
+        `/admin/hosts/${encodeURIComponent(name)}/workspaces`,
+      ),
+    staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
+  })
+}
+
 export interface BootstrapSshPayload {
   address: string
   proxmox_node: string
