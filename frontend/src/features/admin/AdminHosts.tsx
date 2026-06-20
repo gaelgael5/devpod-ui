@@ -13,6 +13,7 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { cn } from '@/lib/utils'
 import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, type HostConfig, type HostCreatePayload, type HostUserWorkspaces } from './useHosts'
+import { useVaultKeys, type VaultKey } from '@/features/vault/api'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import SshTerminalWindow from './SshTerminalWindow'
@@ -159,6 +160,7 @@ function HostWorkspacesPanel({ name }: { name: string }) {
 export default function AdminHosts() {
   const { t } = useTranslation()
   const { data: hosts, isLoading, isError } = useHosts()
+  const { data: vaultKeys = [] as VaultKey[] } = useVaultKeys()
   const addHost = useAddHost()
   const updateHost = useUpdateHost()
   const deleteHost = useDeleteHost()
@@ -435,21 +437,32 @@ export default function AdminHosts() {
                   <Label htmlFor="storage-local">{t('hosts.form.storage_local', 'Local (chiffré sur le serveur)')}</Label>
                 </div>
                 <div className="flex items-center gap-2">
-                  <RadioGroupItem value="harpocrate" id="storage-harpo" />
-                  <Label htmlFor="storage-harpo">{t('hosts.form.storage_harpo', 'Harpocrate')}</Label>
+                  <RadioGroupItem value="harpocrate" id="storage-harpo" disabled={vaultKeys.length === 0} />
+                  <Label htmlFor="storage-harpo" className={vaultKeys.length === 0 ? 'text-muted-foreground' : ''}>
+                    {t('hosts.form.storage_harpo', 'Harpocrate')}
+                    {vaultKeys.length === 0 && <span className="ml-1 text-xs">({t('hosts.form.no_wallet', 'aucun wallet configuré')})</span>}
+                  </Label>
                 </div>
               </RadioGroup>
 
               {form.storage_type === 'harpocrate' && (
                 <div className="space-y-1">
-                  <Label htmlFor="h-vault-id">{t('hosts.form.vault_identifier', 'Identifiant du coffre')}</Label>
-                  <Input
-                    id="h-vault-id"
+                  <Label>{t('hosts.form.vault_identifier', 'Wallet Harpocrate')}</Label>
+                  <Select
                     value={form.vault_identifier}
-                    onChange={(e) => setForm(f => ({ ...f, vault_identifier: e.target.value }))}
-                    placeholder="my-vault"
-                    required
-                  />
+                    onValueChange={(v) => setForm(f => ({ ...f, vault_identifier: v }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={t('hosts.form.vault_placeholder', 'Sélectionner un wallet…')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {vaultKeys.map((k: VaultKey) => (
+                        <SelectItem key={k.identifier} value={k.identifier}>
+                          {k.identifier}{k.description ? ` — ${k.description}` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
             </div>
