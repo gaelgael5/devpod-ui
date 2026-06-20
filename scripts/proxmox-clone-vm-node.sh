@@ -651,13 +651,15 @@ fi
 echo ""
 
 # ─── Résumé JSON (dernière ligne — parsée par le portail) ────────────────────
+# vmid et proxmox_node sont obligatoires pour que le portail puisse déclencher
+# le destroy_script lors de la suppression du host.
 if [[ "$ENROLLED" == "true" ]]; then
-    printf '{"status":"ok","name":"%s","address":"%s","type":"docker-tls","docker_host":"tcp://%s:2376","ssh_user":"%s","ssh_port":22,"key_path":"/data/certs/portal"}\n' \
-        "$NODE_NAME" "$IP_ADDR" "$IP_ADDR" "$CI_USER"
+    printf '{"status":"ok","name":"%s","address":"%s","type":"docker-tls","docker_host":"tcp://%s:2376","ssh_user":"%s","ssh_port":22,"key_path":"/data/certs/portal","vmid":"%s","proxmox_node":"%s"}\n' \
+        "$NODE_NAME" "$IP_ADDR" "$IP_ADDR" "$CI_USER" "$NEW_VMID" "$PORTAL_PVE_NODE"
 elif [[ -n "$PORTAL_KEY_PATH" ]]; then
-    printf '{"status":"ok","name":"%s","address":"%s","type":"ssh","ssh_user":"%s","ssh_port":22,"key_path":"%s"}\n' \
-        "$NODE_NAME" "$CI_USER@$IP_ADDR" "$CI_USER" "$PORTAL_KEY_PATH"
+    printf '{"status":"ok","name":"%s","address":"%s","type":"ssh","ssh_user":"%s","ssh_port":22,"key_path":"%s","vmid":"%s","proxmox_node":"%s"}\n' \
+        "$NODE_NAME" "$CI_USER@$IP_ADDR" "$CI_USER" "$PORTAL_KEY_PATH" "$NEW_VMID" "$PORTAL_PVE_NODE"
 else
-    printf '{"status":"ok","name":"%s","address":"%s","ssh_user":"%s","ssh_port":22}\n' \
-        "$NODE_NAME" "$IP_ADDR" "$CI_USER"
+    printf '{"status":"ok","name":"%s","address":"%s","ssh_user":"%s","ssh_port":22,"vmid":"%s","proxmox_node":"%s"}\n' \
+        "$NODE_NAME" "$IP_ADDR" "$CI_USER" "$NEW_VMID" "$PORTAL_PVE_NODE"
 fi

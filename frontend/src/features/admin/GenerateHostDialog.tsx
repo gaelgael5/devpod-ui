@@ -46,11 +46,16 @@ function initValues(args: ScriptArgOrSub[]): Record<string, string> {
   )
 }
 
-function mapToHostConfig(json: Record<string, unknown>, vmid?: string): HostConfig {
+function mapToHostConfig(
+  json: Record<string, unknown>,
+  vmid?: string,
+  proxmoxNode?: string,
+): HostConfig {
   const name = String(json.name ?? '')
   const address = String(json.address ?? '')
   const sshUser = String(json.ssh_user ?? 'debian')
   const resolvedVmid = String(json.vmid ?? vmid ?? '')
+  const resolvedProxmoxNode = String(json.proxmox_node ?? proxmoxNode ?? '')
   if (json.type === 'docker-tls') {
     return {
       name,
@@ -60,6 +65,7 @@ function mapToHostConfig(json: Record<string, unknown>, vmid?: string): HostConf
       key_path: String(json.key_path ?? '/data/certs/portal'),
       default: false,
       vmid: resolvedVmid,
+      proxmox_node: resolvedProxmoxNode,
     }
   }
   return {
@@ -70,6 +76,7 @@ function mapToHostConfig(json: Record<string, unknown>, vmid?: string): HostConf
     key_path: '',
     default: false,
     vmid: resolvedVmid,
+    proxmox_node: resolvedProxmoxNode,
   }
 }
 
@@ -404,7 +411,7 @@ function StepLog({
   }, [logs])
 
   const result = done && !error ? extractLastJson(logs) : null
-  const hostConfig = result?.status === 'ok' ? mapToHostConfig(result, args.NEW_VMID) : null
+  const hostConfig = result?.status === 'ok' ? mapToHostConfig(result, args.NEW_VMID, node.name) : null
 
   function handleRetry() {
     reset()
