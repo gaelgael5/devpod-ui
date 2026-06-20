@@ -101,11 +101,12 @@ hosts = Table(
     Column("type", Text, nullable=False),
     Column("docker_host", Text, nullable=False, server_default=""),
     Column("address", Text, nullable=False, server_default=""),
-    Column("key_path", Text, nullable=False, server_default=""),
-    Column("public_key", Text, nullable=False, server_default=""),
     Column("proxmox_node", Text, nullable=False, server_default=""),
     Column("vmid", Text, nullable=False, server_default=""),
-    Column("ci_password", Text, nullable=False, server_default=""),
+    Column("ci_password_secret_slug", Text, nullable=False, server_default=""),
+    Column("host_cert_slug", Text, nullable=False, server_default=""),
+    Column("storage_type", Text, nullable=False, server_default="local"),
+    Column("vault_identifier", Text, nullable=False, server_default=""),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 

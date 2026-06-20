@@ -33,7 +33,10 @@ async def warm_global_cache(conn: AsyncConnection) -> None:
     global _cache
     _cache = await _load_from_db(conn)
     if _cache is None:
-        _log.warning("global_config_empty", msg="Aucune GlobalConfig en base — premier démarrage, configurez via /admin/config")
+        _log.warning(
+            "global_config_empty",
+            msg="Aucune GlobalConfig en base — premier démarrage, configurez via /admin/config",
+        )
     else:
         _log.info("global_config_cache_warmed")
 
@@ -172,10 +175,12 @@ def _host_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "type": row["type"],
         "docker_host": row["docker_host"],
         "address": row["address"],
-        "key_path": row["key_path"],
         "proxmox_node": row["proxmox_node"],
         "vmid": row["vmid"],
-        "ci_password": row["ci_password"],
+        "ci_password_secret_slug": row["ci_password_secret_slug"],
+        "host_cert_slug": row["host_cert_slug"],
+        "storage_type": row["storage_type"],
+        "vault_identifier": row["vault_identifier"],
     }
 
 
@@ -280,8 +285,10 @@ def _host_to_row(h: HostConfig) -> dict[str, Any]:
         "type": h.type,
         "docker_host": h.docker_host,
         "address": h.address,
-        "key_path": h.key_path,
         "proxmox_node": h.proxmox_node,
         "vmid": h.vmid,
-        "ci_password": h.ci_password,
+        "ci_password_secret_slug": h.ci_password_secret_slug,
+        "host_cert_slug": h.host_cert_slug,
+        "storage_type": h.storage_type,
+        "vault_identifier": h.vault_identifier,
     }

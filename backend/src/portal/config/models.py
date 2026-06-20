@@ -89,10 +89,14 @@ class HostConfig(BaseModel):
     type: Literal["docker-tls", "ssh"]
     docker_host: str = ""
     address: str = ""
-    key_path: str = ""
-    proxmox_node: str = ""  # nœud hyperviseur qui a créé/gère cette VM
-    vmid: str = ""  # VMID Proxmox de la VM associée (nécessaire pour le destroy_script)
-    ci_password: str = ""  # mot de passe console Proxmox (noVNC) généré à la création
+    proxmox_node: str = ""
+    vmid: str = ""
+    # Références vers harpo_* (slugs)
+    ci_password_secret_slug: str = ""
+    host_cert_slug: str = ""
+    # Préférences de stockage des secrets
+    storage_type: Literal["local", "harpocrate"] = "local"
+    vault_identifier: str = ""
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
