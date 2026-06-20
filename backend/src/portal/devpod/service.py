@@ -379,11 +379,32 @@ class DevPodService:
                 content["appPorts"] = [f"{host_port}:{_OPENVSCODE_SERVER_PORT}"]
 
             if recipes:
+                key_to_id: dict[str, str] = {r.key: r.id for r in recipes}
                 features_block: dict[str, dict[str, Any]] = {}
                 for recipe in recipes:
                     recipe_dir = _data_root() / "recipes" / recipe.id
                     if recipe_dir.is_dir():
-                        shutil.copytree(recipe_dir, tmp_dir / recipe.id)
+                        dest = tmp_dir / recipe.id
+                        shutil.copytree(recipe_dir, dest)
+                        # Réécrire installsAfter avec les IDs locaux réels
+                        # (les fichiers sur le serveur peuvent pointer vers des IDs
+                        # de registry comme ghcr.io/... qui ne correspondent pas
+                        # aux features locales ./nodejs)
+                        feature_json = dest / "devcontainer-feature.json"
+                        if feature_json.exists() and recipe.installs_after:
+                            dep_ids = [
+                                key_to_id[k]
+                                for k in recipe.installs_after
+                                if k in key_to_id
+                            ]
+                            if dep_ids:
+                                fd: dict[str, Any] = json.loads(
+                                    feature_json.read_text(encoding="utf-8")
+                                )
+                                fd["installsAfter"] = [f"./{d}" for d in dep_ids]
+                                feature_json.write_text(
+                                    json.dumps(fd, indent=2), encoding="utf-8"
+                                )
                         features_block[f"./{recipe.id}"] = {}
                 if features_block:
                     content["features"] = features_block
