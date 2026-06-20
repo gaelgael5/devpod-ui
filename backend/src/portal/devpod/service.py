@@ -150,114 +150,121 @@ class DevPodService:
 
         # Matérialiser la clé SSH si besoin (supprimée par _run_up_task dans finally)
         tmp_key_path = ""
-        if host_cfg.type == "ssh" and host_cfg.host_cert_slug:
-            tmp_key_path = await _materialize_system_cert(host_cfg.host_cert_slug)
+        task_created = False
+        try:
+            if host_cfg.type == "ssh" and host_cfg.host_cert_slug:
+                tmp_key_path = await _materialize_system_cert(host_cfg.host_cert_slug)
 
-        provider_name = await ensure_provider(
-            login=login,
-            host_type=host_cfg.type,
-            env=base_env,
-            host_name=host_cfg.name,
-            ssh_host=ssh_host,
-            ssh_user=ssh_user,
-            ssh_key_path=tmp_key_path,
-            devpod_bin=self._devpod_bin,
-        )
-
-        host_port: int | None = None
-        if self._exposure is not None:
-            host_port = await self._exposure.allocate_port(ws_id)
-
-        # Pour docker-tls : devcontainer.json généré localement, chemin absolu local valide.
-        # Pour SSH : le fichier est généré localement puis uploadé sur la VM distante via
-        #   tar|ssh avant devpod up ; le chemin absolu distant est passé à --devcontainer-path.
-        dc_path: Path | None = None
-        needs_devcontainer = bool(recipes or feature_env or ws_spec.extra_sources or profile)
-        if needs_devcontainer:
-            dc_path = self._write_devcontainer(
-                login,
-                ws_id,
-                host_port=host_port if host_cfg.type == "docker-tls" else None,
-                recipes=recipes,
-                feature_env=feature_env,
-                extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
-                profile=profile,
-            )
-
-        # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
-        # le subprocess env UNIQUEMENT — jamais dans devcontainer.json ni dans les logs.
-        subprocess_env = {**base_env, **ws_spec.env}
-
-        # Résolution du credential git pour l'injection dans devpod up
-        git_ssh_key_path = ""
-        effective_source = ws_spec.source
-        if ws_spec.git_credential and ws_spec.source:
-            try:
-                user_cfg = await load_user(login)
-                cred = next(
-                    (c for c in user_cfg.git_credentials if c.name == ws_spec.git_credential),
-                    None,
-                )
-                if cred and cred.kind == "ssh" and cred.key_path:
-                    git_ssh_key_path = cred.key_path
-                    # DevPod ne supporte pas --git-token ; pour SSH on convertit l'URL
-                    # en git@host:path afin que le forwarding SSH agent fonctionne.
-                    if effective_source.startswith(("https://", "http://")):
-                        parsed = urlparse(effective_source)
-                        ssh_path = parsed.path.lstrip("/")
-                        effective_source = f"git@{parsed.hostname}:{ssh_path}"
-                        _log.info(
-                            "devpod_source_converted_to_ssh",
-                            login=login,
-                            source=effective_source,
-                        )
-            except Exception:
-                _log.warning("git_credential_lookup_failed", login=login, exc_info=True)
-
-        # Combiner source et branche : "github.com/org/repo@feature-branch"
-        # Sans source explicite, utiliser l'image de base pour que DevPod puisse
-        # initialiser le workspace (sans source DevPod cherche un WS existant → erreur).
-        devpod_source = effective_source or _DEFAULT_IMAGE
-        if ws_spec.branch and effective_source:
-            devpod_source = f"{effective_source}@{ws_spec.branch}"
-
-        # Pour SSH : devpod ssh -L bind sur 0.0.0.0 dans le container portal ;
-        # Caddy atteint portal:{host_port} via le réseau Docker interne.
-        # Pour docker-tls : l'IP réelle du nœud Docker est utilisée directement.
-        node_ip = self._resolve_node_ip(host_cfg)
-        if host_cfg.type == "ssh":
-            node_ip = global_cfg.caddy.portal_host
-
-        # Plusieurs sources → ouvrir /workspaces pour voir tous les repos clonés.
-        # Source unique ou image seule → ouvrir directement /workspaces/{ws_id}.
-        workspace_folder = "/workspaces" if ws_spec.extra_sources else f"/workspaces/{ws_id}"
-
-        await self._write_status(ws_id, "provisioning", login=login)
-
-        task = asyncio.create_task(
-            self._run_up_task(
-                ws_id,
-                devpod_source,
-                dc_path,
-                subprocess_env,
-                login,
-                host_port,
-                node_ip,
-                provider_name=provider_name,
+            provider_name = await ensure_provider(
+                login=login,
                 host_type=host_cfg.type,
+                env=base_env,
+                host_name=host_cfg.name,
                 ssh_host=ssh_host,
                 ssh_user=ssh_user,
                 ssh_key_path=tmp_key_path,
-                request_host=request_host,
-                workspace_folder=workspace_folder,
-                host_name=host_cfg.name,
-                git_ssh_key_path=git_ssh_key_path,
+                devpod_bin=self._devpod_bin,
             )
-        )
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
-        _log.info("workspace_up_started", ws_id=ws_id, login=login)
-        return ws_id
+
+            host_port: int | None = None
+            if self._exposure is not None:
+                host_port = await self._exposure.allocate_port(ws_id)
+
+            # Pour docker-tls : devcontainer.json généré localement, chemin absolu local valide.
+            # Pour SSH : le fichier est généré localement puis uploadé sur la VM distante via
+            #   tar|ssh avant devpod up ; le chemin absolu distant est passé à --devcontainer-path.
+            dc_path: Path | None = None
+            needs_devcontainer = bool(recipes or feature_env or ws_spec.extra_sources or profile)
+            if needs_devcontainer:
+                dc_path = self._write_devcontainer(
+                    login,
+                    ws_id,
+                    host_port=host_port if host_cfg.type == "docker-tls" else None,
+                    recipes=recipes,
+                    feature_env=feature_env,
+                    extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
+                    profile=profile,
+                )
+
+            # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
+            # le subprocess env UNIQUEMENT — jamais dans devcontainer.json ni dans les logs.
+            subprocess_env = {**base_env, **ws_spec.env}
+
+            # Résolution du credential git pour l'injection dans devpod up
+            git_ssh_key_path = ""
+            effective_source = ws_spec.source
+            if ws_spec.git_credential and ws_spec.source:
+                try:
+                    user_cfg = await load_user(login)
+                    cred = next(
+                        (c for c in user_cfg.git_credentials if c.name == ws_spec.git_credential),
+                        None,
+                    )
+                    if cred and cred.kind == "ssh" and cred.key_path:
+                        git_ssh_key_path = cred.key_path
+                        # DevPod ne supporte pas --git-token ; pour SSH on convertit l'URL
+                        # en git@host:path afin que le forwarding SSH agent fonctionne.
+                        if effective_source.startswith(("https://", "http://")):
+                            parsed = urlparse(effective_source)
+                            ssh_path = parsed.path.lstrip("/")
+                            effective_source = f"git@{parsed.hostname}:{ssh_path}"
+                            _log.info(
+                                "devpod_source_converted_to_ssh",
+                                login=login,
+                                source=effective_source,
+                            )
+                except Exception:
+                    _log.warning("git_credential_lookup_failed", login=login, exc_info=True)
+
+            # Combiner source et branche : "github.com/org/repo@feature-branch"
+            # Sans source explicite, utiliser l'image de base pour que DevPod puisse
+            # initialiser le workspace (sans source DevPod cherche un WS existant → erreur).
+            devpod_source = effective_source or _DEFAULT_IMAGE
+            if ws_spec.branch and effective_source:
+                devpod_source = f"{effective_source}@{ws_spec.branch}"
+
+            # Pour SSH : devpod ssh -L bind sur 0.0.0.0 dans le container portal ;
+            # Caddy atteint portal:{host_port} via le réseau Docker interne.
+            # Pour docker-tls : l'IP réelle du nœud Docker est utilisée directement.
+            node_ip = self._resolve_node_ip(host_cfg)
+            if host_cfg.type == "ssh":
+                node_ip = global_cfg.caddy.portal_host
+
+            # Plusieurs sources → ouvrir /workspaces pour voir tous les repos clonés.
+            # Source unique ou image seule → ouvrir directement /workspaces/{ws_id}.
+            workspace_folder = "/workspaces" if ws_spec.extra_sources else f"/workspaces/{ws_id}"
+
+            await self._write_status(ws_id, "provisioning", login=login)
+
+            task = asyncio.create_task(
+                self._run_up_task(
+                    ws_id,
+                    devpod_source,
+                    dc_path,
+                    subprocess_env,
+                    login,
+                    host_port,
+                    node_ip,
+                    provider_name=provider_name,
+                    host_type=host_cfg.type,
+                    ssh_host=ssh_host,
+                    ssh_user=ssh_user,
+                    ssh_key_path=tmp_key_path,
+                    request_host=request_host,
+                    workspace_folder=workspace_folder,
+                    host_name=host_cfg.name,
+                    git_ssh_key_path=git_ssh_key_path,
+                )
+            )
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+            task_created = True
+            _log.info("workspace_up_started", ws_id=ws_id, login=login)
+            return ws_id
+        finally:
+            if not task_created and tmp_key_path and tmp_key_path.startswith(tempfile.gettempdir()):
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp_key_path)
 
     async def reconcile_port_forwards(self) -> None:
         """Au démarrage, relance les tunnels SSH des workspaces running persistés en DB.
