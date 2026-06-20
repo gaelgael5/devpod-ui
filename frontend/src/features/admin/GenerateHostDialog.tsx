@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { useAdminProxmox, type HypervisorConfig } from './useAdminProxmox'
+import { useVaultKeys, type VaultKey } from '@/features/vault/api'
 import {
   useScriptSpec, useExecuteScript, extractLastJson, flattenArgs,
   type ScriptArg, type ScriptSubArg, type ScriptArgOrSub,
@@ -399,6 +400,7 @@ function StepLog({
 }) {
   const { t } = useTranslation()
   const { logs, running, done, error, execute, reset } = useExecuteScript()
+  const { data: vaultKeys = [] as VaultKey[] } = useVaultKeys()
   const logRef = useRef<HTMLPreElement>(null)
   const startedRef = useRef(false)
   const [storageType, setStorageType] = useState<'local' | 'harpocrate'>('local')
@@ -471,17 +473,29 @@ function StepLog({
                   <Label htmlFor="gen-storage-local">{t('hosts.form.storage_local', 'Local')}</Label>
                 </div>
                 <div className="flex items-center gap-2">
-                  <RadioGroupItem value="harpocrate" id="gen-storage-harpo" />
-                  <Label htmlFor="gen-storage-harpo">Harpocrate</Label>
+                  <RadioGroupItem value="harpocrate" id="gen-storage-harpo" disabled={vaultKeys.length === 0} />
+                  <Label htmlFor="gen-storage-harpo" className={vaultKeys.length === 0 ? 'text-muted-foreground' : ''}>
+                    Harpocrate
+                    {vaultKeys.length === 0 && <span className="ml-1 text-xs">({t('hosts.form.no_wallet', 'aucun wallet configuré')})</span>}
+                  </Label>
                 </div>
               </RadioGroup>
               {storageType === 'harpocrate' && (
-                <Input
-                  value={vaultIdentifier}
-                  onChange={(e) => setVaultIdentifier(e.target.value)}
-                  placeholder="Identifiant du coffre"
-                  className="text-sm"
-                />
+                <div className="space-y-1">
+                  <Label>{t('hosts.form.vault_identifier', 'Wallet Harpocrate')}</Label>
+                  <Select value={vaultIdentifier} onValueChange={setVaultIdentifier}>
+                    <SelectTrigger className="text-sm">
+                      <SelectValue placeholder={t('hosts.form.vault_placeholder', 'Sélectionner un wallet…')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {vaultKeys.map((k: VaultKey) => (
+                        <SelectItem key={k.identifier} value={k.identifier}>
+                          {k.identifier}{k.description ? ` — ${k.description}` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               )}
             </div>
           )}
