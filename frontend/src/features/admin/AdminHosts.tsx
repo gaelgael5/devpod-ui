@@ -10,10 +10,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { cn } from '@/lib/utils'
 import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, type HostConfig, type HostCreatePayload, type HostUserWorkspaces } from './useHosts'
-import { useVaultKeys, type VaultKey } from '@/features/vault/api'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import SshTerminalWindow from './SshTerminalWindow'
@@ -27,8 +25,6 @@ const EMPTY: HostCreatePayload = {
   proxmox_node: '',
   vmid: '',
   ci_password: '',
-  storage_type: 'local',
-  vault_identifier: '',
 }
 
 type DialogMode = 'add' | 'edit'
@@ -160,7 +156,6 @@ function HostWorkspacesPanel({ name }: { name: string }) {
 export default function AdminHosts() {
   const { t } = useTranslation()
   const { data: hosts, isLoading, isError } = useHosts()
-  const { data: vaultKeys = [] as VaultKey[] } = useVaultKeys()
   const addHost = useAddHost()
   const updateHost = useUpdateHost()
   const deleteHost = useDeleteHost()
@@ -201,8 +196,6 @@ export default function AdminHosts() {
       proxmox_node: host.proxmox_node ?? '',
       vmid: host.vmid ?? '',
       ci_password: '',  // toujours vide en édition (secret non visible)
-      storage_type: host.storage_type ?? 'local',
-      vault_identifier: host.vault_identifier ?? '',
     })
     setMode('edit'); setShowCert(false); setOpen(true)
   }
@@ -218,8 +211,6 @@ export default function AdminHosts() {
       proxmox_node: form.proxmox_node,
       vmid: form.vmid,
       ci_password: form.ci_password ?? '',
-      storage_type: form.storage_type,
-      vault_identifier: form.vault_identifier,
     }
     const mutation = mode === 'edit' ? updateHost : addHost
     mutation.mutate(payload, { onSuccess: () => handleClose(false) })
@@ -236,8 +227,6 @@ export default function AdminHosts() {
       proxmox_node: config.proxmox_node ?? '',
       vmid: config.vmid ?? '',
       ci_password: ciPassword ?? '',
-      storage_type: config.storage_type ?? 'local',
-      vault_identifier: config.vault_identifier ?? '',
     })
     setMode('add'); setShowCert(false); setOpen(true)
   }
@@ -423,52 +412,6 @@ export default function AdminHosts() {
                   placeholder="user@192.168.1.50" />
               </div>
             )}
-            <div className="space-y-2">
-              <Label>{t('hosts.form.storage', 'Stockage des secrets')}</Label>
-              <RadioGroup
-                value={form.storage_type}
-                onValueChange={(v) => setForm(f => ({
-                  ...f,
-                  storage_type: v as 'local' | 'harpocrate',
-                  vault_identifier: v === 'local' ? '' : f.vault_identifier,
-                }))}
-                className="flex gap-4"
-              >
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="local" id="storage-local" />
-                  <Label htmlFor="storage-local">{t('hosts.form.storage_local', 'Local (chiffré sur le serveur)')}</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="harpocrate" id="storage-harpo" disabled={vaultKeys.length === 0} />
-                  <Label htmlFor="storage-harpo" className={vaultKeys.length === 0 ? 'text-muted-foreground' : ''}>
-                    {t('hosts.form.storage_harpo', 'Harpocrate')}
-                    {vaultKeys.length === 0 && <span className="ml-1 text-xs">({t('hosts.form.no_wallet', 'aucun wallet configuré')})</span>}
-                  </Label>
-                </div>
-              </RadioGroup>
-
-              {form.storage_type === 'harpocrate' && (
-                <div className="space-y-1">
-                  <Label>{t('hosts.form.vault_identifier', 'Wallet Harpocrate')}</Label>
-                  <Select
-                    value={form.vault_identifier}
-                    onValueChange={(v) => setForm(f => ({ ...f, vault_identifier: v }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={t('hosts.form.vault_placeholder', 'Sélectionner un wallet…')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {vaultKeys.map((k: VaultKey) => (
-                        <SelectItem key={k.identifier} value={k.identifier}>
-                          {k.identifier}{k.description ? ` — ${k.description}` : ''}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-
             <div className="space-y-1">
               <Label htmlFor="h-ci-password">{t('hosts.form.ci_password', 'Mot de passe console Proxmox (optionnel)')}</Label>
               <Input

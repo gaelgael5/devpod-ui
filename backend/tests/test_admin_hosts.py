@@ -43,8 +43,6 @@ def test_host_create_request_minimal_ssh() -> None:
     assert req.name == "my-host"
     assert req.type == "ssh"
     assert req.ci_password == ""
-    assert req.storage_type == "local"
-    assert req.vault_identifier == ""
 
 
 def test_host_create_request_with_ci_password() -> None:
@@ -57,8 +55,6 @@ def test_host_create_request_with_ci_password() -> None:
         ci_password="S3cr3t!",
         proxmox_node="pve",
         vmid="200",
-        storage_type="local",
-        vault_identifier="",
     )
     assert req.ci_password == "S3cr3t!"
     assert req.address == "debian@192.168.1.10"
@@ -89,8 +85,6 @@ async def test_add_host_stores_ci_password_slug() -> None:
         proxmox_node="pve",
         vmid="200",
         ci_password="SuperSecret123!",
-        storage_type="local",
-        vault_identifier="",
     )
 
     with (
@@ -110,7 +104,7 @@ async def test_add_host_stores_ci_password_slug() -> None:
     call_kwargs = mock_store.call_args.kwargs
     assert call_kwargs["slug"] == "host.test-vm-01.ci-password"
     assert call_kwargs["value"] == "SuperSecret123!"
-    assert call_kwargs["storage_type"] == "local"
+    assert call_kwargs["storage_type"] == "local"  # toujours forcé local par le backend
 
     # save_global_db a été appelé avec la conn partagée
     mock_save.assert_called_once()
@@ -137,8 +131,6 @@ async def test_add_host_without_ci_password() -> None:
         name="manual-ssh-host",
         type="ssh",
         address="debian@10.0.0.5",
-        storage_type="local",
-        vault_identifier="",
     )
 
     with (
@@ -210,8 +202,6 @@ async def test_update_host_stores_new_ci_password() -> None:
         name="vm-01",
         type="ssh",
         ci_password="NewPass!",
-        storage_type="local",
-        vault_identifier="",
     )
 
     with (
@@ -250,8 +240,6 @@ async def test_update_host_preserves_slug_without_ci_password() -> None:
         type="ssh",
         address="debian@10.0.0.1",
         # pas de ci_password
-        storage_type="local",
-        vault_identifier="",
     )
 
     with (
@@ -386,10 +374,7 @@ async def test_bootstrap_ssh_generates_key_and_stores_in_harpo() -> None:
         ssh_key_path="/data/keys/pve",
         pve_node="pve",
     )
-    host = HostConfig(
-        name="vm-01", type="ssh", address="", proxmox_node="pve", storage_type="local",
-        vault_identifier="",
-    )
+    host = HostConfig(name="vm-01", type="ssh", proxmox_node="pve")
     cfg = GlobalConfig(
         version="1",
         server=ServerConfig(base_domain="", external_url=""),
@@ -525,7 +510,6 @@ async def test_get_host_cert_ssh_returns_public_key() -> None:
 
     host = HostConfig(
         name="vm-01", type="ssh", host_cert_slug="host.vm-01.cert",
-        storage_type="local", vault_identifier="",
     )
     cfg = GlobalConfig(
         version="1",

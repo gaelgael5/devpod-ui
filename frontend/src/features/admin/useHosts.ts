@@ -14,9 +14,6 @@ export interface HostConfig {
   // Références harpo_* (lecture seule — jamais de secret brut)
   ci_password_secret_slug?: string
   host_cert_slug?: string
-  // Préférences de stockage
-  storage_type?: 'local' | 'harpocrate'
-  vault_identifier?: string
 }
 
 export interface HostCreatePayload {
@@ -28,8 +25,6 @@ export interface HostCreatePayload {
   proxmox_node?: string
   vmid?: string
   ci_password?: string
-  storage_type: 'local' | 'harpocrate'
-  vault_identifier: string
 }
 
 export function useHosts() {

@@ -52,8 +52,6 @@ class HostCreateRequest(BaseModel):
     proxmox_node: str = ""
     vmid: str = ""
     ci_password: str = ""  # valeur brute, stockée dans harpo au CREATE/UPDATE
-    storage_type: Literal["local", "harpocrate"] = "local"
-    vault_identifier: str = ""
 
 
 class BootstrapSshRequest(BaseModel):
@@ -115,8 +113,8 @@ async def add_host(
             slug=ci_slug,
             label=f"CI password — {body.name}",
             value=body.ci_password,
-            storage_type=body.storage_type,
-            vault_identifier=body.vault_identifier,
+            storage_type="local",
+            vault_identifier="",
             conn=conn,
         )
 
@@ -130,8 +128,8 @@ async def add_host(
         vmid=body.vmid,
         ci_password_secret_slug=ci_slug,
         host_cert_slug="",
-        storage_type=body.storage_type,
-        vault_identifier=body.vault_identifier,
+        storage_type="local",
+        vault_identifier="",
     )
     cfg.hosts.append(host)
     await save_global_db(cfg, conn)
@@ -163,8 +161,8 @@ async def update_host(
             slug=ci_slug,
             label=f"CI password — {name}",
             value=body.ci_password,
-            storage_type=body.storage_type,
-            vault_identifier=body.vault_identifier,
+            storage_type="local",
+            vault_identifier="",
             conn=conn,
         )
 
@@ -178,8 +176,8 @@ async def update_host(
         vmid=body.vmid,
         ci_password_secret_slug=ci_slug,
         host_cert_slug=existing.host_cert_slug,  # conservé
-        storage_type=body.storage_type,
-        vault_identifier=body.vault_identifier,
+        storage_type="local",
+        vault_identifier="",
     )
     cfg.hosts[idx] = host
     await save_global_db(cfg, conn)
@@ -342,7 +340,8 @@ async def bootstrap_host_ssh(
         .strip()
     )
 
-    # Stocke la clé dans harpo_certificates (remplace si existante)
+    # La clé SSH du host est un secret d'infrastructure : toujours local (PORTAL_VAULT_KEK).
+    # Le portail doit y accéder à runtime sans PIN utilisateur.
     cert_slug = f"host.{name}.cert"
     await store_system_cert(
         slug=cert_slug,
@@ -350,8 +349,8 @@ async def bootstrap_host_ssh(
         private_pem=private_pem,
         public_key=public_key,
         cert_type="ssh-ed25519",
-        storage_type=host.storage_type,
-        vault_identifier=host.vault_identifier,
+        storage_type="local",
+        vault_identifier="",
         conn=conn,
     )
 
