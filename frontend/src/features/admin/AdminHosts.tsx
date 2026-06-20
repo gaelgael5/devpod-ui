@@ -224,7 +224,7 @@ export default function AdminHosts() {
     mutation.mutate(payload, { onSuccess: () => handleClose(false) })
   }
 
-  function handleGenerated(config: HostConfig) {
+  function handleGenerated(config: HostConfig, ciPassword?: string) {
     setForm({
       name: config.name,
       type: config.type,
@@ -233,7 +233,7 @@ export default function AdminHosts() {
       address: config.address ?? '',
       proxmox_node: config.proxmox_node ?? '',
       vmid: config.vmid ?? '',
-      ci_password: '',
+      ci_password: ciPassword ?? '',
       storage_type: config.storage_type ?? 'local',
       vault_identifier: config.vault_identifier ?? '',
     })

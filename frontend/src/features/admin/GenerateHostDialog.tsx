@@ -395,7 +395,7 @@ function StepLog({
 }: {
   node: HypervisorConfig
   args: Record<string, string>
-  onAddHost: (config: HostConfig) => void
+  onAddHost: (config: HostConfig, ciPassword?: string) => void
   onClose: () => void
 }) {
   const { t } = useTranslation()
@@ -508,7 +508,7 @@ function StepLog({
           <Button variant="outline" onClick={handleRetry}>{t('workspaces.actions.retry')}</Button>
         )}
         {hostConfig && (
-          <Button onClick={() => onAddHost(hostConfig)}>
+          <Button onClick={() => onAddHost(hostConfig, result?.ci_password as string | undefined)}>
             {t('admin.generate.addGenerated')}
           </Button>
         )}
@@ -526,7 +526,7 @@ export default function GenerateHostDialog({
 }: {
   open: boolean
   onClose: () => void
-  onGenerated: (config: HostConfig) => void
+  onGenerated: (config: HostConfig, ciPassword?: string) => void
 }) {
   const [step, setStep] = useState<Step>({ kind: 'select' })
 
@@ -558,7 +558,7 @@ export default function GenerateHostDialog({
           <StepLog
             node={step.node}
             args={step.args}
-            onAddHost={config => { onGenerated(config); onClose() }}
+            onAddHost={(config, ciPassword) => { onGenerated(config, ciPassword); onClose() }}
             onClose={onClose}
           />
         )}
