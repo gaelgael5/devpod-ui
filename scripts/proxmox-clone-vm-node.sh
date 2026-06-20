@@ -653,13 +653,14 @@ echo ""
 # ─── Résumé JSON (dernière ligne — parsée par le portail) ────────────────────
 # vmid et proxmox_node sont obligatoires pour que le portail puisse déclencher
 # le destroy_script lors de la suppression du host.
+# ci_password : mot de passe console Proxmox (noVNC) généré en A.3.
 if [[ "$ENROLLED" == "true" ]]; then
-    printf '{"status":"ok","name":"%s","address":"%s","type":"docker-tls","docker_host":"tcp://%s:2376","ssh_user":"%s","ssh_port":22,"key_path":"/data/certs/portal","vmid":"%s","proxmox_node":"%s"}\n' \
-        "$NODE_NAME" "$IP_ADDR" "$IP_ADDR" "$CI_USER" "$NEW_VMID" "$PORTAL_PVE_NODE"
+    printf '{"status":"ok","name":"%s","address":"%s","type":"docker-tls","docker_host":"tcp://%s:2376","ssh_user":"%s","ssh_port":22,"key_path":"/data/certs/portal","vmid":"%s","proxmox_node":"%s","ci_password":"%s"}\n' \
+        "$NODE_NAME" "$IP_ADDR" "$IP_ADDR" "$CI_USER" "$NEW_VMID" "$PORTAL_PVE_NODE" "$CI_PASSWORD"
 elif [[ -n "$PORTAL_KEY_PATH" ]]; then
-    printf '{"status":"ok","name":"%s","address":"%s","type":"ssh","ssh_user":"%s","ssh_port":22,"key_path":"%s","vmid":"%s","proxmox_node":"%s"}\n' \
-        "$NODE_NAME" "$CI_USER@$IP_ADDR" "$CI_USER" "$PORTAL_KEY_PATH" "$NEW_VMID" "$PORTAL_PVE_NODE"
+    printf '{"status":"ok","name":"%s","address":"%s","type":"ssh","ssh_user":"%s","ssh_port":22,"key_path":"%s","vmid":"%s","proxmox_node":"%s","ci_password":"%s"}\n' \
+        "$NODE_NAME" "$CI_USER@$IP_ADDR" "$CI_USER" "$PORTAL_KEY_PATH" "$NEW_VMID" "$PORTAL_PVE_NODE" "$CI_PASSWORD"
 else
-    printf '{"status":"ok","name":"%s","address":"%s","ssh_user":"%s","ssh_port":22,"vmid":"%s","proxmox_node":"%s"}\n' \
-        "$NODE_NAME" "$IP_ADDR" "$CI_USER" "$NEW_VMID" "$PORTAL_PVE_NODE"
+    printf '{"status":"ok","name":"%s","address":"%s","ssh_user":"%s","ssh_port":22,"vmid":"%s","proxmox_node":"%s","ci_password":"%s"}\n' \
+        "$NODE_NAME" "$IP_ADDR" "$CI_USER" "$NEW_VMID" "$PORTAL_PVE_NODE" "$CI_PASSWORD"
 fi

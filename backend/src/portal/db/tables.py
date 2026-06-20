@@ -105,6 +105,7 @@ hosts = Table(
     Column("public_key", Text, nullable=False, server_default=""),
     Column("proxmox_node", Text, nullable=False, server_default=""),
     Column("vmid", Text, nullable=False, server_default=""),
+    Column("ci_password", Text, nullable=False, server_default=""),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 

@@ -12,6 +12,7 @@ export interface HostConfig {
   key_path?: string
   proxmox_node?: string
   vmid?: string
+  ci_password?: string
 }
 
 export function useHosts() {

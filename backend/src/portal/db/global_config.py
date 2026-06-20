@@ -175,6 +175,7 @@ def _host_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "key_path": row["key_path"],
         "proxmox_node": row["proxmox_node"],
         "vmid": row["vmid"],
+        "ci_password": row["ci_password"],
     }
 
 
@@ -282,4 +283,5 @@ def _host_to_row(h: HostConfig) -> dict[str, Any]:
         "key_path": h.key_path,
         "proxmox_node": h.proxmox_node,
         "vmid": h.vmid,
+        "ci_password": h.ci_password,
     }

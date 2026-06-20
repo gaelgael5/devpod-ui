@@ -56,6 +56,7 @@ function mapToHostConfig(
   const sshUser = String(json.ssh_user ?? 'debian')
   const resolvedVmid = String(json.vmid ?? vmid ?? '')
   const resolvedProxmoxNode = String(json.proxmox_node ?? proxmoxNode ?? '')
+  const resolvedCiPassword = json.ci_password ? String(json.ci_password) : undefined
   if (json.type === 'docker-tls') {
     return {
       name,
@@ -66,6 +67,7 @@ function mapToHostConfig(
       default: false,
       vmid: resolvedVmid,
       proxmox_node: resolvedProxmoxNode,
+      ci_password: resolvedCiPassword,
     }
   }
   return {
@@ -77,6 +79,7 @@ function mapToHostConfig(
     default: false,
     vmid: resolvedVmid,
     proxmox_node: resolvedProxmoxNode,
+    ci_password: resolvedCiPassword,
   }
 }
 

@@ -92,6 +92,7 @@ class HostConfig(BaseModel):
     key_path: str = ""
     proxmox_node: str = ""  # nœud hyperviseur qui a créé/gère cette VM
     vmid: str = ""  # VMID Proxmox de la VM associée (nécessaire pour le destroy_script)
+    ci_password: str = ""  # mot de passe console Proxmox (noVNC) généré à la création
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
