@@ -116,7 +116,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             {t('workspaces.actions.recreate')}
           </Button>
         )}
-        {(s === 'stopped' || s === 'unknown' || s === 'failed') && (
+        {(s === 'stopped' || s === 'unknown' || s === 'failed' || s === 'provisioning') && (
           <Button
             size="sm"
             variant="ghost"

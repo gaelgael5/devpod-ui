@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -119,6 +120,14 @@ async def delete_host(
                 await svc.delete(login=login, ws_id=ws_id, shelve=False)
             except Exception:
                 _log.warning("host_delete_ws_failed", host=name, ws_id=ws_id, exc_info=True)
+            finally:
+                # Toujours supprimer la config du workspace, même si devpod delete a échoué.
+                # svc.delete() purge workspace_status mais jamais la table workspaces.
+                await conn.execute(
+                    sql_delete(_ws_table)
+                    .where(_ws_table.c.login == login)
+                    .where(_ws_table.c.name == ws_name)
+                )
 
         await asyncio.gather(*[_delete_one(r["login"], r["name"]) for r in rows])
 
