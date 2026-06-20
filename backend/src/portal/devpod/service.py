@@ -145,16 +145,15 @@ class DevPodService:
             host_port = await self._exposure.allocate_port(ws_id)
 
         # Pour docker-tls : devcontainer.json généré localement, chemin absolu local valide.
-        # Pour SSH : l'agent DevPod tourne sur la VM distante. --devcontainer-path y est
-        #   résolu relativement à content/ → un chemin local au portail est inexploitable.
-        #   On utilise devpod ssh -L après devpod up pour exposer le port 3000
-        #   du container sur le portail, et Caddy route vers portal:{host_port}.
+        # Pour SSH : le fichier est généré localement puis uploadé sur la VM distante via
+        #   tar|ssh avant devpod up ; le chemin absolu distant est passé à --devcontainer-path.
         dc_path: Path | None = None
-        if host_cfg.type == "docker-tls":
+        needs_devcontainer = bool(recipes or feature_env or ws_spec.extra_sources or profile)
+        if needs_devcontainer:
             dc_path = self._write_devcontainer(
                 login,
                 ws_id,
-                host_port=host_port,
+                host_port=host_port if host_cfg.type == "docker-tls" else None,
                 recipes=recipes,
                 feature_env=feature_env,
                 extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
@@ -435,6 +434,90 @@ class DevPodService:
             shutil.rmtree(tmp_dir, ignore_errors=True)
             raise
 
+    async def _upload_devcontainer_to_ssh(
+        self,
+        dc_dir: Path,
+        ssh_user: str,
+        ssh_host: str,
+        ssh_key_path: str,
+    ) -> str:
+        """Upload devcontainer.json + features sur la VM SSH via tar|ssh.
+
+        Retourne le chemin absolu du devcontainer.json sur la VM distante.
+        Lève RuntimeError si l'upload échoue.
+        """
+        remote_dir = f"/tmp/devpod-dc-{dc_dir.name}"
+        ssh_target = f"{ssh_user}@{ssh_host}"
+        ssh_opts = [
+            "-i", ssh_key_path,
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=15",
+        ]
+        remote_cmd = (
+            f"mkdir -p {shlex.quote(remote_dir)} && "
+            f"tar xzf - -C {shlex.quote(remote_dir)}"
+        )
+
+        tar_proc = await asyncio.create_subprocess_exec(
+            "tar", "czf", "-", "-C", str(dc_dir), ".",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        ssh_proc = await asyncio.create_subprocess_exec(
+            "ssh", *ssh_opts, ssh_target, remote_cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        async def _pump() -> None:
+            assert tar_proc.stdout is not None
+            assert ssh_proc.stdin is not None
+            try:
+                while chunk := await tar_proc.stdout.read(65536):
+                    ssh_proc.stdin.write(chunk)
+                await ssh_proc.stdin.drain()
+            finally:
+                ssh_proc.stdin.close()
+
+        pump_task = asyncio.create_task(_pump())
+        _, ssh_err = await ssh_proc.communicate()
+        await pump_task
+        await tar_proc.wait()
+
+        if tar_proc.returncode != 0:
+            raise RuntimeError(f"tar devcontainer échoué (code {tar_proc.returncode})")
+        if ssh_proc.returncode != 0:
+            raise RuntimeError(
+                f"Upload SSH devcontainer vers {remote_dir!r} échoué : "
+                f"{ssh_err.decode(errors='replace').strip()}"
+            )
+        _log.info("devcontainer_uploaded_ssh", remote_dir=remote_dir)
+        return f"{remote_dir}/devcontainer.json"
+
+    async def _cleanup_ssh_dir(
+        self,
+        remote_dir: str,
+        ssh_user: str,
+        ssh_host: str,
+        ssh_key_path: str,
+    ) -> None:
+        """Supprime le répertoire temporaire distant après devpod up (best-effort)."""
+        ssh_opts = [
+            "-i", ssh_key_path,
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=10",
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            "ssh", *ssh_opts, f"{ssh_user}@{ssh_host}",
+            f"rm -rf {shlex.quote(remote_dir)}",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.communicate()
+
     def _resolve_node_ip(self, host_cfg: Any) -> str:
         """Résout l'IP du nœud Docker/SSH depuis l'HostConfig."""
         from ..config.models import HostConfig
@@ -565,6 +648,18 @@ class DevPodService:
             except Exception:
                 _log.warning("git_ssh_agent_setup_failed", ws_id=ws_id, exc_info=True)
 
+        # Pour SSH : uploader le devcontainer sur la VM distante avant devpod up.
+        remote_dc_dir: str | None = None
+        remote_dc_json: str | None = None
+        if host_type == "ssh" and dc_path is not None and ssh_host and ssh_key_path:
+            try:
+                remote_dc_json = await self._upload_devcontainer_to_ssh(
+                    dc_path.parent, ssh_user, ssh_host, ssh_key_path
+                )
+                remote_dc_dir = str(Path(remote_dc_json).parent)
+            except Exception:
+                _log.warning("devcontainer_upload_ssh_failed", ws_id=ws_id, exc_info=True)
+
         try:
             cmd = [
                 *self._devpod_bin,
@@ -575,7 +670,9 @@ class DevPodService:
                 "openvscode",
                 "--open-ide=false",  # v0.6.15 : empêche l'ouverture auto du navigateur
             ]
-            if dc_path is not None:
+            if host_type == "ssh" and remote_dc_json:
+                cmd += ["--devcontainer-path", remote_dc_json]
+            elif host_type != "ssh" and dc_path is not None:
                 cmd += ["--devcontainer-path", str(dc_path)]
             if provider_name:
                 cmd += ["--provider", provider_name]
@@ -639,6 +736,9 @@ class DevPodService:
             if dc_path is not None:
                 with contextlib.suppress(Exception):
                     shutil.rmtree(dc_path.parent, ignore_errors=True)
+            if remote_dc_dir and ssh_host and ssh_key_path:
+                with contextlib.suppress(Exception):
+                    await self._cleanup_ssh_dir(remote_dc_dir, ssh_user, ssh_host, ssh_key_path)
             if agent_pid:
                 with contextlib.suppress(Exception):
                     kill_proc = await asyncio.create_subprocess_exec(
