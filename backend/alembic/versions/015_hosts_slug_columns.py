@@ -21,7 +21,8 @@ def upgrade() -> None:
     # Suppression des colonnes remplacées
     op.drop_column("hosts", "key_path")
     op.drop_column("hosts", "public_key")
-    op.drop_column("hosts", "ci_password")
+    # ci_password n'était pas dans la migration initiale (001) — IF EXISTS pour compatibilité
+    op.execute(sa.text("ALTER TABLE hosts DROP COLUMN IF EXISTS ci_password"))
 
     # Ajout des nouvelles colonnes slug + préférences stockage
     op.add_column(
