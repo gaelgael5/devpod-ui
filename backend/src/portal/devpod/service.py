@@ -437,23 +437,49 @@ class DevPodService:
     async def _upload_devcontainer_to_ssh(
         self,
         dc_dir: Path,
+        ws_id: str,
         ssh_user: str,
         ssh_host: str,
         ssh_key_path: str,
-    ) -> str:
+    ) -> tuple[str, str]:
         """Upload devcontainer.json + features sur la VM SSH via tar|ssh.
 
-        Retourne le chemin absolu du devcontainer.json sur la VM distante.
+        DevPod résout --devcontainer-path relativement à son content/ dir.
+        On uploade dans {workspace_dir}/dc/ (hors du content/ dir) et on
+        retourne le chemin relatif ../dc/devcontainer.json qui, une fois
+        préfixé par content/, remonte correctement dans {workspace_dir}/dc/.
+
+        Retourne (relative_path, absolute_remote_dir) :
+        - relative_path : à passer à --devcontainer-path
+        - absolute_remote_dir : chemin absolu distant pour le nettoyage
+
         Lève RuntimeError si l'upload échoue.
         """
-        remote_dir = f"/tmp/devpod-dc-{dc_dir.name}"
-        ssh_target = f"{ssh_user}@{ssh_host}"
         ssh_opts = [
             "-i", ssh_key_path,
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=15",
         ]
+        ssh_target = f"{ssh_user}@{ssh_host}"
+
+        # Récupérer le home dir réel de l'utilisateur SSH
+        home_proc = await asyncio.create_subprocess_exec(
+            "ssh", *ssh_opts, ssh_target, "echo $HOME",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        home_out, _ = await home_proc.communicate()
+        home = home_out.decode().strip() or f"/home/{ssh_user}"
+
+        # DevPod stocke le workspace dans {home}/.devpod/agent/contexts/default/workspaces/{ws_id}/
+        # On place le devcontainer dans .../dc/ à côté du content/ dir.
+        # --devcontainer-path "../dc/devcontainer.json" est résolu par DevPod comme :
+        #   content/../dc/devcontainer.json = {workspace_dir}/dc/devcontainer.json ✓
+        workspace_dir = f"{home}/.devpod/agent/contexts/default/workspaces/{ws_id}"
+        remote_dir = f"{workspace_dir}/dc"
+        devcontainer_path = "../dc/devcontainer.json"
+
         remote_cmd = (
             f"mkdir -p {shlex.quote(remote_dir)} && "
             f"tar xzf - -C {shlex.quote(remote_dir)}"
@@ -493,8 +519,8 @@ class DevPodService:
                 f"Upload SSH devcontainer vers {remote_dir!r} échoué : "
                 f"{ssh_err.decode(errors='replace').strip()}"
             )
-        _log.info("devcontainer_uploaded_ssh", remote_dir=remote_dir)
-        return f"{remote_dir}/devcontainer.json"
+        _log.info("devcontainer_uploaded_ssh", remote_dir=remote_dir, path=devcontainer_path)
+        return devcontainer_path, remote_dir
 
     async def _cleanup_ssh_dir(
         self,
@@ -653,10 +679,9 @@ class DevPodService:
         remote_dc_json: str | None = None
         if host_type == "ssh" and dc_path is not None and ssh_host and ssh_key_path:
             try:
-                remote_dc_json = await self._upload_devcontainer_to_ssh(
-                    dc_path.parent, ssh_user, ssh_host, ssh_key_path
+                remote_dc_json, remote_dc_dir = await self._upload_devcontainer_to_ssh(
+                    dc_path.parent, ws_id, ssh_user, ssh_host, ssh_key_path
                 )
-                remote_dc_dir = str(Path(remote_dc_json).parent)
             except Exception:
                 _log.warning("devcontainer_upload_ssh_failed", ws_id=ws_id, exc_info=True)
 
