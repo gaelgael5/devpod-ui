@@ -106,6 +106,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await run_migrations(settings_obj.database_url)
         async with _get_engine().begin() as conn:
             await warm_global_cache(conn)
+            from .secrets.system import ensure_system_user
+
+            await ensure_system_user(conn)
 
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()
