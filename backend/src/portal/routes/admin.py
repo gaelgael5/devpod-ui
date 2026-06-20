@@ -198,11 +198,16 @@ async def delete_host(
     if host_cfg is None:
         raise HTTPException(status_code=404, detail=f"Host {name!r} not found")
 
-    # 1. Supprimer tous les workspaces sur ce host
+    # 1. Supprimer tous les workspaces sur ce host.
+    # host="" = "hôte par défaut" dans le formulaire de création. Si le host supprimé
+    # est le default, ces workspaces lui appartiennent aussi.
+    from sqlalchemy import or_
+
+    host_condition = _ws_table.c.host == name
+    if host_cfg.default:
+        host_condition = or_(host_condition, _ws_table.c.host == "")
     rows = (
-        await conn.execute(
-            select(_ws_table.c.login, _ws_table.c.name).where(_ws_table.c.host == name)
-        )
+        await conn.execute(select(_ws_table.c.login, _ws_table.c.name).where(host_condition))
     ).mappings().all()
 
     if rows:
