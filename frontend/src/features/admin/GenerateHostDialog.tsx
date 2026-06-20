@@ -11,6 +11,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { useAdminProxmox, type HypervisorConfig } from './useAdminProxmox'
 import {
   useScriptSpec, useExecuteScript, extractLastJson, flattenArgs,
@@ -50,24 +51,25 @@ function mapToHostConfig(
   json: Record<string, unknown>,
   vmid?: string,
   proxmoxNode?: string,
+  storageType: 'local' | 'harpocrate' = 'local',
+  vaultIdentifier: string = '',
 ): HostConfig {
   const name = String(json.name ?? '')
   const address = String(json.address ?? '')
   const sshUser = String(json.ssh_user ?? 'debian')
   const resolvedVmid = String(json.vmid ?? vmid ?? '')
   const resolvedProxmoxNode = String(json.proxmox_node ?? proxmoxNode ?? '')
-  const resolvedCiPassword = json.ci_password ? String(json.ci_password) : undefined
   if (json.type === 'docker-tls') {
     return {
       name,
       type: 'docker-tls',
       docker_host: String(json.docker_host ?? `tcp://${address}:2376`),
       address: '',
-      key_path: String(json.key_path ?? '/data/certs/portal'),
       default: false,
       vmid: resolvedVmid,
       proxmox_node: resolvedProxmoxNode,
-      ci_password: resolvedCiPassword,
+      storage_type: storageType,
+      vault_identifier: vaultIdentifier,
     }
   }
   return {
@@ -75,11 +77,11 @@ function mapToHostConfig(
     type: 'ssh',
     docker_host: '',
     address: `${sshUser}@${address}`,
-    key_path: '',
     default: false,
     vmid: resolvedVmid,
     proxmox_node: resolvedProxmoxNode,
-    ci_password: resolvedCiPassword,
+    storage_type: storageType,
+    vault_identifier: vaultIdentifier,
   }
 }
 
@@ -399,6 +401,8 @@ function StepLog({
   const { logs, running, done, error, execute, reset } = useExecuteScript()
   const logRef = useRef<HTMLPreElement>(null)
   const startedRef = useRef(false)
+  const [storageType, setStorageType] = useState<'local' | 'harpocrate'>('local')
+  const [vaultIdentifier, setVaultIdentifier] = useState('')
 
   useEffect(() => {
     if (!startedRef.current) {
@@ -414,7 +418,9 @@ function StepLog({
   }, [logs])
 
   const result = done && !error ? extractLastJson(logs) : null
-  const hostConfig = result?.status === 'ok' ? mapToHostConfig(result, args.NEW_VMID, node.name) : null
+  const hostConfig = result?.status === 'ok'
+    ? mapToHostConfig(result, args.NEW_VMID, node.name, storageType, vaultIdentifier)
+    : null
 
   function handleRetry() {
     reset()
@@ -440,11 +446,44 @@ function StepLog({
       </pre>
 
       {done && (
-        <div className="text-sm">
-          {hostConfig ? (
-            <p className="text-green-600">{t('admin.generate.resultFound')}</p>
-          ) : (
-            <p className="text-destructive">{t('admin.generate.resultMissing')}</p>
+        <div className="flex flex-col gap-3">
+          <div className="text-sm">
+            {hostConfig ? (
+              <p className="text-green-600">{t('admin.generate.resultFound')}</p>
+            ) : (
+              <p className="text-destructive">{t('admin.generate.resultMissing')}</p>
+            )}
+          </div>
+
+          {hostConfig && (
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-sm font-medium">{t('hosts.form.storage', 'Stockage des secrets')}</p>
+              <RadioGroup
+                value={storageType}
+                onValueChange={(v) => {
+                  setStorageType(v as 'local' | 'harpocrate')
+                  if (v === 'local') setVaultIdentifier('')
+                }}
+                className="flex gap-4"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="local" id="gen-storage-local" />
+                  <Label htmlFor="gen-storage-local">{t('hosts.form.storage_local', 'Local')}</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="harpocrate" id="gen-storage-harpo" />
+                  <Label htmlFor="gen-storage-harpo">Harpocrate</Label>
+                </div>
+              </RadioGroup>
+              {storageType === 'harpocrate' && (
+                <Input
+                  value={vaultIdentifier}
+                  onChange={(e) => setVaultIdentifier(e.target.value)}
+                  placeholder="Identifiant du coffre"
+                  className="text-sm"
+                />
+              )}
+            </div>
           )}
         </div>
       )}
@@ -455,7 +494,9 @@ function StepLog({
           <Button variant="outline" onClick={handleRetry}>{t('workspaces.actions.retry')}</Button>
         )}
         {hostConfig && (
-          <Button onClick={() => onAddHost(hostConfig)}>{t('admin.generate.addGenerated')}</Button>
+          <Button onClick={() => onAddHost(hostConfig)}>
+            {t('admin.generate.addGenerated')}
+          </Button>
         )}
       </DialogFooter>
     </>

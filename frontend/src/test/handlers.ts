@@ -29,9 +29,9 @@ export const handlers = [
   http.get('/me/recipes', () => HttpResponse.json([])),
   http.get('/admin/hosts', () =>
     HttpResponse.json([
-      { name: 'pve1', type: 'docker-tls', default: true, docker_host: 'tcp://192.168.1.50:2376' },
-      { name: 'pve2', type: 'docker-tls', default: false, docker_host: 'tcp://192.168.1.51:2376' },
-      { name: 'ssh-dev', type: 'ssh', default: false, address: 'debian@192.168.10.175', key_path: '/data/keys/hosts/ssh_dev_ed25519' },
+      { name: 'pve1', type: 'docker-tls', default: true, docker_host: 'tcp://192.168.1.50:2376', storage_type: 'local' },
+      { name: 'pve2', type: 'docker-tls', default: false, docker_host: 'tcp://192.168.1.51:2376', storage_type: 'local' },
+      { name: 'ssh-dev', type: 'ssh', default: false, address: 'debian@192.168.10.175', host_cert_slug: 'hosts/ssh_dev_ed25519', storage_type: 'local' },
     ])
   ),
   http.get('/admin/recipes', () => HttpResponse.json([])),

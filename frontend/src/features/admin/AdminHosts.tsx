@@ -10,13 +10,25 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { cn } from '@/lib/utils'
-import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, type HostConfig, type HostUserWorkspaces } from './useHosts'
+import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, type HostConfig, type HostCreatePayload, type HostUserWorkspaces } from './useHosts'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import SshTerminalWindow from './SshTerminalWindow'
 
-const EMPTY: HostConfig = { name: '', type: 'docker-tls', default: false, docker_host: '', address: '', key_path: '' }
+const EMPTY: HostCreatePayload = {
+  name: '',
+  type: 'docker-tls',
+  default: false,
+  docker_host: '',
+  address: '',
+  proxmox_node: '',
+  vmid: '',
+  ci_password: '',
+  storage_type: 'local',
+  vault_identifier: '',
+}
 
 type DialogMode = 'add' | 'edit'
 
@@ -157,13 +169,13 @@ export default function AdminHosts() {
   const [generateOpen, setGenerateOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [destroyTarget, setDestroyTarget] = useState<HostConfig | null>(null)
-  const [form, setForm] = useState<HostConfig>(EMPTY)
+  const [form, setForm] = useState<HostCreatePayload>(EMPTY)
   const [sshTarget, setSshTarget] = useState<HostConfig | null>(null)
   const [bootstrapTarget, setBootstrapTarget] = useState<HostConfig | null>(null)
   const destroyVm = useDestroyVm()
   const destroyStartedRef = useRef(false)
 
-  function set<K extends keyof HostConfig>(k: K, v: HostConfig[K]) {
+  function set<K extends keyof HostCreatePayload>(k: K, v: HostCreatePayload[K]) {
     setForm((f) => ({ ...f, [k]: v }))
   }
 
@@ -177,17 +189,53 @@ export default function AdminHosts() {
   }
 
   function openEdit(host: HostConfig) {
-    setForm({ ...host }); setMode('edit'); setShowCert(false); setOpen(true)
+    setForm({
+      name: host.name,
+      type: host.type,
+      default: host.default ?? false,
+      docker_host: host.docker_host ?? '',
+      address: host.address ?? '',
+      proxmox_node: host.proxmox_node ?? '',
+      vmid: host.vmid ?? '',
+      ci_password: '',  // toujours vide en édition (secret non visible)
+      storage_type: host.storage_type ?? 'local',
+      vault_identifier: host.vault_identifier ?? '',
+    })
+    setMode('edit'); setShowCert(false); setOpen(true)
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    const payload: HostCreatePayload = {
+      name: form.name,
+      type: form.type,
+      default: form.default,
+      docker_host: form.docker_host,
+      address: form.address,
+      proxmox_node: form.proxmox_node,
+      vmid: form.vmid,
+      ci_password: form.ci_password ?? '',
+      storage_type: form.storage_type,
+      vault_identifier: form.vault_identifier,
+    }
     const mutation = mode === 'edit' ? updateHost : addHost
-    mutation.mutate(form, { onSuccess: () => handleClose(false) })
+    mutation.mutate(payload, { onSuccess: () => handleClose(false) })
   }
 
   function handleGenerated(config: HostConfig) {
-    setForm(config); setMode('add'); setShowCert(false); setOpen(true)
+    setForm({
+      name: config.name,
+      type: config.type,
+      default: config.default ?? false,
+      docker_host: config.docker_host ?? '',
+      address: config.address ?? '',
+      proxmox_node: config.proxmox_node ?? '',
+      vmid: config.vmid ?? '',
+      ci_password: '',
+      storage_type: config.storage_type ?? 'local',
+      vault_identifier: config.vault_identifier ?? '',
+    })
+    setMode('add'); setShowCert(false); setOpen(true)
   }
 
   function confirmDelete(h: HostConfig) {
@@ -283,7 +331,7 @@ export default function AdminHosts() {
                         {h.type === 'ssh' && (
                           <>
                             <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
-                            {!h.key_path && (
+                            {!h.host_cert_slug && (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -294,7 +342,7 @@ export default function AdminHosts() {
                                 {t('admin.bootstrap.btn')}
                               </Button>
                             )}
-                            {h.key_path && (
+                            {h.host_cert_slug && (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -371,12 +419,53 @@ export default function AdminHosts() {
                   placeholder="user@192.168.1.50" />
               </div>
             )}
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="h-keypath">{t('admin.form.keyPath')}</Label>
-              <Input id="h-keypath" value={form.key_path ?? ''}
-                onChange={(e) => set('key_path', e.target.value)}
-                placeholder="/data/certs/pve1" />
+            <div className="space-y-2">
+              <Label>{t('hosts.form.storage', 'Stockage des secrets')}</Label>
+              <RadioGroup
+                value={form.storage_type}
+                onValueChange={(v) => setForm(f => ({
+                  ...f,
+                  storage_type: v as 'local' | 'harpocrate',
+                  vault_identifier: v === 'local' ? '' : f.vault_identifier,
+                }))}
+                className="flex gap-4"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="local" id="storage-local" />
+                  <Label htmlFor="storage-local">{t('hosts.form.storage_local', 'Local (chiffré sur le serveur)')}</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="harpocrate" id="storage-harpo" />
+                  <Label htmlFor="storage-harpo">{t('hosts.form.storage_harpo', 'Harpocrate')}</Label>
+                </div>
+              </RadioGroup>
+
+              {form.storage_type === 'harpocrate' && (
+                <div className="space-y-1">
+                  <Label htmlFor="h-vault-id">{t('hosts.form.vault_identifier', 'Identifiant du coffre')}</Label>
+                  <Input
+                    id="h-vault-id"
+                    value={form.vault_identifier}
+                    onChange={(e) => setForm(f => ({ ...f, vault_identifier: e.target.value }))}
+                    placeholder="my-vault"
+                    required
+                  />
+                </div>
+              )}
             </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="h-ci-password">{t('hosts.form.ci_password', 'Mot de passe console Proxmox (optionnel)')}</Label>
+              <Input
+                id="h-ci-password"
+                type="password"
+                value={form.ci_password ?? ''}
+                onChange={(e) => setForm(f => ({ ...f, ci_password: e.target.value }))}
+                placeholder={mode === 'edit' ? t('hosts.form.ci_password_keep', '(conserver le mot de passe existant)') : ''}
+                autoComplete="new-password"
+              />
+            </div>
+
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={form.default ?? false}
                 onChange={(e) => set('default', e.target.checked)} />

@@ -9,10 +9,27 @@ export interface HostConfig {
   default?: boolean
   docker_host?: string
   address?: string
-  key_path?: string
+  proxmox_node?: string
+  vmid?: string
+  // Références harpo_* (lecture seule — jamais de secret brut)
+  ci_password_secret_slug?: string
+  host_cert_slug?: string
+  // Préférences de stockage
+  storage_type?: 'local' | 'harpocrate'
+  vault_identifier?: string
+}
+
+export interface HostCreatePayload {
+  name: string
+  type: 'docker-tls' | 'ssh'
+  default?: boolean
+  docker_host?: string
+  address?: string
   proxmox_node?: string
   vmid?: string
   ci_password?: string
+  storage_type: 'local' | 'harpocrate'
+  vault_identifier: string
 }
 
 export function useHosts() {
@@ -26,11 +43,11 @@ export function useHosts() {
 export function useAddHost() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (host: HostConfig) =>
+    mutationFn: (payload: HostCreatePayload) =>
       apiFetchJson<HostConfig>('/admin/hosts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(host),
+        body: JSON.stringify(payload),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hosts'] }),
     onError: (err: Error) => toast.error(err.message),
@@ -40,11 +57,11 @@ export function useAddHost() {
 export function useUpdateHost() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (host: HostConfig) =>
-      apiFetchJson<HostConfig>(`/admin/hosts/${encodeURIComponent(host.name)}`, {
+    mutationFn: (payload: HostCreatePayload) =>
+      apiFetchJson<HostConfig>(`/admin/hosts/${encodeURIComponent(payload.name)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(host),
+        body: JSON.stringify(payload),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hosts'] }),
     onError: (err: Error) => toast.error(err.message),
@@ -167,7 +184,7 @@ export interface BootstrapSshPayload {
 export interface BootstrapSshResult {
   public_key: string
   address: string
-  key_path: string
+  host_cert_slug: string
 }
 
 export function useBootstrapSsh() {
