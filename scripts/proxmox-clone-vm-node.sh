@@ -559,10 +559,24 @@ ${SUDO} systemctl enable --now docker
 # DevPod SSH provider pilote Docker en tant qu'utilisateur non-root :
 # l'utilisateur doit être dans le groupe docker pour éviter l'erreur "rerun as root".
 ${SUDO} usermod -aG docker "${CI_USER}"
+# Builder buildx docker-container — indispensable pour éviter l'erreur buildkit
+# "only one connection allowed" du driver docker intégré (une seule session buildkit
+# simultanée). sudo -u lit /etc/group au moment de l'appel, donc le nouveau groupe
+# est actif immédiatement sans besoin de rouvrir la session SSH.
+if ! ${SUDO} -u "${CI_USER}" docker buildx inspect devpod-builder &>/dev/null 2>&1; then
+    ${SUDO} -u "${CI_USER}" docker buildx create \
+        --name devpod-builder \
+        --driver docker-container \
+        --bootstrap \
+        --use
+else
+    ${SUDO} -u "${CI_USER}" docker buildx use devpod-builder
+fi
 REMOTE
 
 echo "    Paquets installés (git, openssl, docker CE + compose v2)."
 echo "    Utilisateur '${CI_USER}' ajouté au groupe docker."
+echo "    Builder 'devpod-builder' (docker-container) configuré."
 
 # ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
 echo ""
