@@ -682,7 +682,9 @@ class DevPodService:
         """
         # ProxyCommand explicite : ne dépend pas de l'entrée ~/.ssh/config écrite
         # par DevPod, qui est perdue au rebuild du conteneur portail.
-        proxy_cmd = f"{shlex.join(self._devpod_bin)} ssh --stdio {ws_id}"
+        if ws_id.startswith("-"):
+            raise ValueError(f"Insecure ws_id: {ws_id!r}")
+        proxy_cmd = f"{shlex.join(self._devpod_bin)} ssh --stdio {shlex.quote(ws_id)}"
         cmd = [
             "ssh",
             "-N",
