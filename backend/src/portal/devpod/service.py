@@ -280,12 +280,37 @@ class DevPodService:
                 with contextlib.suppress(OSError):
                     os.unlink(tmp_key_path)
 
+    def _devpod_state_exists(self, ws_id: str) -> bool:
+        """Vérifie si devpod connaît ce workspace (état local présent)."""
+        home = os.environ.get("HOME", "/root")
+        return Path(f"{home}/.devpod/agent/contexts/default/workspaces/{ws_id}").exists()
+
+    async def _reconnect_workspace(self, ws_id: str, login: str) -> None:
+        """Re-enregistre un workspace dans devpod via devpod up.
+
+        Appelé quand l'état devpod est absent au démarrage (rebuild conteneur portail
+        sans volume mount). DevPod détecte le container existant sur l'hôte distant
+        et se reconnecte sans le recréer. Le port-forward est relancé en fin de up().
+        """
+        try:
+            user_cfg = await load_user(login)
+            ws_name = ws_id.removeprefix(f"{login}-")
+            ws_spec = next((w for w in user_cfg.workspaces if w.name == ws_name), None)
+            if ws_spec is None:
+                _log.warning("reconcile_ws_spec_not_found", ws_id=ws_id, login=login)
+                return
+            _log.info("reconcile_triggering_devpod_up", ws_id=ws_id, login=login)
+            await self.up(login, ws_spec)
+        except Exception as exc:
+            _log.warning("reconcile_reconnect_failed", ws_id=ws_id, error=str(exc))
+
     async def reconcile_port_forwards(self) -> None:
         """Au démarrage, relance les tunnels SSH des workspaces running persistés en DB.
 
-        Si le container portal redémarre, les process ssh -L sont perdus mais le devcontainer
-        reste actif sur le nœud distant.  Cette méthode relit workspace_status et rétablit
-        les tunnels manquants sans relancer devpod up.
+        Si le conteneur portail redémarre :
+        - État devpod présent  → relance le tunnel SSH directement.
+        - État devpod absent   → déclenche devpod up en arrière-plan ; devpod
+          détecte le container existant, se reconnecte et relance le tunnel en fin de up().
         """
         global_cfg = load_global()
         minimal_env = {"HOME": os.environ.get("HOME", "/root")}
@@ -297,24 +322,30 @@ class DevPodService:
             ws_id: str = data.get("ws_id", "")
             host_port_raw = data.get("host_port")
             host_name: str = data.get("host_name", "")
+            login_for_key: str = data.get("login", "") or ws_id.split("-")[0]
             if not ws_id or host_port_raw is None:
                 continue
             host_port = int(host_port_raw)
+
+            # Si devpod ne connaît pas ce workspace, relancer devpod up
+            # qui re-peuplera ~/.devpod/ et relancera le port-forward en fin de tâche.
+            if not self._devpod_state_exists(ws_id):
+                _log.warning(
+                    "reconcile_devpod_state_missing",
+                    ws_id=ws_id,
+                    msg="devpod up déclenché en arrière-plan pour reconnexion automatique",
+                )
+                asyncio.create_task(self._reconnect_workspace(ws_id, login_for_key))
+                continue
+
             try:
                 host_cfg = _find_host(host_name, global_cfg)
             except Exception:
                 _log.warning("reconcile_host_not_found", ws_id=ws_id, host_name=host_name)
                 continue
-            ssh_user, ssh_host = "root", ""
-            if host_cfg.address:
-                if "@" in host_cfg.address:
-                    ssh_user, ssh_host = host_cfg.address.split("@", 1)
-                else:
-                    ssh_host = host_cfg.address
             _log.info("reconcile_port_forward", ws_id=ws_id, host_port=host_port)
             tmp_key_path = ""
             try:
-                login_for_key: str = data.get("login", "") or ws_id.split("-")[0]
                 if host_cfg.host_cert_slug:
                     tmp_key_path = await _materialize_system_cert(
                         host_cfg.host_cert_slug, login_for_key
@@ -323,9 +354,6 @@ class DevPodService:
                     ws_id,
                     minimal_env,
                     host_port,
-                    ssh_host=ssh_host,
-                    ssh_user=ssh_user,
-                    ssh_key_path=tmp_key_path,
                 )
             except Exception as exc:
                 _log.warning("reconcile_port_forward_failed", ws_id=ws_id, error=str(exc))
