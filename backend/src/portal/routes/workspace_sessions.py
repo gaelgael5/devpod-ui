@@ -29,7 +29,7 @@ def _validate_ws_name(name: str) -> None:
         raise HTTPException(status_code=422, detail=f"Invalid workspace name {name!r}")
 
 
-async def _ssh(ws_id: str, login: str, command: str, timeout: float = 10.0) -> tuple[int, str]:
+async def _ssh(ws_id: str, login: str, command: str, timeout: float = 30.0) -> tuple[int, str]:
     """Exécute une commande non-interactive dans le devcontainer via SSH."""
     ssh_host = f"{ws_id}.devpod"
     if ssh_host.startswith("-"):
@@ -89,8 +89,17 @@ async def create_session(
     ws_id = f"{user.login}-{name}"
 
     # Vérification de la disponibilité de tmux — auto-installation si absent (fallback B)
-    rc_check, _ = await _ssh(ws_id, user.login, "command -v tmux >/dev/null 2>&1")
+    rc_check, out_check = await _ssh(ws_id, user.login, "command -v tmux >/dev/null 2>&1")
     if rc_check != 0:
+        if "timed out" in out_check:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Le workspace ne répond pas encore via SSH."
+                    " Attendez quelques secondes et réessayez,"
+                    " ou ajoutez la recipe 'tmux' lors de la création du workspace."
+                ),
+            )
         _log.info("tmux_absent_auto_installing", ws_id=ws_id)
         # Détection root vs non-root — sudo n'est pas toujours installé dans
         # les devcontainers qui tournent déjà en uid 0.

@@ -35,6 +35,7 @@ class AppSettings(BaseSettings):
     portal_data_root: str = "/data"
     scripts_dir: str = "/app/scripts"
     portal_api_key: str = ""
+    bundled_recipes_dir: str = "/app/recipes"
 
     # Base de données PostgreSQL (format : postgresql+asyncpg://user:pass@host/db)
     database_url: str = ""
