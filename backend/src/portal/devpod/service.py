@@ -33,19 +33,24 @@ from .runner import kill_if_running, run_subprocess
 from .shelve import shelve_if_pending
 
 
-async def _materialize_system_cert(slug: str, login: str) -> str:
+async def _materialize_system_cert(slug: str, login: str = "") -> str:
     """Résout la clé privée PEM depuis harpo et l'écrit à un chemin STABLE.
 
-    Le chemin est {user_devpod_dir}/keys/{slug}.pem (pas un temp file).
-    EXTRA_FLAGS=-i {path} reste valide pour toute la durée de vie du workspace :
-    devpod ssh --stdio {ws_id} (ProxyCommand) lit ce chemin à chaque connexion.
+    - Avec login : {user_devpod_dir}/keys/{slug}.pem — usage devpod workspace.
+    - Sans login  : /data/keys/system/{slug}.pem — usage terminal admin host.
+
+    Le chemin stable évite que ProxyCommand (devpod ssh --stdio) trouve une clé
+    manquante après un rebuild du conteneur portail.
     """
     from ..secrets.system import reveal_system_cert
 
     async with _get_engine().begin() as conn:
         pem = await reveal_system_cert(slug, conn)
 
-    keys_dir = safe_user_path(login, "devpod") / "keys"
+    if login:
+        keys_dir = safe_user_path(login, "devpod") / "keys"
+    else:
+        keys_dir = _data_root() / "keys" / "system"
     keys_dir.mkdir(parents=True, exist_ok=True)
     path = keys_dir / f"{slug}.pem"
     # Écriture atomique — évite un état partiel si harpo est consulté en parallèle
