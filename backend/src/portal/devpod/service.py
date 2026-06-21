@@ -557,10 +557,17 @@ class DevPodService:
         home_out, _ = await home_proc.communicate()
         home = home_out.decode().strip() or f"/home/{ssh_user}"
 
-        # Uploadé hors du répertoire workspace DevPod, qui est effacé et recréé
-        # par 'devpod up' sur un workspace existant.  Le chemin absolu survivra.
-        remote_dir = f"{home}/.devpod-portal-dc/{ws_id}"
-        devcontainer_path = f"{remote_dir}/devcontainer.json"
+        # DevPod fait filepath.Join(content_dir, devcontainer_path) en Go :
+        # les chemins absolus sont traités comme relatifs (le '/' initial est ignoré).
+        # Un chemin relatif '../../.devpod-portal-dc/{ws_id}/' depuis content/ résout
+        # vers workspaces/.devpod-portal-dc/{ws_id}/ — répertoire FRÈRE du workspace
+        # DevPod, donc non effacé lors du "Delete old workspace {ws_id}".
+        # content/ est toujours à depth 2 sous workspaces/ : workspaces/{ws_id}/content/
+        devpod_workspaces = (
+            f"{home}/.devpod/agent/contexts/default/workspaces"
+        )
+        remote_dir = f"{devpod_workspaces}/.devpod-portal-dc/{ws_id}"
+        devcontainer_path = f"../../.devpod-portal-dc/{ws_id}/devcontainer.json"
 
         remote_cmd = (
             f"mkdir -p {shlex.quote(remote_dir)} && "
