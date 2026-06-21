@@ -223,6 +223,7 @@ def _ws_row_to_model(row: dict[str, Any], extra_rows: list[Any]) -> WorkspaceSpe
         profile=profile,
         start_recipes=list(row["start_recipes"] or []),
         default_start=row["default_start"],
+        recipe_volumes=list(row["recipe_volumes"] or []),
         extra_sources=[
             SourceSpec(
                 url=e["url"],
@@ -254,4 +255,5 @@ def _ws_to_row(login: str, ws: WorkspaceSpec) -> dict[str, Any]:
         "profile_slug": ws.profile.slug if ws.profile else None,
         "start_recipes": list(ws.start_recipes),
         "default_start": ws.default_start,
+        "recipe_volumes": list(ws.recipe_volumes),
     }

@@ -174,7 +174,9 @@ class DevPodService:
             # Pour SSH : le fichier est généré localement puis uploadé sur la VM distante via
             #   tar|ssh avant devpod up ; le chemin absolu distant est passé à --devcontainer-path.
             dc_path: Path | None = None
-            needs_devcontainer = bool(recipes or feature_env or ws_spec.extra_sources or profile)
+            needs_devcontainer = bool(
+                recipes or feature_env or ws_spec.extra_sources or profile or ws_spec.recipe_volumes
+            )
             if needs_devcontainer:
                 dc_path = self._write_devcontainer(
                     login,
@@ -184,6 +186,7 @@ class DevPodService:
                     feature_env=feature_env,
                     extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
                     profile=profile,
+                    recipe_volumes=ws_spec.recipe_volumes or None,
                 )
 
             # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
@@ -406,6 +409,7 @@ class DevPodService:
         feature_env: dict[str, str] | None = None,
         extra_sources: list[SourceSpec] | None = None,
         profile: Profile | None = None,
+        recipe_volumes: list[str] | None = None,
     ) -> Path:
         """Écrit devcontainer.json + Feature dirs dans un tmpdir. Retourne le chemin du JSON."""
         user_dir = safe_user_path(login, "devpod")
@@ -488,6 +492,19 @@ class DevPodService:
                         **(vscode.get("settings") or {}),
                         **frag["settings"],
                     }
+
+            if recipe_volumes and recipes:
+                mounts: list[str] = []
+                for recipe in recipes:
+                    if recipe.memory_volume is not None and recipe.id in recipe_volumes:
+                        vol_name = f"{ws_id}-{recipe.memory_volume.name}"
+                        mounts.append(
+                            f"source={vol_name},"
+                            f"target={recipe.memory_volume.mapping.target},"
+                            f"type=volume"
+                        )
+                if mounts:
+                    content["mounts"] = mounts
 
             dc_path = tmp_dir / "devcontainer.json"
             dc_path.write_text(json.dumps(content, indent=2), encoding="utf-8")

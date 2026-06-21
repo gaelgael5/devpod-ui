@@ -54,6 +54,7 @@ class UpRequest(BaseModel):
     extra_sources: list[SourceSpec] = Field(default_factory=list)
     generate_ssh_key: bool = False
     profile: ProfileRef | None = None
+    recipe_volumes: list[str] = Field(default_factory=list)
 
 
 _service: DevPodService | None = None
@@ -233,6 +234,7 @@ async def workspace_up(
             recipes=req.recipes,
             extra_sources=req.extra_sources,
             profile=req.profile,
+            recipe_volumes=req.recipe_volumes,
         )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -269,6 +271,7 @@ async def workspace_up(
         "recipes": req.recipes,
         "extra_sources": req.extra_sources,
         "profile": req.profile,
+        "recipe_volumes": req.recipe_volumes,
     }
     _user_cfg = await load_user(user.login)
     for _i, _existing in enumerate(_user_cfg.workspaces):

@@ -74,7 +74,9 @@
       "startRecipeScript": "Script (start.sh)",
       "startRecipeIdHint": "Lowercase letters, numbers, hyphens — 2 to 32 chars",
       "startRecipeScriptDefault": "#!/usr/bin/env bash\nset -euo pipefail\n",
-      "startRecipeCreated": "Start recipe \"{{id}}\" created."
+      "startRecipeCreated": "Start recipe \"{{id}}\" created.",
+      "memoryVolumes": "Persistent volumes",
+      "memoryVolumeLabel": "Enable persistent volume for {{recipe}}"
     },
     "confirm": {
       "deleteTitle": "Delete workspace?",

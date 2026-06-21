@@ -17,6 +17,7 @@ export interface WorkspaceSpec {
   profile?: { scope: 'shared' | 'user'; slug: string } | null
   start_recipes?: string[]
   default_start?: string
+  recipe_volumes?: string[]
 }
 
 export type WorkspaceStatusValue =

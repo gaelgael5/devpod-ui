@@ -250,6 +250,7 @@ class WorkspaceSpec(BaseModel):
     profile: ProfileRef | None = None
     start_recipes: list[str] = Field(default_factory=list)
     default_start: str = ""
+    recipe_volumes: list[str] = Field(default_factory=list)
 
     @field_validator("start_recipes")
     @classmethod

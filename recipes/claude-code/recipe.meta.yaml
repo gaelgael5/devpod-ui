@@ -5,3 +5,8 @@ description: "Claude Code CLI (Anthropic)"
 type: install
 installs_after:
   - 08d27187-d87f-4140-a65e-0891b59441f1
+memory-volume:
+  name: claude-code
+  optional: true
+  mapping:
+    target: /home/vscode/.claude

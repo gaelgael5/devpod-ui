@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
@@ -68,6 +68,16 @@ export default function WorkspaceCreate() {
   const [host, setHost] = useState('')
   const [selectedRecipes, setSelectedRecipes] = useState<string[]>([])
   const [selectedStartRecipes, setSelectedStartRecipes] = useState<string[]>([])
+  const [volumeRecipes, setVolumeRecipes] = useState<string[]>([])
+
+  const recipesWithOptionalVolume = useMemo(
+    () => recipes.filter(r => selectedRecipes.includes(r.id) && r.memory_volume?.optional),
+    [recipes, selectedRecipes],
+  )
+
+  useEffect(() => {
+    setVolumeRecipes(prev => prev.filter(id => selectedRecipes.includes(id)))
+  }, [selectedRecipes])
   const recipesByKey = useMemo(() => {
     const map = new Map<string, typeof recipes[number]>()
     for (const r of recipes) map.set(r.key, r)
@@ -194,6 +204,7 @@ export default function WorkspaceCreate() {
         generateSshKey,
         profile: profileRef,
         startRecipes: selectedStartRecipes,
+        volumeRecipes,
       })
       navigate('/workspaces')
     } catch (err) {
@@ -286,6 +297,32 @@ export default function WorkspaceCreate() {
                 selected={selectedRecipes}
                 onChange={setSelectedRecipes}
               />
+            </div>
+          </div>
+        )}
+
+        {recipesWithOptionalVolume.length > 0 && (
+          <div>
+            <Label>{t('workspaces.form.memoryVolumes')}</Label>
+            <div className="mt-1 flex flex-col gap-1.5">
+              {recipesWithOptionalVolume.map(r => (
+                <div key={r.id} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id={`vol-${r.id}`}
+                    checked={volumeRecipes.includes(r.id)}
+                    onChange={e =>
+                      setVolumeRecipes(prev =>
+                        e.target.checked ? [...prev, r.id] : prev.filter(x => x !== r.id),
+                      )
+                    }
+                    className="h-4 w-4 rounded border-input"
+                  />
+                  <Label htmlFor={`vol-${r.id}`} className="cursor-pointer font-normal">
+                    {t('workspaces.form.memoryVolumeLabel', { recipe: r.description || r.id })}
+                  </Label>
+                </div>
+              ))}
             </div>
           </div>
         )}

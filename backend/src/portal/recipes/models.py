@@ -47,6 +47,20 @@ class SecretRef(BaseModel):
         return v
 
 
+class MemoryVolumeMappingSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target: str  # chemin absolu dans le conteneur (ex. /home/vscode/.claude)
+
+
+class MemoryVolumeSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str  # suffixe du nom Docker volume (ex. "claude-code" → "{ws_id}-claude-code")
+    optional: bool = True  # si True, l'utilisateur choisit d'activer ; si False, toujours actif
+    mapping: MemoryVolumeMappingSpec
+
+
 class RecipeMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -60,6 +74,7 @@ class RecipeMeta(BaseModel):
     # Liste de GUIDs (key) des recipes à installer avant celle-ci.
     # Auto-incluses même si non sélectionnées par l'utilisateur.
     installs_after: list[str] = Field(default_factory=list)
+    memory_volume: MemoryVolumeSpec | None = None
 
     @field_validator("id")
     @classmethod
