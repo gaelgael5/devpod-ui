@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { FileText, Key, Loader2, SquareTerminal } from 'lucide-react'
+import { FileText, Key, Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -157,11 +157,12 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         {s === 'running' && (
           <Button
             size="sm"
-            variant="ghost"
+            variant="outline"
+            className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
             onClick={() => setShellOpen(true)}
             aria-label={t('workspaces.ssh.shellButton')}
           >
-            <SquareTerminal className="h-4 w-4" />
+            {t('admin.sshTerminal.openBtn')}
           </Button>
         )}
         <Button
