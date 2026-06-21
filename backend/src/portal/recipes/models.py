@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _RECIPE_ID_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
 _SECRET_PATH_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9/_-]{0,127}$")
@@ -63,6 +63,14 @@ class MemoryVolumeSpec(BaseModel):
 
 class RecipeMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_hyphenated_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "memory-volume" in data:
+            data = dict(data)
+            data["memory_volume"] = data.pop("memory-volume")
+        return data
 
     id: str
     key: str = Field(default_factory=lambda: str(uuid.uuid4()))
