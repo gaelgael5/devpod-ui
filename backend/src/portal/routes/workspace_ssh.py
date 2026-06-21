@@ -16,7 +16,7 @@ from ..config.store import _data_root, load_global, safe_user_path
 from ..db.engine import _get_engine
 from ..db.recipes import load_recipes_as_dict
 from ..settings import get_settings
-from .workspace_sessions import _devpod_ssh_key
+from ..ssh_keys import get_workspace_ssh_key_path
 
 _log = structlog.get_logger(__name__)
 
@@ -147,9 +147,9 @@ async def workspace_ssh_terminal(
         return
     devpod_bin = cfg.devpod.binary
     proxy_cmd = f"{shlex.quote(devpod_bin)} ssh --stdio {shlex.quote(ws_id)}"
-    key_path = _devpod_ssh_key(login)
+    key_file = get_workspace_ssh_key_path(login, name)
     identity_args = (
-        ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
+        ["-i", str(key_file), "-o", "IdentitiesOnly=yes"] if key_file.exists() else []
     )
     cmd = [
         "ssh", "-t", "-t",
