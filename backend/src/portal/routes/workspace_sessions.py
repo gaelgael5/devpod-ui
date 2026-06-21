@@ -20,6 +20,22 @@ from ..recipes.models import _RECIPE_ID_RE
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-sessions"])
 
+
+def _as_ws_user(cmd: str) -> str:
+    """Exécute cmd comme l'utilisateur propriétaire de /workspaces (pas root).
+
+    Les sessions tmux sont créées par l'utilisateur du devcontainer (uid 1000
+    typiquement), pas root.  Cette enveloppe détecte l'uid et délègue via su.
+    """
+    return (
+        "WS_USER=$(stat -c '%U' /workspaces 2>/dev/null || echo root); "
+        'if [ "$WS_USER" != "root" ]; then '
+        f"su -s /bin/bash \"$WS_USER\" -c {shlex.quote(cmd)}; "
+        "else "
+        f"{cmd}; "
+        "fi"
+    )
+
 _WS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
 _SESSION_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,29}$")
 
@@ -73,7 +89,7 @@ async def list_sessions(name: str, user: UserInfo = Depends(require_user)) -> li
     ws_id = f"{user.login}-{name}"
     rc, output = await _ssh(
         ws_id, user.login,
-        "tmux list-sessions -F '#{session_name}' 2>/dev/null || true",
+        _as_ws_user("tmux list-sessions -F '#{session_name}' 2>/dev/null || true"),
     )
     if rc != 0:
         _log.warning("list_sessions_ssh_failed", ws_id=ws_id, output=output)
@@ -166,7 +182,7 @@ async def create_session(
     else:
         command = f"tmux new-session -d -s {shlex.quote(req.name)}"
 
-    rc, output = await _ssh(ws_id, user.login, command)
+    rc, output = await _ssh(ws_id, user.login, _as_ws_user(command))
     if rc != 0:
         raise HTTPException(status_code=502, detail=f"Failed to create tmux session: {output}")
 
@@ -184,7 +200,10 @@ async def delete_session(
     if not _SESSION_NAME_RE.fullmatch(session_name):
         raise HTTPException(status_code=422, detail=f"Invalid session name {session_name!r}")
     ws_id = f"{user.login}-{name}"
-    rc, output = await _ssh(ws_id, user.login, f"tmux kill-session -t {shlex.quote(session_name)}")
+    rc, output = await _ssh(
+        ws_id, user.login,
+        _as_ws_user(f"tmux kill-session -t {shlex.quote(session_name)}"),
+    )
     if rc != 0:
         raise HTTPException(status_code=502, detail=f"Failed to kill tmux session: {output}")
     _log.info("session_deleted", ws_id=ws_id, session=session_name)

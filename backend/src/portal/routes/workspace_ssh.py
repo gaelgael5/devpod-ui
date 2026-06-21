@@ -74,6 +74,19 @@ async def workspace_ssh_terminal(
     ws_id = f"{login}-{name}"
 
     # ── Résolution de la commande tmux ───────────────────────────────────────
+    # Les sessions tmux existantes appartiennent à l'utilisateur du devcontainer
+    # (uid 1000, ex: vscode), pas root. _as_ws_user() détecte le propriétaire
+    # de /workspaces et délègue via su pour accéder au bon socket tmux.
+    def _as_ws_user(inner: str) -> str:
+        return (
+            "WS_USER=$(stat -c '%U' /workspaces 2>/dev/null || echo root); "
+            'if [ "$WS_USER" != "root" ]; then '
+            f"su -s /bin/bash \"$WS_USER\" -c {shlex.quote(inner)}; "
+            "else "
+            f"{inner}; "
+            "fi"
+        )
+
     tmux_cmd: str
     if session is not None:
         if not _SESSION_NAME_RE.fullmatch(session):
@@ -81,9 +94,8 @@ async def workspace_ssh_terminal(
             return
         # Attacher à la session tmux nommée (créée via POST /me/workspaces/{n}/sessions).
         # `new-session -A` crée si absente — robuste en cas de race condition.
-        # TERM=xterm-256color forcé : le processus portal n'a pas de terminal réel,
-        # SSH propagerait TERM=dumb → tmux échoue au clear.
-        tmux_cmd = f"TERM=xterm-256color tmux new-session -A -s {shlex.quote(session)}"
+        raw = f"TERM=xterm-256color tmux new-session -A -s {shlex.quote(session)}"
+        tmux_cmd = _as_ws_user(raw)
     elif start is not None:
         from ..recipes.models import _RECIPE_ID_RE
 
@@ -120,30 +132,31 @@ async def workspace_ssh_terminal(
         script_content = start_sh_path.read_text(encoding="utf-8")
         b64 = base64.b64encode(script_content.encode()).decode()
         run_script = f'bash -lc "$(echo {b64} | base64 -d)"'
-        tmux_new = f"tmux new -A -s {start} -- {run_script}"
+        raw = f"TERM=xterm-256color tmux new -A -s {start} -- {run_script}"
         has_tmux = "command -v tmux >/dev/null 2>&1"
-        tmux_cmd = f"{has_tmux} && TERM=xterm-256color {tmux_new} || {run_script}"
+        tmux_cmd = f"{has_tmux} && {_as_ws_user(raw)} || {run_script}"
     else:
-        tmux_main = "tmux new -A -s main || bash -l"
-        tmux_cmd = f"command -v tmux >/dev/null 2>&1 && TERM=xterm-256color {tmux_main}"
+        raw = "tmux new -A -s main || bash -l"
+        tmux_cmd = f"command -v tmux >/dev/null 2>&1 && TERM=xterm-256color {_as_ws_user(raw)}"
 
     # ── Build commande SSH ────────────────────────────────────────────────────
-    # `devpod up` écrit l'entrée "{ws_id}.devpod" dans ~/.ssh/config avec le
-    # ProxyCommand approprié. On utilise ssh directement avec -t -t pour forcer
-    # l'allocation de PTY côté remote même quand notre stdin est un pipe ;
-    # `devpod ssh --command` n'a pas d'équivalent --pty et produit une session
-    # sans TTY → tmux/bash n'affichent rien.
-    ssh_host = f"{ws_id}.devpod"
-    # Défense contre le flag-smuggling : ws_id contient login+name, tous deux
-    # validés, mais on garde la sentinelle "--" et la vérification de préfixe
-    # comme protection en profondeur.
-    if ssh_host.startswith("-"):
+    # ProxyCommand explicite : n'utilise plus ~/.ssh/config (perdu au rebuild).
+    # -t -t force l'allocation PTY même quand stdin est un pipe.
+    if ws_id.startswith("-"):
         await websocket.close(code=4022, reason="Invalid workspace SSH host")
         return
-    cmd = ["ssh", "-t", "-t", "--", ssh_host, tmux_cmd]
+    devpod_bin = cfg.devpod.binary
+    proxy_cmd = f"{shlex.quote(devpod_bin)} ssh --stdio {shlex.quote(ws_id)}"
+    cmd = [
+        "ssh", "-t", "-t",
+        "-o", f"ProxyCommand={proxy_cmd}",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "--", "root@devpod-ws",
+        tmux_cmd,
+    ]
 
-    # HOME → ssh(1) trouve ~/.ssh/config écrit par devpod up.
-    # DEVPOD_HOME → ProxyCommand "devpod ssh --stdio" trouve la config workspace.
+    # DEVPOD_HOME → devpod ssh --stdio trouve la config workspace.
     devpod_env = {
         **dict(os.environ),
         "DEVPOD_HOME": str(safe_user_path(login, "devpod")),
