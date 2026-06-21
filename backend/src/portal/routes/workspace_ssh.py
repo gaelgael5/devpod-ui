@@ -74,28 +74,22 @@ async def workspace_ssh_terminal(
     ws_id = f"{login}-{name}"
 
     # ── Résolution de la commande tmux ───────────────────────────────────────
-    # Les sessions tmux existantes appartiennent à l'utilisateur du devcontainer
-    # (uid 1000, ex: vscode), pas root. _as_ws_user() détecte le propriétaire
-    # de /workspaces et délègue via su pour accéder au bon socket tmux.
-    def _as_ws_user(inner: str) -> str:
-        return (
-            "WS_USER=$(stat -c '%U' /workspaces 2>/dev/null || echo root); "
-            'if [ "$WS_USER" != "root" ]; then '
-            f"su -s /bin/bash \"$WS_USER\" -c {shlex.quote(inner)}; "
-            "else "
-            f"{inner}; "
-            "fi"
-        )
+    # Le serveur tmux tourne en uid 1000 (vscode) ; root peut accéder à son
+    # socket Unix car root bypasse les DAC.  On détecte le socket actif dans
+    # /tmp/tmux-*/ et on passe -S $SOCK à tmux — pas besoin de su.
+    _sock = (
+        "TMUX_SOCK=$(find /tmp -maxdepth 2 -name default"
+        " -path '*/tmux-*/*' 2>/dev/null | head -1)"
+    )
+    _tmux = 'TERM=xterm-256color tmux ${TMUX_SOCK:+-S "$TMUX_SOCK"}'
 
     tmux_cmd: str
     if session is not None:
         if not _SESSION_NAME_RE.fullmatch(session):
             await websocket.close(code=4022, reason="Invalid session name")
             return
-        # Attacher à la session tmux nommée (créée via POST /me/workspaces/{n}/sessions).
-        # `new-session -A` crée si absente — robuste en cas de race condition.
-        raw = f"TERM=xterm-256color tmux new-session -A -s {shlex.quote(session)}"
-        tmux_cmd = _as_ws_user(raw)
+        # new-session -A : attache si la session existe, crée sinon.
+        tmux_cmd = f"{_sock}; {_tmux} new-session -A -s {shlex.quote(session)}"
     elif start is not None:
         from ..recipes.models import _RECIPE_ID_RE
 
@@ -132,12 +126,13 @@ async def workspace_ssh_terminal(
         script_content = start_sh_path.read_text(encoding="utf-8")
         b64 = base64.b64encode(script_content.encode()).decode()
         run_script = f'bash -lc "$(echo {b64} | base64 -d)"'
-        raw = f"TERM=xterm-256color tmux new -A -s {start} -- {run_script}"
         has_tmux = "command -v tmux >/dev/null 2>&1"
-        tmux_cmd = f"{has_tmux} && {_as_ws_user(raw)} || {run_script}"
+        tmux_cmd = (
+            f"{has_tmux} && {_sock}; {_tmux} new -A -s {start} -- {run_script}"
+            f" || {run_script}"
+        )
     else:
-        raw = "tmux new -A -s main || bash -l"
-        tmux_cmd = f"command -v tmux >/dev/null 2>&1 && TERM=xterm-256color {_as_ws_user(raw)}"
+        tmux_cmd = f"{_sock}; {_tmux} new -A -s main || bash -l"
 
     # ── Build commande SSH ────────────────────────────────────────────────────
     # ProxyCommand explicite : n'utilise plus ~/.ssh/config (perdu au rebuild).

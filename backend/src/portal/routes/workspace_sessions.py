@@ -21,20 +21,20 @@ _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-sessions"])
 
 
-def _as_ws_user(cmd: str) -> str:
-    """Exécute cmd comme l'utilisateur propriétaire de /workspaces (pas root).
+_TMUX_SOCK_DETECT = (
+    "TMUX_SOCK=$(find /tmp -maxdepth 2 -name default"
+    " -path '*/tmux-*/*' 2>/dev/null | head -1)"
+)
 
-    Les sessions tmux sont créées par l'utilisateur du devcontainer (uid 1000
-    typiquement), pas root.  Cette enveloppe détecte l'uid et délègue via su.
+
+def _tmux(args: str) -> str:
+    """Construit une commande tmux avec détection automatique du socket actif.
+
+    Dans les devcontainers le serveur tmux tourne en uid 1000 (ex: vscode),
+    pas root.  Root peut accéder à n'importe quel socket Unix sur Linux ;
+    passer -S $SOCK permet d'atteindre le bon serveur tmux sans su.
     """
-    return (
-        "WS_USER=$(stat -c '%U' /workspaces 2>/dev/null || echo root); "
-        'if [ "$WS_USER" != "root" ]; then '
-        f"su -s /bin/bash \"$WS_USER\" -c {shlex.quote(cmd)}; "
-        "else "
-        f"{cmd}; "
-        "fi"
-    )
+    return f'{_TMUX_SOCK_DETECT}; tmux ${{TMUX_SOCK:+-S "$TMUX_SOCK"}} {args}'
 
 _WS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
 _SESSION_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,29}$")
@@ -89,7 +89,7 @@ async def list_sessions(name: str, user: UserInfo = Depends(require_user)) -> li
     ws_id = f"{user.login}-{name}"
     rc, output = await _ssh(
         ws_id, user.login,
-        _as_ws_user("tmux list-sessions -F '#{session_name}' 2>/dev/null || true"),
+        _tmux("list-sessions -F '#{session_name}' 2>/dev/null || true"),
     )
     if rc != 0:
         _log.warning("list_sessions_ssh_failed", ws_id=ws_id, output=output)
@@ -175,14 +175,17 @@ async def create_session(
         script = await asyncio.to_thread(start_sh.read_text, encoding="utf-8")
         b64 = base64.b64encode(script.encode()).decode()
         run_cmd = f'bash -lc "$(echo {b64} | base64 -d)"'
+        # Les deux commandes tmux partagent le même socket détecté.
         command = (
-            f"tmux new-session -d -s {shlex.quote(req.name)}"
-            f" && tmux send-keys -t {shlex.quote(req.name)} {shlex.quote(run_cmd)} Enter"
+            f'{_TMUX_SOCK_DETECT}; '
+            f'TSOCK="${{TMUX_SOCK:+-S "$TMUX_SOCK"}}"; '
+            f"tmux $TSOCK new-session -d -s {shlex.quote(req.name)}"
+            f" && tmux $TSOCK send-keys -t {shlex.quote(req.name)} {shlex.quote(run_cmd)} Enter"
         )
     else:
-        command = f"tmux new-session -d -s {shlex.quote(req.name)}"
+        command = _tmux(f"new-session -d -s {shlex.quote(req.name)}")
 
-    rc, output = await _ssh(ws_id, user.login, _as_ws_user(command))
+    rc, output = await _ssh(ws_id, user.login, command)
     if rc != 0:
         raise HTTPException(status_code=502, detail=f"Failed to create tmux session: {output}")
 
@@ -202,7 +205,7 @@ async def delete_session(
     ws_id = f"{user.login}-{name}"
     rc, output = await _ssh(
         ws_id, user.login,
-        _as_ws_user(f"tmux kill-session -t {shlex.quote(session_name)}"),
+        _tmux(f"kill-session -t {shlex.quote(session_name)}"),
     )
     if rc != 0:
         raise HTTPException(status_code=502, detail=f"Failed to kill tmux session: {output}")
