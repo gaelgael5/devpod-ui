@@ -464,6 +464,24 @@ async def admin_update_shared_recipe(
     return entry
 
 
+@router_admin.post("/recipes/sync", status_code=200)
+async def admin_sync_recipes_from_disk(
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Synchronise /data/recipes/ → DB.
+
+    À utiliser après avoir copié manuellement des recettes dans /data/recipes/.
+    Idempotent — ne réécrit jamais les recettes déjà présentes en DB.
+    """
+    from ..recipes.sync import sync_recipes_to_db
+
+    data_recipes = _data_root() / "recipes"
+    await sync_recipes_to_db(data_recipes, conn)
+    _log.info("shared_recipes_synced_from_disk", by=user.login)
+    return {"synced": True}
+
+
 @router_admin.delete("/recipes/{recipe_id}")
 async def admin_delete_shared_recipe(
     recipe_id: str,

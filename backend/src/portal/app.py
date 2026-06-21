@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import socket as _socket
 from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -99,7 +98,6 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from .db.global_config import warm_global_cache
     from .db.profiles import AsyncProfileRepository
     from .openvsx import OpenVsxClient, OpenVsxSettings
-    from .recipes.sync import sync_bundled_recipes, sync_recipes_to_db
 
     settings_obj = get_settings()
     if settings_obj.database_url:
@@ -111,12 +109,6 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             from .secrets.system import ensure_system_user
 
             await ensure_system_user(conn)
-
-        bundled = Path(settings_obj.bundled_recipes_dir)
-        data_recipes = Path(settings_obj.portal_data_root) / "recipes"
-        await asyncio.to_thread(sync_bundled_recipes, bundled, data_recipes)
-        async with _get_engine().begin() as conn:
-            await sync_recipes_to_db(data_recipes, conn)
 
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()

@@ -154,6 +154,8 @@
     "addRecipe": "Ajouter une recette",
     "gallery": "Galerie",
     "localRecipes": "Recettes locales",
+    "syncRecipesFromDisk": "Sync depuis le disque",
+    "syncRecipesFromDiskDone": "Synchronisation terminée",
     "recipeSource": "Galerie scripts",
     "addSource": "Ajouter",
     "importRecipe": "Importer",

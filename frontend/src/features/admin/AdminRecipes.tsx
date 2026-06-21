@@ -42,7 +42,7 @@ function recipeToForm(r: Recipe): FormState {
 
 export default function AdminRecipes() {
   const { t } = useTranslation()
-  const { recipesQuery, deleteRecipe, addRecipe, updateRecipe } = useAdminRecipes()
+  const { recipesQuery, deleteRecipe, addRecipe, updateRecipe, syncRecipes } = useAdminRecipes()
   const { sourcesQuery, updateSources, previewQuery, importRecipe } = useRecipeSources()
   const { data: recipes, isLoading, isError } = recipesQuery
   const { data: sourcesData } = sourcesQuery
@@ -243,7 +243,22 @@ export default function AdminRecipes() {
 
       {/* ── Recettes locales ────────────────────────────────────────── */}
       <section>
-        <h2 className="mb-3 text-lg font-semibold">{t('admin.localRecipes')}</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">{t('admin.localRecipes')}</h2>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              syncRecipes.mutate(undefined, {
+                onSuccess: () => toast.success(t('admin.syncRecipesFromDiskDone')),
+              })
+            }
+            disabled={syncRecipes.isPending}
+          >
+            <RefreshCw className={`h-4 w-4 mr-1 ${syncRecipes.isPending ? 'animate-spin' : ''}`} />
+            {t('admin.syncRecipesFromDisk')}
+          </Button>
+        </div>
         {isLoading && <p className="text-muted-foreground">…</p>}
         {isError && (
           <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>
