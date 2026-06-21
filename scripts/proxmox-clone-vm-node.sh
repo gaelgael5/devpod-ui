@@ -28,6 +28,7 @@
 #   --sshkey FICHIER      Clé publique SSH principale (défaut : auto-détectée dans ~/.ssh/)
 #   --extra-sshkey FICH   Clé publique supplémentaire à injecter (ex. clé Windows)
 #   --ciuser USER         Utilisateur cloud-init      (défaut : debian)
+#   --cpu MODELE          Modèle CPU QEMU             (défaut : x86-64-v3)
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -45,6 +46,10 @@ DISK_EXTRA="+40G"
 SSH_KEY_FILE=""
 EXTRA_SSH_KEY_FILE=""
 CI_USER="debian"
+# Les binaires compilés avec Bun (ex. claude) exigent AVX ; kvm64 (défaut Proxmox) masque AVX.
+# x86-64-v3 expose AVX/AVX2/FMA, est supporté par les deux nœuds du cluster (Haswell + Raptor Lake),
+# et reste live-migratable entre eux — contrairement à --cpu host qui épingle au modèle exact.
+CPU_TYPE="x86-64-v3"
 PORTAL_URL=""
 PORTAL_TOKEN=""
 PORTAL_PVE_NODE=""
@@ -73,12 +78,13 @@ while [[ $# -gt 0 ]]; do
         --sshkey)        SSH_KEY_FILE="$2";       shift 2 ;;
         --extra-sshkey)  EXTRA_SSH_KEY_FILE="$2"; shift 2 ;;
         --ciuser)        CI_USER="$2";            shift 2 ;;
+        --cpu)           CPU_TYPE="$2";           shift 2 ;;
         --portal-url)      PORTAL_URL="$2";      shift 2 ;;
         --portal-token)    PORTAL_TOKEN="$2";    shift 2 ;;
         --portal-pve-node) PORTAL_PVE_NODE="$2"; shift 2 ;;
         *)
             echo "ERREUR : option inconnue : $1" >&2
-            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --sshkey --extra-sshkey --ciuser --portal-url --portal-token --portal-pve-node" >&2
+            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --cpu --sshkey --extra-sshkey --ciuser --portal-url --portal-token --portal-pve-node" >&2
             exit 1
             ;;
     esac
@@ -242,6 +248,7 @@ echo "    Stockage       : même que le template (défaut)"
 fi
 echo "    DNS            : $DNS"
 echo "    vCPU / RAM     : ${CORES} cores / ${MEMORY} Mo"
+echo "    Modèle CPU     : $CPU_TYPE"
 echo "    Disque ajouté  : $DISK_EXTRA"
 echo "    Clé SSH        : $SSH_KEY_FILE"
 [[ -n "$EXTRA_SSH_KEY_FILE" ]] && \
@@ -289,11 +296,13 @@ echo "  │  Password : $CI_PASSWORD                        │"
 echo "  └─────────────────────────────────────────────────┘"
 echo ""
 
-# ─── A.4 — Configurer la mémoire et le CPU ───────────────────────────────────
+# ─── A.4 — Configurer la mémoire, le CPU et le modèle CPU ────────────────────
 echo ""
-echo "==> A.4 — Configuration des ressources (${CORES} vCPU / ${MEMORY} Mo RAM)..."
+echo "==> A.4 — Configuration des ressources (${CORES} vCPU / ${MEMORY} Mo RAM / CPU ${CPU_TYPE})..."
 
-qm set "$NEW_VMID" --memory "$MEMORY" --cores "$CORES"
+# --cpu appliqué explicitement même sur un clone : un template créé avec l'ancien
+# script (sans --cpu) hérite de kvm64 qui masque AVX. qm set corrige ça défensivement.
+qm set "$NEW_VMID" --memory "$MEMORY" --cores "$CORES" --cpu "$CPU_TYPE"
 
 echo "    Ressources configurées."
 

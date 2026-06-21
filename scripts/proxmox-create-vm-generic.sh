@@ -30,6 +30,10 @@ STORAGE=""          # auto-détecté à l'étape prérequis
 BRIDGE="vmbr0"
 CORES=2
 MEMORY=2048
+# Les binaires compilés avec Bun (ex. claude) exigent AVX ; kvm64 (défaut Proxmox) masque AVX.
+# x86-64-v3 expose AVX/AVX2/FMA, est supporté par les deux nœuds du cluster (Haswell + Raptor Lake),
+# et reste live-migratable entre eux — contrairement à --cpu host qui épingle au modèle exact.
+CPU_TYPE="x86-64-v3"
 
 DEBIAN_CODENAME="bookworm"
 DEBIAN_VERSION="12"
@@ -56,9 +60,10 @@ while [[ $# -gt 0 ]]; do
         --bridge)  BRIDGE="$2";        shift 2 ;;
         --cores)   CORES="$2";         shift 2 ;;
         --memory)  MEMORY="$2";        shift 2 ;;
+        --cpu)     CPU_TYPE="$2";      shift 2 ;;
         *)
             echo "ERREUR : option inconnue : $1" >&2
-            echo "Options supportées : --name, --storage, --bridge, --cores, --memory" >&2
+            echo "Options supportées : --name, --storage, --bridge, --cores, --memory, --cpu" >&2
             exit 1
             ;;
     esac
@@ -138,6 +143,7 @@ echo "    Nom template  : $TEMPLATE_NAME"
 echo "    Stockage      : $STORAGE"
 echo "    Bridge réseau : $BRIDGE"
 echo "    vCPU / RAM    : ${CORES} cores / ${MEMORY} Mo"
+echo "    Modèle CPU    : $CPU_TYPE"
 echo "    Image OS      : $IMAGE_NAME"
 echo ""
 
@@ -213,6 +219,7 @@ qm create "$VMID" \
     --name    "$TEMPLATE_NAME" \
     --memory  "$MEMORY" \
     --cores   "$CORES" \
+    --cpu     "$CPU_TYPE" \
     --net0    "virtio,bridge=${BRIDGE}" \
     --ostype  l26 \
     --machine q35 \
