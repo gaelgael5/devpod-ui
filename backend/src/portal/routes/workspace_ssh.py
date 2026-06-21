@@ -16,7 +16,7 @@ from ..config.store import _data_root, load_global, safe_user_path
 from ..db.engine import _get_engine
 from ..db.recipes import load_recipes_as_dict
 from ..settings import get_settings
-from ..ssh_keys import get_workspace_ssh_key_path
+from .workspace_sessions import _devpod_ssh_key
 
 _log = structlog.get_logger(__name__)
 
@@ -147,9 +147,9 @@ async def workspace_ssh_terminal(
         return
     devpod_bin = cfg.devpod.binary
     proxy_cmd = f"{shlex.quote(devpod_bin)} ssh --stdio {shlex.quote(ws_id)}"
-    key_file = get_workspace_ssh_key_path(login, name)
+    key_path = _devpod_ssh_key(login)
     identity_args = (
-        ["-i", str(key_file), "-o", "IdentitiesOnly=yes"] if key_file.exists() else []
+        ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
     )
     cmd = [
         "ssh", "-t", "-t",
@@ -157,7 +157,7 @@ async def workspace_ssh_terminal(
         "-o", f"ProxyCommand={proxy_cmd}",
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
-        "--", "root@devpod-ws",
+        "--", "vscode@devpod-ws",
         tmux_cmd,
     ]
 

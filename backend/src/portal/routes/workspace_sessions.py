@@ -16,10 +16,29 @@ from ..config.store import _data_root, load_global, safe_user_path
 from ..db.engine import get_conn
 from ..db.recipes import load_recipes_as_dict
 from ..recipes.models import _RECIPE_ID_RE
-from ..ssh_keys import get_workspace_ssh_key_path
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-sessions"])
+
+
+def _devpod_ssh_key(login: str) -> str | None:
+    """Retourne la clé privée SSH que devpod a générée pour cet utilisateur.
+
+    Devpod stocke sa clé dans $DEVPOD_HOME/ssh/ et l'injecte dans
+    ~/.ssh/authorized_keys du remoteUser (vscode) du devcontainer lors de
+    `devpod up`. C'est cette clé qui permet l'authentification.
+    """
+    ssh_dir = safe_user_path(login, "devpod") / "ssh"
+    if not ssh_dir.exists():
+        return None
+    for name in ("id_rsa", "id_ed25519", "id_devpod"):
+        key = ssh_dir / name
+        if key.exists():
+            return str(key)
+    for f in sorted(ssh_dir.iterdir()):
+        if f.is_file() and f.suffix != ".pub":
+            return str(f)
+    return None
 
 
 _TMUX_SOCK_DETECT = (
@@ -29,12 +48,6 @@ _TMUX_SOCK_DETECT = (
 
 
 def _tmux(args: str) -> str:
-    """Construit une commande tmux avec détection automatique du socket actif.
-
-    Dans les devcontainers le serveur tmux tourne en uid 1000 (ex: vscode),
-    pas root.  Root peut accéder à n'importe quel socket Unix sur Linux ;
-    passer -S $SOCK permet d'atteindre le bon serveur tmux sans su.
-    """
     return f'{_TMUX_SOCK_DETECT}; tmux ${{TMUX_SOCK:+-S "$TMUX_SOCK"}} {args}'
 
 _WS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
@@ -61,10 +74,9 @@ async def _ssh(ws_id: str, login: str, command: str, timeout: float = 30.0) -> t
         "DEVPOD_HOME": str(safe_user_path(login, "devpod")),
         "HOME": os.environ.get("HOME", "/root"),
     }
-    ws_name = ws_id.removeprefix(f"{login}-")
-    key_file = get_workspace_ssh_key_path(login, ws_name)
+    key_path = _devpod_ssh_key(login)
     identity_args = (
-        ["-i", str(key_file), "-o", "IdentitiesOnly=yes"] if key_file.exists() else []
+        ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
     )
     proc = await asyncio.create_subprocess_exec(
         "ssh",
@@ -74,7 +86,7 @@ async def _ssh(ws_id: str, login: str, command: str, timeout: float = 30.0) -> t
         "-o", f"ProxyCommand={proxy_cmd}",
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
-        "--", "root@devpod-ws",
+        "--", "vscode@devpod-ws",
         command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
