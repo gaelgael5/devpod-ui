@@ -8,16 +8,18 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useWorkspaceLogs } from './useWorkspaceLogs'
+import type { WorkspaceStatusValue } from './types'
 
 interface Props {
   workspaceName: string
   open: boolean
   onOpenChange: (open: boolean) => void
+  status?: WorkspaceStatusValue
 }
 
-export default function LogDialog({ workspaceName, open, onOpenChange }: Props) {
+export default function LogDialog({ workspaceName, open, onOpenChange, status }: Props) {
   const { t } = useTranslation()
-  const { data: logs, isLoading } = useWorkspaceLogs(workspaceName, open)
+  const { data: logs, isLoading } = useWorkspaceLogs(workspaceName, open, status)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {

@@ -167,6 +167,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         workspaceName={spec.name}
         open={logsOpen}
         onOpenChange={setLogsOpen}
+        status={status.status}
       />
       <Dialog open={recreateOpen} onOpenChange={setRecreateOpen}>
         <DialogContent className="sm:max-w-md">

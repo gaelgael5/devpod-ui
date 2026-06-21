@@ -1,7 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/shared/api/client'
+import { isTransient } from './types'
+import type { WorkspaceStatusValue } from './types'
 
-export function useWorkspaceLogs(name: string, enabled: boolean) {
+export function useWorkspaceLogs(name: string, enabled: boolean, status?: WorkspaceStatusValue) {
+  const shouldPoll = enabled && isTransient(status)
   return useQuery<string>({
     queryKey: ['workspace-logs', name],
     queryFn: async () => {
@@ -11,6 +14,6 @@ export function useWorkspaceLogs(name: string, enabled: boolean) {
     },
     enabled,
     staleTime: 0,
-    refetchInterval: enabled ? 3000 : false,
+    refetchInterval: shouldPoll ? 3000 : false,
   })
 }

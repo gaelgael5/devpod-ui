@@ -29,7 +29,7 @@ from ..profiles.models import Profile
 from ..recipes.models import RecipeMeta
 from .env import HostNotReadyError, _find_host, build_env
 from .provider import ensure_provider
-from .runner import run_subprocess
+from .runner import kill_if_running, run_subprocess
 from .shelve import shelve_if_pending
 
 
@@ -328,7 +328,7 @@ class DevPodService:
         env = self._minimal_env(login)
         cmd = [*self._devpod_bin, "stop", ws_id]
         log_path = self._log_path(login, f"{ws_id}-stop")
-        await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
+        await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120)
         async with _get_engine().begin() as _conn:
             await persist_log_blob_from_file(ws_id, login, "stop", log_path, _conn)
         await self._write_status(ws_id, "stopped", login=login)
@@ -336,6 +336,9 @@ class DevPodService:
 
     async def delete(self, login: str, ws_id: str, *, shelve: bool = True) -> dict[str, Any]:
         """Supprime un workspace (force). Shelve le travail en attente si shelve=True."""
+        # Tuer le subprocess en cours (ex. devpod up en provisioning) pour libérer le verrou
+        # avant d'appeler shelve ou run_subprocess(delete).
+        await kill_if_running(ws_id)
         branch: str | None = None
         if shelve:
             # shelve_if_pending lance devpod ssh (git dans le conteneur), pas une opération
@@ -350,7 +353,7 @@ class DevPodService:
         env = self._minimal_env(login)
         cmd = [*self._devpod_bin, "delete", ws_id, "--force"]
         log_path = self._log_path(login, f"{ws_id}-delete")
-        rc = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id)
+        rc = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120)
         if rc != 0:
             _log.warning("workspace_delete_failed", ws_id=ws_id, returncode=rc)
         async with _get_engine().begin() as conn:
@@ -769,7 +772,7 @@ class DevPodService:
             log_path = self._log_path(login, ws_id)
             # Seul le returncode est logué — la valeur des env vars (secrets) n'est jamais écrite
             returncode = await run_subprocess(
-                cmd=cmd, env=subprocess_env, log_path=log_path, ws_id=ws_id
+                cmd=cmd, env=subprocess_env, log_path=log_path, ws_id=ws_id, timeout_s=1800
             )
             async with _get_engine().begin() as _conn:
                 await persist_log_blob_from_file(ws_id, login, "up", log_path, _conn)
