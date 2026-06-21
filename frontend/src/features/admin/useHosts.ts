@@ -166,8 +166,8 @@ export function useHostWorkspaces(name: string) {
       apiFetchJson<HostUserWorkspaces[]>(
         `/admin/hosts/${encodeURIComponent(name)}/workspaces`,
       ),
-    staleTime: 30 * 1000,
-    refetchInterval: 30 * 1000,
+    staleTime: 10 * 1000,
+    refetchInterval: 10 * 1000,
   })
 }
 

@@ -256,6 +256,30 @@ async def workspace_up(
                 ),
             )
 
+    # Synchronise le spec en DB — le host (et autres champs) peut différer de la valeur
+    # stockée lors de la création initiale (ex. 409 ignoré, reprovisioning avec autre host).
+    from ..config.store import load_user
+    from ..config.store import save_user as _save_user
+
+    _up_fields = {
+        "source": req.source,
+        "branch": req.branch,
+        "git_credential": req.git_credential,
+        "host": req.host,
+        "recipes": req.recipes,
+        "extra_sources": req.extra_sources,
+        "profile": req.profile,
+    }
+    _user_cfg = await load_user(user.login)
+    for _i, _existing in enumerate(_user_cfg.workspaces):
+        if _existing.name == name:
+            _updated = _existing.model_copy(update=_up_fields)
+            if _updated != _existing:
+                _user_cfg.workspaces[_i] = _updated
+                await _save_user(user.login, _user_cfg)
+                _log.info("workspace_spec_synced", login=user.login, name=name)
+            break
+
     svc = _get_service()
     request_host = request.headers.get("x-forwarded-host") or request.url.hostname or ""
     try:

@@ -1,10 +1,15 @@
+# start-claude-rc.sh — launcher headless, réutilise l'état persistant
 #!/usr/bin/env bash
 set -euo pipefail
+command -v claude &>/dev/null || { echo "ERROR: claude not found." >&2; exit 1; }
 
-if ! command -v claude &>/dev/null; then
-    echo "ERROR: claude not found. Add the claude-code recipe first." >&2
+unset ANTHROPIC_API_KEY
+
+CRED="${HOME}/.claude/.credentials.json"   # chemin à confirmer : ls -la ~/.claude
+if [ ! -f "$CRED" ]; then
+    echo "ERROR: pas de credentials. Lance d'abord bootstrap-claude.sh (login interactif)." >&2
     exit 1
 fi
 
-echo "==> Starting Claude Code in remote-control mode"
-exec claude /remote-control
+echo "==> Claude Code — Remote Control (server mode)"
+exec claude remote-control
