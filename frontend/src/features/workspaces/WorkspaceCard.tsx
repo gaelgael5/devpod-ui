@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { FileText, Key, Loader2 } from 'lucide-react'
+import { FileText, Key, Loader2, SquareTerminal } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import type { WorkspaceSpec, WorkspaceStatus, WorkspaceStatusValue } from './types'
 import SshKeyDialog from './SshKeyDialog'
 import LogDialog from './LogDialog'
+import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
   running: 'bg-green-500/10 text-green-600 border-green-500/30',
@@ -41,6 +42,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const [logsOpen, setLogsOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [recreateOpen, setRecreateOpen] = useState(false)
+  const [shellOpen, setShellOpen] = useState(false)
   const s = status.status
 
   return (
@@ -152,6 +154,16 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             <Key className="h-4 w-4" />
           </Button>
         )}
+        {s === 'running' && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setShellOpen(true)}
+            aria-label={t('workspaces.ssh.shellButton')}
+          >
+            <SquareTerminal className="h-4 w-4" />
+          </Button>
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -167,6 +179,13 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
           workspaceName={spec.name}
           open={sshKeyOpen}
           onOpenChange={setSshKeyOpen}
+        />
+      )}
+      {shellOpen && (
+        <WorkspaceSshTerminalWindow
+          wsName={spec.name}
+          shell
+          onClose={() => setShellOpen(false)}
         />
       )}
       <LogDialog

@@ -31,6 +31,7 @@ async def workspace_ssh_terminal(
     websocket: WebSocket,
     session: str | None = None,
     start: str | None = None,
+    shell: bool = False,
 ) -> None:
     await websocket.accept()
     settings = get_settings()
@@ -84,7 +85,10 @@ async def workspace_ssh_terminal(
     _tmux = 'TERM=xterm-256color tmux ${TMUX_SOCK:+-S "$TMUX_SOCK"}'
 
     tmux_cmd: str
-    if session is not None:
+    if shell:
+        # Mode shell brut : bash interactif sans tmux — utile pour le debug.
+        tmux_cmd = "exec bash -l"
+    elif session is not None:
         if not _SESSION_NAME_RE.fullmatch(session):
             await websocket.close(code=4022, reason="Invalid session name")
             return

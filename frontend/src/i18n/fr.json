@@ -23,6 +23,7 @@
     "ssh": {
       "newSession": "Nouvelle session SSH",
       "shell": "Shell",
+      "shellButton": "Ouvrir un shell SSH",
       "closeLabel": "Fermer la session SSH"
     },
     "terminals": {

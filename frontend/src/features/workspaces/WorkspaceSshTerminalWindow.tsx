@@ -8,10 +8,11 @@ import '@xterm/xterm/css/xterm.css'
 interface Props {
   wsName: string
   startId?: string
+  shell?: boolean
   onClose: () => void
 }
 
-export default function WorkspaceSshTerminalWindow({ wsName, startId, onClose }: Props) {
+export default function WorkspaceSshTerminalWindow({ wsName, startId, shell, onClose }: Props) {
   const { t } = useTranslation()
   const termRef = useRef<HTMLDivElement>(null)
   const posRef = useRef({ x: Math.max(0, window.innerWidth - 640), y: 80 })
@@ -47,7 +48,11 @@ export default function WorkspaceSshTerminalWindow({ wsName, startId, onClose }:
     if (winRef.current) ro.observe(winRef.current)
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const query = startId ? `?start=${encodeURIComponent(startId)}` : ''
+    const query = shell
+      ? '?shell=1'
+      : startId
+        ? `?start=${encodeURIComponent(startId)}`
+        : ''
     const ws = new WebSocket(
       `${proto}//${window.location.host}/me/workspaces/${encodeURIComponent(wsName)}/ssh${query}`
     )
@@ -74,7 +79,7 @@ export default function WorkspaceSshTerminalWindow({ wsName, startId, onClose }:
       terminal.dispose()
       wsRef.current = null
     }
-  }, [wsName, startId, t])
+  }, [wsName, startId, shell, t])
 
   // ── Drag ──────────────────────────────────────────────────────────────────
   useEffect(() => {
