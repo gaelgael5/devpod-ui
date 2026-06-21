@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 from pathlib import Path
 
 import structlog
+
+# Séquences d'échappement ANSI (couleurs, mise en forme) émises par devpod --debug.
+_ANSI_RE = re.compile(r"\x1b\[[\d;]*[mGKHF]")
 
 _log = structlog.get_logger(__name__)
 
@@ -70,7 +74,7 @@ async def run_subprocess(
                             line = await proc.stdout.readline()
                             if not line:
                                 break
-                            decoded = line.decode(errors="replace")
+                            decoded = _ANSI_RE.sub("", line.decode(errors="replace"))
                             log_file.write(decoded)
                             log_file.flush()
                     returncode = await proc.wait()
