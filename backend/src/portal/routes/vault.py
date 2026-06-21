@@ -130,7 +130,7 @@ async def pin_unlock(
             },
         ) from exc
     except PinWrongError as exc:
-        raise HTTPException(status_code=401, detail="Incorrect PIN") from exc
+        raise HTTPException(status_code=403, detail="Incorrect PIN") from exc
     except PinNotSetupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"status": "unlocked"}
@@ -148,7 +148,7 @@ async def pin_recover(
             user.login, body.recovery_code, body.new_pin, _sid(request), conn
         )
     except PinWrongError as exc:
-        raise HTTPException(status_code=401, detail="Incorrect recovery code") from exc
+        raise HTTPException(status_code=403, detail="Incorrect recovery code") from exc
     except PinNotSetupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"recovery_code": result.recovery_code}
