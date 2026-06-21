@@ -33,23 +33,30 @@ from .runner import kill_if_running, run_subprocess
 from .shelve import shelve_if_pending
 
 
-async def _materialize_system_cert(slug: str) -> str:
-    """Résout la clé privée PEM depuis harpo et l'écrit dans un fichier temp sécurisé.
+async def _materialize_system_cert(slug: str, login: str) -> str:
+    """Résout la clé privée PEM depuis harpo et l'écrit à un chemin STABLE.
 
-    Retourne le chemin du fichier. Le caller doit le supprimer dans finally.
+    Le chemin est {user_devpod_dir}/keys/{slug}.pem (pas un temp file).
+    EXTRA_FLAGS=-i {path} reste valide pour toute la durée de vie du workspace :
+    devpod ssh --stdio {ws_id} (ProxyCommand) lit ce chemin à chaque connexion.
     """
     from ..secrets.system import reveal_system_cert
 
     async with _get_engine().begin() as conn:
         pem = await reveal_system_cert(slug, conn)
 
-    fd, path = tempfile.mkstemp(suffix=".pem", prefix="devpod-host-")
+    keys_dir = safe_user_path(login, "devpod") / "keys"
+    keys_dir.mkdir(parents=True, exist_ok=True)
+    path = keys_dir / f"{slug}.pem"
+    # Écriture atomique — évite un état partiel si harpo est consulté en parallèle
+    fd, tmp = tempfile.mkstemp(dir=keys_dir, suffix=".tmp")
     try:
         os.write(fd, pem.encode())
     finally:
         os.close(fd)
-    os.chmod(path, 0o600)
-    return path
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+    return str(path)
 
 if TYPE_CHECKING:
     from ..exposure import ExposureService
@@ -148,12 +155,11 @@ class DevPodService:
             else:
                 ssh_host = host_cfg.address
 
-        # Matérialiser la clé SSH si besoin (supprimée par _run_up_task dans finally)
         tmp_key_path = ""
         task_created = False
         try:
             if host_cfg.type == "ssh" and host_cfg.host_cert_slug:
-                tmp_key_path = await _materialize_system_cert(host_cfg.host_cert_slug)
+                tmp_key_path = await _materialize_system_cert(host_cfg.host_cert_slug, login)
 
             provider_name = await ensure_provider(
                 login=login,
@@ -303,8 +309,11 @@ class DevPodService:
             _log.info("reconcile_port_forward", ws_id=ws_id, host_port=host_port)
             tmp_key_path = ""
             try:
+                login_for_key: str = data.get("login", "") or ws_id.split("-")[0]
                 if host_cfg.host_cert_slug:
-                    tmp_key_path = await _materialize_system_cert(host_cfg.host_cert_slug)
+                    tmp_key_path = await _materialize_system_cert(
+                        host_cfg.host_cert_slug, login_for_key
+                    )
                 await self._start_port_forward(
                     ws_id,
                     minimal_env,
