@@ -21,6 +21,27 @@ _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-sessions"])
 
 
+def _devpod_ssh_key(login: str) -> str | None:
+    """Retourne le chemin de la clé SSH privée générée par devpod pour cet utilisateur.
+
+    Devpod stocke sa clé dans $DEVPOD_HOME/ssh/.  Sans cette clé, le outer ssh
+    ne peut pas s'authentifier au serveur SSH du devcontainer et demande un
+    mot de passe.
+    """
+    ssh_dir = safe_user_path(login, "devpod") / "ssh"
+    if not ssh_dir.exists():
+        return None
+    for name in ("id_rsa", "id_ed25519", "id_devpod"):
+        key = ssh_dir / name
+        if key.exists():
+            return str(key)
+    # Fallback : premier fichier sans .pub dans le répertoire
+    for f in sorted(ssh_dir.iterdir()):
+        if f.is_file() and f.suffix != ".pub":
+            return str(f)
+    return None
+
+
 _TMUX_SOCK_DETECT = (
     "TMUX_SOCK=$(find /tmp -maxdepth 2 -name default"
     " -path '*/tmux-*/*' 2>/dev/null | head -1)"
@@ -60,9 +81,15 @@ async def _ssh(ws_id: str, login: str, command: str, timeout: float = 30.0) -> t
         "DEVPOD_HOME": str(safe_user_path(login, "devpod")),
         "HOME": os.environ.get("HOME", "/root"),
     }
+    key_path = _devpod_ssh_key(login)
+    identity_args = (
+        ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
+    )
     proc = await asyncio.create_subprocess_exec(
         "ssh",
         "-o", "LogLevel=ERROR",
+        "-o", "BatchMode=yes",
+        *identity_args,
         "-o", f"ProxyCommand={proxy_cmd}",
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
