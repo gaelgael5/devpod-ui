@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -12,14 +12,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { PinInput } from './components/PinInput'
-import { usePinUnlock, useVaultReset } from './api'
+import { usePinUnlock, useVaultReset, useVaultStatus } from './api'
 
 export default function VaultUnlock() {
   const navigate = useNavigate()
+  const { data: statusData } = useVaultStatus()
   const { mutateAsync, isPending } = usePinUnlock()
   const { mutateAsync: resetVault, isPending: isResetting } = useVaultReset()
   const [error, setError] = useState<string | null>(null)
   const [showResetDialog, setShowResetDialog] = useState(false)
+
+  useEffect(() => {
+    if (statusData?.status === 'setup_required') navigate('/vault/setup', { replace: true })
+  }, [statusData, navigate])
 
   const handlePin = async (pin: string) => {
     setError(null)
@@ -65,7 +70,7 @@ export default function VaultUnlock() {
               onClick={() => setShowResetDialog(true)}
               className="text-destructive underline"
             >
-              Réinitialiser le coffre
+              Coffre inaccessible ?
             </button>
           </div>
         </CardContent>
