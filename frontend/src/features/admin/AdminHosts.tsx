@@ -305,7 +305,9 @@ export default function AdminHosts() {
                   <tr className="border-b">
                     <td className="px-4 py-2 font-medium">{h.name}</td>
                     <td className="px-4 py-2 text-muted-foreground">{h.type}</td>
-                    <td className="px-4 py-2 text-muted-foreground font-mono text-xs">{h.docker_host || '—'}</td>
+                    <td className="px-4 py-2 text-muted-foreground font-mono text-xs">
+                      {h.type === 'ssh' ? (h.address || '—') : (h.docker_host || '—')}
+                    </td>
                     <td className="px-4 py-2">
                       {h.default
                         ? <span className="text-green-600">✓</span>

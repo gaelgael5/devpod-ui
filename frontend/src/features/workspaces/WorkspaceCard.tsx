@@ -48,6 +48,9 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         <div>
           <div className="font-semibold text-foreground">{spec.name}</div>
           <div className="text-xs text-muted-foreground">{spec.source}</div>
+          {spec.host && (
+            <div className="text-xs text-muted-foreground/70 font-mono">{spec.host}</div>
+          )}
         </div>
         <Badge
           variant="outline"
