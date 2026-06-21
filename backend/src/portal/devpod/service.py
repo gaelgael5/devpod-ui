@@ -529,14 +529,14 @@ class DevPodService:
     ) -> tuple[str, str]:
         """Upload devcontainer.json + features sur la VM SSH via tar|ssh.
 
-        DevPod résout --devcontainer-path relativement à son content/ dir.
-        On uploade dans {workspace_dir}/dc/ (hors du content/ dir) et on
-        retourne le chemin relatif ../dc/devcontainer.json qui, une fois
-        préfixé par content/, remonte correctement dans {workspace_dir}/dc/.
+        Le répertoire de workspace DevPod est effacé puis recréé à chaque
+        'devpod up' sur un workspace existant (message 'Delete old workspace').
+        On uploade donc dans {home}/.devpod-portal-dc/{ws_id}/ — hors du
+        workspace DevPod — et on passe le chemin absolu à --devcontainer-path.
 
-        Retourne (relative_path, absolute_remote_dir) :
-        - relative_path : à passer à --devcontainer-path
-        - absolute_remote_dir : chemin absolu distant pour le nettoyage
+        Retourne (absolute_devcontainer_path, remote_dir) :
+        - absolute_devcontainer_path : chemin absolu à passer à --devcontainer-path
+        - remote_dir : chemin absolu distant pour le nettoyage post-up
 
         Lève RuntimeError si l'upload échoue.
         """
@@ -557,13 +557,10 @@ class DevPodService:
         home_out, _ = await home_proc.communicate()
         home = home_out.decode().strip() or f"/home/{ssh_user}"
 
-        # DevPod stocke le workspace dans {home}/.devpod/agent/contexts/default/workspaces/{ws_id}/
-        # On place le devcontainer dans .../dc/ à côté du content/ dir.
-        # --devcontainer-path "../dc/devcontainer.json" est résolu par DevPod comme :
-        #   content/../dc/devcontainer.json = {workspace_dir}/dc/devcontainer.json ✓
-        workspace_dir = f"{home}/.devpod/agent/contexts/default/workspaces/{ws_id}"
-        remote_dir = f"{workspace_dir}/dc"
-        devcontainer_path = "../dc/devcontainer.json"
+        # Uploadé hors du répertoire workspace DevPod, qui est effacé et recréé
+        # par 'devpod up' sur un workspace existant.  Le chemin absolu survivra.
+        remote_dir = f"{home}/.devpod-portal-dc/{ws_id}"
+        devcontainer_path = f"{remote_dir}/devcontainer.json"
 
         remote_cmd = (
             f"mkdir -p {shlex.quote(remote_dir)} && "
