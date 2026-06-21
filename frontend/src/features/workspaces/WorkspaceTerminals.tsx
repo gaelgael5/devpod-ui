@@ -145,7 +145,7 @@ export default function WorkspaceTerminals() {
   return (
     <div className="flex h-screen flex-col bg-background">
       {/* En-tête */}
-      <header className="flex h-12 flex-shrink-0 items-center gap-3 border-b bg-card px-4">
+      <header className="flex h-10 flex-shrink-0 items-center gap-3 border-b bg-card px-3">
         <Button variant="ghost" size="sm" asChild className="gap-1.5 text-muted-foreground hover:text-foreground">
           <Link to="/workspaces">
             <ArrowLeft size={14} />
@@ -171,7 +171,7 @@ export default function WorkspaceTerminals() {
       {/* Corps */}
       <div className="flex min-h-0 flex-1">
         {/* Panneau sessions */}
-        <aside className="flex w-56 flex-shrink-0 flex-col border-r bg-card">
+        <aside className="flex w-40 flex-shrink-0 flex-col border-r bg-card">
           <div className="flex items-center justify-between px-3 py-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               {t('workspaces.terminals.title')}
