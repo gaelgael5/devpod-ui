@@ -31,6 +31,7 @@ function WorkspaceRow(spec: WorkspaceSpec) {
         })
       }
       onRecreate={(n) => recreateWorkspace.mutate(n)}
+      isStarting={createWorkspace.isPending}
     />
   )
 }

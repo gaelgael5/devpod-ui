@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { FileText, Key } from 'lucide-react'
+import { FileText, Key, Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -32,9 +32,10 @@ interface Props {
   onDelete: (name: string, shelve: boolean) => void
   onStart?: (name: string) => void
   onRecreate?: (name: string) => void
+  isStarting?: boolean
 }
 
-export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart, onRecreate }: Props) {
+export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart, onRecreate, isStarting = false }: Props) {
   const { t } = useTranslation()
   const [sshKeyOpen, setSshKeyOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
@@ -73,7 +74,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         </div>
       )}
 
-      {s === 'provisioning' && (
+      {(s === 'provisioning' || isStarting) && (
         <div className="mb-3 h-1 overflow-hidden rounded-full bg-muted">
           <div className="h-full w-1/2 animate-pulse rounded-full bg-primary" />
         </div>
@@ -104,8 +105,9 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             size="sm"
             variant="outline"
             onClick={() => onStart?.(spec.name)}
-            disabled={!onStart}
+            disabled={!onStart || isStarting}
           >
+            {isStarting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
             {t('workspaces.actions.start')}
           </Button>
         )}
@@ -134,8 +136,9 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             size="sm"
             variant="outline"
             onClick={() => onStart?.(spec.name)}
-            disabled={!onStart}
+            disabled={!onStart || isStarting}
           >
+            {isStarting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
             {t('workspaces.actions.retry')}
           </Button>
         )}
