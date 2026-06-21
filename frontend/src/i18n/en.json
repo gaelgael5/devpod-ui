@@ -39,7 +39,9 @@
       "startRecipeNone": "— none —",
       "create": "Create",
       "cancel": "Cancel",
-      "deleteSession": "Delete session"
+      "deleteSession": "Delete session",
+      "hideSidebar": "Hide panel",
+      "showSidebar": "Show panel"
     },
     "form": {
       "name": "Name",
