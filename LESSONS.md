@@ -42,6 +42,15 @@ Adapter `/api/plugins` en `/plugins` pour cohérence avec les autres routes du p
 ## [docker] Docker bridge + IPv6 : urllib3 échoue sans fallback IPv4
 En réseau Docker bridge, l'IPv6 n'est pas routé. Le DNS retourne des AAAA en premier ; urllib3/httpx tentent IPv6 et abandonnent sans essayer IPv4 (contrairement à curl). Fix : patcher `socket.getaddrinfo` au démarrage du process Python pour retourner les entrées AF_INET en premier quand `family=0`. Placer le patch après tous les imports (ruff E402) mais avant toute connexion runtime — urllib3 ne met pas `getaddrinfo` en cache à l'import.
 
+## [recipes/models] Clé YAML avec tiret ≠ champ pydantic avec underscore
+`memory-volume` (YAML) est vu comme champ inconnu par pydantic (`extra="forbid"`) → `ValidationError`. `RecipeMeta.model_validate()` échoue partout (galerie, sync, devcontainer). Fix : `model_validator(mode="before")` qui normalise `memory-volume` → `memory_volume` avant validation.
+
+## [devpod/service] `--devcontainer-path` : Go filepath.Join préfixe TOUJOURS content/
+DevPod fait `filepath.Join(content_dir, path)` en Go. Même un chemin absolu est préfixé par `content/` (Go ≠ Python : le '/' initial n'est pas traité comme racine). Seul un chemin relatif avec `../` peut échapper à `content/`. De plus, `{workspace_dir}` est entièrement effacé par "Delete old workspace". Solution : uploader dans `workspaces/.devpod-portal-dc/{ws_id}/` (répertoire frère, non effacé) et passer `../../.devpod-portal-dc/{ws_id}/devcontainer.json`.
+
+## [devpod/service] Clé SSH host : temp file = timeout SSH post-devpod-up
+`EXTRA_FLAGS=-i /tmp/devpod-host-xxx.pem` stocke le chemin d'un fichier temporaire supprimé dans le `finally` après `devpod up`. Le ProxyCommand `devpod ssh --stdio {ws_id}` échoue ensuite silencieusement (timeout 30 s) pour toute connexion SSH (_ssh, tmux, sessions). Le port-forward fonctionne car c'est une connexion persistante établie avant la suppression. Fix : écrire la clé à `{user_devpod_dir}/keys/{slug}.pem` (chemin stable, jamais supprimé par le guard `startswith(tempfile.gettempdir())`).
+
 ## [devpod/service] Profil et recettes : docker-tls uniquement
 `_write_devcontainer` n'est appelé que pour les hosts `docker-tls`. Sur SSH, DevPod tourne
 sur la VM distante — `--devcontainer-path` y est inexploitable (chemin local du portail).
