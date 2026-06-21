@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
-from ..config.store import _data_root, safe_user_path
+from ..config.store import _data_root, load_global, safe_user_path
 from ..db.engine import get_conn
 from ..db.recipes import load_recipes_as_dict
 from ..recipes.models import _RECIPE_ID_RE
@@ -30,17 +30,28 @@ def _validate_ws_name(name: str) -> None:
 
 
 async def _ssh(ws_id: str, login: str, command: str, timeout: float = 30.0) -> tuple[int, str]:
-    """Exécute une commande non-interactive dans le devcontainer via SSH."""
-    ssh_host = f"{ws_id}.devpod"
-    if ssh_host.startswith("-"):
+    """Exécute une commande non-interactive dans le devcontainer via SSH.
+
+    Utilise un ProxyCommand explicite (devpod ssh --stdio) plutôt que l'entrée
+    ~/.ssh/config écrite par devpod, qui est perdue au rebuild du conteneur portail.
+    """
+    if ws_id.startswith("-"):
         raise ValueError(f"Insecure ws_id: {ws_id!r}")
+    devpod_bin = load_global().devpod.binary
+    proxy_cmd = f"{shlex.quote(devpod_bin)} ssh --stdio {shlex.quote(ws_id)}"
     env = {
         **dict(os.environ),
         "DEVPOD_HOME": str(safe_user_path(login, "devpod")),
         "HOME": os.environ.get("HOME", "/root"),
     }
     proc = await asyncio.create_subprocess_exec(
-        "ssh", "-o", "LogLevel=ERROR", "--", ssh_host, command,
+        "ssh",
+        "-o", "LogLevel=ERROR",
+        "-o", f"ProxyCommand={proxy_cmd}",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "--", "root@devpod-ws",
+        command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,

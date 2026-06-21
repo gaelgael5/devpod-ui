@@ -8,6 +8,7 @@ services:
     env_file: /data/.env
     volumes:
       - /data:/data
+      - /data/.devpod:/root/.devpod
     networks:
       - internal
     healthcheck:

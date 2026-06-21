@@ -680,15 +680,19 @@ class DevPodService:
         ssh(1) standard crée un vrai listener local via -L, contrairement à
         `devpod ssh -L` qui ne bind pas de socket.
         """
-        # HOME est requis pour que ssh(1) trouve /root/.ssh/config écrit par DevPod.
-        ssh_env = {**env, "HOME": os.environ.get("HOME", "/root")}
+        # ProxyCommand explicite : ne dépend pas de l'entrée ~/.ssh/config écrite
+        # par DevPod, qui est perdue au rebuild du conteneur portail.
+        proxy_cmd = f"{shlex.join(self._devpod_bin)} ssh --stdio {ws_id}"
         cmd = [
             "ssh",
             "-N",
-            "-L",
-            f"0.0.0.0:{host_port}:localhost:{_OPENVSCODE_SERVER_PORT}",
-            f"{ws_id}.devpod",
+            "-o", f"ProxyCommand={proxy_cmd}",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-L", f"0.0.0.0:{host_port}:localhost:{_OPENVSCODE_SERVER_PORT}",
+            "root@devpod-ws",
         ]
+        ssh_env = {**env, "HOME": os.environ.get("HOME", "/root")}
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             env=ssh_env,

@@ -37,9 +37,11 @@ mkdir -p \
     "$DATA_ROOT/recipes" \
     "$DATA_ROOT/certs/ca" \
     "$DATA_ROOT/certs/portal" \
-    "$DATA_ROOT/certs/nodes"
+    "$DATA_ROOT/certs/nodes" \
+    "$DATA_ROOT/.devpod"
 chmod 700 "$DATA_ROOT"
 chmod 700 "$DATA_ROOT/certs" "$DATA_ROOT/certs/ca" "$DATA_ROOT/certs/portal" "$DATA_ROOT/certs/nodes"
+chmod 700 "$DATA_ROOT/.devpod"
 
 # ── 2. CA — §E-25 : NE JAMAIS régénérer si déjà présente ───────────────────
 if [[ -f "$CA_DIR/ca.pem" ]]; then
