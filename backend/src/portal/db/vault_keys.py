@@ -66,3 +66,9 @@ async def delete_vault_key(login: str, identifier: str, conn: AsyncConnection) -
 
 async def vault_key_exists(login: str, identifier: str, conn: AsyncConnection) -> bool:
     return await get_encrypted_token(login, identifier, conn) is not None
+
+
+async def delete_all_vault_keys(login: str, conn: AsyncConnection) -> None:
+    await conn.execute(
+        delete(user_harpocrate_keys).where(user_harpocrate_keys.c.login == login)
+    )

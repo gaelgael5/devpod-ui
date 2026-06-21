@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .tables import user_pin_config
@@ -90,4 +90,10 @@ async def lock_pin(login: str, locked_until: datetime, conn: AsyncConnection) ->
         update(user_pin_config)
         .where(user_pin_config.c.login == login)
         .values(locked_until=locked_until, updated_at=func.now())
+    )
+
+
+async def delete_pin_config(login: str, conn: AsyncConnection) -> None:
+    await conn.execute(
+        delete(user_pin_config).where(user_pin_config.c.login == login)
     )

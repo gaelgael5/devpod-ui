@@ -1,14 +1,25 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { PinInput } from './components/PinInput'
-import { usePinUnlock } from './api'
+import { usePinUnlock, useVaultReset } from './api'
 
 export default function VaultUnlock() {
   const navigate = useNavigate()
   const { mutateAsync, isPending } = usePinUnlock()
+  const { mutateAsync: resetVault, isPending: isResetting } = useVaultReset()
   const [error, setError] = useState<string | null>(null)
+  const [showResetDialog, setShowResetDialog] = useState(false)
 
   const handlePin = async (pin: string) => {
     setError(null)
@@ -20,9 +31,15 @@ export default function VaultUnlock() {
       setError(
         msg.includes('423')
           ? 'Compte verrouillé — réessayez dans quelques minutes.'
-          : 'PIN incorrect.'
+          : 'PIN incorrect.',
       )
     }
+  }
+
+  const handleReset = async () => {
+    await resetVault()
+    setShowResetDialog(false)
+    navigate('/vault/setup', { replace: true })
   }
 
   return (
@@ -39,13 +56,40 @@ export default function VaultUnlock() {
             </Alert>
           )}
           <PinInput onComplete={handlePin} disabled={isPending} showSubmit maskDelay={0} />
-          <p className="text-muted-foreground text-center text-sm">
+          <div className="text-muted-foreground flex justify-between text-center text-sm">
             <Link to="/vault/recover" className="underline">
               Code de secours oublié ?
             </Link>
-          </p>
+            <button
+              type="button"
+              onClick={() => setShowResetDialog(true)}
+              className="text-destructive underline"
+            >
+              Réinitialiser le coffre
+            </button>
+          </div>
         </CardContent>
       </Card>
+
+      <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Réinitialiser le coffre ?</DialogTitle>
+            <DialogDescription>
+              Cette action supprime définitivement votre PIN et toutes les clés de coffre
+              enregistrées. Vous devrez reconfigurer un nouveau PIN et re-saisir vos clés.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowResetDialog(false)}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={handleReset} disabled={isResetting}>
+              {isResetting ? 'Réinitialisation…' : 'Réinitialiser'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

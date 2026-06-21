@@ -26,6 +26,7 @@ from ..vault.pin import (
     PinWrongError,
     get_vault_status,
     recover_pin,
+    reset_vault,
     setup_pin,
     unlock_pin,
 )
@@ -152,6 +153,15 @@ async def pin_recover(
     except PinNotSetupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"recovery_code": result.recovery_code}
+
+
+@router.delete("/vault/pin", status_code=204)
+async def pin_reset(
+    request: Request,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> None:
+    await reset_vault(user.login, _sid(request), conn)
 
 
 @router.get("/vault/keys")

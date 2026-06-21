@@ -7,8 +7,10 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..db.user_config import ensure_user_db
+from ..db.vault_keys import delete_all_vault_keys
 from ..db.vault_pin import (
     create_pin_config,
+    delete_pin_config,
     get_pin_config,
     has_pin_config,
     increment_pin_attempts,
@@ -132,6 +134,13 @@ async def recover_pin(
     vault_session.set_master_key(session_id, master_key)
     _log.info("vault_pin_recovered", login=login)
     return PinSetupResult(recovery_code=new_rec_code)
+
+
+async def reset_vault(login: str, session_id: str, conn: AsyncConnection) -> None:
+    vault_session.clear_session(session_id)
+    await delete_all_vault_keys(login, conn)
+    await delete_pin_config(login, conn)
+    _log.info("vault_reset", login=login)
 
 
 async def get_vault_status(

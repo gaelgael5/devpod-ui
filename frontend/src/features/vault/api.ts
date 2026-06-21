@@ -66,6 +66,14 @@ export function usePinRecover() {
   })
 }
 
+export function useVaultReset() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiFetch('/vault/pin', { method: 'DELETE' }),
+    onSuccess: () => qc.setQueryData(vaultQueryKeys.status(), { status: 'setup_required' }),
+  })
+}
+
 export function useAddVaultKey() {
   const qc = useQueryClient()
   return useMutation({
