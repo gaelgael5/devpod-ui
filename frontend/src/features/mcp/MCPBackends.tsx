@@ -29,6 +29,8 @@ import {
   useBackendKeys,
   useCreateKey,
   useDeleteKey,
+  type MCPBackend,
+  type MCPBackendKey,
   type StorageType,
   type Transport,
 } from './api'
@@ -194,7 +196,7 @@ function AddKeyDialog({ backendId, open, onClose }: { backendId: string; open: b
   )
 }
 
-function KeyRow({ backendId, keyItem }: { backendId: string; keyItem: { id: string; slug: string; storage_type: string; description: string } }) {
+function KeyRow({ backendId, keyItem }: { backendId: string; keyItem: MCPBackendKey }) {
   const { t } = useTranslation()
   const del = useDeleteKey(backendId)
   const [confirmDel, setConfirmDel] = useState(false)
@@ -262,7 +264,7 @@ function KeyList({ backendId }: { backendId: string }) {
   )
 }
 
-function BackendCard({ backend }: { backend: { id: string; name: string; namespace: string; url: string; enabled: boolean } }) {
+function BackendCard({ backend }: { backend: MCPBackend }) {
   const { t } = useTranslation()
   const del = useDeleteBackend()
   const [confirmDel, setConfirmDel] = useState(false)

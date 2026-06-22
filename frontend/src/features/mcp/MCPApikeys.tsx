@@ -31,6 +31,7 @@ import {
   useGrants,
   useSetGrant,
   useDeleteGrant,
+  type MCPApikey,
 } from './api'
 
 function CreateApikeyDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -209,7 +210,7 @@ function GrantRow({
   )
 }
 
-function ApikeyCard({ apikey }: { apikey: { id: string; label: string; revoked: boolean } }) {
+function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
   const { t } = useTranslation()
   const revoke = useRevokeApikey()
   const del = useDeleteApikey()
