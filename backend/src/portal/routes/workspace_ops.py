@@ -69,26 +69,52 @@ def _get_recipe_registry() -> RecipeRegistry:
 
 
 def _available_with_bundled_fallback(db_available: dict[str, RecipeMeta]) -> dict[str, RecipeMeta]:
-    """Enrichit le dict DB avec les recettes lues depuis le filesystem.
+    """Enrichit le dict DB avec les recettes lues directement depuis le filesystem.
 
     Ordre de priorité (du plus faible au plus fort) :
-      /app/recipes/  (bundlées dans l'image) < /data/recipes/ (volume admin) < DB
-    Garantit que les recettes bundlées sont toujours disponibles pour la
-    résolution des dépendances même si la DB n'a pas encore été synchronisée.
+      /app/recipes/ (bundlées image) < /data/recipes/ (volume) < DB
+    Lecture directe YAML (utf-8-sig pour gérer le BOM Windows) — évite que
+    _load_meta avale silencieusement les erreurs et cache un problème de parsing.
     """
     from pathlib import Path
 
-    bundled_dir = Path("/app/recipes")
-    data_dir = _data_root() / "recipes"
+    import yaml as _yaml
 
     fs: dict[str, RecipeMeta] = {}
-    for d in (bundled_dir, data_dir):
-        if d.exists():
-            fs.update(RecipeRegistry(builtin_dir=d).load_shared())
+    for base in (Path("/app/recipes"), _data_root() / "recipes"):
+        if not base.exists():
+            _log.debug("recipe_fallback_dir_absent", path=str(base))
+            continue
+        for recipe_dir in sorted(base.iterdir()):
+            if not recipe_dir.is_dir():
+                continue
+            meta_file = recipe_dir / "recipe.meta.yaml"
+            if not meta_file.exists():
+                continue
+            try:
+                # utf-8-sig supprime le BOM UTF-8 éventuel (fichiers créés sur Windows)
+                raw: object = _yaml.safe_load(meta_file.read_text(encoding="utf-8-sig"))
+                if isinstance(raw, dict) and "category" in raw and "type" not in raw:
+                    raw = dict(raw)
+                    raw["type"] = raw.pop("category")
+                meta = RecipeMeta.model_validate(raw)
+                fs[meta.id] = meta
+            except Exception as exc:
+                _log.warning(
+                    "recipe_fallback_skip",
+                    path=str(meta_file),
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                )
 
+    _log.debug("recipe_fallback_loaded", count=len(fs), ids=sorted(fs))
     if not fs:
         return db_available
-    return {**fs, **db_available}  # DB a priorité absolue
+    # FS a priorité sur DB pour garantir que les GUIDs (key) des recettes bundlées
+    # sont toujours corrects — la DB peut avoir un key périmé si la recette a été
+    # insérée avant l'introduction du champ key dans recipe.meta.yaml.
+    # Les recettes uniquement en DB (créées par l'utilisateur) sont préservées.
+    return {**db_available, **fs}
 
 
 def _get_service() -> DevPodService:
