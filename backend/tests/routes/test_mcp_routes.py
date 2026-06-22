@@ -45,13 +45,7 @@ async def test_backend_create_list_delete(client: AsyncClient) -> None:
     r = await client.get("/me/mcp/backends")
     assert r.status_code == 200 and len(r.json()) == 1
 
-    # namespace dupliqué → 409
-    r = await client.post("/me/mcp/backends", json={
-        "namespace": "rag", "name": "X", "url": "https://x/mcp", "transport": "sse",
-    })
-    assert r.status_code == 409
-
-    # namespace avec '__' → 422
+    # namespace avec '__' → 422 (rejet à la validation, ne touche pas la DB)
     r = await client.post("/me/mcp/backends", json={
         "namespace": "a__b", "name": "X", "url": "https://x/mcp", "transport": "sse",
     })
@@ -59,6 +53,19 @@ async def test_backend_create_list_delete(client: AsyncClient) -> None:
 
     r = await client.delete(f"/me/mcp/backends/{bid}")
     assert r.status_code == 204
+
+
+async def test_backend_rejects_duplicate_namespace(client: AsyncClient) -> None:
+    # Cas isolé : le POST dupliqué viole la contrainte UNIQUE et avorte la
+    # transaction asyncpg ; en test, db_conn est partagé entre les requêtes,
+    # donc aucune opération DB ne doit suivre dans le même test (en prod, chaque
+    # requête a sa propre transaction et ce problème ne se pose pas).
+    payload = {"namespace": "rag", "name": "RAG", "url": "https://rag/mcp", "transport": "streamable_http"}
+    r = await client.post("/me/mcp/backends", json=payload)
+    assert r.status_code == 201
+
+    r = await client.post("/me/mcp/backends", json={**payload, "name": "X"})
+    assert r.status_code == 409
 
 
 async def test_apikey_create_returns_clear_once(client: AsyncClient) -> None:
