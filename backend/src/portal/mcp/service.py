@@ -4,6 +4,7 @@ import hashlib
 import secrets as _secrets
 import uuid
 
+import anyio
 import structlog
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..db import mcp as db
 from ..vault import session as vault_session
 from ..vault.crypto import encrypt_token
+from ..vault.keys import get_vault_client
 from .models import ApikeyCreate, BackendCreate, GrantSet, KeyCreate
 
 _log = structlog.get_logger(__name__)
@@ -83,11 +85,18 @@ async def create_backend_key(
         if master_key is None:
             raise VaultLocked("Vault verrouillé — déverrouillez avec votre PIN")
         local_blob = encrypt_token(body.secret_value, master_key)
-    else:  # harpocrate : on ne stocke qu'une référence
+    else:  # harpocrate : écriture dans le coffre AVANT l'insert DB (pas de référence orpheline)
         if not body.vault_identifier:
             raise InvalidReference("vault_identifier requis pour storage_type='harpocrate'")
+        if vault_session.get_master_key(session_id) is None:
+            raise VaultLocked("Vault verrouillé — déverrouillez avec votre PIN")
         vault_id = body.vault_identifier
-        vault_ref = f"${{vault://{body.vault_identifier}:mcp/{backend_id}/{body.slug}}}"
+        harpo_path = f"mcp/{backend_id}/{body.slug}/value"
+        vault_ref = f"${{vault://{body.vault_identifier}:{harpo_path}}}"
+        harpo_client = await get_vault_client(owner_login, session_id, body.vault_identifier, conn)
+        await anyio.to_thread.run_sync(
+            lambda: harpo_client.secrets.create(harpo_path, body.secret_value)
+        )
 
     kid = new_id()
     try:
