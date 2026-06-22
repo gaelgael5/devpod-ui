@@ -120,6 +120,30 @@ async def test_backend_key_never_exposes_local_value(db_conn: AsyncConnection) -
     assert await delete_backend_key(db_conn, "b1", "k1") is True
 
 
+async def test_delete_backend_key_cascades_grants(db_conn: AsyncConnection) -> None:
+    """Suppression d'une backend_key → les grants associés disparaissent en CASCADE."""
+    await _user(db_conn)
+    await insert_backend(
+        db_conn, id="b1", owner_login="alice", namespace="rag",
+        name="RAG", url="https://rag/mcp", transport="streamable_http",
+    )
+    await insert_backend_key(
+        db_conn, id="k1", backend_id="b1", slug="read", description="",
+        storage_type="local", secret_value_local=b"x",
+        secret_value_vault_ref=None, vault_identifier=None,
+    )
+    await insert_apikey(db_conn, id="a1", owner_login="alice", token_hash="H", label="cli")
+    await set_grant(db_conn, apikey_id="a1", backend_id="b1", backend_key_id="k1")
+
+    grants_before = await list_grants(db_conn, "a1")
+    assert len(grants_before) == 1
+
+    await delete_backend_key(db_conn, "b1", "k1")
+
+    grants_after = await list_grants(db_conn, "a1")
+    assert grants_after == [], "le grant doit disparaître en CASCADE avec la clé"
+
+
 async def test_apikey_lifecycle_and_grants(db_conn: AsyncConnection) -> None:
     await _user(db_conn)
     await insert_backend(

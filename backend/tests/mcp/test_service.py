@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 import pytest
 from sqlalchemy import insert, select
@@ -188,6 +189,89 @@ async def test_set_grant_happy_path(db_conn: AsyncConnection) -> None:
     )
     grants = await list_grants(db_conn, aid)
     assert len(grants) == 1 and grants[0]["backend_key_id"] == "kB1"
+
+
+async def test_create_harpocrate_key_writes_vault_and_stores_ref(
+    db_conn: AsyncConnection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La branche harpocrate écrit la valeur dans le coffre AVANT l'insert DB."""
+    await _user(db_conn)
+    bid = await service.create_backend(
+        db_conn, "alice",
+        models.BackendCreate(
+            namespace="rag", name="RAG", url="https://rag/mcp", transport="streamable_http"
+        ),
+    )
+
+    # Faux client Harpocrate qui enregistre les appels
+    calls: list[tuple[str, str]] = []
+
+    class _FakeSecrets:
+        def create(self, path: str, value: str) -> None:
+            calls.append((path, value))
+
+    class _FakeClient:
+        secrets = _FakeSecrets()
+
+    async def _fake_get_vault_client(
+        login: str, session_id: str, identifier: str, conn: Any
+    ) -> _FakeClient:
+        return _FakeClient()
+
+    monkeypatch.setattr("portal.mcp.service.get_vault_client", _fake_get_vault_client)
+
+    sid = "sess-harpo"
+    vault_session.set_master_key(sid, b"\xAA" * 32)
+    try:
+        key_body = models.KeyCreate(
+            slug="apitoken",
+            description="token harpocrate",
+            storage_type="harpocrate",
+            secret_value="secret-harpo-value",
+            vault_identifier="my-vault",
+        )
+        kid = await service.create_backend_key(db_conn, "alice", bid, sid, key_body)
+    finally:
+        vault_session.clear_session(sid)
+
+    # (a) l'écriture vault a bien eu lieu avec le bon path et la bonne valeur
+    expected_path = f"mcp/{bid}/apitoken/value"
+    assert len(calls) == 1, "secrets.create doit être appelé exactement une fois"
+    assert calls[0] == (expected_path, "secret-harpo-value")
+
+    # (b) la row stocke la référence vault et secret_value_local reste None
+    row = (
+        await db_conn.execute(
+            select(
+                mcp_backend_key.c.secret_value_vault_ref,
+                mcp_backend_key.c.secret_value_local,
+                mcp_backend_key.c.vault_identifier,
+            ).where(mcp_backend_key.c.id == kid)
+        )
+    ).one()
+    expected_ref = f"${{vault://my-vault:{expected_path}}}"
+    assert row.secret_value_vault_ref == expected_ref
+    assert row.secret_value_local is None
+    assert row.vault_identifier == "my-vault"
+
+
+async def test_create_harpocrate_key_requires_unlocked_vault(db_conn: AsyncConnection) -> None:
+    """Vault verrouillé → VaultLocked, même pour storage_type='harpocrate'."""
+    await _user(db_conn)
+    bid = await service.create_backend(
+        db_conn, "alice",
+        models.BackendCreate(
+            namespace="rag2", name="RAG", url="https://rag/mcp", transport="streamable_http"
+        ),
+    )
+    with pytest.raises(service.VaultLocked):
+        await service.create_backend_key(
+            db_conn, "alice", bid, "no-session",
+            models.KeyCreate(
+                slug="tok", description="", storage_type="harpocrate",
+                secret_value="v", vault_identifier="my-vault"
+            ),
+        )
 
 
 async def test_set_grant_rejects_foreign_apikey(db_conn: AsyncConnection) -> None:
