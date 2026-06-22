@@ -57,4 +57,4 @@ fi
 # ─── Déploiement ──────────────────────────────────────────────────────────────
 exec env COMPOSE_FILE=deploy/docker-compose.dev.yml \
     DATA_ROOT="$DATA_ROOT" \
-    "${SCRIPT_DIR}/scripts/deploy-portal.sh"
+    "${SCRIPT_DIR}/scripts/deploy-portal.sh" "$@"
