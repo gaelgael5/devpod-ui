@@ -76,9 +76,9 @@ export interface CreatedApikey {
 
 const QK = {
   backends: () => ['mcp', 'backends'] as const,
-  keys: (backendId: string) => ['mcp', 'keys', backendId] as const,
+  keys: (backendId: string | null) => ['mcp', 'keys', backendId] as const,
   apikeys: () => ['mcp', 'apikeys'] as const,
-  grants: (apikeyId: string) => ['mcp', 'grants', apikeyId] as const,
+  grants: (apikeyId: string | null) => ['mcp', 'grants', apikeyId] as const,
 }
 
 // ── Backends ──────────────────────────────────────────────────────────────────
@@ -129,7 +129,7 @@ export function useDeleteBackend() {
 
 export function useBackendKeys(backendId: string | null) {
   return useQuery({
-    queryKey: QK.keys(backendId ?? ''),
+    queryKey: QK.keys(backendId),
     queryFn: () =>
       apiFetchJson<MCPBackendKey[]>(`/me/mcp/backends/${encodeURIComponent(backendId!)}/keys`),
     enabled: backendId !== null,
@@ -210,7 +210,7 @@ export function useDeleteApikey() {
 
 export function useGrants(apikeyId: string | null) {
   return useQuery({
-    queryKey: QK.grants(apikeyId ?? ''),
+    queryKey: QK.grants(apikeyId),
     queryFn: () =>
       apiFetchJson<MCPGrant[]>(`/me/mcp/apikeys/${encodeURIComponent(apikeyId!)}/grants`),
     enabled: apikeyId !== null,
