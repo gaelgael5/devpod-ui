@@ -87,7 +87,11 @@ function AddBackendDialog({ open, onClose }: { open: boolean; onClose: () => voi
             </Select>
           </div>
           {create.error && (
-            <Alert variant="destructive"><AlertDescription>{create.error.message}</AlertDescription></Alert>
+            <Alert variant="destructive">
+              <AlertDescription>
+                {create.error instanceof Error ? create.error.message : t('errors.generic')}
+              </AlertDescription>
+            </Alert>
           )}
         </div>
         <DialogFooter>
@@ -172,7 +176,11 @@ function AddKeyDialog({ backendId, open, onClose }: { backendId: string; open: b
             <Input type="password" value={value} onChange={(e) => setValue(e.target.value)} />
           </div>
           {create.error && (
-            <Alert variant="destructive"><AlertDescription>{create.error.message}</AlertDescription></Alert>
+            <Alert variant="destructive">
+              <AlertDescription>
+                {create.error instanceof Error ? create.error.message : t('errors.generic')}
+              </AlertDescription>
+            </Alert>
           )}
         </div>
         <DialogFooter>
