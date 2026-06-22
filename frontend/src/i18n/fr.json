@@ -591,6 +591,7 @@
       "grantsHint": "Pour chaque serveur autorisé, choisissez la clé d'authentification à utiliser.",
       "noGrants": "Aucun accès configuré.",
       "selectKey": "Choisir une clé…",
+      "publicAccess": "Aucune (public)",
       "addGrant": "Autoriser",
       "removeGrant": "Retirer"
     },

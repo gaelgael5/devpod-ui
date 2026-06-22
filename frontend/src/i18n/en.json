@@ -591,6 +591,7 @@
       "grantsHint": "For each authorized server, choose the authentication key to use.",
       "noGrants": "No access configured.",
       "selectKey": "Choose a key…",
+      "publicAccess": "None (public)",
       "addGrant": "Authorize",
       "removeGrant": "Remove"
     },

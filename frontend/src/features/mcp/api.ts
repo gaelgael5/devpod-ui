@@ -66,7 +66,8 @@ export interface KeyCreateBody {
 
 export interface GrantSetBody {
   backend_id: string
-  backend_key_id: string
+  // null = backend public (sans authentification) : aucune clé de service
+  backend_key_id: string | null
 }
 
 export interface CreatedApikey {

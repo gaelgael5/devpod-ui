@@ -146,6 +146,7 @@ function GrantEditor({ apikeyId }: { apikeyId: string }) {
             backendId={b.id}
             backendName={b.name}
             namespace={b.namespace}
+            granted={current !== undefined}
             currentKeyId={current?.backend_key_id ?? null}
             onSet={(keyId) =>
               setGrant.mutate(
@@ -169,10 +170,15 @@ function GrantEditor({ apikeyId }: { apikeyId: string }) {
   )
 }
 
+// Valeur sentinelle pour l'option « accès public sans clé » (shadcn Select
+// interdit une SelectItem de value="").
+const PUBLIC_GRANT = '__public__'
+
 function GrantRow({
   backendId,
   backendName,
   namespace,
+  granted,
   currentKeyId,
   onSet,
   onRemove,
@@ -180,28 +186,37 @@ function GrantRow({
   backendId: string
   backendName: string
   namespace: string
+  granted: boolean
   currentKeyId: string | null
-  onSet: (keyId: string) => void
+  onSet: (keyId: string | null) => void
   onRemove: () => void
 }) {
   const { t } = useTranslation()
   const { data: keys = [] } = useBackendKeys(backendId)
 
+  // Valeur affichée : aucune si pas de grant ; PUBLIC_GRANT si grant sans clé ;
+  // sinon l'id de la clé choisie.
+  const selectValue = !granted ? '' : (currentKeyId ?? PUBLIC_GRANT)
+
   return (
     <div className="flex items-center gap-2 text-sm">
       <span className="font-medium">{backendName}</span>
       <Badge variant="outline" className="font-mono text-xs">{namespace}</Badge>
-      <Select value={currentKeyId ?? ''} onValueChange={onSet}>
+      <Select
+        value={selectValue}
+        onValueChange={(v) => onSet(v === PUBLIC_GRANT ? null : v)}
+      >
         <SelectTrigger className="ml-auto h-8 w-44">
           <SelectValue placeholder={t('mcp.apikeys.selectKey')} />
         </SelectTrigger>
         <SelectContent>
+          <SelectItem value={PUBLIC_GRANT}>{t('mcp.apikeys.publicAccess')}</SelectItem>
           {keys.map((k) => (
             <SelectItem key={k.id} value={k.id}>{k.slug}</SelectItem>
           ))}
         </SelectContent>
       </Select>
-      {currentKeyId && (
+      {granted && (
         <Button size="sm" variant="ghost" className="text-destructive" onClick={onRemove}>
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
