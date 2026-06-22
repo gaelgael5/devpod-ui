@@ -17,6 +17,7 @@ class KekUnavailable(Exception):
 def _derive_kek() -> bytes:
     kek_hex = _settings_module.get_settings().portal_vault_kek
     if not kek_hex:
+        log.warning("mcp_kek_unavailable")
         raise KekUnavailable("PORTAL_VAULT_KEK non configuré")
     hkdf = HKDF(
         algorithm=hashes.SHA256(),
