@@ -25,15 +25,8 @@ export default function WorkspaceSessionTerminal({ wsName, session }: Props) {
 
     if (termRef.current) {
       terminal.open(termRef.current)
-      // requestAnimationFrame garantit que le layout flex est calculé avant fit()
-      // — sans ça, clientWidth/clientHeight vaut 0 et xterm reste à 80 cols.
       requestAnimationFrame(() => { fitAddon.fit(); terminal.focus() })
     }
-
-    const onResize = () => fitAddon.fit()
-    window.addEventListener('resize', onResize)
-    const ro = new ResizeObserver(() => fitAddon.fit())
-    if (termRef.current) ro.observe(termRef.current)
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(
@@ -42,10 +35,20 @@ export default function WorkspaceSessionTerminal({ wsName, session }: Props) {
     )
     ws.binaryType = 'arraybuffer'
 
+    const sendResize = (cols: number, rows: number) => {
+      if (ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+    }
+
+    // Envoie la taille courante dès l'ouverture (cas où fit() a tourné avant onopen)
+    ws.onopen = () => sendResize(terminal.cols, terminal.rows)
+
     const encoder = new TextEncoder()
     const dataDisposable = terminal.onData((data) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data))
     })
+    // Propagation des changements de taille au PTY backend → SIGWINCH → tmux redraw
+    const resizeDisposable = terminal.onResize(({ cols, rows }) => sendResize(cols, rows))
 
     ws.onmessage = (e) => {
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
@@ -54,10 +57,16 @@ export default function WorkspaceSessionTerminal({ wsName, session }: Props) {
     ws.onclose = () => terminal.write(t('admin.sshTerminal.connClosed'))
     ws.onerror = () => terminal.write(t('admin.sshTerminal.connError'))
 
+    const onResize = () => fitAddon.fit()
+    window.addEventListener('resize', onResize)
+    const ro = new ResizeObserver(() => fitAddon.fit())
+    if (termRef.current) ro.observe(termRef.current)
+
     return () => {
       window.removeEventListener('resize', onResize)
       ro.disconnect()
       dataDisposable.dispose()
+      resizeDisposable.dispose()
       ws.close()
       terminal.dispose()
     }

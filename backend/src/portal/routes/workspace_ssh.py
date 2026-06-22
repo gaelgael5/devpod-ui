@@ -3,9 +3,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import fcntl
+import json
 import os
+import pty
 import re
 import shlex
+import struct
+import termios
 from urllib.parse import urlparse
 
 import structlog
@@ -173,13 +178,28 @@ async def workspace_ssh_terminal(
 
     _log.info("ws_workspace_ssh_open", ws_id=ws_id, login=login, start=start)
 
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        env=devpod_env,
-    )
+    # PTY local : SSH reçoit un vrai terminal → SIGWINCH propagé correctement.
+    # Avec stdin=PIPE, SSH ne peut pas détecter les changements de taille et
+    # tmux reste à 80 colonnes même si la fenêtre du navigateur est plus large.
+    master_fd, slave_fd = pty.openpty()  # type: ignore[attr-defined]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            env=devpod_env,
+        )
+    finally:
+        os.close(slave_fd)  # le parent n'a besoin que du master
+
+    def _pty_resize(cols: int, rows: int) -> None:
+        with contextlib.suppress(OSError):
+            fcntl.ioctl(  # type: ignore[attr-defined]
+                master_fd,
+                termios.TIOCSWINSZ,  # type: ignore[attr-defined]
+                struct.pack("HHHH", rows, cols, 0, 0),
+            )
 
     async def _ws_to_ssh() -> None:
         try:
@@ -187,30 +207,50 @@ async def workspace_ssh_terminal(
                 message = await websocket.receive()
                 if message["type"] == "websocket.disconnect":
                     break
+                text: str | None = message.get("text")
                 raw: bytes | None = message.get("bytes")
-                if raw is None:
-                    raw = (message.get("text") or "").encode()
-                if raw and proc.stdin and not proc.stdin.is_closing():
-                    proc.stdin.write(raw)
-                    await proc.stdin.drain()
+                if text:
+                    # Trame texte = message de contrôle (resize)
+                    with contextlib.suppress(Exception):
+                        msg = json.loads(text)
+                        if msg.get("type") == "resize":
+                            _pty_resize(
+                                max(1, int(msg.get("cols", 80))),
+                                max(1, int(msg.get("rows", 24))),
+                            )
+                elif raw:
+                    with contextlib.suppress(OSError):
+                        os.write(master_fd, raw)
         except (WebSocketDisconnect, OSError):
             pass
         except Exception as exc:
             _log.warning("ws_workspace_ssh_ws_to_ssh_error", exc_type=type(exc).__name__)
 
     async def _ssh_to_ws() -> None:
+        loop = asyncio.get_event_loop()
+        q: asyncio.Queue[bytes | None] = asyncio.Queue()
+
+        def _on_readable() -> None:
+            try:
+                data = os.read(master_fd, 4096)
+                q.put_nowait(data or None)
+            except OSError:
+                q.put_nowait(None)
+                loop.remove_reader(master_fd)
+
+        loop.add_reader(master_fd, _on_readable)
         try:
-            if proc.stdout is None:
-                return
             while True:
-                chunk = await proc.stdout.read(4096)
-                if not chunk:
+                chunk = await q.get()
+                if chunk is None:
                     break
                 await websocket.send_bytes(chunk)
         except (WebSocketDisconnect, OSError):
             pass
         except Exception as exc:
             _log.warning("ws_workspace_ssh_ssh_to_ws_error", exc_type=type(exc).__name__)
+        finally:
+            loop.remove_reader(master_fd)
 
     tasks = [
         asyncio.create_task(_ws_to_ssh()),
@@ -224,6 +264,8 @@ async def workspace_ssh_terminal(
         if proc.returncode is None:
             proc.kill()
             await proc.wait()
+        with contextlib.suppress(OSError):
+            os.close(master_fd)
         with contextlib.suppress(Exception):
             await websocket.close()
 
