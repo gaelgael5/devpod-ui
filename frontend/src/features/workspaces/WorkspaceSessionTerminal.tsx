@@ -25,8 +25,9 @@ export default function WorkspaceSessionTerminal({ wsName, session }: Props) {
 
     if (termRef.current) {
       terminal.open(termRef.current)
-      fitAddon.fit()
-      terminal.focus()
+      // requestAnimationFrame garantit que le layout flex est calculé avant fit()
+      // — sans ça, clientWidth/clientHeight vaut 0 et xterm reste à 80 cols.
+      requestAnimationFrame(() => { fitAddon.fit(); terminal.focus() })
     }
 
     const onResize = () => fitAddon.fit()
@@ -62,5 +63,5 @@ export default function WorkspaceSessionTerminal({ wsName, session }: Props) {
     }
   }, [wsName, session, t])
 
-  return <div ref={termRef} className="h-full w-full bg-[#0d0d1a]" />
+  return <div ref={termRef} className="flex-1 min-h-0 min-w-0 overflow-hidden bg-[#0d0d1a]" />
 }
