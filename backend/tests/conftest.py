@@ -32,7 +32,10 @@ def postgres_url() -> str:
         # (postgresql+psycopg2://). On force asyncpg pour create_async_engine,
         # quel que soit le driver présent dans l'URL.
         url = re.sub(
-            r"^postgresql(\+[a-z0-9]+)?://", "postgresql+asyncpg://", pg.get_connection_url(), count=1
+            r"^postgresql(\+[a-z0-9]+)?://",
+            "postgresql+asyncpg://",
+            pg.get_connection_url(),
+            count=1,
         )
         yield url
 
