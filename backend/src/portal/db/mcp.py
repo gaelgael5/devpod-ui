@@ -204,6 +204,17 @@ async def find_apikey_by_hash(conn: AsyncConnection, token_hash: str) -> dict[st
     return dict(row) if row else None
 
 
+async def get_apikey(
+    conn: AsyncConnection, owner_login: str, apikey_id: str
+) -> dict[str, Any] | None:
+    q = select(*_APIKEY_COLS).where(
+        mcp_apikey.c.id == apikey_id,
+        mcp_apikey.c.owner_login == owner_login,
+    )
+    row = (await conn.execute(q)).mappings().first()
+    return dict(row) if row else None
+
+
 async def revoke_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str) -> bool:
     q = (
         update(mcp_apikey)

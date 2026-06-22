@@ -141,8 +141,7 @@ async def create_apikey(
 
 
 async def _require_owned_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str) -> None:
-    rows = await db.list_apikeys(conn, owner_login)
-    if not any(r["id"] == apikey_id for r in rows):
+    if await db.get_apikey(conn, owner_login, apikey_id) is None:
         raise NotFound(f"apikey '{apikey_id}' introuvable")
 
 

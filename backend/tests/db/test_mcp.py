@@ -11,6 +11,7 @@ from portal.db.mcp import (
     delete_backend_key,
     delete_grant,
     find_apikey_by_hash,
+    get_apikey,
     get_backend,
     get_backend_key,
     insert_apikey,
@@ -176,3 +177,17 @@ async def test_apikey_lifecycle_and_grants(db_conn: AsyncConnection) -> None:
     assert await revoke_apikey(db_conn, "alice", "a1") is True
     assert await find_apikey_by_hash(db_conn, "HASH") is None
     assert await delete_apikey(db_conn, "alice", "a1") is True
+
+
+async def test_get_apikey_scoped_to_owner(db_conn: AsyncConnection) -> None:
+    await _user(db_conn)
+    await _user(db_conn, "bob")
+    await insert_apikey(db_conn, id="a1", owner_login="alice", token_hash="H", label="cli")
+
+    got = await get_apikey(db_conn, "alice", "a1")
+    assert got is not None and got["id"] == "a1"
+    assert "token_hash" not in got  # jamais exposé
+
+    # isolation : bob ne voit pas l'apikey d'alice ; id inconnu → None
+    assert await get_apikey(db_conn, "bob", "a1") is None
+    assert await get_apikey(db_conn, "alice", "absent") is None

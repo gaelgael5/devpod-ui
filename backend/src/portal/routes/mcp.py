@@ -173,8 +173,7 @@ async def list_grants_route(
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, Any]]:
-    rows = await db.list_apikeys(conn, user.login)
-    if not any(r["id"] == apikey_id for r in rows):
+    if await db.get_apikey(conn, user.login, apikey_id) is None:
         raise HTTPException(status_code=404, detail="apikey introuvable")
     return await db.list_grants(conn, apikey_id)
 
@@ -201,8 +200,7 @@ async def delete_grant_route(
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
-    rows = await db.list_apikeys(conn, user.login)
-    if not any(r["id"] == apikey_id for r in rows):
+    if await db.get_apikey(conn, user.login, apikey_id) is None:
         raise HTTPException(status_code=404, detail="apikey introuvable")
     if not await db.delete_grant(conn, apikey_id, backend_id):
         raise HTTPException(status_code=404, detail="grant introuvable")
