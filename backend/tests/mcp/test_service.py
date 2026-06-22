@@ -15,6 +15,7 @@ from portal.db.mcp import (
 )
 from portal.db.tables import mcp_backend_key, users
 from portal.mcp import models, service
+from portal.mcp.runtime_secrets import decrypt_service_key
 from portal.vault import session as vault_session
 
 
@@ -79,7 +80,6 @@ async def test_create_local_key_encrypts_with_kek(
     # plus besoin de session vault pour 'local'
     kid = await service.create_backend_key(db_conn, "alice", bid, "no-session", key_body)
 
-    from portal.mcp.runtime_secrets import decrypt_service_key
     blob = (
         await db_conn.execute(
             select(mcp_backend_key.c.secret_value_local).where(mcp_backend_key.c.id == kid)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import and_, delete, select, update
+from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -36,8 +36,6 @@ async def upsert_primitive(
     Une fois quarantinée, la primitive reste quarantinée jusqu'à un appel
     explicite à set_quarantine(False).
     """
-    from sqlalchemy import func as _func
-
     existing = (
         await conn.execute(
             select(cat.c.definition_hash, cat.c.quarantined).where(
@@ -63,7 +61,7 @@ async def upsert_primitive(
         set_={
             "definition": definition,
             "definition_hash": definition_hash,
-            "last_seen": _func.now(),
+            "last_seen": func.now(),
             # Quarantaine collante : OR bit-à-bit entre l'état existant et le nouveau flag.
             # Une primitive quarantinée reste quarantinée même si le hash revient au nominal.
             "quarantined": cat.c.quarantined | quarantine,
