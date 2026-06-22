@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import structlog
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -11,7 +10,6 @@ from ..db import mcp as db
 from ..db.engine import get_conn
 from ..mcp import models, service
 
-_log = structlog.get_logger(__name__)
 router = APIRouter(tags=["mcp"])
 
 _ID = Path(..., pattern=r"^[a-z0-9]{1,64}$")
@@ -115,7 +113,7 @@ async def create_key_route(
 @router.delete("/mcp/backends/{backend_id}/keys/{key_id}", status_code=204)
 async def delete_key_route(
     backend_id: str = _ID,
-    key_id: str = Path(..., pattern=r"^[a-z0-9]{1,64}$"),
+    key_id: str = _ID,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
@@ -199,7 +197,7 @@ async def set_grant_route(
 @router.delete("/mcp/apikeys/{apikey_id}/grants/{backend_id}", status_code=204)
 async def delete_grant_route(
     apikey_id: str = _ID,
-    backend_id: str = Path(..., pattern=r"^[a-z0-9]{1,64}$"),
+    backend_id: str = _ID,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
