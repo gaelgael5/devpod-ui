@@ -49,7 +49,7 @@ function AddBackendDialog({ open, onClose }: { open: boolean; onClose: () => voi
   function submit() {
     create.mutate(
       { namespace, name, url, transport },
-      { onSuccess: close, onError: (e) => toast.error(e.message) },
+      { onSuccess: close, onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) },
     )
   }
 
@@ -64,7 +64,7 @@ function AddBackendDialog({ open, onClose }: { open: boolean; onClose: () => voi
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
             <Label>{t('mcp.backends.namespace')}</Label>
-            <Input value={namespace} onChange={(e) => setNamespace(e.target.value)} placeholder="rag" />
+            <Input value={namespace} onChange={(e) => setNamespace(e.target.value)} placeholder={t('mcp.backends.namespacePlaceholder')} />
             <span className="text-xs text-muted-foreground">{t('mcp.backends.namespaceHint')}</span>
           </div>
           <div className="flex flex-col gap-1.5">
@@ -73,7 +73,7 @@ function AddBackendDialog({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>{t('mcp.backends.url')}</Label>
-            <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://rag.yoops.org/mcp" />
+            <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder={t('mcp.backends.urlPlaceholder')} />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>{t('mcp.backends.transport')}</Label>
@@ -122,7 +122,7 @@ function AddKeyDialog({ backendId, open, onClose }: { backendId: string; open: b
         slug, description, storage_type: storage, secret_value: value,
         vault_identifier: storage === 'harpocrate' ? vaultId : null,
       },
-      { onSuccess: close, onError: (e) => toast.error(e.message) },
+      { onSuccess: close, onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) },
     )
   }
 
@@ -135,7 +135,7 @@ function AddKeyDialog({ backendId, open, onClose }: { backendId: string; open: b
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
             <Label>{t('mcp.backends.slug')}</Label>
-            <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="read" />
+            <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder={t('mcp.backends.slugPlaceholder')} />
             <span className="text-xs text-muted-foreground">{t('mcp.backends.slugHint')}</span>
           </div>
           <div className="flex flex-col gap-1.5">
@@ -208,7 +208,7 @@ function KeyList({ backendId }: { backendId: string }) {
           <Badge variant="outline" className="text-xs">{k.storage_type}</Badge>
           <span className="text-muted-foreground">{k.description}</span>
           <Button size="sm" variant="ghost" className="ml-auto text-destructive"
-            onClick={() => del.mutate(k.id, { onError: (e) => toast.error(e.message) })}>
+            onClick={() => del.mutate(k.id, { onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) })}>
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -242,10 +242,10 @@ export default function MCPBackends() {
             <Server className="h-4 w-4 text-muted-foreground" />
             <span className="font-medium">{b.name}</span>
             <Badge variant="outline" className="font-mono text-xs">{b.namespace}</Badge>
-            {!b.enabled && <Badge variant="secondary">disabled</Badge>}
+            {!b.enabled && <Badge variant="secondary">{t('mcp.backends.statusDisabled')}</Badge>}
             <span className="ml-2 text-xs text-muted-foreground">{b.url}</span>
             <Button size="sm" variant="ghost" className="ml-auto text-destructive"
-              onClick={() => del.mutate(b.id, { onError: (e) => toast.error(e.message) })}>
+              onClick={() => del.mutate(b.id, { onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) })}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </div>

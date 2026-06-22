@@ -568,7 +568,11 @@
       "wallet": "Wallet",
       "secretValue": "Key value",
       "delete": "Delete",
-      "confirmDelete": "Confirm"
+      "confirmDelete": "Confirm",
+      "statusDisabled": "Disabled",
+      "namespacePlaceholder": "rag",
+      "urlPlaceholder": "https://rag.yoops.org/mcp",
+      "slugPlaceholder": "read"
     },
     "apikeys": {
       "sectionTitle": "Client apikeys",
