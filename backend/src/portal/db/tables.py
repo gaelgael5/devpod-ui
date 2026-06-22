@@ -396,3 +396,61 @@ harpo_secrets = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("owner_login", "slug", name="uq_harpo_secrets_login_slug"),
 )
+
+# ─── MCP Gateway (lot 1) ──────────────────────────────────────────────────────
+
+mcp_backend = Table(
+    "mcp_backend",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("namespace", Text, nullable=False),  # préfixe ^[a-z0-9_]+ sans "__"
+    Column("name", Text, nullable=False),
+    Column("url", Text, nullable=False),
+    Column("transport", Text, nullable=False, server_default="streamable_http"),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("owner_login", "namespace", name="uq_mcp_backend_owner_namespace"),
+)
+
+mcp_backend_key = Table(
+    "mcp_backend_key",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("backend_id", Text, ForeignKey("mcp_backend.id", ondelete="CASCADE"), nullable=False),
+    Column("slug", Text, nullable=False),  # clef fonctionnelle, ex 'read'/'admin'
+    Column("description", Text, nullable=False, server_default=""),
+    Column("storage_type", Text, nullable=False),  # 'local' | 'harpocrate'
+    Column("secret_value_local", LargeBinary, nullable=True),
+    Column("secret_value_vault_ref", Text, nullable=True),
+    Column("vault_identifier", Text, nullable=True),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("backend_id", "slug", name="uq_mcp_backend_key_backend_slug"),
+)
+
+mcp_apikey = Table(
+    "mcp_apikey",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("token_hash", Text, nullable=False),  # sha256 hex du token clair
+    Column("label", Text, nullable=False, server_default=""),
+    Column("revoked", Boolean, nullable=False, server_default="false"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+mcp_apikey_grant = Table(
+    "mcp_apikey_grant",
+    metadata,
+    Column("apikey_id", Text, ForeignKey("mcp_apikey.id", ondelete="CASCADE"), nullable=False),
+    Column("backend_id", Text, ForeignKey("mcp_backend.id", ondelete="CASCADE"), nullable=False),
+    Column(
+        "backend_key_id",
+        Text,
+        ForeignKey("mcp_backend_key.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    UniqueConstraint("apikey_id", "backend_id", name="pk_mcp_apikey_grant"),
+)
