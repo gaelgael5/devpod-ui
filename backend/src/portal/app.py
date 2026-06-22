@@ -118,6 +118,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         from .recipes.sync import sync_bundled_recipes, sync_recipes_to_db
 
         bundled = Path("/app/recipes")
+        if not bundled.exists():
+            # Développement local : les recettes sont dans le repo source
+            bundled = Path(__file__).resolve().parents[3] / "recipes"
         data_recipes = _data_root() / "recipes"
         await _asyncio.to_thread(sync_bundled_recipes, bundled, data_recipes)
         async with _get_engine().begin() as conn:
