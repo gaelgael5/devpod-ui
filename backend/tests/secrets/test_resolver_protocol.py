@@ -5,8 +5,6 @@ import pytest
 from portal.secrets.resolver import EnvSecretResolver, SecretAccessError, SecretResolver
 from portal.secrets.types import Secret
 
-pytestmark = pytest.mark.asyncio
-
 
 async def test_env_resolver_resolves(monkeypatch) -> None:
     monkeypatch.setenv("MCP_RAG_TOKEN", "s3cr3t")
