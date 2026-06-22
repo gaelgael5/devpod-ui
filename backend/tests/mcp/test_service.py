@@ -6,7 +6,13 @@ import pytest
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from portal.db.mcp import get_backend, list_backend_keys
+from portal.db.mcp import (
+    find_apikey_by_hash,
+    get_backend,
+    insert_backend_key,
+    list_backend_keys,
+    list_grants,
+)
 from portal.db.tables import mcp_backend_key, users
 from portal.mcp import models, service
 from portal.vault import session as vault_session
@@ -121,4 +127,86 @@ async def test_create_local_key_requires_unlocked_vault(db_conn: AsyncConnection
             db_conn, "alice", bid, "no-session",
             models.KeyCreate(slug="read", description="", storage_type="local",
                              secret_value="v", vault_identifier=None),
+        )
+
+
+async def test_create_apikey_returns_clear_once_and_stores_hash(
+    db_conn: AsyncConnection,
+) -> None:
+    await _user(db_conn)
+    aid, clear = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
+    assert clear.startswith(service.APIKEY_PREFIX)
+    # le hash stocké correspond au clair ; le clair n'est pas retrouvable autrement
+    found = await find_apikey_by_hash(db_conn, service.token_hash(clear))
+    assert found is not None and found["id"] == aid
+
+
+async def test_set_grant_rejects_key_from_other_backend(db_conn: AsyncConnection) -> None:
+    await _user(db_conn)
+    b1 = await service.create_backend(
+        db_conn, "alice",
+        models.BackendCreate(
+            namespace="rag", name="RAG", url="https://rag/mcp", transport="streamable_http"
+        ),
+    )
+    b2 = await service.create_backend(
+        db_conn, "alice",
+        models.BackendCreate(
+            namespace="wf", name="WF", url="https://wf/mcp", transport="streamable_http"
+        ),
+    )
+    await insert_backend_key(
+        db_conn, id="kB2", backend_id=b2, slug="read", description="",
+        storage_type="local", secret_value_local=b"x",
+        secret_value_vault_ref=None, vault_identifier=None,
+    )
+    aid, _ = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
+
+    # clé de b2 affectée à un grant sur b1 → refus
+    with pytest.raises(service.InvalidReference):
+        await service.set_grant(
+            db_conn, "alice", aid, models.GrantSet(backend_id=b1, backend_key_id="kB2")
+        )
+
+
+async def test_set_grant_happy_path(db_conn: AsyncConnection) -> None:
+    await _user(db_conn)
+    b1 = await service.create_backend(
+        db_conn, "alice",
+        models.BackendCreate(
+            namespace="rag", name="RAG", url="https://rag/mcp", transport="streamable_http"
+        ),
+    )
+    await insert_backend_key(
+        db_conn, id="kB1", backend_id=b1, slug="read", description="",
+        storage_type="local", secret_value_local=b"x",
+        secret_value_vault_ref=None, vault_identifier=None,
+    )
+    aid, _ = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
+    await service.set_grant(
+        db_conn, "alice", aid, models.GrantSet(backend_id=b1, backend_key_id="kB1")
+    )
+    grants = await list_grants(db_conn, aid)
+    assert len(grants) == 1 and grants[0]["backend_key_id"] == "kB1"
+
+
+async def test_set_grant_rejects_foreign_apikey(db_conn: AsyncConnection) -> None:
+    await _user(db_conn)
+    await _user(db_conn, "bob")
+    b1 = await service.create_backend(
+        db_conn, "alice",
+        models.BackendCreate(
+            namespace="rag", name="RAG", url="https://rag/mcp", transport="streamable_http"
+        ),
+    )
+    await insert_backend_key(
+        db_conn, id="kB1", backend_id=b1, slug="read", description="",
+        storage_type="local", secret_value_local=b"x",
+        secret_value_vault_ref=None, vault_identifier=None,
+    )
+    aid, _ = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
+    # bob tente de greffer un grant sur l'apikey d'alice
+    with pytest.raises(service.NotFound):
+        await service.set_grant(
+            db_conn, "bob", aid, models.GrantSet(backend_id=b1, backend_key_id="kB1")
         )

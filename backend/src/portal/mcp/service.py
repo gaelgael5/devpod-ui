@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import secrets as _secrets
 import uuid
 
 import structlog
@@ -9,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..db import mcp as db
 from ..vault import session as vault_session
 from ..vault.crypto import encrypt_token
-from .models import BackendCreate, KeyCreate
+from .models import ApikeyCreate, BackendCreate, GrantSet, KeyCreate
 
 _log = structlog.get_logger(__name__)
 
@@ -104,3 +106,47 @@ async def create_backend_key(
         raise NamespaceTaken(f"slug '{body.slug}' déjà utilisé pour ce backend") from exc
     _log.info("mcp_backend_key_created", login=owner_login, backend_id=backend_id, slug=body.slug)
     return kid
+
+
+# ---------------------------------------------------------------------------
+# API keys
+# ---------------------------------------------------------------------------
+
+APIKEY_PREFIX = "mcpk_"
+
+
+def token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+async def create_apikey(
+    conn: AsyncConnection, owner_login: str, body: ApikeyCreate
+) -> tuple[str, str]:
+    clear = APIKEY_PREFIX + _secrets.token_urlsafe(32)
+    aid = new_id()
+    await db.insert_apikey(
+        conn, id=aid, owner_login=owner_login, token_hash=token_hash(clear), label=body.label
+    )
+    _log.info("mcp_apikey_created", login=owner_login, apikey_id=aid)
+    return aid, clear
+
+
+async def _require_owned_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str) -> None:
+    rows = await db.list_apikeys(conn, owner_login)
+    if not any(r["id"] == apikey_id for r in rows):
+        raise NotFound(f"apikey '{apikey_id}' introuvable")
+
+
+async def set_grant(
+    conn: AsyncConnection, owner_login: str, apikey_id: str, body: GrantSet
+) -> None:
+    await _require_owned_apikey(conn, owner_login, apikey_id)
+    if await db.get_backend(conn, owner_login, body.backend_id) is None:
+        raise NotFound(f"backend '{body.backend_id}' introuvable")
+    # garde-fou : la clé doit exister ET appartenir au backend du grant
+    if await db.get_backend_key(conn, body.backend_id, body.backend_key_id) is None:
+        raise InvalidReference("backend_key_id n'appartient pas à ce backend")
+    await db.set_grant(
+        conn, apikey_id=apikey_id, backend_id=body.backend_id, backend_key_id=body.backend_key_id
+    )
+    _log.info("mcp_grant_set", login=owner_login, apikey_id=apikey_id, backend_id=body.backend_id)

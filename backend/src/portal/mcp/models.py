@@ -68,3 +68,14 @@ class BackendUpdate(BaseModel):
         if not (v.startswith("https://") or v.startswith("http://")):
             raise ValueError("url: doit commencer par http:// ou https://")
         return v
+
+
+class ApikeyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str = ""
+
+
+class GrantSet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    backend_id: str
+    backend_key_id: str
