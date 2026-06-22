@@ -69,22 +69,26 @@ def _get_recipe_registry() -> RecipeRegistry:
 
 
 def _available_with_bundled_fallback(db_available: dict[str, RecipeMeta]) -> dict[str, RecipeMeta]:
-    """Enrichit le dict DB avec les recettes bundlées absentes.
+    """Enrichit le dict DB avec les recettes lues depuis le filesystem.
 
-    Si la DB n'a pas encore été synchronisée (premier démarrage, DB fraîche),
-    les recettes de /app/recipes sont utilisées en fallback pour la résolution
-    des dépendances, évitant un DependencyNotFoundError injuste.
-    DB a toujours priorité sur les bundlées (l'admin peut avoir personnalisé).
+    Ordre de priorité (du plus faible au plus fort) :
+      /app/recipes/  (bundlées dans l'image) < /data/recipes/ (volume admin) < DB
+    Garantit que les recettes bundlées sont toujours disponibles pour la
+    résolution des dépendances même si la DB n'a pas encore été synchronisée.
     """
     from pathlib import Path
 
     bundled_dir = Path("/app/recipes")
-    if not bundled_dir.exists():
+    data_dir = _data_root() / "recipes"
+
+    fs: dict[str, RecipeMeta] = {}
+    for d in (bundled_dir, data_dir):
+        if d.exists():
+            fs.update(RecipeRegistry(builtin_dir=d).load_shared())
+
+    if not fs:
         return db_available
-    bundled = RecipeRegistry(builtin_dir=bundled_dir).load_shared()
-    if not bundled:
-        return db_available
-    return {**bundled, **db_available}  # DB a priorité sur bundled
+    return {**fs, **db_available}  # DB a priorité absolue
 
 
 def _get_service() -> DevPodService:
