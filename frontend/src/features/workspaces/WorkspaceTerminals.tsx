@@ -163,6 +163,14 @@ export default function WorkspaceTerminals() {
         <div className="h-4 w-px bg-border" />
         <Terminal size={14} className="text-muted-foreground" />
         <span className="text-sm font-medium">{wsName}</span>
+        {wsStatus?.url && (
+          <Button size="sm" variant="outline" className="h-7 gap-1.5 px-2" asChild>
+            <a href={wsStatus.url} target="_blank" rel="noopener noreferrer">
+              <ExternalLink size={13} />
+              {t('workspaces.actions.openVscode')}
+            </a>
+          </Button>
+        )}
         {/* Bouton "+ session" dans le header quand sidebar fermée */}
         {!sidebarOpen && (
           <Button
@@ -174,17 +182,6 @@ export default function WorkspaceTerminals() {
             <Plus size={13} />
             {t('workspaces.terminals.newSession')}
           </Button>
-        )}
-        {wsStatus?.url && (
-          <>
-            <div className="ml-auto h-4 w-px bg-border" />
-            <Button size="sm" variant="outline" className="gap-1.5" asChild>
-              <a href={wsStatus.url} target="_blank" rel="noopener noreferrer">
-                <ExternalLink size={13} />
-                {t('workspaces.actions.openVscode')}
-              </a>
-            </Button>
-          </>
         )}
       </header>
 
