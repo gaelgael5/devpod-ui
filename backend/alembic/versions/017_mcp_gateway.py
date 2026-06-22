@@ -36,13 +36,13 @@ def upgrade() -> None:
             "created_at",
             sa.DateTime(timezone=True),
             nullable=False,
-            server_default=sa.func.now(),
+            server_default=sa.text("now()"),
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
             nullable=False,
-            server_default=sa.func.now(),
+            server_default=sa.text("now()"),
         ),
         sa.UniqueConstraint("owner_login", "namespace", name="uq_mcp_backend_owner_namespace"),
     )
@@ -66,7 +66,7 @@ def upgrade() -> None:
             "created_at",
             sa.DateTime(timezone=True),
             nullable=False,
-            server_default=sa.func.now(),
+            server_default=sa.text("now()"),
         ),
         sa.UniqueConstraint("backend_id", "slug", name="uq_mcp_backend_key_backend_slug"),
     )
@@ -86,7 +86,7 @@ def upgrade() -> None:
             "created_at",
             sa.DateTime(timezone=True),
             nullable=False,
-            server_default=sa.func.now(),
+            server_default=sa.text("now()"),
         ),
     )
     op.create_table(
