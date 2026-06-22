@@ -68,6 +68,25 @@ def _get_recipe_registry() -> RecipeRegistry:
     return _recipe_registry
 
 
+def _available_with_bundled_fallback(db_available: dict[str, RecipeMeta]) -> dict[str, RecipeMeta]:
+    """Enrichit le dict DB avec les recettes bundlées absentes.
+
+    Si la DB n'a pas encore été synchronisée (premier démarrage, DB fraîche),
+    les recettes de /app/recipes sont utilisées en fallback pour la résolution
+    des dépendances, évitant un DependencyNotFoundError injuste.
+    DB a toujours priorité sur les bundlées (l'admin peut avoir personnalisé).
+    """
+    from pathlib import Path
+
+    bundled_dir = Path("/app/recipes")
+    if not bundled_dir.exists():
+        return db_available
+    bundled = RecipeRegistry(builtin_dir=bundled_dir).load_shared()
+    if not bundled:
+        return db_available
+    return {**bundled, **db_available}  # DB a priorité sur bundled
+
+
 def _get_service() -> DevPodService:
     global _service
     if _service is None:
@@ -177,7 +196,9 @@ async def workspace_up(
 
     if req.recipes:
         reg = _get_recipe_registry()
-        available = await load_recipes_as_dict(user.login, conn)
+        available = _available_with_bundled_fallback(
+            await load_recipes_as_dict(user.login, conn)
+        )
 
         try:
             expanded = reg.expand_with_deps(req.recipes, available)
@@ -359,7 +380,9 @@ async def workspace_recreate(
     feature_env: dict[str, str] = {}
     if ws.recipes:
         reg = _get_recipe_registry()
-        available = await load_recipes_as_dict(user.login, conn)
+        available = _available_with_bundled_fallback(
+            await load_recipes_as_dict(user.login, conn)
+        )
         try:
             expanded = reg.expand_with_deps(ws.recipes, available)
             resolved_recipes = reg.resolve_order(expanded, available)
