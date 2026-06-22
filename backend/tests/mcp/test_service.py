@@ -10,8 +10,6 @@ from portal.db.mcp import get_backend
 from portal.db.tables import users
 from portal.mcp import models, service
 
-pytestmark = pytest.mark.asyncio
-
 
 async def _user(conn: AsyncConnection, login: str = "alice") -> None:
     await conn.execute(insert(users).values(login=login, version="1", secret_ns=str(uuid.uuid4())))
