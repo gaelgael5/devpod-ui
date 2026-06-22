@@ -294,3 +294,24 @@ async def test_set_grant_rejects_foreign_apikey(db_conn: AsyncConnection) -> Non
         await service.set_grant(
             db_conn, "bob", aid, models.GrantSet(backend_id=b1, backend_key_id="kB1")
         )
+
+
+async def test_set_grant_public_backend_without_key(db_conn: AsyncConnection) -> None:
+    """Backend public (sans auth) : grant valide avec backend_key_id=None, sans clé."""
+    await _user(db_conn)
+    b1 = await service.create_backend(
+        db_conn, "alice",
+        models.BackendCreate(
+            namespace="deepwiki", name="DeepWiki",
+            url="https://mcp.deepwiki.com/mcp", transport="streamable_http",
+        ),
+    )
+    aid, _ = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
+
+    # aucune clé créée pour ce backend : le grant public ne doit pas en exiger
+    await service.set_grant(db_conn, "alice", aid, models.GrantSet(backend_id=b1))
+
+    grants = await list_grants(db_conn, aid)
+    assert len(grants) == 1
+    assert grants[0]["backend_id"] == b1
+    assert grants[0]["backend_key_id"] is None

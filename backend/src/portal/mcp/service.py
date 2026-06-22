@@ -151,8 +151,12 @@ async def set_grant(
     await _require_owned_apikey(conn, owner_login, apikey_id)
     if await db.get_backend(conn, owner_login, body.backend_id) is None:
         raise NotFound(f"backend '{body.backend_id}' introuvable")
-    # garde-fou : la clé doit exister ET appartenir au backend du grant
-    if await db.get_backend_key(conn, body.backend_id, body.backend_key_id) is None:
+    # backend_key_id None = backend public (sans auth) : aucune clé à valider.
+    # Sinon, garde-fou : la clé doit exister ET appartenir au backend du grant.
+    if (
+        body.backend_key_id is not None
+        and await db.get_backend_key(conn, body.backend_id, body.backend_key_id) is None
+    ):
         raise InvalidReference("backend_key_id n'appartient pas à ce backend")
     await db.set_grant(
         conn, apikey_id=apikey_id, backend_id=body.backend_id, backend_key_id=body.backend_key_id

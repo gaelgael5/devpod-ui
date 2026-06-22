@@ -446,11 +446,12 @@ mcp_apikey_grant = Table(
     metadata,
     Column("apikey_id", Text, ForeignKey("mcp_apikey.id", ondelete="CASCADE"), nullable=False),
     Column("backend_id", Text, ForeignKey("mcp_backend.id", ondelete="CASCADE"), nullable=False),
+    # nullable : un grant vers un backend public (sans auth) n'a pas de clé.
     Column(
         "backend_key_id",
         Text,
         ForeignKey("mcp_backend_key.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     ),
     UniqueConstraint("apikey_id", "backend_id", name="uq_mcp_apikey_grant_apikey_backend"),
 )

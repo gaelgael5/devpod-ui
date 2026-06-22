@@ -107,7 +107,7 @@ def upgrade() -> None:
             "backend_key_id",
             sa.Text(),
             sa.ForeignKey("mcp_backend_key.id", ondelete="CASCADE"),
-            nullable=False,
+            nullable=True,  # grant vers un backend public (sans auth) = pas de clé
         ),
         sa.UniqueConstraint("apikey_id", "backend_id", name="uq_mcp_apikey_grant_apikey_backend"),
     )

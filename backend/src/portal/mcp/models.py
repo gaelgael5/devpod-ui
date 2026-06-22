@@ -78,4 +78,5 @@ class ApikeyCreate(BaseModel):
 class GrantSet(BaseModel):
     model_config = ConfigDict(extra="forbid")
     backend_id: str
-    backend_key_id: str
+    # None = backend public (sans authentification) : aucune clé de service.
+    backend_key_id: str | None = None

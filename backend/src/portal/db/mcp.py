@@ -240,7 +240,7 @@ async def delete_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str)
 
 
 async def set_grant(
-    conn: AsyncConnection, *, apikey_id: str, backend_id: str, backend_key_id: str
+    conn: AsyncConnection, *, apikey_id: str, backend_id: str, backend_key_id: str | None
 ) -> None:
     stmt = pg_insert(mcp_apikey_grant).values(
         apikey_id=apikey_id, backend_id=backend_id, backend_key_id=backend_key_id
