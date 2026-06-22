@@ -141,6 +141,7 @@ async def test_apikey_lifecycle_and_grants(db_conn: AsyncConnection) -> None:
 
     found = await find_apikey_by_hash(db_conn, "HASH")
     assert found is not None and found["id"] == "a1" and found["owner_login"] == "alice"
+    assert "token_hash" not in found
 
     await set_grant(db_conn, apikey_id="a1", backend_id="b1", backend_key_id="k1")
     # upsert : re-set sur le même (apikey, backend) remplace la clé sans doublon
@@ -152,4 +153,5 @@ async def test_apikey_lifecycle_and_grants(db_conn: AsyncConnection) -> None:
     assert await list_grants(db_conn, "a1") == []
 
     assert await revoke_apikey(db_conn, "alice", "a1") is True
+    assert await find_apikey_by_hash(db_conn, "HASH") is None
     assert await delete_apikey(db_conn, "alice", "a1") is True

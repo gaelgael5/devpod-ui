@@ -196,7 +196,7 @@ async def list_apikeys(conn: AsyncConnection, owner_login: str) -> list[dict[str
 
 
 async def find_apikey_by_hash(conn: AsyncConnection, token_hash: str) -> dict[str, Any] | None:
-    q = select(*_APIKEY_COLS, mcp_apikey.c.token_hash).where(
+    q = select(*_APIKEY_COLS).where(
         mcp_apikey.c.token_hash == token_hash,
         mcp_apikey.c.revoked.is_(False),
     )
