@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 
 import pytest
@@ -27,7 +28,12 @@ def postgres_url() -> str:
     from testcontainers.postgres import PostgresContainer
 
     with PostgresContainer("postgres:16-alpine") as pg:
-        url = pg.get_connection_url().replace("postgresql://", "postgresql+asyncpg://", 1)
+        # testcontainers peut renvoyer une URL avec un driver sync par défaut
+        # (postgresql+psycopg2://). On force asyncpg pour create_async_engine,
+        # quel que soit le driver présent dans l'URL.
+        url = re.sub(
+            r"^postgresql(\+[a-z0-9]+)?://", "postgresql+asyncpg://", pg.get_connection_url(), count=1
+        )
         yield url
 
 
