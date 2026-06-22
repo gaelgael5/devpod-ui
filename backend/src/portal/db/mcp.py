@@ -240,14 +240,29 @@ async def delete_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str)
 
 
 async def set_grant(
-    conn: AsyncConnection, *, apikey_id: str, backend_id: str, backend_key_id: str | None
+    conn: AsyncConnection,
+    *,
+    apikey_id: str,
+    backend_id: str,
+    backend_key_id: str | None,
+    expose_mode: str = "all",
+    expose: list[str] | None = None,
 ) -> None:
+    expose = expose or []
     stmt = pg_insert(mcp_apikey_grant).values(
-        apikey_id=apikey_id, backend_id=backend_id, backend_key_id=backend_key_id
+        apikey_id=apikey_id,
+        backend_id=backend_id,
+        backend_key_id=backend_key_id,
+        expose_mode=expose_mode,
+        expose=expose,
     )
     stmt = stmt.on_conflict_do_update(
         constraint="uq_mcp_apikey_grant_apikey_backend",
-        set_={"backend_key_id": backend_key_id},
+        set_={
+            "backend_key_id": backend_key_id,
+            "expose_mode": expose_mode,
+            "expose": expose,
+        },
     )
     await conn.execute(stmt)
 
@@ -257,6 +272,8 @@ async def list_grants(conn: AsyncConnection, apikey_id: str) -> list[dict[str, A
         mcp_apikey_grant.c.apikey_id,
         mcp_apikey_grant.c.backend_id,
         mcp_apikey_grant.c.backend_key_id,
+        mcp_apikey_grant.c.expose_mode,
+        mcp_apikey_grant.c.expose,
     ).where(mcp_apikey_grant.c.apikey_id == apikey_id)
     return [dict(r) for r in (await conn.execute(q)).mappings().all()]
 

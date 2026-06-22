@@ -158,6 +158,11 @@ async def set_grant(
     ):
         raise InvalidReference("backend_key_id n'appartient pas à ce backend")
     await db.set_grant(
-        conn, apikey_id=apikey_id, backend_id=body.backend_id, backend_key_id=body.backend_key_id
+        conn,
+        apikey_id=apikey_id,
+        backend_id=body.backend_id,
+        backend_key_id=body.backend_key_id,
+        expose_mode=body.expose_mode,
+        expose=body.expose,
     )
     _log.info("mcp_grant_set", login=owner_login, apikey_id=apikey_id, backend_id=body.backend_id)

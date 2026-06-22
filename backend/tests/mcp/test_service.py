@@ -296,3 +296,36 @@ async def test_set_grant_public_backend_without_key(db_conn: AsyncConnection) ->
     assert len(grants) == 1
     assert grants[0]["backend_id"] == b1
     assert grants[0]["backend_key_id"] is None
+
+
+async def test_set_grant_stores_curation(db_conn: AsyncConnection) -> None:
+    """set_grant transmet expose_mode/expose à la DB ; list_grants les retourne."""
+    await _user(db_conn)
+    b1 = await service.create_backend(
+        db_conn, "alice",
+        models.BackendCreate(
+            namespace="rag", name="RAG", url="https://rag/mcp", transport="streamable_http"
+        ),
+    )
+    aid, _ = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
+
+    await service.set_grant(
+        db_conn, "alice", aid,
+        models.GrantSet(
+            backend_id=b1, expose_mode="allowlist", expose=["rag__search", "rag__index"]
+        ),
+    )
+    grants = await list_grants(db_conn, aid)
+    assert len(grants) == 1
+    assert grants[0]["expose_mode"] == "allowlist"
+    assert grants[0]["expose"] == ["rag__search", "rag__index"]
+
+    # upsert : on change la curation, la ligne doit être mise à jour (pas de doublon)
+    await service.set_grant(
+        db_conn, "alice", aid,
+        models.GrantSet(backend_id=b1, expose_mode="denylist", expose=["rag__admin"]),
+    )
+    grants = await list_grants(db_conn, aid)
+    assert len(grants) == 1
+    assert grants[0]["expose_mode"] == "denylist"
+    assert grants[0]["expose"] == ["rag__admin"]

@@ -80,3 +80,5 @@ class GrantSet(BaseModel):
     backend_id: str
     # None = backend public (sans authentification) : aucune clé de service.
     backend_key_id: str | None = None
+    expose_mode: Literal["all", "allowlist", "denylist"] = "all"
+    expose: list[str] = []
