@@ -452,5 +452,5 @@ mcp_apikey_grant = Table(
         ForeignKey("mcp_backend_key.id", ondelete="CASCADE"),
         nullable=False,
     ),
-    UniqueConstraint("apikey_id", "backend_id", name="pk_mcp_apikey_grant"),
+    UniqueConstraint("apikey_id", "backend_id", name="uq_mcp_apikey_grant_apikey_backend"),
 )

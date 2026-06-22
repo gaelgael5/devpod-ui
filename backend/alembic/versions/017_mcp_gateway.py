@@ -109,7 +109,7 @@ def upgrade() -> None:
             sa.ForeignKey("mcp_backend_key.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.UniqueConstraint("apikey_id", "backend_id", name="pk_mcp_apikey_grant"),
+        sa.UniqueConstraint("apikey_id", "backend_id", name="uq_mcp_apikey_grant_apikey_backend"),
     )
 
 

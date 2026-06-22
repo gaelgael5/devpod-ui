@@ -246,7 +246,7 @@ async def set_grant(
         apikey_id=apikey_id, backend_id=backend_id, backend_key_id=backend_key_id
     )
     stmt = stmt.on_conflict_do_update(
-        constraint="pk_mcp_apikey_grant",
+        constraint="uq_mcp_apikey_grant_apikey_backend",
         set_={"backend_key_id": backend_key_id},
     )
     await conn.execute(stmt)
