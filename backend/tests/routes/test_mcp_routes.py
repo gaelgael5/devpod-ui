@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -21,7 +22,9 @@ async def client(db_conn: AsyncConnection) -> AsyncGenerator[AsyncClient, None]:
     from portal.db.engine import get_conn
     from portal.routes.mcp import router as mcp_router
 
-    await db_conn.execute(insert(users).values(login="alice", version="1", secret_ns="ns-alice"))
+    await db_conn.execute(
+        insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
+    )
 
     app = FastAPI()
     app.include_router(mcp_router, prefix="/me")
