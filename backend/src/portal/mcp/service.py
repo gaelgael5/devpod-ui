@@ -11,9 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..db import mcp as db
 from ..vault import session as vault_session
-from ..vault.crypto import encrypt_token
 from ..vault.keys import get_vault_client
 from .models import ApikeyCreate, BackendCreate, GrantSet, KeyCreate
+from .runtime_secrets import encrypt_service_key
 
 _log = structlog.get_logger(__name__)
 
@@ -81,10 +81,9 @@ async def create_backend_key(
     vault_id: str | None = None
 
     if body.storage_type == "local":
-        master_key = vault_session.get_master_key(session_id)
-        if master_key is None:
-            raise VaultLocked("Vault verrouillé — déverrouillez avec votre PIN")
-        local_blob = encrypt_token(body.secret_value, master_key)
+        # Clé de service chiffrée avec la KEK système : la passerelle la
+        # déchiffre en autonomie au runtime, sans session vault de l'owner.
+        local_blob = encrypt_service_key(body.secret_value)
     else:  # harpocrate : écriture dans le coffre AVANT l'insert DB (pas de référence orpheline)
         if not body.vault_identifier:
             raise InvalidReference("vault_identifier requis pour storage_type='harpocrate'")
