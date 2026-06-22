@@ -195,4 +195,20 @@ export const handlers = [
       readme_url: null,
     })
   ),
+
+  // Handlers MCP
+  http.get('/vault/keys', () => HttpResponse.json([])),
+  http.get('/me/mcp/backends', () => HttpResponse.json([])),
+  http.post('/me/mcp/backends', () => HttpResponse.json({ id: 'b-new' }, { status: 201 })),
+  http.delete('/me/mcp/backends/:id', () => new HttpResponse(null, { status: 204 })),
+  http.get('/me/mcp/backends/:id/keys', () => HttpResponse.json([])),
+  http.post('/me/mcp/backends/:id/keys', () => HttpResponse.json({ id: 'k-new' }, { status: 201 })),
+  http.delete('/me/mcp/backends/:id/keys/:keyId', () => new HttpResponse(null, { status: 204 })),
+  http.get('/me/mcp/apikeys', () => HttpResponse.json([])),
+  http.post('/me/mcp/apikeys', () => HttpResponse.json({ id: 'a-new', token: 'mcpk_abc123' }, { status: 201 })),
+  http.post('/me/mcp/apikeys/:id/revoke', () => HttpResponse.json({ id: 'a-new' })),
+  http.delete('/me/mcp/apikeys/:id', () => new HttpResponse(null, { status: 204 })),
+  http.get('/me/mcp/apikeys/:id/grants', () => HttpResponse.json([])),
+  http.put('/me/mcp/apikeys/:id/grants', () => HttpResponse.json({ apikey_id: 'a-new', backend_id: 'b1' })),
+  http.delete('/me/mcp/apikeys/:id/grants/:backendId', () => new HttpResponse(null, { status: 204 })),
 ]
