@@ -112,7 +112,12 @@ def _available_with_bundled_fallback(db_available: dict[str, RecipeMeta]) -> dic
                     exc_type=type(exc).__name__,
                 )
 
-    _log.warning("recipe_fallback_loaded", count=len(fs), ids=sorted(fs), db_ids=sorted(db_available))
+    _log.warning(
+        "recipe_fallback_loaded",
+        count=len(fs),
+        ids=sorted(fs),
+        db_ids=sorted(db_available),
+    )
     if not fs:
         return db_available
     # FS a priorité sur DB pour garantir que les GUIDs (key) des recettes bundlées
@@ -235,6 +240,15 @@ async def workspace_up(
             await load_recipes_as_dict(user.login, conn)
         )
 
+        _log.warning(
+            "expand_with_deps_state",
+            recipes=req.recipes,
+            nodejs_key=available["nodejs"].key if "nodejs" in available else "ABSENT",
+            claude_code_deps=(
+                available["claude-code"].installs_after if "claude-code" in available else "ABSENT"
+            ),
+            available_ids=sorted(available),
+        )
         try:
             expanded = reg.expand_with_deps(req.recipes, available)
             resolved_recipes = reg.resolve_order(expanded, available)
