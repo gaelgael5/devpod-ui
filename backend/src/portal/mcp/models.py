@@ -39,6 +39,22 @@ class BackendCreate(BaseModel):
         return v
 
 
+class KeyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    slug: str
+    description: str = ""
+    storage_type: Literal["local", "harpocrate"]
+    secret_value: str
+    vault_identifier: str | None = None
+
+    @field_validator("slug")
+    @classmethod
+    def _slug(cls, v: str) -> str:
+        if not SLUG_RE.fullmatch(v):
+            raise ValueError("slug: minuscule initiale, [a-z0-9_-], 1 à 63 caractères")
+        return v
+
+
 class BackendUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
