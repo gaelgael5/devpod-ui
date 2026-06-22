@@ -50,8 +50,12 @@ _env_resolver = EnvSecretResolver()
 async def resolve_grant_key(key_row: dict[str, object] | None) -> Secret | None:
     """Résout la clé de service d'un grant en bearer clair.
 
-    None = backend public (aucune clé). Lève UnresolvableSecret pour une
-    référence vault (harpocrate) non résoluble sans session.
+    `key_row` doit contenir les clés `storage_type`, `secret_value_local`,
+    `secret_value_vault_ref` (utiliser un fetcher runtime dédié qui sélectionne
+    le blob chiffré — pas `get_backend_key`/`list_backend_keys`, qui l'omettent
+    par hygiène). `None` = backend public (aucune clé). Lève UnresolvableSecret
+    pour une référence vault (harpocrate) non résoluble sans session, ou un
+    storage_type inconnu.
     """
     if key_row is None:
         return None

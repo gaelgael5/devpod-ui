@@ -58,3 +58,9 @@ Profil et recettes sont donc silencieusement ignorés sur SSH. Limitation préex
 périmètre du chantier 20. Ne pas contourner via `postCreateCommand` (interdit par PITFALLS).
 Dégradation gracieuse : si le profil référencé est introuvable au moment du `up`, le workspace
 démarre quand même sans profil (warning loggé, pas d'erreur HTTP).
+
+## [mcp] Consommateurs de PORTAL_VAULT_KEK : info HKDF distinct obligatoire
+`PORTAL_VAULT_KEK` est dérivée par plusieurs consommateurs (vault/pin, secrets/system → `portal-system-vault`, mcp/runtime_secrets → `mcp-backend-key-v1`). Chacun DOIT utiliser un `info=` HKDF distinct (domain separation) pour ne jamais produire la même sous-clé. Préserver cet invariant pour tout futur consommateur.
+
+## [mcp/runtime] resolve_grant_key exige secret_value_local — pas via get_backend_key
+`get_backend_key`/`list_backend_keys` omettent `secret_value_local` (hygiène : le blob chiffré ne sort jamais d'un listing/registre). `resolve_grant_key` en a besoin → le runtime (Plan 2) doit ajouter un fetcher dédié `get_backend_key_secret(conn, backend_id, key_id)` qui sélectionne `storage_type, secret_value_local, secret_value_vault_ref`. NE PAS élargir `_KEY_COLS`.
