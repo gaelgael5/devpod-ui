@@ -60,7 +60,12 @@ async def test_backend_rejects_duplicate_namespace(client: AsyncClient) -> None:
     # transaction asyncpg ; en test, db_conn est partagé entre les requêtes,
     # donc aucune opération DB ne doit suivre dans le même test (en prod, chaque
     # requête a sa propre transaction et ce problème ne se pose pas).
-    payload = {"namespace": "rag", "name": "RAG", "url": "https://rag/mcp", "transport": "streamable_http"}
+    payload = {
+        "namespace": "rag",
+        "name": "RAG",
+        "url": "https://rag/mcp",
+        "transport": "streamable_http",
+    }
     r = await client.post("/me/mcp/backends", json=payload)
     assert r.status_code == 201
 
