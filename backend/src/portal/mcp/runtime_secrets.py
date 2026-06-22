@@ -61,6 +61,8 @@ async def resolve_grant_key(key_row: dict[str, object] | None) -> Secret | None:
         if blob is None:
             raise UnresolvableSecret("clé 'local' sans valeur chiffrée")
         return Secret(decrypt_service_key(cast(bytes, blob)))
+    if storage != "harpocrate":
+        raise UnresolvableSecret(f"storage_type inconnu : {storage!r}")
     # harpocrate : seule une référence ${env://...} est résoluble au runtime
     ref = cast(str, key_row.get("secret_value_vault_ref") or "")
     if ref.startswith("${env://"):

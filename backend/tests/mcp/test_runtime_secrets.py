@@ -62,3 +62,9 @@ async def test_resolve_harpocrate_vault_unresolvable() -> None:
     }
     with pytest.raises(UnresolvableSecret):
         await resolve_grant_key(row)
+
+
+async def test_resolve_unknown_storage_type() -> None:
+    row = {"storage_type": "bogus", "secret_value_local": None, "secret_value_vault_ref": None}
+    with pytest.raises(UnresolvableSecret):
+        await resolve_grant_key(row)
