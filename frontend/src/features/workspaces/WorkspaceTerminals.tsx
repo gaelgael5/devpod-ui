@@ -261,8 +261,8 @@ export default function WorkspaceTerminals() {
           </aside>
         )}
 
-        {/* Zone terminal */}
-        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {/* Zone terminal — position:relative donne des dimensions explicites à xterm */}
+        <div className="relative min-h-0 min-w-0 flex-1">
           {selected ? (
             <WorkspaceSessionTerminal
               key={selected}

@@ -63,5 +63,5 @@ export default function WorkspaceSessionTerminal({ wsName, session }: Props) {
     }
   }, [wsName, session, t])
 
-  return <div ref={termRef} className="flex-1 min-h-0 min-w-0 overflow-hidden bg-[#0d0d1a]" />
+  return <div ref={termRef} className="absolute inset-0 bg-[#0d0d1a]" />
 }
