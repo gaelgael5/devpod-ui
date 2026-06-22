@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from typing import cast
+
 import structlog
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from .. import settings as _settings_module
+from ..secrets.resolver import EnvSecretResolver, SecretAccessError
+from ..secrets.types import Secret
 from ..vault.crypto import decrypt_token, encrypt_token
 
 log = structlog.get_logger(__name__)
@@ -12,6 +16,10 @@ log = structlog.get_logger(__name__)
 
 class KekUnavailable(Exception):
     """PORTAL_VAULT_KEK absent : impossible de chiffrer/déchiffrer une clé de service."""
+
+
+class UnresolvableSecret(Exception):
+    """Clé non résoluble au runtime (ex. référence vault/wallet dépendante d'une session)."""
 
 
 def _derive_kek() -> bytes:
@@ -34,3 +42,30 @@ def encrypt_service_key(plaintext: str) -> bytes:
 
 def decrypt_service_key(blob: bytes) -> str:
     return decrypt_token(blob, _derive_kek())
+
+
+_env_resolver = EnvSecretResolver()
+
+
+async def resolve_grant_key(key_row: dict[str, object] | None) -> Secret | None:
+    """Résout la clé de service d'un grant en bearer clair.
+
+    None = backend public (aucune clé). Lève UnresolvableSecret pour une
+    référence vault (harpocrate) non résoluble sans session.
+    """
+    if key_row is None:
+        return None
+    storage = key_row["storage_type"]
+    if storage == "local":
+        blob = key_row["secret_value_local"]
+        if blob is None:
+            raise UnresolvableSecret("clé 'local' sans valeur chiffrée")
+        return Secret(decrypt_service_key(cast(bytes, blob)))
+    # harpocrate : seule une référence ${env://...} est résoluble au runtime
+    ref = cast(str, key_row.get("secret_value_vault_ref") or "")
+    if ref.startswith("${env://"):
+        try:
+            return await _env_resolver.resolve(ref)
+        except SecretAccessError as exc:
+            raise UnresolvableSecret(str(exc)) from exc
+    raise UnresolvableSecret("référence vault non résoluble au runtime (harpocrate différé)")
