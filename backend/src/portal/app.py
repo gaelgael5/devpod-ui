@@ -110,6 +110,19 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
             await ensure_system_user(conn)
 
+        # Sync des recettes bundlées (/app/recipes → /data/recipes) puis en DB.
+        # Idempotent : ne jamais écraser une recette déjà personnalisée par l'admin.
+        import asyncio as _asyncio
+
+        from .config.store import _data_root
+        from .recipes.sync import sync_bundled_recipes, sync_recipes_to_db
+
+        bundled = Path("/app/recipes")
+        data_recipes = _data_root() / "recipes"
+        await _asyncio.to_thread(sync_bundled_recipes, bundled, data_recipes)
+        async with _get_engine().begin() as conn:
+            await sync_recipes_to_db(data_recipes, conn)
+
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()
 

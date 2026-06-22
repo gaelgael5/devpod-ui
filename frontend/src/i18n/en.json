@@ -16,7 +16,7 @@
       "stop": "Stop",
       "start": "Start",
       "delete": "Delete",
-      "retry": "Retry",
+      "retry": "Reload",
       "edit": "Edit",
       "recreate": "Recreate"
     },
