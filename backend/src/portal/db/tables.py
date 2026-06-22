@@ -453,5 +453,38 @@ mcp_apikey_grant = Table(
         ForeignKey("mcp_backend_key.id", ondelete="CASCADE"),
         nullable=True,
     ),
+    Column("expose_mode", Text, nullable=False, server_default="all"),  # all | allowlist | denylist
+    Column("expose", JSONB, nullable=False, server_default="[]"),
     UniqueConstraint("apikey_id", "backend_id", name="uq_mcp_apikey_grant_apikey_backend"),
+)
+
+# ─── MCP Gateway (lot 2 — runtime) ───────────────────────────────────────────
+
+mcp_tool_catalog = Table(
+    "mcp_tool_catalog",
+    metadata,
+    Column("backend_id", Text, ForeignKey("mcp_backend.id", ondelete="CASCADE"), nullable=False),
+    Column("kind", Text, nullable=False),  # 'tool' | 'resource' | 'prompt'
+    Column("original_name", Text, nullable=False),
+    Column("definition", JSONB, nullable=False),
+    Column("definition_hash", Text, nullable=False),
+    Column("first_seen", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("last_seen", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("quarantined", Boolean, nullable=False, server_default="false"),
+    UniqueConstraint("backend_id", "kind", "original_name", name="pk_mcp_tool_catalog"),
+)
+
+mcp_audit_log = Table(
+    "mcp_audit_log",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("ts", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("apikey_id", Text, nullable=True),
+    Column("owner_login", Text, nullable=True),
+    Column("namespaced_name", Text, nullable=True),
+    Column("backend_id", Text, nullable=True),
+    Column("backend_key_id", Text, nullable=True),
+    Column("latency_ms", Integer, nullable=True),
+    Column("status", Text, nullable=False),  # ok | error | denied | timeout
+    Column("error", Text, nullable=True),
 )
