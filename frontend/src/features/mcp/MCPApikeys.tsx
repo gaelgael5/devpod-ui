@@ -209,11 +209,74 @@ function GrantRow({
   )
 }
 
+function ApikeyCard({ apikey }: { apikey: { id: string; label: string; revoked: boolean } }) {
+  const { t } = useTranslation()
+  const revoke = useRevokeApikey()
+  const del = useDeleteApikey()
+  const [confirmDel, setConfirmDel] = useState(false)
+
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <div className="flex items-center gap-2">
+        <Key className="h-4 w-4 text-muted-foreground" />
+        <span className="font-medium">{apikey.label || apikey.id}</span>
+        {apikey.revoked && <Badge variant="secondary">{t('mcp.apikeys.revoked')}</Badge>}
+        {!apikey.revoked && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            onClick={() =>
+              revoke.mutate(apikey.id, {
+                onError: (e) =>
+                  toast.error(e instanceof Error ? e.message : t('errors.generic')),
+              })
+            }
+          >
+            <Ban className="mr-1 h-3.5 w-3.5" />{t('mcp.apikeys.revoke')}
+          </Button>
+        )}
+        <div className={`${apikey.revoked ? 'ml-auto' : ''} flex gap-1`}>
+          {confirmDel ? (
+            <>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={del.isPending}
+                onClick={() =>
+                  del.mutate(apikey.id, {
+                    onSuccess: () => setConfirmDel(false),
+                    onError: (e) =>
+                      toast.error(e instanceof Error ? e.message : t('errors.generic')),
+                  })
+                }
+              >
+                {t('mcp.apikeys.confirmDelete')}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmDel(false)}>
+                {t('common.cancel')}
+              </Button>
+            </>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setConfirmDel(true)}
+            >
+              {t('mcp.apikeys.delete')}
+            </Button>
+          )}
+        </div>
+      </div>
+      {!apikey.revoked && <GrantEditor apikeyId={apikey.id} />}
+    </div>
+  )
+}
+
 export default function MCPApikeys() {
   const { t } = useTranslation()
   const { data: apikeys = [], isLoading } = useApikeys()
-  const revoke = useRevokeApikey()
-  const del = useDeleteApikey()
   const [addOpen, setAddOpen] = useState(false)
 
   return (
@@ -229,42 +292,7 @@ export default function MCPApikeys() {
         <p className="text-sm text-muted-foreground">{t('mcp.apikeys.empty')}</p>
       )}
       {apikeys.map((a) => (
-        <div key={a.id} className="rounded-lg border bg-card p-3">
-          <div className="flex items-center gap-2">
-            <Key className="h-4 w-4 text-muted-foreground" />
-            <span className="font-medium">{a.label || a.id}</span>
-            {a.revoked && <Badge variant="secondary">{t('mcp.apikeys.revoked')}</Badge>}
-            {!a.revoked && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="ml-auto"
-                onClick={() =>
-                  revoke.mutate(a.id, {
-                    onError: (e) =>
-                      toast.error(e instanceof Error ? e.message : t('errors.generic')),
-                  })
-                }
-              >
-                <Ban className="mr-1 h-3.5 w-3.5" />{t('mcp.apikeys.revoke')}
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              className={a.revoked ? 'ml-auto text-destructive' : 'text-destructive'}
-              onClick={() =>
-                del.mutate(a.id, {
-                  onError: (e) =>
-                    toast.error(e instanceof Error ? e.message : t('errors.generic')),
-                })
-              }
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-          {!a.revoked && <GrantEditor apikeyId={a.id} />}
-        </div>
+        <ApikeyCard key={a.id} apikey={a} />
       ))}
       <CreateApikeyDialog open={addOpen} onClose={() => setAddOpen(false)} />
     </div>

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Server, Plus, Trash2, KeyRound } from 'lucide-react'
+import { Server, Plus, KeyRound } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -194,10 +194,55 @@ function AddKeyDialog({ backendId, open, onClose }: { backendId: string; open: b
   )
 }
 
+function KeyRow({ backendId, keyItem }: { backendId: string; keyItem: { id: string; slug: string; storage_type: string; description: string } }) {
+  const { t } = useTranslation()
+  const del = useDeleteKey(backendId)
+  const [confirmDel, setConfirmDel] = useState(false)
+
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+      <code className="font-mono">{keyItem.slug}</code>
+      <Badge variant="outline" className="text-xs">{keyItem.storage_type}</Badge>
+      <span className="text-muted-foreground">{keyItem.description}</span>
+      <div className="ml-auto flex gap-1">
+        {confirmDel ? (
+          <>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={del.isPending}
+              onClick={() =>
+                del.mutate(keyItem.id, {
+                  onSuccess: () => setConfirmDel(false),
+                  onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
+                })
+              }
+            >
+              {t('mcp.backends.confirmDelete')}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmDel(false)}>
+              {t('common.cancel')}
+            </Button>
+          </>
+        ) : (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            onClick={() => setConfirmDel(true)}
+          >
+            {t('mcp.backends.delete')}
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function KeyList({ backendId }: { backendId: string }) {
   const { t } = useTranslation()
   const { data: keys = [] } = useBackendKeys(backendId)
-  const del = useDeleteKey(backendId)
   const [addOpen, setAddOpen] = useState(false)
 
   return (
@@ -210,18 +255,59 @@ function KeyList({ backendId }: { backendId: string }) {
       </div>
       {keys.length === 0 && <span className="text-xs text-muted-foreground">{t('mcp.backends.noKeys')}</span>}
       {keys.map((k) => (
-        <div key={k.id} className="flex items-center gap-2 text-sm">
-          <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
-          <code className="font-mono">{k.slug}</code>
-          <Badge variant="outline" className="text-xs">{k.storage_type}</Badge>
-          <span className="text-muted-foreground">{k.description}</span>
-          <Button size="sm" variant="ghost" className="ml-auto text-destructive"
-            onClick={() => del.mutate(k.id, { onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) })}>
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        <KeyRow key={k.id} backendId={backendId} keyItem={k} />
       ))}
       <AddKeyDialog backendId={backendId} open={addOpen} onClose={() => setAddOpen(false)} />
+    </div>
+  )
+}
+
+function BackendCard({ backend }: { backend: { id: string; name: string; namespace: string; url: string; enabled: boolean } }) {
+  const { t } = useTranslation()
+  const del = useDeleteBackend()
+  const [confirmDel, setConfirmDel] = useState(false)
+
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <div className="flex items-center gap-2">
+        <Server className="h-4 w-4 text-muted-foreground" />
+        <span className="font-medium">{backend.name}</span>
+        <Badge variant="outline" className="font-mono text-xs">{backend.namespace}</Badge>
+        {!backend.enabled && <Badge variant="secondary">{t('mcp.backends.statusDisabled')}</Badge>}
+        <span className="ml-2 text-xs text-muted-foreground">{backend.url}</span>
+        <div className="ml-auto flex gap-1">
+          {confirmDel ? (
+            <>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={del.isPending}
+                onClick={() =>
+                  del.mutate(backend.id, {
+                    onSuccess: () => setConfirmDel(false),
+                    onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
+                  })
+                }
+              >
+                {t('mcp.backends.confirmDelete')}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmDel(false)}>
+                {t('common.cancel')}
+              </Button>
+            </>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setConfirmDel(true)}
+            >
+              {t('mcp.backends.delete')}
+            </Button>
+          )}
+        </div>
+      </div>
+      <KeyList backendId={backend.id} />
     </div>
   )
 }
@@ -229,7 +315,6 @@ function KeyList({ backendId }: { backendId: string }) {
 export default function MCPBackends() {
   const { t } = useTranslation()
   const { data: backends = [], isLoading } = useBackends()
-  const del = useDeleteBackend()
   const [addOpen, setAddOpen] = useState(false)
 
   return (
@@ -245,20 +330,7 @@ export default function MCPBackends() {
         <p className="text-sm text-muted-foreground">{t('mcp.backends.empty')}</p>
       )}
       {backends.map((b) => (
-        <div key={b.id} className="rounded-lg border bg-card p-3">
-          <div className="flex items-center gap-2">
-            <Server className="h-4 w-4 text-muted-foreground" />
-            <span className="font-medium">{b.name}</span>
-            <Badge variant="outline" className="font-mono text-xs">{b.namespace}</Badge>
-            {!b.enabled && <Badge variant="secondary">{t('mcp.backends.statusDisabled')}</Badge>}
-            <span className="ml-2 text-xs text-muted-foreground">{b.url}</span>
-            <Button size="sm" variant="ghost" className="ml-auto text-destructive"
-              onClick={() => del.mutate(b.id, { onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) })}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-          <KeyList backendId={b.id} />
-        </div>
+        <BackendCard key={b.id} backend={b} />
       ))}
       <AddBackendDialog open={addOpen} onClose={() => setAddOpen(false)} />
     </div>
