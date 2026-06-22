@@ -80,13 +80,15 @@ def _available_with_bundled_fallback(db_available: dict[str, RecipeMeta]) -> dic
 
     import yaml as _yaml
 
-    # Chemins de recherche, du moins prioritaire au plus prioritaire :
-    #   /app/recipes/     — recettes bundlées dans l'image Docker
-    #   /data/recipes/    — volume partagé (synced depuis /app/ au démarrage)
+    # Chemins de recherche, du MOINS prioritaire au PLUS prioritaire.
+    # Le dernier dict écrase les précédents → /app/recipes/ gagne toujours sur
+    # /data/recipes/ (qui peut contenir d'anciens fichiers sans champ key).
     #   <repo>/recipes/   — fallback développement local (hors Docker)
+    #   /data/recipes/    — volume partagé (recettes admin, peut être périmé)
+    #   /app/recipes/     — recettes bundlées dans l'image Docker (source canonique)
     _repo_recipes = Path(__file__).resolve().parents[4] / "recipes"
     fs: dict[str, RecipeMeta] = {}
-    for base in (Path("/app/recipes"), _data_root() / "recipes", _repo_recipes):
+    for base in (_repo_recipes, _data_root() / "recipes", Path("/app/recipes")):
         if not base.exists():
             _log.warning("recipe_fallback_dir_absent", path=str(base))
             continue
