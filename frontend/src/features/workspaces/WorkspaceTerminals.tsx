@@ -47,7 +47,7 @@ function CreateSessionDialog({ wsName, sessions, startRecipes, onClose, onCreate
   const { t } = useTranslation()
   const [name, setName] = useState(() => computeNextName(sessions))
   const nameEdited = useRef(false)
-  const [startRecipe, setStartRecipe] = useState('')
+  const [startRecipe, setStartRecipe] = useState(() => startRecipes[0]?.id ?? '')
   const create = useCreateSession()
 
   useEffect(() => {
@@ -82,7 +82,23 @@ function CreateSessionDialog({ wsName, sessions, startRecipes, onClose, onCreate
               onKeyDown={(e) => { if (e.key === 'Enter' && name) handleSubmit() }}
             />
           </div>
-          {startRecipes.length > 0 && (
+          {startRecipes.length === 1 && (
+            <label className="flex items-center gap-2 cursor-pointer select-none text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={startRecipe !== ''}
+                onChange={(e) => setStartRecipe(e.target.checked ? startRecipes[0].id : '')}
+              />
+              <span>
+                {startRecipes[0].id}
+                {startRecipes[0].description && (
+                  <span className="text-muted-foreground ml-1">— {startRecipes[0].description}</span>
+                )}
+              </span>
+            </label>
+          )}
+          {startRecipes.length > 1 && (
             <div className="space-y-1.5">
               <Label htmlFor="session-recipe">{t('workspaces.terminals.startRecipeLabel')}</Label>
               <select
