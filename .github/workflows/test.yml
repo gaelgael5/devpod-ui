@@ -38,21 +38,25 @@ jobs:
       - name: Ruff
         run: >-
           uv run ruff check
-          src/portal/mcp/ src/portal/db/mcp.py src/portal/routes/mcp.py
+          src/portal/mcp/ src/portal/db/mcp.py src/portal/db/mcp_catalog.py
+          src/portal/db/mcp_audit.py src/portal/routes/mcp.py
           src/portal/secrets/resolver.py
-          tests/mcp/ tests/db/test_mcp.py tests/routes/test_mcp_routes.py
+          tests/mcp/ tests/db/test_mcp.py tests/db/test_mcp_catalog.py
+          tests/db/test_mcp_audit.py tests/routes/test_mcp_routes.py
           tests/secrets/test_resolver_protocol.py
 
       - name: Mypy
         run: >-
           uv run mypy
-          src/portal/mcp/ src/portal/db/mcp.py src/portal/routes/mcp.py
+          src/portal/mcp/ src/portal/db/mcp.py src/portal/db/mcp_catalog.py
+          src/portal/db/mcp_audit.py src/portal/routes/mcp.py
           src/portal/secrets/resolver.py
 
       - name: Pytest (testcontainers via le Docker du runner)
         run: >-
           uv run pytest -v
-          tests/mcp/ tests/db/test_mcp.py tests/routes/test_mcp_routes.py
+          tests/mcp/ tests/db/test_mcp.py tests/db/test_mcp_catalog.py
+          tests/db/test_mcp_audit.py tests/routes/test_mcp_routes.py
           tests/secrets/test_resolver_protocol.py
 
   frontend-mcp:
