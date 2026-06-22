@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -32,8 +31,6 @@ from portal.db.tables import (
     mcp_backend_key,
     users,
 )
-
-pytestmark = pytest.mark.asyncio
 
 
 async def _user(conn: AsyncConnection, login: str = "alice") -> None:
