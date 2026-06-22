@@ -600,6 +600,7 @@
   "common": {
     "loading": "Loading…",
     "save": "Save",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "close": "Close"
   }
 }

@@ -86,7 +86,7 @@ function CreateApikeyDialog({ open, onClose }: { open: boolean; onClose: () => v
               </Button>
             </div>
             <DialogFooter>
-              <Button onClick={close}>{t('common.cancel')}</Button>
+              <Button onClick={close}>{t('common.close')}</Button>
             </DialogFooter>
           </div>
         ) : (
@@ -101,7 +101,9 @@ function CreateApikeyDialog({ open, onClose }: { open: boolean; onClose: () => v
             </div>
             {create.error && (
               <Alert variant="destructive">
-                <AlertDescription>{create.error.message}</AlertDescription>
+                <AlertDescription>
+                  {create.error instanceof Error ? create.error.message : t('errors.generic')}
+                </AlertDescription>
               </Alert>
             )}
             <DialogFooter>
