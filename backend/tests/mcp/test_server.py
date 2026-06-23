@@ -20,17 +20,15 @@ from portal.db.mcp_catalog import upsert_primitive
 from portal.db.tables import mcp_backend, users
 from portal.mcp.aggregator import make_namespaced_uri
 from portal.mcp.connections import BackendUnavailable
+from portal.mcp.dispatch_common import extract_bearer, resolve_tenant
 from portal.mcp.handlers import (
     GATEWAY_LIST_BACKENDS,
     build_prompt_descriptors,
-    build_resource_descriptors,
     build_tool_descriptors,
     execute_prompt_get,
-    execute_resource_read,
     execute_tool_call,
-    extract_bearer,
-    resolve_tenant,
 )
+from portal.mcp.resources import build_resource_descriptors, execute_resource_read
 from portal.mcp.service import token_hash
 
 

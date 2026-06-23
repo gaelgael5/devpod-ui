@@ -8,14 +8,12 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.shared.exceptions import McpError
 
 from portal.db.engine import _get_engine
+from portal.mcp.dispatch_common import _UNAUTHORIZED, extract_bearer, resolve_tenant
 from portal.mcp.handlers import (
-    _UNAUTHORIZED,
     build_prompt_descriptors,
     build_tool_descriptors,
     execute_prompt_get,
     execute_tool_call,
-    extract_bearer,
-    resolve_tenant,
 )
 
 
