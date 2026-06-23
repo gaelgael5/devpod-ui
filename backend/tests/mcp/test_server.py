@@ -12,10 +12,11 @@ from mcp.types import METHOD_NOT_FOUND
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from portal.db.mcp import insert_apikey, revoke_apikey, set_grant
+from portal.db.mcp import insert_apikey, insert_backend_key, revoke_apikey, set_grant
 from portal.db.mcp_audit import list_for_owner
 from portal.db.mcp_catalog import upsert_primitive
 from portal.db.tables import mcp_backend, users
+from portal.mcp.connections import BackendUnavailable
 from portal.mcp.server import (
     GATEWAY_LIST_BACKENDS,
     build_tool_descriptors,
@@ -200,4 +201,68 @@ async def test_execute_tool_call_audits_denied(db_conn: AsyncConnection) -> None
             open_session_fn=_patched_open_session(_fake_backend()),
         )
     audit = await list_for_owner(db_conn, "alice")
-    assert len(audit) == 1 and audit[0]["status"] == "denied"
+    assert len(audit) == 1
+    row = audit[0]
+    assert row["status"] == "denied"
+    assert row["backend_id"] is None
+    assert row["latency_ms"] is None
+    assert row["namespaced_name"] == "rag__ghost"
+
+
+async def test_execute_tool_call_audits_timeout(db_conn: AsyncConnection) -> None:
+    """BackendUnavailable → audit row status='timeout' est écrit avant le raise."""
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_tool(db_conn)
+
+    @asynccontextmanager
+    async def _unavailable(url: str, *, bearer: str | None = None, **kw: object):
+        raise BackendUnavailable("down", backend_id="b1")
+        yield  # rend la fonction un générateur asynccontextmanager valide
+
+    with pytest.raises(McpError):
+        await execute_tool_call(
+            db_conn, apikey_id="ak1", owner_login="alice",
+            name="rag__search", arguments={},
+            open_session_fn=_unavailable,
+        )
+    audit = await list_for_owner(db_conn, "alice")
+    assert len(audit) == 1
+    row = audit[0]
+    assert row["status"] == "timeout"
+    assert row["backend_id"] == "b1"
+
+
+async def test_execute_tool_call_audits_error_on_unresolvable_key(
+    db_conn: AsyncConnection,
+) -> None:
+    """Clé harpocrate sans référence ${env://} → UnresolvableSecret → audit status='error'."""
+    # runtime_secrets.py : storage_type='harpocrate' avec secret_value_vault_ref
+    # qui NE commence PAS par '${env://}' → raise UnresolvableSecret.
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_tool(db_conn)
+    await insert_backend_key(
+        db_conn,
+        id="k1",
+        backend_id="b1",
+        slug="prod",
+        description="",
+        storage_type="harpocrate",
+        secret_value_local=None,
+        secret_value_vault_ref="${vault://x}",  # non-env ref → UnresolvableSecret
+        vault_identifier=None,
+    )
+    await set_grant(db_conn, apikey_id="ak1", backend_id="b1", backend_key_id="k1")
+
+    with pytest.raises(McpError):
+        await execute_tool_call(
+            db_conn, apikey_id="ak1", owner_login="alice",
+            name="rag__search", arguments={},
+            open_session_fn=_patched_open_session(_fake_backend()),
+        )
+    audit = await list_for_owner(db_conn, "alice")
+    # Un seul enregistrement : celui de l'appel rag__search échoué
+    error_rows = [r for r in audit if r["namespaced_name"] == "rag__search"]
+    assert len(error_rows) == 1
+    row = error_rows[0]
+    assert row["status"] == "error"
+    assert row["error"] == "key not resolvable"

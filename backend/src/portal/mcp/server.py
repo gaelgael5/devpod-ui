@@ -30,14 +30,14 @@ _UNAUTHORIZED = ErrorData(code=INVALID_PARAMS, message="missing or invalid API k
 GATEWAY_LIST_BACKENDS = "gateway__list_backends"
 
 
-def _native_tools() -> list[types.Tool]:
-    return [
-        types.Tool(
-            name=GATEWAY_LIST_BACKENDS,
-            description="Liste les backends MCP fédérés accessibles et leur disponibilité.",
-            inputSchema={"type": "object", "properties": {}},
-        )
-    ]
+# Computed once at module load — no per-call allocation.
+_NATIVE_TOOLS: list[types.Tool] = [
+    types.Tool(
+        name=GATEWAY_LIST_BACKENDS,
+        description="Liste les backends MCP fédérés accessibles et leur disponibilité.",
+        inputSchema={"type": "object", "properties": {}},
+    )
+]
 
 
 def _to_tool(definition: dict[str, Any], namespaced_name: str) -> types.Tool:
@@ -56,7 +56,7 @@ async def build_tool_descriptors(
         conn, apikey_id=apikey_id, owner_login=owner_login, kind="tool"
     )
     tools = [_to_tool(p.definition, p.namespaced_name) for p in prims]
-    tools.extend(_native_tools())
+    tools.extend(_NATIVE_TOOLS)
     return tools
 
 
@@ -168,14 +168,20 @@ async def execute_tool_call(
 
 
 def build_server() -> tuple[Server, StreamableHTTPSessionManager]:
-    """Construit le serveur MCP frontal bas-niveau + son gestionnaire de sessions."""
+    """Construit le serveur MCP frontal bas-niveau + son gestionnaire de sessions.
+
+    Note : l'authentification est vérifiée ici, à la frontière des primitives
+    (list_tools / call_tool), et non à l'étape initialize — c'est intentionnel :
+    initialize ne transporte pas encore les en-têtes de la requête cliente.
+    """
     server: Server = Server("workspace-portal-mcp")
 
     @server.list_tools()  # type: ignore[no-untyped-call,untyped-decorator]
     async def _list_tools() -> list[types.Tool]:
         req = server.request_context.request
         token = extract_bearer(req.headers if req is not None else {})
-        async with _get_engine().begin() as conn:
+        # Lecture seule — pas de commit nécessaire.
+        async with _get_engine().connect() as conn:
             tenant = await resolve_tenant(conn, token)
             if tenant is None:
                 raise McpError(_UNAUTHORIZED)
@@ -187,14 +193,25 @@ def build_server() -> tuple[Server, StreamableHTTPSessionManager]:
     async def _call_tool(name: str, arguments: dict[str, Any] | None) -> types.CallToolResult:
         req = server.request_context.request
         token = extract_bearer(req.headers if req is not None else {})
-        async with _get_engine().begin() as conn:
+        # connect() + commit() explicite : la ligne d'audit est persistée même
+        # quand execute_tool_call lève McpError (denied / error / timeout).
+        # begin() rollbackerait sur exception, effaçant la trace — c'est le bug corrigé ici.
+        async with _get_engine().connect() as conn:
             tenant = await resolve_tenant(conn, token)
             if tenant is None:
+                # Pas d'audit écrit avant ce point — rollback implicite est sans effet.
                 raise McpError(_UNAUTHORIZED)
-            return await execute_tool_call(
-                conn, apikey_id=str(tenant["id"]), owner_login=str(tenant["owner_login"]),
-                name=name, arguments=arguments or {},
-            )
+            try:
+                result = await execute_tool_call(
+                    conn, apikey_id=str(tenant["id"]),
+                    owner_login=str(tenant["owner_login"]),
+                    name=name, arguments=arguments or {},
+                )
+            except McpError:
+                await conn.commit()  # persiste la ligne d'audit écrite avant le raise
+                raise
+            await conn.commit()
+            return result
 
     manager = StreamableHTTPSessionManager(app=server, stateless=False)
     return server, manager

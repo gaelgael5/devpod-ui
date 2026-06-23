@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.applications import Starlette
 
 from portal.db.mcp import insert_apikey
+from portal.db.mcp_audit import list_for_owner
 from portal.db.tables import users
 from portal.mcp.server import GATEWAY_LIST_BACKENDS, build_server
 from portal.mcp.service import token_hash
@@ -107,3 +108,43 @@ async def test_mcp_endpoint_rejects_missing_bearer(
             await session.initialize()
             with pytest.raises(McpError):
                 await session.list_tools()
+
+
+async def test_call_tool_denied_audit_is_durable(
+    db_engine: AsyncEngine,
+) -> None:
+    """Durabilité de l'audit : un call_tool refusé (outil inconnu) persiste sa ligne d'audit.
+
+    Ce test valide que le handler _call_tool commit explicitement la transaction même
+    quand execute_tool_call lève McpError — ce que begin() + rollback-on-exception cassait.
+    """
+    async with db_engine.begin() as conn:
+        await conn.execute(
+            insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
+        )
+        await insert_apikey(
+            conn, id="ak1", owner_login="alice", token_hash=token_hash("mcpk_secret"), label=""
+        )
+
+    app, _manager = _build_app()
+    async with LifespanManager(app):
+        http_client = _http_client(app, bearer="mcpk_secret")
+        async with (
+            http_client,
+            streamable_http_client(_MCP_BASE + "/mcp", http_client=http_client) as (
+                read,
+                write,
+                _get_sid,
+            ),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            # Appel d'un outil inexistant → denied → McpError
+            with pytest.raises(McpError):
+                await session.call_tool("ghost__nope", {})
+
+    # Nouvelle connexion indépendante pour prouver la persistance (hors transaction du handler)
+    async with db_engine.begin() as conn:
+        audit = await list_for_owner(conn, "alice")
+    assert len(audit) == 1
+    assert audit[0]["status"] == "denied"

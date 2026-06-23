@@ -171,7 +171,9 @@ def create_app() -> FastAPI:
 
     from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 
-    _mcp_server, _mcp_session_manager = _build_mcp_server()
+    # _mcp_server (index 0) est la référence bas-niveau non utilisée ici ; seul le
+    # gestionnaire de sessions est monté et stocké dans app.state pour le lifespan.
+    _mcp_session_manager = _build_mcp_server()[1]
     app.mount("/mcp", StreamableHTTPASGIApp(_mcp_session_manager))
     app.state.mcp_session_manager = _mcp_session_manager
 
