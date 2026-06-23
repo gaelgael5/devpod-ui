@@ -230,3 +230,25 @@ async def test_get_backend_key_secret_returns_blob(db_conn: AsyncConnection) -> 
 async def test_get_backend_key_secret_unknown_returns_none(db_conn: AsyncConnection) -> None:
     await _seed_backend(db_conn)
     assert await get_backend_key_secret(db_conn, "b1", "nope") is None
+
+
+# ---------------------------------------------------------------------------
+# list_all_enabled_backends
+# ---------------------------------------------------------------------------
+
+
+async def test_list_all_enabled_backends(db_conn: AsyncConnection) -> None:
+    from portal.db.mcp import list_all_enabled_backends
+
+    await db_conn.execute(
+        insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
+    )
+    await db_conn.execute(insert(mcp_backend).values(
+        id="b1", owner_login="alice", namespace="rag", name="RAG",
+        url="https://rag/mcp", transport="streamable_http", enabled=True))
+    await db_conn.execute(insert(mcp_backend).values(
+        id="b2", owner_login="alice", namespace="docs", name="Docs",
+        url="https://docs/mcp", transport="streamable_http", enabled=False))
+    rows = await list_all_enabled_backends(db_conn)
+    ids = {r["id"] for r in rows}
+    assert ids == {"b1"}  # b2 disabled exclu

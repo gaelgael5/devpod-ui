@@ -43,6 +43,24 @@ async def insert_backend(
     )
 
 
+async def list_all_enabled_backends(conn: AsyncConnection) -> list[dict[str, Any]]:
+    """Tous les backends enabled (tous owners) — usage monitoring système."""
+    rows = (
+        await conn.execute(
+            select(
+                mcp_backend.c.id,
+                mcp_backend.c.owner_login,
+                mcp_backend.c.namespace,
+                mcp_backend.c.name,
+                mcp_backend.c.url,
+                mcp_backend.c.transport,
+                mcp_backend.c.enabled,
+            ).where(mcp_backend.c.enabled.is_(True))
+        )
+    ).mappings().all()
+    return [dict(r) for r in rows]
+
+
 async def list_backends(conn: AsyncConnection, owner_login: str) -> list[dict[str, Any]]:
     q = (
         select(*_BACKEND_COLS)
