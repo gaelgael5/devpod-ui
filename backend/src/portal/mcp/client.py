@@ -2,13 +2,27 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import timedelta
 from typing import Any
 
 import structlog
 from mcp import ClientSession
-from mcp.types import CallToolResult
+from mcp.types import CallToolResult, ServerCapabilities
 
 logger = structlog.get_logger(__name__)
+
+_CAP_KINDS: tuple[tuple[str, str], ...] = (
+    ("tool", "tools"),
+    ("resource", "resources"),
+    ("prompt", "prompts"),
+)
+
+
+def advertised_kinds(caps: ServerCapabilities | None) -> tuple[str, ...]:
+    """Kinds de primitives annoncés par les capabilities du serveur."""
+    if caps is None:
+        return ()
+    return tuple(kind for kind, attr in _CAP_KINDS if getattr(caps, attr) is not None)
 
 
 def hash_definition(definition: dict[str, Any]) -> str:
@@ -33,25 +47,24 @@ async def fetch_primitives(session: ClientSession) -> list[dict[str, Any]]:
     (un backend tools-only ne supporte pas resources/prompts).
     """
     caps = session.get_server_capabilities()
+    kinds = advertised_kinds(caps)
     out: list[dict[str, Any]] = []
-    if caps is None:
-        return out
 
-    if caps.tools is not None:
+    if "tool" in kinds:
         tools_result = await session.list_tools()
         for tool in tools_result.tools:
             d = tool.model_dump(mode="json", exclude_none=True)
             out.append(_entry("tool", tool.name, d))
         logger.debug("mcp.client.fetch_primitives.tools", count=len(tools_result.tools))
 
-    if caps.resources is not None:
+    if "resource" in kinds:
         resources_result = await session.list_resources()
         for resource in resources_result.resources:
             d = resource.model_dump(mode="json", exclude_none=True)
             out.append(_entry("resource", str(resource.uri), d))
         logger.debug("mcp.client.fetch_primitives.resources", count=len(resources_result.resources))
 
-    if caps.prompts is not None:
+    if "prompt" in kinds:
         prompts_result = await session.list_prompts()
         for prompt in prompts_result.prompts:
             d = prompt.model_dump(mode="json", exclude_none=True)
@@ -65,6 +78,11 @@ async def call_backend_tool(
     session: ClientSession,
     name: str,
     arguments: dict[str, Any],
+    read_timeout_seconds: timedelta | None = None,
 ) -> CallToolResult:
-    """Appelle un outil MCP sur la session donnée et retourne le résultat brut."""
-    return await session.call_tool(name, arguments)
+    """Appelle un outil MCP sur la session donnée et retourne le résultat brut.
+
+    read_timeout_seconds plafonne la lecture de la réponse de CET appel
+    (les tools longs streament en SSE) — None laisse le défaut du transport.
+    """
+    return await session.call_tool(name, arguments, read_timeout_seconds=read_timeout_seconds)

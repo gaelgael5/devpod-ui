@@ -7,7 +7,7 @@ from mcp import ClientSession
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..db import mcp_catalog as cat_db
-from .client import fetch_primitives
+from .client import advertised_kinds, fetch_primitives
 
 _log = structlog.get_logger(__name__)
 
@@ -23,6 +23,8 @@ async def sync_backend(
     puis supprime du catalogue celles qui ne sont plus publiées.
     """
     primitives = await fetch_primitives(session)
+    caps = session.get_server_capabilities()
+    kinds = advertised_kinds(caps)
 
     quarantined: list[str] = []
     present: dict[str, list[str]] = {k: [] for k in _KINDS}
@@ -39,8 +41,10 @@ async def sync_backend(
         if flagged:
             quarantined.append(p["original_name"])
 
-    for kind in _KINDS:
+    for kind in kinds:
         await cat_db.prune_absent(conn, backend_id, kind, present[kind])
 
+    if quarantined:
+        _log.warning("mcp_catalog_quarantined", backend_id=backend_id, names=quarantined)
     _log.info("mcp_catalog_synced", backend_id=backend_id, count=len(primitives))
     return {"synced": len(primitives), "quarantined": quarantined}

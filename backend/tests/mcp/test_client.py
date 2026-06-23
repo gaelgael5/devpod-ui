@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.types import ServerCapabilities
 
-from portal.mcp.client import call_backend_tool, fetch_primitives, hash_definition
+from portal.mcp.client import advertised_kinds, call_backend_tool, fetch_primitives, hash_definition
 
 
 def _demo_server() -> FastMCP:
@@ -57,3 +60,29 @@ async def test_call_backend_tool() -> None:
     assert result.isError is False
     # le contenu texte renvoyé contient "ping"
     assert any(getattr(c, "text", "") == "ping" for c in result.content)
+
+
+async def test_call_backend_tool_honors_read_timeout() -> None:
+    # read_timeout_seconds est transmis au SDK ; un appel nominal sous le délai réussit.
+    async with create_connected_server_and_client_session(_demo_server()) as session:
+        result = await call_backend_tool(
+            session, "echo", {"text": "ping"}, read_timeout_seconds=timedelta(seconds=5)
+        )
+    assert result.isError is False
+    assert any(getattr(c, "text", "") == "ping" for c in result.content)
+
+
+def test_advertised_kinds_none_caps() -> None:
+    assert advertised_kinds(None) == ()
+
+
+def test_advertised_kinds_maps_only_present_families() -> None:
+    # On construit les capabilities à la main : un serveur réel qui ne supporte
+    # pas une famille omet la capability correspondante (None). FastMCP, lui,
+    # annonce toujours les trois — il ne peut donc pas représenter ce cas.
+    assert advertised_kinds(ServerCapabilities(tools={})) == ("tool",)
+    assert advertised_kinds(ServerCapabilities(prompts={})) == ("prompt",)
+    assert advertised_kinds(ServerCapabilities()) == ()
+    assert advertised_kinds(
+        ServerCapabilities(tools={}, resources={}, prompts={})
+    ) == ("tool", "resource", "prompt")
