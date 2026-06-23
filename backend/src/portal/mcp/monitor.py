@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 
 import structlog
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from portal.db.mcp import get_backend_key_secret, list_backend_keys
+from portal.db.engine import _get_engine
+from portal.db.mcp import get_backend_key_secret, list_all_enabled_backends, list_backend_keys
 from portal.mcp.catalog import sync_backend
 from portal.mcp.connections import BackendUnavailable, open_session
 from portal.mcp.runtime_secrets import UnresolvableSecret, resolve_grant_key
@@ -74,3 +76,25 @@ async def monitor_backend_once(
         health = BackendHealth(status="down", error=str(exc))
     set_health(backend_row["id"], health)
     return health
+
+
+async def run_monitor_pass(*, open_session_fn: Any | None = None) -> None:
+    """Une passe de monitoring sur tous les backends enabled (chacun en transaction isolée)."""
+    async with _get_engine().connect() as conn:
+        backends = await list_all_enabled_backends(conn)
+    for backend in backends:
+        try:
+            async with _get_engine().begin() as conn:
+                await monitor_backend_once(conn, backend, open_session_fn=open_session_fn)
+        except Exception as exc:  # noqa: BLE001 — une erreur backend n'interrompt pas la passe
+            _log.warning("mcp_monitor_backend_failed", backend_id=backend["id"], error=str(exc))
+
+
+async def monitor_loop(interval_s: float, *, open_session_fn: Any | None = None) -> None:
+    """Boucle de fond : monitore tous les backends toutes les interval_s secondes."""
+    while True:
+        try:
+            await run_monitor_pass(open_session_fn=open_session_fn)
+        except Exception as exc:  # noqa: BLE001 — une boucle de fond ne doit jamais mourir
+            _log.exception("mcp_monitor_pass_failed", error=str(exc))
+        await asyncio.sleep(interval_s)

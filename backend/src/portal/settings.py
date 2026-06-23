@@ -42,6 +42,9 @@ class AppSettings(BaseSettings):
     # Vault : KEK 32 bytes hex (64 chars). Obligatoire en production.
     portal_vault_kek: str = ""
 
+    # MCP : intervalle de la boucle de monitoring des backends (secondes).
+    mcp_monitor_interval_s: float = 300.0
+
 
 _settings: AppSettings | None = None
 

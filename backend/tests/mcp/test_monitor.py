@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 from sqlalchemy import insert
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from portal.db.tables import mcp_backend, users
 from portal.mcp.connections import BackendUnavailable
@@ -16,6 +16,7 @@ from portal.mcp.monitor import (
     health_snapshot,
     monitor_backend_once,
     reset_health,
+    run_monitor_pass,
     set_health,
 )
 
@@ -102,3 +103,63 @@ async def test_monitor_backend_once_down(db_conn: AsyncConnection) -> None:
     health = await monitor_backend_once(db_conn, backend, open_session_fn=_unavailable)
     assert health.status == "down" and health.error is not None
     assert get_health("b1").status == "down"
+
+
+# ---------------------------------------------------------------------------
+# run_monitor_pass
+# ---------------------------------------------------------------------------
+
+
+async def _seed_two_backends(engine: AsyncEngine) -> None:
+    """Insère deux backends enabled (b1 et b2) pour les tests de passe complète."""
+    async with engine.begin() as conn:
+        await conn.execute(
+            insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
+        )
+        await conn.execute(
+            insert(mcp_backend).values(
+                id="b1", owner_login="alice", namespace="rag", name="RAG",
+                url="https://rag/mcp", transport="streamable_http", enabled=True,
+            )
+        )
+        await conn.execute(
+            insert(mcp_backend).values(
+                id="b2", owner_login="alice", namespace="search", name="Search",
+                url="https://search/mcp", transport="streamable_http", enabled=True,
+            )
+        )
+
+
+async def test_run_monitor_pass_sets_health_for_all_enabled(
+    db_engine: AsyncEngine,
+) -> None:
+    """run_monitor_pass ouvre ses propres connexions via _get_engine().
+
+    b1 répond (up), b2 lève une erreur réseau → la passe continue quand même
+    et b1 est up à la fin.
+    """
+    reset_health()
+    await _seed_two_backends(db_engine)
+
+    # b2 : open_session_fn qui lève systématiquement
+    @asynccontextmanager
+    async def _failing_session(url: str, *, bearer: str | None = None, **kw):
+        raise BackendUnavailable("network error", backend_id="b2")
+        yield  # noqa: RET504
+
+    # On veut b1 → up, b2 → erreur tolérée. On route selon l'URL.
+    b1_server = _fake_backend()
+
+    @asynccontextmanager
+    async def _routing_session(url: str, *, bearer: str | None = None, **kw):
+        if "rag" in url:
+            async with create_connected_server_and_client_session(b1_server) as session:
+                yield session
+        else:
+            raise BackendUnavailable("network error", backend_id="b2")
+
+    await run_monitor_pass(open_session_fn=_routing_session)
+
+    assert get_health("b1").status == "up"
+    # b2 a levé → down enregistré (monitor_backend_once catch BackendUnavailable)
+    assert get_health("b2").status == "down"

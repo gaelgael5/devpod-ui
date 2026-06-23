@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import socket as _socket
 from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -15,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from .auth.router import router as auth_router
+from .mcp.monitor import monitor_loop
 from .mcp.server import build_server as _build_mcp_server
 from .routes.admin import router as admin_router
 from .routes.certificates import router_admin as certs_admin_router
@@ -137,7 +139,15 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         client = OpenVsxClient(OpenVsxSettings(), http)
         app.dependency_overrides[get_openvsx] = lambda: client
         async with app.state.mcp_session_manager.run():
-            yield
+            _monitor_task = asyncio.create_task(
+                monitor_loop(settings_obj.mcp_monitor_interval_s)
+            )
+            try:
+                yield
+            finally:
+                _monitor_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await _monitor_task
 
 
 def create_app() -> FastAPI:
