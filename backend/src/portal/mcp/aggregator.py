@@ -23,6 +23,18 @@ class AggregatedPrimitive(BaseModel):
     definition: dict[str, Any]
 
 
+class CallTarget(BaseModel):
+    """Routage résolu d'un appel namespacé vers son backend + sa clé sortante."""
+
+    model_config = ConfigDict(frozen=True)
+
+    backend_id: str
+    original_name: str
+    url: str
+    transport: str
+    backend_key_id: str | None
+
+
 def split_namespaced(name: str) -> tuple[str, str] | None:
     """Découpe `<namespace>__<original>` sur le PREMIER `__`.
 
@@ -72,3 +84,45 @@ async def aggregate_primitives(
                 )
             )
     return out
+
+
+async def resolve_call(
+    conn: AsyncConnection,
+    *,
+    apikey_id: str,
+    owner_login: str,
+    namespaced_name: str,
+    kind: str,
+) -> CallTarget | None:
+    """Résout le routage d'un appel namespacé. `None` = refusé/inconnu (deny-by-default).
+
+    Ne révèle jamais l'existence d'un backend : tout cas non autorisé renvoie `None`.
+    """
+    parsed = split_namespaced(namespaced_name)
+    if parsed is None:
+        return None
+    namespace, original = parsed
+    for grant in await list_grants(conn, apikey_id):
+        backend = await get_backend(conn, owner_login, grant["backend_id"])
+        if backend is None or not backend["enabled"] or backend["namespace"] != namespace:
+            continue
+        if not _curation_allows(grant["expose_mode"], grant["expose"] or [], original):
+            return None
+        match = next(
+            (
+                p
+                for p in await list_primitives(conn, grant["backend_id"], kind)
+                if p["original_name"] == original
+            ),
+            None,
+        )
+        if match is None or match["quarantined"]:
+            return None
+        return CallTarget(
+            backend_id=grant["backend_id"],
+            original_name=original,
+            url=backend["url"],
+            transport=backend["transport"],
+            backend_key_id=grant["backend_key_id"],
+        )
+    return None

@@ -5,12 +5,14 @@ import uuid
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from portal.db.mcp import insert_apikey, set_grant
+from portal.db.mcp import insert_apikey, insert_backend_key, set_grant
 from portal.db.mcp_catalog import upsert_primitive
 from portal.db.tables import mcp_backend, users
 from portal.mcp.aggregator import (
     AggregatedPrimitive,
+    CallTarget,
     aggregate_primitives,
+    resolve_call,
     split_namespaced,
 )
 
@@ -99,3 +101,81 @@ async def test_aggregate_skips_disabled_backend(db_conn: AsyncConnection) -> Non
     )
     prims = await aggregate_primitives(db_conn, apikey_id="ak1", owner_login="alice", kind="tool")
     assert prims == []
+
+
+async def test_resolve_call_routes_to_backend(db_conn: AsyncConnection) -> None:
+    await _seed(db_conn)
+    await insert_backend_key(
+        db_conn, id="k1", backend_id="b1", slug="prod", description="",
+        storage_type="local", secret_value_local=b"x",
+        secret_value_vault_ref=None, vault_identifier=None,
+    )
+    await set_grant(db_conn, apikey_id="ak1", backend_id="b1", backend_key_id="k1")
+    await upsert_primitive(
+        db_conn, backend_id="b1", kind="tool", original_name="search",
+        definition={"name": "search"}, definition_hash="h1",
+    )
+
+    target = await resolve_call(
+        db_conn, apikey_id="ak1", owner_login="alice",
+        namespaced_name="rag__search", kind="tool",
+    )
+    assert target == CallTarget(
+        backend_id="b1", original_name="search",
+        url="https://rag/mcp", transport="streamable_http", backend_key_id="k1",
+    )
+
+
+async def test_resolve_call_unknown_or_malformed_returns_none(db_conn: AsyncConnection) -> None:
+    await _seed(db_conn)
+    await set_grant(db_conn, apikey_id="ak1", backend_id="b1", backend_key_id=None)
+    await upsert_primitive(
+        db_conn, backend_id="b1", kind="tool", original_name="search",
+        definition={"name": "search"}, definition_hash="h1",
+    )
+    # mauvais namespace, nom non namespacé, tool inexistant → tous None
+    assert await resolve_call(
+        db_conn, apikey_id="ak1", owner_login="alice",
+        namespaced_name="other__search", kind="tool",
+    ) is None
+    assert await resolve_call(
+        db_conn, apikey_id="ak1", owner_login="alice",
+        namespaced_name="nosep", kind="tool",
+    ) is None
+    assert await resolve_call(
+        db_conn, apikey_id="ak1", owner_login="alice",
+        namespaced_name="rag__ghost", kind="tool",
+    ) is None
+
+
+async def test_resolve_call_curation_denied_returns_none(db_conn: AsyncConnection) -> None:
+    await _seed(db_conn)
+    await set_grant(
+        db_conn, apikey_id="ak1", backend_id="b1", backend_key_id=None,
+        expose_mode="denylist", expose=["search"],
+    )
+    await upsert_primitive(
+        db_conn, backend_id="b1", kind="tool", original_name="search",
+        definition={"name": "search"}, definition_hash="h1",
+    )
+    assert await resolve_call(
+        db_conn, apikey_id="ak1", owner_login="alice",
+        namespaced_name="rag__search", kind="tool",
+    ) is None
+
+
+async def test_resolve_call_quarantined_returns_none(db_conn: AsyncConnection) -> None:
+    await _seed(db_conn)
+    await set_grant(db_conn, apikey_id="ak1", backend_id="b1", backend_key_id=None)
+    await upsert_primitive(
+        db_conn, backend_id="b1", kind="tool", original_name="search",
+        definition={"name": "v1"}, definition_hash="h1",
+    )
+    await upsert_primitive(  # redéfinition → quarantaine collante
+        db_conn, backend_id="b1", kind="tool", original_name="search",
+        definition={"name": "v2"}, definition_hash="h1b",
+    )
+    assert await resolve_call(
+        db_conn, apikey_id="ak1", owner_login="alice",
+        namespaced_name="rag__search", kind="tool",
+    ) is None
