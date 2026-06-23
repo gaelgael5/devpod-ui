@@ -14,6 +14,7 @@ from portal.db.mcp import (
     get_apikey,
     get_backend,
     get_backend_key,
+    get_backend_key_secret,
     insert_apikey,
     insert_backend,
     insert_backend_key,
@@ -191,3 +192,41 @@ async def test_get_apikey_scoped_to_owner(db_conn: AsyncConnection) -> None:
     # isolation : bob ne voit pas l'apikey d'alice ; id inconnu → None
     assert await get_apikey(db_conn, "bob", "a1") is None
     assert await get_apikey(db_conn, "alice", "absent") is None
+
+
+async def _seed_backend(conn: AsyncConnection) -> None:
+    await conn.execute(
+        insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
+    )
+    await conn.execute(
+        insert(mcp_backend).values(
+            id="b1", owner_login="alice", namespace="rag", name="RAG",
+            url="https://rag/mcp", transport="streamable_http",
+        )
+    )
+
+
+async def test_get_backend_key_secret_returns_blob(db_conn: AsyncConnection) -> None:
+    await _seed_backend(db_conn)
+    await insert_backend_key(
+        db_conn,
+        id="k1", backend_id="b1", slug="prod", description="",
+        storage_type="local", secret_value_local=b"\x01\x02\x03",
+        secret_value_vault_ref=None, vault_identifier=None,
+    )
+
+    row = await get_backend_key_secret(db_conn, "b1", "k1")
+    assert row is not None
+    assert row["storage_type"] == "local"
+    assert row["secret_value_local"] == b"\x01\x02\x03"
+    assert row["secret_value_vault_ref"] is None
+
+    # Hygiène : le listing NE doit PAS exposer le blob.
+    listed = await get_backend_key(db_conn, "b1", "k1")
+    assert listed is not None
+    assert "secret_value_local" not in listed
+
+
+async def test_get_backend_key_secret_unknown_returns_none(db_conn: AsyncConnection) -> None:
+    await _seed_backend(db_conn)
+    assert await get_backend_key_secret(db_conn, "b1", "nope") is None

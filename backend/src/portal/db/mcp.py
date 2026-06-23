@@ -154,6 +154,30 @@ async def get_backend_key(
     return dict(row) if row else None
 
 
+async def get_backend_key_secret(
+    conn: AsyncConnection, backend_id: str, key_id: str
+) -> dict[str, Any] | None:
+    """Récupère le secret chiffré d'une clé de service — usage RUNTIME uniquement.
+
+    Contrairement à `get_backend_key`/`list_backend_keys`, sélectionne
+    `secret_value_local` (blob chiffré KEK). Réservé à la résolution du secret
+    sortant au runtime ; ne JAMAIS l'exposer dans un listing/registre.
+    """
+    row = (
+        await conn.execute(
+            select(
+                mcp_backend_key.c.storage_type,
+                mcp_backend_key.c.secret_value_local,
+                mcp_backend_key.c.secret_value_vault_ref,
+            ).where(
+                mcp_backend_key.c.id == key_id,
+                mcp_backend_key.c.backend_id == backend_id,
+            )
+        )
+    ).mappings().first()
+    return dict(row) if row else None
+
+
 async def delete_backend_key(conn: AsyncConnection, backend_id: str, key_id: str) -> bool:
     q = (
         delete(mcp_backend_key)
