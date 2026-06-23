@@ -74,9 +74,10 @@ async def execute_resource_read(
     apikey_id: str,
     owner_login: str,
     namespaced_uri: str,
-    open_session_fn: Any = open_session,
+    open_session_fn: Any | None = None,
 ) -> list[ReadResourceContents]:
     """Route un resources/read vers son backend. Deny-by-default + audit à chaque sortie."""
+    session_fn = open_session_fn if open_session_fn is not None else open_session
     target = await resolve_resource(
         conn, apikey_id=apikey_id, owner_login=owner_login, namespaced_uri=namespaced_uri
     )
@@ -94,7 +95,7 @@ async def execute_resource_read(
 
     started = time.perf_counter()
     try:
-        async with open_session_fn(target.url, bearer=bearer) as session:
+        async with session_fn(target.url, bearer=bearer) as session:
             original_uri = _ANYURL.validate_python(target.original_name)
             result = await read_backend_resource(session, original_uri)
     except BackendUnavailable as exc:

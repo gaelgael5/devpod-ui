@@ -79,12 +79,13 @@ async def execute_tool_call(
     owner_login: str,
     name: str,
     arguments: dict[str, Any],
-    open_session_fn: Any = open_session,
+    open_session_fn: Any | None = None,
 ) -> types.CallToolResult:
     """Route un tools/call namespacé vers son backend.
 
     Deny-by-default + mapping erreurs §13 + audit à chaque sortie.
     """
+    session_fn = open_session_fn if open_session_fn is not None else open_session
     if name == GATEWAY_LIST_BACKENDS:
         result = await _gateway_list_backends(conn, owner_login)
         await audit_record(
@@ -111,7 +112,7 @@ async def execute_tool_call(
 
     started = time.perf_counter()
     try:
-        async with open_session_fn(target.url, bearer=bearer) as session:
+        async with session_fn(target.url, bearer=bearer) as session:
             result = await call_backend_tool(session, target.original_name, arguments)
     except BackendUnavailable as exc:
         await audit_record(
@@ -159,9 +160,10 @@ async def execute_prompt_get(
     owner_login: str,
     name: str,
     arguments: dict[str, str] | None,
-    open_session_fn: Any = open_session,
+    open_session_fn: Any | None = None,
 ) -> types.GetPromptResult:
     """Route un prompts/get namespacé vers son backend. Deny-by-default + audit à chaque sortie."""
+    session_fn = open_session_fn if open_session_fn is not None else open_session
     target = await resolve_call(
         conn, apikey_id=apikey_id, owner_login=owner_login, namespaced_name=name, kind="prompt"
     )
@@ -179,7 +181,7 @@ async def execute_prompt_get(
 
     started = time.perf_counter()
     try:
-        async with open_session_fn(target.url, bearer=bearer) as session:
+        async with session_fn(target.url, bearer=bearer) as session:
             result = await get_backend_prompt(session, target.original_name, arguments)
     except BackendUnavailable as exc:
         await audit_record(
