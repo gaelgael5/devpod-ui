@@ -32,7 +32,9 @@ import {
   useSetGrant,
   useDeleteGrant,
   type MCPApikey,
+  type ExposeMode,
 } from './api'
+import { ExposeEditor } from './ExposeEditor'
 
 function CreateApikeyDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation()
@@ -148,9 +150,11 @@ function GrantEditor({ apikeyId }: { apikeyId: string }) {
             namespace={b.namespace}
             granted={current !== undefined}
             currentKeyId={current?.backend_key_id ?? null}
-            onSet={(keyId) =>
+            currentExposeMode={current?.expose_mode ?? 'all'}
+            currentExpose={current?.expose ?? []}
+            onSet={(body) =>
               setGrant.mutate(
-                { backend_id: b.id, backend_key_id: keyId },
+                { backend_id: b.id, ...body },
                 {
                   onError: (e) =>
                     toast.error(e instanceof Error ? e.message : t('errors.generic')),
@@ -174,12 +178,16 @@ function GrantEditor({ apikeyId }: { apikeyId: string }) {
 // interdit une SelectItem de value="").
 const PUBLIC_GRANT = '__public__'
 
+type GrantBody = { backend_key_id: string | null; expose_mode: ExposeMode; expose: string[] }
+
 function GrantRow({
   backendId,
   backendName,
   namespace,
   granted,
   currentKeyId,
+  currentExposeMode,
+  currentExpose,
   onSet,
   onRemove,
 }: {
@@ -188,7 +196,9 @@ function GrantRow({
   namespace: string
   granted: boolean
   currentKeyId: string | null
-  onSet: (keyId: string | null) => void
+  currentExposeMode: ExposeMode
+  currentExpose: string[]
+  onSet: (body: GrantBody) => void
   onRemove: () => void
 }) {
   const { t } = useTranslation()
@@ -196,30 +206,62 @@ function GrantRow({
 
   // Valeur affichée : aucune si pas de grant ; PUBLIC_GRANT si grant sans clé ;
   // sinon l'id de la clé choisie.
-  const selectValue = !granted ? '' : (currentKeyId ?? PUBLIC_GRANT)
+  const keyValue = !granted ? '' : (currentKeyId ?? PUBLIC_GRANT)
+
+  // Émet l'état complet courant (clé + curation) avec un override partiel : le grant
+  // est ré-écrit à chaque changement (mutation immédiate, comme le choix de clé).
+  const emit = (over: Partial<GrantBody>) =>
+    onSet({
+      backend_key_id: currentKeyId,
+      expose_mode: currentExposeMode,
+      expose: currentExpose,
+      ...over,
+    })
 
   return (
-    <div className="flex items-center gap-2 text-sm">
-      <span className="font-medium">{backendName}</span>
-      <Badge variant="outline" className="font-mono text-xs">{namespace}</Badge>
-      <Select
-        value={selectValue}
-        onValueChange={(v) => onSet(v === PUBLIC_GRANT ? null : v)}
-      >
-        <SelectTrigger className="ml-auto h-8 w-44">
-          <SelectValue placeholder={t('mcp.apikeys.selectKey')} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={PUBLIC_GRANT}>{t('mcp.apikeys.publicAccess')}</SelectItem>
-          {keys.map((k) => (
-            <SelectItem key={k.id} value={k.id}>{k.slug}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="flex flex-col gap-2 border-b pb-2 last:border-0">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="font-medium">{backendName}</span>
+        <Badge variant="outline" className="font-mono text-xs">{namespace}</Badge>
+        <Select
+          value={keyValue}
+          onValueChange={(v) => emit({ backend_key_id: v === PUBLIC_GRANT ? null : v })}
+        >
+          <SelectTrigger className="ml-auto h-8 w-44">
+            <SelectValue placeholder={t('mcp.apikeys.selectKey')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={PUBLIC_GRANT}>{t('mcp.apikeys.publicAccess')}</SelectItem>
+            {keys.map((k) => (
+              <SelectItem key={k.id} value={k.id}>{k.slug}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {granted && (
+          <Button size="sm" variant="ghost" className="text-destructive" onClick={onRemove}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
       {granted && (
-        <Button size="sm" variant="ghost" className="text-destructive" onClick={onRemove}>
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+        <div className="flex flex-col gap-1.5 pl-1">
+          <Select
+            value={currentExposeMode}
+            onValueChange={(v) => emit({ expose_mode: v as ExposeMode })}
+          >
+            <SelectTrigger aria-label={t('mcp.apikeys.exposeModeLabel')} className="h-8 w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t('mcp.apikeys.exposeModeAll')}</SelectItem>
+              <SelectItem value="allowlist">{t('mcp.apikeys.exposeModeAllowlist')}</SelectItem>
+              <SelectItem value="denylist">{t('mcp.apikeys.exposeModeDenylist')}</SelectItem>
+            </SelectContent>
+          </Select>
+          {currentExposeMode !== 'all' && (
+            <ExposeEditor value={currentExpose} onChange={(next) => emit({ expose: next })} />
+          )}
+        </div>
       )}
     </div>
   )
