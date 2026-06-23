@@ -34,22 +34,24 @@ async def fetch_primitives(session: ClientSession) -> list[dict[str, Any]]:
     """
     caps = session.get_server_capabilities()
     out: list[dict[str, Any]] = []
+    if caps is None:
+        return out
 
-    if caps is not None and caps.tools is not None:
+    if caps.tools is not None:
         tools_result = await session.list_tools()
         for tool in tools_result.tools:
             d = tool.model_dump(mode="json", exclude_none=True)
             out.append(_entry("tool", tool.name, d))
         logger.debug("mcp.client.fetch_primitives.tools", count=len(tools_result.tools))
 
-    if caps is not None and caps.resources is not None:
+    if caps.resources is not None:
         resources_result = await session.list_resources()
         for resource in resources_result.resources:
             d = resource.model_dump(mode="json", exclude_none=True)
             out.append(_entry("resource", str(resource.uri), d))
         logger.debug("mcp.client.fetch_primitives.resources", count=len(resources_result.resources))
 
-    if caps is not None and caps.prompts is not None:
+    if caps.prompts is not None:
         prompts_result = await session.list_prompts()
         for prompt in prompts_result.prompts:
             d = prompt.model_dump(mode="json", exclude_none=True)
