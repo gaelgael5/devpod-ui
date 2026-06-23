@@ -16,9 +16,10 @@ from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.applications import Starlette
 
-from portal.db.mcp import insert_apikey
+from portal.db.mcp import insert_apikey, set_grant
 from portal.db.mcp_audit import list_for_owner
-from portal.db.tables import users
+from portal.db.mcp_catalog import upsert_primitive
+from portal.db.tables import mcp_backend, users
 from portal.mcp.handlers import GATEWAY_LIST_BACKENDS
 from portal.mcp.server import build_server
 from portal.mcp.service import token_hash
@@ -155,3 +156,64 @@ async def test_call_tool_denied_audit_is_durable(
         audit = await list_for_owner(conn, "alice")
     assert len(audit) == 1
     assert audit[0]["status"] == "denied"
+
+
+async def test_mcp_endpoint_lists_resources_and_prompts(
+    db_engine: AsyncEngine,
+) -> None:
+    """Bearer valide + catalogue seedé → list_prompts et list_resources retournent les primitives
+    namespacées (rag__welcome / gw+rag URI)."""
+    async with db_engine.begin() as conn:
+        await conn.execute(
+            insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
+        )
+        await insert_apikey(
+            conn, id="ak1", owner_login="alice", token_hash=token_hash("mcpk_secret"), label=""
+        )
+        await conn.execute(
+            insert(mcp_backend).values(
+                id="b1",
+                owner_login="alice",
+                namespace="rag",
+                name="RAG",
+                url="https://rag/mcp",
+                transport="streamable_http",
+            )
+        )
+        await set_grant(conn, apikey_id="ak1", backend_id="b1", backend_key_id=None)
+        await upsert_primitive(
+            conn,
+            backend_id="b1",
+            kind="prompt",
+            original_name="welcome",
+            definition={"name": "welcome"},
+            definition_hash="p1",
+        )
+        await upsert_primitive(
+            conn,
+            backend_id="b1",
+            kind="resource",
+            original_name="resource://foo",
+            definition={"uri": "resource://foo", "name": "Foo"},
+            definition_hash="r1",
+        )
+
+    app, _manager = _build_app()
+    async with LifespanManager(app):
+        http_client = _http_client(app, bearer="mcpk_secret")
+        async with (
+            http_client,
+            streamable_http_client(_MCP_BASE + "/mcp/", http_client=http_client) as (
+                read,
+                write,
+                _get_sid,
+            ),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+
+            prompts = await session.list_prompts()
+            assert any(p.name == "rag__welcome" for p in prompts.prompts)
+
+            resources = await session.list_resources()
+            assert any(str(r.uri).startswith("gw+rag") for r in resources.resources)
