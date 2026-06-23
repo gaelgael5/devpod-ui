@@ -7,7 +7,8 @@ from typing import Any
 
 import structlog
 from mcp import ClientSession
-from mcp.types import CallToolResult, ServerCapabilities
+from mcp.types import CallToolResult, GetPromptResult, ReadResourceResult, ServerCapabilities
+from pydantic import AnyUrl
 
 logger = structlog.get_logger(__name__)
 
@@ -86,3 +87,15 @@ async def call_backend_tool(
     (les tools longs streament en SSE) — None laisse le défaut du transport.
     """
     return await session.call_tool(name, arguments, read_timeout_seconds=read_timeout_seconds)
+
+
+async def read_backend_resource(session: ClientSession, uri: AnyUrl) -> ReadResourceResult:
+    """Lit une ressource d'un backend ; retourne le résultat brut non transformé."""
+    return await session.read_resource(uri)
+
+
+async def get_backend_prompt(
+    session: ClientSession, name: str, arguments: dict[str, str] | None = None
+) -> GetPromptResult:
+    """Récupère un prompt d'un backend ; retourne le résultat brut non transformé."""
+    return await session.get_prompt(name, arguments)

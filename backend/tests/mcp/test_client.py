@@ -5,8 +5,16 @@ from datetime import timedelta
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import ServerCapabilities
+from pydantic import AnyUrl
 
-from portal.mcp.client import advertised_kinds, call_backend_tool, fetch_primitives, hash_definition
+from portal.mcp.client import (
+    advertised_kinds,
+    call_backend_tool,
+    fetch_primitives,
+    get_backend_prompt,
+    hash_definition,
+    read_backend_resource,
+)
 
 
 def _demo_server() -> FastMCP:
@@ -86,3 +94,33 @@ def test_advertised_kinds_maps_only_present_families() -> None:
     assert advertised_kinds(
         ServerCapabilities(tools={}, resources={}, prompts={})
     ) == ("tool", "resource", "prompt")
+
+
+def _server_with_resource_and_prompt() -> FastMCP:
+    srv = FastMCP("demo")
+
+    @srv.resource("resource://greeting")
+    def greeting() -> str:
+        return "hello"
+
+    @srv.prompt()
+    def welcome(who: str) -> str:
+        return f"Welcome {who}"
+
+    return srv
+
+
+async def test_read_backend_resource() -> None:
+    async with create_connected_server_and_client_session(
+        _server_with_resource_and_prompt()
+    ) as session:
+        result = await read_backend_resource(session, AnyUrl("resource://greeting"))
+    assert result.contents[0].text == "hello"
+
+
+async def test_get_backend_prompt() -> None:
+    async with create_connected_server_and_client_session(
+        _server_with_resource_and_prompt()
+    ) as session:
+        result = await get_backend_prompt(session, "welcome", {"who": "Bob"})
+    assert "Bob" in result.messages[0].content.text
