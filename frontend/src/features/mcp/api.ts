@@ -5,6 +5,8 @@ export type Transport = 'streamable_http' | 'sse' | 'stdio'
 export type StorageType = 'local' | 'harpocrate'
 export type ExposeMode = 'all' | 'allowlist' | 'denylist'
 
+export type BackendHealth = 'up' | 'down' | 'unknown'
+
 export interface MCPBackend {
   id: string
   owner_login: string
@@ -15,6 +17,8 @@ export interface MCPBackend {
   enabled: boolean
   created_at: string
   updated_at: string
+  // Statut de santé renvoyé par le monitor (absent des réponses sans monitoring).
+  health?: BackendHealth
 }
 
 export interface MCPBackendKey {
@@ -93,6 +97,8 @@ export function useBackends() {
   return useQuery({
     queryKey: QK.backends(),
     queryFn: () => apiFetchJson<MCPBackend[]>('/me/mcp/backends'),
+    // Polling court : reflète le statut de santé du monitor (pas de push serveur en SDK 1.28).
+    refetchInterval: 10_000,
   })
 }
 

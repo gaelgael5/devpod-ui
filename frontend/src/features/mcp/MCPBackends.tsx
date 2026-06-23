@@ -275,6 +275,14 @@ function BackendCard({ backend }: { backend: MCPBackend }) {
         <Server className="h-4 w-4 text-muted-foreground" />
         <span className="font-medium">{backend.name}</span>
         <Badge variant="outline" className="font-mono text-xs">{backend.namespace}</Badge>
+        {backend.health === 'up' && (
+          <Badge className="border-transparent bg-emerald-600 text-white">
+            {t('mcp.backends.healthUp')}
+          </Badge>
+        )}
+        {backend.health === 'down' && (
+          <Badge variant="destructive">{t('mcp.backends.healthDown')}</Badge>
+        )}
         {!backend.enabled && <Badge variant="secondary">{t('mcp.backends.statusDisabled')}</Badge>}
         <span className="ml-2 text-xs text-muted-foreground">{backend.url}</span>
         <div className="ml-auto flex gap-1">

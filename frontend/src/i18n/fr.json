@@ -570,6 +570,8 @@
       "delete": "Supprimer",
       "confirmDelete": "Confirmer",
       "statusDisabled": "Désactivé",
+      "healthUp": "En ligne",
+      "healthDown": "Hors ligne",
       "namespacePlaceholder": "rag",
       "urlPlaceholder": "https://rag.yoops.org/mcp",
       "slugPlaceholder": "read"

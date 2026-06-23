@@ -9,6 +9,7 @@ from ..auth.rbac import UserInfo, require_user
 from ..db import mcp as db
 from ..db.engine import get_conn
 from ..mcp import models, service
+from ..mcp.monitor import get_health
 
 router = APIRouter(tags=["mcp"])
 
@@ -37,7 +38,9 @@ def _map_error(exc: Exception) -> None:
 async def list_backends_route(
     user: UserInfo = Depends(require_user), conn: AsyncConnection = Depends(get_conn)
 ) -> list[dict[str, Any]]:
-    return await db.list_backends(conn, user.login)
+    # Enrichi du statut de santé en mémoire (monitor, Plan 6) pour le polling UI.
+    backends = await db.list_backends(conn, user.login)
+    return [{**b, "health": get_health(b["id"]).status} for b in backends]
 
 
 @router.post("/mcp/backends", status_code=201)

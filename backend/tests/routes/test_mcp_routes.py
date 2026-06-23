@@ -55,6 +55,27 @@ async def test_backend_create_list_delete(client: AsyncClient) -> None:
     assert r.status_code == 204
 
 
+async def test_backend_list_includes_health(client: AsyncClient) -> None:
+    from portal.mcp.monitor import BackendHealth, reset_health, set_health
+
+    reset_health()
+    r = await client.post("/me/mcp/backends", json={
+        "namespace": "rag", "name": "RAG", "url": "https://rag/mcp", "transport": "streamable_http",
+    })
+    bid = r.json()["id"]
+    set_health(bid, BackendHealth(status="up"))
+
+    r = await client.get("/me/mcp/backends")
+    assert r.status_code == 200
+    body = r.json()
+    assert body[0]["id"] == bid and body[0]["health"] == "up"
+
+    # backend non monitoré → "unknown"
+    reset_health()
+    r = await client.get("/me/mcp/backends")
+    assert r.json()[0]["health"] == "unknown"
+
+
 async def test_backend_rejects_duplicate_namespace(client: AsyncClient) -> None:
     # Cas isolé : le POST dupliqué viole la contrainte UNIQUE et avorte la
     # transaction asyncpg ; en test, db_conn est partagé entre les requêtes,
