@@ -3,6 +3,7 @@ import { apiFetch, apiFetchJson } from '@/shared/api/client'
 
 export type Transport = 'streamable_http' | 'sse' | 'stdio'
 export type StorageType = 'local' | 'harpocrate'
+export type ExposeMode = 'all' | 'allowlist' | 'denylist'
 
 export interface MCPBackend {
   id: string
@@ -40,6 +41,8 @@ export interface MCPGrant {
   apikey_id: string
   backend_id: string
   backend_key_id: string
+  expose_mode: ExposeMode
+  expose: string[]
 }
 
 export interface BackendCreateBody {
@@ -68,6 +71,8 @@ export interface GrantSetBody {
   backend_id: string
   // null = backend public (sans authentification) : aucune clé de service
   backend_key_id: string | null
+  expose_mode: ExposeMode
+  expose: string[]
 }
 
 export interface CreatedApikey {

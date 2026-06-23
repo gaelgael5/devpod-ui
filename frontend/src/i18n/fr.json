@@ -593,7 +593,15 @@
       "selectKey": "Choisir une clé…",
       "publicAccess": "Aucune (public)",
       "addGrant": "Autoriser",
-      "removeGrant": "Retirer"
+      "removeGrant": "Retirer",
+      "exposeModeLabel": "Curation des outils",
+      "exposeModeAll": "Tous les outils",
+      "exposeModeAllowlist": "Seulement listés",
+      "exposeModeDenylist": "Tous sauf listés",
+      "exposePlaceholder": "Nom d'outil…",
+      "exposeAdd": "Ajouter",
+      "exposeRemove": "Retirer",
+      "exposeEmpty": "Aucun outil listé."
     },
     "saving": "Enregistrement…",
     "save": "Enregistrer"

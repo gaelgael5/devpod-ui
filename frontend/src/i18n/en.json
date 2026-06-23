@@ -593,7 +593,15 @@
       "selectKey": "Choose a key…",
       "publicAccess": "None (public)",
       "addGrant": "Authorize",
-      "removeGrant": "Remove"
+      "removeGrant": "Remove",
+      "exposeModeLabel": "Tool curation",
+      "exposeModeAll": "All tools",
+      "exposeModeAllowlist": "Only listed",
+      "exposeModeDenylist": "All except listed",
+      "exposePlaceholder": "Tool name…",
+      "exposeAdd": "Add",
+      "exposeRemove": "Remove",
+      "exposeEmpty": "No tool listed."
     },
     "saving": "Saving…",
     "save": "Save"
