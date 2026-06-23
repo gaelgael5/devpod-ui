@@ -44,7 +44,8 @@ export interface MCPApikey {
 export interface MCPGrant {
   apikey_id: string
   backend_id: string
-  backend_key_id: string
+  // null = backend public (sans clé de service) — la colonne DB est nullable.
+  backend_key_id: string | null
   expose_mode: ExposeMode
   expose: string[]
 }
