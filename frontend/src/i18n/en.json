@@ -45,6 +45,16 @@
       "hideSidebar": "Hide panel",
       "showSidebar": "Show panel"
     },
+    "initializers": {
+      "button": "Initialize",
+      "run": "Run",
+      "force": "Force re-apply",
+      "running": "Initializing…",
+      "applied": "Action applied",
+      "alreadyApplied": "Already applied",
+      "failed": "Initialization failed",
+      "needRunning": "Workspace must be running"
+    },
     "form": {
       "name": "Name",
       "sources": "Git sources",

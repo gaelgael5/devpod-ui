@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import WorkspaceSessionTerminal from './WorkspaceSessionTerminal'
+import InitializersMenu from './InitializersMenu'
 import { useWorkspaceStatus } from './useWorkspaceStatus'
 import {
   useWorkspaceSessions,
@@ -199,17 +200,20 @@ export default function WorkspaceTerminals() {
             {t('workspaces.terminals.newSession')}
           </Button>
         )}
-        {wsStatus?.url && (
-          <>
-            <div className="ml-auto h-4 w-px bg-border" />
-            <Button size="sm" variant="outline" className="gap-1.5" asChild>
-              <a href={wsStatus.url} target="_blank" rel="noopener noreferrer">
-                <ExternalLink size={13} />
-                {t('workspaces.actions.openVscode')}
-              </a>
-            </Button>
-          </>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          <InitializersMenu wsName={wsName!} enabled={wsStatus?.status === 'running'} />
+          {wsStatus?.url && (
+            <>
+              <div className="h-4 w-px bg-border" />
+              <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                <a href={wsStatus.url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink size={13} />
+                  {t('workspaces.actions.openVscode')}
+                </a>
+              </Button>
+            </>
+          )}
+        </div>
       </header>
 
       {/* Corps */}

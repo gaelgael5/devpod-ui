@@ -45,6 +45,16 @@
       "hideSidebar": "Masquer le panneau",
       "showSidebar": "Afficher le panneau"
     },
+    "initializers": {
+      "button": "Initialiser",
+      "run": "Lancer",
+      "force": "Forcer la réapplication",
+      "running": "Initialisation en cours…",
+      "applied": "Action appliquée",
+      "alreadyApplied": "Déjà appliqué",
+      "failed": "Échec de l'initialisation",
+      "needRunning": "Le workspace doit être démarré"
+    },
     "form": {
       "name": "Nom",
       "sources": "Sources Git",

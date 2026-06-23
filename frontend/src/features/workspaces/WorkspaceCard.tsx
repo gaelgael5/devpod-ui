@@ -17,6 +17,7 @@ import type { WorkspaceSpec, WorkspaceStatus, WorkspaceStatusValue } from './typ
 import SshKeyDialog from './SshKeyDialog'
 import LogDialog from './LogDialog'
 import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
+import InitializersMenu from './InitializersMenu'
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
   running: 'bg-green-500/10 text-green-600 border-green-500/30',
@@ -165,6 +166,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             {t('admin.sshTerminal.openBtn')}
           </Button>
         )}
+        {s === 'running' && <InitializersMenu wsName={spec.name} enabled />}
         <Button
           size="sm"
           variant="ghost"

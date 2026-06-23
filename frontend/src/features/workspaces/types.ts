@@ -18,6 +18,7 @@ export interface WorkspaceSpec {
   start_recipes?: string[]
   default_start?: string
   recipe_volumes?: string[]
+  init_recipes?: string[]
 }
 
 export type WorkspaceStatusValue =
