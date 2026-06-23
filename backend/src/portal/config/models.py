@@ -251,17 +251,17 @@ class WorkspaceSpec(BaseModel):
     start_recipes: list[str] = Field(default_factory=list)
     default_start: str = ""
     recipe_volumes: list[str] = Field(default_factory=list)
+    init_recipes: list[str] = Field(default_factory=list)
 
-    @field_validator("start_recipes")
+    @field_validator("start_recipes", "init_recipes")
     @classmethod
-    def validate_start_recipe_ids(cls, v: list[str]) -> list[str]:
+    def validate_recipe_ids(cls, v: list[str]) -> list[str]:
         from portal.recipes.models import _RECIPE_ID_RE
 
         for rid in v:
             if not _RECIPE_ID_RE.fullmatch(rid):
                 raise ValueError(
-                    f"start_recipes: id {rid!r} must match"
-                    " ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$"
+                    f"recipe id {rid!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$"
                 )
         return v
 

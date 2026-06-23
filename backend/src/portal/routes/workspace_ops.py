@@ -238,9 +238,7 @@ async def workspace_up(
 
     if req.recipes:
         reg = _get_recipe_registry()
-        available = _available_with_bundled_fallback(
-            await load_recipes_as_dict(user.login, conn)
-        )
+        available = _available_with_bundled_fallback(await load_recipes_as_dict(user.login, conn))
 
         try:
             expanded = reg.expand_with_deps(req.recipes, available)
@@ -422,9 +420,7 @@ async def workspace_recreate(
     feature_env: dict[str, str] = {}
     if ws.recipes:
         reg = _get_recipe_registry()
-        available = _available_with_bundled_fallback(
-            await load_recipes_as_dict(user.login, conn)
-        )
+        available = _available_with_bundled_fallback(await load_recipes_as_dict(user.login, conn))
         try:
             expanded = reg.expand_with_deps(ws.recipes, available)
             resolved_recipes = reg.resolve_order(expanded, available)
@@ -522,11 +518,94 @@ async def get_workspace_start_recipes(
 
     available = await load_recipes_as_dict(user.login, conn, type_filter="start")
 
-    return [
-        available[rid].model_dump()
-        for rid in ws_spec.start_recipes
-        if rid in available
-    ]
+    return [available[rid].model_dump() for rid in ws_spec.start_recipes if rid in available]
+
+
+@router.get("/workspaces/{name}/initializers")
+async def get_workspace_initializers(
+    name: str,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[dict[str, Any]]:
+    """Liste les actions initialize attachées à un workspace."""
+    _validate_name(name)
+
+    from ..config.store import load_user
+
+    user_cfg = await load_user(user.login)
+    ws_spec = next((ws for ws in user_cfg.workspaces if ws.name == name), None)
+    if ws_spec is None:
+        raise HTTPException(status_code=404, detail=f"Workspace {name!r} not found")
+    if not ws_spec.init_recipes:
+        return []
+
+    available = await load_recipes_as_dict(user.login, conn, type_filter="initialize")
+    out: list[dict[str, Any]] = []
+    for rid in ws_spec.init_recipes:
+        meta = available.get(rid)
+        if meta is not None:
+            out.append({"id": meta.id, "description": meta.description, "version": meta.version})
+    return out
+
+
+class RunInitializerResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    applied: bool
+    already_applied: bool
+    log: str
+
+
+@router.post("/workspaces/{name}/initializers/{recipe_id}/run")
+async def run_workspace_initializer(
+    name: str,
+    recipe_id: str,
+    force: bool = False,
+    user: UserInfo = Depends(require_user),
+) -> RunInitializerResponse:
+    """Exécute une action initialize dans le conteneur du workspace."""
+    _validate_name(name)
+    if not _RECIPE_ID_PATTERN.fullmatch(recipe_id):
+        raise HTTPException(status_code=422, detail=f"Invalid recipe id {recipe_id!r}")
+
+    from ..config.store import load_user
+    from ..recipes.initializers import (
+        InitializerError,
+        locate_recipe_dir,
+        run_initializer,
+    )
+
+    user_cfg = await load_user(user.login)
+    ws_spec = next((ws for ws in user_cfg.workspaces if ws.name == name), None)
+    if ws_spec is None:
+        raise HTTPException(status_code=404, detail=f"Workspace {name!r} not found")
+    if recipe_id not in ws_spec.init_recipes:
+        raise HTTPException(
+            status_code=404,
+            detail=f"{recipe_id!r} is not an initializer of workspace {name!r}",
+        )
+
+    ws_id = f"{user.login}-{name}"
+    status = await _get_service().status(login=user.login, ws_id=ws_id)
+    if status.get("status") != "running":
+        raise HTTPException(
+            status_code=409, detail="Workspace must be running to run an initializer"
+        )
+
+    recipe_dir = locate_recipe_dir(user.login, recipe_id)
+    if recipe_dir is None:
+        raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
+    meta = RecipeMeta.from_yaml(recipe_dir / "recipe.meta.yaml")
+    if meta.type != "initialize":
+        raise HTTPException(
+            status_code=422, detail=f"Recipe {recipe_id!r} is not of type initialize"
+        )
+
+    try:
+        result = await run_initializer(user.login, name, meta, recipe_dir, force=force)
+    except InitializerError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return RunInitializerResponse(**result)
 
 
 @router.get("/workspaces/{name}/logs", response_class=PlainTextResponse)

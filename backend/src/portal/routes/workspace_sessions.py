@@ -15,40 +15,21 @@ from ..auth.rbac import UserInfo, require_user
 from ..config.store import _data_root, load_global, safe_user_path
 from ..db.engine import get_conn
 from ..db.recipes import load_recipes_as_dict
+from ..devpod.ssh_exec import devpod_ssh_key as _devpod_ssh_key
 from ..recipes.models import _RECIPE_ID_RE
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-sessions"])
 
 
-def _devpod_ssh_key(login: str) -> str | None:
-    """Retourne la clé privée SSH que devpod a générée pour cet utilisateur.
-
-    Devpod stocke sa clé dans $DEVPOD_HOME/ssh/ et l'injecte dans
-    ~/.ssh/authorized_keys du remoteUser (vscode) du devcontainer lors de
-    `devpod up`. C'est cette clé qui permet l'authentification.
-    """
-    ssh_dir = safe_user_path(login, "devpod") / "ssh"
-    if not ssh_dir.exists():
-        return None
-    for name in ("id_rsa", "id_ed25519", "id_devpod"):
-        key = ssh_dir / name
-        if key.exists():
-            return str(key)
-    for f in sorted(ssh_dir.iterdir()):
-        if f.is_file() and f.suffix != ".pub":
-            return str(f)
-    return None
-
-
 _TMUX_SOCK_DETECT = (
-    "TMUX_SOCK=$(find /tmp -maxdepth 2 -name default"
-    " -path '*/tmux-*/*' 2>/dev/null | head -1)"
+    "TMUX_SOCK=$(find /tmp -maxdepth 2 -name default -path '*/tmux-*/*' 2>/dev/null | head -1)"
 )
 
 
 def _tmux(args: str) -> str:
     return f'{_TMUX_SOCK_DETECT}; tmux ${{TMUX_SOCK:+-S "$TMUX_SOCK"}} {args}'
+
 
 _WS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
 _SESSION_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,29}$")
@@ -75,18 +56,22 @@ async def _ssh(ws_id: str, login: str, command: str, timeout: float = 30.0) -> t
         "HOME": os.environ.get("HOME", "/root"),
     }
     key_path = _devpod_ssh_key(login)
-    identity_args = (
-        ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
-    )
+    identity_args = ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
     proc = await asyncio.create_subprocess_exec(
         "ssh",
-        "-o", "LogLevel=ERROR",
-        "-o", "BatchMode=yes",
+        "-o",
+        "LogLevel=ERROR",
+        "-o",
+        "BatchMode=yes",
         *identity_args,
-        "-o", f"ProxyCommand={proxy_cmd}",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "--", "vscode@devpod-ws",
+        "-o",
+        f"ProxyCommand={proxy_cmd}",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "--",
+        "vscode@devpod-ws",
         command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -108,7 +93,8 @@ async def list_sessions(name: str, user: UserInfo = Depends(require_user)) -> li
     _validate_ws_name(name)
     ws_id = f"{user.login}-{name}"
     rc, output = await _ssh(
-        ws_id, user.login,
+        ws_id,
+        user.login,
         _tmux("list-sessions -F '#{session_name}' 2>/dev/null || true"),
     )
     if rc != 0:
@@ -197,7 +183,7 @@ async def create_session(
         run_cmd = f'bash -lc "$(echo {b64} | base64 -d)"'
         # Les deux commandes tmux partagent le même socket détecté.
         command = (
-            f'{_TMUX_SOCK_DETECT}; '
+            f"{_TMUX_SOCK_DETECT}; "
             f'TSOCK="${{TMUX_SOCK:+-S "$TMUX_SOCK"}}"; '
             f"tmux $TSOCK new-session -d -s {shlex.quote(req.name)}"
             f" && tmux $TSOCK send-keys -t {shlex.quote(req.name)} {shlex.quote(run_cmd)} Enter"
@@ -224,7 +210,8 @@ async def delete_session(
         raise HTTPException(status_code=422, detail=f"Invalid session name {session_name!r}")
     ws_id = f"{user.login}-{name}"
     rc, output = await _ssh(
-        ws_id, user.login,
+        ws_id,
+        user.login,
         _tmux(f"kill-session -t {shlex.quote(session_name)}"),
     )
     if rc != 0:

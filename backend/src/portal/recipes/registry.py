@@ -184,4 +184,14 @@ class RecipeRegistry:
             if (recipe_dir / "devcontainer-feature.json").exists():
                 _log.warning("recipe_start_has_feature_json", path=str(recipe_dir))
                 return None
+        if meta.type == "initialize":
+            if not (meta.copies or meta.transform):
+                _log.warning("recipe_initialize_no_ops", path=str(recipe_dir))
+                return None
+            if (recipe_dir / "devcontainer-feature.json").exists():
+                _log.warning("recipe_initialize_has_feature_json", path=str(recipe_dir))
+                return None
+            if (recipe_dir / "start.sh").exists():
+                _log.warning("recipe_initialize_has_start_sh", path=str(recipe_dir))
+                return None
         return meta
