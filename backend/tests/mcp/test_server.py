@@ -19,7 +19,9 @@ from portal.db.tables import mcp_backend, users
 from portal.mcp.connections import BackendUnavailable
 from portal.mcp.server import (
     GATEWAY_LIST_BACKENDS,
+    build_prompt_descriptors,
     build_tool_descriptors,
+    execute_prompt_get,
     execute_tool_call,
     extract_bearer,
     resolve_tenant,
@@ -266,3 +268,79 @@ async def test_execute_tool_call_audits_error_on_unresolvable_key(
     row = error_rows[0]
     assert row["status"] == "error"
     assert row["error"] == "key not resolvable"
+
+
+# ---------------------------------------------------------------------------
+# Task 5 (Plan 5) — prompts : build_prompt_descriptors + execute_prompt_get
+# ---------------------------------------------------------------------------
+
+
+async def _seed_backend_with_prompt(conn: AsyncConnection) -> None:
+    await conn.execute(
+        insert(mcp_backend).values(
+            id="b1", owner_login="alice", namespace="rag", name="RAG",
+            url="https://rag/mcp", transport="streamable_http",
+        )
+    )
+    await set_grant(conn, apikey_id="ak1", backend_id="b1", backend_key_id=None)
+    await upsert_primitive(
+        conn, backend_id="b1", kind="prompt", original_name="welcome",
+        definition={"name": "welcome", "description": "Prompt de bienvenue"},
+        definition_hash="ph1",
+    )
+
+
+def _fake_backend_with_prompt() -> Server:
+    srv: Server = Server("fake-backend-prompts")
+
+    @srv.list_prompts()
+    async def _lp() -> list[types.Prompt]:
+        return [types.Prompt(name="welcome", description="Prompt de bienvenue")]
+
+    @srv.get_prompt()
+    async def _gp(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
+        who = (arguments or {}).get("who", "World")
+        return types.GetPromptResult(
+            messages=[
+                types.PromptMessage(
+                    role="user",
+                    content=types.TextContent(type="text", text=f"Welcome {who}"),
+                )
+            ]
+        )
+
+    return srv
+
+
+async def test_build_prompt_descriptors(db_conn: AsyncConnection) -> None:
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_prompt(db_conn)
+    prompts = await build_prompt_descriptors(db_conn, apikey_id="ak1", owner_login="alice")
+    assert any(p.name == "rag__welcome" for p in prompts)
+
+
+async def test_execute_prompt_get_routes(db_conn: AsyncConnection) -> None:
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_prompt(db_conn)
+    result = await execute_prompt_get(
+        db_conn, apikey_id="ak1", owner_login="alice",
+        name="rag__welcome", arguments={"who": "Bob"},
+        open_session_fn=_patched_open_session(_fake_backend_with_prompt()),
+    )
+    assert "Bob" in result.messages[0].content.text
+    audit = await list_for_owner(db_conn, "alice")
+    assert audit[0]["status"] == "ok" and audit[0]["namespaced_name"] == "rag__welcome"
+
+
+async def test_execute_prompt_get_denied(db_conn: AsyncConnection) -> None:
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_prompt(db_conn)
+    with pytest.raises(McpError) as exc:
+        await execute_prompt_get(
+            db_conn, apikey_id="ak1", owner_login="alice",
+            name="rag__ghost", arguments=None,
+            open_session_fn=_patched_open_session(_fake_backend_with_prompt()),
+        )
+    assert exc.value.error.code == METHOD_NOT_FOUND
+    audit = await list_for_owner(db_conn, "alice")
+    assert audit[0]["status"] == "denied"

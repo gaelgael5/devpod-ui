@@ -16,8 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from portal.db.engine import _get_engine
 from portal.db.mcp import find_apikey_by_hash, get_backend_key_secret, list_backends
 from portal.db.mcp_audit import record as audit_record
-from portal.mcp.aggregator import aggregate_primitives, resolve_call
-from portal.mcp.client import call_backend_tool
+from portal.mcp.aggregator import CallTarget, aggregate_primitives, resolve_call
+from portal.mcp.client import call_backend_tool, get_backend_prompt
 from portal.mcp.connections import BackendUnavailable, open_session
 from portal.mcp.runtime_secrets import UnresolvableSecret, resolve_grant_key
 from portal.mcp.service import token_hash
@@ -89,6 +89,38 @@ async def _gateway_list_backends(
     return types.CallToolResult(content=[types.TextContent(type="text", text=text)])
 
 
+async def _resolve_bearer(
+    conn: AsyncConnection,
+    target: CallTarget,
+    *,
+    name: str,
+    apikey_id: str,
+    owner_login: str,
+) -> str | None:
+    """Résout la clé sortante en bearer HTTP (None si pas de clé).
+
+    Audit 'error' + McpError(INTERNAL_ERROR) si non résolvable.
+    """
+    key_row = (
+        await get_backend_key_secret(conn, target.backend_id, target.backend_key_id)
+        if target.backend_key_id
+        else None
+    )
+    try:
+        secret = await resolve_grant_key(key_row)
+    except UnresolvableSecret as exc:
+        await audit_record(
+            conn, apikey_id=apikey_id, owner_login=owner_login,
+            namespaced_name=name, backend_id=target.backend_id,
+            backend_key_id=target.backend_key_id, latency_ms=None,
+            status="error", error="key not resolvable",
+        )
+        raise McpError(
+            ErrorData(code=INTERNAL_ERROR, message="outbound key not resolvable at runtime")
+        ) from exc
+    return secret.reveal() if secret else None
+
+
 async def execute_tool_call(
     conn: AsyncConnection,
     *,
@@ -122,24 +154,9 @@ async def execute_tool_call(
         )
         raise McpError(ErrorData(code=METHOD_NOT_FOUND, message="unknown tool"))
 
-    key_row = (
-        await get_backend_key_secret(conn, target.backend_id, target.backend_key_id)
-        if target.backend_key_id
-        else None
+    bearer = await _resolve_bearer(
+        conn, target, name=name, apikey_id=apikey_id, owner_login=owner_login
     )
-    try:
-        secret = await resolve_grant_key(key_row)
-    except UnresolvableSecret as exc:
-        await audit_record(
-            conn, apikey_id=apikey_id, owner_login=owner_login,
-            namespaced_name=name, backend_id=target.backend_id,
-            backend_key_id=target.backend_key_id, latency_ms=None,
-            status="error", error="key not resolvable",
-        )
-        raise McpError(
-            ErrorData(code=INTERNAL_ERROR, message="outbound key not resolvable at runtime")
-        ) from exc
-    bearer = secret.reveal() if secret else None
 
     started = time.perf_counter()
     try:
@@ -163,6 +180,73 @@ async def execute_tool_call(
         backend_key_id=target.backend_key_id, latency_ms=latency_ms,
         status="error" if result.isError else "ok",
         error=None,
+    )
+    return result
+
+
+async def build_prompt_descriptors(
+    conn: AsyncConnection, *, apikey_id: str, owner_login: str
+) -> list[types.Prompt]:
+    """Prompts autorisés (namespacés) pour cette apikey."""
+    prims = await aggregate_primitives(
+        conn, apikey_id=apikey_id, owner_login=owner_login, kind="prompt"
+    )
+    return [
+        types.Prompt(
+            name=p.namespaced_name,
+            description=p.definition.get("description"),
+            arguments=p.definition.get("arguments"),
+        )
+        for p in prims
+    ]
+
+
+async def execute_prompt_get(
+    conn: AsyncConnection,
+    *,
+    apikey_id: str,
+    owner_login: str,
+    name: str,
+    arguments: dict[str, str] | None,
+    open_session_fn: Any = open_session,
+) -> types.GetPromptResult:
+    """Route un prompts/get namespacé vers son backend. Deny-by-default + audit à chaque sortie."""
+    target = await resolve_call(
+        conn, apikey_id=apikey_id, owner_login=owner_login, namespaced_name=name, kind="prompt"
+    )
+    if target is None:
+        await audit_record(
+            conn, apikey_id=apikey_id, owner_login=owner_login,
+            namespaced_name=name, backend_id=None, backend_key_id=None,
+            latency_ms=None, status="denied", error=None,
+        )
+        raise McpError(ErrorData(code=METHOD_NOT_FOUND, message="unknown prompt"))
+
+    bearer = await _resolve_bearer(
+        conn, target, name=name, apikey_id=apikey_id, owner_login=owner_login
+    )
+
+    started = time.perf_counter()
+    try:
+        async with open_session_fn(target.url, bearer=bearer) as session:
+            result = await get_backend_prompt(session, target.original_name, arguments)
+    except BackendUnavailable as exc:
+        await audit_record(
+            conn, apikey_id=apikey_id, owner_login=owner_login,
+            namespaced_name=name, backend_id=target.backend_id,
+            backend_key_id=target.backend_key_id, latency_ms=None,
+            status="timeout", error=str(exc),
+        )
+        raise McpError(
+            ErrorData(code=INTERNAL_ERROR, message=f"backend unavailable: {target.backend_id}")
+        ) from exc
+
+    await audit_record(
+        conn, apikey_id=apikey_id, owner_login=owner_login,
+        namespaced_name=name, backend_id=target.backend_id,
+        backend_key_id=target.backend_key_id,
+        latency_ms=int((time.perf_counter() - started) * 1000),
+        status="ok", error=None,
     )
     return result
 
