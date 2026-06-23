@@ -52,6 +52,7 @@ def _http_client(app: Starlette, *, bearer: str | None = None) -> httpx.AsyncCli
         transport=httpx.ASGITransport(app=app),
         base_url=_MCP_BASE,
         headers=headers,
+        follow_redirects=True,
     )
 
 
@@ -75,7 +76,7 @@ async def test_mcp_endpoint_lists_native_tool_with_valid_bearer(
         http_client = _http_client(app, bearer="mcpk_secret")
         async with (
             http_client,
-            streamable_http_client(_MCP_BASE + "/mcp", http_client=http_client) as (
+            streamable_http_client(_MCP_BASE + "/mcp/", http_client=http_client) as (
                 read,
                 write,
                 _get_sid,
@@ -98,7 +99,7 @@ async def test_mcp_endpoint_rejects_missing_bearer(
         http_client = _http_client(app)  # pas de bearer
         async with (
             http_client,
-            streamable_http_client(_MCP_BASE + "/mcp", http_client=http_client) as (
+            streamable_http_client(_MCP_BASE + "/mcp/", http_client=http_client) as (
                 read,
                 write,
                 _get_sid,
@@ -131,7 +132,7 @@ async def test_call_tool_denied_audit_is_durable(
         http_client = _http_client(app, bearer="mcpk_secret")
         async with (
             http_client,
-            streamable_http_client(_MCP_BASE + "/mcp", http_client=http_client) as (
+            streamable_http_client(_MCP_BASE + "/mcp/", http_client=http_client) as (
                 read,
                 write,
                 _get_sid,
