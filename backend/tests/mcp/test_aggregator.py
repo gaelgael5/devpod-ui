@@ -11,6 +11,7 @@ from portal.db.tables import mcp_backend, users
 from portal.mcp.aggregator import (
     AggregatedPrimitive,
     CallTarget,
+    _curation_allows,
     aggregate_primitives,
     resolve_call,
     split_namespaced,
@@ -26,6 +27,20 @@ def test_split_namespaced_first_separator() -> None:
 def test_split_namespaced_invalid() -> None:
     assert split_namespaced("nosep") is None
     assert split_namespaced("__leading") is None
+
+
+def test_curation_allows_modes() -> None:
+    # mode "all" : autorise toujours, quelle que soit la liste
+    assert _curation_allows("all", [], "x") is True
+    assert _curation_allows("all", ["y"], "x") is True
+
+    # mode "allowlist" : autorise seulement les noms listés
+    assert _curation_allows("allowlist", ["a", "c"], "a") is True
+    assert _curation_allows("allowlist", ["a", "c"], "b") is False
+
+    # mode "denylist" : refuse les noms listés, autorise le reste
+    assert _curation_allows("denylist", ["b"], "b") is False
+    assert _curation_allows("denylist", ["b"], "a") is True
 
 
 async def _seed(conn: AsyncConnection, *, enabled: bool = True) -> None:

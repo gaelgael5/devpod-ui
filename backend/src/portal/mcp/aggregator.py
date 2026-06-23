@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -14,7 +14,7 @@ NS_SEP = "__"
 class AggregatedPrimitive(BaseModel):
     """Primitive d'un backend, préfixée et prête à exposer côté frontal."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     namespaced_name: str
     kind: str
@@ -26,7 +26,7 @@ class AggregatedPrimitive(BaseModel):
 class CallTarget(BaseModel):
     """Routage résolu d'un appel namespacé vers son backend + sa clé sortante."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     backend_id: str
     original_name: str
@@ -46,7 +46,11 @@ def split_namespaced(name: str) -> tuple[str, str] | None:
     return name[:idx], name[idx + len(NS_SEP) :]
 
 
-def _curation_allows(expose_mode: str, expose: list[str], original_name: str) -> bool:
+def _curation_allows(
+    expose_mode: Literal["all", "allowlist", "denylist"],
+    expose: list[str],
+    original_name: str,
+) -> bool:
     if expose_mode == "allowlist":
         return original_name in expose
     if expose_mode == "denylist":
