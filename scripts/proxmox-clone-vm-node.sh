@@ -302,9 +302,11 @@ echo "==> A.4 — Configuration des ressources (${CORES} vCPU / ${MEMORY} Mo RAM
 
 # --cpu appliqué explicitement même sur un clone : un template créé avec l'ancien
 # script (sans --cpu) hérite de kvm64 qui masque AVX. qm set corrige ça défensivement.
-qm set "$NEW_VMID" --memory "$MEMORY" --cores "$CORES" --cpu "$CPU_TYPE"
+# --onboot 1 : la VM (nœud Docker) doit redémarrer automatiquement au boot du host
+# PVE, sinon un reboot du host laisse le nœud éteint et indisponible pour le portail.
+qm set "$NEW_VMID" --memory "$MEMORY" --cores "$CORES" --cpu "$CPU_TYPE" --onboot 1
 
-echo "    Ressources configurées."
+echo "    Ressources configurées (démarrage automatique au boot du host activé)."
 
 # ─── A.5 — Agrandir le disque avant le premier démarrage ─────────────────────
 echo ""
