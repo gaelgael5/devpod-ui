@@ -6,9 +6,11 @@ from contextlib import asynccontextmanager
 import pytest
 from mcp import types
 from mcp.server.lowlevel import Server
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import METHOD_NOT_FOUND
+from pydantic import AnyUrl
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -16,12 +18,15 @@ from portal.db.mcp import insert_apikey, insert_backend_key, revoke_apikey, set_
 from portal.db.mcp_audit import list_for_owner
 from portal.db.mcp_catalog import upsert_primitive
 from portal.db.tables import mcp_backend, users
+from portal.mcp.aggregator import make_namespaced_uri
 from portal.mcp.connections import BackendUnavailable
 from portal.mcp.handlers import (
     GATEWAY_LIST_BACKENDS,
     build_prompt_descriptors,
+    build_resource_descriptors,
     build_tool_descriptors,
     execute_prompt_get,
+    execute_resource_read,
     execute_tool_call,
     extract_bearer,
     resolve_tenant,
@@ -400,3 +405,71 @@ async def test_execute_prompt_get_audits_error_on_unresolvable_key(
     row = error_rows[0]
     assert row["status"] == "error"
     assert row["error"] == "key not resolvable"
+
+
+# ---------------------------------------------------------------------------
+# Task 4 (Plan 5) — resources : build_resource_descriptors + execute_resource_read
+# ---------------------------------------------------------------------------
+
+
+async def _seed_backend_with_resource(conn: AsyncConnection) -> None:
+    await conn.execute(
+        insert(mcp_backend).values(
+            id="b1", owner_login="alice", namespace="rag", name="RAG",
+            url="https://rag/mcp", transport="streamable_http",
+        )
+    )
+    await set_grant(conn, apikey_id="ak1", backend_id="b1", backend_key_id=None)
+    await upsert_primitive(
+        conn, backend_id="b1", kind="resource", original_name="resource://foo",
+        definition={"uri": "resource://foo", "name": "Foo"},
+        definition_hash="rh1",
+    )
+
+
+def _fake_backend_with_resource() -> Server:
+    srv: Server = Server("fake-backend-resources")
+
+    @srv.list_resources()
+    async def _lr() -> list[types.Resource]:
+        return [types.Resource(uri=AnyUrl("resource://foo"), name="Foo")]
+
+    @srv.read_resource()
+    async def _rr(uri: AnyUrl) -> list[ReadResourceContents]:
+        return [ReadResourceContents(content="hello", mime_type="text/plain")]
+
+    return srv
+
+
+async def test_build_resource_descriptors_namespaces_uri(db_conn: AsyncConnection) -> None:
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_resource(db_conn)
+    resources = await build_resource_descriptors(db_conn, apikey_id="ak1", owner_login="alice")
+    uris = {str(r.uri) for r in resources}
+    assert make_namespaced_uri("rag", "resource://foo") in uris
+
+
+async def test_execute_resource_read_routes(db_conn: AsyncConnection) -> None:
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_resource(db_conn)
+    namespaced = make_namespaced_uri("rag", "resource://foo")
+    contents = await execute_resource_read(
+        db_conn, apikey_id="ak1", owner_login="alice", namespaced_uri=namespaced,
+        open_session_fn=_patched_open_session(_fake_backend_with_resource()),
+    )
+    assert contents[0].content == "hello"
+    audit = await list_for_owner(db_conn, "alice")
+    assert audit[0]["status"] == "ok" and audit[0]["namespaced_name"] == namespaced
+
+
+async def test_execute_resource_read_denied(db_conn: AsyncConnection) -> None:
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_resource(db_conn)
+    with pytest.raises(McpError) as exc:
+        await execute_resource_read(
+            db_conn, apikey_id="ak1", owner_login="alice",
+            namespaced_uri=make_namespaced_uri("rag", "resource://ghost"),
+            open_session_fn=_patched_open_session(_fake_backend_with_resource()),
+        )
+    assert exc.value.error.code == METHOD_NOT_FOUND
+    assert (await list_for_owner(db_conn, "alice"))[0]["status"] == "denied"
