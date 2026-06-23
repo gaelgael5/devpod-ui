@@ -17,7 +17,7 @@ from portal.db.mcp_audit import list_for_owner
 from portal.db.mcp_catalog import upsert_primitive
 from portal.db.tables import mcp_backend, users
 from portal.mcp.connections import BackendUnavailable
-from portal.mcp.server import (
+from portal.mcp.handlers import (
     GATEWAY_LIST_BACKENDS,
     build_prompt_descriptors,
     build_tool_descriptors,
@@ -344,3 +344,59 @@ async def test_execute_prompt_get_denied(db_conn: AsyncConnection) -> None:
     assert exc.value.error.code == METHOD_NOT_FOUND
     audit = await list_for_owner(db_conn, "alice")
     assert audit[0]["status"] == "denied"
+
+
+async def test_execute_prompt_get_audits_timeout(db_conn: AsyncConnection) -> None:
+    """BackendUnavailable → audit row status='timeout', backend_id='b1'."""
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_prompt(db_conn)
+
+    @asynccontextmanager
+    async def _unavailable(url: str, *, bearer: str | None = None, **kw: object):
+        raise BackendUnavailable("down", backend_id="b1")
+        yield  # rend la fonction un générateur asynccontextmanager valide
+
+    with pytest.raises(McpError):
+        await execute_prompt_get(
+            db_conn, apikey_id="ak1", owner_login="alice",
+            name="rag__welcome", arguments=None,
+            open_session_fn=_unavailable,
+        )
+    audit = await list_for_owner(db_conn, "alice")
+    assert len(audit) == 1
+    row = audit[0]
+    assert row["status"] == "timeout"
+    assert row["backend_id"] == "b1"
+
+
+async def test_execute_prompt_get_audits_error_on_unresolvable_key(
+    db_conn: AsyncConnection,
+) -> None:
+    """Clé harpocrate sans référence ${env://} → UnresolvableSecret → audit status='error'."""
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_prompt(db_conn)
+    await insert_backend_key(
+        db_conn,
+        id="k1",
+        backend_id="b1",
+        slug="prod",
+        description="",
+        storage_type="harpocrate",
+        secret_value_local=None,
+        secret_value_vault_ref="${vault://x}",  # non-env ref → UnresolvableSecret
+        vault_identifier=None,
+    )
+    await set_grant(db_conn, apikey_id="ak1", backend_id="b1", backend_key_id="k1")
+
+    with pytest.raises(McpError):
+        await execute_prompt_get(
+            db_conn, apikey_id="ak1", owner_login="alice",
+            name="rag__welcome", arguments=None,
+            open_session_fn=_patched_open_session(_fake_backend_with_prompt()),
+        )
+    audit = await list_for_owner(db_conn, "alice")
+    error_rows = [r for r in audit if r["namespaced_name"] == "rag__welcome"]
+    assert len(error_rows) == 1
+    row = error_rows[0]
+    assert row["status"] == "error"
+    assert row["error"] == "key not resolvable"

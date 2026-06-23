@@ -19,7 +19,8 @@ from starlette.applications import Starlette
 from portal.db.mcp import insert_apikey
 from portal.db.mcp_audit import list_for_owner
 from portal.db.tables import users
-from portal.mcp.server import GATEWAY_LIST_BACKENDS, build_server
+from portal.mcp.handlers import GATEWAY_LIST_BACKENDS
+from portal.mcp.server import build_server
 from portal.mcp.service import token_hash
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
