@@ -71,5 +71,14 @@ démarre quand même sans profil (warning loggé, pas d'erreur HTTP).
 ## [mcp/server] Starlette mount redirect 307 : /mcp → /mcp/
 `app.mount("/mcp", asgi)` redirige `/mcp` → `/mcp/` avec un 307. Les clients MCP doivent cibler `/mcp/` (slash final) ou suivre les redirections (`follow_redirects`). Tests in-process httpx : `follow_redirects=True` + URL avec slash final dans `streamable_http_client`.
 
+## [mcp/server] push serveur→client list_changed HORS D'ATTEINTE en mcp 1.28
+Aucune API publique pour pousser `send_tool_list_changed` aux clients depuis une tâche de fond : `StreamableHTTPSessionManager._server_instances` = transports HTTP (privé), jamais les `ServerSession` (internes à `Server.run()`). `server.request_context.session` n'existe QUE dans un handler. Recevoir les notif backend→gateway exige des sessions LONGUES (pool, incompatible open_session stateless) = sous-projet à part. → Notifications différées ; alternative = polling frontend court. Refresh catalogue TTL + health-ping périodique (dict mémoire) = faisables proprement via `asyncio.create_task` dans le lifespan.
+
+## [mcp/server] call_tool wrappe les exceptions en isError ; read_resource/get_prompt non
+Un `@server.call_tool()` qui lève → le SDK renvoie `CallToolResult(isError=True)` (lowlevel/server.py `except Exception: _make_error_result`), PAS d'exception côté client. Mais `read_resource`/`get_prompt`/`list_*` propagent l'erreur en `McpError` côté client. Tester les assertions en conséquence (isError pour call_tool, pytest.raises(McpError) pour les autres).
+
+## [mcp/server] open_session_fn=open_session en défaut capture l'objet → monkeypatch inopérant
+Un paramètre `open_session_fn: Any = open_session` fige l'objet à la définition ; `monkeypatch.setattr("portal.mcp.X.open_session", fake)` n'a alors aucun effet (le défaut tient l'ancien objet). Pour rendre patchable : défaut `None` + résolution call-time `fn = open_session_fn if open_session_fn is not None else open_session` (lookup du global au moment de l'appel).
+
 ## [mcp/runtime] FastMCP annonce TOUJOURS les 3 capabilities
 Un `FastMCP` avec seulement des `@srv.tool()` annonce quand même `tools` ET `resources` ET `prompts` dans ses capabilities. Donc `get_server_capabilities()` via un serveur FastMCP ne sert PAS à tester une logique capability-aware (ex. `advertised_kinds`, prune par kind). Construire `ServerCapabilities(tools={})` à la main, ou une session stub (`get_server_capabilities` + `list_tools`), pour représenter un backend tools-only réel.
