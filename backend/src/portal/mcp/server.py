@@ -104,7 +104,7 @@ async def execute_tool_call(
         conn, apikey_id=apikey_id, owner_login=owner_login, namespaced_name=name, kind="tool"
     )
     if target is None:
-        raise McpError(ErrorData(code=METHOD_NOT_FOUND, message=f"tool not found: {name}"))
+        raise McpError(ErrorData(code=METHOD_NOT_FOUND, message="unknown tool"))
 
     key_row = (
         await get_backend_key_secret(conn, target.backend_id, target.backend_key_id)
