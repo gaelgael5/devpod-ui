@@ -70,6 +70,7 @@ def build_server() -> tuple[Server, StreamableHTTPSessionManager]:
     async def _list_prompts() -> list[types.Prompt]:
         req = server.request_context.request
         token = extract_bearer(req.headers if req is not None else {})
+        # Lecture seule — pas de commit nécessaire.
         async with _get_engine().connect() as conn:
             tenant = await resolve_tenant(conn, token)
             if tenant is None:
