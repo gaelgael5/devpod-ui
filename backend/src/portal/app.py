@@ -15,6 +15,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from .auth.router import router as auth_router
+from .mcp.server import build_server as _build_mcp_server
 from .routes.admin import router as admin_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
@@ -135,7 +136,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with httpx.AsyncClient(headers={"User-Agent": "devpod-ui/1.0"}) as http:
         client = OpenVsxClient(OpenVsxSettings(), http)
         app.dependency_overrides[get_openvsx] = lambda: client
-        yield
+        async with app.state.mcp_session_manager.run():
+            yield
 
 
 def create_app() -> FastAPI:
@@ -166,6 +168,12 @@ def create_app() -> FastAPI:
             )
 
     app = FastAPI(title="workspace-portal", version="0.1.0", lifespan=_lifespan)
+
+    from mcp.server.fastmcp.server import StreamableHTTPASGIApp
+
+    _mcp_server, _mcp_session_manager = _build_mcp_server()
+    app.mount("/mcp", StreamableHTTPASGIApp(_mcp_session_manager))
+    app.state.mcp_session_manager = _mcp_session_manager
 
     # Starlette insère chaque middleware en tête de liste (prepend).
     # Ordre d'exécution requête : SessionMiddleware → SPAMiddleware → Router.

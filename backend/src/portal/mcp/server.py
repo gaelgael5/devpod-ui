@@ -5,11 +5,15 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
+import structlog
 from mcp import types
+from mcp.server.lowlevel import Server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.shared.exceptions import McpError
-from mcp.types import INTERNAL_ERROR, METHOD_NOT_FOUND, ErrorData
+from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, ErrorData
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from portal.db.engine import _get_engine
 from portal.db.mcp import find_apikey_by_hash, get_backend_key_secret, list_backends
 from portal.db.mcp_audit import record as audit_record
 from portal.mcp.aggregator import aggregate_primitives, resolve_call
@@ -18,7 +22,10 @@ from portal.mcp.connections import BackendUnavailable, open_session
 from portal.mcp.runtime_secrets import UnresolvableSecret, resolve_grant_key
 from portal.mcp.service import token_hash
 
+log = structlog.get_logger(__name__)
+
 _BEARER_PREFIX = "bearer "
+_UNAUTHORIZED = ErrorData(code=INVALID_PARAMS, message="missing or invalid API key")
 
 GATEWAY_LIST_BACKENDS = "gateway__list_backends"
 
@@ -158,3 +165,36 @@ async def execute_tool_call(
         error=None,
     )
     return result
+
+
+def build_server() -> tuple[Server, StreamableHTTPSessionManager]:
+    """Construit le serveur MCP frontal bas-niveau + son gestionnaire de sessions."""
+    server: Server = Server("workspace-portal-mcp")
+
+    @server.list_tools()  # type: ignore[no-untyped-call,untyped-decorator]
+    async def _list_tools() -> list[types.Tool]:
+        req = server.request_context.request
+        token = extract_bearer(req.headers if req is not None else {})
+        async with _get_engine().begin() as conn:
+            tenant = await resolve_tenant(conn, token)
+            if tenant is None:
+                raise McpError(_UNAUTHORIZED)
+            return await build_tool_descriptors(
+                conn, apikey_id=str(tenant["id"]), owner_login=str(tenant["owner_login"])
+            )
+
+    @server.call_tool()  # type: ignore[untyped-decorator]
+    async def _call_tool(name: str, arguments: dict[str, Any] | None) -> types.CallToolResult:
+        req = server.request_context.request
+        token = extract_bearer(req.headers if req is not None else {})
+        async with _get_engine().begin() as conn:
+            tenant = await resolve_tenant(conn, token)
+            if tenant is None:
+                raise McpError(_UNAUTHORIZED)
+            return await execute_tool_call(
+                conn, apikey_id=str(tenant["id"]), owner_login=str(tenant["owner_login"]),
+                name=name, arguments=arguments or {},
+            )
+
+    manager = StreamableHTTPSessionManager(app=server, stateless=False)
+    return server, manager
