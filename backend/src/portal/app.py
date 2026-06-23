@@ -139,15 +139,18 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         client = OpenVsxClient(OpenVsxSettings(), http)
         app.dependency_overrides[get_openvsx] = lambda: client
         async with app.state.mcp_session_manager.run():
-            _monitor_task = asyncio.create_task(
-                monitor_loop(settings_obj.mcp_monitor_interval_s)
-            )
+            _monitor_task: asyncio.Task[None] | None = None
+            if settings_obj.database_url:
+                _monitor_task = asyncio.create_task(
+                    monitor_loop(settings_obj.mcp_monitor_interval_s)
+                )
             try:
                 yield
             finally:
-                _monitor_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await _monitor_task
+                if _monitor_task is not None:
+                    _monitor_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await _monitor_task
 
 
 def create_app() -> FastAPI:

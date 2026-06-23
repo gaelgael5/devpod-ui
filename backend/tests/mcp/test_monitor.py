@@ -141,12 +141,6 @@ async def test_run_monitor_pass_sets_health_for_all_enabled(
     reset_health()
     await _seed_two_backends(db_engine)
 
-    # b2 : open_session_fn qui lève systématiquement
-    @asynccontextmanager
-    async def _failing_session(url: str, *, bearer: str | None = None, **kw):
-        raise BackendUnavailable("network error", backend_id="b2")
-        yield  # noqa: RET504
-
     # On veut b1 → up, b2 → erreur tolérée. On route selon l'URL.
     b1_server = _fake_backend()
 
@@ -163,3 +157,27 @@ async def test_run_monitor_pass_sets_health_for_all_enabled(
     assert get_health("b1").status == "up"
     # b2 a levé → down enregistré (monitor_backend_once catch BackendUnavailable)
     assert get_health("b2").status == "down"
+
+
+async def test_run_monitor_pass_tolerates_non_unavailable_error(
+    db_engine: AsyncEngine,
+) -> None:
+    """Une erreur non-BackendUnavailable (ex. RuntimeError) dans open_session_fn :
+    - run_monitor_pass ne propage pas l'exception (la passe se termine normalement),
+    - la santé du backend conserve sa dernière valeur connue (pas de faux "down").
+    """
+    reset_health()
+    await _seed_two_backends(db_engine)
+    # Pré-positionner b1 à "up" pour vérifier qu'il n'est pas retourné à "unknown"
+    set_health("b1", BackendHealth(status="up"))
+
+    @asynccontextmanager
+    async def _boom(url: str, *, bearer: str | None = None, **kw):
+        raise RuntimeError("boom")
+        yield  # noqa: RET504
+
+    # N'implose pas
+    await run_monitor_pass(open_session_fn=_boom)
+
+    # La santé de b1 conserve sa dernière valeur ("up"), pas de faux "down"
+    assert get_health("b1").status == "up"

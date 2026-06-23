@@ -25,6 +25,10 @@ class BackendHealth(BaseModel):
     error: str | None = None
 
 
+# Registre santé en mémoire. Écrit par la boucle de fond, lu par les handlers.
+# Sûr sous un event loop mono-thread : set_health/get_health n'ont aucun await
+# entre lecture et écriture (pas de torn read ni lost update). NE PAS introduire
+# d'await dans set_health/get_health sans repenser la synchro.
 _HEALTH: dict[str, BackendHealth] = {}
 
 
@@ -68,6 +72,9 @@ async def monitor_backend_once(
     """Synchronise le catalogue d'un backend et en déduit sa santé (up/down)."""
     session_fn = open_session_fn if open_session_fn is not None else open_session
     bearer = await _resolve_monitor_bearer(conn, backend_row["id"])
+    # Seul BackendUnavailable (injoignable) => down. Une autre erreur (ex. DB pendant
+    # le sync) n'est pas imputable au backend : elle remonte à run_monitor_pass (loggée),
+    # la santé conserve sa dernière valeur connue plutôt que d'afficher un faux "down".
     try:
         async with session_fn(backend_row["url"], bearer=bearer) as session:
             await sync_backend(conn, backend_id=backend_row["id"], session=session)
