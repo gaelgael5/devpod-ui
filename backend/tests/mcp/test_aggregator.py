@@ -234,6 +234,7 @@ def test_namespaced_uri_roundtrip(original: str) -> None:
 def test_split_namespaced_uri_rejects_foreign() -> None:
     assert split_namespaced_uri("file:///x") is None
     assert split_namespaced_uri("https://h/p") is None
+    assert split_namespaced_uri("gw+:///foo") is None
 
 
 async def test_resolve_resource_routes(db_conn: AsyncConnection) -> None:
