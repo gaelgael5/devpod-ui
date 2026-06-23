@@ -12,7 +12,7 @@ _BEARER_PREFIX = "bearer "
 
 def extract_bearer(headers: Mapping[str, str]) -> str | None:
     """Extrait le token Bearer de l'en-tête Authorization (schéma insensible à la casse)."""
-    raw = headers.get("authorization") or headers.get("Authorization")
+    raw = headers.get("authorization")
     if not raw or not raw.lower().startswith(_BEARER_PREFIX):
         return None
     token = raw[len(_BEARER_PREFIX) :].strip()

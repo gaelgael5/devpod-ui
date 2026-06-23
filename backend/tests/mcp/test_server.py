@@ -14,6 +14,7 @@ from portal.mcp.service import token_hash
 def test_extract_bearer_parses_header() -> None:
     assert extract_bearer({"authorization": "Bearer mcpk_abc"}) == "mcpk_abc"
     assert extract_bearer({"authorization": "bearer mcpk_abc"}) == "mcpk_abc"
+    assert extract_bearer({"authorization": "BEARER mcpk_abc"}) == "mcpk_abc"
 
 
 def test_extract_bearer_missing_or_malformed() -> None:
