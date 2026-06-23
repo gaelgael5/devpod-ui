@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -13,8 +14,11 @@ from portal.mcp.aggregator import (
     CallTarget,
     _curation_allows,
     aggregate_primitives,
+    make_namespaced_uri,
     resolve_call,
+    resolve_resource,
     split_namespaced,
+    split_namespaced_uri,
 )
 
 
@@ -80,7 +84,7 @@ async def test_aggregate_namespaces_and_excludes_quarantined(db_conn: AsyncConne
     assert names == {"rag__search"}
     assert prims[0] == AggregatedPrimitive(
         namespaced_name="rag__search", kind="tool", backend_id="b1",
-        original_name="search", definition={"name": "search"},
+        original_name="search", definition={"name": "search"}, namespace="rag",
     )
 
 
@@ -211,3 +215,51 @@ async def test_resolve_call_public_backend_has_no_key(db_conn: AsyncConnection) 
         backend_id="b1", original_name="search",
         url="https://rag/mcp", transport="streamable_http", backend_key_id=None,
     )
+
+
+@pytest.mark.parametrize(
+    "original",
+    ["file:///x/y", "resource://foo", "https://h/p?q=1", "file:///"],
+)
+def test_namespaced_uri_roundtrip(original: str) -> None:
+    ns = "rag"
+    namespaced = make_namespaced_uri(ns, original)
+    # parseable as AnyUrl (le serveur expose un AnyUrl)
+    from pydantic import AnyUrl
+    assert str(AnyUrl(namespaced))  # ne lève pas
+    parsed = split_namespaced_uri(namespaced)
+    assert parsed == (ns, original)
+
+
+def test_split_namespaced_uri_rejects_foreign() -> None:
+    assert split_namespaced_uri("file:///x") is None
+    assert split_namespaced_uri("https://h/p") is None
+
+
+async def test_resolve_resource_routes(db_conn: AsyncConnection) -> None:
+    await _seed(db_conn)  # helper existant : user alice, backend b1 ns=rag enabled, apikey ak1
+    await set_grant(db_conn, apikey_id="ak1", backend_id="b1", backend_key_id=None)
+    await upsert_primitive(
+        db_conn, backend_id="b1", kind="resource", original_name="resource://foo",
+        definition={"uri": "resource://foo", "name": "Foo"}, definition_hash="h1",
+    )
+    namespaced = make_namespaced_uri("rag", "resource://foo")
+    target = await resolve_resource(
+        db_conn, apikey_id="ak1", owner_login="alice", namespaced_uri=namespaced
+    )
+    assert target is not None
+    assert target.backend_id == "b1" and target.original_name == "resource://foo"
+
+
+async def test_resolve_resource_denied(db_conn: AsyncConnection) -> None:
+    await _seed(db_conn)
+    await set_grant(db_conn, apikey_id="ak1", backend_id="b1", backend_key_id=None)
+    # pas de resource au catalogue → None
+    assert await resolve_resource(
+        db_conn, apikey_id="ak1", owner_login="alice",
+        namespaced_uri=make_namespaced_uri("rag", "resource://ghost"),
+    ) is None
+    # URI étrangère (non gw+) → None
+    assert await resolve_resource(
+        db_conn, apikey_id="ak1", owner_login="alice", namespaced_uri="file:///x"
+    ) is None

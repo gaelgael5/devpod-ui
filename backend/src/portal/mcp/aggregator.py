@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+from urllib.parse import quote, unquote
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -9,6 +10,7 @@ from portal.db.mcp import get_backend, list_grants
 from portal.db.mcp_catalog import list_primitives
 
 NS_SEP = "__"
+_URI_PREFIX = "gw+"
 
 
 class AggregatedPrimitive(BaseModel):
@@ -18,6 +20,7 @@ class AggregatedPrimitive(BaseModel):
 
     namespaced_name: str
     kind: str
+    namespace: str
     backend_id: str
     original_name: str
     definition: dict[str, Any]
@@ -44,6 +47,22 @@ def split_namespaced(name: str) -> tuple[str, str] | None:
     if idx <= 0:
         return None
     return name[:idx], name[idx + len(NS_SEP) :]
+
+
+def make_namespaced_uri(namespace: str, original_uri: str) -> str:
+    """URI exposée au client frontal : scheme `gw+<ns>`, URI originale percent-encodée."""
+    return f"{_URI_PREFIX}{namespace}:///{quote(original_uri, safe='')}"
+
+
+def split_namespaced_uri(uri: str) -> tuple[str, str] | None:
+    """Inverse de make_namespaced_uri. `None` si l'URI n'est pas une URI gateway."""
+    scheme, sep, rest = uri.partition(":///")
+    if not sep or not scheme.startswith(_URI_PREFIX):
+        return None
+    namespace = scheme[len(_URI_PREFIX):]
+    if not namespace:
+        return None
+    return namespace, unquote(rest)
 
 
 def _curation_allows(
@@ -82,6 +101,7 @@ async def aggregate_primitives(
                 AggregatedPrimitive(
                     namespaced_name=f"{namespace}{NS_SEP}{prim['original_name']}",
                     kind=kind,
+                    namespace=namespace,
                     backend_id=grant["backend_id"],
                     original_name=prim["original_name"],
                     definition=prim["definition"],
@@ -90,36 +110,28 @@ async def aggregate_primitives(
     return out
 
 
-async def resolve_call(
+async def _resolve_target(
     conn: AsyncConnection,
     *,
     apikey_id: str,
     owner_login: str,
-    namespaced_name: str,
+    namespace: str,
+    original: str,
     kind: str,
 ) -> CallTarget | None:
-    """Résout le routage d'un appel namespacé. `None` = refusé/inconnu (deny-by-default).
+    """Cœur de résolution post-découpe. `None` = refusé/inconnu (deny-by-default).
 
     Ne révèle jamais l'existence d'un backend : tout cas non autorisé renvoie `None`.
     """
-    parsed = split_namespaced(namespaced_name)
-    if parsed is None:
-        return None
-    namespace, original = parsed
     for grant in await list_grants(conn, apikey_id):
         backend = await get_backend(conn, owner_login, grant["backend_id"])
         if backend is None or not backend["enabled"] or backend["namespace"] != namespace:
             continue
         if not _curation_allows(grant["expose_mode"], grant["expose"] or [], original):
-            # namespace unique par apikey (contrainte registre) : une fois le namespace
-            # trouvé, aucun autre grant ne peut autoriser cet appel → refus définitif.
             return None
         match = next(
-            (
-                p
-                for p in await list_primitives(conn, grant["backend_id"], kind)
-                if p["original_name"] == original
-            ),
+            (p for p in await list_primitives(conn, grant["backend_id"], kind)
+             if p["original_name"] == original),
             None,
         )
         if match is None or match["quarantined"]:
@@ -132,3 +144,47 @@ async def resolve_call(
             backend_key_id=grant["backend_key_id"],
         )
     return None
+
+
+async def resolve_call(
+    conn: AsyncConnection,
+    *,
+    apikey_id: str,
+    owner_login: str,
+    namespaced_name: str,
+    kind: str,
+) -> CallTarget | None:
+    """Résout le routage d'un appel namespacé (`<ns>__<name>`).
+
+    Délègue à `_resolve_target` après découpe. `None` = refusé/inconnu.
+    """
+    parsed = split_namespaced(namespaced_name)
+    if parsed is None:
+        return None
+    namespace, original = parsed
+    return await _resolve_target(
+        conn, apikey_id=apikey_id, owner_login=owner_login,
+        namespace=namespace, original=original, kind=kind,
+    )
+
+
+async def resolve_resource(
+    conn: AsyncConnection,
+    *,
+    apikey_id: str,
+    owner_login: str,
+    namespaced_uri: str,
+    kind: str = "resource",
+) -> CallTarget | None:
+    """Résout le routage d'une resource via son URI namespacée (`gw+<ns>:///...`).
+
+    `None` si l'URI n'est pas une URI gateway, ou refusée/inconnue.
+    """
+    parsed = split_namespaced_uri(namespaced_uri)
+    if parsed is None:
+        return None
+    namespace, original = parsed
+    return await _resolve_target(
+        conn, apikey_id=apikey_id, owner_login=owner_login,
+        namespace=namespace, original=original, kind=kind,
+    )
