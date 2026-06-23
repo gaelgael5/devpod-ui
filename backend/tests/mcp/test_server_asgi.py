@@ -118,6 +118,10 @@ async def test_call_tool_denied_audit_is_durable(
 
     Ce test valide que le handler _call_tool commit explicitement la transaction même
     quand execute_tool_call lève McpError — ce que begin() + rollback-on-exception cassait.
+
+    Note SDK (mcp 1.28) : le low-level server enveloppe toute exception du handler dans
+    CallToolResult(isError=True) au lieu de la propager comme McpError côté client.
+    On observe donc isError=True sur le résultat, pas une exception levée.
     """
     async with db_engine.begin() as conn:
         await conn.execute(
@@ -140,9 +144,10 @@ async def test_call_tool_denied_audit_is_durable(
             ClientSession(read, write) as session,
         ):
             await session.initialize()
-            # Appel d'un outil inexistant → denied → McpError
-            with pytest.raises(McpError):
-                await session.call_tool("ghost__nope", {})
+            # Appel d'un outil inexistant → denied → le SDK enveloppe l'exception dans
+            # CallToolResult(isError=True) ; aucune exception McpError n'est levée côté client.
+            result = await session.call_tool("ghost__nope", {})
+            assert result.isError is True
 
     # Nouvelle connexion indépendante pour prouver la persistance (hors transaction du handler)
     async with db_engine.begin() as conn:
