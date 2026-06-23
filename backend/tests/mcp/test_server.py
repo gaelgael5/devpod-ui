@@ -13,6 +13,7 @@ from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from portal.db.mcp import insert_apikey, revoke_apikey, set_grant
+from portal.db.mcp_audit import list_for_owner
 from portal.db.mcp_catalog import upsert_primitive
 from portal.db.tables import mcp_backend, users
 from portal.mcp.server import (
@@ -164,3 +165,39 @@ async def test_execute_tool_call_native_gateway(db_conn: AsyncConnection) -> Non
     )
     assert result.isError is False
     assert "rag" in result.content[0].text
+
+
+# ---------------------------------------------------------------------------
+# Task 4 — audit exhaustif dans execute_tool_call
+# ---------------------------------------------------------------------------
+
+
+async def test_execute_tool_call_audits_ok(db_conn: AsyncConnection) -> None:
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_tool(db_conn)
+    await execute_tool_call(
+        db_conn, apikey_id="ak1", owner_login="alice",
+        name="rag__search", arguments={"q": "x"},
+        open_session_fn=_patched_open_session(_fake_backend()),
+    )
+    audit = await list_for_owner(db_conn, "alice")
+    assert len(audit) == 1
+    row = audit[0]
+    assert row["status"] == "ok"
+    assert row["namespaced_name"] == "rag__search"
+    assert row["backend_id"] == "b1"
+    assert row["apikey_id"] == "ak1"
+    assert row["latency_ms"] is not None
+
+
+async def test_execute_tool_call_audits_denied(db_conn: AsyncConnection) -> None:
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_tool(db_conn)
+    with pytest.raises(McpError):
+        await execute_tool_call(
+            db_conn, apikey_id="ak1", owner_login="alice",
+            name="rag__ghost", arguments={},
+            open_session_fn=_patched_open_session(_fake_backend()),
+        )
+    audit = await list_for_owner(db_conn, "alice")
+    assert len(audit) == 1 and audit[0]["status"] == "denied"
