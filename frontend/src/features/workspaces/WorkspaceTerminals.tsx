@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Plus, Terminal, X } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Plus, RotateCw, Terminal, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -139,9 +139,17 @@ export default function WorkspaceTerminals() {
   const { data: startRecipes = [] } = useWorkspaceStartRecipes(wsName)
   const { data: wsStatus } = useWorkspaceStatus(wsName!)
   const [selected, setSelected] = useState<string | null>(null)
+  const [epochs, setEpochs] = useState<Record<string, number>>({})
   const [createOpen, setCreateOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const deleteSession = useDeleteSession()
+
+  // Force le remontage du terminal d'une session → nouvelle connexion WebSocket
+  // (le tmux backend survit : on se rattache via ?session=).
+  function reconnect(s: string) {
+    setSelected(s)
+    setEpochs((prev) => ({ ...prev, [s]: (prev[s] ?? 0) + 1 }))
+  }
 
   useEffect(() => {
     if (sessions.length > 0 && selected === null) setSelected(sessions[0])
@@ -234,7 +242,7 @@ export default function WorkspaceTerminals() {
                   <li key={s} className="group relative">
                     <button
                       className={cn(
-                        'flex w-full items-center gap-2 px-3 py-2 pr-8 text-sm transition-colors hover:bg-muted',
+                        'flex w-full items-center gap-2 px-3 py-2 pr-14 text-sm transition-colors hover:bg-muted',
                         selected === s ? 'bg-muted text-foreground' : 'text-muted-foreground'
                       )}
                       onClick={() => setSelected(s)}
@@ -245,19 +253,31 @@ export default function WorkspaceTerminals() {
                       )} />
                       <span className="truncate">{s}</span>
                     </button>
-                    <button
-                      className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                      title={t('workspaces.terminals.deleteSession')}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        deleteSession.mutate(
-                          { wsName: wsName!, sessionName: s },
-                          { onError: (err) => toast.error(err.message) },
-                        )
-                      }}
-                    >
-                      <X size={12} />
-                    </button>
+                    <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        className="rounded p-0.5 hover:bg-primary/10 hover:text-primary"
+                        title={t('workspaces.terminals.reconnectSession')}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          reconnect(s)
+                        }}
+                      >
+                        <RotateCw size={12} />
+                      </button>
+                      <button
+                        className="rounded p-0.5 hover:bg-destructive/10 hover:text-destructive"
+                        title={t('workspaces.terminals.deleteSession')}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          deleteSession.mutate(
+                            { wsName: wsName!, sessionName: s },
+                            { onError: (err) => toast.error(err.message) },
+                          )
+                        }}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
                   </li>
                 ))
               )}
@@ -281,7 +301,7 @@ export default function WorkspaceTerminals() {
         <div className="relative min-h-0 min-w-0 flex-1">
           {selected ? (
             <WorkspaceSessionTerminal
-              key={selected}
+              key={`${selected}#${epochs[selected] ?? 0}`}
               wsName={wsName!}
               session={selected}
             />

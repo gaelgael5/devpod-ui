@@ -41,6 +41,7 @@
       "create": "Créer",
       "cancel": "Annuler",
       "deleteSession": "Supprimer la session",
+      "reconnectSession": "Reconnecter la session",
       "hideSidebar": "Masquer le panneau",
       "showSidebar": "Afficher le panneau"
     },

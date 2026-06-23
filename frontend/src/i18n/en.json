@@ -41,6 +41,7 @@
       "create": "Create",
       "cancel": "Cancel",
       "deleteSession": "Delete session",
+      "reconnectSession": "Reconnect session",
       "hideSidebar": "Hide panel",
       "showSidebar": "Show panel"
     },
