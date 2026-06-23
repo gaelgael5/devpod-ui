@@ -179,3 +179,20 @@ async def test_resolve_call_quarantined_returns_none(db_conn: AsyncConnection) -
         db_conn, apikey_id="ak1", owner_login="alice",
         namespaced_name="rag__search", kind="tool",
     ) is None
+
+
+async def test_resolve_call_public_backend_has_no_key(db_conn: AsyncConnection) -> None:
+    await _seed(db_conn)
+    await set_grant(db_conn, apikey_id="ak1", backend_id="b1", backend_key_id=None)
+    await upsert_primitive(
+        db_conn, backend_id="b1", kind="tool", original_name="search",
+        definition={"name": "search"}, definition_hash="h1",
+    )
+    target = await resolve_call(
+        db_conn, apikey_id="ak1", owner_login="alice",
+        namespaced_name="rag__search", kind="tool",
+    )
+    assert target == CallTarget(
+        backend_id="b1", original_name="search",
+        url="https://rag/mcp", transport="streamable_http", backend_key_id=None,
+    )

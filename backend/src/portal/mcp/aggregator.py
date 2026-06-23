@@ -107,6 +107,8 @@ async def resolve_call(
         if backend is None or not backend["enabled"] or backend["namespace"] != namespace:
             continue
         if not _curation_allows(grant["expose_mode"], grant["expose"] or [], original):
+            # namespace unique par apikey (contrainte registre) : une fois le namespace
+            # trouvé, aucun autre grant ne peut autoriser cet appel → refus définitif.
             return None
         match = next(
             (
