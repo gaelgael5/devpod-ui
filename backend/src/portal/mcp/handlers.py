@@ -23,6 +23,7 @@ from portal.mcp.aggregator import (
 from portal.mcp.client import call_backend_tool, get_backend_prompt
 from portal.mcp.connections import BackendUnavailable, open_session
 from portal.mcp.dispatch_common import resolve_bearer
+from portal.mcp.monitor import get_health
 
 log = structlog.get_logger(__name__)
 
@@ -65,7 +66,12 @@ async def _gateway_list_backends(
     """Retourne la liste des backends MCP de l'owner sous forme de CallToolResult JSON."""
     backends = await list_backends(conn, owner_login)
     payload = [
-        {"namespace": b["namespace"], "name": b["name"], "enabled": b["enabled"]}
+        {
+            "namespace": b["namespace"],
+            "name": b["name"],
+            "enabled": b["enabled"],
+            "health": get_health(b["id"]).status,
+        }
         for b in backends
     ]
     text = json.dumps(payload)

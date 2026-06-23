@@ -173,6 +173,27 @@ async def test_execute_tool_call_native_gateway(db_conn: AsyncConnection) -> Non
     assert "rag" in result.content[0].text
 
 
+async def test_gateway_list_backends_includes_health(db_conn: AsyncConnection) -> None:
+    # TDD partiel DB-only : SKIP local (pas de Docker), rouge réel en CI Docker.
+    import json
+
+    from portal.mcp.monitor import BackendHealth, reset_health, set_health
+
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_tool(db_conn)  # backend b1 ns=rag, grant ak1
+    reset_health()
+    set_health("b1", BackendHealth(status="up"))
+
+    result = await execute_tool_call(
+        db_conn, apikey_id="ak1", owner_login="alice",
+        name=GATEWAY_LIST_BACKENDS, arguments={},
+        open_session_fn=_patched_open_session(_fake_backend()),
+    )
+    payload = json.loads(result.content[0].text)
+    rag = next(b for b in payload if b["namespace"] == "rag")
+    assert rag["health"] == "up"
+
+
 # ---------------------------------------------------------------------------
 # Task 4 — audit exhaustif dans execute_tool_call
 # ---------------------------------------------------------------------------
