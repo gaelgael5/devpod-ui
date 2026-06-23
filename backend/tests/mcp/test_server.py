@@ -1,7 +1,14 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 
+import pytest
+from mcp import types
+from mcp.server.lowlevel import Server
+from mcp.shared.exceptions import McpError
+from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.types import METHOD_NOT_FOUND
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -11,6 +18,7 @@ from portal.db.tables import mcp_backend, users
 from portal.mcp.server import (
     GATEWAY_LIST_BACKENDS,
     build_tool_descriptors,
+    execute_tool_call,
     extract_bearer,
     resolve_tenant,
 )
@@ -91,3 +99,68 @@ async def test_build_tool_descriptors_empty_still_has_native(db_conn: AsyncConne
     await _seed_apikey(db_conn, "mcpk_secret")
     tools = await build_tool_descriptors(db_conn, apikey_id="ak1", owner_login="alice")
     assert [t.name for t in tools] == [GATEWAY_LIST_BACKENDS]
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — execute_tool_call
+# ---------------------------------------------------------------------------
+
+
+def _fake_backend() -> Server:
+    srv: Server = Server("fake-backend")
+
+    @srv.list_tools()
+    async def _lt() -> list[types.Tool]:
+        return [types.Tool(name="search", inputSchema={"type": "object"})]
+
+    @srv.call_tool()
+    async def _ct(name: str, arguments: dict) -> list[types.TextContent]:
+        return [types.TextContent(type="text", text=f"echo:{arguments.get('q', '')}")]
+
+    return srv
+
+
+def _patched_open_session(server: Server):
+    @asynccontextmanager
+    async def _factory(url: str, *, bearer: str | None = None, **kw):
+        async with create_connected_server_and_client_session(server) as session:
+            yield session
+
+    return _factory
+
+
+async def test_execute_tool_call_routes_and_forwards(db_conn: AsyncConnection) -> None:
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_tool(db_conn)  # backend public (backend_key_id=None)
+
+    result = await execute_tool_call(
+        db_conn, apikey_id="ak1", owner_login="alice",
+        name="rag__search", arguments={"q": "hi"},
+        open_session_fn=_patched_open_session(_fake_backend()),
+    )
+    assert result.isError is False
+    assert result.content[0].text == "echo:hi"
+
+
+async def test_execute_tool_call_unknown_raises_method_not_found(db_conn: AsyncConnection) -> None:
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_tool(db_conn)
+    with pytest.raises(McpError) as exc:
+        await execute_tool_call(
+            db_conn, apikey_id="ak1", owner_login="alice",
+            name="rag__ghost", arguments={},
+            open_session_fn=_patched_open_session(_fake_backend()),
+        )
+    assert exc.value.error.code == METHOD_NOT_FOUND
+
+
+async def test_execute_tool_call_native_gateway(db_conn: AsyncConnection) -> None:
+    await _seed_apikey(db_conn, "mcpk_secret")
+    await _seed_backend_with_tool(db_conn)
+    result = await execute_tool_call(
+        db_conn, apikey_id="ak1", owner_login="alice",
+        name=GATEWAY_LIST_BACKENDS, arguments={},
+        open_session_fn=_patched_open_session(_fake_backend()),
+    )
+    assert result.isError is False
+    assert "rag" in result.content[0].text
