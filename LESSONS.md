@@ -64,3 +64,9 @@ démarre quand même sans profil (warning loggé, pas d'erreur HTTP).
 
 ## [mcp/runtime] resolve_grant_key exige secret_value_local — pas via get_backend_key
 `get_backend_key`/`list_backend_keys` omettent `secret_value_local` (hygiène : le blob chiffré ne sort jamais d'un listing/registre). `resolve_grant_key` en a besoin → le runtime (Plan 2) doit ajouter un fetcher dédié `get_backend_key_secret(conn, backend_id, key_id)` qui sélectionne `storage_type, secret_value_local, secret_value_vault_ref`. NE PAS élargir `_KEY_COLS`.
+
+## [mcp/runtime] streamablehttp_client est @deprecated en mcp 1.28
+`mcp.client.streamable_http.streamablehttp_client` porte `@deprecated` et émet un `DeprecationWarning` à l'appel (casse la sortie pristine). Utiliser `streamable_http_client(url, http_client=create_mcp_http_client(headers=, timeout=httpx.Timeout(connect_s, read=300.0)))`. Importer `create_mcp_http_client` du module public `mcp.client.streamable_http` (pas du privé `_httpx_utils`) avec `# type: ignore[attr-defined]` (module sans `__all__`). Préserver un read timeout long (300s) sinon les call_tool streamés (SSE) sont coupés. Le SDK ne ferme PAS un http_client fourni (`client_provided`) → pas de double-close.
+
+## [mcp/runtime] FastMCP annonce TOUJOURS les 3 capabilities
+Un `FastMCP` avec seulement des `@srv.tool()` annonce quand même `tools` ET `resources` ET `prompts` dans ses capabilities. Donc `get_server_capabilities()` via un serveur FastMCP ne sert PAS à tester une logique capability-aware (ex. `advertised_kinds`, prune par kind). Construire `ServerCapabilities(tools={})` à la main, ou une session stub (`get_server_capabilities` + `list_tools`), pour représenter un backend tools-only réel.
