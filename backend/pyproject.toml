@@ -58,6 +58,9 @@ mypy_path = "src"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Rend la "sortie pristine" opposable : toute API dépréciée (ex. réintroduire
+# streamablehttp_client) ferait échouer les tests au lieu de passer en vert.
+filterwarnings = ["error::DeprecationWarning"]
 
 [tool.uv.sources]
 harpocrate = { path = "../Sdk/harpocrate-0.6.0", editable = true }
