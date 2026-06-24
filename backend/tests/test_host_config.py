@@ -34,3 +34,24 @@ def test_host_config_has_no_ci_password_field() -> None:
 
     with pytest.raises(ValidationError):
         HostConfig(name="test", type="docker-tls", ci_password="secret")
+
+
+def test_host_config_usage_defaults_to_workspaces() -> None:
+    from portal.config.models import HostConfig
+
+    h = HostConfig(name="test", type="docker-tls")
+    assert h.usage == "workspaces"
+
+
+def test_host_config_usage_tests_accepted() -> None:
+    from portal.config.models import HostConfig
+
+    h = HostConfig(name="test", type="docker-tls", usage="tests")
+    assert h.usage == "tests"
+
+
+def test_host_config_usage_invalid_rejected() -> None:
+    from portal.config.models import HostConfig
+
+    with pytest.raises(ValidationError):
+        HostConfig(name="test", type="docker-tls", usage="staging")

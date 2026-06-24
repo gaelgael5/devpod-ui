@@ -253,11 +253,13 @@ export default function WorkspaceCreate() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={HOST_DEFAULT}>— default —</SelectItem>
-                {hosts.map((h: HostConfig) => (
-                  <SelectItem key={h.name} value={h.name}>
-                    {h.name} {h.default ? '(default)' : ''}
-                  </SelectItem>
-                ))}
+                {hosts
+                  .filter((h: HostConfig) => (h.usage ?? 'workspaces') === 'workspaces')
+                  .map((h: HostConfig) => (
+                    <SelectItem key={h.name} value={h.name}>
+                      {h.name} {h.default ? '(default)' : ''}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>

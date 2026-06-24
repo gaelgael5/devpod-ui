@@ -14,6 +14,8 @@ export interface HostConfig {
   // Références harpo_* (lecture seule — jamais de secret brut)
   ci_password_secret_slug?: string
   host_cert_slug?: string
+  // Destination : workspaces (sélectionnable à la création) ou tests.
+  usage?: 'workspaces' | 'tests'
 }
 
 export interface HostCreatePayload {

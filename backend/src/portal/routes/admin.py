@@ -130,6 +130,7 @@ async def add_host(
         host_cert_slug="",
         storage_type="local",
         vault_identifier="",
+        usage="workspaces",
     )
     cfg.hosts.append(host)
     await save_global_db(cfg, conn)
@@ -178,6 +179,7 @@ async def update_host(
         host_cert_slug=existing.host_cert_slug,  # conservé
         storage_type="local",
         vault_identifier="",
+        usage=existing.usage,  # préservé (pas exposé au payload)
     )
     cfg.hosts[idx] = host
     await save_global_db(cfg, conn)

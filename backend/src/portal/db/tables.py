@@ -107,6 +107,7 @@ hosts = Table(
     Column("host_cert_slug", Text, nullable=False, server_default=""),
     Column("storage_type", Text, nullable=False, server_default="local"),
     Column("vault_identifier", Text, nullable=False, server_default=""),
+    Column("usage", Text, nullable=False, server_default="workspaces"),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 

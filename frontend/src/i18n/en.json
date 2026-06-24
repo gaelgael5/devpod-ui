@@ -189,7 +189,7 @@
     "builtinBadge": "Built-in",
     "recipeDialogDescription": "Shared recipe management form.",
     "generate": {
-      "btn": "Generate",
+      "btn": "Generate host",
       "selectNode": "Select a hypervisor",
       "noNodes": "No hypervisor with a script URL configured.",
       "paramTitle": "Configure VM",

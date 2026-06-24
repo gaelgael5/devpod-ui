@@ -189,7 +189,7 @@
     "builtinBadge": "Intégré",
     "recipeDialogDescription": "Formulaire de gestion de la recette partagée.",
     "generate": {
-      "btn": "Générer",
+      "btn": "Generate host",
       "selectNode": "Sélectionner un hyperviseur",
       "noNodes": "Aucun hyperviseur avec une URL de script configurée.",
       "paramTitle": "Configurer la VM",

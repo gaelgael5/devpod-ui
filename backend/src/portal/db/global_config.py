@@ -181,6 +181,7 @@ def _host_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "host_cert_slug": row["host_cert_slug"],
         "storage_type": row["storage_type"],
         "vault_identifier": row["vault_identifier"],
+        "usage": row["usage"],
     }
 
 
@@ -291,4 +292,5 @@ def _host_to_row(h: HostConfig) -> dict[str, Any]:
         "host_cert_slug": h.host_cert_slug,
         "storage_type": h.storage_type,
         "vault_identifier": h.vault_identifier,
+        "usage": h.usage,
     }
