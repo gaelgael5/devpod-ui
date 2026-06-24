@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, RefreshCw, Search } from 'lucide-react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -43,7 +42,7 @@ function recipeToForm(r: Recipe): FormState {
 
 export default function AdminRecipes() {
   const { t } = useTranslation()
-  const { recipesQuery, deleteRecipe, addRecipe, updateRecipe, syncRecipes } = useAdminRecipes()
+  const { recipesQuery, deleteRecipe, addRecipe, updateRecipe } = useAdminRecipes()
   const { sourcesQuery, updateSources, previewQuery, importRecipe } = useRecipeSources()
   const { data: recipes, isLoading, isError } = recipesQuery
   const { data: sourcesData } = sourcesQuery
@@ -58,7 +57,8 @@ export default function AdminRecipes() {
   const [form, setForm] = useState<FormState>(EMPTY)
   const [newSourceUrl, setNewSourceUrl] = useState('')
   const [galleryFilter, setGalleryFilter] = useState('')
-  const [galleryTypeFilter, setGalleryTypeFilter] = useState<'all' | 'install' | 'start'>('all')
+  const [galleryTypeFilter, setGalleryTypeFilter] =
+    useState<'all' | 'install' | 'start' | 'initialize'>('all')
 
   const sources = sourcesData?.sources ?? []
   const galleryRecipes = previewData?.recipes ?? []
@@ -186,7 +186,7 @@ export default function AdminRecipes() {
         {galleryRecipes.length > 0 && (
           <div className="mb-4 flex flex-col gap-2">
             <div className="flex gap-1">
-              {(['all', 'install', 'start'] as const).map((v) => (
+              {(['all', 'install', 'start', 'initialize'] as const).map((v) => (
                 <Button
                   key={v}
                   size="sm"
@@ -244,21 +244,8 @@ export default function AdminRecipes() {
 
       {/* ── Recettes locales ────────────────────────────────────────── */}
       <section>
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3">
           <h2 className="text-lg font-semibold">{t('admin.localRecipes')}</h2>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() =>
-              syncRecipes.mutate(undefined, {
-                onSuccess: () => toast.success(t('admin.syncRecipesFromDiskDone')),
-              })
-            }
-            disabled={syncRecipes.isPending}
-          >
-            <RefreshCw className={`h-4 w-4 mr-1 ${syncRecipes.isPending ? 'animate-spin' : ''}`} />
-            {t('admin.syncRecipesFromDisk')}
-          </Button>
         </div>
         {isLoading && <p className="text-muted-foreground">…</p>}
         {isError && (

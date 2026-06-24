@@ -42,12 +42,21 @@ export function useRecipeSources() {
   })
 
   const importRecipe = useMutation({
-    mutationFn: (source_url: string) =>
-      apiFetchJson<{ id: string }>('/admin/recipe-sources/import', {
+    mutationFn: (source_url: string) => {
+      // Recette bundlée (source_url = local:<id>) → import local, sinon import distant.
+      if (source_url.startsWith('local:')) {
+        return apiFetchJson<{ id: string }>('/admin/recipes/import-local', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipe_id: source_url.slice('local:'.length) }),
+        })
+      }
+      return apiFetchJson<{ id: string }>('/admin/recipe-sources/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source_url }),
-      }),
+      })
+    },
     onSuccess: (data) => {
       toast.success(t('admin.recipeImported', { id: data.id }))
       qc.invalidateQueries({ queryKey: ['admin', 'recipes'] })

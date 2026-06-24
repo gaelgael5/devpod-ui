@@ -203,8 +203,6 @@
     "addRecipe": "Add recipe",
     "gallery": "Gallery",
     "localRecipes": "Local recipes",
-    "syncRecipesFromDisk": "Sync from disk",
-    "syncRecipesFromDiskDone": "Sync complete",
     "recipeSource": "Script Gallery",
     "addSource": "Add",
     "importRecipe": "Import",
@@ -217,7 +215,8 @@
     "galleryType": {
       "all": "All",
       "install": "Install",
-      "start": "Start"
+      "start": "Start",
+      "initialize": "Initialize"
     },
     "builtinBadge": "Built-in",
     "recipeDialogDescription": "Shared recipe management form.",

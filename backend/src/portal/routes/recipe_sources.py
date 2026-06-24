@@ -216,6 +216,12 @@ async def preview_recipe_sources(
         for src_url in sources:
             recipes = await _preview_one_source(http, src_url)
             all_recipes.extend(recipes)
+
+    # Recettes bundlées (livrées avec le produit), importables localement.
+    seen = {r["id"] for r in all_recipes}
+    for r in await asyncio.to_thread(_bundled_recipes):
+        if r["id"] not in seen:
+            all_recipes.append(r)
     return {"recipes": all_recipes}
 
 
@@ -262,7 +268,7 @@ def _write_recipe(
     install_script: str,
     options: dict[str, Any] | None = None,
     installs_after: list[str] | None = None,
-    recipe_type: Literal["install", "start"] = "install",
+    recipe_type: Literal["install", "start", "initialize"] = "install",
 ) -> None:
     recipe_path = shared_dir / recipe_id
     tmp_str = tempfile.mkdtemp(dir=shared_dir, prefix=f".tmp-{recipe_id}-")
@@ -319,7 +325,7 @@ async def _import_single_recipe(
     url_path = Path(urlparse(source_url).path)
     fname = url_path.name
 
-    recipe_type: Literal["install", "start"] = "install"
+    recipe_type: Literal["install", "start", "initialize"] = "install"
     if fname == "install.sh":
         dir_base_url = source_url.rsplit("/", 1)[0]
         meta_url = f"{dir_base_url}/recipe.meta.yaml"
@@ -339,7 +345,11 @@ async def _import_single_recipe(
         version = headers.get("version", "1.0.0")
         description = headers.get("description", "")
         raw_type = headers.get("type", "install")
-        recipe_type = raw_type if raw_type in ("install", "start") else "install"
+        if raw_type == "start":
+            recipe_type = "start"
+        elif raw_type == "initialize":
+            recipe_type = "initialize"
+        # sinon recipe_type reste "install" (valeur par défaut)
         options_dict = {}
         installs_after = []
         meta = RecipeMeta(
@@ -467,3 +477,101 @@ async def import_recipe_from_source(
         by=user.login,
     )
     return {"id": main_id, "imported": imported_ids}
+
+
+# ─── Recettes bundlées (locales) dans la galerie d'import ──────────────────────
+
+
+def _bundled_bases() -> list[Path]:
+    """Répertoires des recettes livrées avec le produit (repo en dev, image en prod)."""
+    repo = Path(__file__).resolve().parents[4] / "recipes"
+    return [p for p in (repo, Path("/app/recipes")) if p.exists()]
+
+
+def _bundled_recipe_dir(recipe_id: str) -> Path | None:
+    for base in _bundled_bases():
+        cand = base / recipe_id
+        if (cand / "recipe.meta.yaml").exists() and cand.is_relative_to(base):
+            return cand
+    return None
+
+
+def _bundled_recipes() -> list[dict[str, Any]]:
+    """Liste les recettes bundlées au format galerie (source_url = local:<id>)."""
+    out: dict[str, dict[str, Any]] = {}
+    for base in _bundled_bases():
+        for entry in sorted(base.iterdir()):
+            meta_file = entry / "recipe.meta.yaml"
+            if not entry.is_dir() or not meta_file.exists():
+                continue
+            try:
+                raw = yaml.safe_load(meta_file.read_text(encoding="utf-8-sig"))
+                if isinstance(raw, dict) and "category" in raw and "type" not in raw:
+                    raw["type"] = raw.pop("category")
+                meta = RecipeMeta.model_validate(raw)
+            except Exception as exc:
+                _log.warning("bundled_recipe_invalid", path=str(meta_file), error=str(exc))
+                continue
+            if meta.id in out:
+                continue
+            install_sh = entry / "install.sh"
+            out[meta.id] = {
+                "id": meta.id,
+                "key": meta.key,
+                "name": meta.id,
+                "description": meta.description,
+                "version": meta.version,
+                "type": meta.type,
+                "options": {k: v.model_dump() for k, v in meta.options.items()},
+                "installs_after": meta.installs_after,
+                "source_url": f"local:{meta.id}",
+                "install_script": (
+                    install_sh.read_text(encoding="utf-8") if install_sh.exists() else ""
+                ),
+            }
+    return list(out.values())
+
+
+class LocalImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recipe_id: str
+
+
+@router_admin.post("/recipes/import-local", status_code=201)
+async def import_local_recipe(
+    body: LocalImportRequest,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Importe une recette bundlée (et ses dépendances bundlées) → /data/recipes + DB."""
+    if not _RECIPE_ID_RE.fullmatch(body.recipe_id):
+        raise HTTPException(status_code=422, detail=f"Invalid recipe id {body.recipe_id!r}")
+
+    from ..recipes.registry import RecipeRegistry
+    from ..recipes.sync import sync_recipes_to_db
+
+    reg = RecipeRegistry()
+    available: dict[str, RecipeMeta] = {}
+    for base in _bundled_bases():
+        for rid, meta in reg.load_dir(base).items():
+            available.setdefault(rid, meta)
+    if body.recipe_id not in available:
+        raise HTTPException(
+            status_code=404, detail=f"Bundled recipe {body.recipe_id!r} not found"
+        )
+
+    ids = reg.expand_with_deps([body.recipe_id], available)
+    shared_dir = _data_root() / "recipes"
+    shared_dir.mkdir(parents=True, exist_ok=True)
+    copied: list[str] = []
+    for rid in ids:
+        src = _bundled_recipe_dir(rid)
+        if src is None:
+            continue
+        shutil.copytree(src, shared_dir / rid, dirs_exist_ok=True)
+        copied.append(rid)
+
+    await sync_recipes_to_db(shared_dir, conn)
+    _log.info("local_recipe_imported", recipe_id=body.recipe_id, imported=copied, by=user.login)
+    return {"id": body.recipe_id, "imported": copied}

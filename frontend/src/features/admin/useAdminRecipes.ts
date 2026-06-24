@@ -57,15 +57,5 @@ export function useAdminRecipes() {
     onError: (err: Error) => toast.error(err.message),
   })
 
-  const syncRecipes = useMutation({
-    mutationFn: () =>
-      apiFetchJson<{ synced: boolean }>('/admin/recipes/sync', { method: 'POST' }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin', 'recipes'] })
-      qc.invalidateQueries({ queryKey: ['recipes'] })
-    },
-    onError: (err: Error) => toast.error(err.message),
-  })
-
-  return { recipesQuery, deleteRecipe, addRecipe, updateRecipe, syncRecipes }
+  return { recipesQuery, deleteRecipe, addRecipe, updateRecipe }
 }

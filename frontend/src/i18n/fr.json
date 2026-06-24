@@ -203,8 +203,6 @@
     "addRecipe": "Ajouter une recette",
     "gallery": "Galerie",
     "localRecipes": "Recettes locales",
-    "syncRecipesFromDisk": "Sync depuis le disque",
-    "syncRecipesFromDiskDone": "Synchronisation terminée",
     "recipeSource": "Galerie scripts",
     "addSource": "Ajouter",
     "importRecipe": "Importer",
@@ -217,7 +215,8 @@
     "galleryType": {
       "all": "Toutes",
       "install": "Installation",
-      "start": "Démarrage"
+      "start": "Démarrage",
+      "initialize": "Initialisation"
     },
     "builtinBadge": "Intégré",
     "recipeDialogDescription": "Formulaire de gestion de la recette partagée.",
