@@ -85,7 +85,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         </div>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {s === 'running' && status.url && (
           <Button size="sm" asChild>
             <a href={status.url} target="_blank" rel="noopener noreferrer">
