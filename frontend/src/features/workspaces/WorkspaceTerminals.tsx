@@ -25,13 +25,13 @@ import {
   type WorkspaceStartRecipe,
 } from './useWorkspaceSessions'
 
-function computeNextName(sessions: string[]): string {
+function computeNextName(sessions: string[], wsName: string): string {
   const existing = new Set(sessions)
   for (let i = 1; i <= 100; i++) {
-    const n = `session${i}`
+    const n = `${wsName}${i}`
     if (!existing.has(n)) return n
   }
-  return `session${sessions.length + 1}`
+  return `${wsName}${sessions.length + 1}`
 }
 
 // ── Dialog "Nouvelle session" ─────────────────────────────────────────────────
@@ -46,14 +46,14 @@ interface CreateDialogProps {
 
 function CreateSessionDialog({ wsName, sessions, startRecipes, onClose, onCreate }: CreateDialogProps) {
   const { t } = useTranslation()
-  const [name, setName] = useState(() => computeNextName(sessions))
+  const [name, setName] = useState(() => computeNextName(sessions, wsName))
   const nameEdited = useRef(false)
   const [startRecipe, setStartRecipe] = useState(() => startRecipes[0]?.id ?? '')
   const create = useCreateSession()
 
   useEffect(() => {
-    if (!nameEdited.current) setName(computeNextName(sessions))
-  }, [sessions])
+    if (!nameEdited.current) setName(computeNextName(sessions, wsName))
+  }, [sessions, wsName])
 
   function handleSubmit() {
     create.mutate(
