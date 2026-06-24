@@ -87,6 +87,60 @@ async def put_admin_config(
     return new_cfg.model_dump(mode="json")
 
 
+# ─── Configuration OIDC ───────────────────────────────────────────────────────
+
+
+class OidcUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    issuer: str
+    client_id: str
+    client_secret: str = ""  # vide = conserver le secret existant
+
+
+@router.get("/oidc")
+async def get_admin_oidc(user: UserInfo = Depends(require_admin)) -> dict[str, object]:
+    """Config OIDC sans la valeur du secret (seulement sa présence)."""
+    oidc = load_global().auth.oidc
+    return {
+        "issuer": oidc.issuer,
+        "client_id": oidc.client_id,
+        "has_secret": bool(oidc.client_secret),
+    }
+
+
+@router.put("/oidc")
+async def put_admin_oidc(
+    body: OidcUpdateRequest, user: UserInfo = Depends(require_admin)
+) -> dict[str, object]:
+    """Met à jour issuer/client_id/client_secret ; secret vide = conservé.
+
+    Les autres réglages OIDC (scopes, claims, rôles) sont préservés.
+    """
+    cfg = load_global()
+    existing = cfg.auth.oidc
+    new_secret = body.client_secret or existing.client_secret
+    new_oidc = existing.model_copy(
+        update={
+            "issuer": body.issuer,
+            "client_id": body.client_id,
+            "client_secret": new_secret,
+        }
+    )
+    cfg.auth = cfg.auth.model_copy(update={"oidc": new_oidc})
+
+    from ..db.engine import _get_engine
+
+    async with _get_engine().begin() as conn:
+        await save_global_db(cfg, conn)
+    _log.info("oidc_config_updated", by=user.login, issuer=body.issuer)
+    return {
+        "issuer": new_oidc.issuer,
+        "client_id": new_oidc.client_id,
+        "has_secret": bool(new_oidc.client_secret),
+    }
+
+
 # ─── Hosts CRUD ───────────────────────────────────────────────────────────────
 
 

@@ -113,6 +113,9 @@ export default function AppShell() {
                   <DropdownMenuItem onClick={() => navigate('/admin/profile-sources')}>
                     {t('admin.profileSources.navLabel')}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
+                    {t('admin.oidc.navLabel')}
+                  </DropdownMenuItem>
                 </>
               )}
 

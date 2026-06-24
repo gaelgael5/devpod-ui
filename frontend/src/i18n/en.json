@@ -177,6 +177,18 @@
     "hypervisorsEmpty": "No hypervisors enrolled yet.",
     "hypervisorTypesEmpty": "No hypervisor types configured.",
     "addHost": "Add host",
+    "oidc": {
+      "navLabel": "OIDC configuration",
+      "title": "OIDC configuration",
+      "issuer": "Issuer URL",
+      "clientId": "Client ID",
+      "clientSecret": "Client secret",
+      "secretKept": "(unchanged)",
+      "secretHint": "Leave empty to keep the existing secret.",
+      "warning": "Changing these values affects authentication: an incorrect setting may prevent future logins.",
+      "save": "Save",
+      "saved": "OIDC configuration saved"
+    },
     "testHostParams": {
       "btn": "Test host config",
       "title": "Test host configuration",

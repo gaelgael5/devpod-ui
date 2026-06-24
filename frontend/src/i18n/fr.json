@@ -177,6 +177,18 @@
     "hypervisorsEmpty": "Aucun hyperviseur enrôlé.",
     "hypervisorTypesEmpty": "Aucun type d'hyperviseur configuré.",
     "addHost": "Ajouter un hôte",
+    "oidc": {
+      "navLabel": "Configuration OIDC",
+      "title": "Configuration OIDC",
+      "issuer": "URL de l'émetteur (issuer)",
+      "clientId": "Client ID",
+      "clientSecret": "Client secret",
+      "secretKept": "(inchangé)",
+      "secretHint": "Laisser vide pour conserver le secret existant.",
+      "warning": "Modifier ces valeurs affecte l'authentification : un réglage incorrect peut empêcher les prochaines connexions.",
+      "save": "Enregistrer",
+      "saved": "Configuration OIDC enregistrée"
+    },
     "testHostParams": {
       "btn": "Paramétrage host de test",
       "title": "Paramétrage du host de test",
