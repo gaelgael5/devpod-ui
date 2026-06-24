@@ -74,6 +74,7 @@ hypervisor_types = Table(
     Column("label", Text, nullable=False, server_default=""),
     Column("add_script", Text, nullable=False, server_default=""),
     Column("destroy_script", Text, nullable=False, server_default=""),
+    Column("test_host_params", JSONB, nullable=False, server_default="{}"),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 

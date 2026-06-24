@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, type HostConfig, type HostCreatePayload, type HostUserWorkspaces } from './useHosts'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
+import TestHostParamsDialog from './TestHostParamsDialog'
 import SshTerminalWindow from './SshTerminalWindow'
 
 const EMPTY: HostCreatePayload = {
@@ -164,6 +165,7 @@ export default function AdminHosts() {
   const [mode, setMode] = useState<DialogMode>('add')
   const [showCert, setShowCert] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
+  const [testParamsOpen, setTestParamsOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [destroyTarget, setDestroyTarget] = useState<HostConfig | null>(null)
   const [form, setForm] = useState<HostCreatePayload>(EMPTY)
@@ -275,6 +277,9 @@ export default function AdminHosts() {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{t('admin.hosts')}</h1>
         <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setTestParamsOpen(true)}>
+            {t('admin.testHostParams.btn')}
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
             {t('admin.generate.btn')}
           </Button>
@@ -370,6 +375,11 @@ export default function AdminHosts() {
         open={generateOpen}
         onClose={() => setGenerateOpen(false)}
         onGenerated={handleGenerated}
+      />
+
+      <TestHostParamsDialog
+        open={testParamsOpen}
+        onClose={() => setTestParamsOpen(false)}
       />
 
       {/* ── Dialogue ajout / édition ── */}

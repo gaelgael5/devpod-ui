@@ -326,10 +326,56 @@ async def update_hypervisor_type(
         name=name,
         add_script=body.add_script,
         destroy_script=body.destroy_script,
+        test_host_params=ht.test_host_params,  # préservé (réglé via /test-params)
     )
     cfg.hypervisor_types = [updated if t.name == name else t for t in cfg.hypervisor_types]
     await save_global(cfg)
     _log.info("hypervisor_type_updated", name=name, by=user.login)
+    return updated.model_dump(mode="json")
+
+
+@router.get("/hypervisor-types/{name}/script")
+async def get_hypervisor_type_script(
+    name: str,
+    user: UserInfo = Depends(require_admin),
+) -> dict[str, object]:
+    """Spec JSON brute d'un type (sans résolution SSH des options dynamiques)."""
+    cfg = load_global()
+    ht = next((t for t in cfg.hypervisor_types if t.name == name), None)
+    if ht is None:
+        raise HTTPException(status_code=404, detail=f"Hypervisor type {name!r} not found")
+    return await _fetch_spec_for_type(ht)
+
+
+class TestHostParamsRequest(BaseModel):
+    params: dict[str, str]
+
+
+@router.put("/hypervisor-types/{name}/test-params", status_code=200)
+async def set_test_host_params(
+    name: str,
+    body: TestHostParamsRequest,
+    user: UserInfo = Depends(require_admin),
+) -> dict[str, object]:
+    """Enregistre les valeurs par défaut du host de test pour ce type.
+
+    L'arg identifiant (vmid) n'est jamais pré-rempli ; le front l'exclut déjà de la
+    saisie.
+    """
+    cfg = load_global()
+    ht = next((t for t in cfg.hypervisor_types if t.name == name), None)
+    if ht is None:
+        raise HTTPException(status_code=404, detail=f"Hypervisor type {name!r} not found")
+    updated = HypervisorType(
+        label=ht.label,
+        name=ht.name,
+        add_script=ht.add_script,
+        destroy_script=ht.destroy_script,
+        test_host_params=body.params,
+    )
+    cfg.hypervisor_types = [updated if t.name == name else t for t in cfg.hypervisor_types]
+    await save_global(cfg)
+    _log.info("test_host_params_saved", type=name, by=user.login, keys=sorted(body.params))
     return updated.model_dump(mode="json")
 
 
@@ -520,6 +566,25 @@ class ExecuteRequest(BaseModel):
     args: dict[str, str]
 
 
+async def _fetch_spec_for_type(hyp_type: HypervisorType) -> dict[str, object]:
+    """Télécharge la spec JSON d'un type d'hyperviseur (sans résolution SSH)."""
+    if not hyp_type.add_script:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Hypervisor type {hyp_type.name!r} has no add_script configured",
+        )
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(hyp_type.add_script, timeout=15.0, follow_redirects=True)
+            resp.raise_for_status()
+            return dict(resp.json())
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch script spec: {exc}",
+            ) from exc
+
+
 async def _fetch_spec(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
     if not node.hypervisor_type:
         raise HTTPException(
@@ -532,21 +597,7 @@ async def _fetch_spec(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
             status_code=404,
             detail=f"Hypervisor type {node.hypervisor_type!r} not found",
         )
-    if not hyp_type.add_script:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Hypervisor type {node.hypervisor_type!r} has no add_script configured",
-        )
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.get(hyp_type.add_script, timeout=15.0, follow_redirects=True)
-            resp.raise_for_status()
-            return dict(resp.json())
-        except httpx.HTTPError as exc:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Failed to fetch script spec: {exc}",
-            ) from exc
+    return await _fetch_spec_for_type(hyp_type)
 
 
 @router.get("/hypervisors/{name}/script")

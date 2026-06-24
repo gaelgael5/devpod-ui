@@ -152,6 +152,7 @@ def _ht_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "label": row["label"],
         "add_script": row["add_script"],
         "destroy_script": row["destroy_script"],
+        "test_host_params": dict(row["test_host_params"] or {}),
     }
 
 
@@ -263,6 +264,7 @@ def _ht_to_row(ht: HypervisorType) -> dict[str, Any]:
         "label": ht.label,
         "add_script": ht.add_script,
         "destroy_script": ht.destroy_script,
+        "test_host_params": dict(ht.test_host_params),
     }
 
 

@@ -166,6 +166,16 @@
     "hypervisorsEmpty": "Aucun hyperviseur enrôlé.",
     "hypervisorTypesEmpty": "Aucun type d'hyperviseur configuré.",
     "addHost": "Ajouter un hôte",
+    "testHostParams": {
+      "btn": "Paramétrage host de test",
+      "title": "Paramétrage du host de test",
+      "type": "Type d'hyperviseur",
+      "selectType": "Choisir un type…",
+      "loading": "Chargement…",
+      "save": "Enregistrer",
+      "cancel": "Annuler",
+      "saved": "Paramétrage enregistré"
+    },
     "editHost": "Modifier l'hôte",
     "addRecipe": "Ajouter une recette",
     "gallery": "Galerie",

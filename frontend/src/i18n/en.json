@@ -166,6 +166,16 @@
     "hypervisorsEmpty": "No hypervisors enrolled yet.",
     "hypervisorTypesEmpty": "No hypervisor types configured.",
     "addHost": "Add host",
+    "testHostParams": {
+      "btn": "Test host config",
+      "title": "Test host configuration",
+      "type": "Hypervisor type",
+      "selectType": "Select a type…",
+      "loading": "Loading…",
+      "save": "Save",
+      "cancel": "Cancel",
+      "saved": "Configuration saved"
+    },
     "editHost": "Edit host",
     "addRecipe": "Add recipe",
     "gallery": "Gallery",

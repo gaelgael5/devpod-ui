@@ -111,6 +111,8 @@ class HypervisorType(BaseModel):
     name: str
     add_script: str = ""
     destroy_script: str = ""
+    # Valeurs par défaut des args pour créer un host de test (sauf l'identifiant).
+    test_host_params: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("name")
     @classmethod

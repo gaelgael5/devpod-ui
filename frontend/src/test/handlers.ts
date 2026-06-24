@@ -34,6 +34,7 @@ export const handlers = [
       { name: 'ssh-dev', type: 'ssh', default: false, address: 'debian@192.168.10.175', host_cert_slug: 'hosts/ssh_dev_ed25519', storage_type: 'local' },
     ])
   ),
+  http.get('/admin/hypervisor-types', () => HttpResponse.json([])),
   http.get('/admin/recipes', () => HttpResponse.json([])),
   http.delete('/admin/recipes/:id', () => HttpResponse.json({ deleted: 'ok' })),
   http.delete('/me/recipes/:id', () => HttpResponse.json({ deleted: 'ok' })),

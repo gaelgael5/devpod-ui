@@ -29,6 +29,8 @@ export interface ScriptArg {
   option_script?: string
   _option_script_error?: string
   test_script?: TestScript
+  /** Identifiant unique de la machine (vmid) : non pré-remplissable. */
+  identifier?: boolean
 }
 
 export interface ScriptSubArg {
@@ -56,6 +58,17 @@ export function useScriptSpec(nodeName: string | null) {
     queryKey: ['admin', 'proxmox', nodeName, 'script'],
     queryFn: () => apiFetchJson<ScriptSpec>(`/admin/hypervisors/${nodeName}/script`),
     enabled: nodeName != null,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+}
+
+/** Spec brute d'un type d'hyperviseur (sans résolution SSH des options). */
+export function useTypeScriptSpec(typeName: string | null) {
+  return useQuery<ScriptSpec>({
+    queryKey: ['admin', 'hypervisor-types', typeName, 'script'],
+    queryFn: () => apiFetchJson<ScriptSpec>(`/admin/hypervisor-types/${typeName}/script`),
+    enabled: typeName != null,
     staleTime: 5 * 60 * 1000,
     retry: false,
   })

@@ -7,6 +7,22 @@ export interface HypervisorTypeConfig {
   name: string
   add_script: string
   destroy_script: string
+  test_host_params?: Record<string, string>
+}
+
+/** Enregistre le paramétrage host de test d'un type d'hyperviseur. */
+export function useSaveTestHostParams() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, params }: { name: string; params: Record<string, string> }) =>
+      apiFetchJson<HypervisorTypeConfig>(`/admin/hypervisor-types/${name}/test-params`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hypervisor-types'] }),
+    onError: (err: Error) => toast.error(err.message),
+  })
 }
 
 export function useAdminHypervisorTypes() {
