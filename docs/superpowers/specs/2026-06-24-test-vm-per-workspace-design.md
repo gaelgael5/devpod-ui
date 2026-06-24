@@ -19,7 +19,7 @@ avec le workspace**.
 | **A** | Marquer le `vmid` dans la spec JSON (`identifier: true`) + helper backend | — | **fait** |
 | **B** | Paramétrage host de test (admin) : valeurs par défaut des `args` **par type d'hyperviseur**, sauf l'identifiant | A | **fait** |
 | **C+D** | « Add VM for Test » sur `WorkspaceCard` : choix hyperviseur → vmid → `execute` → host `usage=tests` **enregistré et associé au workspace** (table) | A, B | **fait** |
-| **E** | Bootstrap SSH automatique de la VM créée | C, D | à venir |
+| **E** | Init SSH de la VM : clé container (pubkey) + login/mot de passe root | C, D | **fait** |
 | **F** | Lifecycle : suppression du workspace ⇒ destruction de la VM (`destroy_script`) | D | à venir |
 | **G** | Affichage : VM de test sous le workspace propriétaire dans Host admin | D | à venir |
 | **H** | Session SSH root depuis le container vers la VM | E | à venir |
@@ -147,5 +147,39 @@ Module `db/test_hosts.py` (assign / list par workspace / list par host / delete)
 
 ### Hors périmètre (lots suivants)
 
-- **E** bootstrap SSH · **F** destruction avec le workspace · **G** affichage sous le
+- **E** init SSH · **F** destruction avec le workspace · **G** affichage sous le
   workspace · **H** session SSH root depuis le container.
+
+## Lot E — init SSH de la VM (clé container + login/mot de passe root)
+
+Enchaîné **à la fin** du `POST /me/workspaces/{ws}/test-vm`, après l'enregistrement et
+l'association du host. Deux accès configurés sur la VM :
+
+1. **Clé du container (juste-à-temps).** Le portail se connecte au container du
+   workspace (canal SSH existant), génère la paire si absente
+   (`[ -f ~/.ssh/id_ed25519 ] || ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519 -q`),
+   et lit la **pubkey**. La privée ne quitte jamais le container.
+2. **Login/mot de passe root.** Le portail génère un mot de passe aléatoire
+   (`secrets.token_urlsafe`).
+
+**Injection dans la VM** (portail → SSH PVE → SSH VM, comme `bootstrap_host_ssh`) :
+- ajoute la **pubkey container** dans `/root/.ssh/authorized_keys` (idempotent) ;
+- définit le mot de passe root (`chpasswd`), via le `ciuser` + `sudo`.
+
+**Restitution.** Le mot de passe est **stocké dans Harpocrate** (`store_system_secret`,
+slug lié au host de test) **et** émis dans le flux de création — l'UI l'affiche une fois
+à l'utilisateur, avec l'IP et `root` comme login.
+
+**Sécurité.** Mot de passe root sur une VM marquée `tests` et éphémère : risque assumé
+(décision H).
+
+### Découpage / parties testables
+
+- Génération du script d'injection (pur : pubkey + password → commandes shell), avec
+  échappement sûr du mot de passe → testable.
+- L'orchestration SSH multi-hop n'est exerçable que sur serveur (PVE + VM).
+
+### Frontend
+
+- À la fin du dialog « Add VM for Test » : afficher **login `root`**, **IP**, **mot de
+  passe** (copiable), avec mention « notez-le ».

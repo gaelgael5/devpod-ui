@@ -6,6 +6,7 @@ figés par le paramétrage admin (`test_host_params` du type). Le host créé es
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import AsyncIterator
 from typing import Any
@@ -16,15 +17,23 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from ..auth.rbac import UserInfo, require_user
-from ..config.models import GlobalConfig
+from ..config.models import GlobalConfig, HostConfig, Hypervisor
 from ..config.store import load_global, load_user
 from ..db.engine import _get_engine
 from ..db.global_config import save_global_db
 from ..db.test_hosts import assign_test_host
+from ..devpod.ssh_exec import run_ssh_capture
 from ..devpod.test_vm import build_test_vm_args, map_result_to_host, parse_last_json
+from ..devpod.vm_init import (
+    CONTAINER_KEYGEN_CMD,
+    build_vm_root_inject_script,
+    generate_root_password,
+)
+from ..secrets.system import store_system_secret
 from ..settings import get_settings
 from .proxmox import (
     _fetch_spec,
+    _ssh_opts,
     _ssh_stream,
     _substitute,
     find_identifier_arg,
@@ -69,6 +78,60 @@ async def get_test_hypervisor_script(
     if node is None or node.hypervisor_type not in _usable_type_names(cfg):
         raise HTTPException(status_code=404, detail=f"Test hypervisor {name!r} not available")
     return await resolve_node_script(node, cfg)
+
+
+async def _init_vm_ssh(
+    login: str, ws: str, host: HostConfig, node: Hypervisor
+) -> AsyncIterator[bytes]:
+    """Lot E : injecte la pubkey du container et un mot de passe root dans la VM."""
+    if host.type != "ssh" or not host.address:
+        yield b"\n==> Init SSH ignoree (host sans adresse SSH)\n"
+        return
+    yield b"\n==> Initialisation SSH (cle du container + acces root)...\n"
+    _rc, out, _err = await run_ssh_capture(login, f"{login}-{ws}", CONTAINER_KEYGEN_CMD)
+    pubkey = next((ln.strip() for ln in out.splitlines() if ln.startswith("ssh-")), "")
+    if not pubkey:
+        yield b"==> ERREUR : cle publique du container introuvable\n"
+        return
+
+    password = generate_root_password()
+    inject = build_vm_root_inject_script(pubkey, password, host.address)
+    ssh_cmd = ["ssh", *_ssh_opts(node), f"{node.ssh_user}@{node.address}", "bash -s"]
+    proc = await asyncio.create_subprocess_exec(
+        *ssh_cmd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        _, serr = await asyncio.wait_for(
+            proc.communicate(input=inject.encode()), timeout=60.0
+        )
+    except TimeoutError:
+        proc.kill()
+        await proc.wait()
+        yield b"==> ERREUR : injection SSH VM (timeout)\n"
+        return
+    if proc.returncode != 0:
+        detail = serr.decode("utf-8", errors="replace").strip()[:300]
+        yield f"==> ERREUR injection VM : {detail}\n".encode()
+        return
+
+    async with _get_engine().begin() as conn:
+        await store_system_secret(
+            slug=f"host.{host.name}.root-password",
+            label=f"Root password — {host.name}",
+            value=password,
+            storage_type="local",
+            vault_identifier="",
+            conn=conn,
+        )
+    ip = host.address.split("@", 1)[-1]
+    yield (
+        f"\n==> Accès SSH prêt — login: root  ip: {ip}\n"
+        f"==> Mot de passe root : {password}\n"
+        "==> (clé du container injectée ; mot de passe stocké côté portail)\n"
+    ).encode()
 
 
 class CreateTestVmRequest(BaseModel):
@@ -147,5 +210,8 @@ async def create_test_vm(
         yield (
             f"\n==> VM de test '{host.name}' creee et attachee au workspace '{ws}'\n"
         ).encode()
+
+        async for msg in _init_vm_ssh(login, ws, host, node):
+            yield msg
 
     return StreamingResponse(_stream(), media_type="text/plain; charset=utf-8")
