@@ -174,6 +174,24 @@ async def create_session(
             else shared_dir / req.start_recipe
         )
         start_sh = recipe_dir / "start.sh"
+        _log.info(
+            "start_recipe_resolve",
+            recipe=req.start_recipe,
+            login=user.login,
+            personal_path=str(personal_dir / req.start_recipe),
+            personal_exists=(personal_dir / req.start_recipe).exists(),
+            shared_path=str(shared_dir / req.start_recipe),
+            shared_exists=(shared_dir / req.start_recipe).exists(),
+            recipe_dir=str(recipe_dir),
+            recipe_dir_exists=recipe_dir.exists(),
+            start_sh=str(start_sh),
+            start_sh_exists=start_sh.exists(),
+            recipe_dir_contents=(
+                sorted(p.name for p in recipe_dir.iterdir())
+                if recipe_dir.exists()
+                else []
+            ),
+        )
         if not start_sh.exists():
             raise HTTPException(
                 status_code=422, detail=f"start.sh missing for {req.start_recipe!r}"
