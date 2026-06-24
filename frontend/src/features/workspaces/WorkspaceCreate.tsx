@@ -58,6 +58,7 @@ export default function WorkspaceCreate() {
   const isAdmin = useUserStore((s) => s.isAdmin())
   const { createWorkspace } = useWorkspaceOps()
   const { data: recipes = [] } = useRecipes('install')
+  const { data: initializeRecipes = [] } = useRecipes('initialize')
   const { data: hosts = [] } = useHosts()
   const { data: credentials = [] } = useGitCredentials()
   const { data: profiles = [] } = useProfiles()
@@ -68,6 +69,7 @@ export default function WorkspaceCreate() {
   const [host, setHost] = useState('')
   const [selectedRecipes, setSelectedRecipes] = useState<string[]>([])
   const [selectedStartRecipes, setSelectedStartRecipes] = useState<string[]>([])
+  const [selectedInitRecipes, setSelectedInitRecipes] = useState<string[]>([])
   const [volumeRecipes, setVolumeRecipes] = useState<string[]>([])
 
   const recipesWithOptionalVolume = useMemo(
@@ -205,6 +207,7 @@ export default function WorkspaceCreate() {
         profile: profileRef,
         startRecipes: selectedStartRecipes,
         volumeRecipes,
+        initRecipes: selectedInitRecipes,
       })
       navigate('/workspaces')
     } catch (err) {
@@ -410,6 +413,40 @@ export default function WorkspaceCreate() {
             </div>
           )}
         </div>
+
+        {/* ─── Actions d'initialisation ───────────────────────────────────── */}
+        {initializeRecipes.length > 0 && (
+          <div>
+            <Label>{t('workspaces.form.initRecipes')}</Label>
+            <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+              {t('workspaces.form.initRecipesHint')}
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {initializeRecipes.map((r) => {
+                const selected = selectedInitRecipes.includes(r.id)
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    title={r.description || r.id}
+                    onClick={() =>
+                      setSelectedInitRecipes((prev) =>
+                        selected ? prev.filter((x) => x !== r.id) : [...prev, r.id],
+                      )
+                    }
+                    className={`rounded-sm px-2 py-0.5 text-xs border transition-colors ${
+                      selected
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-muted text-muted-foreground border-border hover:border-primary'
+                    }`}
+                  >
+                    {r.id}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         <ProfileSelector profiles={profiles} value={profile} onChange={setProfile} />
 

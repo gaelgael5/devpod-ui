@@ -198,6 +198,7 @@ workspaces = Table(
     Column("start_recipes", ARRAY(Text), nullable=False, server_default="{}"),
     Column("default_start", Text, nullable=False, server_default=""),
     Column("recipe_volumes", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("init_recipes", ARRAY(Text), nullable=False, server_default="{}"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("login", "name", name="uq_workspaces_login_name"),

@@ -82,6 +82,8 @@
       "profileNone": "— aucun profil —",
       "profileShared": "(partagé)",
       "startRecipes": "Recettes start",
+      "initRecipes": "Actions d'initialisation",
+      "initRecipesHint": "Actions exécutables à la demande depuis le workspace (ex. configurer Claude Code).",
       "addStartRecipe": "Ajouter une recette start",
       "newStartRecipe": "Nouvelle recette start",
       "startRecipeId": "ID de la recette",

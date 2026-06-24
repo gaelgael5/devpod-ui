@@ -91,9 +91,9 @@ async def list_recipes(
     """Liste les recettes visibles par l'utilisateur avec leur scope.
 
     Déduplication par ID : user > shared > builtin.
-    Paramètre optionnel `?type=install|start` pour filtrer par type.
+    Paramètre optionnel `?type=install|start|initialize` pour filtrer par type.
     """
-    type_filter = recipe_type if recipe_type in ("install", "start") else None
+    type_filter = recipe_type if recipe_type in ("install", "start", "initialize") else None
     entries = await list_recipes_db(user.login, conn)
 
     best: dict[str, tuple[int, dict[str, Any]]] = {}

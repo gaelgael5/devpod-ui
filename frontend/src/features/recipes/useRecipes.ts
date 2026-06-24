@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch, apiFetchJson } from '@/shared/api/client'
 import type { Recipe } from './types'
 
-export function useRecipes(type?: 'install' | 'start') {
+export function useRecipes(type?: 'install' | 'start' | 'initialize') {
   return useQuery<Recipe[]>({
     queryKey: ['recipes', type ?? 'all'],
     queryFn: () => apiFetchJson<Recipe[]>(type ? `/recipes?type=${type}` : '/recipes'),
