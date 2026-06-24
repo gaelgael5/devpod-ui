@@ -27,7 +27,7 @@ function argLabel(arg: ScriptArg): string {
 /** Crée une VM de test attachée au workspace : choix hyperviseur + vmid → script. */
 export default function AddTestVmDialog({ wsName, open, onClose }: Props) {
   const { t } = useTranslation()
-  const { data: hypervisors = [] } = useTestHypervisors(open)
+  const { data: hypervisors = [], isLoading: hypLoading, isError: hypError } = useTestHypervisors(open)
   const [hypervisor, setHypervisor] = useState<string | null>(null)
   const { data: spec, isLoading } = useTestVmScript(open ? hypervisor : null)
   const [vmid, setVmid] = useState('')
@@ -59,19 +59,32 @@ export default function AddTestVmDialog({ wsName, open, onClose }: Props) {
           <div className="space-y-4 py-2">
             <div className="space-y-1">
               <Label>{t('workspaces.testVm.hypervisor')}</Label>
-              <Select
-                value={hypervisor ?? ''}
-                onValueChange={(v) => { setHypervisor(v); setVmid('') }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t('workspaces.testVm.selectHypervisor')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {hypervisors.map(h => (
-                    <SelectItem key={h.name} value={h.name}>{h.name} — {h.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {hypLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {t('workspaces.testVm.hypLoading')}
+                </div>
+              ) : hypError ? (
+                <p className="text-sm text-destructive">{t('workspaces.testVm.loadError')}</p>
+              ) : hypervisors.length === 0 ? (
+                <p className="rounded-md border border-dashed bg-muted/40 p-3 text-sm text-muted-foreground">
+                  {t('workspaces.testVm.noHypervisors')}
+                </p>
+              ) : (
+                <Select
+                  value={hypervisor ?? ''}
+                  onValueChange={(v) => { setHypervisor(v); setVmid('') }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('workspaces.testVm.selectHypervisor')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {hypervisors.map(h => (
+                      <SelectItem key={h.name} value={h.name}>{h.name} — {h.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             {hypervisor && isLoading && (

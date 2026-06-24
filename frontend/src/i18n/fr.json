@@ -62,6 +62,9 @@
       "selectHypervisor": "Choisir un hyperviseur…",
       "selectVmid": "Choisir un VMID…",
       "loading": "Chargement…",
+      "hypLoading": "Chargement des hyperviseurs…",
+      "noHypervisors": "Aucun hyperviseur n'est disponible pour les VM de test. Un administrateur doit assigner à un hyperviseur un type — avec son script de création et son paramétrage de test renseignés.",
+      "loadError": "Échec du chargement des hyperviseurs.",
       "create": "Créer",
       "cancel": "Annuler",
       "close": "Fermer"

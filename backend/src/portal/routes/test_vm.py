@@ -31,6 +31,7 @@ from ..devpod.test_vm import (
 )
 from ..devpod.vm_init import (
     CONTAINER_KEYGEN_CMD,
+    build_container_ssh_config_cmd,
     build_vm_root_inject_script,
     generate_root_password,
 )
@@ -137,6 +138,19 @@ async def _init_vm_ssh(
         f"==> Mot de passe root : {password}\n"
         "==> (clé du container injectée ; mot de passe stocké côté portail)\n"
     ).encode()
+
+    # Alias SSH persistant dans le container : `ssh <host>` joint la VM (root + clé).
+    cfg_rc, _cfg_out, cfg_err = await run_ssh_capture(
+        login, f"{login}-{ws}", build_container_ssh_config_cmd(host.name, ip)
+    )
+    if cfg_rc == 0:
+        yield (
+            f"==> Alias SSH '{host.name}' ajouté au ~/.ssh/config du container "
+            f"(ssh {host.name})\n"
+        ).encode()
+    else:
+        detail = cfg_err.strip()[:200]
+        yield f"==> AVERTISSEMENT : alias SSH non écrit ({detail})\n".encode()
 
 
 class CreateTestVmRequest(BaseModel):

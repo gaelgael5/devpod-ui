@@ -62,6 +62,9 @@
       "selectHypervisor": "Select a hypervisor…",
       "selectVmid": "Select a VMID…",
       "loading": "Loading…",
+      "hypLoading": "Loading hypervisors…",
+      "noHypervisors": "No hypervisor is available for test VMs. An admin must assign a hypervisor type — with a creation script and its test parameters filled in — to a hypervisor.",
+      "loadError": "Failed to load hypervisors.",
       "create": "Create",
       "cancel": "Cancel",
       "close": "Close"

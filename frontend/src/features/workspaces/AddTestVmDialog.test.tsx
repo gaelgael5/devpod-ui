@@ -25,6 +25,18 @@ describe('AddTestVmDialog', () => {
     expect(createBtn).toBeDisabled() // ni hyperviseur ni vmid choisis
   })
 
+  it('affiche un message d\'information quand aucun hyperviseur n\'est paramétré', async () => {
+    server.use(
+      http.get('/me/test-hypervisors', () => HttpResponse.json([])),
+    )
+    renderWithProviders(<AddTestVmDialog wsName="ws1" open onClose={() => {}} />)
+
+    expect(
+      await screen.findByText(/aucun hyperviseur n.est disponible|no hypervisor is available/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/choisir un hyperviseur|select a hypervisor/i)).toBeNull()
+  })
+
   it('ne rend rien quand open est faux', () => {
     renderWithProviders(<AddTestVmDialog wsName="ws1" open={false} onClose={() => {}} />)
     expect(screen.queryByText(/cr.er une vm de test|create a test vm/i)).toBeNull()
