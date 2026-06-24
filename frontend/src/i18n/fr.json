@@ -197,7 +197,8 @@
       "loading": "Chargement…",
       "save": "Enregistrer",
       "cancel": "Annuler",
-      "saved": "Paramétrage enregistré"
+      "saved": "Paramétrage enregistré",
+      "varsHint": "Variables substituées à la création : <NEW_VMID> (id de la VM), <N+1> (n° de la VM de test du workspace). Ex. : host-test-<NEW_VMID>-<N+1>"
     },
     "editHost": "Modifier l'hôte",
     "addRecipe": "Ajouter une recette",

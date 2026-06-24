@@ -6,8 +6,28 @@ SSH et la persistance vivent dans la route `/me`.
 from __future__ import annotations
 
 import json
+import re
 
 from ..config.models import HostConfig
+
+_VAR_RE = re.compile(r"<([^<>]+)>")
+
+
+def substitute_param_vars(
+    args: dict[str, str], extra: dict[str, str]
+) -> dict[str, str]:
+    """Remplace les `<NOM>` dans chaque valeur par la variable correspondante.
+
+    Les variables disponibles sont les autres args (par nom, ex. `<NEW_VMID>`) plus
+    celles fournies dans `extra` (ex. `N`, `N+1`). Une variable inconnue est laissée
+    telle quelle (pas d'erreur).
+    """
+    variables = {**args, **extra}
+
+    def _repl(m: re.Match[str]) -> str:
+        return variables.get(m.group(1), m.group(0))
+
+    return {k: _VAR_RE.sub(_repl, v) for k, v in args.items()}
 
 
 def parse_last_json(output: str) -> dict[str, object] | None:

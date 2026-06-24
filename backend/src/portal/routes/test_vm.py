@@ -21,9 +21,14 @@ from ..config.models import GlobalConfig, HostConfig, Hypervisor
 from ..config.store import load_global, load_user
 from ..db.engine import _get_engine
 from ..db.global_config import save_global_db
-from ..db.test_hosts import assign_test_host
+from ..db.test_hosts import assign_test_host, list_test_hosts_for_workspace
 from ..devpod.ssh_exec import run_ssh_capture
-from ..devpod.test_vm import build_test_vm_args, map_result_to_host, parse_last_json
+from ..devpod.test_vm import (
+    build_test_vm_args,
+    map_result_to_host,
+    parse_last_json,
+    substitute_param_vars,
+)
 from ..devpod.vm_init import (
     CONTAINER_KEYGEN_CMD,
     build_vm_root_inject_script,
@@ -172,14 +177,21 @@ async def create_test_vm(
 
     commands_raw: list[str] = spec.get("commands", [])  # type: ignore[assignment]
     settings = get_settings()
+    login = user.login
     args = build_test_vm_args(dict(hyp_type.test_host_params), identifier_arg, body.vmid)
     args["PORTAL_URL"] = cfg.server.external_url
     args["PORTAL_TOKEN"] = settings.portal_api_key
     args["PORTAL_PVE_NODE"] = node.name
+
+    # Substitution des variables <NOM> dans les valeurs paramétrées (ex. NODE_NAME) :
+    # args (dont <NEW_VMID>) + <N>/<N+1> = nb de VM de test du workspace.
+    async with _get_engine().connect() as conn:
+        n = len(await list_test_hosts_for_workspace(login, ws, conn))
+    args = substitute_param_vars(args, {"N": str(n), "N+1": str(n + 1)})
+
     commands = [_substitute(c, args) for c in commands_raw]
     display = [_substitute(c, {**args, "PORTAL_TOKEN": "***"}) for c in commands_raw]
 
-    login = user.login
     _log.info("test_vm_create", login=login, ws=ws, node=node.name, vmid=body.vmid)
 
     async def _stream() -> AsyncIterator[bytes]:

@@ -51,6 +51,9 @@ function ParamsEditor({ typeName, spec, initial, onClose }: {
 
   return (
     <>
+      <p className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
+        {t('admin.testHostParams.varsHint')}
+      </p>
       <HypervisorArgsForm args={spec.args} values={values} onChange={set} excludeIdentifier />
       <DialogFooter>
         <Button variant="ghost" onClick={onClose}>{t('admin.testHostParams.cancel')}</Button>

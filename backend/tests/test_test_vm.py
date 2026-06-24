@@ -1,7 +1,11 @@
 # backend/tests/test_test_vm.py
 from __future__ import annotations
 
-from portal.devpod.test_vm import build_test_vm_args, map_result_to_host
+from portal.devpod.test_vm import (
+    build_test_vm_args,
+    map_result_to_host,
+    substitute_param_vars,
+)
 
 
 def test_build_args_adds_identifier() -> None:
@@ -45,3 +49,19 @@ def test_map_result_vmid_and_node_fallback() -> None:
     h = map_result_to_host({"name": "x", "address": "1.2.3.4", "type": "ssh"}, "199", "pve2")
     assert h.vmid == "199"
     assert h.proxmox_node == "pve2"
+
+
+def test_substitute_param_vars_resolves_arg_and_counter() -> None:
+    args = {"NODE_NAME": "host-test-<NEW_VMID>-<N+1>", "NEW_VMID": "150"}
+    out = substitute_param_vars(args, {"N": "2", "N+1": "3"})
+    assert out["NODE_NAME"] == "host-test-150-3"
+    assert out["NEW_VMID"] == "150"
+
+
+def test_substitute_param_vars_unknown_left_intact() -> None:
+    out = substitute_param_vars({"X": "a-<UNKNOWN>-b"}, {})
+    assert out["X"] == "a-<UNKNOWN>-b"
+
+
+def test_substitute_param_vars_plain_value() -> None:
+    assert substitute_param_vars({"X": "plain"}, {"N": "1"})["X"] == "plain"
