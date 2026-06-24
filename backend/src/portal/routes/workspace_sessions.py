@@ -5,6 +5,7 @@ import base64
 import os
 import re
 import shlex
+from pathlib import Path
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -38,6 +39,25 @@ _SESSION_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,29}$")
 def _validate_ws_name(name: str) -> None:
     if not _WS_NAME_RE.fullmatch(name):
         raise HTTPException(status_code=422, detail=f"Invalid workspace name {name!r}")
+
+
+def _bundled_recipe_bases() -> list[Path]:
+    repo = Path(__file__).resolve().parents[4] / "recipes"
+    return [p for p in (repo, Path("/app/recipes")) if p.exists()]
+
+
+def locate_start_sh(login: str, recipe_id: str) -> Path | None:
+    """start.sh d'une recette start : perso → /data → recettes bundlées (image).
+
+    Fallback bundlé : une recette livrée avec le produit reste utilisable même si son
+    start.sh n'a pas été copié dans /data (lecture juste-à-temps, aucune synchro).
+    """
+    candidates = [
+        safe_user_path(login, "recipes") / recipe_id / "start.sh",
+        _data_root() / "recipes" / recipe_id / "start.sh",
+        *[base / recipe_id / "start.sh" for base in _bundled_recipe_bases()],
+    ]
+    return next((c for c in candidates if c.exists()), None)
 
 
 async def _ssh(ws_id: str, login: str, command: str, timeout: float = 30.0) -> tuple[int, str]:
@@ -160,39 +180,20 @@ async def create_session(
     if req.start_recipe is not None:
         if not _RECIPE_ID_RE.fullmatch(req.start_recipe):
             raise HTTPException(status_code=422, detail=f"Invalid recipe id {req.start_recipe!r}")
-        shared_dir = _data_root() / "recipes"
-        personal_dir = safe_user_path(user.login, "recipes")
         available = await load_recipes_as_dict(user.login, conn, type_filter="start")
-        recipe = available.get(req.start_recipe)
-        if recipe is None:
+        if req.start_recipe not in available:
             raise HTTPException(
                 status_code=422, detail=f"Start recipe {req.start_recipe!r} not found"
             )
-        recipe_dir = (
-            personal_dir / req.start_recipe
-            if (personal_dir / req.start_recipe).exists()
-            else shared_dir / req.start_recipe
-        )
-        start_sh = recipe_dir / "start.sh"
+        start_sh = locate_start_sh(user.login, req.start_recipe)
         _log.info(
             "start_recipe_resolve",
             recipe=req.start_recipe,
             login=user.login,
-            personal_path=str(personal_dir / req.start_recipe),
-            personal_exists=(personal_dir / req.start_recipe).exists(),
-            shared_path=str(shared_dir / req.start_recipe),
-            shared_exists=(shared_dir / req.start_recipe).exists(),
-            recipe_dir=str(recipe_dir),
-            recipe_dir_exists=recipe_dir.exists(),
-            start_sh=str(start_sh),
-            start_sh_exists=start_sh.exists(),
-            recipe_dir_contents=(
-                sorted(p.name for p in recipe_dir.iterdir())
-                if recipe_dir.exists()
-                else []
-            ),
+            start_sh=str(start_sh) if start_sh else None,
+            found=start_sh is not None,
         )
-        if not start_sh.exists():
+        if start_sh is None:
             raise HTTPException(
                 status_code=422, detail=f"start.sh missing for {req.start_recipe!r}"
             )

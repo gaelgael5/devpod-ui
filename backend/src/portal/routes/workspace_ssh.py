@@ -17,11 +17,11 @@ import structlog
 from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
-from ..config.store import _data_root, load_global, safe_user_path
+from ..config.store import load_global, safe_user_path
 from ..db.engine import _get_engine
 from ..db.recipes import load_recipes_as_dict
+from ..devpod.ssh_exec import devpod_ssh_key as _devpod_ssh_key
 from ..settings import get_settings
-from .workspace_sessions import _devpod_ssh_key
 
 _log = structlog.get_logger(__name__)
 
@@ -107,29 +107,17 @@ async def workspace_ssh_terminal(
             await websocket.close(code=4022, reason=f"Invalid start recipe id {start!r}")
             return
 
-        data_root = _data_root()
-        shared_dir = data_root / "recipes"
-        personal_dir = safe_user_path(login, "recipes")
         async with _get_engine().connect() as _conn:
             available = await load_recipes_as_dict(login, _conn, type_filter="start")
-        recipe = available.get(start)
-        if recipe is None:
+        if start not in available:
             await websocket.close(code=4022, reason=f"Start recipe {start!r} not found")
             return
 
-        # Localiser le répertoire de la recette (personal a priorité)
-        if (personal_dir / start).exists():
-            recipe_dir = personal_dir / start
-            if not recipe_dir.is_relative_to(personal_dir):
-                await websocket.close(code=4022, reason="Path traversal detected")
-                return
-        else:
-            recipe_dir = shared_dir / start
-            if not recipe_dir.is_relative_to(shared_dir):
-                await websocket.close(code=4022, reason="Path traversal detected")
-                return
-        start_sh_path = recipe_dir / "start.sh"
-        if not start_sh_path.exists():
+        # Fallback bundlé inclus (start validé par _RECIPE_ID_RE → pas de traversal).
+        from .workspace_sessions import locate_start_sh
+
+        start_sh_path = locate_start_sh(login, start)
+        if start_sh_path is None:
             await websocket.close(code=4022, reason=f"start.sh missing for {start!r}")
             return
 
