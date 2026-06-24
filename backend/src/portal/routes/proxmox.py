@@ -147,6 +147,23 @@ def _flatten_args(args: list[object]) -> list[dict[str, object]]:
     return result
 
 
+def find_identifier_arg(spec: dict[str, object]) -> str | None:
+    """Nom de l'arg marqué ``identifier: true`` dans la spec (ou None).
+
+    L'arg identifiant (ex. le vmid) est unique par machine : non pré-remplissable,
+    à saisir/générer à chaque création. Un seul arg par spec porte ce flag ;
+    les groupes ``sub`` sont parcourus via ``_flatten_args``.
+    """
+    raw_args = spec.get("args", [])
+    args = raw_args if isinstance(raw_args, list) else []
+    for arg in _flatten_args(args):
+        if arg.get("identifier") is True:
+            name = arg.get("arg")
+            if isinstance(name, str):
+                return name
+    return None
+
+
 async def _ssh_stream(node: Hypervisor, commands: list[str]) -> AsyncIterator[bytes]:
     """Exécute des commandes shell sur le nœud SSH et streame stdout+stderr."""
     script = "set -euo pipefail\n" + "\n".join(commands) + "\n"

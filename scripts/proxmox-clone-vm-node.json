@@ -3,6 +3,7 @@
 
     {
       "arg": "NEW_VMID",
+      "identifier": true,
       "label_fr": "VMID de la nouvelle VM",
       "label_en": "New VM ID",
       "description_fr": "10 premiers IDs libres après 100 (VMs + LXC pris en compte)",
