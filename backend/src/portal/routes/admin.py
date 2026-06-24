@@ -255,7 +255,13 @@ async def list_host_workspaces(
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, object]]:
-    """Retourne les workspaces du host groupés par utilisateur, avec leur statut."""
+    """Retourne les workspaces qui tournent sur ce host, groupés par utilisateur.
+
+    Le rattachement se fait sur le host **effectif** (`workspace_status.host_name`,
+    résolu au déploiement), et non sur `workspaces.host` qui n'est que le choix de
+    l'utilisateur — vide ("") quand « default » est sélectionné, donc jamais égal à
+    un nom de host.
+    """
     from sqlalchemy import func as _func
 
     ws_id_expr = _func.concat(_ws_table.c.login, "-", _ws_table.c.name)
@@ -267,11 +273,11 @@ async def list_host_workspaces(
                 _ws_status_table.c.status,
             )
             .select_from(
-                _ws_table.outerjoin(
+                _ws_table.join(
                     _ws_status_table, _ws_status_table.c.ws_id == ws_id_expr
                 )
             )
-            .where(_ws_table.c.host == name)
+            .where(_ws_status_table.c.host_name == name)
             .order_by(_ws_table.c.login, _ws_table.c.name)
         )
     ).mappings().all()
