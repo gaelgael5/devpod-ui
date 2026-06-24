@@ -55,6 +55,17 @@
       "failed": "Échec de l'initialisation",
       "needRunning": "Le workspace doit être démarré"
     },
+    "testVm": {
+      "btn": "Add VM for Test",
+      "title": "Créer une VM de test",
+      "hypervisor": "Hyperviseur",
+      "selectHypervisor": "Choisir un hyperviseur…",
+      "selectVmid": "Choisir un VMID…",
+      "loading": "Chargement…",
+      "create": "Créer",
+      "cancel": "Annuler",
+      "close": "Fermer"
+    },
     "form": {
       "name": "Nom",
       "sources": "Sources Git",

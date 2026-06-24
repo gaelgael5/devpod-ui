@@ -219,6 +219,20 @@ workspace_extra_sources = Table(
     Column("git_credential", Text, nullable=False, server_default=""),
 )
 
+# Association VM de test ↔ workspace propriétaire (lot C+D du système de VM de test).
+workspace_test_hosts = Table(
+    "workspace_test_hosts",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("login", Text, nullable=False),
+    Column("workspace_name", Text, nullable=False),
+    Column("host_name", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint(
+        "login", "workspace_name", "host_name", name="uq_wth_login_ws_host"
+    ),
+)
+
 # ─── Tour 10 : node_certificates (Groupe 4 — dépend de hosts) ───────────────
 
 node_certificates = Table(

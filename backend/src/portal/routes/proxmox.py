@@ -600,17 +600,8 @@ async def _fetch_spec(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
     return await _fetch_spec_for_type(hyp_type)
 
 
-@router.get("/hypervisors/{name}/script")
-async def get_hypervisor_script(
-    name: str,
-    user: UserInfo = Depends(require_admin),
-) -> dict[str, object]:
-    """Retourne la spec JSON du script, avec les options dynamiques résolues via SSH."""
-    cfg = load_global()
-    node = next((n for n in cfg.hypervisors if n.name == name), None)
-    if node is None:
-        raise HTTPException(status_code=404, detail=f"Hypervisor {name!r} not found")
-
+async def resolve_node_script(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
+    """Spec du node avec les options dynamiques (`option_script`) résolues via SSH."""
     spec = await _fetch_spec(node, cfg)
 
     for arg in _flatten_args(spec.get("args", [])):  # type: ignore[arg-type]
@@ -634,10 +625,23 @@ async def get_hypervisor_script(
             arg["options"] = existing + dynamic
         except Exception as exc:
             err = str(exc)
-            _log.warning("option_script_failed", node=name, arg=arg.get("arg"), error=err)
+            _log.warning("option_script_failed", node=node.name, arg=arg.get("arg"), error=err)
             arg["_option_script_error"] = err
 
     return spec
+
+
+@router.get("/hypervisors/{name}/script")
+async def get_hypervisor_script(
+    name: str,
+    user: UserInfo = Depends(require_admin),
+) -> dict[str, object]:
+    """Retourne la spec JSON du script, avec les options dynamiques résolues via SSH."""
+    cfg = load_global()
+    node = next((n for n in cfg.hypervisors if n.name == name), None)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Hypervisor {name!r} not found")
+    return await resolve_node_script(node, cfg)
 
 
 @router.post("/hypervisors/{name}/execute")

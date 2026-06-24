@@ -55,6 +55,17 @@
       "failed": "Initialization failed",
       "needRunning": "Workspace must be running"
     },
+    "testVm": {
+      "btn": "Add VM for Test",
+      "title": "Create a test VM",
+      "hypervisor": "Hypervisor",
+      "selectHypervisor": "Select a hypervisor…",
+      "selectVmid": "Select a VMID…",
+      "loading": "Loading…",
+      "create": "Create",
+      "cancel": "Cancel",
+      "close": "Close"
+    },
     "form": {
       "name": "Name",
       "sources": "Git sources",

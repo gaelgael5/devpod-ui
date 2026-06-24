@@ -18,8 +18,7 @@ avec le workspace**.
 |---|--------|-----------|--------|
 | **A** | Marquer le `vmid` dans la spec JSON (`identifier: true`) + helper backend | — | **fait** |
 | **B** | Paramétrage host de test (admin) : valeurs par défaut des `args` **par type d'hyperviseur**, sauf l'identifiant | A | **fait** |
-| **C** | « Add VM for Test » sur `WorkspaceCard` : choix hyperviseur → champs restants → `execute` → host `usage=tests` | A, B | à venir |
-| **D** | Association VM ↔ workspace via une **table** dédiée | C | à venir |
+| **C+D** | « Add VM for Test » sur `WorkspaceCard` : choix hyperviseur → vmid → `execute` → host `usage=tests` **enregistré et associé au workspace** (table) | A, B | **fait** |
 | **E** | Bootstrap SSH automatique de la VM créée | C, D | à venir |
 | **F** | Lifecycle : suppression du workspace ⇒ destruction de la VM (`destroy_script`) | D | à venir |
 | **G** | Affichage : VM de test sous le workspace propriétaire dans Host admin | D | à venir |
@@ -101,3 +100,52 @@ runtime sur le node réel, lot C). L'arg `identifier` (vmid) est **exclu** du pa
 
 - La résolution dynamique des options par node (reste `auto`).
 - L'usage de `test_host_params` à la création (c'est le lot C).
+
+## Lot C+D — création d'une VM de test attachée au workspace
+
+**Qui.** Tout utilisateur, pour **son** workspace (endpoints `/me`). Le backend détient
+les credentials ; l'utilisateur ne fournit que **l'hyperviseur** et le **vmid**. Tous
+les autres `args` viennent de `test_host_params` du type (figés). require_user.
+
+**Le vmid.** Seul paramètre saisi : l'utilisateur le choisit parmi les **IDs libres**
+résolus par l'`option_script` de l'arg `identifier` sur le node (résolution SSH, comme
+`get_hypervisor_script`). Le dialog n'affiche que ce champ.
+
+**Association — table `workspace_test_hosts`** : `(id, login, workspace_name,
+host_name, created_at)`, unique `(login, workspace_name, host_name)`. Migration **022**.
+Module `db/test_hosts.py` (assign / list par workspace / list par host / delete).
+
+**Host créé.** `usage=tests`, mapping `result JSON → HostConfig` porté **côté backend**
+(`map_result_to_host`, testable). Enregistré en config (`save_global_db`) puis associé.
+
+### Backend
+
+- `GET /me/test-hypervisors` : nodes utilisables (type avec `add_script` **et**
+  `test_host_params` non vide). Retourne `[{name, type, label}]`.
+- `GET /me/test-hypervisors/{name}/script` : spec du node **résolue** (réutilise la
+  logique SSH de `get_hypervisor_script`) — le front n'affiche que l'arg `identifier`.
+- `POST /me/workspaces/{ws}/test-vm` (StreamingResponse) : body `{hypervisor, vmid}`.
+  Construit `args = type.test_host_params + {identifier_arg: vmid}`, exécute le script
+  (stream SSH), puis — **après** le stream — parse le dernier JSON, crée le host
+  `usage=tests`, persiste l'association, et émet une ligne finale de statut.
+- Validations : workspace appartient au user ; `vmid` numérique ; l'hyperviseur a un
+  type avec `add_script` + `test_host_params`.
+
+### Frontend
+
+- Bouton **« Add VM for Test »** sur `WorkspaceCard` (workspace running).
+- Dialog : choix hyperviseur → champ vmid (options résolues) → bouton créer → **logs**
+  de création streamés → succès/erreur.
+- Hooks `useTestHypervisors`, `useTestVmScript`, `useCreateTestVm` (stream).
+- i18n fr + en (`workspaces.testVm.*`).
+
+### Tests
+
+- Backend : `map_result_to_host` (ssh/docker, vmid, usage=tests) ; module association
+  (assign/list) sur mock ; validation vmid.
+- Front : le dialog n'affiche que l'arg identifier ; déclenche la création.
+
+### Hors périmètre (lots suivants)
+
+- **E** bootstrap SSH · **F** destruction avec le workspace · **G** affichage sous le
+  workspace · **H** session SSH root depuis le container.

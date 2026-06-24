@@ -35,6 +35,7 @@ export const handlers = [
     ])
   ),
   http.get('/admin/hypervisor-types', () => HttpResponse.json([])),
+  http.get('/me/test-hypervisors', () => HttpResponse.json([])),
   http.get('/admin/recipes', () => HttpResponse.json([])),
   http.delete('/admin/recipes/:id', () => HttpResponse.json({ deleted: 'ok' })),
   http.delete('/me/recipes/:id', () => HttpResponse.json({ deleted: 'ok' })),

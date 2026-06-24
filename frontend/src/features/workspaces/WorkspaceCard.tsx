@@ -18,6 +18,7 @@ import SshKeyDialog from './SshKeyDialog'
 import LogDialog from './LogDialog'
 import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
 import InitializersMenu from './InitializersMenu'
+import AddTestVmDialog from './AddTestVmDialog'
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
   running: 'bg-green-500/10 text-green-600 border-green-500/30',
@@ -44,6 +45,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [recreateOpen, setRecreateOpen] = useState(false)
   const [shellOpen, setShellOpen] = useState(false)
+  const [addVmOpen, setAddVmOpen] = useState(false)
   const s = status.status
 
   return (
@@ -167,6 +169,11 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
           </Button>
         )}
         {s === 'running' && <InitializersMenu wsName={spec.name} enabled />}
+        {s === 'running' && (
+          <Button size="sm" variant="outline" onClick={() => setAddVmOpen(true)}>
+            {t('workspaces.testVm.btn')}
+          </Button>
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -191,6 +198,11 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
           onClose={() => setShellOpen(false)}
         />
       )}
+      <AddTestVmDialog
+        wsName={spec.name}
+        open={addVmOpen}
+        onClose={() => setAddVmOpen(false)}
+      />
       <LogDialog
         workspaceName={spec.name}
         open={logsOpen}
