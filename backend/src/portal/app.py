@@ -39,8 +39,8 @@ from .routes.secrets import router_admin as secrets_admin_router
 from .routes.secrets import router_me as secrets_me_router
 from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
-from .routes.vault import router as vault_router
 from .routes.test_vm import router as test_vm_router
+from .routes.vault import router as vault_router
 from .routes.workspace_ops import _get_service
 from .routes.workspace_ops import router as workspace_ops_router
 from .routes.workspace_sessions import router as workspace_sessions_router
@@ -115,21 +115,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
             await ensure_system_user(conn)
 
-        # Sync des recettes bundlées (/app/recipes → /data/recipes) puis en DB.
-        # Idempotent : ne jamais écraser une recette déjà personnalisée par l'admin.
-        import asyncio as _asyncio
-
-        from .config.store import _data_root
-        from .recipes.sync import sync_bundled_recipes, sync_recipes_to_db
-
-        bundled = Path("/app/recipes")
-        if not bundled.exists():
-            # Développement local : les recettes sont dans le repo source
-            bundled = Path(__file__).resolve().parents[3] / "recipes"
-        data_recipes = _data_root() / "recipes"
-        await _asyncio.to_thread(sync_bundled_recipes, bundled, data_recipes)
-        async with _get_engine().begin() as conn:
-            await sync_recipes_to_db(data_recipes, conn)
+        # Pas de synchro automatique des recettes : c'est l'admin qui choisit quoi
+        # synchroniser, via POST /admin/recipes/sync.
 
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()

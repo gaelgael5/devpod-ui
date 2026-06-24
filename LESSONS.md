@@ -1,5 +1,8 @@
 # Lessons apprises
 
+## [app/lifespan] JAMAIS de synchro automatique des recettes au démarrage
+Ne pas appeler `sync_bundled_recipes` / `sync_recipes_to_db` dans le lifespan (ni ailleurs au démarrage). C'est l'admin qui choisit quoi synchroniser, via `POST /admin/recipes/sync`. Demandé 3 fois par l'utilisateur — ne jamais réintroduire.
+
 ## [docker] openssh-client manquant dans l'image
 `asyncio.create_subprocess_exec("ssh", ...)` lève `FileNotFoundError` si `openssh-client` n'est pas installé. L'exception est avalée silencieusement dans un `except Exception` → la feature (option_script, SSH run) ne fonctionne pas sans erreur visible. Toujours ajouter `openssh-client` dans le Dockerfile dès qu'on utilise SSH côté backend.
 
