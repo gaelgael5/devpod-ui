@@ -6,6 +6,8 @@ export interface OidcConfig {
   issuer: string
   client_id: string
   has_secret: boolean
+  // redirect_uri attendu par le portail = valeur exacte à déclarer dans Keycloak.
+  redirect_uri: string
 }
 
 export interface OidcUpdate {

@@ -28,6 +28,7 @@ from ..secrets.system import (
     store_system_cert,
     store_system_secret,
 )
+from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["admin"])
@@ -100,12 +101,17 @@ class OidcUpdateRequest(BaseModel):
 
 @router.get("/oidc")
 async def get_admin_oidc(user: UserInfo = Depends(require_admin)) -> dict[str, object]:
-    """Config OIDC sans la valeur du secret (seulement sa présence)."""
+    """Config OIDC sans la valeur du secret (seulement sa présence).
+
+    Expose aussi le redirect_uri attendu par le portail : c'est la valeur exacte à
+    déclarer dans le client Keycloak (Valid redirect URIs).
+    """
     oidc = load_global().auth.oidc
     return {
         "issuer": oidc.issuer,
         "client_id": oidc.client_id,
         "has_secret": bool(oidc.client_secret),
+        "redirect_uri": get_settings().oidc_redirect_uri,
     }
 
 

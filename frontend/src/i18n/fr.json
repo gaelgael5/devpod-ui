@@ -211,7 +211,19 @@
       "secretHint": "Laisser vide pour conserver le secret existant.",
       "warning": "Modifier ces valeurs affecte l'authentification : un réglage incorrect peut empêcher les prochaines connexions.",
       "save": "Enregistrer",
-      "saved": "Configuration OIDC enregistrée"
+      "saved": "Configuration OIDC enregistrée",
+      "guide": {
+        "title": "Créer le client dans Keycloak",
+        "intro": "Dans ton realm (celui de l'URL d'émetteur ci-dessus) :",
+        "step1": "Clients → Create client → type OpenID Connect, Client ID : workspace-portal.",
+        "step2": "Active « Client authentication » (client confidentiel) et garde uniquement « Standard flow ».",
+        "step3": "Renseigne l'URI de redirection valide exactement avec cette valeur :",
+        "step4": "Renseigne les Web origins avec :",
+        "step5": "Onglet Credentials : copie le Client secret et colle-le dans le champ ci-dessus.",
+        "step6": "Realm roles → crée « dev » et « admin », puis assigne-les aux utilisateurs (Users → Role mapping).",
+        "step7": "Client scopes → roles → mapper « realm roles » → active « Add to ID token ». Sinon les rôles restent vides et l'accès est refusé (le portail lit les rôles dans l'ID token).",
+        "copy": "Copier"
+      }
     },
     "testHostParams": {
       "btn": "Paramétrage host de test",
