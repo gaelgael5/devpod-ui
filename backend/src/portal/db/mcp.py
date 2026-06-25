@@ -16,6 +16,7 @@ _BACKEND_COLS = [
     mcp_backend.c.url,
     mcp_backend.c.transport,
     mcp_backend.c.enabled,
+    mcp_backend.c.app_url,
     mcp_backend.c.created_at,
     mcp_backend.c.updated_at,
 ]
@@ -30,6 +31,7 @@ async def insert_backend(
     name: str,
     url: str,
     transport: str,
+    app_url: str = "",
 ) -> None:
     await conn.execute(
         insert(mcp_backend).values(
@@ -39,6 +41,7 @@ async def insert_backend(
             name=name,
             url=url,
             transport=transport,
+            app_url=app_url,
         )
     )
 
@@ -90,11 +93,15 @@ async def update_backend(
     url: str,
     transport: str,
     enabled: bool,
+    app_url: str = "",
 ) -> bool:
     q = (
         update(mcp_backend)
         .where(mcp_backend.c.id == backend_id, mcp_backend.c.owner_login == owner_login)
-        .values(name=name, url=url, transport=transport, enabled=enabled, updated_at=func.now())
+        .values(
+            name=name, url=url, transport=transport, enabled=enabled,
+            app_url=app_url, updated_at=func.now(),
+        )
         .returning(mcp_backend.c.id)
     )
     return (await conn.execute(q)).first() is not None
@@ -289,6 +296,7 @@ async def set_grant(
     backend_key_id: str | None,
     expose_mode: str = "all",
     expose: list[str] | None = None,
+    enabled: bool = True,
 ) -> None:
     expose = expose or []
     stmt = pg_insert(mcp_apikey_grant).values(
@@ -297,6 +305,7 @@ async def set_grant(
         backend_key_id=backend_key_id,
         expose_mode=expose_mode,
         expose=expose,
+        enabled=enabled,
     )
     stmt = stmt.on_conflict_do_update(
         constraint="uq_mcp_apikey_grant_apikey_backend",
@@ -304,6 +313,7 @@ async def set_grant(
             "backend_key_id": backend_key_id,
             "expose_mode": expose_mode,
             "expose": expose,
+            "enabled": enabled,
         },
     )
     await conn.execute(stmt)
@@ -316,6 +326,7 @@ async def list_grants(conn: AsyncConnection, apikey_id: str) -> list[dict[str, A
         mcp_apikey_grant.c.backend_key_id,
         mcp_apikey_grant.c.expose_mode,
         mcp_apikey_grant.c.expose,
+        mcp_apikey_grant.c.enabled,
     ).where(mcp_apikey_grant.c.apikey_id == apikey_id)
     return [dict(r) for r in (await conn.execute(q)).mappings().all()]
 

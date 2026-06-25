@@ -60,6 +60,7 @@ async def create_backend(conn: AsyncConnection, owner_login: str, body: BackendC
             name=body.name,
             url=body.url,
             transport=body.transport,
+            app_url=body.app_url,
         )
     except IntegrityError as exc:
         raise NamespaceTaken(f"namespace '{body.namespace}' déjà utilisé") from exc
@@ -164,5 +165,6 @@ async def set_grant(
         backend_key_id=body.backend_key_id,
         expose_mode=body.expose_mode,
         expose=body.expose,
+        enabled=body.enabled,
     )
     _log.info("mcp_grant_set", login=owner_login, apikey_id=apikey_id, backend_id=body.backend_id)

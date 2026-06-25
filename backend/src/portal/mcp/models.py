@@ -19,12 +19,21 @@ def _validate_namespace(v: str) -> str:
     return v
 
 
+def _validate_app_url(v: str) -> str:
+    """URL web optionnelle de l'application : vide accepté, sinon http(s)."""
+    if v and not (v.startswith("https://") or v.startswith("http://")):
+        raise ValueError("app_url: doit être vide ou commencer par http:// ou https://")
+    return v
+
+
 class BackendCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     namespace: str
     name: str
     url: str
     transport: Transport = "streamable_http"
+    # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
+    app_url: str = ""
 
     @field_validator("namespace")
     @classmethod
@@ -37,6 +46,11 @@ class BackendCreate(BaseModel):
         if not (v.startswith("https://") or v.startswith("http://")):
             raise ValueError("url: doit commencer par http:// ou https://")
         return v
+
+    @field_validator("app_url")
+    @classmethod
+    def _app_url(cls, v: str) -> str:
+        return _validate_app_url(v)
 
 
 class KeyCreate(BaseModel):
@@ -61,6 +75,7 @@ class BackendUpdate(BaseModel):
     url: str
     transport: Transport
     enabled: bool
+    app_url: str = ""
 
     @field_validator("url")
     @classmethod
@@ -68,6 +83,11 @@ class BackendUpdate(BaseModel):
         if not (v.startswith("https://") or v.startswith("http://")):
             raise ValueError("url: doit commencer par http:// ou https://")
         return v
+
+    @field_validator("app_url")
+    @classmethod
+    def _app_url(cls, v: str) -> str:
+        return _validate_app_url(v)
 
 
 class ApikeyCreate(BaseModel):
@@ -82,3 +102,5 @@ class GrantSet(BaseModel):
     backend_key_id: str | None = None
     expose_mode: Literal["all", "allowlist", "denylist"] = "all"
     expose: list[str] = []
+    # False = service accordé mais temporairement désactivé (paramétrage conservé).
+    enabled: bool = True

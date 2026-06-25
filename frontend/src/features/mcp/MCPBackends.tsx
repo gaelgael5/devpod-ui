@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Server, Plus, KeyRound } from 'lucide-react'
+import { Server, Plus, KeyRound, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -42,15 +42,16 @@ function AddBackendDialog({ open, onClose }: { open: boolean; onClose: () => voi
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [transport, setTransport] = useState<Transport>('streamable_http')
+  const [appUrl, setAppUrl] = useState('')
 
   function close() {
-    setNamespace(''); setName(''); setUrl(''); setTransport('streamable_http')
+    setNamespace(''); setName(''); setUrl(''); setTransport('streamable_http'); setAppUrl('')
     create.reset(); onClose()
   }
 
   function submit() {
     create.mutate(
-      { namespace, name, url, transport },
+      { namespace, name, url, transport, app_url: appUrl.trim() },
       { onSuccess: close, onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) },
     )
   }
@@ -87,6 +88,16 @@ function AddBackendDialog({ open, onClose }: { open: boolean; onClose: () => voi
                 <SelectItem value="stdio">stdio</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('mcp.backends.appUrl')}</Label>
+            <Input
+              type="url"
+              value={appUrl}
+              onChange={(e) => setAppUrl(e.target.value)}
+              placeholder="https://app.example.com"
+            />
+            <span className="text-xs text-muted-foreground">{t('mcp.backends.appUrlHint')}</span>
           </div>
           {create.error && (
             <Alert variant="destructive">
@@ -285,6 +296,18 @@ function BackendCard({ backend }: { backend: MCPBackend }) {
         )}
         {!backend.enabled && <Badge variant="secondary">{t('mcp.backends.statusDisabled')}</Badge>}
         <span className="ml-2 text-xs text-muted-foreground">{backend.url}</span>
+        {backend.app_url && (
+          <a
+            href={backend.app_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs text-primary hover:underline"
+            title={t('mcp.backends.openApp')}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            {t('mcp.backends.openApp')}
+          </a>
+        )}
         <div className="ml-auto flex gap-1">
           {confirmDel ? (
             <>

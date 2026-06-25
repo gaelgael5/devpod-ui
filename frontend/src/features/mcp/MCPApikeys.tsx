@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Key, Plus, Trash2, Copy, Check, Ban } from 'lucide-react'
+import { Key, Plus, Trash2, Copy, Check, Ban, Power, PowerOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -152,6 +152,7 @@ function GrantEditor({ apikeyId }: { apikeyId: string }) {
             currentKeyId={current?.backend_key_id ?? null}
             currentExposeMode={current?.expose_mode ?? 'all'}
             currentExpose={current?.expose ?? []}
+            currentEnabled={current?.enabled ?? true}
             onSet={(body) =>
               setGrant.mutate(
                 { backend_id: b.id, ...body },
@@ -178,7 +179,12 @@ function GrantEditor({ apikeyId }: { apikeyId: string }) {
 // interdit une SelectItem de value="").
 const PUBLIC_GRANT = '__public__'
 
-type GrantBody = { backend_key_id: string | null; expose_mode: ExposeMode; expose: string[] }
+type GrantBody = {
+  backend_key_id: string | null
+  expose_mode: ExposeMode
+  expose: string[]
+  enabled: boolean
+}
 
 function GrantRow({
   backendId,
@@ -188,6 +194,7 @@ function GrantRow({
   currentKeyId,
   currentExposeMode,
   currentExpose,
+  currentEnabled,
   onSet,
   onRemove,
 }: {
@@ -198,6 +205,7 @@ function GrantRow({
   currentKeyId: string | null
   currentExposeMode: ExposeMode
   currentExpose: string[]
+  currentEnabled: boolean
   onSet: (body: GrantBody) => void
   onRemove: () => void
 }) {
@@ -208,21 +216,26 @@ function GrantRow({
   // sinon l'id de la clé choisie.
   const keyValue = !granted ? '' : (currentKeyId ?? PUBLIC_GRANT)
 
-  // Émet l'état complet courant (clé + curation) avec un override partiel : le grant
-  // est ré-écrit à chaque changement (mutation immédiate, comme le choix de clé).
+  // Émet l'état complet courant (clé + curation + activation) avec un override partiel :
+  // le grant est ré-écrit à chaque changement (mutation immédiate, comme le choix de clé).
   const emit = (over: Partial<GrantBody>) =>
     onSet({
       backend_key_id: currentKeyId,
       expose_mode: currentExposeMode,
       expose: currentExpose,
+      enabled: currentEnabled,
       ...over,
     })
 
+  // Grisé quand le service est accordé mais désactivé temporairement.
+  const dimmed = granted && !currentEnabled
+
   return (
     <div className="flex flex-col gap-2 border-b pb-2 last:border-0">
-      <div className="flex items-center gap-2 text-sm">
+      <div className={`flex items-center gap-2 text-sm ${dimmed ? 'opacity-60' : ''}`}>
         <span className="font-medium">{backendName}</span>
         <Badge variant="outline" className="font-mono text-xs">{namespace}</Badge>
+        {dimmed && <Badge variant="secondary">{t('mcp.apikeys.serviceDisabled')}</Badge>}
         <Select
           value={keyValue}
           onValueChange={(v) => emit({ backend_key_id: v === PUBLIC_GRANT ? null : v })}
@@ -237,6 +250,18 @@ function GrantRow({
             ))}
           </SelectContent>
         </Select>
+        {granted && (
+          <Button
+            size="sm"
+            variant="ghost"
+            title={currentEnabled ? t('mcp.apikeys.disableService') : t('mcp.apikeys.enableService')}
+            onClick={() => emit({ enabled: !currentEnabled })}
+          >
+            {currentEnabled
+              ? <Power className="h-3.5 w-3.5 text-emerald-600" />
+              : <PowerOff className="h-3.5 w-3.5 text-muted-foreground" />}
+          </Button>
+        )}
         {granted && (
           <Button size="sm" variant="ghost" className="text-destructive" onClick={onRemove}>
             <Trash2 className="h-3.5 w-3.5" />

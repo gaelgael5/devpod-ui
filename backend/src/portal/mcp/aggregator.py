@@ -87,6 +87,8 @@ async def aggregate_primitives(
     """
     out: list[AggregatedPrimitive] = []
     for grant in await list_grants(conn, apikey_id):
+        if not grant["enabled"]:
+            continue  # service temporairement désactivé pour ce client
         backend = await get_backend(conn, owner_login, grant["backend_id"])
         if backend is None or not backend["enabled"]:
             continue
@@ -124,6 +126,8 @@ async def _resolve_target(
     Ne révèle jamais l'existence d'un backend : tout cas non autorisé renvoie `None`.
     """
     for grant in await list_grants(conn, apikey_id):
+        if not grant["enabled"]:
+            continue  # service temporairement désactivé pour ce client
         backend = await get_backend(conn, owner_login, grant["backend_id"])
         if backend is None or not backend["enabled"] or backend["namespace"] != namespace:
             continue

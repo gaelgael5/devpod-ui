@@ -15,6 +15,8 @@ export interface MCPBackend {
   url: string
   transport: Transport
   enabled: boolean
+  // URL web optionnelle de l'application (lien « ouvrir » dans la liste). '' = aucun.
+  app_url: string
   created_at: string
   updated_at: string
   // Statut de santé renvoyé par le monitor (absent des réponses sans monitoring).
@@ -48,6 +50,8 @@ export interface MCPGrant {
   backend_key_id: string | null
   expose_mode: ExposeMode
   expose: string[]
+  // false = service accordé mais temporairement désactivé pour ce client.
+  enabled: boolean
 }
 
 export interface BackendCreateBody {
@@ -55,6 +59,7 @@ export interface BackendCreateBody {
   name: string
   url: string
   transport: Transport
+  app_url: string
 }
 
 export interface BackendUpdateBody {
@@ -62,6 +67,7 @@ export interface BackendUpdateBody {
   url: string
   transport: Transport
   enabled: boolean
+  app_url: string
 }
 
 export interface KeyCreateBody {
@@ -78,6 +84,7 @@ export interface GrantSetBody {
   backend_key_id: string | null
   expose_mode: ExposeMode
   expose: string[]
+  enabled: boolean
 }
 
 export interface CreatedApikey {

@@ -429,6 +429,8 @@ mcp_backend = Table(
     Column("url", Text, nullable=False),
     Column("transport", Text, nullable=False, server_default="streamable_http"),
     Column("enabled", Boolean, nullable=False, server_default="true"),
+    # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
+    Column("app_url", Text, nullable=False, server_default=""),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("owner_login", "namespace", name="uq_mcp_backend_owner_namespace"),
@@ -475,6 +477,8 @@ mcp_apikey_grant = Table(
     ),
     Column("expose_mode", Text, nullable=False, server_default="all"),  # all | allowlist | denylist
     Column("expose", JSONB, nullable=False, server_default="[]"),
+    # False = service accordé mais temporairement désactivé (invisible au runtime).
+    Column("enabled", Boolean, nullable=False, server_default="true"),
     UniqueConstraint("apikey_id", "backend_id", name="uq_mcp_apikey_grant_apikey_backend"),
 )
 

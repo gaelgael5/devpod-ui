@@ -67,6 +67,7 @@ async def update_backend_route(
     ok = await db.update_backend(
         conn, user.login, backend_id,
         name=body.name, url=body.url, transport=body.transport, enabled=body.enabled,
+        app_url=body.app_url,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="backend introuvable")
