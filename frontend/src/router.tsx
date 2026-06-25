@@ -1,5 +1,5 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom'
-import { lazy, Suspense } from 'react'
+import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom'
+import { lazy, Suspense, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import AppShell from '@/shared/layouts/AppShell'
 import AdminGuard from '@/shared/layouts/AdminGuard'
@@ -29,6 +29,24 @@ const VaultKeys = lazy(() => import('@/features/vault/VaultKeys'))
 
 function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
+}
+
+/**
+ * Catch-all : une URL sans route React. Si c'est une route BACKEND (`/auth/*`, ex.
+ * `/auth/logout` servi par erreur via une SPA en cache), on force une vraie requête
+ * serveur en bustant le cache. Sinon on renvoie proprement vers l'accueil — jamais
+ * l'erreur 404 brute de react-router.
+ */
+function RouteFallback() {
+  const loc = useLocation()
+  const isBackend = loc.pathname.startsWith('/auth/')
+  useEffect(() => {
+    if (isBackend) {
+      const sep = loc.search ? '&' : '?'
+      window.location.replace(`${loc.pathname}${loc.search}${sep}_=${Date.now()}`)
+    }
+  }, [isBackend, loc.pathname, loc.search])
+  return isBackend ? null : <Navigate to="/" replace />
 }
 
 export const router = createBrowserRouter([
@@ -128,4 +146,6 @@ export const router = createBrowserRouter([
       },
     ],
   },
+  // Filet : URL sans route React → jamais l'erreur 404 brute de react-router.
+  { path: '*', element: <RouteFallback /> },
 ])
