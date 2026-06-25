@@ -46,6 +46,7 @@ from .routes.workspace_ops import router as workspace_ops_router
 from .routes.workspace_sessions import router as workspace_sessions_router
 from .routes.workspace_ssh import router as workspace_ssh_router
 from .settings import get_settings
+from .spa import should_serve_spa
 
 _log = structlog.get_logger(__name__)
 
@@ -85,14 +86,9 @@ class SPAMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        if request.method == "GET":
-            accept = request.headers.get("Accept", "")
-            path_last = request.url.path.split("/")[-1]
-            is_browser_nav = "text/html" in accept and "application/json" not in accept
-            is_page_route = "." not in path_last  # les assets ont une extension
-
-            if is_browser_nav and is_page_route and _SPA_INDEX.is_file():
-                return FileResponse(_SPA_INDEX, headers={"Cache-Control": _NO_CACHE})
+        accept = request.headers.get("Accept", "")
+        if should_serve_spa(request.method, request.url.path, accept) and _SPA_INDEX.is_file():
+            return FileResponse(_SPA_INDEX, headers={"Cache-Control": _NO_CACHE})
 
         return await call_next(request)
 
