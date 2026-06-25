@@ -13,7 +13,7 @@
       "options": [
         { "value": "auto", "label": "auto (même stockage que le template)" }
       ],
-      "option_script": "PATH=/usr/sbin:/usr/bin:$PATH; used=$(ls /etc/pve/qemu-server/ /etc/pve/lxc/ 2>/dev/null | sed 's/\\.conf$//' | grep -E '^[0-9]+$'); count=0; id=101; while [ $count -lt 10 ]; do echo \"$used\" | grep -qx \"$id\" || { echo $id; count=$((count+1)); }; id=$((id+1)); done"
+      "option_script": "PATH=/usr/sbin:/usr/bin:$PATH; used=$(ls /etc/pve/nodes/*/qemu-server/ /etc/pve/nodes/*/lxc/ 2>/dev/null | sed 's/\\.conf$//' | grep -E '^[0-9]+$'); count=0; id=101; while [ $count -lt 10 ]; do echo \"$used\" | grep -qx \"$id\" || { echo $id; count=$((count+1)); }; id=$((id+1)); done"
     },
     
     {

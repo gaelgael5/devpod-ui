@@ -141,24 +141,25 @@ fi
 [[ "$STORAGE" == "auto" ]] && STORAGE=""
 [[ "$TEMPLATE_VMID" == "auto" ]] && TEMPLATE_VMID=""
 
-# ─── A.1 — Vérifier que le VMID est libre ─────────────────────────────────────
-echo "==> A.1 — Vérification du VMID $NEW_VMID..."
+# ─── A.1 — Vérifier que le VMID est libre (cluster-wide) ──────────────────────
+echo "==> A.1 — Vérification du VMID $NEW_VMID (cluster)..."
 
-if qm list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$NEW_VMID"; then
-    echo "ERREUR : VMID $NEW_VMID est déjà utilisé par une VM ou un template." >&2
-    echo "  Lister les VMID occupés : qm list" >&2
-    echo "  Supprimer si nécessaire : qm destroy $NEW_VMID" >&2
+# /etc/pve est répliqué dans tout le cluster (pmxcfs) : un VMID doit être unique sur
+# l'ENSEMBLE des nœuds. qm list / pct list ne voient que le nœud local et manquent un
+# VMID occupé sur un autre nœud (ou un .conf orphelin), d'où un `qm clone` qui échoue
+# avec "rename ... 103.conf failed: File exists". On inspecte donc les .conf de tous
+# les nœuds.
+if compgen -G "/etc/pve/nodes/*/qemu-server/${NEW_VMID}.conf" >/dev/null \
+   || compgen -G "/etc/pve/nodes/*/lxc/${NEW_VMID}.conf" >/dev/null; then
+    occupied=$(ls /etc/pve/nodes/*/qemu-server/"${NEW_VMID}".conf \
+                  /etc/pve/nodes/*/lxc/"${NEW_VMID}".conf 2>/dev/null | tr '\n' ' ')
+    echo "ERREUR : VMID $NEW_VMID déjà utilisé dans le cluster (VM ou LXC)." >&2
+    echo "  Config(s) existante(s) : $occupied" >&2
+    echo "  Choisir un autre VMID, ou supprimer si orphelin : qm destroy $NEW_VMID" >&2
     exit 1
 fi
 
-if pct list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$NEW_VMID"; then
-    echo "ERREUR : VMID $NEW_VMID est déjà utilisé par un conteneur LXC." >&2
-    echo "  Lister les conteneurs LXC : pct list" >&2
-    echo "  Supprimer si nécessaire : pct destroy $NEW_VMID" >&2
-    exit 1
-fi
-
-echo "    VMID $NEW_VMID : libre (aucune VM ni LXC)"
+echo "    VMID $NEW_VMID : libre (cluster — aucune VM ni LXC)"
 
 # ─── A.1 — Auto-détection du template source ──────────────────────────────────
 if [[ -z "$TEMPLATE_VMID" ]]; then
