@@ -9,10 +9,12 @@ interface Props {
   wsName: string
   startId?: string
   shell?: boolean
+  /** Si défini, rebondit vers la machine de test (alias affiché, query `ssh_test`). */
+  testHost?: { name: string; alias: string }
   onClose: () => void
 }
 
-export default function WorkspaceSshTerminalWindow({ wsName, startId, shell, onClose }: Props) {
+export default function WorkspaceSshTerminalWindow({ wsName, startId, shell, testHost, onClose }: Props) {
   const { t } = useTranslation()
   const termRef = useRef<HTMLDivElement>(null)
   const posRef = useRef({ x: Math.max(0, window.innerWidth - 640), y: 80 })
@@ -21,7 +23,7 @@ export default function WorkspaceSshTerminalWindow({ wsName, startId, shell, onC
   const dragOrigin = useRef({ mx: 0, my: 0, wx: 0, wy: 0 })
   const wsRef = useRef<WebSocket | null>(null)
 
-  const sessionLabel = startId ?? t('workspaces.ssh.shell')
+  const sessionLabel = testHost?.alias ?? startId ?? t('workspaces.ssh.shell')
 
   // ── Terminal + WebSocket ───────────────────────────────────────────────────
   useEffect(() => {
@@ -48,11 +50,13 @@ export default function WorkspaceSshTerminalWindow({ wsName, startId, shell, onC
     if (winRef.current) ro.observe(winRef.current)
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const query = shell
-      ? '?shell=1'
-      : startId
-        ? `?start=${encodeURIComponent(startId)}`
-        : ''
+    const query = testHost
+      ? `?ssh_test=${encodeURIComponent(testHost.name)}`
+      : shell
+        ? '?shell=1'
+        : startId
+          ? `?start=${encodeURIComponent(startId)}`
+          : ''
     const ws = new WebSocket(
       `${proto}//${window.location.host}/me/workspaces/${encodeURIComponent(wsName)}/ssh${query}`
     )
@@ -79,7 +83,7 @@ export default function WorkspaceSshTerminalWindow({ wsName, startId, shell, onC
       terminal.dispose()
       wsRef.current = null
     }
-  }, [wsName, startId, shell, t])
+  }, [wsName, startId, shell, testHost, t])
 
   // ── Drag ──────────────────────────────────────────────────────────────────
   useEffect(() => {

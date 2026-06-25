@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch, apiFetchJson } from '@/shared/api/client'
 import type { ScriptSpec } from '@/features/admin/useProxmoxScript'
 
@@ -7,6 +7,40 @@ export interface TestHypervisor {
   name: string
   type: string
   label: string
+}
+
+export interface TestHost {
+  alias: string
+  name: string
+  ip: string
+  vmid: string
+}
+
+/** Machines de test attachées à un workspace (pour le menu SSH test). */
+export function useTestHosts(wsName: string, enabled: boolean) {
+  return useQuery<TestHost[]>({
+    queryKey: ['me', 'workspaces', wsName, 'test-hosts'],
+    queryFn: () =>
+      apiFetchJson<TestHost[]>(`/me/workspaces/${encodeURIComponent(wsName)}/test-hosts`),
+    enabled,
+    staleTime: 30_000,
+  })
+}
+
+/** Supprime une machine de test (détruit la VM + nettoyage). */
+export function useDeleteTestHost(wsName: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (hostName: string) => {
+      const res = await apiFetch(
+        `/me/workspaces/${encodeURIComponent(wsName)}/test-vm/${encodeURIComponent(hostName)}`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`)
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['me', 'workspaces', wsName, 'test-hosts'] }),
+  })
 }
 
 export function useTestHypervisors(enabled: boolean) {

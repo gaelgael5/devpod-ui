@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
+from collections.abc import Iterable
 
 from ..config.models import HostConfig
 
@@ -51,6 +53,48 @@ def build_test_vm_args(
     args = dict(params)
     args[identifier_arg] = vmid
     return args
+
+
+def build_test_host_views(
+    detailed: list[tuple[str, str]], hosts: list[HostConfig]
+) -> list[dict[str, str]]:
+    """Vue API des machines de test : `(host_name, alias)` + infos du `HostConfig`.
+
+    `detailed` est déjà trié par numéro d'alias. Une association orpheline (host retiré
+    de la config) est ignorée. L'IP est dérivée de `address` (`<user>@<ip>`).
+    """
+    by_name = {h.name: h for h in hosts}
+    views: list[dict[str, str]] = []
+    for host_name, alias in detailed:
+        host = by_name.get(host_name)
+        if host is None:
+            continue
+        ip = host.address.split("@", 1)[-1] if host.address else ""
+        views.append({"alias": alias, "name": host_name, "ip": ip, "vmid": host.vmid})
+    return views
+
+
+def build_testhost_ssh_command(
+    host_name: str, allowed_names: Iterable[str], hosts: list[HostConfig]
+) -> str | None:
+    """Commande `ssh root@<ip>` à exécuter dans le container pour joindre une machine
+    de test, ou ``None`` si l'accès n'est pas autorisé.
+
+    Refusé si `host_name` n'est pas dans `allowed_names` (les test-hosts du workspace
+    courant), si le host n'existe pas/plus, ou s'il n'est pas un host SSH `usage=tests`.
+    L'IP est résolue côté serveur depuis le `HostConfig` — jamais fournie par le client.
+    """
+    if host_name not in set(allowed_names):
+        return None
+    host = next((h for h in hosts if h.name == host_name), None)
+    if host is None or host.type != "ssh" or host.usage != "tests" or not host.address:
+        return None
+    ip = host.address.split("@", 1)[-1]
+    dest = shlex.quote(f"root@{ip}")
+    return (
+        "exec ssh -t -t -o StrictHostKeyChecking=accept-new "
+        f"-o ConnectTimeout=15 {dest}"
+    )
 
 
 def map_result_to_host(

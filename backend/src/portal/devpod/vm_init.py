@@ -50,23 +50,30 @@ def build_vm_root_inject_script(pubkey: str, password: str, vm_address: str) -> 
     )
 
 
-def build_container_ssh_config_cmd(host_name: str, ip: str) -> str:
+def _ssh_cfg_sed_delete(alias: str) -> str:
+    """Expression `sed` ancrée supprimant le bloc délimité d'un alias (BRE littéral)."""
+    begin = _SSH_CFG_BEGIN.format(name=alias)
+    end = _SSH_CFG_END.format(name=alias)
+    return f"/^{begin}$/,/^{end}$/d"
+
+
+def build_container_ssh_config_cmd(alias: str, ip: str) -> str:
     """Commande shell idempotente : (ré)écrit le bloc `~/.ssh/config` d'un host de test.
 
-    Exécutée dans le container du workspace, elle permet `ssh <host_name>` vers la VM
-    (login root, clé du container). Le bloc est délimité par des marqueurs propres au
-    host : ré-exécution = remplacement du bloc, les autres hosts restent intacts.
+    Exécutée dans le container du workspace, elle permet `ssh <alias>` (ex. `ssh test1`)
+    vers la VM (login root, clé du container). Le bloc est délimité par des marqueurs
+    propres à l'alias : ré-exécution = remplacement du bloc, les autres alias restent
+    intacts.
 
-    `host_name` est validé en amont (regex `HostConfig.name`) ; `ip` est quotée pour le
-    shell. Aucun des deux ne contient de métacaractère BRE → usage littéral dans `sed`.
+    `alias` est de la forme `testN` (sûr pour BRE/shell) ; `ip` est quotée pour le shell.
     """
-    begin = _SSH_CFG_BEGIN.format(name=host_name)
-    end = _SSH_CFG_END.format(name=host_name)
+    begin = _SSH_CFG_BEGIN.format(name=alias)
+    end = _SSH_CFG_END.format(name=alias)
     block = (
         "\n".join(
             [
                 begin,
-                f"Host {host_name}",
+                f"Host {alias}",
                 f"    HostName {ip}",
                 "    User root",
                 "    IdentityFile ~/.ssh/id_ed25519",
@@ -76,11 +83,21 @@ def build_container_ssh_config_cmd(host_name: str, ip: str) -> str:
         )
         + "\n"
     )
-    # Supprime un éventuel bloc précédent de CE host (marqueurs ancrés ^…$), puis ajoute.
-    sed_expr = f"/^{begin}$/,/^{end}$/d"
+    # Supprime un éventuel bloc précédent de CET alias (marqueurs ancrés ^…$), puis ajoute.
     return (
         "mkdir -p ~/.ssh && chmod 700 ~/.ssh && "
         "touch ~/.ssh/config && chmod 600 ~/.ssh/config && "
-        f"sed -i {shlex.quote(sed_expr)} ~/.ssh/config && "
+        f"sed -i {shlex.quote(_ssh_cfg_sed_delete(alias))} ~/.ssh/config && "
         f"printf '%s' {shlex.quote(block)} >> ~/.ssh/config"
+    )
+
+
+def build_container_ssh_config_remove_cmd(alias: str) -> str:
+    """Commande shell idempotente : retire le bloc `~/.ssh/config` d'un alias de test.
+
+    Utilisée à la suppression d'une machine de test. No-op si le fichier est absent.
+    """
+    return (
+        "[ -f ~/.ssh/config ] && "
+        f"sed -i {shlex.quote(_ssh_cfg_sed_delete(alias))} ~/.ssh/config || true"
     )

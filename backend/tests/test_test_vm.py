@@ -1,11 +1,18 @@
 # backend/tests/test_test_vm.py
 from __future__ import annotations
 
+from portal.config.models import HostConfig
 from portal.devpod.test_vm import (
+    build_test_host_views,
     build_test_vm_args,
+    build_testhost_ssh_command,
     map_result_to_host,
     substitute_param_vars,
 )
+
+
+def _ssh_host(name: str = "host-test-114-1", addr: str = "debian@192.168.10.160") -> HostConfig:
+    return HostConfig(name=name, type="ssh", address=addr, vmid="114", usage="tests")
 
 
 def test_build_args_adds_identifier() -> None:
@@ -65,3 +72,52 @@ def test_substitute_param_vars_unknown_left_intact() -> None:
 
 def test_substitute_param_vars_plain_value() -> None:
     assert substitute_param_vars({"X": "plain"}, {"N": "1"})["X"] == "plain"
+
+
+def test_build_test_host_views_maps_ip_and_vmid() -> None:
+    hosts = [
+        HostConfig(name="host-test-114-1", type="ssh", address="debian@192.168.10.160",
+                   vmid="114", proxmox_node="pve1", usage="tests"),
+    ]
+    views = build_test_host_views([("host-test-114-1", "test1")], hosts)
+    assert views == [
+        {"alias": "test1", "name": "host-test-114-1", "ip": "192.168.10.160", "vmid": "114"}
+    ]
+
+
+def test_build_test_host_views_skips_orphan_association() -> None:
+    # Association sans host correspondant (host retiré) → ignorée.
+    views = build_test_host_views([("gone", "test1")], [])
+    assert views == []
+
+
+def test_testhost_ssh_command_for_allowed_host() -> None:
+    cmd = build_testhost_ssh_command("host-test-114-1", ["host-test-114-1"], [_ssh_host()])
+    assert cmd is not None
+    assert "root@192.168.10.160" in cmd
+    assert "ssh" in cmd
+    assert "StrictHostKeyChecking=accept-new" in cmd
+
+
+def test_testhost_ssh_command_rejects_host_outside_workspace() -> None:
+    # Sécurité : host non listé pour ce workspace → refus, même s'il existe.
+    assert build_testhost_ssh_command("host-test-114-1", [], [_ssh_host()]) is None
+
+
+def test_testhost_ssh_command_rejects_missing_host() -> None:
+    assert build_testhost_ssh_command("gone", ["gone"], []) is None
+
+
+def test_testhost_ssh_command_rejects_non_ssh_host() -> None:
+    docker = HostConfig(name="d", type="docker-tls", docker_host="tcp://x:2376", usage="tests")
+    assert build_testhost_ssh_command("d", ["d"], [docker]) is None
+
+
+def test_build_test_host_views_preserves_order() -> None:
+    hosts = [
+        HostConfig(name="a", type="ssh", address="u@10.0.0.1", vmid="1", usage="tests"),
+        HostConfig(name="b", type="ssh", address="u@10.0.0.2", vmid="2", usage="tests"),
+    ]
+    views = build_test_host_views([("b", "test1"), ("a", "test2")], hosts)
+    assert [v["alias"] for v in views] == ["test1", "test2"]
+    assert [v["name"] for v in views] == ["b", "a"]

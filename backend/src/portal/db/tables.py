@@ -227,6 +227,8 @@ workspace_test_hosts = Table(
     Column("login", Text, nullable=False),
     Column("workspace_name", Text, nullable=False),
     Column("host_name", Text, nullable=False),
+    # Alias court `testN` (par workspace), pour `ssh testN` dans le container.
+    Column("alias", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint(
         "login", "workspace_name", "host_name", name="uq_wth_login_ws_host"

@@ -17,13 +17,19 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from ..auth.rbac import UserInfo, require_user
-from ..config.models import GlobalConfig, HostConfig, Hypervisor
+from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor
 from ..config.store import load_global, load_user
 from ..db.engine import _get_engine
 from ..db.global_config import save_global_db
-from ..db.test_hosts import assign_test_host, list_test_hosts_for_workspace
+from ..db.test_hosts import (
+    assign_test_host,
+    list_test_hosts_detailed,
+    next_test_alias,
+    remove_test_host,
+)
 from ..devpod.ssh_exec import run_ssh_capture
 from ..devpod.test_vm import (
+    build_test_host_views,
     build_test_vm_args,
     map_result_to_host,
     parse_last_json,
@@ -32,13 +38,15 @@ from ..devpod.test_vm import (
 from ..devpod.vm_init import (
     CONTAINER_KEYGEN_CMD,
     build_container_ssh_config_cmd,
+    build_container_ssh_config_remove_cmd,
     build_vm_root_inject_script,
     generate_root_password,
 )
-from ..secrets.system import store_system_secret
+from ..secrets.system import delete_system_secret, store_system_secret
 from ..settings import get_settings
 from .proxmox import (
     _fetch_spec,
+    _run_destroy_script,
     _ssh_opts,
     _ssh_stream,
     _substitute,
@@ -87,7 +95,7 @@ async def get_test_hypervisor_script(
 
 
 async def _init_vm_ssh(
-    login: str, ws: str, host: HostConfig, node: Hypervisor
+    login: str, ws: str, host: HostConfig, node: Hypervisor, alias: str
 ) -> AsyncIterator[bytes]:
     """Lot E : injecte la pubkey du container et un mot de passe root dans la VM."""
     if host.type != "ssh" or not host.address:
@@ -139,18 +147,35 @@ async def _init_vm_ssh(
         "==> (clé du container injectée ; mot de passe stocké côté portail)\n"
     ).encode()
 
-    # Alias SSH persistant dans le container : `ssh <host>` joint la VM (root + clé).
+    # Alias SSH persistant dans le container : `ssh testN` joint la VM (root + clé).
     cfg_rc, _cfg_out, cfg_err = await run_ssh_capture(
-        login, f"{login}-{ws}", build_container_ssh_config_cmd(host.name, ip)
+        login, f"{login}-{ws}", build_container_ssh_config_cmd(alias, ip)
     )
     if cfg_rc == 0:
         yield (
-            f"==> Alias SSH '{host.name}' ajouté au ~/.ssh/config du container "
-            f"(ssh {host.name})\n"
+            f"==> Alias SSH '{alias}' ajouté au ~/.ssh/config du container "
+            f"(ssh {alias})\n"
         ).encode()
     else:
         detail = cfg_err.strip()[:200]
         yield f"==> AVERTISSEMENT : alias SSH non écrit ({detail})\n".encode()
+
+
+@router.get("/workspaces/{ws}/test-hosts")
+async def list_workspace_test_hosts(
+    ws: str,
+    user: UserInfo = Depends(require_user),
+) -> list[dict[str, str]]:
+    """Machines de test attachées à un workspace de l'utilisateur (alias, name, ip, vmid)."""
+    if not _WS_NAME_RE.fullmatch(ws):
+        raise HTTPException(status_code=422, detail="Invalid workspace name")
+    user_cfg = await load_user(user.login)
+    if not any(w.name == ws for w in user_cfg.workspaces):
+        raise HTTPException(status_code=404, detail=f"Workspace {ws!r} not found")
+    async with _get_engine().connect() as conn:
+        detailed = await list_test_hosts_detailed(user.login, ws, conn)
+    cfg = load_global()
+    return build_test_host_views(detailed, cfg.hosts)
 
 
 class CreateTestVmRequest(BaseModel):
@@ -199,8 +224,11 @@ async def create_test_vm(
 
     # Substitution des variables <NOM> dans les valeurs paramétrées (ex. NODE_NAME) :
     # args (dont <NEW_VMID>) + <N>/<N+1> = nb de VM de test du workspace.
+    # alias = plus petit `testN` libre (réutilise les numéros des machines supprimées).
     async with _get_engine().connect() as conn:
-        n = len(await list_test_hosts_for_workspace(login, ws, conn))
+        detailed = await list_test_hosts_detailed(login, ws, conn)
+    n = len(detailed)
+    alias = next_test_alias([a for _, a in detailed])
     args = substitute_param_vars(args, {"N": str(n), "N+1": str(n + 1)})
 
     commands = [_substitute(c, args) for c in commands_raw]
@@ -232,12 +260,63 @@ async def create_test_vm(
         new_cfg.hosts.append(host)
         async with _get_engine().begin() as conn:
             await save_global_db(new_cfg, conn)
-            await assign_test_host(login, ws, host.name, conn)
+            await assign_test_host(login, ws, host.name, alias, conn)
         yield (
             f"\n==> VM de test '{host.name}' creee et attachee au workspace '{ws}'\n"
         ).encode()
 
-        async for msg in _init_vm_ssh(login, ws, host, node):
+        async for msg in _init_vm_ssh(login, ws, host, node, alias):
             yield msg
 
     return StreamingResponse(_stream(), media_type="text/plain; charset=utf-8")
+
+
+@router.delete("/workspaces/{ws}/test-vm/{host_name}", status_code=204)
+async def delete_test_vm(
+    ws: str,
+    host_name: str,
+    user: UserInfo = Depends(require_user),
+) -> None:
+    """Supprime une machine de test : détruit la VM puis nettoie côté portail.
+
+    Séquence résiliente : la destruction de la VM et le nettoyage du container sont
+    best-effort (loggés sur échec) ; l'état portail est toujours nettoyé.
+    """
+    if not _WS_NAME_RE.fullmatch(ws):
+        raise HTTPException(status_code=422, detail="Invalid workspace name")
+    if not _PROXMOX_NAME_RE.fullmatch(host_name):
+        raise HTTPException(status_code=422, detail="Invalid host name")
+
+    login = user.login
+    async with _get_engine().connect() as conn:
+        detailed = await list_test_hosts_detailed(login, ws, conn)
+    alias = next((a for n, a in detailed if n == host_name), None)
+    if alias is None:
+        raise HTTPException(
+            status_code=404, detail=f"Test host {host_name!r} not found for workspace {ws!r}"
+        )
+
+    cfg = load_global()
+    host_cfg = next((h for h in cfg.hosts if h.name == host_name), None)
+
+    # 1. Détruire la VM sur l'hyperviseur (best-effort, ne lève pas).
+    if host_cfg is not None:
+        await _run_destroy_script(cfg, host_cfg)
+
+    # 2. Retirer l'alias du ~/.ssh/config du container (best-effort).
+    try:
+        await run_ssh_capture(
+            login, f"{login}-{ws}", build_container_ssh_config_remove_cmd(alias)
+        )
+    except Exception:
+        _log.warning("test_vm_ssh_config_cleanup_failed", host=host_name, exc_info=True)
+
+    # 3-5. Nettoyage portail (secret root, association → libère l'alias, host config).
+    async with _get_engine().begin() as conn:
+        await delete_system_secret(f"host.{host_name}.root-password", conn)
+        await remove_test_host(host_name, conn)
+        if host_cfg is not None:
+            cfg.hosts = [h for h in cfg.hosts if h.name != host_name]
+            await save_global_db(cfg, conn)
+
+    _log.info("test_vm_deleted", login=login, ws=ws, host=host_name, alias=alias)

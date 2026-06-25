@@ -69,6 +69,17 @@
       "cancel": "Annuler",
       "close": "Fermer"
     },
+    "testHosts": {
+      "menu": "SSH test",
+      "openSsh": "Ouvrir une session SSH",
+      "delete": "Supprimer",
+      "deleteTitle": "Supprimer la machine de test ?",
+      "deleteDescription": "La VM {{alias}} ({{name}}) sera détruite sur l'hyperviseur. Cette action est irréversible.",
+      "confirmDelete": "Détruire",
+      "deleting": "Suppression…",
+      "deleted": "Machine de test supprimée",
+      "deleteFailed": "Échec de la suppression"
+    },
     "form": {
       "name": "Nom",
       "sources": "Sources Git",

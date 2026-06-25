@@ -20,7 +20,9 @@ from starlette.websockets import WebSocketDisconnect
 from ..config.store import load_global, safe_user_path
 from ..db.engine import _get_engine
 from ..db.recipes import load_recipes_as_dict
+from ..db.test_hosts import list_test_hosts_for_workspace
 from ..devpod.ssh_exec import devpod_ssh_key as _devpod_ssh_key
+from ..devpod.test_vm import build_testhost_ssh_command
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -38,6 +40,7 @@ async def workspace_ssh_terminal(
     session: str | None = None,
     start: str | None = None,
     shell: bool = False,
+    ssh_test: str | None = None,
 ) -> None:
     await websocket.accept()
     settings = get_settings()
@@ -91,7 +94,18 @@ async def workspace_ssh_terminal(
     _tmux = 'TERM=xterm-256color tmux ${TMUX_SOCK:+-S "$TMUX_SOCK"}'
 
     tmux_cmd: str
-    if shell:
+    if ssh_test is not None:
+        # Rebond vers une machine de test : depuis le container, `ssh root@<ip>` par la
+        # clé du container. L'IP est résolue côté serveur ; accès refusé si le host
+        # n'appartient pas aux test-hosts de ce workspace.
+        async with _get_engine().connect() as _conn:
+            allowed = await list_test_hosts_for_workspace(login, name, _conn)
+        testhost_cmd = build_testhost_ssh_command(ssh_test, allowed, cfg.hosts)
+        if testhost_cmd is None:
+            await websocket.close(code=4022, reason="Test host not available")
+            return
+        tmux_cmd = testhost_cmd
+    elif shell:
         # Mode shell brut : bash interactif sans tmux — utile pour le debug.
         tmux_cmd = "exec bash -l"
     elif session is not None:
@@ -164,7 +178,7 @@ async def workspace_ssh_terminal(
         "TERM": "xterm-256color",
     }
 
-    _log.info("ws_workspace_ssh_open", ws_id=ws_id, login=login, start=start)
+    _log.info("ws_workspace_ssh_open", ws_id=ws_id, login=login, start=start, ssh_test=ssh_test)
 
     # PTY local : SSH reçoit un vrai terminal → SIGWINCH propagé correctement.
     # Avec stdin=PIPE, SSH ne peut pas détecter les changements de taille et

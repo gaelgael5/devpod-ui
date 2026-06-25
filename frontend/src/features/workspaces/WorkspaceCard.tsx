@@ -19,6 +19,8 @@ import LogDialog from './LogDialog'
 import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
 import InitializersMenu from './InitializersMenu'
 import AddTestVmDialog from './AddTestVmDialog'
+import TestHostsMenu from './TestHostsMenu'
+import type { TestHost } from './useTestVm'
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
   running: 'bg-green-500/10 text-green-600 border-green-500/30',
@@ -46,6 +48,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const [recreateOpen, setRecreateOpen] = useState(false)
   const [shellOpen, setShellOpen] = useState(false)
   const [addVmOpen, setAddVmOpen] = useState(false)
+  const [sshTestHost, setSshTestHost] = useState<TestHost | null>(null)
   const s = status.status
 
   return (
@@ -174,6 +177,9 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             {t('workspaces.testVm.btn')}
           </Button>
         )}
+        {s === 'running' && (
+          <TestHostsMenu wsName={spec.name} enabled onOpenSsh={setSshTestHost} />
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -196,6 +202,13 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
           wsName={spec.name}
           shell
           onClose={() => setShellOpen(false)}
+        />
+      )}
+      {sshTestHost && (
+        <WorkspaceSshTerminalWindow
+          wsName={spec.name}
+          testHost={{ name: sshTestHost.name, alias: sshTestHost.alias }}
+          onClose={() => setSshTestHost(null)}
         />
       )}
       <AddTestVmDialog

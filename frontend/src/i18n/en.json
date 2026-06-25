@@ -69,6 +69,17 @@
       "cancel": "Cancel",
       "close": "Close"
     },
+    "testHosts": {
+      "menu": "SSH test",
+      "openSsh": "Open SSH session",
+      "delete": "Delete",
+      "deleteTitle": "Delete test machine?",
+      "deleteDescription": "VM {{alias}} ({{name}}) will be destroyed on the hypervisor. This action cannot be undone.",
+      "confirmDelete": "Destroy",
+      "deleting": "Deleting…",
+      "deleted": "Test machine deleted",
+      "deleteFailed": "Deletion failed"
+    },
     "form": {
       "name": "Name",
       "sources": "Git sources",
