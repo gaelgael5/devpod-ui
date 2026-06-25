@@ -74,6 +74,21 @@ def build_test_host_views(
     return views
 
 
+def build_resolve_fqdn(name: str, local_domain: str) -> str:
+    """FQDN à résoudre : `<name>.<local_domain>` (ou `<name>` si pas de domaine)."""
+    domain = local_domain.strip().strip(".")
+    return f"{name}.{domain}" if domain else name
+
+
+def replace_host_ip(old_address: str, new_ip: str) -> str:
+    """Remplace l'IP d'une adresse SSH en préservant la partie `<user>@`.
+
+    `debian@1.2.3.4` → `debian@<new_ip>` ; `1.2.3.4` → `<new_ip>` ; `''` → `<new_ip>`.
+    """
+    user, sep, _ = old_address.partition("@")
+    return f"{user}@{new_ip}" if sep else new_ip
+
+
 def build_testhost_ssh_command(
     host_name: str, allowed_names: Iterable[str], hosts: list[HostConfig]
 ) -> str | None:

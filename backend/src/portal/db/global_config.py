@@ -97,6 +97,7 @@ def _build_global_config(
             "external_url": row["external_url"],
             "dev_mode": row["dev_mode"],
             "workspace_host": row["workspace_host"],
+            "local_domain": row["local_domain"],
             "log": {
                 "level": row["log_level"],
                 "format": row["log_format"],
@@ -231,6 +232,7 @@ def _cfg_to_scalars(cfg: GlobalConfig) -> dict[str, Any]:
         "external_url": cfg.server.external_url,
         "dev_mode": cfg.server.dev_mode,
         "workspace_host": cfg.server.workspace_host,
+        "local_domain": cfg.server.local_domain,
         "log_level": cfg.server.log.level,
         "log_format": cfg.server.log.format,
         "log_output": cfg.server.log.output,

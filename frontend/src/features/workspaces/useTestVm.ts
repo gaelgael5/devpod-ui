@@ -43,6 +43,20 @@ export function useDeleteTestHost(wsName: string) {
   })
 }
 
+/** Re-résout l'IP DHCP d'une machine de test via DNS (nom + domaine local). */
+export function useResolveTestHostIp(wsName: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (hostName: string) =>
+      apiFetchJson<{ ip: string; fqdn: string }>(
+        `/me/workspaces/${encodeURIComponent(wsName)}/test-vm/${encodeURIComponent(hostName)}/resolve-ip`,
+        { method: 'POST' },
+      ),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['me', 'workspaces', wsName, 'test-hosts'] }),
+  })
+}
+
 export function useTestHypervisors(enabled: boolean) {
   return useQuery<TestHypervisor[]>({
     queryKey: ['me', 'test-hypervisors'],

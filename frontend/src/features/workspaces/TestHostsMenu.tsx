@@ -14,7 +14,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { useTestHosts, useDeleteTestHost, type TestHost } from './useTestVm'
+import { useTestHosts, useDeleteTestHost, useResolveTestHostIp, type TestHost } from './useTestVm'
 
 interface Props {
   /** Nom du workspace. */
@@ -33,9 +33,18 @@ export default function TestHostsMenu({ wsName, enabled, onOpenSsh }: Props) {
   const { t } = useTranslation()
   const { data: hosts = [] } = useTestHosts(wsName, enabled)
   const del = useDeleteTestHost(wsName)
+  const resolve = useResolveTestHostIp(wsName)
   const [toDelete, setToDelete] = useState<TestHost | null>(null)
 
   if (hosts.length === 0) return null
+
+  function handleResolve(host: TestHost) {
+    toast.promise(resolve.mutateAsync(host.name), {
+      loading: t('workspaces.testHosts.resolving'),
+      success: (r) => t('workspaces.testHosts.resolved', { ip: r.ip }),
+      error: (e) => (e instanceof Error ? e.message : t('workspaces.testHosts.resolveFailed')),
+    })
+  }
 
   function confirmDelete() {
     if (!toDelete) return
@@ -66,6 +75,9 @@ export default function TestHostsMenu({ wsName, enabled, onOpenSsh }: Props) {
               </DropdownMenuLabel>
               <DropdownMenuItem onSelect={() => onOpenSsh(h)}>
                 {t('workspaces.testHosts.openSsh')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleResolve(h)}>
+                {t('workspaces.testHosts.resolveIp')}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"

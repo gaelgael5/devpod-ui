@@ -28,6 +28,9 @@ class ServerConfig(BaseModel):
     # ports non-standard.  workspace_host permet de spécifier l'IP/hostname
     # direct de la VM pour les URLs de workspace (ex : "192.168.10.50").
     workspace_host: str = ""
+    # Domaine DNS local (ex. "home.lan") ajouté au nom d'une machine de test pour
+    # re-résoudre son IP DHCP. Vide → on résout le nom seul.
+    local_domain: str = ""
     log: LogConfig = Field(default_factory=LogConfig)
 
 

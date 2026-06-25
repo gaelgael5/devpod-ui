@@ -141,6 +141,35 @@ async def put_admin_oidc(
     }
 
 
+# ─── Domaine local (résolution DNS des VM de test DHCP) ──────────────────────
+
+
+class LocalDomainRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    local_domain: str = ""
+
+
+@router.get("/local-domain")
+async def get_local_domain(user: UserInfo = Depends(require_admin)) -> dict[str, str]:
+    return {"local_domain": load_global().server.local_domain}
+
+
+@router.put("/local-domain")
+async def put_local_domain(
+    body: LocalDomainRequest, user: UserInfo = Depends(require_admin)
+) -> dict[str, str]:
+    """Domaine DNS local ajouté au nom d'une VM de test pour re-résoudre son IP DHCP."""
+    cfg = load_global()
+    cfg.server = cfg.server.model_copy(update={"local_domain": body.local_domain.strip()})
+    from ..db.engine import _get_engine
+
+    async with _get_engine().begin() as conn:
+        await save_global_db(cfg, conn)
+    _log.info("local_domain_updated", by=user.login, local_domain=cfg.server.local_domain)
+    return {"local_domain": cfg.server.local_domain}
+
+
 # ─── Hosts CRUD ───────────────────────────────────────────────────────────────
 
 

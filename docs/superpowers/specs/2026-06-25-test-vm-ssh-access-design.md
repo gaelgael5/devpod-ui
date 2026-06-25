@@ -196,6 +196,36 @@ Frontend (Vitest + RTL) :
   alias (`host-test-…`). Le bouton SSH fonctionne quand même (connexion par IP) ; le
   backfill leur donne un alias `testN` en base pour l'affichage et le menu.
 
+## Addendum — re-résolution d'IP (machines DHCP)
+
+Les VM de test sont en DHCP : l'IP figée à la création (`host.address`) peut devenir
+périmée. Le nom DNS (`HostConfig.name` = hostname cloud-init) est stable et enregistré
+dans le DNS local (DDNS du DHCP). On ajoute une re-résolution **manuelle** par bouton.
+
+### Décisions
+- Résolution **côté portail** (`getaddrinfo`) — confirmé que le resolver du portail voit
+  le DNS local.
+- Domaine local en **config globale** : `ServerConfig.local_domain` (ex. `home.lan`),
+  éditable depuis l'admin. Vide → on résout le nom seul.
+- Bouton manuel pour cette itération ; la re-résolution **auto sur échec** du rebond
+  (PTY interactif) est hors scope (le portail n'intercepte pas proprement l'échec
+  à mi-session).
+
+### Backend
+- `ServerConfig.local_domain: str = ""` : modèle, colonne `global_config.local_domain`,
+  migration, mapping load/write, `GET/PUT /admin/config`.
+- Fonctions pures : `build_resolve_fqdn(name, local_domain)` (`<name>.<domain>` ou
+  `<name>`), `replace_host_ip(old_address, new_ip)` (préserve `<user>@`).
+- `POST /me/workspaces/{ws}/test-vm/{host_name}/resolve-ip` (require_user) : ownership →
+  `fqdn` → `loop.getaddrinfo(fqdn, None, AF_INET)` → 1ʳᵉ IPv4. Échec → 502
+  (`Unresolvable: <fqdn>`). Met à jour `host.address`, `save_global_db`, réécrit le bloc
+  `~/.ssh/config` du container (best-effort). Retourne `{ "ip", "fqdn" }`.
+
+### Frontend
+- `useResolveTestHostIp(wsName)` → POST, invalide `test-hosts`, toast.
+- `TestHostsMenu` : action « Résoudre l'IP » par machine.
+- Admin config : champ « Domaine local (DNS) ».
+
 ## Fichiers concernés (indicatif)
 
 - Backend : `db/test_hosts.py`, nouvelle migration Alembic, `db/tables.py`,

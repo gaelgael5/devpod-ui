@@ -72,6 +72,10 @@
     "testHosts": {
       "menu": "SSH test",
       "openSsh": "Open SSH session",
+      "resolveIp": "Resolve IP (DNS)",
+      "resolving": "Resolving IP…",
+      "resolved": "IP resolved: {{ip}}",
+      "resolveFailed": "DNS resolution failed",
       "delete": "Delete",
       "deleteTitle": "Delete test machine?",
       "deleteDescription": "VM {{alias}} ({{name}}) will be destroyed on the hypervisor. This action cannot be undone.",
@@ -190,6 +194,12 @@
     "proxmoxEmpty": "No Proxmox nodes enrolled yet.",
     "hypervisorsEmpty": "No hypervisors enrolled yet.",
     "hypervisorTypesEmpty": "No hypervisor types configured.",
+    "localDomain": {
+      "title": "Local DNS domain",
+      "hint": "Appended to a test machine name to re-resolve its DHCP IP (e.g. home.lan). Leave empty to resolve the name alone.",
+      "save": "Save",
+      "saved": "Local domain saved"
+    },
     "addHost": "Add host",
     "oidc": {
       "navLabel": "OIDC configuration",

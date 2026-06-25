@@ -33,6 +33,7 @@ global_config = Table(
     Column("external_url", Text, nullable=False),
     Column("dev_mode", Boolean, nullable=False, server_default="false"),
     Column("workspace_host", Text, nullable=False, server_default=""),
+    Column("local_domain", Text, nullable=False, server_default=""),
     # LogConfig
     Column("log_level", Text, nullable=False, server_default="info"),
     Column("log_format", Text, nullable=False, server_default="text"),

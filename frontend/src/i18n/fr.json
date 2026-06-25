@@ -72,6 +72,10 @@
     "testHosts": {
       "menu": "SSH test",
       "openSsh": "Ouvrir une session SSH",
+      "resolveIp": "Résoudre l'IP (DNS)",
+      "resolving": "Résolution de l'IP…",
+      "resolved": "IP résolue : {{ip}}",
+      "resolveFailed": "Échec de la résolution DNS",
       "delete": "Supprimer",
       "deleteTitle": "Supprimer la machine de test ?",
       "deleteDescription": "La VM {{alias}} ({{name}}) sera détruite sur l'hyperviseur. Cette action est irréversible.",
@@ -190,6 +194,12 @@
     "proxmoxEmpty": "Aucun nœud Proxmox enrôlé.",
     "hypervisorsEmpty": "Aucun hyperviseur enrôlé.",
     "hypervisorTypesEmpty": "Aucun type d'hyperviseur configuré.",
+    "localDomain": {
+      "title": "Domaine local (DNS)",
+      "hint": "Ajouté au nom d'une machine de test pour re-résoudre son IP DHCP (ex. home.lan). Laisser vide pour résoudre le nom seul.",
+      "save": "Enregistrer",
+      "saved": "Domaine local enregistré"
+    },
     "addHost": "Ajouter un hôte",
     "oidc": {
       "navLabel": "Configuration OIDC",

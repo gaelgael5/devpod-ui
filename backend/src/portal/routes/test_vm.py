@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import socket
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -29,10 +30,12 @@ from ..db.test_hosts import (
 )
 from ..devpod.ssh_exec import run_ssh_capture
 from ..devpod.test_vm import (
+    build_resolve_fqdn,
     build_test_host_views,
     build_test_vm_args,
     map_result_to_host,
     parse_last_json,
+    replace_host_ip,
     substitute_param_vars,
 )
 from ..devpod.vm_init import (
@@ -320,3 +323,67 @@ async def delete_test_vm(
             await save_global_db(cfg, conn)
 
     _log.info("test_vm_deleted", login=login, ws=ws, host=host_name, alias=alias)
+
+
+async def _resolve_ipv4(fqdn: str) -> str:
+    """Première IPv4 résolue pour `fqdn` via le resolver du portail (async)."""
+    loop = asyncio.get_event_loop()
+    infos = await loop.getaddrinfo(fqdn, None, family=socket.AF_INET)
+    if not infos:
+        raise OSError(f"no address for {fqdn}")
+    return str(infos[0][4][0])
+
+
+@router.post("/workspaces/{ws}/test-vm/{host_name}/resolve-ip")
+async def resolve_test_vm_ip(
+    ws: str,
+    host_name: str,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, str]:
+    """Re-résout l'IP DHCP d'une machine de test via DNS (nom + domaine local).
+
+    Met à jour `host.address` et le bloc `~/.ssh/config` du container.
+    """
+    if not _WS_NAME_RE.fullmatch(ws):
+        raise HTTPException(status_code=422, detail="Invalid workspace name")
+    if not _PROXMOX_NAME_RE.fullmatch(host_name):
+        raise HTTPException(status_code=422, detail="Invalid host name")
+
+    login = user.login
+    async with _get_engine().connect() as conn:
+        detailed = await list_test_hosts_detailed(login, ws, conn)
+    alias = next((a for n, a in detailed if n == host_name), None)
+    if alias is None:
+        raise HTTPException(
+            status_code=404, detail=f"Test host {host_name!r} not found for workspace {ws!r}"
+        )
+
+    cfg = load_global()
+    host_cfg = next((h for h in cfg.hosts if h.name == host_name), None)
+    if host_cfg is None:
+        raise HTTPException(status_code=404, detail=f"Host {host_name!r} not found")
+
+    fqdn = build_resolve_fqdn(host_name, cfg.server.local_domain)
+    try:
+        new_ip = await _resolve_ipv4(fqdn)
+    except OSError as exc:
+        raise HTTPException(status_code=502, detail=f"Unresolvable: {fqdn} ({exc})") from exc
+
+    new_address = replace_host_ip(host_cfg.address, new_ip)
+    cfg.hosts = [
+        h.model_copy(update={"address": new_address}) if h.name == host_name else h
+        for h in cfg.hosts
+    ]
+    async with _get_engine().begin() as conn:
+        await save_global_db(cfg, conn)
+
+    # Réécrit le bloc ~/.ssh/config du container avec la nouvelle IP (best-effort).
+    try:
+        await run_ssh_capture(
+            login, f"{login}-{ws}", build_container_ssh_config_cmd(alias, new_ip)
+        )
+    except Exception:
+        _log.warning("test_vm_ssh_config_refresh_failed", host=host_name, exc_info=True)
+
+    _log.info("test_vm_ip_resolved", login=login, ws=ws, host=host_name, fqdn=fqdn, ip=new_ip)
+    return {"ip": new_ip, "fqdn": fqdn}

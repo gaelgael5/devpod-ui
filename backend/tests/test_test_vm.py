@@ -3,10 +3,12 @@ from __future__ import annotations
 
 from portal.config.models import HostConfig
 from portal.devpod.test_vm import (
+    build_resolve_fqdn,
     build_test_host_views,
     build_test_vm_args,
     build_testhost_ssh_command,
     map_result_to_host,
+    replace_host_ip,
     substitute_param_vars,
 )
 
@@ -111,6 +113,31 @@ def test_testhost_ssh_command_rejects_missing_host() -> None:
 def test_testhost_ssh_command_rejects_non_ssh_host() -> None:
     docker = HostConfig(name="d", type="docker-tls", docker_host="tcp://x:2376", usage="tests")
     assert build_testhost_ssh_command("d", ["d"], [docker]) is None
+
+
+def test_build_resolve_fqdn_with_domain() -> None:
+    assert build_resolve_fqdn("host-test-114-1", "home.lan") == "host-test-114-1.home.lan"
+
+
+def test_build_resolve_fqdn_without_domain() -> None:
+    assert build_resolve_fqdn("host-test-114-1", "") == "host-test-114-1"
+
+
+def test_build_resolve_fqdn_strips_dots_and_spaces() -> None:
+    assert build_resolve_fqdn("host-1", ".home.lan.") == "host-1.home.lan"
+    assert build_resolve_fqdn("host-1", "  home.lan  ") == "host-1.home.lan"
+
+
+def test_replace_host_ip_preserves_user() -> None:
+    assert replace_host_ip("debian@192.168.10.160", "192.168.10.200") == "debian@192.168.10.200"
+
+
+def test_replace_host_ip_bare_ip() -> None:
+    assert replace_host_ip("192.168.10.160", "10.0.0.5") == "10.0.0.5"
+
+
+def test_replace_host_ip_empty_old() -> None:
+    assert replace_host_ip("", "10.0.0.5") == "10.0.0.5"
 
 
 def test_build_test_host_views_preserves_order() -> None:
