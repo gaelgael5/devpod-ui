@@ -98,7 +98,9 @@ def test_testhost_ssh_command_for_allowed_host() -> None:
     assert cmd is not None
     assert "root@192.168.10.160" in cmd
     assert "ssh" in cmd
-    assert "StrictHostKeyChecking=accept-new" in cmd
+    # VM de test éphémère (DHCP, recréée) → pas de pinning de clé d'hôte.
+    assert "StrictHostKeyChecking=no" in cmd
+    assert "UserKnownHostsFile=/dev/null" in cmd
 
 
 def test_testhost_ssh_command_rejects_host_outside_workspace() -> None:

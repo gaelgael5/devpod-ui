@@ -77,7 +77,9 @@ def build_container_ssh_config_cmd(alias: str, ip: str) -> str:
                 f"    HostName {ip}",
                 "    User root",
                 "    IdentityFile ~/.ssh/id_ed25519",
-                "    StrictHostKeyChecking accept-new",
+                # VM de test éphémère (recréée) : clé d'hôte changeante → pas de pinning.
+                "    StrictHostKeyChecking no",
+                "    UserKnownHostsFile /dev/null",
                 end,
             ]
         )

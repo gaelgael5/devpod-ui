@@ -12,6 +12,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from ..config.store import _data_root, load_global
 from ..devpod.service import _materialize_system_cert
+from ..devpod.ssh_exec import host_key_changed
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -86,6 +87,42 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
 
     known_hosts = _data_root() / "keys" / "hosts_known"
     known_hosts.parent.mkdir(parents=True, exist_ok=True)
+
+    # Nœud potentiellement recréé (clé d'hôte changée, fréquent avec DHCP) : pré-test
+    # non-interactif. On purge l'ancienne entrée UNIQUEMENT sur un vrai changement de
+    # clé → la vérification reste active pour les hôtes stables (pas de re-trust aveugle).
+    hostname = address.split("@", 1)[-1]
+    precheck = await asyncio.create_subprocess_exec(
+        "ssh",
+        "-i",
+        tmp_key_path,
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        f"UserKnownHostsFile={known_hosts}",
+        "-o",
+        "ConnectTimeout=10",
+        address,
+        "true",
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, precheck_err = await precheck.communicate()
+    if host_key_changed(precheck_err):
+        _log.warning("ws_ssh_host_key_changed_purge", host=name, hostname=hostname)
+        purge = await asyncio.create_subprocess_exec(
+            "ssh-keygen",
+            "-f",
+            str(known_hosts),
+            "-R",
+            hostname,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await purge.wait()
 
     proc = await asyncio.create_subprocess_exec(
         "ssh",

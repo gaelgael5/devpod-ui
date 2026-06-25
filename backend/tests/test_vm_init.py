@@ -44,6 +44,9 @@ def test_container_ssh_config_cmd_builds_block() -> None:
     assert "HostName 192.168.10.160" in cmd
     assert "User root" in cmd
     assert "IdentityFile ~/.ssh/id_ed25519" in cmd
+    # VM de test éphémère (recréée) → pas de pinning de clé d'hôte dans le container.
+    assert "StrictHostKeyChecking no" in cmd
+    assert "UserKnownHostsFile /dev/null" in cmd
     # Délimité par des marqueurs propres à l'alias (pour le remplacement idempotent).
     assert "# >>> portal test-vm test1 >>>" in cmd
     assert "# <<< portal test-vm test1 <<<" in cmd

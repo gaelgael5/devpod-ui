@@ -17,6 +17,16 @@ from ..config.store import load_global, safe_user_path
 _log = structlog.get_logger(__name__)
 
 
+def host_key_changed(ssh_stderr: bytes) -> bool:
+    """True si la sortie SSH signale un changement de clé d'hôte (nœud recréé).
+
+    Distinct d'un hôte simplement inconnu (à accepter via accept-new) : on ne purge
+    le known_hosts que sur un vrai changement, pour préserver la vérification.
+    """
+    text = ssh_stderr.decode("utf-8", errors="replace")
+    return "REMOTE HOST IDENTIFICATION HAS CHANGED" in text
+
+
 def devpod_ssh_key(login: str) -> str | None:
     """Clé privée SSH générée par devpod pour cet utilisateur (ou None)."""
     ssh_dir = safe_user_path(login, "devpod") / "ssh"

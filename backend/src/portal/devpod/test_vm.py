@@ -106,8 +106,10 @@ def build_testhost_ssh_command(
         return None
     ip = host.address.split("@", 1)[-1]
     dest = shlex.quote(f"root@{ip}")
+    # VM de test éphémère (DHCP, recréée) → la clé d'hôte change légitimement ; pas de
+    # known_hosts persistant côté container (évite "host key changed" au rebond).
     return (
-        "exec ssh -t -t -o StrictHostKeyChecking=accept-new "
+        "exec ssh -t -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
         f"-o ConnectTimeout=15 {dest}"
     )
 
