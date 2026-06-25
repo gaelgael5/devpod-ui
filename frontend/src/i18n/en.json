@@ -645,6 +645,11 @@
       "appUrl": "Application URL (optional)",
       "appUrlHint": "Optional web link shown in the list to open the application.",
       "openApp": "Open app",
+      "edit": "Edit",
+      "editTitle": "Edit MCP server",
+      "namespaceImmutable": "The namespace cannot be changed after creation.",
+      "enabledOn": "Server enabled",
+      "enabledOff": "Server disabled",
       "namespacePlaceholder": "rag",
       "urlPlaceholder": "https://rag.yoops.org/mcp",
       "slugPlaceholder": "read"

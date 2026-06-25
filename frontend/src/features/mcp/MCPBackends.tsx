@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Server, Plus, KeyRound, ExternalLink } from 'lucide-react'
+import { Server, Plus, KeyRound, ExternalLink, Pencil, Power, PowerOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -25,6 +25,7 @@ import { useVaultKeys } from '@/features/vault/api'
 import {
   useBackends,
   useCreateBackend,
+  useUpdateBackend,
   useDeleteBackend,
   useBackendKeys,
   useCreateKey,
@@ -111,6 +112,94 @@ function AddBackendDialog({ open, onClose }: { open: boolean; onClose: () => voi
           <Button variant="ghost" onClick={close}>{t('common.cancel')}</Button>
           <Button onClick={submit} disabled={!canSubmit}>
             {create.isPending ? t('mcp.saving') : t('mcp.save')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function EditBackendDialog({ backend, open, onClose }: { backend: MCPBackend; open: boolean; onClose: () => void }) {
+  const { t } = useTranslation()
+  const update = useUpdateBackend()
+  // Monté conditionnellement (clé sur l'id) → states initialisés à l'ouverture, pas d'effet.
+  const [name, setName] = useState(backend.name)
+  const [url, setUrl] = useState(backend.url)
+  const [transport, setTransport] = useState<Transport>(backend.transport)
+  const [appUrl, setAppUrl] = useState(backend.app_url)
+  const [enabled, setEnabled] = useState(backend.enabled)
+
+  function submit() {
+    update.mutate(
+      { id: backend.id, name, url, transport, enabled, app_url: appUrl.trim() },
+      { onSuccess: onClose, onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) },
+    )
+  }
+
+  const canSubmit = !!name && !!url && !update.isPending
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t('mcp.backends.editTitle')}</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('mcp.backends.namespace')}</Label>
+            <Input value={backend.namespace} disabled readOnly />
+            <span className="text-xs text-muted-foreground">{t('mcp.backends.namespaceImmutable')}</span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('mcp.backends.name')}</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('mcp.backends.url')}</Label>
+            <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder={t('mcp.backends.urlPlaceholder')} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('mcp.backends.transport')}</Label>
+            <Select value={transport} onValueChange={(v) => setTransport(v as Transport)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="streamable_http">streamable_http</SelectItem>
+                <SelectItem value="sse">sse</SelectItem>
+                <SelectItem value="stdio">stdio</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('mcp.backends.appUrl')}</Label>
+            <Input
+              type="url"
+              value={appUrl}
+              onChange={(e) => setAppUrl(e.target.value)}
+              placeholder="https://app.example.com"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-fit gap-1.5"
+            onClick={() => setEnabled((v) => !v)}
+          >
+            {enabled
+              ? <><Power className="h-3.5 w-3.5 text-emerald-600" />{t('mcp.backends.enabledOn')}</>
+              : <><PowerOff className="h-3.5 w-3.5 text-muted-foreground" />{t('mcp.backends.enabledOff')}</>}
+          </Button>
+          {update.error && (
+            <Alert variant="destructive">
+              <AlertDescription>
+                {update.error instanceof Error ? update.error.message : t('errors.generic')}
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button onClick={submit} disabled={!canSubmit}>
+            {update.isPending ? t('mcp.saving') : t('mcp.save')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -279,6 +368,7 @@ function BackendCard({ backend }: { backend: MCPBackend }) {
   const { t } = useTranslation()
   const del = useDeleteBackend()
   const [confirmDel, setConfirmDel] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
 
   return (
     <div className="rounded-lg border bg-card p-3">
@@ -329,18 +419,31 @@ function BackendCard({ backend }: { backend: MCPBackend }) {
               </Button>
             </>
           ) : (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-destructive hover:text-destructive"
-              onClick={() => setConfirmDel(true)}
-            >
-              {t('mcp.backends.delete')}
-            </Button>
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setEditOpen(true)}
+                title={t('mcp.backends.edit')}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setConfirmDel(true)}
+              >
+                {t('mcp.backends.delete')}
+              </Button>
+            </>
           )}
         </div>
       </div>
       <KeyList backendId={backend.id} />
+      {editOpen && (
+        <EditBackendDialog backend={backend} open onClose={() => setEditOpen(false)} />
+      )}
     </div>
   )
 }
