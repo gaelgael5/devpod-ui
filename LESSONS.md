@@ -83,5 +83,11 @@ Un `@server.call_tool()` qui lève → le SDK renvoie `CallToolResult(isError=Tr
 ## [mcp/server] open_session_fn=open_session en défaut capture l'objet → monkeypatch inopérant
 Un paramètre `open_session_fn: Any = open_session` fige l'objet à la définition ; `monkeypatch.setattr("portal.mcp.X.open_session", fake)` n'a alors aucun effet (le défaut tient l'ancien objet). Pour rendre patchable : défaut `None` + résolution call-time `fn = open_session_fn if open_session_fn is not None else open_session` (lookup du global au moment de l'appel).
 
+## [spa] Routes backend atteintes par le navigateur : exclure du SPAMiddleware
+Une route backend visitée directement par le navigateur (GET + `text/html`) — redirections OAuth `/oauth/authorize`, métadonnées `/.well-known/*`, transport `/mcp` — est masquée par le fallback SPA (index.html) si elle n'est pas dans `_BACKEND_NAV_PATHS` (spa.py) → React Router affiche 404. Y ajouter tout nouvel endpoint backend navigable. NE PAS y mettre les vraies pages React (ex. `/oauth/consent`).
+
+## [mcp/db] mcp_apikey_grant.backend_key_id : nullable (backend public sans clé)
+Un grant vers un backend MCP public (sans clé d'auth, ex. DeepWiki « No key ») a `backend_key_id=NULL`. La 018 le déclarait nullable, mais d'anciennes bases l'ont créé NOT NULL (fichier corrigé après application → divergence DB/modèle). La 028 réaligne (DROP NOT NULL). Symptôme : IntegrityError dans `set_grant` → 500 muet (rollback) au premier grant sans clé (le flow OAuth). Tout grant (apikey statique OU token OAuth) vers un backend public en dépend.
+
 ## [mcp/runtime] FastMCP annonce TOUJOURS les 3 capabilities
 Un `FastMCP` avec seulement des `@srv.tool()` annonce quand même `tools` ET `resources` ET `prompts` dans ses capabilities. Donc `get_server_capabilities()` via un serveur FastMCP ne sert PAS à tester une logique capability-aware (ex. `advertised_kinds`, prune par kind). Construire `ServerCapabilities(tools={})` à la main, ou une session stub (`get_server_capabilities` + `list_tools`), pour représenter un backend tools-only réel.
