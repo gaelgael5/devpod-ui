@@ -92,6 +92,38 @@ async def test_exchange_code_wrong_client(monkeypatch: pytest.MonkeyPatch) -> No
         )
 
 
+def test_ensure_valid_redirect_uri_accepts_https_and_loopback() -> None:
+    service.ensure_valid_redirect_uri("https://claude.ai/api/mcp/auth_callback")
+    service.ensure_valid_redirect_uri("http://localhost:1234/cb")
+    service.ensure_valid_redirect_uri("http://127.0.0.1/cb")
+
+
+def test_ensure_valid_redirect_uri_rejects_dangerous_schemes() -> None:
+    for bad in (
+        "javascript:alert(document.cookie)",
+        "data:text/html,<script>1</script>",
+        "http://evil.example.com/cb",  # http non loopback
+        "https://ok.example.com/cb#frag",  # fragment interdit
+    ):
+        with pytest.raises(service.OAuthError) as exc:
+            service.ensure_valid_redirect_uri(bad)
+        assert exc.value.error == "invalid_redirect_uri"
+
+
+@pytest.mark.asyncio
+async def test_register_client_rejects_javascript_uri() -> None:
+    with pytest.raises(service.OAuthError) as exc:
+        await service.register_client(None, redirect_uris=["javascript:alert(1)"])
+    assert exc.value.error == "invalid_redirect_uri"
+
+
+@pytest.mark.asyncio
+async def test_register_client_accepts_https(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(service.db, "insert_client", AsyncMock())
+    res = await service.register_client(None, redirect_uris=["https://claude.ai/cb"])
+    assert res["client_id"].startswith("mcpc_")
+
+
 @pytest.mark.asyncio
 async def test_refresh_rotates(monkeypatch: pytest.MonkeyPatch) -> None:
     rotated: dict = {}

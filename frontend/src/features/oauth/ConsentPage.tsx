@@ -48,6 +48,8 @@ export default function ConsentPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...oauthParams, approve, grants }),
       })
+      // Garde-fou anti-XSS : ne suit que http(s), jamais javascript:/data:.
+      if (!/^https?:\/\//i.test(res.redirect)) throw new Error('redirection invalide')
       window.location.href = res.redirect
     } catch (e) {
       setBusy(false)

@@ -113,6 +113,8 @@ async def _validate_client(conn: AsyncConnection, client_id: str, redirect_uri: 
         raise service.OAuthError("invalid_request", "client inconnu")
     if redirect_uri not in (client.get("redirect_uris") or []):
         raise service.OAuthError("invalid_request", "redirect_uri non enregistré")
+    # Défense en profondeur : re-rejette un schéma dangereux même si déjà stocké.
+    service.ensure_valid_redirect_uri(redirect_uri)
 
 
 @router.get("/oauth/authorize")

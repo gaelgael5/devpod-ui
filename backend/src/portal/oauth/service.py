@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -27,6 +28,24 @@ class OAuthError(Exception):
     description: str = ""
 
 
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def ensure_valid_redirect_uri(uri: str) -> None:
+    """Rejette tout redirect_uri non http(s) (anti-XSS : `javascript:`, `data:`…).
+
+    https obligatoire ; http toléré uniquement en loopback (dev). Fragment interdit
+    (RFC 6749 §3.1.2). La redirection finale fait `window.location.href = redirect`
+    côté client : sans ce filtre, un `javascript:` exécuterait du code sur le portail.
+    """
+    p = urlparse(uri)
+    loopback = p.hostname in _LOOPBACK_HOSTS
+    if not (p.scheme == "https" or (p.scheme == "http" and loopback)):
+        raise OAuthError("invalid_redirect_uri", "redirect_uri doit être https (ou http loopback)")
+    if p.fragment:
+        raise OAuthError("invalid_redirect_uri", "fragment interdit dans redirect_uri")
+
+
 async def register_client(
     conn: AsyncConnection,
     *,
@@ -37,6 +56,8 @@ async def register_client(
     """Enregistrement dynamique (DCR) d'un client public PKCE."""
     if not redirect_uris:
         raise OAuthError("invalid_redirect_uri", "redirect_uris requis")
+    for uri in redirect_uris:
+        ensure_valid_redirect_uri(uri)
     client_id = new_client_id()
     await db.insert_client(
         conn,
