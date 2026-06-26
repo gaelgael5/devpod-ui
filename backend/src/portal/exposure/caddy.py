@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 import httpx
 import structlog
 
@@ -17,6 +19,62 @@ def internal_verify_uri(portal_host: str, listen: str) -> str:
     return f"http://{portal_host}:{port}/auth/caddy/verify"
 
 
+def _ws_proxy(upstream: str) -> dict[str, object]:
+    """reverse_proxy vers le workspace (streaming activé pour les WebSockets VS Code)."""
+    return {
+        "handler": "reverse_proxy",
+        "upstreams": [{"dial": upstream}],
+        "flush_interval": -1,
+        "transport": {"protocol": "http", "read_buffer_size": 0},
+    }
+
+
+def _forward_auth_handler(verify_uri: str) -> dict[str, object]:
+    """Équivalent JSON de la directive Caddyfile `forward_auth` (§F-33 fail-closed).
+
+    `forward_auth` n'est PAS un handler Caddy : c'est un reverse_proxy vers le
+    serveur d'auth, réécrit en GET sur le chemin de vérification, dont la réponse
+    non-2xx est renvoyée telle quelle (accès refusé) et la 2xx laisse passer la
+    requête (en recopiant le Cookie). Structure issue de `caddy adapt`.
+    """
+    parsed = urlparse(verify_uri)
+    return {
+        "handler": "reverse_proxy",
+        "upstreams": [{"dial": parsed.netloc}],
+        "rewrite": {"method": "GET", "uri": parsed.path},
+        "headers": {
+            "request": {
+                "set": {
+                    "X-Forwarded-Method": ["{http.request.method}"],
+                    "X-Forwarded-Uri": ["{http.request.uri}"],
+                }
+            }
+        },
+        "handle_response": [
+            {
+                "match": {"status_code": [2]},
+                "routes": [
+                    {"handle": [{"handler": "vars"}]},
+                    {"handle": [{"handler": "headers", "request": {"delete": ["Cookie"]}}]},
+                    {
+                        "handle": [
+                            {
+                                "handler": "headers",
+                                "request": {
+                                    "set": {"Cookie": ["{http.reverse_proxy.header.Cookie}"]}
+                                },
+                            }
+                        ],
+                        "match": [
+                            {"not": [{"vars": {"{http.reverse_proxy.header.Cookie}": [""]}}]}
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
+
+
 def _build_route(
     route_id: str,
     match_host: str,
@@ -26,34 +84,24 @@ def _build_route(
 ) -> dict[str, object]:
     """Construit la configuration de route Caddy.
 
-    En mode production (require_auth=True) : forward_auth (§F-33 fail-closed)
-    AVANT reverse_proxy — la session OIDC est vérifiée avant tout accès workspace.
-    En mode dev (require_auth=False) : reverse_proxy seul (pas de TLS/auth).
+    En production (require_auth=True) : un subroute enchaîne l'auth (§F-33) puis le
+    reverse_proxy workspace. En dev (require_auth=False) : reverse_proxy seul.
     """
-    handlers: list[dict[str, object]] = []
-    if require_auth:
-        handlers.append(
+    if not require_auth:
+        handle: list[dict[str, object]] = [_ws_proxy(upstream)]
+    else:
+        handle = [
             {
-                "handler": "forward_auth",
-                "uri": verify_uri,
-                "copy_headers": ["Cookie"],
+                "handler": "subroute",
+                "routes": [
+                    {"handle": [_forward_auth_handler(verify_uri), _ws_proxy(upstream)]}
+                ],
             }
-        )
-    handlers.append(
-        {
-            "handler": "reverse_proxy",
-            "upstreams": [{"dial": upstream}],
-            "flush_interval": -1,
-            "transport": {
-                "protocol": "http",
-                "read_buffer_size": 0,
-            },
-        }
-    )
+        ]
     return {
         "@id": route_id,
         "match": [{"host": [match_host]}],
-        "handle": handlers,
+        "handle": handle,
         "terminal": True,
     }
 
