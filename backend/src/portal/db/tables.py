@@ -461,6 +461,11 @@ mcp_apikey = Table(
     Column("label", Text, nullable=False, server_default=""),
     Column("revoked", Boolean, nullable=False, server_default="false"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    # OAuth : un token émis par le flow OAuth est une apikey kind='oauth'.
+    Column("kind", Text, nullable=False, server_default="apikey"),  # apikey | oauth
+    Column("client_id", Text, nullable=True),  # client OAuth émetteur (informatif)
+    Column("refresh_token_hash", Text, nullable=True),  # sha256 du refresh token
+    Column("expires_at", DateTime(timezone=True), nullable=True),  # NULL = pas d'expiration
 )
 
 mcp_apikey_grant = Table(
@@ -511,4 +516,35 @@ mcp_audit_log = Table(
     Column("latency_ms", Integer, nullable=True),
     Column("status", Text, nullable=False),  # ok | error | denied | timeout
     Column("error", Text, nullable=True),
+)
+
+# ─── MCP Gateway OAuth (Authorization Server maison) ─────────────────────────
+
+mcp_oauth_client = Table(
+    "mcp_oauth_client",
+    metadata,
+    Column("client_id", Text, primary_key=True),
+    Column("redirect_uris", JSONB, nullable=False, server_default="[]"),
+    Column("client_name", Text, nullable=False, server_default=""),
+    Column("client_metadata", JSONB, nullable=False, server_default="{}"),  # DCR brut
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+mcp_oauth_authcode = Table(
+    "mcp_oauth_authcode",
+    metadata,
+    Column("code_hash", Text, primary_key=True),  # sha256 du code clair
+    Column(
+        "client_id",
+        Text,
+        ForeignKey("mcp_oauth_client.client_id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("redirect_uri", Text, nullable=False),
+    Column("code_challenge", Text, nullable=False),  # PKCE S256
+    Column("scope", Text, nullable=False, server_default=""),
+    Column("grants", JSONB, nullable=False, server_default="[]"),  # backends + curation choisis
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("used", Boolean, nullable=False, server_default="false"),
 )
