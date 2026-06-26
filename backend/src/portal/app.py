@@ -172,7 +172,10 @@ def create_app() -> FastAPI:
     # _mcp_server (index 0) est la référence bas-niveau non utilisée ici ; seul le
     # gestionnaire de sessions est monté et stocké dans app.state pour le lifespan.
     _mcp_session_manager = _build_mcp_server()[1]
-    app.mount("/mcp", StreamableHTTPASGIApp(_mcp_session_manager))
+    from .mcp.asgi_auth import BearerGate
+
+    # BearerGate : 401 + WWW-Authenticate si Bearer absent/invalide → amorce l'OAuth.
+    app.mount("/mcp", BearerGate(StreamableHTTPASGIApp(_mcp_session_manager)))
     app.state.mcp_session_manager = _mcp_session_manager
 
     # Starlette insère chaque middleware en tête de liste (prepend).

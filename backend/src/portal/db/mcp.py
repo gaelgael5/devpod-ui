@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, insert, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -248,6 +248,8 @@ async def find_apikey_by_hash(conn: AsyncConnection, token_hash: str) -> dict[st
     q = select(*_APIKEY_COLS).where(
         mcp_apikey.c.token_hash == token_hash,
         mcp_apikey.c.revoked.is_(False),
+        # Token OAuth expiré → introuvable (deny-by-default). NULL = pas d'expiration.
+        or_(mcp_apikey.c.expires_at.is_(None), mcp_apikey.c.expires_at > func.now()),
     )
     row = (await conn.execute(q)).mappings().first()
     return dict(row) if row else None
