@@ -22,7 +22,7 @@ Solution retenue : **la gateway devient son propre Authorization Server** (via A
 | D2 | Format du token OAuth | **Opaque = une apikey** : stocké comme une ligne `mcp_apikey` (hash + grants). `resolve_tenant` réutilisé tel quel |
 | D3 | Consentement | **Choix à la volée** : l'utilisateur coche backends + curation via l'écran de grants existant ; ces grants sont liés au token émis |
 | D4 | Enregistrement client | **DCR** (RFC 7591) : Claude s'enregistre seul en **client public** (PKCE, pas de secret) |
-| D5 | Implémentation AS | **Authlib** (déjà dépendance du projet) gère PKCE, authorization_code, refresh, validation `redirect_uri`, expiration |
+| D5 | Implémentation AS | **Maison ciblé** (révisé) : aligné sur l'OIDC client custom du projet (`auth/oidc.py`, joserfc). Tokens **opaques** → aucun JWT à signer ; l'AS se réduit à PKCE S256 (sha256+compare), validation `redirect_uri`, et endpoints + DB. Pas de dépendance Authlib (mal alignée avec SQLAlchemy Core async). Toutes les mentions « Authlib » de ce document sont remplacées par cette implémentation maison testée. |
 | D6 | Durée de vie du token | **Access token long‑lived, révocable** (comme une apikey) + **refresh_token** pour la conformité OAuth (rotation à la demande) |
 
 ## 3. Architecture & flux
