@@ -22,6 +22,16 @@ def _issuer() -> str:
     return load_global().server.external_url.rstrip("/")
 
 
+@router.api_route(
+    "/mcp", methods=["GET", "POST", "DELETE", "OPTIONS"], include_in_schema=False
+)
+async def mcp_trailing_slash(request: Request) -> RedirectResponse:
+    """Le transport MCP est monté sur /mcp/ ; on redirige /mcp (sans slash, 307 pour
+    préserver la méthode/body) pour les clients qui n'ajoutent pas le slash."""
+    q = request.url.query
+    return RedirectResponse("/mcp/" + (f"?{q}" if q else ""), status_code=307)
+
+
 @router.get("/.well-known/oauth-protected-resource")
 async def protected_resource() -> dict[str, Any]:
     base = _issuer()

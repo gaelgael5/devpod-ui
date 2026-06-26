@@ -41,3 +41,12 @@ async def test_register_returns_client(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     res = await r.register({"redirect_uris": ["https://claude.ai/cb"]}, conn=None)
     assert res["client_id"] == "mcpc_x"
+
+
+@pytest.mark.asyncio
+async def test_mcp_trailing_slash_redirects() -> None:
+    req = Mock()
+    req.url.query = ""
+    res = await r.mcp_trailing_slash(req)
+    assert res.status_code == 307
+    assert res.headers["location"] == "/mcp/"
