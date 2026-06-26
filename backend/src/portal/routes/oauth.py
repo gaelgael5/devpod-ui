@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import quote, urlencode
 
+import structlog
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict
@@ -16,6 +17,7 @@ from ..db.engine import get_conn
 from ..oauth import service
 
 router = APIRouter(tags=["oauth"])
+log = structlog.get_logger(__name__)
 
 
 def _issuer() -> str:
@@ -81,27 +83,42 @@ async def token(request: Request, conn: AsyncConnection = Depends(get_conn)) -> 
     """Token endpoint (RFC 6749) — form-encoded ; authorization_code ou refresh_token."""
     form = await request.form()
     grant_type = form.get("grant_type")
+    # Diagnostic OAuth : noms de champs uniquement (jamais code/verifier/secret).
+    log.info(
+        "oauth_token_request",
+        grant_type=grant_type,
+        field_keys=sorted(form.keys()),
+        content_type=request.headers.get("content-type"),
+        has_auth_header="authorization" in {k.lower() for k in request.headers},
+    )
     try:
         if grant_type == "authorization_code":
-            return await service.exchange_code(
+            res = await service.exchange_code(
                 conn,
                 code=_req(form, "code"),
                 client_id=_req(form, "client_id"),
                 redirect_uri=_req(form, "redirect_uri"),
                 code_verifier=_req(form, "code_verifier"),
             )
+            log.info("oauth_token_issued", grant_type=grant_type)
+            return res
         if grant_type == "refresh_token":
-            return await service.refresh(
+            res = await service.refresh(
                 conn,
                 refresh_token=_req(form, "refresh_token"),
                 client_id=_req(form, "client_id"),
             )
+            log.info("oauth_token_issued", grant_type=grant_type)
+            return res
+        log.warning("oauth_token_unsupported_grant", grant_type=grant_type)
         return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
     except service.OAuthError as exc:
+        log.warning("oauth_token_error", error=exc.error, description=exc.description)
         return JSONResponse(
             {"error": exc.error, "error_description": exc.description}, status_code=400
         )
     except KeyError as exc:
+        log.warning("oauth_token_missing_param", missing=str(exc))
         return JSONResponse(
             {"error": "invalid_request", "error_description": f"missing {exc}"}, status_code=400
         )
