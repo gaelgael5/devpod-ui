@@ -142,7 +142,11 @@ async def logout(request: Request) -> RedirectResponse:
         vault_session.clear_session(sid)
     request.session.clear()
     _log.info("user_logged_out", login=login_name)
-    return RedirectResponse("/", status_code=302)
+    resp = RedirectResponse("/", status_code=302)
+    # Expire aussi un éventuel cookie de session legacy host-only (posé avant
+    # COOKIE_DOMAIN) ; le SessionMiddleware, lui, ne supprime que celui sur son domaine.
+    resp.delete_cookie("portal_session", path="/")
+    return resp
 
 
 async def provision_user(login: str, sub: str, data_root: Path) -> None:
