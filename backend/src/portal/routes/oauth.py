@@ -122,6 +122,9 @@ async def token(request: Request, conn: AsyncConnection = Depends(get_conn)) -> 
         return JSONResponse(
             {"error": "invalid_request", "error_description": f"missing {exc}"}, status_code=400
         )
+    except Exception:  # noqa: BLE001 — pas de 500 muet : on logge le traceback complet.
+        log.exception("oauth_token_unexpected_error", grant_type=grant_type)
+        return JSONResponse({"error": "server_error"}, status_code=500)
 
 
 async def _validate_client(conn: AsyncConnection, client_id: str, redirect_uri: str) -> None:
