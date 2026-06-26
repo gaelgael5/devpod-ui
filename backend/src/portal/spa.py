@@ -12,6 +12,12 @@ _BACKEND_NAV_PATHS: tuple[str, ...] = (
     "/auth/logout",
     "/auth/oidc",
     "/auth/callback",
+    # OAuth (gateway MCP) : routes backend atteintes par le navigateur ou Claude.
+    # /oauth/authorize est une redirection navigateur vers l'AS — surtout PAS le SPA,
+    # sinon React Router 404. /oauth/consent N'EST PAS listé : c'est une vraie page React.
+    "/oauth/authorize",
+    "/.well-known",
+    "/mcp",
 )
 
 

@@ -21,6 +21,20 @@ def test_no_spa_for_backend_auth_routes() -> None:
     assert not should_serve_spa("GET", "/auth/callback", _HTML)
 
 
+def test_no_spa_for_oauth_backend_routes() -> None:
+    # /oauth/authorize est une redirection navigateur vers l'AS (backend), pas une page React.
+    assert not should_serve_spa("GET", "/oauth/authorize", _HTML)
+    assert not should_serve_spa("GET", "/oauth/authorize?client_id=x", _HTML)
+    assert not should_serve_spa("GET", "/.well-known/oauth-authorization-server", _HTML)
+    assert not should_serve_spa("GET", "/mcp", _HTML)
+    assert not should_serve_spa("GET", "/mcp/", _HTML)
+
+
+def test_spa_still_serves_oauth_consent() -> None:
+    # /oauth/consent EST une route React → doit être servie par le SPA.
+    assert should_serve_spa("GET", "/oauth/consent", _HTML)
+
+
 def test_no_spa_for_assets() -> None:
     assert not should_serve_spa("GET", "/assets/index-abc123.js", _HTML)
     assert not should_serve_spa("GET", "/favicon.ico", _HTML)
