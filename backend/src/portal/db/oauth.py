@@ -94,3 +94,39 @@ async def find_apikey_by_refresh_hash(
         )
     ).mappings().first()
     return dict(row) if row else None
+
+
+async def insert_oauth_token(
+    conn: AsyncConnection,
+    *,
+    id: str,
+    owner_login: str,
+    token_hash: str,
+    client_id: str,
+    refresh_token_hash: str,
+    expires_at: datetime | None,
+) -> None:
+    """Insère un access token OAuth = une apikey kind='oauth'."""
+    await conn.execute(
+        insert(mcp_apikey).values(
+            id=id,
+            owner_login=owner_login,
+            token_hash=token_hash,
+            label="oauth",
+            kind="oauth",
+            client_id=client_id,
+            refresh_token_hash=refresh_token_hash,
+            expires_at=expires_at,
+        )
+    )
+
+
+async def rotate_token(
+    conn: AsyncConnection, *, apikey_id: str, token_hash: str, refresh_token_hash: str
+) -> None:
+    """Rotation refresh : remplace access + refresh sur la même apikey (grants conservés)."""
+    await conn.execute(
+        update(mcp_apikey)
+        .where(mcp_apikey.c.id == apikey_id)
+        .values(token_hash=token_hash, refresh_token_hash=refresh_token_hash)
+    )
