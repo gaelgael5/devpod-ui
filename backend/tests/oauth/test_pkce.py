@@ -8,7 +8,8 @@ from portal.oauth.pkce import verify_s256
 
 
 def _challenge(verifier: str) -> str:
-    return base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    digest = hashlib.sha256(verifier.encode()).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 
 
 def test_valid_verifier() -> None:
