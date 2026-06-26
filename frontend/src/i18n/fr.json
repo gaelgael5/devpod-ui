@@ -649,7 +649,13 @@
   "mcp": {
     "tabLabel": "MCP",
     "title": "Passerelle MCP",
-    "info": "Enregistrez vos serveurs MCP, leurs clés d'authentification, et émettez des apikeys clients pour connecter Claude web à un ensemble de services.",
+    "info": "Fédère plusieurs serveurs MCP derrière une passerelle unique et contrôle quels services chaque client peut utiliser.",
+    "webTitle": "Claude web (OAuth)",
+    "webHint": "Ajoute cette URL comme connecteur personnalisé dans Claude. La connexion se fait en OAuth — tu choisis les services sur l'écran de consentement. Rien à créer ici.",
+    "desktopTitle": "Claude Desktop / scripts",
+    "desktopHint": "Émets une apikey ci-dessous et colle-la dans la config du client (Authorization: Bearer).",
+    "copy": "Copier",
+    "gatewayUrlCopied": "URL de la passerelle copiée",
     "backends": {
       "sectionTitle": "Serveurs MCP",
       "add": "Ajouter un serveur",

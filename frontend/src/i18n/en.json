@@ -649,7 +649,13 @@
   "mcp": {
     "tabLabel": "MCP",
     "title": "MCP Gateway",
-    "info": "Register your MCP servers, their authentication keys, and issue client apikeys to connect Claude web to a set of services.",
+    "info": "Federate several MCP servers behind a single gateway and control which services each client may use.",
+    "webTitle": "Claude web (OAuth)",
+    "webHint": "Add this URL as a custom connector in Claude. Sign-in uses OAuth — you pick the services on the consent screen. Nothing to create here.",
+    "desktopTitle": "Claude Desktop / scripts",
+    "desktopHint": "Issue an apikey below and paste it into the client config (Authorization: Bearer).",
+    "copy": "Copy",
+    "gatewayUrlCopied": "Gateway URL copied",
     "backends": {
       "sectionTitle": "MCP Servers",
       "add": "Add a server",
