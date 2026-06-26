@@ -45,7 +45,7 @@ from .routes.workspace_ops import _get_service
 from .routes.workspace_ops import router as workspace_ops_router
 from .routes.workspace_sessions import router as workspace_sessions_router
 from .routes.workspace_ssh import router as workspace_ssh_router
-from .settings import get_settings
+from .settings import get_settings, session_cookie_domain
 from .spa import should_serve_spa
 
 _log = structlog.get_logger(__name__)
@@ -185,6 +185,8 @@ def create_app() -> FastAPI:
         https_only=not settings.dev_mode,
         same_site="lax",
         max_age=86400,
+        # Partage le cookie avec les sous-domaines workspace (forward_auth Caddy).
+        domain=session_cookie_domain(settings.base_domain),
     )
     app.include_router(auth_router)
     app.include_router(me_router, prefix="/me")

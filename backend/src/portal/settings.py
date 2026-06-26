@@ -13,6 +13,10 @@ class AppSettings(BaseSettings):
     # Mode développement local (désactive https_only et autorise session key vide)
     dev_mode: bool = False
 
+    # Domaine de base (env BASE_DOMAIN, ex. "dev.yoops.org"). Sert à poser le cookie
+    # de session sur ".{base_domain}" pour le partager avec les sous-domaines workspace.
+    base_domain: str = ""
+
     # Session (cookie signé)
     session_secret_key: str = ""
 
@@ -44,6 +48,17 @@ class AppSettings(BaseSettings):
 
     # MCP : intervalle de la boucle de monitoring des backends (secondes).
     mcp_monitor_interval_s: float = 300.0
+
+
+def session_cookie_domain(base_domain: str) -> str | None:
+    """Domaine du cookie de session.
+
+    Retourne ".{base_domain}" pour que le cookie soit transmis aux sous-domaines
+    workspace (ws-xxx.{base_domain}) — indispensable au forward_auth Caddy. Domaine
+    vide → cookie host-only (None).
+    """
+    bd = base_domain.strip()
+    return f".{bd}" if bd else None
 
 
 _settings: AppSettings | None = None
