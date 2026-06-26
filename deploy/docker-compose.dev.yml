@@ -49,7 +49,10 @@ services:
     restart: unless-stopped
     env_file: /data/.env
     volumes:
-      - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      # Host matcher http://{$BASE_DOMAIN} : le portail répond sur le domaine de base
+      # et les routes workspace (ws-*.{domaine}) sont ajoutées dynamiquement (M6).
+      # Caddyfile.dev (catch-all :80) ne convient qu'au dev local sans domaine.
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     ports:
