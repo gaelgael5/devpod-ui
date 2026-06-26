@@ -202,20 +202,22 @@ async def caddy_verify(request: Request) -> Response:
     """Endpoint Caddy forward_auth — valide la session OIDC. §F-33 fail-closed.
 
     Caddy appelle cet endpoint pour chaque requête vers un workspace.
-    Retourne 200 si la session est valide et le rôle autorisé, 401 sinon.
-    Fail-closed : tout doute → 401, aucune exception ne laisse passer.
+    Sans session valide → 302 vers le login (le navigateur est redirigé, pas de
+    page blanche). Session valide mais rôle insuffisant → 403. Sinon → 200.
+    Fail-closed : tout doute refuse l'accès au workspace.
     """
     settings = get_settings()
+    login_url = f"{load_global().server.external_url}/auth/login"
     try:
         user = rbac_mod.get_current_user(request)
     except Exception as exc:
         _log.warning("caddy_verify_denied", reason="exception", exc_type=type(exc).__name__)
-        return Response(status_code=401)
+        return RedirectResponse(login_url, status_code=302)
     if user is None:
         _log.warning("caddy_verify_denied", reason="no_session")
-        return Response(status_code=401)
+        return RedirectResponse(login_url, status_code=302)
     allowed = {settings.oidc_user_role, settings.oidc_admin_role}
     if not set(user.roles) & allowed:
         _log.warning("caddy_verify_denied", reason="role_mismatch", login=user.login)
-        return Response(status_code=401)
+        return Response(status_code=403)
     return Response(status_code=200)
