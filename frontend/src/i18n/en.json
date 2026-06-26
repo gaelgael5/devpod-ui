@@ -225,6 +225,19 @@
         "copy": "Copy"
       }
     },
+    "network": {
+      "navLabel": "Network",
+      "title": "Network configuration",
+      "intro": "Public domain and URL of the portal. Setting the base domain enables workspace exposure by sub-domain (https://ws-xxx.<domain>).",
+      "baseDomain": "Base domain",
+      "baseDomainHint": "E.g. dev.yoops.org. Empty → no sub-domain routing (direct IP:port URL).",
+      "externalUrl": "External URL",
+      "externalUrlHint": "Absolute public URL of the portal, e.g. https://dev.yoops.org.",
+      "workspaceHost": "Direct workspace host",
+      "workspaceHostHint": "Optional. IP/host reachable directly when there is no sub-domain, e.g. 192.168.10.50.",
+      "save": "Save",
+      "saved": "Network configuration saved"
+    },
     "testHostParams": {
       "btn": "Test host config",
       "title": "Test host configuration",

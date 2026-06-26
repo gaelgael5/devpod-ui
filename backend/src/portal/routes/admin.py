@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
-from ..config.models import GlobalConfig, HostConfig, Hypervisor
+from ..config.models import GlobalConfig, HostConfig, Hypervisor, validate_network
 from ..config.store import _data_root, load_global
 from ..db.engine import get_conn
 from ..db.global_config import save_global_db
@@ -174,6 +174,46 @@ async def put_local_domain(
         await save_global_db(cfg, conn)
     _log.info("local_domain_updated", by=user.login, local_domain=cfg.server.local_domain)
     return {"local_domain": cfg.server.local_domain}
+
+
+class NetworkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base_domain: str = ""
+    external_url: str = ""
+    workspace_host: str = ""
+
+
+@router.get("/network")
+async def get_network(user: UserInfo = Depends(require_admin)) -> dict[str, str]:
+    s = load_global().server
+    return {
+        "base_domain": s.base_domain,
+        "external_url": s.external_url,
+        "workspace_host": s.workspace_host,
+    }
+
+
+@router.put("/network")
+async def put_network(
+    body: NetworkRequest, user: UserInfo = Depends(require_admin)
+) -> dict[str, str]:
+    """Config réseau : domaine de base, URL externe, hôte direct des workspaces.
+
+    base_domain renseigné → exposition des workspaces par sous-domaine Caddy.
+    """
+    try:
+        clean = validate_network(body.base_domain, body.external_url, body.workspace_host)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    cfg = load_global()
+    cfg.server = cfg.server.model_copy(update=clean)
+    from ..db.engine import _get_engine
+
+    async with _get_engine().begin() as conn:
+        await save_global_db(cfg, conn)
+    _log.info("network_config_updated", by=user.login, base_domain=clean["base_domain"])
+    return clean
 
 
 # ─── Hosts CRUD ───────────────────────────────────────────────────────────────

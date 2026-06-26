@@ -116,6 +116,9 @@ export default function AppShell() {
                   <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
                     {t('admin.oidc.navLabel')}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/network')}>
+                    {t('admin.network.navLabel')}
+                  </DropdownMenuItem>
                 </>
               )}
 

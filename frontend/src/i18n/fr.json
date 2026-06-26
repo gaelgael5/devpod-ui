@@ -225,6 +225,19 @@
         "copy": "Copier"
       }
     },
+    "network": {
+      "navLabel": "Réseau",
+      "title": "Configuration réseau",
+      "intro": "Domaine et URL publics du portail. Renseigner le domaine de base active l'exposition des workspaces par sous-domaine (https://ws-xxx.<domaine>).",
+      "baseDomain": "Domaine de base",
+      "baseDomainHint": "Ex. dev.yoops.org. Vide → pas de routage par sous-domaine (URL directe IP:port).",
+      "externalUrl": "URL externe",
+      "externalUrlHint": "URL publique absolue du portail, ex. https://dev.yoops.org.",
+      "workspaceHost": "Hôte direct des workspaces",
+      "workspaceHostHint": "Optionnel. IP/hôte joignable en direct quand il n'y a pas de sous-domaine, ex. 192.168.10.50.",
+      "save": "Enregistrer",
+      "saved": "Configuration réseau enregistrée"
+    },
     "testHostParams": {
       "btn": "Paramétrage host de test",
       "title": "Paramétrage du host de test",

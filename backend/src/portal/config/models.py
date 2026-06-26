@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import uuid
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -32,6 +33,32 @@ class ServerConfig(BaseModel):
     # re-résoudre son IP DHCP. Vide → on résout le nom seul.
     local_domain: str = ""
     log: LogConfig = Field(default_factory=LogConfig)
+
+
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)[a-z0-9](-?[a-z0-9])*(\.[a-z0-9](-?[a-z0-9])*)*$", re.IGNORECASE
+)
+
+
+def validate_network(base_domain: str, external_url: str, workspace_host: str) -> dict[str, str]:
+    """Valide/normalise la config réseau saisie par l'admin.
+
+    Le vide est autorisé (routage par sous-domaine désactivé). Si renseigné :
+    base_domain/workspace_host doivent être un hôte valide (le regex couvre aussi
+    les IPv4), external_url une URL absolue http(s). Retourne les valeurs nettoyées.
+    """
+    bd = base_domain.strip()
+    if bd and not _HOSTNAME_RE.fullmatch(bd):
+        raise ValueError(f"base_domain invalide: {base_domain!r}")
+    eu = external_url.strip().rstrip("/")
+    if eu:
+        parsed = urlparse(eu)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError(f"external_url doit être une URL absolue http(s): {external_url!r}")
+    wh = workspace_host.strip()
+    if wh and not _HOSTNAME_RE.fullmatch(wh):
+        raise ValueError(f"workspace_host invalide: {workspace_host!r}")
+    return {"base_domain": bd, "external_url": eu, "workspace_host": wh}
 
 
 class OidcConfig(BaseModel):
