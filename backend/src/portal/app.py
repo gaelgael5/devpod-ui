@@ -24,6 +24,7 @@ from .routes.certificates import router_me as certs_me_router
 from .routes.mcp import router as mcp_router
 from .routes.me import router as me_router
 from .routes.nodes import router as nodes_router
+from .routes.oauth import router as oauth_router
 from .routes.plugins import get_openvsx
 from .routes.plugins import router as plugins_router
 from .routes.profile_sources import router_admin as profile_sources_admin_router
@@ -213,6 +214,7 @@ def create_app() -> FastAPI:
     app.include_router(secrets_me_router, prefix="/me")
     app.include_router(secrets_admin_router, prefix="/admin")
     app.include_router(mcp_router, prefix="/me")
+    app.include_router(oauth_router)  # racine : /.well-known/* et /oauth/*
     # static_router en dernier : son catch-all /{full_path:path} ne doit pas
     # intercepter les routes API enregistrées avant lui.
     app.include_router(static_router)
