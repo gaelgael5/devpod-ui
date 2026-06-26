@@ -13,9 +13,14 @@ class AppSettings(BaseSettings):
     # Mode développement local (désactive https_only et autorise session key vide)
     dev_mode: bool = False
 
-    # Domaine de base (env BASE_DOMAIN, ex. "dev.yoops.org"). Sert à poser le cookie
-    # de session sur ".{base_domain}" pour le partager avec les sous-domaines workspace.
+    # Domaine de base (env BASE_DOMAIN, ex. "dev.yoops.org"). Sert au host matcher Caddy
+    # et, par défaut, au domaine du cookie de session.
     base_domain: str = ""
+
+    # Domaine du cookie de session (env COOKIE_DOMAIN). À renseigner quand portail et
+    # workspaces ne partagent qu'un ancêtre commun (ex. portail dev.yoops.org +
+    # workspaces ws-x.yoops.org → COOKIE_DOMAIN=yoops.org). Vide → base_domain.
+    cookie_domain: str = ""
 
     # Session (cookie signé)
     session_secret_key: str = ""
@@ -50,15 +55,14 @@ class AppSettings(BaseSettings):
     mcp_monitor_interval_s: float = 300.0
 
 
-def session_cookie_domain(base_domain: str) -> str | None:
-    """Domaine du cookie de session.
+def resolve_cookie_domain(cookie_domain: str, base_domain: str) -> str | None:
+    """Domaine du cookie de session, pour le transmettre aux workspaces (forward_auth).
 
-    Retourne ".{base_domain}" pour que le cookie soit transmis aux sous-domaines
-    workspace (ws-xxx.{base_domain}) — indispensable au forward_auth Caddy. Domaine
-    vide → cookie host-only (None).
+    `cookie_domain` explicite prime (cas où portail et workspaces n'ont qu'un ancêtre
+    commun) ; sinon on retombe sur `base_domain`. Retourne ".{domaine}" ou None si vide.
     """
-    bd = base_domain.strip()
-    return f".{bd}" if bd else None
+    src = (cookie_domain or base_domain).strip()
+    return f".{src}" if src else None
 
 
 _settings: AppSettings | None = None
