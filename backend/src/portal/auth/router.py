@@ -13,7 +13,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel
 
-from ..config.store import _data_root, ensure_user_dir
+from ..config.models import OidcConfig
+from ..config.store import _data_root, ensure_user_dir, load_global
 from ..settings import get_settings
 from . import rbac as rbac_mod
 from .oidc import OIDCClient, OIDCError
@@ -23,6 +24,7 @@ _log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 _oidc_client: OIDCClient | None = None
+_oidc_client_key: tuple[str, str, str] | None = None
 
 
 class LocalLoginRequest(BaseModel):
@@ -30,27 +32,42 @@ class LocalLoginRequest(BaseModel):
     password: str
 
 
+def auth_flags(oidc: OidcConfig, local_user: str, local_password_hash: str) -> dict[str, bool]:
+    """Flags pour la page de login.
+
+    OIDC (SSO) est piloté par la config (issuer + client_id renseignés via l'admin) ;
+    le login local (admin break-glass) par le `.env` (LOCAL_USER/LOCAL_PASSWORD).
+    """
+    return {
+        "oidc_enabled": bool(oidc.issuer and oidc.client_id),
+        "local_auth_enabled": bool(local_user and local_password_hash),
+    }
+
+
 def _get_oidc_client() -> OIDCClient:
-    global _oidc_client
-    if _oidc_client is None:
-        settings = get_settings()
+    """Client OIDC construit depuis la config (DB). Reconstruit si la config change."""
+    global _oidc_client, _oidc_client_key
+    settings = get_settings()
+    oidc = load_global().auth.oidc
+    key = (oidc.issuer, oidc.client_id, oidc.client_secret)
+    if _oidc_client is None or _oidc_client_key != key:
         _oidc_client = OIDCClient(
-            issuer=settings.oidc_issuer,
-            client_id=settings.oidc_client_id,
-            client_secret=settings.oidc_client_secret,
+            issuer=oidc.issuer,
+            client_id=oidc.client_id,
+            client_secret=oidc.client_secret,
             redirect_uri=settings.oidc_redirect_uri,
             leeway=settings.oidc_leeway,
         )
+        _oidc_client_key = key
     return _oidc_client
 
 
 @router.get("/config")
 async def auth_config() -> dict[str, bool]:
     settings = get_settings()
-    return {
-        "oidc_enabled": bool(settings.oidc_issuer and settings.oidc_client_id),
-        "local_auth_enabled": bool(settings.local_user and settings.local_password_hash),
-    }
+    return auth_flags(
+        load_global().auth.oidc, settings.local_user, settings.local_password_hash
+    )
 
 
 @router.post("/local-login")
@@ -69,7 +86,7 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
     request.session.setdefault("session_id", str(uuid.uuid4()))
     request.session["user"] = {
         "login": settings.local_user,
-        "roles": [settings.oidc_admin_role],
+        "roles": [load_global().auth.oidc.admin_role],
         "sub": "local",
     }
     _log.info("local_login_success", login=settings.local_user)
@@ -78,13 +95,17 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
 
 @router.get("/oidc")
 async def oidc_login(request: Request) -> RedirectResponse:
+    oidc = load_global().auth.oidc
+    if not (oidc.issuer and oidc.client_id):
+        # OIDC non configuré → retour à la page de login (jamais un 500).
+        return RedirectResponse("/auth/login", status_code=302)
     url = await _get_oidc_client().authorization_url(request.session)
     return RedirectResponse(url, status_code=302)
 
 
 @router.get("/callback")
 async def callback(request: Request, code: str, state: str) -> RedirectResponse:
-    settings = get_settings()
+    oidc = load_global().auth.oidc
     try:
         claims = await _get_oidc_client().exchange_and_validate(
             code=code, state=state, session=request.session
@@ -93,14 +114,14 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
         _log.warning("oidc_callback_error", error=str(exc))
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-    raw_login = claims.get(settings.oidc_username_claim, "")
+    raw_login = claims.get(oidc.username_claim, "")
     try:
         login_name = validate_username(str(raw_login))
     except UsernameError as exc:
         _log.warning("oidc_invalid_username", username=raw_login)
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-    roles = extract_roles(claims, settings.oidc_role_claim)
+    roles = extract_roles(claims, oidc.role_claim)
     sub = str(claims.get("sub", ""))
 
     await provision_user(login=login_name, sub=sub, data_root=_data_root())
@@ -125,7 +146,7 @@ async def logout(request: Request) -> RedirectResponse:
 
 
 async def provision_user(login: str, sub: str, data_root: Path) -> None:
-    """Crée le répertoire, config YAML initiale si absent, et upsert la row users en DB. Idempotent."""
+    """Crée le répertoire + config YAML initiale si absent, upsert la row users. Idempotent."""
     validate_username(login)
     user_dir = data_root / "users" / login
     config_path = user_dir / "config.yaml"
