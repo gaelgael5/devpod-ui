@@ -94,6 +94,9 @@ async def test_upsert_route_json_structure() -> None:
     assert auth["upstreams"] == [{"dial": "dev.yoops.org"}]  # netloc du verify_uri
     assert auth["rewrite"] == {"method": "GET", "uri": "/auth/caddy/verify"}
     assert "handle_response" in auth  # non-2xx → réponse d'auth renvoyée telle quelle
+    # Upgrade/Connection retirés de la sous-requête d'auth, sinon le verify reçoit un
+    # handshake WebSocket et le rejette (403) → WS du workspace cassé.
+    assert auth["headers"]["request"]["delete"] == ["Connection", "Upgrade"]
     # 2) reverse_proxy workspace
     ws = inner[1]
     assert ws["handler"] == "reverse_proxy"

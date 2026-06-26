@@ -47,7 +47,12 @@ def _forward_auth_handler(verify_uri: str) -> dict[str, object]:
                 "set": {
                     "X-Forwarded-Method": ["{http.request.method}"],
                     "X-Forwarded-Uri": ["{http.request.uri}"],
-                }
+                },
+                # Retire l'upgrade WebSocket de la sous-requête d'auth : sinon le
+                # reverse_proxy tente un handshake WS vers /auth/caddy/verify (endpoint
+                # HTTP) qui le rejette (403), cassant le WS du workspace. Le proxy
+                # workspace suivant, lui, conserve l'upgrade.
+                "delete": ["Connection", "Upgrade"],
             }
         },
         "handle_response": [
