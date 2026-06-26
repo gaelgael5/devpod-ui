@@ -636,6 +636,16 @@
       "API_KEY": "Generic API Key"
     }
   },
+  "oauth": {
+    "consent": {
+      "title": "Authorize access",
+      "intro": "An application requests access to your MCP gateway. Choose the services it may use.",
+      "backends": "Granted services",
+      "noBackends": "No MCP service registered.",
+      "allow": "Authorize",
+      "deny": "Deny"
+    }
+  },
   "mcp": {
     "tabLabel": "MCP",
     "title": "MCP Gateway",

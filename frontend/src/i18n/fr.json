@@ -636,6 +636,16 @@
       "API_KEY": "Clé API générique"
     }
   },
+  "oauth": {
+    "consent": {
+      "title": "Autoriser l'accès",
+      "intro": "Une application demande l'accès à ta passerelle MCP. Choisis les services qu'elle pourra utiliser.",
+      "backends": "Services accordés",
+      "noBackends": "Aucun service MCP enregistré.",
+      "allow": "Autoriser",
+      "deny": "Refuser"
+    }
+  },
   "mcp": {
     "tabLabel": "MCP",
     "title": "Passerelle MCP",

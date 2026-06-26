@@ -27,6 +27,7 @@ const VaultSetup = lazy(() => import('@/features/vault/VaultSetup'))
 const VaultUnlock = lazy(() => import('@/features/vault/VaultUnlock'))
 const VaultRecover = lazy(() => import('@/features/vault/VaultRecover'))
 const VaultKeys = lazy(() => import('@/features/vault/VaultKeys'))
+const ConsentPage = lazy(() => import('@/features/oauth/ConsentPage'))
 
 function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -35,6 +36,17 @@ function Wrap({ children }: { children: ReactNode }) {
 export const router = createBrowserRouter([
   { path: '/auth/login', element: <LoginPage /> },
   { path: '/auth/callback', element: <AuthCallbackPage /> },
+  {
+    // Consentement OAuth (gateway MCP) — authentifié, hors AppShell/VaultGuard.
+    path: '/oauth/consent',
+    element: (
+      <RequireAuth>
+        <Wrap>
+          <ConsentPage />
+        </Wrap>
+      </RequireAuth>
+    ),
+  },
   {
     // Page plein-écran gestion des sessions terminal — hors AppShell
     path: '/workspaces/:wsName/terminals',
