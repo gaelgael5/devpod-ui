@@ -22,6 +22,7 @@ from portal.mcp.aggregator import (
 )
 from portal.mcp.client import call_backend_tool, get_backend_prompt
 from portal.mcp.connections import BackendUnavailable, open_session
+from portal.mcp.devpod_tools import execute_internal_tool
 from portal.mcp.dispatch_common import resolve_bearer
 from portal.mcp.monitor import get_health
 
@@ -118,8 +119,14 @@ async def execute_tool_call(
 
     started = time.perf_counter()
     try:
-        async with session_fn(target.url, bearer=bearer) as session:
-            result = await call_backend_tool(session, target.original_name, arguments)
+        if target.transport == "internal":
+            # Backend interne (devpod) : implémentation Python locale, pas d'appel HTTP.
+            result = await execute_internal_tool(
+                conn, target.original_name, arguments, owner_login=owner_login
+            )
+        else:
+            async with session_fn(target.url, bearer=bearer) as session:
+                result = await call_backend_tool(session, target.original_name, arguments)
     except BackendUnavailable as exc:
         await audit_record(
             conn, apikey_id=apikey_id, owner_login=owner_login,

@@ -142,6 +142,13 @@ async def _resolve_target(
         )
         if match is None or match["quarantined"]:
             return None
+        # Enforcement par scope (spec 24 §4) : la primitive déclare son scope requis
+        # dans sa definition ; le grant accorde un ensemble de scopes. NULL côté grant
+        # = pas d'enforcement (backends externes inchangés). Deny-by-default sinon.
+        required_scope = (match["definition"] or {}).get("scope")
+        grant_scopes = grant.get("scopes")
+        if required_scope and grant_scopes is not None and required_scope not in grant_scopes:
+            return None
         return CallTarget(
             backend_id=grant["backend_id"],
             original_name=original,

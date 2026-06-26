@@ -112,6 +112,11 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
             await ensure_system_user(conn)
 
+            # Backend MCP interne devpod : enregistrement idempotent + catalogue.
+            from .mcp.devpod_bootstrap import bootstrap_devpod
+
+            await bootstrap_devpod(conn)
+
         # Pas de synchro automatique des recettes : c'est l'admin qui choisit quoi
         # synchroniser, via POST /admin/recipes/sync.
 

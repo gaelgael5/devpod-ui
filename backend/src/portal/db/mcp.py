@@ -299,6 +299,7 @@ async def set_grant(
     expose_mode: str = "all",
     expose: list[str] | None = None,
     enabled: bool = True,
+    scopes: list[str] | None = None,
 ) -> None:
     expose = expose or []
     stmt = pg_insert(mcp_apikey_grant).values(
@@ -308,6 +309,7 @@ async def set_grant(
         expose_mode=expose_mode,
         expose=expose,
         enabled=enabled,
+        scopes=scopes,
     )
     stmt = stmt.on_conflict_do_update(
         constraint="uq_mcp_apikey_grant_apikey_backend",
@@ -316,6 +318,7 @@ async def set_grant(
             "expose_mode": expose_mode,
             "expose": expose,
             "enabled": enabled,
+            "scopes": scopes,
         },
     )
     await conn.execute(stmt)
@@ -329,6 +332,7 @@ async def list_grants(conn: AsyncConnection, apikey_id: str) -> list[dict[str, A
         mcp_apikey_grant.c.expose_mode,
         mcp_apikey_grant.c.expose,
         mcp_apikey_grant.c.enabled,
+        mcp_apikey_grant.c.scopes,
     ).where(mcp_apikey_grant.c.apikey_id == apikey_id)
     return [dict(r) for r in (await conn.execute(q)).mappings().all()]
 

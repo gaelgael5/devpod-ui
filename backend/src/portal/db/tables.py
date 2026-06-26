@@ -484,6 +484,9 @@ mcp_apikey_grant = Table(
     Column("expose", JSONB, nullable=False, server_default="[]"),
     # False = service accordé mais temporairement désactivé (invisible au runtime).
     Column("enabled", Boolean, nullable=False, server_default="true"),
+    # Scopes accordés (read/write/exec/admin), pour les backends internes (devpod).
+    # NULL = pas d'enforcement de scope (backends externes type deepwiki inchangés).
+    Column("scopes", JSONB, nullable=True),
     UniqueConstraint("apikey_id", "backend_id", name="uq_mcp_apikey_grant_apikey_backend"),
 )
 
