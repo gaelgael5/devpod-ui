@@ -6,6 +6,17 @@ import structlog
 _log = structlog.get_logger(__name__)
 
 
+def internal_verify_uri(portal_host: str, listen: str) -> str:
+    """URI du forward_auth Caddy, en interne sur le réseau Docker.
+
+    Caddy interroge le portail directement (ex. http://portal:8080/auth/caddy/verify)
+    plutôt que via l'URL publique : pas d'aller-retour Cloudflare ni de boucle réseau.
+    Le port est extrait de `listen` (ex. "0.0.0.0:8080").
+    """
+    port = listen.rsplit(":", 1)[-1]
+    return f"http://{portal_host}:{port}/auth/caddy/verify"
+
+
 def _build_route(
     route_id: str,
     match_host: str,

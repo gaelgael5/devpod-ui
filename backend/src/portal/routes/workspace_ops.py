@@ -140,7 +140,7 @@ def _build_service() -> DevPodService:
     import httpx
 
     from ..exposure import ExposureService
-    from ..exposure.caddy import CaddyClient
+    from ..exposure.caddy import CaddyClient, internal_verify_uri
     from ..exposure.ports import PortRegistry
 
     global_cfg = load_global()
@@ -153,7 +153,8 @@ def _build_service() -> DevPodService:
     registry = PortRegistry()
     caddy: CaddyClient | None = None
     if global_cfg.caddy.admin_api:
-        verify_uri = f"{global_cfg.server.external_url}/auth/caddy/verify"
+        # Forward_auth en interne (réseau Docker) plutôt que via l'URL publique.
+        verify_uri = internal_verify_uri(global_cfg.caddy.portal_host, global_cfg.server.listen)
         caddy = CaddyClient(
             admin_api=global_cfg.caddy.admin_api,
             http_client=httpx.AsyncClient(),
