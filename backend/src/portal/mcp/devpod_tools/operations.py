@@ -10,9 +10,10 @@ import os
 import re
 import tempfile
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -98,3 +99,23 @@ def list_operations(owner_login: str, workspace: str | None = None) -> list[dict
         rows.append(op)
     rows.sort(key=lambda o: o.get("created_at", ""))
     return rows
+
+
+async def run_operation_now(operation_id: str, work: Callable[[], Awaitable[Any]]) -> None:
+    update_operation(operation_id, state="running")
+    try:
+        result = await work()
+        update_operation(operation_id, state="done", progress=100, result=result)
+    except Exception as exc:
+        update_operation(operation_id, state="failed", error=f"{type(exc).__name__}: {exc}")
+
+
+def launch_operation(
+    kind: str, workspace: str, owner_login: str, work: Callable[[], Awaitable[Any]]
+) -> str:
+    op = create_operation(kind, workspace, owner_login)
+    oid = cast(str, op["operation_id"])
+    task = asyncio.create_task(run_operation_now(oid, work))
+    _op_tasks.add(task)
+    task.add_done_callback(_op_tasks.discard)
+    return oid
