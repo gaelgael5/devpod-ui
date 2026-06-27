@@ -1,0 +1,69 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # POSTGRES_USER / POSTGRES_PASSWORD lus depuis /data/.env (pas de substitution YAML)
+    env_file: /data/.env
+    environment:
+      # Base fixe — pas un secret, pas besoin d'être dans .env
+      POSTGRES_DB: portal
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # PROD : port 5432 NON publié sur l'hôte — accès uniquement via le réseau `internal`.
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-portal}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  portal:
+    # Image pré-publiée par la CI sur GHCR (branche main) — aucun build sur la VM.
+    image: ghcr.io/gaelgael5/workspace-portal:main
+    restart: unless-stopped
+    env_file: /data/.env
+    volumes:
+      - /data:/data
+      - /data/.devpod:/root/.devpod
+    # PROD : plage workspace 40000-40019 NON publiée — tout transite par Caddy + OIDC (§F-33).
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    # Image Caddy + plugin DNS Cloudflare, pré-publiée par la CI sur GHCR (branche main).
+    image: ghcr.io/gaelgael5/workspace-caddy:main
+    restart: unless-stopped
+    env_file: /data/.env
+    volumes:
+      # Caddyfile.prod : TLS DNS-01 Cloudflare sur {$BASE_DOMAIN}.
+      # Téléchargé par prod-deploy.sh à côté de ce compose (/opt/workspace-portal).
+      - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      # Données ACME (certificats) — volume nommé, distinct du /data du portail.
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - portal
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:

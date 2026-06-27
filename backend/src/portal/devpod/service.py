@@ -91,6 +91,21 @@ def _repo_name_from_url(url: str) -> str:
     return safe or "repo"
 
 
+_GITHUB_HTTPS_RE = re.compile(r"^https://github\.com/(?P<path>[^/]+/[^/]+?)(?:\.git)?/?$")
+
+
+def _normalize_clone_url(url: str) -> str:
+    """Convertit une URL GitHub HTTPS en SSH (git@) pour utiliser l'agent SSH forwardé.
+
+    Évite le serveur git-credentials de devpod (panic v0.6.15) sur les dépôts privés.
+    Les URLs non-GitHub ou déjà en git@ sont laissées inchangées.
+    """
+    m = _GITHUB_HTTPS_RE.match(url)
+    if m:
+        return f"git@github.com:{m.group('path')}.git"
+    return url
+
+
 class DevPodService:
     def __init__(
         self,
@@ -525,6 +540,7 @@ class DevPodService:
                         raise ValueError(f"Source URL must not start with '-': {url!r}")
                     if src.branch and src.branch.startswith("-"):
                         raise ValueError(f"Branch must not start with '-': {src.branch!r}")
+                    url = _normalize_clone_url(url)
                     repo_name = _repo_name_from_url(url)
                     target = f"/workspaces/{repo_name}"
                     # '--' empêche git d'interpréter l'URL comme un flag.

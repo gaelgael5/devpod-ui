@@ -83,6 +83,27 @@ async def test_deploy_failure_records_error(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_deploy_rejects_plaintext_secret(monkeypatch) -> None:
+    """Un param type:secret avec une valeur en clair doit lever ComposeServiceError."""
+    from types import SimpleNamespace
+    host = SimpleNamespace(name="n1", type="ssh", address="root@x", host_cert_slug="s")
+    tpl = ComposeTemplate(
+        id="svc", name="S", version="1",
+        compose_content="services:\n  s:\n    image: x:1",
+        parameters=[ComposeParam(key="TOK", label="Token", type="secret", required=True)],
+        source="user",
+    )
+    monkeypatch.setattr(service, "_host_for_node", lambda node_id: host)
+    monkeypatch.setattr(service, "check_ports", AsyncMock())
+
+    with pytest.raises(service.ComposeServiceError, match="valeur en clair refusée"):
+        await service.deploy(
+            None, deployment_id="dep1", template=tpl, node_id="n1",
+            owner_login="alice", secret_ns="ns", env_values={"TOK": "plaintext"},
+        )
+
+
+@pytest.mark.asyncio
 async def test_lifecycle_restart(monkeypatch) -> None:
     host = SimpleNamespace(name="n1", type="ssh", address="root@x", host_cert_slug="s")
     dep = SimpleNamespace(node_id="n1")

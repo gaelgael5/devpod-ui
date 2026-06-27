@@ -216,4 +216,18 @@ export const handlers = [
   http.get('/me/mcp/apikeys/:id/grants', () => HttpResponse.json([])),
   http.put('/me/mcp/apikeys/:id/grants', () => HttpResponse.json({ apikey_id: 'a-new', backend_id: 'b1' })),
   http.delete('/me/mcp/apikeys/:id/grants/:backendId', () => new HttpResponse(null, { status: 204 })),
+
+  // Handlers compose-gallery
+  http.get('/api/compose/templates', () =>
+    HttpResponse.json([
+      { id: 'browserless', name: 'Browserless', description: '', tags: ['web'],
+        version: '1', compose_content: 'services: {}', parameters: [], source: 'user' },
+    ])),
+  http.delete('/api/compose/templates/:id', () => new HttpResponse(null, { status: 204 })),
+  http.get('/api/compose/nodes', () =>
+    HttpResponse.json([{ node_id: 'n1', name: 'n1' }])),
+  http.get('/api/compose/deployments', () => HttpResponse.json([])),
+  http.delete('/api/compose/deployments/:id', () => new HttpResponse(null, { status: 204 })),
+  http.get('/api/compose/deployments/:id/logs', () =>
+    HttpResponse.json({ output: '' })),
 ]
