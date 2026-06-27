@@ -731,6 +731,19 @@
     "saving": "Enregistrement…",
     "save": "Enregistrer"
   },
+  "compose": {
+    "title": "Docker Compose",
+    "gallery": "Galerie",
+    "deployments": "Déploiements",
+    "deploy": "Déployer",
+    "admin": { "title": "Templates Compose", "new": "Nouveau template", "navLabel": "Templates Compose" },
+    "form": { "name": "Nom", "description": "Description", "node": "Nœud cible", "yaml": "docker-compose.yml" },
+    "deployDialog": { "title": "Déployer {{name}}", "submit": "Déployer", "portConflict": "Port {{ports}} déjà utilisé ; suggéré : {{suggestion}}" },
+    "status": { "running": "en cours", "partial": "partiel", "stopped": "arrêté", "error": "erreur", "created": "créé" },
+    "actions": { "stop": "Arrêter", "start": "Démarrer", "restart": "Redémarrer", "down": "Détruire", "logs": "Logs" },
+    "empty": { "templates": "Aucun template.", "deployments": "Aucun déploiement." },
+    "delete": { "confirm": "Supprimer ?", "cancel": "Annuler", "ok": "Supprimer" }
+  },
   "common": {
     "loading": "Chargement…",
     "save": "Enregistrer",

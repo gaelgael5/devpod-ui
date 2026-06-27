@@ -28,6 +28,8 @@ const VaultUnlock = lazy(() => import('@/features/vault/VaultUnlock'))
 const VaultRecover = lazy(() => import('@/features/vault/VaultRecover'))
 const VaultKeys = lazy(() => import('@/features/vault/VaultKeys'))
 const ConsentPage = lazy(() => import('@/features/oauth/ConsentPage'))
+const ComposeGallery = lazy(() => import('@/features/compose/ComposeGallery'))
+const AdminCompose = lazy(() => import('@/features/compose/AdminCompose'))
 
 function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -142,6 +144,11 @@ export const router = createBrowserRouter([
       {
         path: '/admin/network',
         element: <AdminGuard><Wrap><AdminNetwork /></Wrap></AdminGuard>,
+      },
+      { path: '/compose', element: <Wrap><ComposeGallery /></Wrap> },
+      {
+        path: '/admin/compose',
+        element: <AdminGuard><Wrap><AdminCompose /></Wrap></AdminGuard>,
       },
     ],
   },
