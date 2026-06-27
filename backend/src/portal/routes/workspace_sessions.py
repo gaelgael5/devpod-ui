@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import os
 import re
 import shlex
 from pathlib import Path
@@ -13,23 +12,16 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
-from ..config.store import _data_root, load_global, safe_user_path
+from ..config.store import _data_root, safe_user_path
 from ..db.engine import get_conn
 from ..db.recipes import load_recipes_as_dict
-from ..devpod.ssh_exec import devpod_ssh_key as _devpod_ssh_key
+from ..devpod.exec import TMUX_SOCK_DETECT as _TMUX_SOCK_DETECT
+from ..devpod.exec import tmux as _tmux
+from ..devpod.exec import ws_exec
 from ..recipes.models import _RECIPE_ID_RE
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-sessions"])
-
-
-_TMUX_SOCK_DETECT = (
-    "TMUX_SOCK=$(find /tmp -maxdepth 2 -name default -path '*/tmux-*/*' 2>/dev/null | head -1)"
-)
-
-
-def _tmux(args: str) -> str:
-    return f'{_TMUX_SOCK_DETECT}; tmux ${{TMUX_SOCK:+-S "$TMUX_SOCK"}} {args}'
 
 
 _WS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
@@ -61,51 +53,8 @@ def locate_start_sh(login: str, recipe_id: str) -> Path | None:
 
 
 async def _ssh(ws_id: str, login: str, command: str, timeout: float = 30.0) -> tuple[int, str]:
-    """Exécute une commande non-interactive dans le devcontainer via SSH.
-
-    Utilise un ProxyCommand explicite (devpod ssh --stdio) plutôt que l'entrée
-    ~/.ssh/config écrite par devpod, qui est perdue au rebuild du conteneur portail.
-    """
-    if ws_id.startswith("-"):
-        raise ValueError(f"Insecure ws_id: {ws_id!r}")
-    devpod_bin = load_global().devpod.binary
-    proxy_cmd = f"{shlex.quote(devpod_bin)} ssh --stdio {shlex.quote(ws_id)}"
-    env = {
-        **dict(os.environ),
-        "DEVPOD_HOME": str(safe_user_path(login, "devpod")),
-        "HOME": os.environ.get("HOME", "/root"),
-    }
-    key_path = _devpod_ssh_key(login)
-    identity_args = ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
-    proc = await asyncio.create_subprocess_exec(
-        "ssh",
-        "-o",
-        "LogLevel=ERROR",
-        "-o",
-        "BatchMode=yes",
-        *identity_args,
-        "-o",
-        f"ProxyCommand={proxy_cmd}",
-        "-o",
-        "StrictHostKeyChecking=no",
-        "-o",
-        "UserKnownHostsFile=/dev/null",
-        "--",
-        "vscode@devpod-ws",
-        command,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except TimeoutError:
-        proc.kill()
-        await proc.wait()
-        return 1, "SSH command timed out"
-    # Combine stdout+stderr — les erreurs SSH vont souvent dans stderr
-    output = (stdout.decode(errors="replace") + stderr.decode(errors="replace")).strip()
-    return proc.returncode or 0, output
+    """Exécution non-interactive dans le devcontainer (façade `ws_exec`, ordre conservé)."""
+    return await ws_exec(login, ws_id, command, timeout)
 
 
 @router.get("/workspaces/{name}/sessions")

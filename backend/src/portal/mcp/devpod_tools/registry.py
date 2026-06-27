@@ -37,6 +37,45 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "read",
     },
+    "workspace_tree": {
+        "description": (
+            "Liste l'arborescence du workspace à partir d'un chemin, avec profondeur "
+            "et exclusions."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "path": {
+                    "type": "string",
+                    "default": ".",
+                    "description": "Chemin relatif à la racine du workspace (I-5).",
+                },
+                "depth": {"type": "integer", "default": 2, "minimum": 1},
+                "ignore": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "default": [".git", ".venv", "node_modules", "__pycache__"],
+                },
+            },
+        },
+        "scope": "read",
+    },
+    "workspace_read_file": {
+        "description": "Lit le contenu d'un fichier du workspace.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "path"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "path": {"type": "string", "description": "Chemin relatif à la racine (I-5)."},
+            },
+        },
+        "scope": "read",
+    },
 }
 
 
