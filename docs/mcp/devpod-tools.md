@@ -698,3 +698,41 @@
   }
 }
 ```
+
+## `devpod__workspace_create`
+
+- **Scope** : `admin`
+- **Description** : Crée un workspace depuis un repo et une recette. Asynchrone : retourne un operation_id.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "repo"
+  ],
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "repo": {
+      "type": "string",
+      "description": "URL du dépôt git."
+    },
+    "branch": {
+      "type": "string",
+      "default": "dev"
+    },
+    "recipe": {
+      "type": "string",
+      "description": "Recette. Défaut : auto-détection."
+    },
+    "node": {
+      "type": "string",
+      "description": "Node cible. Défaut : placement auto."
+    }
+  }
+}
+```

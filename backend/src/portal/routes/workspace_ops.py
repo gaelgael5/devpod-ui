@@ -214,6 +214,8 @@ async def workspace_up(
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
+    from ..devpod.provision import ProvisionParams, provision_workspace
+
     _validate_name(name)
 
     # Validation des recipe IDs (avant tout accès disque)
@@ -233,61 +235,9 @@ async def workspace_up(
                 detail=f"extra_sources[{idx}].url must not start with '-'",
             )
 
-    # Résolution des recettes et de leurs secrets
-    resolved_recipes: list[RecipeMeta] = []
-    feature_env: dict[str, str] = {}
-
-    if req.recipes:
-        reg = _get_recipe_registry()
-        available = _available_with_bundled_fallback(await load_recipes_as_dict(user.login, conn))
-
-        try:
-            expanded = reg.expand_with_deps(req.recipes, available)
-            resolved_recipes = reg.resolve_order(expanded, available)
-        except DependencyNotFoundError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except KeyError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-        all_refs: list[SecretRef] = [
-            ref for recipe in resolved_recipes for ref in recipe.requires_secrets
-        ]
-        if all_refs:
-            from ..config.store import load_user
-
-            user_cfg_for_secrets = await load_user(user.login)
-            try:
-                feature_env = await asyncio.to_thread(
-                    _resolve_feature_secrets, user.login, user_cfg_for_secrets.secret_ns, all_refs
-                )
-            except Exception as exc:
-                _log.warning(
-                    "feature_secret_resolution_failed",
-                    login=user.login,
-                    error=type(exc).__name__,
-                )
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Secret resolution failed: {type(exc).__name__}",
-                ) from exc
-
-    # Résolution du profil (dégradation gracieuse si absent)
-    profile_obj: Profile | None = None
-    if req.profile is not None:
-        try:
-            repo = AsyncProfileRepository()
-            profile_obj = await repo.get(req.profile.scope, req.profile.slug, user.login)
-        except ProfileError:
-            _log.warning(
-                "workspace.profile_missing",
-                scope=req.profile.scope,
-                slug=req.profile.slug,
-            )
-
+    # Validation du spec (avant le pre-flight git)
     try:
-        ws = WorkspaceSpec(
+        WorkspaceSpec(
             name=name,
             source=req.source,
             branch=req.branch,
@@ -345,23 +295,30 @@ async def workspace_up(
                 _log.info("workspace_spec_synced", login=user.login, name=name)
             break
 
-    svc = _get_service()
     request_host = request.headers.get("x-forwarded-host") or request.url.hostname or ""
     try:
-        ws_id = await svc.up(
-            login=user.login,
-            ws_spec=ws,
-            recipes=resolved_recipes or None,
-            feature_env=feature_env or None,
-            generate_ssh_key=req.generate_ssh_key,
-            request_host=request_host,
-            profile=profile_obj,
+        ws_id = await provision_workspace(
+            user.login,
+            ProvisionParams(
+                name=name,
+                source=req.source,
+                branch=req.branch,
+                git_credential=req.git_credential,
+                host=req.host,
+                recipes=req.recipes,
+                extra_sources=req.extra_sources,
+                profile=req.profile,
+                recipe_volumes=req.recipe_volumes,
+                generate_ssh_key=req.generate_ssh_key,
+                request_host=request_host,
+            ),
+            conn,
         )
     except HostNotReadyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except UnknownHostError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
+    except (ValueError, DependencyNotFoundError, KeyError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     _log.info("workspace_up_requested", login=user.login, ws_id=ws_id)

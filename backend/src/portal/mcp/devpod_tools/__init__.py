@@ -585,6 +585,35 @@ async def _operations_list(conn: AsyncConnection, args: dict[str, Any], owner_lo
     ]
 
 
+async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    """Crée un workspace de façon asynchrone. Retourne un operation_id (spec 25 §B)."""
+    name = str(args.get("name", ""))
+    if not _WS_NAME_RE.fullmatch(name):
+        raise DevpodToolError(f"nom de workspace invalide: {name!r}")
+    repo = _require_str(args, "repo")
+    branch = str(args.get("branch", "dev"))
+    recipe = args.get("recipe")
+    node = str(args.get("node", ""))
+    recipes = [str(recipe)] if isinstance(recipe, str) and recipe else []
+
+    async def work() -> Any:
+        from ...db.engine import _get_engine
+        from ...devpod.provision import ProvisionParams, provision_workspace
+
+        async with _get_engine().begin() as bg_conn:
+            ws_id = await provision_workspace(
+                owner_login,
+                ProvisionParams(
+                    name=name, source=repo, branch=branch, host=node, recipes=recipes
+                ),
+                bg_conn,
+            )
+        return {"workspace": name, "ws_id": ws_id, "status": "provisioning"}
+
+    oid = operations.launch_operation("workspace_create", name, owner_login, work)
+    return {"operation_id": oid}
+
+
 _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any]]] = {
     "workspace_list": _workspace_list,
     "workspace_status": _workspace_status,
@@ -612,6 +641,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "operations_get": _operations_get,
     "operations_list": _operations_list,
     "portal_reload": _portal_reload,
+    "workspace_create": _workspace_create,
 }
 
 
