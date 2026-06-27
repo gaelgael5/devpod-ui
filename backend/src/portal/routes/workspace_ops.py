@@ -368,6 +368,53 @@ async def workspace_up(
     return {"ws_id": ws_id, "status": "provisioning"}
 
 
+async def start_existing_workspace(login: str, name: str, conn: AsyncConnection) -> str:
+    """Redémarre un workspace déjà déclaré : recharge son spec et relance devpod up.
+
+    Réutilisé par le backend MCP devpod (workspace_start/restart). Rejoue la résolution
+    recipes/secrets/profile depuis le spec stocké, via les mêmes helpers que le endpoint
+    HTTP (sans pre-flight git : le dépôt est déjà cloné). Lève ValueError si inconnu.
+    """
+    from ..config.store import load_user
+
+    user_cfg = await load_user(login)
+    spec = next((w for w in user_cfg.workspaces if w.name == name), None)
+    if spec is None:
+        raise ValueError(f"workspace inconnu: {name}")
+
+    resolved_recipes: list[RecipeMeta] = []
+    feature_env: dict[str, str] = {}
+    if spec.recipes:
+        reg = _get_recipe_registry()
+        available = _available_with_bundled_fallback(await load_recipes_as_dict(login, conn))
+        expanded = reg.expand_with_deps(spec.recipes, available)
+        resolved_recipes = reg.resolve_order(expanded, available)
+        all_refs = [ref for r in resolved_recipes for ref in r.requires_secrets]
+        if all_refs:
+            feature_env = await asyncio.to_thread(
+                _resolve_feature_secrets, login, user_cfg.secret_ns, all_refs
+            )
+
+    profile_obj: Profile | None = None
+    if spec.profile is not None:
+        try:
+            profile_obj = await AsyncProfileRepository().get(
+                spec.profile.scope, spec.profile.slug, login
+            )
+        except ProfileError:
+            _log.warning("workspace.profile_missing", slug=spec.profile.slug)
+
+    return await _get_service().up(
+        login=login,
+        ws_spec=spec,
+        recipes=resolved_recipes or None,
+        feature_env=feature_env or None,
+        generate_ssh_key=spec.ssh_key,
+        request_host="",
+        profile=profile_obj,
+    )
+
+
 @router.post("/workspaces/{name}/stop")
 async def workspace_stop(
     name: str,

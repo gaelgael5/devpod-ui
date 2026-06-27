@@ -211,6 +211,33 @@ async def _workspace_exec(conn: AsyncConnection, args: dict[str, Any], owner_log
     return {"stdout": out, "stderr": "", "exit_code": rc}
 
 
+async def _workspace_stop(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    name = _require_ws(args)
+    await get_service().stop(owner_login, f"{owner_login}-{name}")
+    return {"workspace": name, "status": "stopped"}
+
+
+async def _start_existing(login: str, name: str, conn: AsyncConnection) -> str:
+    """Indirection testable vers le redémarrage (lazy import : cycle mcp ↔ routes)."""
+    from ...routes.workspace_ops import start_existing_workspace
+
+    return await start_existing_workspace(login, name, conn)
+
+
+async def _workspace_start(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    name = _require_ws(args)
+    try:
+        await _start_existing(owner_login, name, conn)
+    except ValueError as exc:
+        raise DevpodToolError(str(exc)) from exc
+    return {"workspace": name, "status": "provisioning"}
+
+
+async def _workspace_restart(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    await _workspace_stop(conn, args, owner_login)
+    return await _workspace_start(conn, args, owner_login)
+
+
 _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any]]] = {
     "workspace_list": _workspace_list,
     "workspace_status": _workspace_status,
@@ -219,6 +246,9 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_mkdir": _workspace_mkdir,
     "workspace_write_file": _workspace_write_file,
     "workspace_exec": _workspace_exec,
+    "workspace_start": _workspace_start,
+    "workspace_stop": _workspace_stop,
+    "workspace_restart": _workspace_restart,
 }
 
 
