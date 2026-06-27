@@ -91,7 +91,7 @@ def list_operations(owner_login: str, workspace: str | None = None) -> list[dict
     rows: list[dict[str, Any]] = []
     for path in _operations_root().glob("*.yaml"):
         op = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if not op or op.get("owner_login") != owner_login:
+        if not isinstance(op, dict) or op.get("owner_login") != owner_login:
             continue
         if workspace is not None and op.get("workspace") != workspace:
             continue

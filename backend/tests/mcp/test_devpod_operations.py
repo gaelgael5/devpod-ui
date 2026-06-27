@@ -46,3 +46,8 @@ def test_get_unknown_returns_none():
 def test_invalid_operation_id_rejected():
     with pytest.raises(operations.DevpodToolError):
         operations.get_operation("../etc/passwd")
+
+
+def test_update_unknown_raises():
+    with pytest.raises(operations.DevpodToolError):
+        operations.update_operation("0" * 32, state="done")
