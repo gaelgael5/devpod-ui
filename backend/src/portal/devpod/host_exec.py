@@ -9,6 +9,7 @@ import asyncio
 import base64
 import posixpath
 import shlex
+from pathlib import Path
 
 import structlog
 
@@ -30,15 +31,13 @@ def _require_ssh_host(host: HostConfig) -> None:
         raise HostExecError(f"host {host.name!r} : address/host_cert_slug non configurés")
 
 
-def _argv(key_path: str, address: str, command: str) -> list[str]:
-    known = _data_root() / "keys" / "hosts_known"
-    known.parent.mkdir(parents=True, exist_ok=True)
+def _argv(key_path: str, address: str, command: str, known_hosts: Path) -> list[str]:
     return [
         "ssh", "-i", key_path,
         "-o", "BatchMode=yes",
         "-o", "LogLevel=ERROR",
         "-o", "StrictHostKeyChecking=accept-new",
-        "-o", f"UserKnownHostsFile={known}",
+        "-o", f"UserKnownHostsFile={known_hosts}",
         "-o", "ConnectTimeout=15",
         address, command,
     ]
@@ -56,6 +55,7 @@ async def _ssh_capture(argv: list[str], *, timeout: float) -> tuple[int, str, st
     except TimeoutError:
         proc.kill()
         await proc.wait()
+        _log.warning("host_exec_timeout", address=argv[-2] if len(argv) >= 2 else "unknown")
         raise HostExecError("commande nœud expirée (timeout)") from None
     rc = proc.returncode if proc.returncode is not None else -1
     return rc, out.decode("utf-8", errors="replace"), err.decode("utf-8", errors="replace")
@@ -65,8 +65,10 @@ async def run_host_command(
     host: HostConfig, command: str, *, timeout: float = 120.0
 ) -> tuple[int, str, str]:
     _require_ssh_host(host)
+    known = _data_root() / "keys" / "hosts_known"
+    await asyncio.to_thread(known.parent.mkdir, parents=True, exist_ok=True)
     key_path = await _materialize_system_cert(host.host_cert_slug)
-    argv = _argv(key_path, host.address, command)
+    argv = _argv(key_path, host.address, command, known)
     return await _ssh_capture(argv, timeout=timeout)
 
 
