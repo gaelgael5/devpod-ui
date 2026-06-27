@@ -253,6 +253,19 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "read",
     },
+    "portal_reload": {
+        "description": (
+            "Reconnecte le portail à un workspace dont le conteneur tourne déjà "
+            "(post mise à jour du portail)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace"],
+            "properties": {"workspace": {"type": "string"}},
+        },
+        "scope": "admin",
+    },
 }
 
 

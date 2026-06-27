@@ -341,6 +341,13 @@ async def _session_get(conn: AsyncConnection, args: dict[str, Any], owner_login:
     }
 
 
+async def _portal_reload(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    name = _require_ws(args)
+    # Modèle (a) : reconnexion forcée du workspace ciblé (en arrière-plan).
+    get_service().reconnect(owner_login, f"{owner_login}-{name}")
+    return {"workspace": name, "reconnected": True}
+
+
 _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any]]] = {
     "workspace_list": _workspace_list,
     "workspace_status": _workspace_status,
@@ -357,6 +364,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "session_capture": _session_capture,
     "session_list": _session_list,
     "session_get": _session_get,
+    "portal_reload": _portal_reload,
 }
 
 

@@ -362,6 +362,14 @@ class DevPodService:
                     with contextlib.suppress(OSError):
                         os.unlink(tmp_key_path)
 
+    def reconnect(self, login: str, ws_id: str) -> None:
+        """Reconnexion forcée d'un workspace dont le conteneur tourne (portal_reload, modèle a).
+
+        Lance la reconnexion (devpod up détecte le container existant et relance le
+        tunnel) en arrière-plan et rend la main immédiatement.
+        """
+        asyncio.create_task(self._reconnect_workspace(ws_id, login))  # noqa: RUF006
+
     async def stop(self, login: str, ws_id: str) -> None:
         """Arrête un workspace en cours d'exécution."""
         await self._stop_port_forward(ws_id)
