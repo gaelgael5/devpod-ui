@@ -13,6 +13,7 @@ import {
 import { apiFetchJson } from '@/shared/api/client'
 import { useAdminProxmox, type HypervisorConfig } from './useAdminProxmox'
 import { useAdminHypervisorTypes } from './useAdminHypervisorTypes'
+import LocalDomainField from './LocalDomainField'
 
 const EMPTY = {
   name: '', address: '', ssh_user: 'root', ssh_port: 22,
@@ -350,6 +351,8 @@ export default function AdminProxmox() {
         <h1 className="text-2xl font-semibold">{t('admin.hypervisors')}</h1>
         <Button size="sm" onClick={() => setOpen(true)}>{t('admin.addProxmox')}</Button>
       </div>
+
+      <LocalDomainField />
 
       {isLoading && <p className="text-muted-foreground">…</p>}
       {isError && <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>}

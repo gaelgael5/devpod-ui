@@ -46,10 +46,9 @@ async def _update_provider_ssh_options(
     login: str,
 ) -> None:
     """Met à jour HOST et EXTRA_FLAGS sur un provider SSH existant."""
-    args = [*cmd, "provider", "set-options", provider_name,
-            "--option", f"HOST={host_value}"]
+    args = [*cmd, "provider", "set-options", provider_name, "--option", f"HOST={host_value}"]
     if ssh_key_path:
-        args += ["--option", f"EXTRA_FLAGS=-i {ssh_key_path}"]
+        args += ["--option", f"EXTRA_FLAGS=-i {ssh_key_path} -A"]
     set_proc = await asyncio.create_subprocess_exec(
         *args,
         env=env,
@@ -89,9 +88,7 @@ async def ensure_provider(
     On parse la sortie tabulaire ligne par ligne, colonne NAME exacte.
     """
     if host_type not in ("docker-tls", "ssh"):
-        raise ValueError(
-            f"Unknown host_type: {host_type!r}. Expected one of ['docker-tls', 'ssh']"
-        )
+        raise ValueError(f"Unknown host_type: {host_type!r}. Expected one of ['docker-tls', 'ssh']")
 
     provider_name = "docker" if host_type == "docker-tls" else _ssh_provider_name(host_name)
     cmd = devpod_bin if devpod_bin is not None else ["devpod"]
@@ -134,18 +131,23 @@ async def ensure_provider(
         add_args = [*cmd, "provider", "add", "docker"]
     else:
         if not ssh_host:
-            raise ProviderError(
-                f"ssh_host requis pour ajouter le provider SSH {provider_name!r}"
-            )
+            raise ProviderError(f"ssh_host requis pour ajouter le provider SSH {provider_name!r}")
         host_value = f"{ssh_user}@{ssh_host}" if ssh_user else ssh_host
         add_args = [
-            *cmd, "provider", "add", "ssh",
-            "--name", provider_name,
-            "--option", f"HOST={host_value}",
+            *cmd,
+            "provider",
+            "add",
+            "ssh",
+            "--name",
+            provider_name,
+            "--option",
+            f"HOST={host_value}",
         ]
         if ssh_key_path:
-            # EXTRA_FLAGS est inséré tel quel dans la commande SSH du provider
-            add_args += ["--option", f"EXTRA_FLAGS=-i {ssh_key_path}"]
+            # EXTRA_FLAGS est inséré tel quel dans la commande SSH du provider.
+            # -A (ForwardAgent) permet de transmettre l'agent SSH du portail à la VM
+            # distante, ce qui rend la clé deploy git disponible pour git clone.
+            add_args += ["--option", f"EXTRA_FLAGS=-i {ssh_key_path} -A"]
 
     add_proc = await asyncio.create_subprocess_exec(
         *add_args,

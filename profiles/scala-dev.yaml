@@ -1,0 +1,12 @@
+name: Scala Dev
+description: Scala — Metals (LSP), build tool auto-détecté (sbt, Mill, Gradle)
+extensions:
+  - scalameta.metals
+  - scala-lang.scala
+settings:
+  editor.formatOnSave: true
+  "[scala]":
+    editor.defaultFormatter: scalameta.metals
+  metals.serverVersion: latest.release
+  metals.showImplicitArguments: true
+  metals.showImplicitConversionsAndClasses: true

@@ -14,6 +14,10 @@ class UnknownHostError(ValueError):
     """L'host référencé n'existe pas dans la config globale."""
 
 
+class HostNotReadyError(ValueError):
+    """L'host existe mais n'est pas encore opérationnel (ex : clé SSH manquante)."""
+
+
 def _find_host(host_name: str, global_cfg: GlobalConfig) -> HostConfig:
     """
     Retourne l'HostConfig correspondant, ou l'host par défaut si host_name est vide.

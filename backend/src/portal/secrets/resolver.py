@@ -4,7 +4,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Protocol, runtime_checkable
 
 from .backends.base import SecretsBackend
 from .types import Secret
@@ -44,6 +44,31 @@ def resolve(value: str, scope: Scope, backend: SecretsBackend) -> str | Secret:
         full_path = path
 
     return Secret(backend.get(full_path))
+
+
+@runtime_checkable
+class SecretResolver(Protocol):
+    """Résout une référence ${vault://...} ou ${env://NOM} en valeur claire (spec §6)."""
+
+    async def resolve(self, ref: str) -> Secret: ...
+
+
+class EnvSecretResolver:
+    """Palier de résolution : ne gère que ${env://NOM} (spec §6).
+
+    Suffit pour le lot 1 ; le contrat ne change pas quand le gestionnaire de
+    secrets cible (vault) sera branché via un autre implémenteur du Protocol.
+    """
+
+    async def resolve(self, ref: str) -> Secret:
+        m = _SECRET_REF_RE.fullmatch(ref)
+        if not m or m.group(1) != "env":
+            raise SecretAccessError(f"EnvSecretResolver ne résout que ${{env://...}} : {ref!r}")
+        name = m.group(2)
+        value = os.environ.get(name)
+        if value is None:
+            raise SecretAccessError(f"Environment variable not found: {name!r}")
+        return Secret(value)
 
 
 def _validate_user_vault_path(path: str, secret_ns: str) -> None:

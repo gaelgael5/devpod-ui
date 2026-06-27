@@ -1,4 +1,24 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # POSTGRES_USER et POSTGRES_PASSWORD lus depuis /data/.env (pas de substitution YAML)
+    env_file: /data/.env
+    environment:
+      # Base fixe — pas un secret, pas besoin d'être dans .env
+      POSTGRES_DB: portal
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-portal}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   portal:
     build:
       context: ..
@@ -12,6 +32,9 @@ services:
       # Plage de ports du tunnel SSH workspace — accès direct en dev (bypass DNS/Caddy)
       # Correspond à la plage PortRegistry (40000-49999) ; 20 suffisent pour le dev local.
       - "40000-40019:40000-40019"
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - internal
     healthcheck:
@@ -26,7 +49,10 @@ services:
     restart: unless-stopped
     env_file: /data/.env
     volumes:
-      - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      # Host matcher http://{$BASE_DOMAIN} : le portail répond sur le domaine de base
+      # et les routes workspace (ws-*.{domaine}) sont ajoutées dynamiquement (M6).
+      # Caddyfile.dev (catch-all :80) ne convient qu'au dev local sans domaine.
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     ports:
@@ -41,3 +67,4 @@ networks:
 volumes:
   caddy_data:
   caddy_config:
+  postgres_data:

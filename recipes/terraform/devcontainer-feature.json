@@ -1,0 +1,14 @@
+{
+  "id": "terraform",
+  "version": "1.0.0",
+  "name": "Terraform",
+  "description": "Terraform via dépôt officiel HashiCorp apt",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Version à épingler (ex : 1.9.0) ou 'latest'",
+      "proposals": ["latest", "1.9.0", "1.8.0"]
+    }
+  }
+}

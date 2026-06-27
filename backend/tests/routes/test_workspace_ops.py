@@ -5,10 +5,24 @@ import json
 import os
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 FAKE_DEVPOD = Path(__file__).parent.parent / "devpod" / "fake_devpod.py"
+
+
+@pytest.fixture(autouse=True)
+def _mock_git_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock du pre-flight git : évite les appels réseau réels dans tous les tests."""
+    import portal.routes.workspace_ops as ws_ops_mod
+
+    monkeypatch.setattr(
+        ws_ops_mod,
+        "run_git_ls_remote",
+        AsyncMock(return_value=(0, b"", b"")),
+    )
 
 
 def _build_global_config(tmp_path: Path) -> None:
@@ -342,6 +356,7 @@ def test_get_ssh_key_returns_200_when_key_exists(tmp_path: Path) -> None:
 
     # Générer la clé directement via le module (simule DevPodService.up avec generate_ssh_key=True)
     from portal.ssh_keys import ensure_workspace_ssh_key
+
     expected_pub = ensure_workspace_ssh_key("alice", "myapp")
 
     with TestClient(app) as client:
@@ -381,3 +396,226 @@ def test_up_without_generate_ssh_key_does_not_create_key(tmp_path: Path) -> None
 
     pub_path = tmp_path / "users" / "alice" / "keys" / "workspaces" / "myapp" / "id_ed25519.pub"
     assert not pub_path.exists(), "Aucune clé ne doit être créée sans generate_ssh_key"
+
+
+# ---------------------------------------------------------------------------
+# Profile wiring — Task 4
+# ---------------------------------------------------------------------------
+
+
+def test_up_without_profile_field_is_retro_compatible(tmp_path: Path) -> None:
+    """UpRequest sans 'profile' est accepté — rétro-compat."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/workspaces/myapp/up",
+            json={"source": "git@github.com:user/repo.git"},
+        )
+    assert resp.status_code == 202
+
+
+def test_up_with_missing_profile_degrades_gracefully(tmp_path: Path) -> None:
+    """Profil inexistant → 202 (pas d'erreur), workspace démarré sans profil."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/workspaces/myapp/up",
+            json={
+                "source": "git@github.com:user/repo.git",
+                "profile": {"scope": "user", "slug": "nonexistent"},
+            },
+        )
+    assert resp.status_code == 202
+    data = resp.json()
+    assert data["status"] == "provisioning"
+
+
+def test_up_with_valid_profile_ref_returns_202(tmp_path: Path) -> None:
+    """Profil existant dans /data/profiles → 202 et workspace lancé."""
+    import yaml
+
+    # Créer un profil partagé sur disque
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    (profiles_dir / "python-dev.yaml").write_text(
+        yaml.dump(
+            {
+                "name": "Python Dev",
+                "description": "",
+                "extensions": ["ms-python.python"],
+                "settings": {},
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/workspaces/myapp/up",
+            json={
+                "source": "git@github.com:user/repo.git",
+                "profile": {"scope": "shared", "slug": "python-dev"},
+            },
+        )
+    assert resp.status_code == 202
+
+
+# ---------------------------------------------------------------------------
+# Git pre-flight — test du rejet avant devpod up
+# ---------------------------------------------------------------------------
+
+
+def test_up_rejects_inaccessible_git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pre-flight git échoué (exit 128) → 422 avant même de lancer devpod up."""
+    import portal.routes.workspace_ops as ws_ops_mod
+
+    monkeypatch.setattr(
+        ws_ops_mod,
+        "run_git_ls_remote",
+        AsyncMock(return_value=(128, b"", b"fatal: repository not found")),
+    )
+
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/workspaces/myapp/up",
+            json={"source": "git@github.com:private/repo.git"},
+        )
+    assert resp.status_code == 422
+    assert "inaccessible" in resp.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Delete avec shelve — tests d'intégration
+# ---------------------------------------------------------------------------
+
+
+def test_delete_nothing_to_shelve_returns_no_branch(tmp_path: Path) -> None:
+    """Suppression normale — recovery_branch None dans la réponse."""
+    app, exposure_mock, ws_ops_mod, original_get_service = _make_app_with_exposure_mock(tmp_path)
+    try:
+        with patch(
+            "portal.devpod.service.shelve_if_pending",
+            AsyncMock(return_value=None),
+        ), TestClient(app) as client:
+            resp = client.post("/me/workspaces/myapp/delete")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted"] is True
+        assert data["recovery_branch"] is None
+    finally:
+        ws_ops_mod._get_service = original_get_service
+        ws_ops_mod._reset_service()
+
+
+def test_delete_shelved_returns_branch(tmp_path: Path) -> None:
+    """Suppression avec shelve — recovery_branch présent dans la réponse."""
+    app, exposure_mock, ws_ops_mod, original_get_service = _make_app_with_exposure_mock(tmp_path)
+    try:
+        with patch(
+            "portal.devpod.service.shelve_if_pending",
+            AsyncMock(return_value="recovery-16-06-26-10-30"),
+        ), TestClient(app) as client:
+            resp = client.post("/me/workspaces/myapp/delete")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted"] is True
+        assert data["recovery_branch"] == "recovery-16-06-26-10-30"
+    finally:
+        ws_ops_mod._get_service = original_get_service
+        ws_ops_mod._reset_service()
+
+
+def test_delete_push_failure_returns_409(tmp_path: Path) -> None:
+    """Push échoue → 409, workspace non supprimé."""
+    from fastapi import HTTPException
+
+    app, exposure_mock, ws_ops_mod, original_get_service = _make_app_with_exposure_mock(tmp_path)
+    try:
+        with patch(
+            "portal.devpod.service.shelve_if_pending",
+            AsyncMock(side_effect=HTTPException(409, "Shelve impossible")),
+        ), TestClient(app) as client:
+            resp = client.post("/me/workspaces/myapp/delete")
+        assert resp.status_code == 409
+    finally:
+        ws_ops_mod._get_service = original_get_service
+        ws_ops_mod._reset_service()
+
+
+# ---------------------------------------------------------------------------
+# GET /workspaces/{name}/start-recipes
+# ---------------------------------------------------------------------------
+
+
+def test_get_workspace_start_recipes_returns_list(tmp_path: Path) -> None:
+    """GET /workspaces/{name}/start-recipes retourne les start recipes attachées."""
+    import yaml
+
+    # Créer une recette start partagée
+    recipe_dir = tmp_path / "recipes" / "claude-rc"
+    recipe_dir.mkdir(parents=True, exist_ok=True)
+    (recipe_dir / "recipe.meta.yaml").write_text(
+        yaml.dump({"id": "claude-rc", "type": "start", "description": "Claude RC"}),
+        encoding="utf-8",
+    )
+    (recipe_dir / "start.sh").write_text("#!/bin/bash\nexec claude --rc\n", encoding="utf-8")
+
+    app = _make_app(tmp_path)
+
+    # Mettre à jour le config utilisateur alice pour référencer la recette start
+    login = "alice"
+    ws_name = "my-ws"
+    user_dir = tmp_path / "users" / login
+    user_config_path = user_dir / "config.yaml"
+    user_cfg = yaml.safe_load(user_config_path.read_text(encoding="utf-8"))
+    user_cfg["workspaces"] = [
+        {
+            "name": ws_name,
+            "source": "https://github.com/x/y",
+            "start_recipes": ["claude-rc"],
+        }
+    ]
+    user_config_path.write_text(yaml.dump(user_cfg), encoding="utf-8")
+
+    with TestClient(app) as client:
+        resp = client.get(f"/me/workspaces/{ws_name}/start-recipes")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+    assert any(r["id"] == "claude-rc" for r in data)
+
+
+def test_get_workspace_start_recipes_returns_empty_list(tmp_path: Path) -> None:
+    """GET /workspaces/{name}/start-recipes retourne [] si start_recipes est vide."""
+    import yaml
+
+    app = _make_app(tmp_path)
+
+    login = "alice"
+    ws_name = "empty-ws"
+    user_dir = tmp_path / "users" / login
+    user_config_path = user_dir / "config.yaml"
+    user_cfg = yaml.safe_load(user_config_path.read_text(encoding="utf-8"))
+    user_cfg["workspaces"] = [
+        {
+            "name": ws_name,
+            "source": "https://github.com/x/y",
+        }
+    ]
+    user_config_path.write_text(yaml.dump(user_cfg), encoding="utf-8")
+
+    with TestClient(app) as client:
+        resp = client.get(f"/me/workspaces/{ws_name}/start-recipes")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_get_workspace_start_recipes_404_if_not_found(tmp_path: Path) -> None:
+    """GET /workspaces/{name}/start-recipes retourne 404 si le workspace n'existe pas."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.get("/me/workspaces/nonexistent/start-recipes")
+    assert resp.status_code == 404

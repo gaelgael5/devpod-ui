@@ -10,12 +10,19 @@
 # Dev : HTTP plain (préfixe http:// désactive TLS + redirect auto de Caddy).
 # Prod : retirer le préfixe http:// et ajouter tls { dns cloudflare {$CF_API_TOKEN} }
 http://{$BASE_DOMAIN} {
-    reverse_proxy portal:8080
+    reverse_proxy portal:8080 {
+        flush_interval -1
+        transport http {
+            read_timeout 0
+            write_timeout 0
+        }
+    }
 }
 
-# Wildcard workspaces — routes dynamiques ajoutées par l'API admin en M6
-# §F-33 : stub 404 fail-closed — jamais d'accès sans auth opérationnelle
-http://*.{$BASE_DOMAIN} {
-    # STUB M5 — sera remplacé par forward_auth + reverse_proxy en M6
-    respond "Workspace introuvable (M6 non encore déployé)" 404
-}
+# Workspaces (ws-*.{$BASE_DOMAIN}) : routes ajoutées dynamiquement par le portail
+# via l'API admin Caddy (forward_auth interne + reverse_proxy vers node_ip:host_port),
+# sur le serveur srv0 ci-dessus (le seul à écouter :80).
+#
+# Pas de bloc statique *.{$BASE_DOMAIN} : il intercepterait les sous-domaines AVANT
+# les routes dynamiques (ajoutées en fin de liste). Un sous-domaine sans route →
+# 404 Caddy par défaut, ce qui préserve le fail-closed §F-33.

@@ -1,0 +1,5 @@
+﻿id: ansible
+key: 5141163e-2aae-4e93-a27b-97ccafc363d0
+version: 1.0.0
+description: "Install Ansible + ansible-lint dans un venv /opt/ansible"
+type: install

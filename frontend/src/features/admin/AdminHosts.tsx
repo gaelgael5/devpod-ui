@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Copy, KeyRound, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,12 +10,23 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, type HostConfig } from './useHosts'
+import { cn } from '@/lib/utils'
+import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, type HostConfig, type HostCreatePayload, type HostUserWorkspaces } from './useHosts'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
+import TestHostParamsDialog from './TestHostParamsDialog'
 import SshTerminalWindow from './SshTerminalWindow'
 
-const EMPTY: HostConfig = { name: '', type: 'docker-tls', default: false, docker_host: '', address: '', key_path: '' }
+const EMPTY: HostCreatePayload = {
+  name: '',
+  type: 'docker-tls',
+  default: false,
+  docker_host: '',
+  address: '',
+  proxmox_node: '',
+  vmid: '',
+  ci_password: '',
+}
 
 type DialogMode = 'add' | 'edit'
 
@@ -64,6 +75,83 @@ function CertViewer({ name }: { name: string }) {
   )
 }
 
+// ─── Logs streaming destroy ───────────────────────────────────────────────────
+
+function DestroyLog({ logs, running, error }: { logs: string; running: boolean; error: string | null }) {
+  const { t } = useTranslation()
+  const logRef = useRef<HTMLPreElement>(null)
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [logs])
+
+  return (
+    <pre
+      ref={logRef}
+      className="h-56 overflow-y-auto rounded-md bg-muted p-3 text-xs font-mono leading-relaxed whitespace-pre-wrap"
+    >
+      {logs || (running ? t('admin.destroyVm.running') : '')}
+      {error && <span className="text-destructive">{'\n'}{error}</span>}
+    </pre>
+  )
+}
+
+// ─── Workspaces par utilisateur ──────────────────────────────────────────────
+
+const STATUS_DOT: Record<string, string> = {
+  running:      'bg-green-500',
+  stopped:      'bg-yellow-500',
+  provisioning: 'bg-primary',
+  failed:       'bg-destructive',
+  unknown:      'bg-muted-foreground',
+}
+
+const STATUS_TEXT: Record<string, string> = {
+  running:      'text-green-600',
+  stopped:      'text-yellow-600',
+  provisioning: 'text-primary',
+  failed:       'text-destructive',
+  unknown:      'text-muted-foreground',
+}
+
+function HostWorkspacesPanel({ name }: { name: string }) {
+  const { t } = useTranslation()
+  const { data, isLoading } = useHostWorkspaces(name)
+
+  if (isLoading) return <span className="text-xs text-muted-foreground">…</span>
+  if (!data || data.length === 0) {
+    return <span className="text-xs text-muted-foreground">—</span>
+  }
+
+  return (
+    <div className="flex flex-wrap gap-x-6 gap-y-1">
+      {(data as HostUserWorkspaces[]).map((u) => (
+        <div key={u.login} className="flex items-start gap-2">
+          <span className="text-xs font-medium text-foreground whitespace-nowrap">{u.login}</span>
+          <div className="flex flex-wrap gap-1">
+            {u.workspaces.map((ws) => {
+              const s = ws.status
+              return (
+                <span
+                  key={ws.name}
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs',
+                    STATUS_TEXT[s] ?? STATUS_TEXT.unknown,
+                  )}
+                >
+                  <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', STATUS_DOT[s] ?? STATUS_DOT.unknown)} />
+                  {ws.name}
+                  <span className="opacity-60">({t(`workspaces.status.${s}`, s)})</span>
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── Composant principal ──────────────────────────────────────────────────────
 
 export default function AdminHosts() {
@@ -77,12 +165,16 @@ export default function AdminHosts() {
   const [mode, setMode] = useState<DialogMode>('add')
   const [showCert, setShowCert] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
+  const [testParamsOpen, setTestParamsOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
-  const [form, setForm] = useState<HostConfig>(EMPTY)
+  const [destroyTarget, setDestroyTarget] = useState<HostConfig | null>(null)
+  const [form, setForm] = useState<HostCreatePayload>(EMPTY)
   const [sshTarget, setSshTarget] = useState<HostConfig | null>(null)
   const [bootstrapTarget, setBootstrapTarget] = useState<HostConfig | null>(null)
+  const destroyVm = useDestroyVm()
+  const destroyStartedRef = useRef(false)
 
-  function set<K extends keyof HostConfig>(k: K, v: HostConfig[K]) {
+  function set<K extends keyof HostCreatePayload>(k: K, v: HostCreatePayload[K]) {
     setForm((f) => ({ ...f, [k]: v }))
   }
 
@@ -92,28 +184,91 @@ export default function AdminHosts() {
   }
 
   function openAdd() {
-    setForm(EMPTY); setMode('add'); setShowCert(false); setOpen(true)
+    const isFirst = !hosts || hosts.length === 0
+    setForm({ ...EMPTY, default: isFirst }); setMode('add'); setShowCert(false); setOpen(true)
   }
 
   function openEdit(host: HostConfig) {
-    setForm({ ...host }); setMode('edit'); setShowCert(false); setOpen(true)
+    setForm({
+      name: host.name,
+      type: host.type,
+      default: host.default ?? false,
+      docker_host: host.docker_host ?? '',
+      address: host.address ?? '',
+      proxmox_node: host.proxmox_node ?? '',
+      vmid: host.vmid ?? '',
+      ci_password: '',  // toujours vide en édition (secret non visible)
+    })
+    setMode('edit'); setShowCert(false); setOpen(true)
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    const payload: HostCreatePayload = {
+      name: form.name,
+      type: form.type,
+      default: form.default,
+      docker_host: form.docker_host,
+      address: form.address,
+      proxmox_node: form.proxmox_node,
+      vmid: form.vmid,
+      ci_password: form.ci_password ?? '',
+    }
     const mutation = mode === 'edit' ? updateHost : addHost
-    mutation.mutate(form, { onSuccess: () => handleClose(false) })
+    mutation.mutate(payload, { onSuccess: () => handleClose(false) })
   }
 
-  function handleGenerated(config: HostConfig) {
-    setForm(config); setMode('add'); setShowCert(false); setOpen(true)
+  function handleGenerated(config: HostConfig, ciPassword?: string) {
+    const isFirst = !hosts || hosts.length === 0
+    setForm({
+      name: config.name,
+      type: config.type,
+      default: config.default ?? isFirst,
+      docker_host: config.docker_host ?? '',
+      address: config.address ?? '',
+      proxmox_node: config.proxmox_node ?? '',
+      vmid: config.vmid ?? '',
+      ci_password: ciPassword ?? '',
+    })
+    setMode('add'); setShowCert(false); setOpen(true)
   }
 
-  function confirmDelete(name: string) { setDeleteTarget(name) }
+  function confirmDelete(h: HostConfig) {
+    if (h.vmid && h.proxmox_node) {
+      destroyVm.reset()
+      destroyStartedRef.current = false
+      setDestroyTarget(h)
+    } else {
+      setDeleteTarget(h.name)
+    }
+  }
   function cancelDelete() { setDeleteTarget(null) }
   function doDelete() {
     if (deleteTarget) deleteHost.mutate(deleteTarget, { onSuccess: () => setDeleteTarget(null) })
   }
+
+  function cancelDestroy() {
+    setDestroyTarget(null)
+    destroyVm.reset()
+    destroyStartedRef.current = false
+  }
+  function doDestroyAndDelete() {
+    if (!destroyTarget) return
+    deleteHost.mutate(destroyTarget.name, {
+      onSuccess: () => {
+        setDestroyTarget(null)
+        destroyVm.reset()
+        destroyStartedRef.current = false
+      },
+    })
+  }
+
+  useEffect(() => {
+    if (destroyTarget && destroyTarget.proxmox_node && destroyTarget.vmid && !destroyStartedRef.current) {
+      destroyStartedRef.current = true
+      void destroyVm.execute(destroyTarget.proxmox_node, destroyTarget.vmid)
+    }
+  }, [destroyTarget, destroyVm.execute])
 
   const isPending = addHost.isPending || updateHost.isPending
 
@@ -122,6 +277,9 @@ export default function AdminHosts() {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{t('admin.hosts')}</h1>
         <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setTestParamsOpen(true)}>
+            {t('admin.testHostParams.btn')}
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
             {t('admin.generate.btn')}
           </Button>
@@ -148,56 +306,65 @@ export default function AdminHosts() {
             </thead>
             <tbody>
               {hosts.map((h: HostConfig) => (
-                <tr key={h.name} className="border-b last:border-0">
-                  <td className="px-4 py-2 font-medium">{h.name}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{h.type}</td>
-                  <td className="px-4 py-2 text-muted-foreground font-mono text-xs">{h.docker_host || '—'}</td>
-                  <td className="px-4 py-2">
-                    {h.default
-                      ? <span className="text-green-600">✓</span>
-                      : <span className="text-muted-foreground">—</span>}
-                  </td>
-                  <td className="px-4 py-2">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(h)}
-                        aria-label={t('workspaces.actions.edit')}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive"
-                        onClick={() => confirmDelete(h.name)} aria-label={t('admin.deleteHost')}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                      {h.type === 'ssh' && (
-                        <>
-                          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
-                          {!h.key_path && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
-                              onClick={() => setBootstrapTarget(h)}
-                              aria-label={t('admin.bootstrap.btn')}
-                            >
-                              {t('admin.bootstrap.btn')}
-                            </Button>
-                          )}
-                          {h.key_path && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
-                              data-ssh=""
-                              onClick={() => setSshTarget(h)}
-                              aria-label={t('admin.sshTerminal.openBtn')}
-                            >
-                              {t('admin.sshTerminal.openBtn')}
-                            </Button>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
+                <Fragment key={h.name}>
+                  <tr className="border-b">
+                    <td className="px-4 py-2 font-medium">{h.name}</td>
+                    <td className="px-4 py-2 text-muted-foreground">{h.type}</td>
+                    <td className="px-4 py-2 text-muted-foreground font-mono text-xs">
+                      {h.type === 'ssh' ? (h.address || '—') : (h.docker_host || '—')}
+                    </td>
+                    <td className="px-4 py-2">
+                      {h.default
+                        ? <span className="text-green-600">✓</span>
+                        : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(h)}
+                          aria-label={t('workspaces.actions.edit')}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive"
+                          onClick={() => confirmDelete(h)} aria-label={t('admin.deleteHost')}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                        {h.type === 'ssh' && (
+                          <>
+                            <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+                            {!h.host_cert_slug && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
+                                onClick={() => setBootstrapTarget(h)}
+                                aria-label={t('admin.bootstrap.btn')}
+                              >
+                                {t('admin.bootstrap.btn')}
+                              </Button>
+                            )}
+                            {h.host_cert_slug && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
+                                data-ssh=""
+                                onClick={() => setSshTarget(h)}
+                                aria-label={t('admin.sshTerminal.openBtn')}
+                              >
+                                {t('admin.sshTerminal.openBtn')}
+                              </Button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                  <tr className="border-b last:border-0 bg-muted/20">
+                    <td colSpan={5} className="px-4 py-2">
+                      <HostWorkspacesPanel name={h.name} />
+                    </td>
+                  </tr>
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -208,6 +375,11 @@ export default function AdminHosts() {
         open={generateOpen}
         onClose={() => setGenerateOpen(false)}
         onGenerated={handleGenerated}
+      />
+
+      <TestHostParamsDialog
+        open={testParamsOpen}
+        onClose={() => setTestParamsOpen(false)}
       />
 
       {/* ── Dialogue ajout / édition ── */}
@@ -252,12 +424,18 @@ export default function AdminHosts() {
                   placeholder="user@192.168.1.50" />
               </div>
             )}
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="h-keypath">{t('admin.form.keyPath')}</Label>
-              <Input id="h-keypath" value={form.key_path ?? ''}
-                onChange={(e) => set('key_path', e.target.value)}
-                placeholder="/data/certs/pve1" />
+            <div className="space-y-1">
+              <Label htmlFor="h-ci-password">{t('hosts.form.ci_password', 'Mot de passe console Proxmox (optionnel)')}</Label>
+              <Input
+                id="h-ci-password"
+                type="password"
+                value={form.ci_password ?? ''}
+                onChange={(e) => setForm(f => ({ ...f, ci_password: e.target.value }))}
+                placeholder={mode === 'edit' ? t('hosts.form.ci_password_keep', '(conserver le mot de passe existant)') : ''}
+                autoComplete="new-password"
+              />
             </div>
+
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={form.default ?? false}
                 onChange={(e) => set('default', e.target.checked)} />
@@ -302,6 +480,34 @@ export default function AdminHosts() {
             <Button variant="outline" onClick={cancelDelete}>{t('workspaces.confirm.cancel')}</Button>
             <Button variant="destructive" onClick={doDelete} disabled={deleteHost.isPending}>
               {t('workspaces.confirm.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialogue destroy VM (host avec vmid) ── */}
+      <Dialog open={destroyTarget !== null} onOpenChange={(o) => { if (!o) cancelDestroy() }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t('admin.destroyVm.title', { name: destroyTarget?.name ?? '' })}</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground -mt-1">
+            {t('admin.destroyVm.vmidOnNode', {
+              vmid: destroyTarget?.vmid ?? '',
+              node: destroyTarget?.proxmox_node ?? '',
+            })}
+          </p>
+          <DestroyLog logs={destroyVm.logs} running={destroyVm.running} error={destroyVm.error} />
+          <DialogFooter>
+            <Button variant="outline" onClick={cancelDestroy} disabled={deleteHost.isPending}>
+              {t('admin.destroyVm.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={doDestroyAndDelete}
+              disabled={destroyVm.running || deleteHost.isPending}
+            >
+              {t('admin.destroyVm.deleteHost')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,0 +1,14 @@
+{
+  "id": "go",
+  "version": "1.0.0",
+  "name": "Go",
+  "description": "Go via tarball officiel go.dev — dernière version patch du canal choisi",
+  "options": {
+    "channel": {
+      "type": "string",
+      "default": "1.23",
+      "description": "Canal Go majeur.mineur à installer",
+      "proposals": ["1.22", "1.23", "1.24"]
+    }
+  }
+}

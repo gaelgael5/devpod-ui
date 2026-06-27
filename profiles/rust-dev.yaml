@@ -1,0 +1,13 @@
+name: Rust Dev
+description: Rust — rust-analyzer, CodeLLDB, crates.io, TOML
+extensions:
+  - rust-lang.rust-analyzer
+  - vadimcn.vscode-lldb
+  - serayuzgur.crates
+  - tamasfe.even-better-toml
+settings:
+  editor.formatOnSave: true
+  "[rust]":
+    editor.defaultFormatter: rust-lang.rust-analyzer
+  rust-analyzer.check.command: clippy
+  rust-analyzer.cargo.features: all

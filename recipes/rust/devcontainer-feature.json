@@ -1,0 +1,14 @@
+{
+  "id": "rust",
+  "version": "1.0.0",
+  "name": "Rust",
+  "description": "Rust via rustup — stable, beta ou nightly",
+  "options": {
+    "channel": {
+      "type": "string",
+      "default": "stable",
+      "description": "Canal rustup à installer",
+      "proposals": ["stable", "beta", "nightly"]
+    }
+  }
+}

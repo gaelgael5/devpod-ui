@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson } from '@/shared/api/client'
 import type { Recipe } from '@/features/recipes/types'
 
 export interface RecipeCreateRequest {
   id: string
   version: string
   description: string
+  type: 'install' | 'start'
   install_script: string
 }
 
@@ -14,6 +15,7 @@ export interface RecipeUpdateRequest {
   id: string
   version: string
   description: string
+  type: 'install' | 'start'
   install_script: string
 }
 
@@ -28,7 +30,7 @@ export function useAdminRecipes() {
 
   const deleteRecipe = useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/admin/recipes/${id}`, { method: 'DELETE' }),
+      apiFetchJson<{ deleted: string }>(`/admin/recipes/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'recipes'] }),
     onError: (err: Error) => toast.error(err.message),
   })

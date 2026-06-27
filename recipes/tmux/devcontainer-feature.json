@@ -1,0 +1,7 @@
+{
+  "id": "tmux",
+  "version": "1.0.0",
+  "name": "tmux",
+  "description": "Installe tmux pour les sessions terminal persistantes du portail workspace",
+  "installsAfter": []
+}

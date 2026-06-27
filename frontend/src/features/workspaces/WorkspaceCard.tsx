@@ -1,11 +1,26 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Key } from 'lucide-react'
+import { FileText, Key, Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import type { WorkspaceSpec, WorkspaceStatus, WorkspaceStatusValue } from './types'
 import SshKeyDialog from './SshKeyDialog'
+import LogDialog from './LogDialog'
+import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
+import InitializersMenu from './InitializersMenu'
+import AddTestVmDialog from './AddTestVmDialog'
+import TestHostsMenu from './TestHostsMenu'
+import type { TestHost } from './useTestVm'
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
   running: 'bg-green-500/10 text-green-600 border-green-500/30',
@@ -19,13 +34,21 @@ interface Props {
   spec: WorkspaceSpec
   status: WorkspaceStatus
   onStop: (name: string) => void
-  onDelete: (name: string) => void
+  onDelete: (name: string, shelve: boolean) => void
   onStart?: (name: string) => void
+  onRecreate?: (name: string) => void
+  isStarting?: boolean
 }
 
-export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart }: Props) {
+export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart, onRecreate, isStarting = false }: Props) {
   const { t } = useTranslation()
   const [sshKeyOpen, setSshKeyOpen] = useState(false)
+  const [logsOpen, setLogsOpen] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [recreateOpen, setRecreateOpen] = useState(false)
+  const [shellOpen, setShellOpen] = useState(false)
+  const [addVmOpen, setAddVmOpen] = useState(false)
+  const [sshTestHost, setSshTestHost] = useState<TestHost | null>(null)
   const s = status.status
 
   return (
@@ -34,6 +57,9 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
         <div>
           <div className="font-semibold text-foreground">{spec.name}</div>
           <div className="text-xs text-muted-foreground">{spec.source}</div>
+          {spec.host && (
+            <div className="text-xs text-muted-foreground/70 font-mono">{spec.host}</div>
+          )}
         </div>
         <Badge
           variant="outline"
@@ -56,17 +82,17 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
         </div>
       )}
 
-      {s === 'provisioning' && (
+      {(s === 'provisioning' || isStarting) && (
         <div className="mb-3 h-1 overflow-hidden rounded-full bg-muted">
           <div className="h-full w-1/2 animate-pulse rounded-full bg-primary" />
         </div>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {s === 'running' && status.url && (
           <Button size="sm" asChild>
             <a href={status.url} target="_blank" rel="noopener noreferrer">
-              {t('workspaces.actions.open')}
+              {t('workspaces.actions.openVscode')}
             </a>
           </Button>
         )}
@@ -75,22 +101,40 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
             {t('workspaces.actions.stop')}
           </Button>
         )}
+        {s === 'running' && (
+          <Button size="sm" variant="outline" asChild>
+            <Link to={`/workspaces/${spec.name}/terminals`}>
+              {t('workspaces.terminals.open')}
+            </Link>
+          </Button>
+        )}
         {s === 'stopped' && (
           <Button
             size="sm"
             variant="outline"
             onClick={() => onStart?.(spec.name)}
-            disabled={!onStart}
+            disabled={!onStart || isStarting}
           >
+            {isStarting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
             {t('workspaces.actions.start')}
           </Button>
         )}
         {(s === 'stopped' || s === 'unknown' || s === 'failed') && (
           <Button
             size="sm"
+            variant="outline"
+            onClick={() => setRecreateOpen(true)}
+            disabled={!onRecreate}
+          >
+            {t('workspaces.actions.recreate')}
+          </Button>
+        )}
+        {(s === 'stopped' || s === 'unknown' || s === 'failed' || s === 'provisioning') && (
+          <Button
+            size="sm"
             variant="ghost"
             className="text-destructive hover:text-destructive"
-            onClick={() => onDelete(spec.name)}
+            onClick={() => setConfirmOpen(true)}
           >
             {t('workspaces.actions.delete')}
           </Button>
@@ -100,8 +144,9 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
             size="sm"
             variant="outline"
             onClick={() => onStart?.(spec.name)}
-            disabled={!onStart}
+            disabled={!onStart || isStarting}
           >
+            {isStarting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
             {t('workspaces.actions.retry')}
           </Button>
         )}
@@ -115,6 +160,34 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
             <Key className="h-4 w-4" />
           </Button>
         )}
+        {s === 'running' && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
+            onClick={() => setShellOpen(true)}
+            aria-label={t('workspaces.ssh.shellButton')}
+          >
+            {t('admin.sshTerminal.openBtn')}
+          </Button>
+        )}
+        {s === 'running' && <InitializersMenu wsName={spec.name} enabled />}
+        {s === 'running' && (
+          <Button size="sm" variant="outline" onClick={() => setAddVmOpen(true)}>
+            {t('workspaces.testVm.btn')}
+          </Button>
+        )}
+        {s === 'running' && (
+          <TestHostsMenu wsName={spec.name} enabled onOpenSsh={setSshTestHost} />
+        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setLogsOpen(true)}
+          aria-label={t('workspaces.logs.button')}
+        >
+          <FileText className="h-4 w-4" />
+        </Button>
       </div>
 
       {spec.ssh_key && (
@@ -124,6 +197,95 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart 
           onOpenChange={setSshKeyOpen}
         />
       )}
+      {shellOpen && (
+        <WorkspaceSshTerminalWindow
+          wsName={spec.name}
+          shell
+          onClose={() => setShellOpen(false)}
+        />
+      )}
+      {sshTestHost && (
+        <WorkspaceSshTerminalWindow
+          wsName={spec.name}
+          testHost={{ name: sshTestHost.name, alias: sshTestHost.alias }}
+          onClose={() => setSshTestHost(null)}
+        />
+      )}
+      <AddTestVmDialog
+        wsName={spec.name}
+        open={addVmOpen}
+        onClose={() => setAddVmOpen(false)}
+      />
+      <LogDialog
+        workspaceName={spec.name}
+        open={logsOpen}
+        onOpenChange={setLogsOpen}
+        status={status.status}
+      />
+      <Dialog open={recreateOpen} onOpenChange={setRecreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('workspaces.confirm.recreateTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('workspaces.confirm.recreateDescription', { name: spec.name })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button variant="ghost" size="sm" onClick={() => setRecreateOpen(false)}>
+              {t('workspaces.confirm.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setRecreateOpen(false)
+                onRecreate?.(spec.name)
+              }}
+            >
+              {t('workspaces.confirm.confirmRecreate')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('workspaces.confirm.deleteTitle')}</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2">
+                <p>{t('workspaces.confirm.deleteDescription', { name: spec.name })}</p>
+                <p>{t('workspaces.confirm.deleteShelveChoice')}</p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button variant="ghost" size="sm" onClick={() => setConfirmOpen(false)}>
+              {t('workspaces.confirm.cancel')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setConfirmOpen(false)
+                onDelete(spec.name, true)
+              }}
+            >
+              {t('workspaces.confirm.confirmShelve')}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setConfirmOpen(false)
+                onDelete(spec.name, false)
+              }}
+            >
+              {t('workspaces.confirm.confirmForce')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

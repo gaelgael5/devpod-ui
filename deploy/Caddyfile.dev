@@ -6,5 +6,11 @@
 # Dev : catch-all port 80 → portail (pas de TLS, pas de restriction de domaine)
 # Les routes workspace sont ajoutées dynamiquement via l'API admin Caddy.
 :80 {
-    reverse_proxy portal:8080
+    reverse_proxy portal:8080 {
+        flush_interval -1
+        transport http {
+            read_timeout 0
+            write_timeout 0
+        }
+    }
 }

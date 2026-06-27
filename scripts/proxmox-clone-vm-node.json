@@ -3,6 +3,7 @@
 
     {
       "arg": "NEW_VMID",
+      "identifier": true,
       "label_fr": "VMID de la nouvelle VM",
       "label_en": "New VM ID",
       "description_fr": "10 premiers IDs libres après 100 (VMs + LXC pris en compte)",
@@ -12,7 +13,7 @@
       "options": [
         { "value": "auto", "label": "auto (même stockage que le template)" }
       ],
-      "option_script": "PATH=/usr/sbin:/usr/bin:$PATH; used=$(ls /etc/pve/qemu-server/ /etc/pve/lxc/ 2>/dev/null | sed 's/\\.conf$//' | grep -E '^[0-9]+$'); count=0; id=101; while [ $count -lt 10 ]; do echo \"$used\" | grep -qx \"$id\" || { echo $id; count=$((count+1)); }; id=$((id+1)); done"
+      "option_script": "PATH=/usr/sbin:/usr/bin:$PATH; used=$(ls /etc/pve/nodes/*/qemu-server/ /etc/pve/nodes/*/lxc/ 2>/dev/null | sed 's/\\.conf$//' | grep -E '^[0-9]+$'); count=0; id=101; while [ $count -lt 10 ]; do echo \"$used\" | grep -qx \"$id\" || { echo $id; count=$((count+1)); }; id=$((id+1)); done"
     },
     
     {

@@ -6,6 +6,10 @@ import pytest
 def test_settings_default_values(monkeypatch: pytest.MonkeyPatch) -> None:
     import portal.settings as mod
 
+    # Ensure env vars asserted as empty/default are absent — other tests may
+    # set them via os.environ without cleanup (pre-existing pattern in the suite).
+    monkeypatch.delenv("SESSION_SECRET_KEY", raising=False)
+    monkeypatch.delenv("OIDC_LEEWAY", raising=False)
     mod._settings = None
     settings = mod.get_settings()
     assert settings.oidc_leeway == 30

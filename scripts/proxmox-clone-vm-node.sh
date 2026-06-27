@@ -28,6 +28,7 @@
 #   --sshkey FICHIER      Clé publique SSH principale (défaut : auto-détectée dans ~/.ssh/)
 #   --extra-sshkey FICH   Clé publique supplémentaire à injecter (ex. clé Windows)
 #   --ciuser USER         Utilisateur cloud-init      (défaut : debian)
+#   --cpu MODELE          Modèle CPU QEMU             (défaut : x86-64-v3)
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -45,6 +46,10 @@ DISK_EXTRA="+40G"
 SSH_KEY_FILE=""
 EXTRA_SSH_KEY_FILE=""
 CI_USER="debian"
+# Les binaires compilés avec Bun (ex. claude) exigent AVX ; kvm64 (défaut Proxmox) masque AVX.
+# x86-64-v3 expose AVX/AVX2/FMA, est supporté par les deux nœuds du cluster (Haswell + Raptor Lake),
+# et reste live-migratable entre eux — contrairement à --cpu host qui épingle au modèle exact.
+CPU_TYPE="x86-64-v3"
 PORTAL_URL=""
 PORTAL_TOKEN=""
 PORTAL_PVE_NODE=""
@@ -73,12 +78,13 @@ while [[ $# -gt 0 ]]; do
         --sshkey)        SSH_KEY_FILE="$2";       shift 2 ;;
         --extra-sshkey)  EXTRA_SSH_KEY_FILE="$2"; shift 2 ;;
         --ciuser)        CI_USER="$2";            shift 2 ;;
+        --cpu)           CPU_TYPE="$2";           shift 2 ;;
         --portal-url)      PORTAL_URL="$2";      shift 2 ;;
         --portal-token)    PORTAL_TOKEN="$2";    shift 2 ;;
         --portal-pve-node) PORTAL_PVE_NODE="$2"; shift 2 ;;
         *)
             echo "ERREUR : option inconnue : $1" >&2
-            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --sshkey --extra-sshkey --ciuser --portal-url --portal-token --portal-pve-node" >&2
+            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --cpu --sshkey --extra-sshkey --ciuser --portal-url --portal-token --portal-pve-node" >&2
             exit 1
             ;;
     esac
@@ -135,24 +141,25 @@ fi
 [[ "$STORAGE" == "auto" ]] && STORAGE=""
 [[ "$TEMPLATE_VMID" == "auto" ]] && TEMPLATE_VMID=""
 
-# ─── A.1 — Vérifier que le VMID est libre ─────────────────────────────────────
-echo "==> A.1 — Vérification du VMID $NEW_VMID..."
+# ─── A.1 — Vérifier que le VMID est libre (cluster-wide) ──────────────────────
+echo "==> A.1 — Vérification du VMID $NEW_VMID (cluster)..."
 
-if qm list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$NEW_VMID"; then
-    echo "ERREUR : VMID $NEW_VMID est déjà utilisé par une VM ou un template." >&2
-    echo "  Lister les VMID occupés : qm list" >&2
-    echo "  Supprimer si nécessaire : qm destroy $NEW_VMID" >&2
+# /etc/pve est répliqué dans tout le cluster (pmxcfs) : un VMID doit être unique sur
+# l'ENSEMBLE des nœuds. qm list / pct list ne voient que le nœud local et manquent un
+# VMID occupé sur un autre nœud (ou un .conf orphelin), d'où un `qm clone` qui échoue
+# avec "rename ... 103.conf failed: File exists". On inspecte donc les .conf de tous
+# les nœuds.
+if compgen -G "/etc/pve/nodes/*/qemu-server/${NEW_VMID}.conf" >/dev/null \
+   || compgen -G "/etc/pve/nodes/*/lxc/${NEW_VMID}.conf" >/dev/null; then
+    occupied=$(ls /etc/pve/nodes/*/qemu-server/"${NEW_VMID}".conf \
+                  /etc/pve/nodes/*/lxc/"${NEW_VMID}".conf 2>/dev/null | tr '\n' ' ')
+    echo "ERREUR : VMID $NEW_VMID déjà utilisé dans le cluster (VM ou LXC)." >&2
+    echo "  Config(s) existante(s) : $occupied" >&2
+    echo "  Choisir un autre VMID, ou supprimer si orphelin : qm destroy $NEW_VMID" >&2
     exit 1
 fi
 
-if pct list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$NEW_VMID"; then
-    echo "ERREUR : VMID $NEW_VMID est déjà utilisé par un conteneur LXC." >&2
-    echo "  Lister les conteneurs LXC : pct list" >&2
-    echo "  Supprimer si nécessaire : pct destroy $NEW_VMID" >&2
-    exit 1
-fi
-
-echo "    VMID $NEW_VMID : libre (aucune VM ni LXC)"
+echo "    VMID $NEW_VMID : libre (cluster — aucune VM ni LXC)"
 
 # ─── A.1 — Auto-détection du template source ──────────────────────────────────
 if [[ -z "$TEMPLATE_VMID" ]]; then
@@ -242,6 +249,7 @@ echo "    Stockage       : même que le template (défaut)"
 fi
 echo "    DNS            : $DNS"
 echo "    vCPU / RAM     : ${CORES} cores / ${MEMORY} Mo"
+echo "    Modèle CPU     : $CPU_TYPE"
 echo "    Disque ajouté  : $DISK_EXTRA"
 echo "    Clé SSH        : $SSH_KEY_FILE"
 [[ -n "$EXTRA_SSH_KEY_FILE" ]] && \
@@ -289,13 +297,17 @@ echo "  │  Password : $CI_PASSWORD                        │"
 echo "  └─────────────────────────────────────────────────┘"
 echo ""
 
-# ─── A.4 — Configurer la mémoire et le CPU ───────────────────────────────────
+# ─── A.4 — Configurer la mémoire, le CPU et le modèle CPU ────────────────────
 echo ""
-echo "==> A.4 — Configuration des ressources (${CORES} vCPU / ${MEMORY} Mo RAM)..."
+echo "==> A.4 — Configuration des ressources (${CORES} vCPU / ${MEMORY} Mo RAM / CPU ${CPU_TYPE})..."
 
-qm set "$NEW_VMID" --memory "$MEMORY" --cores "$CORES"
+# --cpu appliqué explicitement même sur un clone : un template créé avec l'ancien
+# script (sans --cpu) hérite de kvm64 qui masque AVX. qm set corrige ça défensivement.
+# --onboot 1 : la VM (nœud Docker) doit redémarrer automatiquement au boot du host
+# PVE, sinon un reboot du host laisse le nœud éteint et indisponible pour le portail.
+qm set "$NEW_VMID" --memory "$MEMORY" --cores "$CORES" --cpu "$CPU_TYPE" --onboot 1
 
-echo "    Ressources configurées."
+echo "    Ressources configurées (démarrage automatique au boot du host activé)."
 
 # ─── A.5 — Agrandir le disque avant le premier démarrage ─────────────────────
 echo ""
@@ -556,9 +568,27 @@ ${SUDO} apt-get -o "DPkg::Lock::Timeout=300" install -y --no-install-recommends 
 # Docker CE + compose v2 : script officiel (docker-compose-plugin absent des dépôts Debian)
 curl -fsSL https://get.docker.com | ${SUDO} sh
 ${SUDO} systemctl enable --now docker
+# DevPod SSH provider pilote Docker en tant qu'utilisateur non-root :
+# l'utilisateur doit être dans le groupe docker pour éviter l'erreur "rerun as root".
+${SUDO} usermod -aG docker "${CI_USER}"
+# Builder buildx docker-container — indispensable pour éviter l'erreur buildkit
+# "only one connection allowed" du driver docker intégré (une seule session buildkit
+# simultanée). sudo -u lit /etc/group au moment de l'appel, donc le nouveau groupe
+# est actif immédiatement sans besoin de rouvrir la session SSH.
+if ! ${SUDO} -u "${CI_USER}" docker buildx inspect devpod-builder &>/dev/null 2>&1; then
+    ${SUDO} -u "${CI_USER}" docker buildx create \
+        --name devpod-builder \
+        --driver docker-container \
+        --bootstrap \
+        --use
+else
+    ${SUDO} -u "${CI_USER}" docker buildx use devpod-builder
+fi
 REMOTE
 
 echo "    Paquets installés (git, openssl, docker CE + compose v2)."
+echo "    Utilisateur '${CI_USER}' ajouté au groupe docker."
+echo "    Builder 'devpod-builder' (docker-container) configuré."
 
 # ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
 echo ""
@@ -633,13 +663,16 @@ fi
 echo ""
 
 # ─── Résumé JSON (dernière ligne — parsée par le portail) ────────────────────
+# vmid et proxmox_node sont obligatoires pour que le portail puisse déclencher
+# le destroy_script lors de la suppression du host.
+# ci_password : mot de passe console Proxmox (noVNC) généré en A.3.
 if [[ "$ENROLLED" == "true" ]]; then
-    printf '{"status":"ok","name":"%s","address":"%s","type":"docker-tls","docker_host":"tcp://%s:2376","ssh_user":"%s","ssh_port":22,"key_path":"/data/certs/portal"}\n' \
-        "$NODE_NAME" "$IP_ADDR" "$IP_ADDR" "$CI_USER"
+    printf '{"status":"ok","name":"%s","address":"%s","type":"docker-tls","docker_host":"tcp://%s:2376","ssh_user":"%s","ssh_port":22,"key_path":"/data/certs/portal","vmid":"%s","proxmox_node":"%s","ci_password":"%s"}\n' \
+        "$NODE_NAME" "$IP_ADDR" "$IP_ADDR" "$CI_USER" "$NEW_VMID" "$PORTAL_PVE_NODE" "$CI_PASSWORD"
 elif [[ -n "$PORTAL_KEY_PATH" ]]; then
-    printf '{"status":"ok","name":"%s","address":"%s","type":"ssh","ssh_user":"%s","ssh_port":22,"key_path":"%s"}\n' \
-        "$NODE_NAME" "$CI_USER@$IP_ADDR" "$CI_USER" "$PORTAL_KEY_PATH"
+    printf '{"status":"ok","name":"%s","address":"%s","type":"ssh","ssh_user":"%s","ssh_port":22,"key_path":"%s","vmid":"%s","proxmox_node":"%s","ci_password":"%s"}\n' \
+        "$NODE_NAME" "$CI_USER@$IP_ADDR" "$CI_USER" "$PORTAL_KEY_PATH" "$NEW_VMID" "$PORTAL_PVE_NODE" "$CI_PASSWORD"
 else
-    printf '{"status":"ok","name":"%s","address":"%s","ssh_user":"%s","ssh_port":22}\n' \
-        "$NODE_NAME" "$IP_ADDR" "$CI_USER"
+    printf '{"status":"ok","name":"%s","address":"%s","ssh_user":"%s","ssh_port":22,"vmid":"%s","proxmox_node":"%s","ci_password":"%s"}\n' \
+        "$NODE_NAME" "$IP_ADDR" "$CI_USER" "$NEW_VMID" "$PORTAL_PVE_NODE" "$CI_PASSWORD"
 fi

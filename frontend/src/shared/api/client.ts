@@ -25,7 +25,14 @@ export async function apiFetchJson<T>(path: string, init?: RequestInit): Promise
   const res = await apiFetch(path, init)
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new ApiError(res.status, text || res.statusText)
+    let message = text || res.statusText
+    try {
+      const json = JSON.parse(text)
+      if (typeof json.detail === 'string') message = json.detail
+    } catch {
+      // pas du JSON — on garde le texte brut
+    }
+    throw new ApiError(res.status, message)
   }
   // res.json() returns unknown; caller is responsible for type correctness (no runtime schema validation)
   return res.json() as Promise<T>

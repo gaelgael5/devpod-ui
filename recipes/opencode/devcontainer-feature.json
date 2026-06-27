@@ -1,0 +1,6 @@
+{
+  "id": "opencode",
+  "version": "1.0.0",
+  "name": "OpenCode CLI",
+  "description": "Install OpenCode CLI — interface CLI pour LLMs (requiert Node.js)"
+}

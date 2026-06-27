@@ -19,10 +19,12 @@ ARG DEVPOD_VERSION=0.6.15
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        git \
         gnupg \
         openssl \
         openssh-client \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && printf 'precedence ::ffff:0:0/96  100\n' >> /etc/gai.conf
 
 # Docker CLI uniquement (pas le daemon — §D-21)
 RUN install -m 0755 -d /etc/apt/keyrings \
@@ -53,6 +55,10 @@ RUN pip install --no-cache-dir uv
 
 WORKDIR /app
 
+# SDK harpocrate — dépendance locale path = "../Sdk/harpocrate-0.6.0"
+# Doit être copié avant uv sync pour que le lockfile puisse le résoudre.
+COPY Sdk/ /Sdk/
+
 # Étape 1 : installer les dépendances depuis le lockfile (layer cachée si seul le code change)
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --no-dev --no-install-project --frozen
@@ -64,8 +70,15 @@ COPY scripts/ ./scripts/
 COPY backend/src/ ./src/
 RUN uv sync --no-dev --frozen
 
+# Migrations Alembic — nécessaires au démarrage (run_migrations dans le lifespan)
+COPY backend/alembic/ ./alembic/
+COPY backend/alembic.ini ./
+
 # Assets frontend buildés dans le stage précédent
 COPY --from=frontend-builder /build/dist ./static
+
+# Catalogue de recettes bundlées — synchronisées vers /data/recipes/ au démarrage
+COPY recipes/ /app/recipes/
 
 # Exposer le venv uv sur PATH — évite le surcoût de `uv run` à chaque démarrage
 ENV PATH="/app/.venv/bin:$PATH"
@@ -73,4 +86,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8080
 
 # Pas d'ENV avec secret — tout vient de /data/.env au runtime
-CMD ["uvicorn", "portal.app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "portal.app:app", "--host", "0.0.0.0", "--port", "8080", "--access-log"]

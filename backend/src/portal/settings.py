@@ -13,6 +13,15 @@ class AppSettings(BaseSettings):
     # Mode développement local (désactive https_only et autorise session key vide)
     dev_mode: bool = False
 
+    # Domaine de base (env BASE_DOMAIN, ex. "dev.yoops.org"). Sert au host matcher Caddy
+    # et, par défaut, au domaine du cookie de session.
+    base_domain: str = ""
+
+    # Domaine du cookie de session (env COOKIE_DOMAIN). À renseigner quand portail et
+    # workspaces ne partagent qu'un ancêtre commun (ex. portail dev.yoops.org +
+    # workspaces ws-x.yoops.org → COOKIE_DOMAIN=yoops.org). Vide → base_domain.
+    cookie_domain: str = ""
+
     # Session (cookie signé)
     session_secret_key: str = ""
 
@@ -35,6 +44,25 @@ class AppSettings(BaseSettings):
     portal_data_root: str = "/data"
     scripts_dir: str = "/app/scripts"
     portal_api_key: str = ""
+
+    # Base de données PostgreSQL (format : postgresql+asyncpg://user:pass@host/db)
+    database_url: str = ""
+
+    # Vault : KEK 32 bytes hex (64 chars). Obligatoire en production.
+    portal_vault_kek: str = ""
+
+    # MCP : intervalle de la boucle de monitoring des backends (secondes).
+    mcp_monitor_interval_s: float = 300.0
+
+
+def resolve_cookie_domain(cookie_domain: str, base_domain: str) -> str | None:
+    """Domaine du cookie de session, pour le transmettre aux workspaces (forward_auth).
+
+    `cookie_domain` explicite prime (cas où portail et workspaces n'ont qu'un ancêtre
+    commun) ; sinon on retombe sur `base_domain`. Retourne ".{domaine}" ou None si vide.
+    """
+    src = (cookie_domain or base_domain).strip()
+    return f".{src}" if src else None
 
 
 _settings: AppSettings | None = None

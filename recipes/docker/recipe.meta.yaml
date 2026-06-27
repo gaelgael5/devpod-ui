@@ -1,0 +1,5 @@
+﻿id: docker
+key: 507846f2-f176-40ef-b078-2462a9154152
+version: 1.0.0
+description: "Install Docker CLI (client uniquement, sans daemon)"
+type: install

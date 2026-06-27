@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import re
 from pathlib import Path
 
 import structlog
 
+# Séquences d'échappement ANSI (couleurs, mise en forme) émises par devpod --debug.
+_ANSI_RE = re.compile(r"\x1b\[[\d;]*[mGKHF]")
+
 _log = structlog.get_logger(__name__)
 
-# Registre des verrous par ws_id
 _locks: dict[str, asyncio.Lock] = {}
+_processes: dict[str, asyncio.subprocess.Process] = {}
 
 
 def _get_lock(ws_id: str) -> asyncio.Lock:
@@ -20,16 +25,28 @@ def clear_locks() -> None:
     _locks.clear()
 
 
+async def kill_if_running(ws_id: str) -> None:
+    """Tue le subprocess devpod actif pour ws_id s'il existe, libérant le verrou."""
+    proc = _processes.get(ws_id)
+    if proc is None or proc.returncode is not None:
+        return
+    with contextlib.suppress(ProcessLookupError):
+        proc.kill()
+        await proc.wait()
+    _log.info("devpod_subprocess_killed", ws_id=ws_id)
+
+
 async def run_subprocess(
     cmd: list[str],
     env: dict[str, str],
     log_path: Path,
     ws_id: str,
+    timeout_s: int | None = None,
 ) -> int:
     """
     Exécute une commande devpod en async, streame stdout+stderr vers log_path.
     Acquiert un verrou par ws_id pour sérialiser les opérations sur le même workspace.
-    Jamais bloquant : asyncio.create_subprocess_exec + lecture ligne par ligne.
+    Si timeout_s est fourni, tue le process et lève TimeoutError après ce délai.
     """
     async with _get_lock(ws_id):
         _log.info("devpod_subprocess_start", ws_id=ws_id, cmd=cmd[0] if cmd else "")
@@ -41,18 +58,34 @@ async def run_subprocess(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
+        _processes[ws_id] = proc
+        returncode: int = -1
+        try:
+            if proc.stdout is None:
+                raise RuntimeError(f"subprocess stdout pipe not available for ws_id={ws_id!r}")
 
-        if proc.stdout is None:
-            raise RuntimeError(f"subprocess stdout pipe not available for ws_id={ws_id!r}")
-        with log_path.open("w", encoding="utf-8") as log_file:
-            while True:
-                line = await proc.stdout.readline()
-                if not line:
-                    break
-                decoded = line.decode(errors="replace")
-                log_file.write(decoded)
-                log_file.flush()
+            _timeout = (
+                asyncio.timeout(timeout_s) if timeout_s is not None else contextlib.nullcontext()
+            )
+            try:
+                async with _timeout:
+                    with log_path.open("w", encoding="utf-8") as log_file:
+                        while True:
+                            line = await proc.stdout.readline()
+                            if not line:
+                                break
+                            decoded = _ANSI_RE.sub("", line.decode(errors="replace"))
+                            log_file.write(decoded)
+                            log_file.flush()
+                    returncode = await proc.wait()
+            except TimeoutError:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+                    await proc.wait()
+                _log.warning("devpod_subprocess_timeout", ws_id=ws_id, timeout_s=timeout_s)
+                raise
+        finally:
+            _processes.pop(ws_id, None)
 
-        returncode = await proc.wait()
         _log.info("devpod_subprocess_done", ws_id=ws_id, returncode=returncode)
         return returncode

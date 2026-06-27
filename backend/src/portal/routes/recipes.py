@@ -1,20 +1,30 @@
-# backend/src/portal/routes/recipes.py
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json as _json
+import os
 import shutil
-from typing import Any
+import tempfile
+from pathlib import Path
+from typing import Any, Literal
 
 import structlog
 import yaml
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, field_validator
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin, require_user
 from ..config.store import _data_root, safe_user_path
+from ..db.engine import get_conn
+from ..db.recipes import (
+    delete_recipe_db,
+    get_recipe_db,
+    list_recipes_db,
+    upsert_recipe_db,
+)
 from ..recipes.models import _RECIPE_ID_RE, RecipeMeta
-from ..recipes.registry import RecipeRegistry
 
 _log = structlog.get_logger(__name__)
 
@@ -31,19 +41,29 @@ class RecipeCreateRequest(BaseModel):
     id: str
     version: str = "1.0.0"
     description: str = ""
+    type: Literal["install", "start"] = "install"
     install_script: str = _DEFAULT_INSTALL_SH
 
     @field_validator("id")
     @classmethod
     def validate_id(cls, v: str) -> str:
         if not _RECIPE_ID_RE.fullmatch(v):
-            raise ValueError(
-                f"id {v!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$"
-            )
+            raise ValueError(f"id {v!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$")
         return v
 
 
 class RecipeUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: str
+    description: str
+    type: Literal["install", "start"] = "install"
+    install_script: str
+
+
+class UserRecipeUpdateRequest(BaseModel):
+    """Mise à jour d'une recette personnelle — le type est immuable après création."""
+
     model_config = ConfigDict(extra="forbid")
 
     version: str
@@ -59,22 +79,94 @@ def _validate_recipe_id(recipe_id: str) -> None:
         )
 
 
+_SCOPE_PRIORITY: dict[str, int] = {"user": 0, "shared": 1, "builtin": 2}
+
+
 @router_public.get("/recipes")
-async def list_recipes(user: UserInfo = Depends(require_user)) -> list[dict[str, Any]]:
-    """Liste les recettes partagées + personnelles visibles par l'utilisateur."""
-    data_root = _data_root()
-    registry = RecipeRegistry(shared_dir=data_root / "recipes")
-    shared = registry.load_shared()
+async def list_recipes(
+    user: UserInfo = Depends(require_user),
+    recipe_type: str | None = Query(default=None, alias="type"),
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[dict[str, Any]]:
+    """Liste les recettes visibles par l'utilisateur avec leur scope.
+
+    Déduplication par ID : user > shared > builtin.
+    Paramètre optionnel `?type=install|start|initialize` pour filtrer par type.
+    """
+    type_filter = recipe_type if recipe_type in ("install", "start", "initialize") else None
+    entries = await list_recipes_db(user.login, conn)
+
+    best: dict[str, tuple[int, dict[str, Any]]] = {}
+    for scope, meta in entries:
+        if type_filter is not None and meta.type != type_filter:
+            continue
+        prio = _SCOPE_PRIORITY.get(scope, 99)
+        existing = best.get(meta.id)
+        if existing is None or prio < existing[0]:
+            d = meta.model_dump()
+            d["scope"] = scope
+            best[meta.id] = (prio, d)
+
+    return [d for _, d in best.values()]
+
+
+class StartRecipeCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    version: str = "1.0.0"
+    description: str = ""
+    script: str = "#!/usr/bin/env bash\nset -euo pipefail\n"
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, v: str) -> str:
+        if not _RECIPE_ID_RE.fullmatch(v):
+            raise ValueError(f"id {v!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$")
+        return v
+
+
+@router_me.post("/start-recipes", status_code=201)
+async def create_personal_start_recipe(
+    body: StartRecipeCreateRequest,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Crée une recette start personnelle avec son start.sh."""
     personal_dir = safe_user_path(user.login, "recipes")
-    personal = registry.load_dir(personal_dir)
-    available = {**shared, **personal}
-    return [m.model_dump() for m in available.values()]
+    recipe_path = personal_dir / body.id
+
+    if recipe_path.exists():
+        raise HTTPException(status_code=409, detail=f"Recipe {body.id!r} already exists")
+
+    meta = RecipeMeta(id=body.id, version=body.version, description=body.description, type="start")
+
+    def _write() -> None:
+        tmp = personal_dir / f".tmp-{body.id}"
+        try:
+            tmp.mkdir(parents=True, exist_ok=False)
+            (tmp / "recipe.meta.yaml").write_text(
+                yaml.dump(meta.model_dump(), default_flow_style=False), encoding="utf-8"
+            )
+            start_sh = tmp / "start.sh"
+            start_sh.write_text(body.script, encoding="utf-8")
+            start_sh.chmod(0o755)
+            tmp.rename(recipe_path)
+        except Exception:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+
+    await asyncio.to_thread(_write)
+    await upsert_recipe_db(meta, "user", user.login, conn)
+    _log.info("personal_start_recipe_created", recipe_id=body.id, login=user.login)
+    return meta.model_dump()
 
 
 @router_me.delete("/recipes/{recipe_id}")
 async def delete_personal_recipe(
     recipe_id: str,
     user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     """Supprime une recette personnelle."""
     _validate_recipe_id(recipe_id)
@@ -88,24 +180,192 @@ async def delete_personal_recipe(
     if not recipe_path.exists():
         raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
     await asyncio.to_thread(shutil.rmtree, recipe_path)
+    await delete_recipe_db(recipe_id, "user", user.login, conn)
     _log.info("personal_recipe_deleted", login=user.login, recipe_id=recipe_id)
     return {"deleted": recipe_id}
+
+
+@router_me.get("/recipes/{recipe_id}")
+async def get_personal_recipe(
+    recipe_id: str,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Retourne une recette personnelle avec le contenu de son script."""
+    _validate_recipe_id(recipe_id)
+    meta = await get_recipe_db(recipe_id, "user", user.login, conn)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
+    personal_dir = safe_user_path(user.login, "recipes")
+    recipe_path = personal_dir / recipe_id
+    script_name = "start.sh" if meta.type == "start" else "install.sh"
+    script_path = recipe_path / script_name
+    script = script_path.read_text(encoding="utf-8") if script_path.exists() else ""
+    entry = meta.model_dump()
+    entry["scope"] = "user"
+    entry["install_script"] = script
+    return entry
+
+
+@router_me.post("/recipes", status_code=201)
+async def create_personal_recipe(
+    body: RecipeCreateRequest,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Crée une recette personnelle (install ou start)."""
+    personal_dir = safe_user_path(user.login, "recipes")
+    recipe_path = personal_dir / body.id
+    if recipe_path.exists():
+        raise HTTPException(status_code=409, detail=f"Recipe {body.id!r} already exists")
+    meta = RecipeMeta(
+        id=body.id, version=body.version, description=body.description, type=body.type
+    )
+    script_name = "start.sh" if body.type == "start" else "install.sh"
+
+    def _write() -> None:
+        tmp = personal_dir / f".tmp-{body.id}"
+        try:
+            tmp.mkdir(parents=True, exist_ok=False)
+            (tmp / "recipe.meta.yaml").write_text(
+                yaml.dump(meta.model_dump(), default_flow_style=False), encoding="utf-8"
+            )
+            script = tmp / script_name
+            script.write_text(body.install_script, encoding="utf-8")
+            script.chmod(0o755)
+            tmp.rename(recipe_path)
+        except Exception:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+
+    await asyncio.to_thread(_write)
+    await upsert_recipe_db(meta, "user", user.login, conn)
+    _log.info("personal_recipe_created", recipe_id=body.id, login=user.login)
+    entry = meta.model_dump()
+    entry["scope"] = "user"
+    entry["install_script"] = body.install_script
+    return entry
+
+
+@router_me.post("/recipes/{recipe_id}/fork", status_code=201)
+async def fork_recipe(
+    recipe_id: str,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Forke une recette partagée/builtin vers l'espace personnel de l'utilisateur."""
+    _validate_recipe_id(recipe_id)
+    meta = await get_recipe_db(recipe_id, "shared", None, conn)
+    if meta is None:
+        meta = await get_recipe_db(recipe_id, "builtin", None, conn)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Shared recipe {recipe_id!r} not found")
+    existing = await get_recipe_db(recipe_id, "user", user.login, conn)
+    if existing is not None:
+        raise HTTPException(status_code=409, detail=f"Recipe {recipe_id!r} already forked")
+
+    data_root = _data_root()
+    shared_dir = data_root / "recipes" / recipe_id
+    personal_dir = safe_user_path(user.login, "recipes")
+    script_name = "start.sh" if meta.type == "start" else "install.sh"
+
+    def _copy() -> str:
+        src_script = shared_dir / script_name
+        content = (
+            src_script.read_text(encoding="utf-8")
+            if src_script.exists()
+            else "#!/usr/bin/env bash\nset -e\n"
+        )
+        dest = personal_dir / recipe_id
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "recipe.meta.yaml").write_text(
+            yaml.dump(meta.model_dump(), default_flow_style=False), encoding="utf-8"
+        )
+        script = dest / script_name
+        script.write_text(content, encoding="utf-8")
+        script.chmod(0o755)
+        return content
+
+    script_content = await asyncio.to_thread(_copy)
+    await upsert_recipe_db(meta, "user", user.login, conn)
+    _log.info("recipe_forked", recipe_id=recipe_id, login=user.login)
+    entry = meta.model_dump()
+    entry["scope"] = "user"
+    entry["install_script"] = script_content
+    return entry
+
+
+@router_me.put("/recipes/{recipe_id}")
+async def update_personal_recipe(
+    recipe_id: str,
+    body: UserRecipeUpdateRequest,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Met à jour version, description et script d'une recette personnelle."""
+    _validate_recipe_id(recipe_id)
+    existing_meta = await get_recipe_db(recipe_id, "user", user.login, conn)
+    if existing_meta is None:
+        raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
+
+    personal_dir = safe_user_path(user.login, "recipes")
+    recipe_path = personal_dir / recipe_id
+    new_meta = RecipeMeta(
+        id=recipe_id,
+        key=existing_meta.key,
+        version=body.version,
+        description=body.description,
+        type=existing_meta.type,
+        installs_after=existing_meta.installs_after,
+        requires_secrets=existing_meta.requires_secrets,
+    )
+    script_name = "start.sh" if existing_meta.type == "start" else "install.sh"
+
+    def _update() -> None:
+        def _atomic(path: Path, content: str) -> None:
+            fd, tmp_name = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(content)
+                os.replace(tmp_name, path)
+            except Exception:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp_name)
+                raise
+
+        recipe_path.mkdir(parents=True, exist_ok=True)
+        _atomic(
+            recipe_path / "recipe.meta.yaml",
+            yaml.dump(new_meta.model_dump(), default_flow_style=False),
+        )
+        _atomic(recipe_path / script_name, body.install_script)
+        (recipe_path / script_name).chmod(0o755)
+
+    await asyncio.to_thread(_update)
+    await upsert_recipe_db(new_meta, "user", user.login, conn)
+    _log.info("personal_recipe_updated", recipe_id=recipe_id, login=user.login)
+    entry = new_meta.model_dump()
+    entry["scope"] = "user"
+    entry["install_script"] = body.install_script
+    return entry
 
 
 @router_admin.get("/recipes")
 async def admin_list_recipes(
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, Any]]:
-    """Liste les recettes partagées avec install_script (admin only)."""
+    """Liste les recettes partagées (importées / créées) avec install_script (admin only)."""
     data_root = _data_root()
     shared_recipes_dir = data_root / "recipes"
-    registry = RecipeRegistry(shared_dir=shared_recipes_dir)
-    shared = registry.load_shared()
-    results = []
-    for meta in shared.values():
+    entries = await list_recipes_db(user.login, conn, scope_filter="shared")
+    results: list[dict[str, Any]] = []
+    for _scope, meta in entries:
         entry = meta.model_dump()
         install_sh = shared_recipes_dir / meta.id / "install.sh"
-        entry["install_script"] = install_sh.read_text(encoding="utf-8") if install_sh.exists() else ""
+        entry["install_script"] = (
+            install_sh.read_text(encoding="utf-8") if install_sh.exists() else ""
+        )
         results.append(entry)
     return results
 
@@ -114,6 +374,7 @@ async def admin_list_recipes(
 async def admin_create_shared_recipe(
     body: RecipeCreateRequest,
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     """Crée une recette partagée avec son install.sh."""
     data_root = _data_root()
@@ -122,7 +383,9 @@ async def admin_create_shared_recipe(
     if recipe_path.exists():
         raise HTTPException(status_code=409, detail=f"Recipe {body.id!r} already exists")
 
-    meta = RecipeMeta(id=body.id, version=body.version, description=body.description)
+    meta = RecipeMeta(
+        id=body.id, version=body.version, description=body.description, type=body.type
+    )
 
     def _write() -> None:
         tmp = shared_recipes_dir / f".tmp-{body.id}"
@@ -144,6 +407,7 @@ async def admin_create_shared_recipe(
             raise
 
     await asyncio.to_thread(_write)
+    await upsert_recipe_db(meta, "shared", None, conn)
     _log.info("shared_recipe_created", recipe_id=body.id, by=user.login)
     return meta.model_dump()
 
@@ -153,6 +417,7 @@ async def admin_update_shared_recipe(
     recipe_id: str,
     body: RecipeUpdateRequest,
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     """Met à jour version, description et install.sh d'une recette partagée."""
     _validate_recipe_id(recipe_id)
@@ -164,21 +429,35 @@ async def admin_update_shared_recipe(
     if not recipe_path.exists():
         raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
 
-    meta = RecipeMeta(id=recipe_id, version=body.version, description=body.description)
+    meta = RecipeMeta(
+        id=recipe_id, version=body.version, description=body.description, type=body.type
+    )
 
     def _update() -> None:
-        (recipe_path / "recipe.meta.yaml").write_text(
-            yaml.dump(meta.model_dump(), default_flow_style=False), encoding="utf-8"
+        def _write_atomic(path: Path, content: str) -> None:
+            fd, tmp_name = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(content)
+                os.replace(tmp_name, path)
+            except Exception:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp_name)
+                raise
+
+        _write_atomic(
+            recipe_path / "recipe.meta.yaml",
+            yaml.dump(meta.model_dump(), default_flow_style=False),
         )
-        (recipe_path / "devcontainer-feature.json").write_text(
+        _write_atomic(
+            recipe_path / "devcontainer-feature.json",
             _json.dumps({"id": recipe_id, "version": body.version}, indent=2),
-            encoding="utf-8",
         )
-        install_sh = recipe_path / "install.sh"
-        install_sh.write_text(body.install_script, encoding="utf-8")
-        install_sh.chmod(0o755)
+        _write_atomic(recipe_path / "install.sh", body.install_script)
+        (recipe_path / "install.sh").chmod(0o755)
 
     await asyncio.to_thread(_update)
+    await upsert_recipe_db(meta, "shared", None, conn)
     _log.info("shared_recipe_updated", recipe_id=recipe_id, by=user.login)
     entry = meta.model_dump()
     entry["install_script"] = body.install_script
@@ -189,6 +468,7 @@ async def admin_update_shared_recipe(
 async def admin_delete_shared_recipe(
     recipe_id: str,
     user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     """Supprime une recette partagée admin (ne supprime pas les builtin)."""
     _validate_recipe_id(recipe_id)
@@ -197,8 +477,27 @@ async def admin_delete_shared_recipe(
     recipe_path = shared_recipes_dir / recipe_id
     if not recipe_path.is_relative_to(shared_recipes_dir):
         raise HTTPException(status_code=422, detail="Path traversal detected")
-    if not recipe_path.exists():
+
+    from ..db.recipes import find_recipe_dependents, get_recipe_db
+
+    target = await get_recipe_db(recipe_id, "shared", None, conn)
+    disk_exists = recipe_path.exists()
+
+    if target is None and not disk_exists:
         raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
-    await asyncio.to_thread(shutil.rmtree, recipe_path)
+
+    if target is not None:
+        dependents = await find_recipe_dependents(target.key, conn)
+        if dependents:
+            names = ", ".join(dependents)
+            raise HTTPException(
+                status_code=409,
+                detail=f"Impossible de supprimer « {recipe_id} » : "
+                f"les recettes suivantes en dépendent : {names}",
+            )
+
+    if disk_exists:
+        await asyncio.to_thread(shutil.rmtree, recipe_path)
+    await delete_recipe_db(recipe_id, "shared", None, conn)
     _log.info("shared_recipe_deleted", login=user.login, recipe_id=recipe_id)
     return {"deleted": recipe_id}

@@ -78,19 +78,33 @@ async def test_upsert_route_json_structure() -> None:
                 upstream="192.168.1.50:41000",
             )
 
-    # Vérifier la structure
+    # Vérifier la structure : 'forward_auth' n'existe PAS comme handler Caddy JSON ;
+    # il se traduit en un subroute(reverse_proxy auth + reverse_proxy workspace).
     assert captured_body["@id"] == "ws-alice-myapp"
     assert captured_body["match"] == [{"host": ["ws-alice-myapp.dev.yoops.org"]}]
     assert captured_body["terminal"] is True
     handlers = captured_body["handle"]
-    assert len(handlers) == 2
-    # forward_auth en premier (fail-closed §F-33)
-    assert handlers[0]["handler"] == "forward_auth"
-    assert handlers[0]["uri"] == VERIFY_URI
-    assert "Cookie" in handlers[0]["copy_headers"]
-    # reverse_proxy en second
-    assert handlers[1]["handler"] == "reverse_proxy"
-    assert handlers[1]["upstreams"] == [{"dial": "192.168.1.50:41000"}]
+    assert len(handlers) == 1
+    assert handlers[0]["handler"] == "subroute"
+    inner = handlers[0]["routes"][0]["handle"]
+    assert len(inner) == 2
+    # 1) Auth (fail-closed §F-33) : reverse_proxy vers le verify_uri, AVANT le proxy ws.
+    auth = inner[0]
+    assert auth["handler"] == "reverse_proxy"
+    assert auth["upstreams"] == [{"dial": "dev.yoops.org"}]  # netloc du verify_uri
+    assert auth["rewrite"] == {"method": "GET", "uri": "/auth/caddy/verify"}
+    assert "handle_response" in auth  # non-2xx → réponse d'auth renvoyée telle quelle
+    # Upgrade/Connection retirés de la sous-requête d'auth, sinon le verify reçoit un
+    # handshake WebSocket et le rejette (403) → WS du workspace cassé.
+    assert auth["headers"]["request"]["delete"] == ["Connection", "Upgrade"]
+    # 2) reverse_proxy workspace
+    ws = inner[1]
+    assert ws["handler"] == "reverse_proxy"
+    assert ws["upstreams"] == [{"dial": "192.168.1.50:41000"}]
+    # Aucun handler "forward_auth" nulle part (cause du 500 Caddy)
+    import json as _json
+
+    assert '"forward_auth"' not in _json.dumps(captured_body)
 
 
 @pytest.mark.asyncio

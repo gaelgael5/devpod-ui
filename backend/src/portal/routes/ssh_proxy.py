@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -10,6 +11,8 @@ from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 from ..config.store import _data_root, load_global
+from ..devpod.service import _materialize_system_cert
+from ..devpod.ssh_exec import host_key_changed
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -61,24 +64,21 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         _log.warning("ws_ssh_not_ssh_type", host=name, host_type=host.type)
         await websocket.close(code=4022, reason=f"Host {name!r} is not of type ssh")
         return
-    if not host.key_path:
-        _log.warning("ws_ssh_empty_key_path", host=name)
-        await websocket.close(code=4022, reason="key_path not configured for this host")
+    if not host.host_cert_slug:
+        _log.warning("ws_ssh_empty_host_cert_slug", host=name)
+        await websocket.close(code=4022, reason="host_cert_slug not configured for this host")
         return
 
-    # ── Sécurité key_path ─────────────────────────────────────────────────────
-    key_path = Path(host.key_path).resolve()
-    data_root = _data_root().resolve()
-    if not key_path.is_relative_to(data_root):
-        _log.warning("ws_ssh_key_path_traversal", key_path=str(key_path))
-        await websocket.close(code=4022, reason="key_path must be under data root")
+    # ── Matérialisation de la clé SSH depuis harpo ────────────────────────────
+    try:
+        tmp_key_path = await _materialize_system_cert(host.host_cert_slug)
+    except KeyError:
+        _log.warning("ws_ssh_cert_not_found", host=name, slug=host.host_cert_slug)
+        await websocket.close(code=4022, reason=f"SSH cert not found: {host.host_cert_slug}")
         return
-    if not key_path.exists():
-        _log.warning(
-            "ws_ssh_key_not_found", host=name,
-            key_path=str(key_path), data_root=str(data_root),
-        )
-        await websocket.close(code=4022, reason=f"key_path does not exist: {host.key_path}")
+    except Exception:
+        _log.error("ws_ssh_cert_materialize_failed", host=name, exc_info=True)
+        await websocket.close(code=4022, reason="Failed to retrieve SSH key")
         return
 
     # ── Proxy SSH ─────────────────────────────────────────────────────────────
@@ -88,13 +88,54 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
     known_hosts = _data_root() / "keys" / "hosts_known"
     known_hosts.parent.mkdir(parents=True, exist_ok=True)
 
+    # Nœud potentiellement recréé (clé d'hôte changée, fréquent avec DHCP) : pré-test
+    # non-interactif. On purge l'ancienne entrée UNIQUEMENT sur un vrai changement de
+    # clé → la vérification reste active pour les hôtes stables (pas de re-trust aveugle).
+    hostname = address.split("@", 1)[-1]
+    precheck = await asyncio.create_subprocess_exec(
+        "ssh",
+        "-i",
+        tmp_key_path,
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        f"UserKnownHostsFile={known_hosts}",
+        "-o",
+        "ConnectTimeout=10",
+        address,
+        "true",
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, precheck_err = await precheck.communicate()
+    if host_key_changed(precheck_err):
+        _log.warning("ws_ssh_host_key_changed_purge", host=name, hostname=hostname)
+        purge = await asyncio.create_subprocess_exec(
+            "ssh-keygen",
+            "-f",
+            str(known_hosts),
+            "-R",
+            hostname,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await purge.wait()
+
     proc = await asyncio.create_subprocess_exec(
         "ssh",
-        "-t", "-t",  # force PTY même quand stdin est un pipe
-        "-i", str(key_path),
-        "-o", "StrictHostKeyChecking=accept-new",
-        "-o", f"UserKnownHostsFile={known_hosts}",
-        "-o", "BatchMode=no",
+        "-t",
+        "-t",  # force PTY même quand stdin est un pipe
+        "-i",
+        tmp_key_path,
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        f"UserKnownHostsFile={known_hosts}",
+        "-o",
+        "BatchMode=no",
         address,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
@@ -146,5 +187,8 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
             await proc.wait()
         with contextlib.suppress(Exception):
             await websocket.close()
+        if tmp_key_path.startswith(tempfile.gettempdir()):
+            with contextlib.suppress(OSError):
+                Path(tmp_key_path).unlink()
 
     _log.info("ws_ssh_closed", host=name, returncode=proc.returncode)

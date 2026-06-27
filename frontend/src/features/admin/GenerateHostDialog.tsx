@@ -46,18 +46,25 @@ function initValues(args: ScriptArgOrSub[]): Record<string, string> {
   )
 }
 
-function mapToHostConfig(json: Record<string, unknown>): HostConfig {
+function mapToHostConfig(
+  json: Record<string, unknown>,
+  vmid?: string,
+  proxmoxNode?: string,
+): HostConfig {
   const name = String(json.name ?? '')
   const address = String(json.address ?? '')
   const sshUser = String(json.ssh_user ?? 'debian')
+  const resolvedVmid = String(json.vmid ?? vmid ?? '')
+  const resolvedProxmoxNode = String(json.proxmox_node ?? proxmoxNode ?? '')
   if (json.type === 'docker-tls') {
     return {
       name,
       type: 'docker-tls',
       docker_host: String(json.docker_host ?? `tcp://${address}:2376`),
       address: '',
-      key_path: String(json.key_path ?? '/data/certs/portal'),
       default: false,
+      vmid: resolvedVmid,
+      proxmox_node: resolvedProxmoxNode,
     }
   }
   return {
@@ -65,8 +72,9 @@ function mapToHostConfig(json: Record<string, unknown>): HostConfig {
     type: 'ssh',
     docker_host: '',
     address: `${sshUser}@${address}`,
-    key_path: '',
     default: false,
+    vmid: resolvedVmid,
+    proxmox_node: resolvedProxmoxNode,
   }
 }
 
@@ -379,7 +387,7 @@ function StepLog({
 }: {
   node: HypervisorConfig
   args: Record<string, string>
-  onAddHost: (config: HostConfig) => void
+  onAddHost: (config: HostConfig, ciPassword?: string) => void
   onClose: () => void
 }) {
   const { t } = useTranslation()
@@ -401,7 +409,9 @@ function StepLog({
   }, [logs])
 
   const result = done && !error ? extractLastJson(logs) : null
-  const hostConfig = result?.status === 'ok' ? mapToHostConfig(result) : null
+  const hostConfig = result?.status === 'ok'
+    ? mapToHostConfig(result, args.NEW_VMID, node.name)
+    : null
 
   function handleRetry() {
     reset()
@@ -427,12 +437,15 @@ function StepLog({
       </pre>
 
       {done && (
-        <div className="text-sm">
-          {hostConfig ? (
-            <p className="text-green-600">{t('admin.generate.resultFound')}</p>
-          ) : (
-            <p className="text-destructive">{t('admin.generate.resultMissing')}</p>
-          )}
+        <div className="flex flex-col gap-3">
+          <div className="text-sm">
+            {hostConfig ? (
+              <p className="text-green-600">{t('admin.generate.resultFound')}</p>
+            ) : (
+              <p className="text-destructive">{t('admin.generate.resultMissing')}</p>
+            )}
+          </div>
+
         </div>
       )}
 
@@ -442,7 +455,9 @@ function StepLog({
           <Button variant="outline" onClick={handleRetry}>{t('workspaces.actions.retry')}</Button>
         )}
         {hostConfig && (
-          <Button onClick={() => onAddHost(hostConfig)}>{t('admin.generate.addGenerated')}</Button>
+          <Button onClick={() => onAddHost(hostConfig, result?.ci_password as string | undefined)}>
+            {t('admin.generate.addGenerated')}
+          </Button>
         )}
       </DialogFooter>
     </>
@@ -458,7 +473,7 @@ export default function GenerateHostDialog({
 }: {
   open: boolean
   onClose: () => void
-  onGenerated: (config: HostConfig) => void
+  onGenerated: (config: HostConfig, ciPassword?: string) => void
 }) {
   const [step, setStep] = useState<Step>({ kind: 'select' })
 
@@ -490,7 +505,7 @@ export default function GenerateHostDialog({
           <StepLog
             node={step.node}
             args={step.args}
-            onAddHost={config => { onGenerated(config); onClose() }}
+            onAddHost={(config, ciPassword) => { onGenerated(config, ciPassword); onClose() }}
             onClose={onClose}
           />
         )}

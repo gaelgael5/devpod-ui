@@ -1,0 +1,7 @@
+﻿id: opencode
+key: ab9e8afb-7cd9-4474-931b-c925345a28aa
+version: 1.0.0
+description: "Install OpenCode CLI — interface CLI pour LLMs (requiert Node.js)"
+type: install
+installs_after:
+  - 08d27187-d87f-4140-a65e-0891b59441f1

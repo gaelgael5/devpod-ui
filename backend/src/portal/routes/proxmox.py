@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..auth.rbac import UserInfo, require_admin
-from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, Hypervisor, HypervisorType
+from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor, HypervisorType
 from ..config.store import load_global, save_global
 from ..settings import get_settings
 
@@ -24,6 +24,7 @@ _MAX_KEY_BYTES = 16 * 1024  # 16 Ko — largement suffisant pour une clé SSH
 
 
 # ─── Helpers filesystem ───────────────────────────────────────────────────────
+
 
 def _data_root() -> Path:
     return Path(os.environ.get("PORTAL_DATA_ROOT", "/data"))
@@ -68,16 +69,25 @@ def _validate_key_bytes(key_bytes: bytes) -> None:
 
 # ─── Helpers SSH ──────────────────────────────────────────────────────────────
 
+
 def _ssh_opts(node: Hypervisor) -> list[str]:
     return [
-        "-i", node.ssh_key_path,
-        "-p", str(node.ssh_port),
-        "-o", "BatchMode=yes",
-        "-o", "StrictHostKeyChecking=accept-new",
-        "-o", "ConnectTimeout=15",
-        "-o", "ServerAliveInterval=10",
-        "-o", "ServerAliveCountMax=30",
-        "-o", "TCPKeepAlive=yes",
+        "-i",
+        node.ssh_key_path,
+        "-p",
+        str(node.ssh_port),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        "ConnectTimeout=15",
+        "-o",
+        "ServerAliveInterval=10",
+        "-o",
+        "ServerAliveCountMax=30",
+        "-o",
+        "TCPKeepAlive=yes",
     ]
 
 
@@ -87,7 +97,9 @@ async def _ssh_run(node: Hypervisor, command: str, timeout: float = 30.0) -> str
     Lève RuntimeError si le code de retour est non-zéro.
     """
     proc = await asyncio.create_subprocess_exec(
-        "ssh", *_ssh_opts(node), f"{node.ssh_user}@{node.address}",
+        "ssh",
+        *_ssh_opts(node),
+        f"{node.ssh_user}@{node.address}",
         command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -106,7 +118,9 @@ async def _ssh_run(node: Hypervisor, command: str, timeout: float = 30.0) -> str
 async def _ssh_run_nocheck(node: Hypervisor, command: str, timeout: float = 30.0) -> int:
     """Exécute une commande SSH et retourne le code de retour sans lever d'exception."""
     proc = await asyncio.create_subprocess_exec(
-        "ssh", *_ssh_opts(node), f"{node.ssh_user}@{node.address}",
+        "ssh",
+        *_ssh_opts(node),
+        f"{node.ssh_user}@{node.address}",
         command,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
@@ -133,11 +147,30 @@ def _flatten_args(args: list[object]) -> list[dict[str, object]]:
     return result
 
 
+def find_identifier_arg(spec: dict[str, object]) -> str | None:
+    """Nom de l'arg marqué ``identifier: true`` dans la spec (ou None).
+
+    L'arg identifiant (ex. le vmid) est unique par machine : non pré-remplissable,
+    à saisir/générer à chaque création. Un seul arg par spec porte ce flag ;
+    les groupes ``sub`` sont parcourus via ``_flatten_args``.
+    """
+    raw_args = spec.get("args", [])
+    args = raw_args if isinstance(raw_args, list) else []
+    for arg in _flatten_args(args):
+        if arg.get("identifier") is True:
+            name = arg.get("arg")
+            if isinstance(name, str):
+                return name
+    return None
+
+
 async def _ssh_stream(node: Hypervisor, commands: list[str]) -> AsyncIterator[bytes]:
     """Exécute des commandes shell sur le nœud SSH et streame stdout+stderr."""
     script = "set -euo pipefail\n" + "\n".join(commands) + "\n"
     proc = await asyncio.create_subprocess_exec(
-        "ssh", *_ssh_opts(node), f"{node.ssh_user}@{node.address}",
+        "ssh",
+        *_ssh_opts(node),
+        f"{node.ssh_user}@{node.address}",
         "bash -s",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
@@ -176,7 +209,67 @@ def _substitute(template: str, args: dict[str, str]) -> str:
     return template
 
 
+async def _run_destroy_script(cfg: GlobalConfig, host_cfg: HostConfig) -> None:
+    """Exécute le destroy_script de l'hyperviseur pour la VM associée au host.
+
+    Sans effet si proxmox_node/vmid manquants ou si destroy_script non configuré.
+    Les erreurs sont loguées sans lever d'exception — la suppression du host continue.
+    """
+    if not host_cfg.proxmox_node or not host_cfg.vmid:
+        return
+
+    node = next((n for n in cfg.hypervisors if n.name == host_cfg.proxmox_node), None)
+    if node is None:
+        _log.warning(
+            "host_destroy_hypervisor_not_found",
+            host=host_cfg.name,
+            proxmox_node=host_cfg.proxmox_node,
+        )
+        return
+
+    if not node.hypervisor_type:
+        return
+
+    hyp_type = next((t for t in cfg.hypervisor_types if t.name == node.hypervisor_type), None)
+    if hyp_type is None or not hyp_type.destroy_script:
+        return
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(hyp_type.destroy_script, timeout=15.0, follow_redirects=True)
+            resp.raise_for_status()
+            spec = dict(resp.json())
+        except httpx.HTTPError as exc:
+            _log.error("host_destroy_script_fetch_failed", host=host_cfg.name, error=str(exc))
+            return
+
+    from ..settings import get_settings
+
+    settings = get_settings()
+    commands_raw: list[str] = list(spec.get("commands", []))
+    args = {
+        "VMID": host_cfg.vmid,
+        "PORTAL_URL": cfg.server.external_url,
+        "PORTAL_TOKEN": settings.portal_api_key,
+        "PORTAL_PVE_NODE": node.name,
+    }
+    commands = [_substitute(cmd, args) for cmd in commands_raw]
+
+    _log.info("host_destroy_script_starting", host=host_cfg.name, vmid=host_cfg.vmid)
+    chunks: list[bytes] = []
+    async for chunk in _ssh_stream(node, commands):
+        chunks.append(chunk)
+    output = b"".join(chunks).decode("utf-8", errors="replace")
+    _log.info(
+        "host_destroy_script_done",
+        host=host_cfg.name,
+        vmid=host_cfg.vmid,
+        output=output[:500],
+    )
+
+
 # ─── CRUD types d'hyperviseurs ────────────────────────────────────────────────
+
 
 class HypervisorTypeRequest(BaseModel):
     label: str = ""
@@ -207,11 +300,13 @@ async def add_hypervisor_type(
     if any(t.name == body.name for t in cfg.hypervisor_types):
         raise HTTPException(status_code=409, detail=f"Hypervisor type {body.name!r} already exists")
     ht = HypervisorType(
-        label=body.label, name=body.name,
-        add_script=body.add_script, destroy_script=body.destroy_script,
+        label=body.label,
+        name=body.name,
+        add_script=body.add_script,
+        destroy_script=body.destroy_script,
     )
     cfg.hypervisor_types.append(ht)
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("hypervisor_type_added", name=body.name, by=user.login)
     return ht.model_dump(mode="json")
 
@@ -227,12 +322,60 @@ async def update_hypervisor_type(
     if ht is None:
         raise HTTPException(status_code=404, detail=f"Hypervisor type {name!r} not found")
     updated = HypervisorType(
-        label=body.label, name=name,
-        add_script=body.add_script, destroy_script=body.destroy_script,
+        label=body.label,
+        name=name,
+        add_script=body.add_script,
+        destroy_script=body.destroy_script,
+        test_host_params=ht.test_host_params,  # préservé (réglé via /test-params)
     )
     cfg.hypervisor_types = [updated if t.name == name else t for t in cfg.hypervisor_types]
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("hypervisor_type_updated", name=name, by=user.login)
+    return updated.model_dump(mode="json")
+
+
+@router.get("/hypervisor-types/{name}/script")
+async def get_hypervisor_type_script(
+    name: str,
+    user: UserInfo = Depends(require_admin),
+) -> dict[str, object]:
+    """Spec JSON brute d'un type (sans résolution SSH des options dynamiques)."""
+    cfg = load_global()
+    ht = next((t for t in cfg.hypervisor_types if t.name == name), None)
+    if ht is None:
+        raise HTTPException(status_code=404, detail=f"Hypervisor type {name!r} not found")
+    return await _fetch_spec_for_type(ht)
+
+
+class TestHostParamsRequest(BaseModel):
+    params: dict[str, str]
+
+
+@router.put("/hypervisor-types/{name}/test-params", status_code=200)
+async def set_test_host_params(
+    name: str,
+    body: TestHostParamsRequest,
+    user: UserInfo = Depends(require_admin),
+) -> dict[str, object]:
+    """Enregistre les valeurs par défaut du host de test pour ce type.
+
+    L'arg identifiant (vmid) n'est jamais pré-rempli ; le front l'exclut déjà de la
+    saisie.
+    """
+    cfg = load_global()
+    ht = next((t for t in cfg.hypervisor_types if t.name == name), None)
+    if ht is None:
+        raise HTTPException(status_code=404, detail=f"Hypervisor type {name!r} not found")
+    updated = HypervisorType(
+        label=ht.label,
+        name=ht.name,
+        add_script=ht.add_script,
+        destroy_script=ht.destroy_script,
+        test_host_params=body.params,
+    )
+    cfg.hypervisor_types = [updated if t.name == name else t for t in cfg.hypervisor_types]
+    await save_global(cfg)
+    _log.info("test_host_params_saved", type=name, by=user.login, keys=sorted(body.params))
     return updated.model_dump(mode="json")
 
 
@@ -245,11 +388,12 @@ async def delete_hypervisor_type(
     if not any(t.name == name for t in cfg.hypervisor_types):
         raise HTTPException(status_code=404, detail=f"Hypervisor type {name!r} not found")
     cfg.hypervisor_types = [t for t in cfg.hypervisor_types if t.name != name]
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("hypervisor_type_deleted", name=name, by=user.login)
 
 
 # ─── CRUD hyperviseurs ────────────────────────────────────────────────────────
+
 
 @router.get("/hypervisors")
 async def list_hypervisors(
@@ -298,7 +442,7 @@ async def add_hypervisor(
         password=password,
     )
     cfg.hypervisors.append(node)
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("hypervisor_added", name=name, address=address, by=user.login)
     return node.model_dump(mode="json")
 
@@ -339,7 +483,7 @@ async def update_hypervisor(
         password=password if password else node.password,
     )
     cfg.hypervisors = [updated if n.name == name else n for n in cfg.hypervisors]
-    save_global(cfg)
+    await save_global(cfg)
     _log.info("hypervisor_updated", name=name, address=address, by=user.login)
     return updated.model_dump(mode="json")
 
@@ -354,12 +498,13 @@ async def delete_hypervisor(
     if node is None:
         raise HTTPException(status_code=404, detail=f"Hypervisor {name!r} not found")
     cfg.hypervisors = [n for n in cfg.hypervisors if n.name != name]
-    save_global(cfg)
+    await save_global(cfg)
     Path(node.ssh_key_path).unlink(missing_ok=True)
     _log.info("hypervisor_deleted", name=name, by=user.login)
 
 
 # ─── Test de connexion SSH ────────────────────────────────────────────────────
+
 
 @router.post("/hypervisors/test-connection")
 async def test_hypervisor_connection(
@@ -379,8 +524,11 @@ async def test_hypervisor_connection(
             f.write(key_bytes)
         os.chmod(tmp_path, 0o600)
         node = Hypervisor(
-            name="test", address=address,
-            ssh_user=ssh_user, ssh_port=ssh_port, ssh_key_path=tmp_path,
+            name="test",
+            address=address,
+            ssh_user=ssh_user,
+            ssh_port=ssh_port,
+            ssh_key_path=tmp_path,
         )
         out = await _ssh_run(node, "echo OK", timeout=15.0)
         if out.strip() == "OK":
@@ -413,8 +561,28 @@ async def ping_hypervisor(
 
 # ─── Exécution de script via SSH ──────────────────────────────────────────────
 
+
 class ExecuteRequest(BaseModel):
     args: dict[str, str]
+
+
+async def _fetch_spec_for_type(hyp_type: HypervisorType) -> dict[str, object]:
+    """Télécharge la spec JSON d'un type d'hyperviseur (sans résolution SSH)."""
+    if not hyp_type.add_script:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Hypervisor type {hyp_type.name!r} has no add_script configured",
+        )
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(hyp_type.add_script, timeout=15.0, follow_redirects=True)
+            resp.raise_for_status()
+            return dict(resp.json())
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch script spec: {exc}",
+            ) from exc
 
 
 async def _fetch_spec(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
@@ -429,33 +597,11 @@ async def _fetch_spec(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
             status_code=404,
             detail=f"Hypervisor type {node.hypervisor_type!r} not found",
         )
-    if not hyp_type.add_script:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Hypervisor type {node.hypervisor_type!r} has no add_script configured",
-        )
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.get(hyp_type.add_script, timeout=15.0, follow_redirects=True)
-            resp.raise_for_status()
-            return dict(resp.json())
-        except httpx.HTTPError as exc:
-            raise HTTPException(
-                status_code=502, detail=f"Failed to fetch script spec: {exc}",
-            ) from exc
+    return await _fetch_spec_for_type(hyp_type)
 
 
-@router.get("/hypervisors/{name}/script")
-async def get_hypervisor_script(
-    name: str,
-    user: UserInfo = Depends(require_admin),
-) -> dict[str, object]:
-    """Retourne la spec JSON du script, avec les options dynamiques résolues via SSH."""
-    cfg = load_global()
-    node = next((n for n in cfg.hypervisors if n.name == name), None)
-    if node is None:
-        raise HTTPException(status_code=404, detail=f"Hypervisor {name!r} not found")
-
+async def resolve_node_script(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
+    """Spec du node avec les options dynamiques (`option_script`) résolues via SSH."""
     spec = await _fetch_spec(node, cfg)
 
     for arg in _flatten_args(spec.get("args", [])):  # type: ignore[arg-type]
@@ -479,10 +625,23 @@ async def get_hypervisor_script(
             arg["options"] = existing + dynamic
         except Exception as exc:
             err = str(exc)
-            _log.warning("option_script_failed", node=name, arg=arg.get("arg"), error=err)
+            _log.warning("option_script_failed", node=node.name, arg=arg.get("arg"), error=err)
             arg["_option_script_error"] = err
 
     return spec
+
+
+@router.get("/hypervisors/{name}/script")
+async def get_hypervisor_script(
+    name: str,
+    user: UserInfo = Depends(require_admin),
+) -> dict[str, object]:
+    """Retourne la spec JSON du script, avec les options dynamiques résolues via SSH."""
+    cfg = load_global()
+    node = next((n for n in cfg.hypervisors if n.name == name), None)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Hypervisor {name!r} not found")
+    return await resolve_node_script(node, cfg)
 
 
 @router.post("/hypervisors/{name}/execute")
@@ -511,6 +670,73 @@ async def execute_hypervisor_script(
     display_commands = [_substitute(cmd, redacted_args) for cmd in commands_raw]
 
     _log.info("hypervisor_script_execute", node=name, by=user.login, commands=len(commands))
+
+    async def _stream() -> AsyncIterator[bytes]:
+        lines = "\n".join(f"    {cmd}" for cmd in display_commands)
+        header = f"==> Commandes exécutées :\n{lines}\n\n"
+        yield header.encode("utf-8")
+        async for chunk in _ssh_stream(node, commands):
+            yield chunk
+
+    return StreamingResponse(_stream(), media_type="text/plain; charset=utf-8")
+
+
+class DestroyRequest(BaseModel):
+    vmid: str
+
+
+@router.post("/hypervisors/{name}/execute-destroy")
+async def execute_hypervisor_destroy_script(
+    name: str,
+    body: DestroyRequest,
+    user: UserInfo = Depends(require_admin),
+) -> StreamingResponse:
+    """Exécute le destroy_script de l'hyperviseur pour supprimer la VM identifiée par vmid."""
+    cfg = load_global()
+    node = next((n for n in cfg.hypervisors if n.name == name), None)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Hypervisor {name!r} not found")
+    if not node.hypervisor_type:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Hypervisor {node.name!r} has no type configured",
+        )
+    hyp_type = next((t for t in cfg.hypervisor_types if t.name == node.hypervisor_type), None)
+    if hyp_type is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Hypervisor type {node.hypervisor_type!r} not found",
+        )
+    if not hyp_type.destroy_script:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Hypervisor type {node.hypervisor_type!r} has no destroy_script configured",
+        )
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(hyp_type.destroy_script, timeout=15.0, follow_redirects=True)
+            resp.raise_for_status()
+            spec = dict(resp.json())
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch destroy script spec: {exc}",
+            ) from exc
+
+    commands_raw: list[str] = list(spec.get("commands", []))
+    settings = get_settings()
+    args = {
+        "VMID": body.vmid,
+        "PORTAL_URL": cfg.server.external_url,
+        "PORTAL_TOKEN": settings.portal_api_key,
+        "PORTAL_PVE_NODE": node.name,
+    }
+    commands = [_substitute(cmd, args) for cmd in commands_raw]
+    redacted_args = {**args, "PORTAL_TOKEN": "***"}
+    display_commands = [_substitute(cmd, redacted_args) for cmd in commands_raw]
+
+    _log.info("hypervisor_destroy_script_execute", node=name, vmid=body.vmid, by=user.login)
 
     async def _stream() -> AsyncIterator[bytes]:
         lines = "\n".join(f"    {cmd}" for cmd in display_commands)

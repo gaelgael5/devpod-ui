@@ -249,3 +249,128 @@ def test_delete_personal_recipe_requires_auth(tmp_path: Path) -> None:
     with TestClient(app) as client:
         resp = client.delete("/me/recipes/something")
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Filtre ?type= sur GET /recipes
+# ---------------------------------------------------------------------------
+
+
+def _write_shared_start_recipe(data_root: Path, recipe_id: str) -> None:
+    recipe_dir = data_root / "recipes" / recipe_id
+    recipe_dir.mkdir(parents=True, exist_ok=True)
+    (recipe_dir / "recipe.meta.yaml").write_text(
+        yaml.dump({"id": recipe_id, "type": "start", "description": "Start recipe"}),
+        encoding="utf-8",
+    )
+    (recipe_dir / "start.sh").write_text(
+        f"#!/usr/bin/env bash\nexec {recipe_id}\n", encoding="utf-8"
+    )
+
+
+def test_get_recipes_type_start_filter(tmp_path: Path) -> None:
+    """GET /recipes?type=start retourne uniquement les recettes de type start."""
+    _write_global_config(tmp_path)
+    _write_shared_start_recipe(tmp_path, "claude-rc")
+    shared_dir = tmp_path / "recipes"
+    _write_recipe(shared_dir, "my-install")
+
+    app = _make_user_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.get("/recipes?type=start")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert all(r["type"] == "start" for r in data)
+    assert any(r["id"] == "claude-rc" for r in data)
+
+
+def test_get_recipes_type_install_excludes_start(tmp_path: Path) -> None:
+    """GET /recipes?type=install exclut les recettes de type start."""
+    _write_global_config(tmp_path)
+    _write_shared_start_recipe(tmp_path, "claude-rc")
+
+    app = _make_user_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.get("/recipes?type=install")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert all(r["id"] != "claude-rc" for r in data)
+
+
+# ---------------------------------------------------------------------------
+# POST /me/start-recipes
+# ---------------------------------------------------------------------------
+
+
+def _write_user_config(tmp_path: Path, login: str = "alice") -> None:
+    user_dir = tmp_path / "users" / login
+    user_dir.mkdir(parents=True, exist_ok=True)
+    (user_dir / "config.yaml").write_text(
+        yaml.dump({
+            "version": "1",
+            "secret_ns": "00000000-0000-0000-0000-000000000001",
+            "defaults": {}, "harpocrate": {}, "git_credentials": [], "workspaces": [],
+        }),
+        encoding="utf-8",
+    )
+
+
+def test_post_me_start_recipe_creates_recipe(tmp_path: Path) -> None:
+    """POST /me/start-recipes crée la recette start sur disque et retourne 201."""
+    _write_global_config(tmp_path)
+    _write_user_config(tmp_path)
+
+    app = _make_user_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/start-recipes",
+            json={
+                "id": "my-start",
+                "description": "Mon script",
+                "script": "#!/bin/bash\necho ok\n",
+            },
+        )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["id"] == "my-start"
+    assert data["type"] == "start"
+
+    recipe_path = tmp_path / "users" / "alice" / "recipes" / "my-start"
+    assert (recipe_path / "recipe.meta.yaml").exists()
+    assert (recipe_path / "start.sh").exists()
+
+
+def test_post_me_start_recipe_invalid_id(tmp_path: Path) -> None:
+    """POST /me/start-recipes avec un id invalide retourne 422."""
+    _write_global_config(tmp_path)
+    _write_user_config(tmp_path)
+
+    app = _make_user_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/start-recipes",
+            json={"id": "INVALID NAME!", "script": "echo ok"},
+        )
+    assert resp.status_code == 422
+
+
+def test_post_me_start_recipe_conflict(tmp_path: Path) -> None:
+    """POST /me/start-recipes avec un id déjà existant retourne 409."""
+    _write_global_config(tmp_path)
+    _write_user_config(tmp_path)
+    # Pré-créer la recette
+    recipe_dir = tmp_path / "users" / "alice" / "recipes" / "existing"
+    recipe_dir.mkdir(parents=True, exist_ok=True)
+    (recipe_dir / "recipe.meta.yaml").write_text(
+        yaml.dump({"id": "existing", "type": "start", "description": "Existing"}),
+        encoding="utf-8",
+    )
+    (recipe_dir / "start.sh").write_text("#!/bin/bash\necho existing\n", encoding="utf-8")
+
+    app = _make_user_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/me/start-recipes",
+            json={"id": "existing", "script": "#!/bin/bash\necho ok\n"},
+        )
+    assert resp.status_code == 409

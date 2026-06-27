@@ -1,0 +1,11 @@
+name: Ansible
+description: Ansible — Red Hat extension, lint, autocomplétion, YAML intégré
+extensions:
+  - redhat.ansible
+  - redhat.vscode-yaml
+settings:
+  editor.formatOnSave: true
+  "[ansible]":
+    editor.defaultFormatter: redhat.ansible
+  ansible.python.interpreterPath: /usr/bin/python3
+  ansible.validation.enabled: true

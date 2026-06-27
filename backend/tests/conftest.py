@@ -1,10 +1,77 @@
 from __future__ import annotations
 
+import re
 import uuid
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from portal.config.models import UserConfig
+
+# ─── Fixtures DB partagées (utilisées par tests/db/ et tests/exposure/) ───────
+
+
+@pytest.fixture(scope="session")
+def postgres_url() -> str:
+    """Démarre un container PostgreSQL et retourne son URL asyncpg.
+
+    Le container vit toute la session pytest et est détruit à la fin.
+    Nécessite Docker disponible sur la machine — skippe si absent.
+    """
+    try:
+        import docker
+
+        docker.from_env()
+    except Exception as exc:
+        pytest.skip(f"Docker non disponible (tests DB skippés) : {exc}")
+
+    from testcontainers.postgres import PostgresContainer
+
+    with PostgresContainer("postgres:16-alpine") as pg:
+        # testcontainers peut renvoyer une URL avec un driver sync par défaut
+        # (postgresql+psycopg2://). On force asyncpg pour create_async_engine,
+        # quel que soit le driver présent dans l'URL.
+        url = re.sub(
+            r"^postgresql(\+[a-z0-9]+)?://",
+            "postgresql+asyncpg://",
+            pg.get_connection_url(),
+            count=1,
+        )
+        yield url
+
+
+@pytest.fixture
+async def db_engine(postgres_url: str) -> AsyncEngine:
+    """Crée un moteur isolé, applique le schéma, détruit les tables après le test."""
+    import portal.db.engine as _engine_module
+    from portal.db.tables import metadata
+
+    engine = create_async_engine(postgres_url, pool_size=1, max_overflow=0)
+    _engine_module._engine = engine
+
+    async with engine.begin() as conn:
+        await conn.run_sync(metadata.create_all)
+
+    yield engine
+
+    async with engine.begin() as conn:
+        await conn.run_sync(metadata.drop_all)
+
+    await engine.dispose()
+    _engine_module._engine = None
+
+
+@pytest.fixture
+async def db_conn(db_engine: AsyncEngine) -> AsyncConnection:
+    """Connexion dans une transaction imbriquée (SAVEPOINT).
+
+    La transaction est rollbackée après chaque test : isolation parfaite
+    sans avoir à recréer les tables.
+    """
+    async with db_engine.connect() as conn:
+        await conn.begin_nested()
+        yield conn
+        await conn.rollback()
 
 
 @pytest.fixture

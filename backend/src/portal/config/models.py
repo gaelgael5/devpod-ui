@@ -3,8 +3,11 @@ from __future__ import annotations
 import re
 import uuid
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from portal.profiles.models import Scope
 
 
 class LogConfig(BaseModel):
@@ -26,7 +29,36 @@ class ServerConfig(BaseModel):
     # ports non-standard.  workspace_host permet de spécifier l'IP/hostname
     # direct de la VM pour les URLs de workspace (ex : "192.168.10.50").
     workspace_host: str = ""
+    # Domaine DNS local (ex. "home.lan") ajouté au nom d'une machine de test pour
+    # re-résoudre son IP DHCP. Vide → on résout le nom seul.
+    local_domain: str = ""
     log: LogConfig = Field(default_factory=LogConfig)
+
+
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)[a-z0-9](-?[a-z0-9])*(\.[a-z0-9](-?[a-z0-9])*)*$", re.IGNORECASE
+)
+
+
+def validate_network(base_domain: str, external_url: str, workspace_host: str) -> dict[str, str]:
+    """Valide/normalise la config réseau saisie par l'admin.
+
+    Le vide est autorisé (routage par sous-domaine désactivé). Si renseigné :
+    base_domain/workspace_host doivent être un hôte valide (le regex couvre aussi
+    les IPv4), external_url une URL absolue http(s). Retourne les valeurs nettoyées.
+    """
+    bd = base_domain.strip()
+    if bd and not _HOSTNAME_RE.fullmatch(bd):
+        raise ValueError(f"base_domain invalide: {base_domain!r}")
+    eu = external_url.strip().rstrip("/")
+    if eu:
+        parsed = urlparse(eu)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError(f"external_url doit être une URL absolue http(s): {external_url!r}")
+    wh = workspace_host.strip()
+    if wh and not _HOSTNAME_RE.fullmatch(wh):
+        raise ValueError(f"workspace_host invalide: {workspace_host!r}")
+    return {"base_domain": bd, "external_url": eu, "workspace_host": wh}
 
 
 class OidcConfig(BaseModel):
@@ -87,8 +119,16 @@ class HostConfig(BaseModel):
     type: Literal["docker-tls", "ssh"]
     docker_host: str = ""
     address: str = ""
-    key_path: str = ""
-    proxmox_node: str = ""  # nœud hyperviseur qui a créé/gère cette VM
+    proxmox_node: str = ""
+    vmid: str = ""
+    # Références vers harpo_* (slugs)
+    ci_password_secret_slug: str = ""
+    host_cert_slug: str = ""
+    # Préférences de stockage des secrets
+    storage_type: Literal["local", "harpocrate"] = "local"
+    vault_identifier: str = ""
+    # Destination du host : workspaces (sélectionnable à la création) ou tests.
+    usage: Literal["workspaces", "tests"] = "workspaces"
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
@@ -101,6 +141,8 @@ class HypervisorType(BaseModel):
     name: str
     add_script: str = ""
     destroy_script: str = ""
+    # Valeurs par défaut des args pour créer un host de test (sauf l'identifiant).
+    test_host_params: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("name")
     @classmethod
@@ -174,6 +216,13 @@ class GlobalConfig(BaseModel):
         return data
 
 
+class ProfileRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: Scope
+    slug: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
+
+
 _WORKSPACE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
 
 
@@ -232,6 +281,23 @@ class WorkspaceSpec(BaseModel):
     expose: WorkspaceExpose = Field(default_factory=WorkspaceExpose)
     extra_sources: list[SourceSpec] = Field(default_factory=list)
     ssh_key: bool = False
+    profile: ProfileRef | None = None
+    start_recipes: list[str] = Field(default_factory=list)
+    default_start: str = ""
+    recipe_volumes: list[str] = Field(default_factory=list)
+    init_recipes: list[str] = Field(default_factory=list)
+
+    @field_validator("start_recipes", "init_recipes")
+    @classmethod
+    def validate_recipe_ids(cls, v: list[str]) -> list[str]:
+        from portal.recipes.models import _RECIPE_ID_RE
+
+        for rid in v:
+            if not _RECIPE_ID_RE.fullmatch(rid):
+                raise ValueError(
+                    f"recipe id {rid!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$"
+                )
+        return v
 
     @field_validator("name")
     @classmethod

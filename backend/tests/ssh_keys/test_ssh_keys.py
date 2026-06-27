@@ -11,12 +11,15 @@ def test_ensure_workspace_ssh_key_generates_valid_ed25519(
 ) -> None:
     monkeypatch.setenv("PORTAL_DATA_ROOT", str(tmp_path))
     import portal.settings as mod
+
     mod._settings = None
 
     from portal.config.store import ensure_user_dir
+
     ensure_user_dir("alice")
 
     from portal.ssh_keys import ensure_workspace_ssh_key
+
     pub_key = ensure_workspace_ssh_key("alice", "myapp")
 
     assert pub_key.startswith("ssh-ed25519 ")
@@ -35,15 +38,19 @@ def test_ensure_workspace_ssh_key_private_key_has_600_perms(
 
     monkeypatch.setenv("PORTAL_DATA_ROOT", str(tmp_path))
     import portal.settings as mod
+
     mod._settings = None
 
     from portal.config.store import ensure_user_dir
+
     ensure_user_dir("alice")
 
     from portal.ssh_keys import ensure_workspace_ssh_key
+
     ensure_workspace_ssh_key("alice", "myapp")
 
     import stat
+
     priv_path = tmp_path / "users" / "alice" / "keys" / "workspaces" / "myapp" / "id_ed25519"
     assert stat.S_IMODE(priv_path.stat().st_mode) == 0o600
 
@@ -53,12 +60,15 @@ def test_ensure_workspace_ssh_key_is_idempotent(
 ) -> None:
     monkeypatch.setenv("PORTAL_DATA_ROOT", str(tmp_path))
     import portal.settings as mod
+
     mod._settings = None
 
     from portal.config.store import ensure_user_dir
+
     ensure_user_dir("alice")
 
     from portal.ssh_keys import ensure_workspace_ssh_key
+
     pub1 = ensure_workspace_ssh_key("alice", "myapp")
     pub2 = ensure_workspace_ssh_key("alice", "myapp")
 
@@ -70,12 +80,15 @@ def test_ensure_workspace_ssh_key_different_workspaces_get_different_keys(
 ) -> None:
     monkeypatch.setenv("PORTAL_DATA_ROOT", str(tmp_path))
     import portal.settings as mod
+
     mod._settings = None
 
     from portal.config.store import ensure_user_dir
+
     ensure_user_dir("alice")
 
     from portal.ssh_keys import ensure_workspace_ssh_key
+
     pub_a = ensure_workspace_ssh_key("alice", "myapp")
     pub_b = ensure_workspace_ssh_key("alice", "otherapp")
 

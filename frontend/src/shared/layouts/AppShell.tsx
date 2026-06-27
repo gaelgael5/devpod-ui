@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe } from 'lucide-react'
+import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   DropdownMenu,
@@ -52,6 +52,20 @@ export default function AppShell() {
         >
           <Puzzle size={18} />
         </NavLink>
+        <NavLink
+          to="/profiles"
+          className={({ isActive }) => cn(RAIL_LINK, isActive && RAIL_ACTIVE)}
+          title={t('profiles.title')}
+        >
+          <SquareLibrary size={18} />
+        </NavLink>
+        <NavLink
+          to="/git-credentials"
+          className={({ isActive }) => cn(RAIL_LINK, isActive && RAIL_ACTIVE)}
+          title={t('gitCredentials.title')}
+        >
+          <KeyRound size={18} />
+        </NavLink>
 
         {/* Profile menu at bottom */}
         <div className="mt-auto">
@@ -84,17 +98,26 @@ export default function AppShell() {
               {isAdmin && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => navigate('/admin/hypervisors')}>
-                    {t('admin.hypervisors')}
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/hypervisor-types')}>
                     {t('admin.hypervisorTypes')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/hypervisors')}>
+                    {t('admin.hypervisors')}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/hosts')}>
                     {t('admin.hosts')}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/recipes')}>
                     {t('admin.sharedRecipes')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/profile-sources')}>
+                    {t('admin.profileSources.navLabel')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
+                    {t('admin.oidc.navLabel')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/network')}>
+                    {t('admin.network.navLabel')}
                   </DropdownMenuItem>
                 </>
               )}

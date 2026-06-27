@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import textwrap
+import os
+import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import APIRouter
@@ -10,72 +12,28 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 from starlette.websockets import WebSocketDisconnect
 
-# ── Fixtures ──────────────────────────────────────────────────────────────────
-
-SSH_HOST_CONFIG = textwrap.dedent("""\
-    version: "1"
-    server:
-      listen: "0.0.0.0:8080"
-      base_domain: "dev.yoops.org"
-      external_url: "https://dev.yoops.org"
-      dev_mode: false
-      log:
-        level: "info"
-        format: "text"
-        output: ""
-    auth:
-      oidc:
-        issuer: "https://security.yoops.org/realms/yoops"
-        client_id: "workspace-portal"
-        client_secret: "secret"
-        scopes: ["openid", "profile", "email", "roles"]
-        role_claim: "realm_access.roles"
-        admin_role: "admin"
-        user_role: "dev"
-        username_claim: "preferred_username"
-    secrets:
-      backend: "inline"
-    devpod:
-      binary: "/usr/local/bin/devpod"
-      defaults:
-        ide: "openvscode"
-        idle_timeout: "2h"
-        dotfiles: ""
-      client_cert_path: "/data/certs/portal"
-    caddy:
-      admin_api: "http://caddy:2019"
-    cloudflare_manager:
-      url: ""
-      api_key: ""
-    hosts:
-      - name: "ssh-dev"
-        type: "ssh"
-        address: "debian@192.168.10.175"
-        key_path: '{key_path}'
-      - name: "docker-local"
-        type: "docker-tls"
-        docker_host: "tcp://192.168.1.50:2376"
-    """)
+from portal.config.models import HostConfig
 
 
-@pytest.fixture
-def data_root_with_ssh(tmp_data_root: Path, monkeypatch) -> Path:
-    """Répertoire temporaire avec config SSH et clé factice."""
-    monkeypatch.setenv("DEV_MODE", "true")
-    import portal.settings as mod
-    mod._settings = None
+def _make_global_cfg(hosts: list[HostConfig]) -> MagicMock:
+    """Construit un mock de GlobalConfig avec les hosts donnés."""
+    cfg = MagicMock()
+    cfg.hosts = hosts
+    cfg.server.external_url = "https://dev.yoops.org"
+    return cfg
 
-    key_dir = tmp_data_root / "keys" / "hosts"
-    key_dir.mkdir(parents=True)
-    key_file = key_dir / "ssh_dev_ed25519"
-    key_file.write_text(
-        "-----BEGIN OPENSSH PRIVATE KEY-----\nfake\n-----END OPENSSH PRIVATE KEY-----\n"
-    )
-    key_file.chmod(0o600)
 
-    config = SSH_HOST_CONFIG.format(key_path=key_file.as_posix())
-    (tmp_data_root / "config.yaml").write_text(config)
-    return tmp_data_root
+_SSH_HOST = HostConfig(
+    name="ssh-dev",
+    type="ssh",
+    address="debian@192.168.10.175",
+    host_cert_slug="pve1-ssh-key",
+)
+_DOCKER_HOST = HostConfig(
+    name="docker-local",
+    type="docker-tls",
+    docker_host="tcp://192.168.1.50:2376",
+)
 
 
 def _inject_admin_session(app) -> TestClient:
@@ -93,18 +51,6 @@ def _inject_admin_session(app) -> TestClient:
     return client
 
 
-def _make_client(data_root_with_ssh: Path, as_admin: bool = True) -> TestClient:
-    """Crée un TestClient avec session admin (ou non)."""
-    from portal.app import create_app
-
-    app = create_app()
-    if as_admin:
-        return _inject_admin_session(app)
-
-    client = TestClient(app)
-    return client
-
-
 def _assert_ws_closes_with(client: TestClient, path: str, expected_code: int) -> None:
     """Connecte en WebSocket, tente de lire, vérifie le code de fermeture."""
     with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(path) as ws:
@@ -112,18 +58,43 @@ def _assert_ws_closes_with(client: TestClient, path: str, expected_code: int) ->
     assert exc_info.value.code == expected_code
 
 
+@pytest.fixture
+def tmp_data_root_ssh(tmp_data_root: Path, monkeypatch) -> Path:
+    """Data root avec DEV_MODE=true et settings réinitialisés."""
+    monkeypatch.setenv("DEV_MODE", "true")
+    import portal.settings as mod
+
+    mod._settings = None
+    return tmp_data_root
+
+
+@pytest.fixture
+def admin_client(tmp_data_root_ssh: Path) -> TestClient:
+    """TestClient admin avec load_global mocké (hosts SSH + docker)."""
+    from portal.app import create_app
+
+    app = create_app()
+    mock_cfg = _make_global_cfg([_SSH_HOST, _DOCKER_HOST])
+    with patch("portal.routes.ssh_proxy.load_global", return_value=mock_cfg):
+        return _inject_admin_session(app)
+
+
 # ── Tests d'authentification ──────────────────────────────────────────────────
 
-def test_ws_rejects_unauthenticated(data_root_with_ssh):
+
+def test_ws_rejects_unauthenticated(tmp_data_root_ssh: Path) -> None:
     from portal.app import create_app
+
     app = create_app()
     client = TestClient(app)  # pas de login → pas de session
+    mock_cfg = _make_global_cfg([_SSH_HOST, _DOCKER_HOST])
+    with patch("portal.routes.ssh_proxy.load_global", return_value=mock_cfg):
+        _assert_ws_closes_with(client, "/admin/hosts/ssh-dev/ssh", 4001)
 
-    _assert_ws_closes_with(client, "/admin/hosts/ssh-dev/ssh", 4001)
 
-
-def test_ws_rejects_non_admin(data_root_with_ssh):
+def test_ws_rejects_non_admin(tmp_data_root_ssh: Path) -> None:
     from portal.app import create_app
+
     app = create_app()
     test_router = APIRouter()
 
@@ -136,96 +107,82 @@ def test_ws_rejects_non_admin(data_root_with_ssh):
     client = TestClient(app)
     client.post("/_test/login-user")
 
-    _assert_ws_closes_with(client, "/admin/hosts/ssh-dev/ssh", 4001)
+    mock_cfg = _make_global_cfg([_SSH_HOST, _DOCKER_HOST])
+    with patch("portal.routes.ssh_proxy.load_global", return_value=mock_cfg):
+        _assert_ws_closes_with(client, "/admin/hosts/ssh-dev/ssh", 4001)
 
 
 # ── Tests de validation de la config ─────────────────────────────────────────
 
-def test_ws_rejects_unknown_host(data_root_with_ssh):
-    client = _make_client(data_root_with_ssh)
-    _assert_ws_closes_with(client, "/admin/hosts/inexistant/ssh", 4004)
+
+def test_ws_rejects_unknown_host(admin_client: TestClient) -> None:
+    mock_cfg = _make_global_cfg([_SSH_HOST, _DOCKER_HOST])
+    with patch("portal.routes.ssh_proxy.load_global", return_value=mock_cfg):
+        _assert_ws_closes_with(admin_client, "/admin/hosts/inexistant/ssh", 4004)
 
 
-def test_ws_rejects_docker_tls_host(data_root_with_ssh):
-    client = _make_client(data_root_with_ssh)
-    _assert_ws_closes_with(client, "/admin/hosts/docker-local/ssh", 4022)
+def test_ws_rejects_docker_tls_host(admin_client: TestClient) -> None:
+    mock_cfg = _make_global_cfg([_SSH_HOST, _DOCKER_HOST])
+    with patch("portal.routes.ssh_proxy.load_global", return_value=mock_cfg):
+        _assert_ws_closes_with(admin_client, "/admin/hosts/docker-local/ssh", 4022)
 
 
-def test_ws_rejects_empty_key_path(tmp_data_root, monkeypatch):
-    monkeypatch.setenv("DEV_MODE", "true")
-    import portal.settings as mod
-    mod._settings = None
-
-    config = SSH_HOST_CONFIG.format(key_path="")
-    (tmp_data_root / "config.yaml").write_text(config)
-
-    from portal.app import create_app
-    app = create_app()
-    client = _inject_admin_session(app)
-
-    _assert_ws_closes_with(client, "/admin/hosts/ssh-dev/ssh", 4022)
+def test_ws_rejects_empty_cert_slug(admin_client: TestClient) -> None:
+    """Ferme avec 4022 si host_cert_slug est vide."""
+    empty_slug_host = HostConfig(
+        name="ssh-dev",
+        type="ssh",
+        address="debian@192.168.10.175",
+        host_cert_slug="",  # pas encore bootstrappé
+    )
+    mock_cfg = _make_global_cfg([empty_slug_host, _DOCKER_HOST])
+    with patch("portal.routes.ssh_proxy.load_global", return_value=mock_cfg):
+        _assert_ws_closes_with(admin_client, "/admin/hosts/ssh-dev/ssh", 4022)
 
 
-def test_ws_rejects_key_path_outside_data_root(tmp_data_root, monkeypatch):
-    import tempfile
-
-    monkeypatch.setenv("DEV_MODE", "true")
-    import portal.settings as mod
-    mod._settings = None
-
-    # Crée un répertoire totalement séparé de tmp_data_root
-    with tempfile.TemporaryDirectory() as other_dir:
-        outside_key = Path(other_dir) / "evil_key"
-        outside_key.write_text("fake")
-        config = SSH_HOST_CONFIG.format(key_path=outside_key.as_posix())
-        (tmp_data_root / "config.yaml").write_text(config)
-
-    from portal.app import create_app
-    app = create_app()
-    client = _inject_admin_session(app)
-
-    _assert_ws_closes_with(client, "/admin/hosts/ssh-dev/ssh", 4022)
+def test_ws_rejects_cert_not_found_in_harpo(admin_client: TestClient) -> None:
+    """Ferme le WebSocket si la clé n'est pas trouvée dans harpo."""
+    missing_slug_host = HostConfig(
+        name="ssh-dev",
+        type="ssh",
+        address="debian@192.168.10.175",
+        host_cert_slug="missing-slug",
+    )
+    mock_cfg = _make_global_cfg([missing_slug_host, _DOCKER_HOST])
+    with (
+        patch("portal.routes.ssh_proxy.load_global", return_value=mock_cfg),
+        patch(
+            "portal.routes.ssh_proxy._materialize_system_cert",
+            new=AsyncMock(side_effect=KeyError("missing-slug")),
+        ),
+    ):
+        _assert_ws_closes_with(admin_client, "/admin/hosts/ssh-dev/ssh", 4022)
 
 
-def test_ws_rejects_missing_key_file(tmp_data_root, monkeypatch):
-    monkeypatch.setenv("DEV_MODE", "true")
-    import portal.settings as mod
-    mod._settings = None
-
-    config = SSH_HOST_CONFIG.format(key_path=(tmp_data_root / "keys" / "absent").as_posix())
-    (tmp_data_root / "config.yaml").write_text(config)
-
-    from portal.app import create_app
-    app = create_app()
-    client = _inject_admin_session(app)
-
-    _assert_ws_closes_with(client, "/admin/hosts/ssh-dev/ssh", 4022)
-
-
-def test_ws_rejects_bad_origin(tmp_data_root, monkeypatch):
+def test_ws_rejects_bad_origin(tmp_data_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Rejette une connexion WebSocket avec un Origin non autorisé (anti-CSWSH)."""
     import portal.settings as mod
+
     monkeypatch.setattr(mod, "_settings", None)
     monkeypatch.setenv("SESSION_SECRET_KEY", "test-secret-for-cswsh")
     monkeypatch.setenv("DEV_MODE", "false")
-
-    key_dir = tmp_data_root / "keys" / "hosts"
-    key_dir.mkdir(parents=True)
-    key_file = key_dir / "ssh_dev_ed25519"
-    key_file.write_text("fake key")
-    key_file.chmod(0o600)
-    config = SSH_HOST_CONFIG.format(key_path=key_file.as_posix())
-    (tmp_data_root / "config.yaml").write_text(config)
+    monkeypatch.setenv("PORTAL_VAULT_KEK", "a" * 64)  # clé factice 32 octets hex
 
     from portal.app import create_app
+
     app = create_app()
     client = _inject_admin_session(app)
 
-    with pytest.raises(WebSocketDisconnect) as exc_info, \
-         client.websocket_connect(
-             "/admin/hosts/ssh-dev/ssh",
-             headers={"Origin": "https://evil.example.com"},
-         ) as ws:
+    mock_cfg = _make_global_cfg([_SSH_HOST, _DOCKER_HOST])
+    mock_cfg.server.external_url = "https://dev.yoops.org"
+    with (
+        patch("portal.routes.ssh_proxy.load_global", return_value=mock_cfg),
+        pytest.raises(WebSocketDisconnect) as exc_info,
+        client.websocket_connect(
+            "/admin/hosts/ssh-dev/ssh",
+            headers={"Origin": "https://evil.example.com"},
+        ) as ws,
+    ):
         ws.receive_text()
     assert exc_info.value.code == 4003
 
@@ -287,24 +244,36 @@ class _FakeStdout:
         return chunk
 
 
-def test_ws_proxy_echoes_data(data_root_with_ssh: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ws_proxy_echoes_data(
+    admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Le subprocess SSH factice (echo) remet les bytes sur le WebSocket."""
     fake_proc = _FakeProcess(echo=True)
 
     async def _fake_exec(*args: object, **kwargs: object) -> _FakeProcess:
         return fake_proc
 
+    fd, fake_key_path = tempfile.mkstemp(suffix=".pem", prefix="devpod-host-")
+    os.close(fd)
+
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
 
-    client = _make_client(data_root_with_ssh)
-    with client.websocket_connect("/admin/hosts/ssh-dev/ssh") as ws:
+    mock_cfg = _make_global_cfg([_SSH_HOST, _DOCKER_HOST])
+    with (
+        patch("portal.routes.ssh_proxy.load_global", return_value=mock_cfg),
+        patch(
+            "portal.routes.ssh_proxy._materialize_system_cert",
+            new=AsyncMock(return_value=fake_key_path),
+        ),
+        admin_client.websocket_connect("/admin/hosts/ssh-dev/ssh") as ws,
+    ):
         ws.send_bytes(b"hello")
         data = ws.receive_bytes()
         assert data == b"hello"
 
 
 def test_ws_close_kills_subprocess(
-    data_root_with_ssh: Path, monkeypatch: pytest.MonkeyPatch
+    admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Fermer le WebSocket tue le subprocess SSH."""
     fake_proc = _FakeProcess(echo=False)
@@ -312,10 +281,20 @@ def test_ws_close_kills_subprocess(
     async def _fake_exec(*args: object, **kwargs: object) -> _FakeProcess:
         return fake_proc
 
+    fd, fake_key_path = tempfile.mkstemp(suffix=".pem", prefix="devpod-host-")
+    os.close(fd)
+
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
 
-    client = _make_client(data_root_with_ssh)
-    with client.websocket_connect("/admin/hosts/ssh-dev/ssh"):
+    mock_cfg = _make_global_cfg([_SSH_HOST, _DOCKER_HOST])
+    with (
+        patch("portal.routes.ssh_proxy.load_global", return_value=mock_cfg),
+        patch(
+            "portal.routes.ssh_proxy._materialize_system_cert",
+            new=AsyncMock(return_value=fake_key_path),
+        ),
+        admin_client.websocket_connect("/admin/hosts/ssh-dev/ssh"),
+    ):
         pass  # ferme immédiatement le WS
 
     assert fake_proc._killed, "Le subprocess doit être killed après fermeture WS"

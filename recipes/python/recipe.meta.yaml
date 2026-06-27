@@ -1,0 +1,10 @@
+﻿id: python
+key: fa25de9a-ef97-4e68-bea6-8353393db92a
+version: 1.0.0
+description: "Install Python via deadsnakes PPA — versions 3.10 à 3.13 (défaut : 3.12 LTS)"
+type: install
+options:
+  version:
+    type: string
+    default: "3.12"
+    description: "Version Python à installer (3.10 | 3.11 | 3.12 | 3.13)"

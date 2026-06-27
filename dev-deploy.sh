@@ -36,10 +36,25 @@ if [[ ! -f "$ENV_FILE" ]]; then
     sed -i "s|^LOCAL_PASSWORD=.*|LOCAL_PASSWORD=${LOCAL_PASS}|" "$ENV_FILE"
     sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}|" "$ENV_FILE"
 
-    echo "    .env créé — credentials locaux générés."
+    VAULT_KEK="$(openssl rand -hex 32)"
+    sed -i "s|^PORTAL_VAULT_KEK=.*|PORTAL_VAULT_KEK=${VAULT_KEK}|" "$ENV_FILE"
+
+    echo "    .env créé — credentials locaux et PORTAL_VAULT_KEK générés."
+fi
+
+# ─── Génération PORTAL_VAULT_KEK si absent ou vide ───────────────────────────
+if ! grep -qE '^PORTAL_VAULT_KEK=.+' "$ENV_FILE"; then
+    echo "==> PORTAL_VAULT_KEK manquant ou vide — génération..."
+    VAULT_KEK="$(openssl rand -hex 32)"
+    if grep -q '^PORTAL_VAULT_KEK=' "$ENV_FILE"; then
+        sed -i "s|^PORTAL_VAULT_KEK=.*|PORTAL_VAULT_KEK=${VAULT_KEK}|" "$ENV_FILE"
+    else
+        echo "PORTAL_VAULT_KEK=${VAULT_KEK}" >> "$ENV_FILE"
+    fi
+    echo "    PORTAL_VAULT_KEK généré et ajouté au .env."
 fi
 
 # ─── Déploiement ──────────────────────────────────────────────────────────────
 exec env COMPOSE_FILE=deploy/docker-compose.dev.yml \
     DATA_ROOT="$DATA_ROOT" \
-    "${SCRIPT_DIR}/scripts/deploy-portal.sh"
+    "${SCRIPT_DIR}/scripts/deploy-portal.sh" "$@"

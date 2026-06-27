@@ -172,11 +172,48 @@ def test_workspace_name_accepts_valid(name: str):
 
 def test_workspace_spec_ssh_key_defaults_to_false() -> None:
     from portal.config.models import WorkspaceSpec
+
     ws = WorkspaceSpec(name="myapp", source="git@github.com:org/repo.git")
     assert ws.ssh_key is False
 
 
 def test_workspace_spec_ssh_key_can_be_set() -> None:
     from portal.config.models import WorkspaceSpec
+
     ws = WorkspaceSpec(name="myapp", source="git@github.com:org/repo.git", ssh_key=True)
     assert ws.ssh_key is True
+
+
+# ─── WorkspaceSpec.start_recipes ─────────────────────────────────────────────
+
+
+def test_workspace_spec_start_recipes_defaults_empty() -> None:
+    from portal.config.models import WorkspaceSpec
+
+    ws = WorkspaceSpec(name="my-ws", source="https://github.com/x/y")
+    assert ws.start_recipes == []
+    assert ws.default_start == ""
+
+
+def test_workspace_spec_start_recipes_accepts_ids() -> None:
+    from portal.config.models import WorkspaceSpec
+
+    ws = WorkspaceSpec(
+        name="my-ws",
+        source="https://github.com/x/y",
+        start_recipes=["claude-rc", "aider-rc"],
+    )
+    assert ws.start_recipes == ["claude-rc", "aider-rc"]
+
+
+def test_workspace_spec_start_recipe_invalid_id_rejected() -> None:
+    from pydantic import ValidationError
+
+    from portal.config.models import WorkspaceSpec
+
+    with pytest.raises(ValidationError, match="start_recipes"):
+        WorkspaceSpec(
+            name="my-ws",
+            source="https://github.com/x/y",
+            start_recipes=["../evil"],
+        )

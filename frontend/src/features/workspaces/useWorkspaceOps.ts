@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { apiFetch, apiFetchJson } from '@/shared/api/client'
 import type { SourceSpec, WorkspaceSpec, WorkspaceStatus } from './types'
 
@@ -15,6 +16,11 @@ interface CreateInput {
   host: string
   recipes: string[]
   generateSshKey?: boolean
+  profile?: { scope: 'shared' | 'user'; slug: string }
+  startRecipes?: string[]
+  defaultStart?: string
+  volumeRecipes?: string[]
+  initRecipes?: string[]
 }
 
 function toSourceSpec(entry: SourceEntry): SourceSpec {
@@ -23,9 +29,10 @@ function toSourceSpec(entry: SourceEntry): SourceSpec {
 
 export function useWorkspaceOps() {
   const qc = useQueryClient()
+  const { t } = useTranslation()
 
   const createWorkspace = useMutation({
-    mutationFn: async ({ name, sources, host, recipes, generateSshKey }: CreateInput) => {
+    mutationFn: async ({ name, sources, host, recipes, generateSshKey, profile, startRecipes, defaultStart, volumeRecipes, initRecipes }: CreateInput) => {
       const primary = sources[0] ?? { url: '', branch: '', credential: '' }
       const extra = sources.slice(1).map(toSourceSpec)
 
@@ -39,6 +46,11 @@ export function useWorkspaceOps() {
         env: {},
         extra_sources: extra,
         ssh_key: generateSshKey ?? false,
+        profile: profile ?? null,
+        start_recipes: startRecipes ?? [],
+        default_start: defaultStart ?? '',
+        recipe_volumes: volumeRecipes ?? [],
+        init_recipes: initRecipes ?? [],
       }
       // Add to config (ignore 409 — already exists)
       const addRes = await apiFetch('/me/workspaces', {
@@ -62,6 +74,8 @@ export function useWorkspaceOps() {
           recipes,
           extra_sources: extra,
           generate_ssh_key: generateSshKey ?? false,
+          profile: profile ?? null,
+          recipe_volumes: volumeRecipes ?? [],
         }),
       })
     },
@@ -82,16 +96,50 @@ export function useWorkspaceOps() {
     onError: (err: Error) => toast.error(err.message),
   })
 
-  const deleteWorkspace = useMutation({
-    mutationFn: async (name: string) => {
-      await apiFetchJson(`/me/workspaces/${name}/delete`, { method: 'POST' })
+  const deleteWorkspace = useMutation<
+    { deleted: boolean; recovery_branch: string | null },
+    Error,
+    { name: string; shelve?: boolean }
+  >({
+    mutationFn: async ({ name, shelve = true }) => {
+      const url = `/me/workspaces/${name}/delete?shelve=${shelve}`
+      const result = await apiFetchJson<{
+        deleted: boolean
+        recovery_branch: string | null
+      }>(url, { method: 'POST' })
       await apiFetch(`/me/workspaces/${name}`, { method: 'DELETE' })
+      return result
     },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['workspaces'] })
+      if (data.recovery_branch) {
+        toast.success(t('workspaces.confirm.recoverySaved', { branch: data.recovery_branch }))
+      }
+    },
+    onError: (err: Error) => {
+      let msg = err.message
+      try {
+        const parsed: unknown = JSON.parse(err.message)
+        if (parsed && typeof parsed === 'object' && 'detail' in parsed) {
+          msg = String((parsed as { detail: unknown }).detail)
+        }
+      } catch {
+        // message n'est pas du JSON, on l'utilise tel quel
+      }
+      toast.error(msg)
+    },
+  })
+
+  const recreateWorkspace = useMutation<{ ws_id: string; status: string }, Error, string>({
+    mutationFn: (name: string) =>
+      apiFetchJson<{ ws_id: string; status: string }>(`/me/workspaces/${name}/recreate`, {
+        method: 'POST',
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['workspaces'] })
     },
     onError: (err: Error) => toast.error(err.message),
   })
 
-  return { createWorkspace, stopWorkspace, deleteWorkspace }
+  return { createWorkspace, stopWorkspace, deleteWorkspace, recreateWorkspace }
 }
