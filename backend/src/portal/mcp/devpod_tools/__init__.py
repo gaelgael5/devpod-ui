@@ -6,8 +6,10 @@ quand `target.transport == "internal"`.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+import posixpath
 import re
 import shlex
 from collections.abc import Awaitable, Callable
@@ -163,11 +165,60 @@ async def _workspace_tree(conn: AsyncConnection, args: dict[str, Any], owner_log
     return _build_tree(out.splitlines())
 
 
+async def _workspace_mkdir(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    name = _require_ws(args)
+    rel = _require_str(args, "path")
+    p = safe_workspace_path(name, rel)
+    rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", f"mkdir -p {shlex.quote(p)}")
+    if rc != 0:
+        raise DevpodToolError(out)
+    return {"path": rel}
+
+
+async def _workspace_write_file(
+    conn: AsyncConnection, args: dict[str, Any], owner_login: str
+) -> Any:
+    name = _require_ws(args)
+    rel = _require_str(args, "path")
+    p = safe_workspace_path(name, rel)
+    content = _require_str(args, "content")
+    create = bool(args.get("create_dirs", True))
+    b64 = base64.b64encode(content.encode()).decode()
+    parent = posixpath.dirname(p)
+    mk = f"mkdir -p {shlex.quote(parent)} && " if create else ""
+    # Écriture atomique (I-6) : tempfile dans le répertoire cible + rename.
+    cmd = (
+        f"{mk}tmp=$(mktemp {shlex.quote(parent)}/.tmp.XXXXXX) && "
+        f'printf %s {shlex.quote(b64)} | base64 -d > "$tmp" && mv -f "$tmp" {shlex.quote(p)}'
+    )
+    rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", cmd)
+    if rc != 0:
+        raise DevpodToolError(out)
+    data = content.encode()
+    return {"path": rel, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+
+
+async def _workspace_exec(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    name = _require_ws(args)
+    command = _require_str(args, "command")
+    timeout = int(args.get("timeout_s", 60))
+    cwd_arg = args.get("cwd")
+    cwd = safe_workspace_path(name, str(cwd_arg)) if cwd_arg else f"/workspaces/{name}"
+    full = f"cd {shlex.quote(cwd)} && {command}"
+    rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", full, timeout=float(timeout))
+    # Commande one-shot : le code retour fait partie du résultat (pas une erreur métier).
+    # ws_exec fusionne stdout+stderr → stderr vide en v1 (séparation = backlog §7).
+    return {"stdout": out, "stderr": "", "exit_code": rc}
+
+
 _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any]]] = {
     "workspace_list": _workspace_list,
     "workspace_status": _workspace_status,
     "workspace_tree": _workspace_tree,
     "workspace_read_file": _workspace_read_file,
+    "workspace_mkdir": _workspace_mkdir,
+    "workspace_write_file": _workspace_write_file,
+    "workspace_exec": _workspace_exec,
 }
 
 

@@ -76,6 +76,59 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "read",
     },
+    "workspace_mkdir": {
+        "description": "Crée un répertoire (et ses parents) dans le workspace.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "path"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "path": {"type": "string", "description": "Chemin relatif à la racine (I-5)."},
+            },
+        },
+        "scope": "write",
+    },
+    "workspace_write_file": {
+        "description": "Écrit un fichier dans le workspace de façon atomique (tempfile + rename).",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "path", "content"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "path": {"type": "string", "description": "Chemin relatif à la racine (I-5)."},
+                "content": {"type": "string"},
+                "create_dirs": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Crée les répertoires parents manquants.",
+                },
+            },
+        },
+        "scope": "write",
+    },
+    "workspace_exec": {
+        "description": (
+            "Exécute une commande non-interactive dans le conteneur du workspace et "
+            "retourne sa sortie."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "command"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "command": {"type": "string", "description": "Commande shell à exécuter."},
+                "cwd": {
+                    "type": "string",
+                    "description": "Répertoire de travail relatif à la racine (défaut : racine).",
+                },
+                "timeout_s": {"type": "integer", "default": 60, "minimum": 1},
+            },
+        },
+        "scope": "exec",
+    },
 }
 
 
