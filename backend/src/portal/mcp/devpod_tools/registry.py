@@ -416,6 +416,19 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "admin",
     },
+    "workspace_delete": {
+        "description": "Supprime un workspace et son conteneur. Destructif.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "confirm"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "confirm": {"type": "boolean", "description": "Doit valoir true (garde anti-suppression)."},
+            },
+        },
+        "scope": "admin",
+    },
 }
 
 

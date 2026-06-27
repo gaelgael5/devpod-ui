@@ -614,6 +614,20 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
     return {"operation_id": oid}
 
 
+async def _workspace_delete(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    """Supprime un workspace de façon asynchrone. Retourne un operation_id (spec 25 §B)."""
+    name = _require_ws(args)
+    if args.get("confirm") is not True:
+        raise DevpodToolError("suppression refusée : confirm doit valoir true")
+
+    async def work() -> Any:
+        result = await get_service().delete(owner_login, f"{owner_login}-{name}", shelve=True)
+        return {"workspace": name, "deleted": True, **result}
+
+    oid = operations.launch_operation("workspace_delete", name, owner_login, work)
+    return {"operation_id": oid}
+
+
 _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any]]] = {
     "workspace_list": _workspace_list,
     "workspace_status": _workspace_status,
@@ -642,6 +656,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "operations_list": _operations_list,
     "portal_reload": _portal_reload,
     "workspace_create": _workspace_create,
+    "workspace_delete": _workspace_delete,
 }
 
 

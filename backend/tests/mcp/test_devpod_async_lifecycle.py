@@ -27,3 +27,17 @@ async def test_workspace_create_launches_operation(monkeypatch: pytest.MonkeyPat
 async def test_workspace_create_requires_name_and_repo() -> None:
     with pytest.raises(devpod_tools.DevpodToolError):
         await devpod_tools._workspace_create(None, {"name": "dev"}, "alice")
+
+
+@pytest.mark.asyncio
+async def test_workspace_delete_requires_confirm() -> None:
+    with pytest.raises(devpod_tools.DevpodToolError, match="confirm"):
+        await devpod_tools._workspace_delete(None, {"workspace": "dev", "confirm": False}, "alice")
+
+
+@pytest.mark.asyncio
+async def test_workspace_delete_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(devpod_tools.operations, "launch_operation",
+                        lambda kind, ws, owner, work: "a" * 32)
+    res = await devpod_tools._workspace_delete(None, {"workspace": "dev", "confirm": True}, "alice")
+    assert res == {"operation_id": "a" * 32}

@@ -736,3 +736,29 @@
   }
 }
 ```
+
+## `devpod__workspace_delete`
+
+- **Scope** : `admin`
+- **Description** : Supprime un workspace et son conteneur. Destructif.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace",
+    "confirm"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string"
+    },
+    "confirm": {
+      "type": "boolean",
+      "description": "Doit valoir true (garde anti-suppression)."
+    }
+  }
+}
+```
