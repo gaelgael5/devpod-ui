@@ -30,6 +30,18 @@ def test_latest_is_warning() -> None:
     assert any("latest" in w for w in warnings)
 
 
+def test_untagged_image_is_warning() -> None:
+    content = """
+services:
+  web:
+    image: nginx
+    ports:
+      - "${WEB_PORT}:80"
+"""
+    warnings = validation.validate_template(content, _port_param())
+    assert warnings  # non-empty: untagged image flagged
+
+
 def test_unparseable_yaml_raises() -> None:
     with pytest.raises(validation.TemplateValidationError):
         validation.validate_template("services: [unbalanced", _port_param())
