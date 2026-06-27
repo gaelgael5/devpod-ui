@@ -176,6 +176,46 @@ async def _workspace_resources(
     }
 
 
+def _parse_git_porcelain(out: str) -> dict[str, Any]:
+    branch = ""
+    staged: list[str] = []
+    unstaged: list[str] = []
+    untracked: list[str] = []
+    for line in out.splitlines():
+        if line.startswith("## "):
+            branch = line[3:].split("...", 1)[0].strip()
+            continue
+        if len(line) < 3:
+            continue
+        x, y, path = line[0], line[1], line[3:]
+        if line.startswith("??"):
+            untracked.append(path)
+            continue
+        if x != " ":
+            staged.append(path)
+        if y != " ":
+            unstaged.append(path)
+    return {"branch": branch, "staged": staged, "unstaged": unstaged, "untracked": untracked}
+
+
+async def _workspace_git_status(
+    conn: AsyncConnection, args: dict[str, Any], owner_login: str
+) -> Any:
+    name = _require_ws(args)
+    ws_id = f"{owner_login}-{name}"
+    root = f"/workspaces/{name}"
+    cmd = f"cd {shlex.quote(root)} && git status --porcelain=v1 -b"
+    rc, out = await ws_exec(owner_login, ws_id, cmd)
+    if rc != 0:
+        raise DevpodToolError(f"git status impossible: {out}")
+    result = _parse_git_porcelain(out)
+    if bool(args.get("with_diff", False)):
+        diff_cmd = f"cd {shlex.quote(root)} && git diff"
+        rc2, diff = await ws_exec(owner_login, ws_id, diff_cmd)
+        result["diff"] = diff if rc2 == 0 else ""
+    return result
+
+
 async def _workspace_get(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     cfg = await load_user_db(owner_login, conn)
@@ -467,6 +507,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_status": _workspace_status,
     "workspace_logs": _workspace_logs,
     "workspace_resources": _workspace_resources,
+    "workspace_git_status": _workspace_git_status,
     "workspace_get": _workspace_get,
     "workspace_tree": _workspace_tree,
     "workspace_read_file": _workspace_read_file,

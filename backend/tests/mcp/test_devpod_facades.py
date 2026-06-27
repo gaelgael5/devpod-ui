@@ -145,3 +145,28 @@ async def test_session_close_kills_session(monkeypatch: pytest.MonkeyPatch) -> N
 async def test_session_close_requires_session(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(devpod_tools.DevpodToolError):
         await devpod_tools._session_close(None, {"workspace": "dev"}, "alice")
+
+
+@pytest.mark.asyncio
+async def test_git_status_parses_porcelain(monkeypatch: pytest.MonkeyPatch) -> None:
+    out = "## dev...origin/dev\nM  staged.py\n M unstaged.py\n?? new.py\n"
+    monkeypatch.setattr(devpod_tools, "ws_exec", AsyncMock(return_value=(0, out)))
+    res = await devpod_tools._workspace_git_status(None, {"workspace": "dev"}, "alice")
+    assert res["branch"] == "dev"
+    assert res["staged"] == ["staged.py"]
+    assert res["unstaged"] == ["unstaged.py"]
+    assert res["untracked"] == ["new.py"]
+    assert "diff" not in res
+
+
+@pytest.mark.asyncio
+async def test_git_status_with_diff(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    async def fake(login, ws, cmd, timeout=30.0):
+        calls.append(cmd)
+        return (0, "## dev\n") if "status" in cmd else (0, "diff-body")
+    monkeypatch.setattr(devpod_tools, "ws_exec", fake)
+    res = await devpod_tools._workspace_git_status(
+        None, {"workspace": "dev", "with_diff": True}, "alice"
+    )
+    assert res["diff"] == "diff-body"

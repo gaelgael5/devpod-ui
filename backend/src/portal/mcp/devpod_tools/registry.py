@@ -68,6 +68,22 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "read",
     },
+    "workspace_git_status": {
+        "description": (
+            "Retourne l'état git du workspace "
+            "(branche, fichiers modifiés, diff optionnel)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "with_diff": {"type": "boolean", "default": False},
+            },
+        },
+        "scope": "read",
+    },
     "workspace_tree": {
         "description": (
             "Liste l'arborescence du workspace à partir d'un chemin, avec profondeur "

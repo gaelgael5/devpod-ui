@@ -111,6 +111,31 @@
 }
 ```
 
+## `devpod__workspace_git_status`
+
+- **Scope** : `read`
+- **Description** : Retourne l'état git du workspace (branche, fichiers modifiés, diff optionnel).
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string"
+    },
+    "with_diff": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+}
+```
+
 ## `devpod__workspace_tree`
 
 - **Scope** : `read`
