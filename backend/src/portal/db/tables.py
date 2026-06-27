@@ -551,3 +551,47 @@ mcp_oauth_authcode = Table(
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("used", Boolean, nullable=False, server_default="false"),
 )
+
+# ─── Compose Gallery (lot 1) ─────────────────────────────────────────────────
+
+compose_template = Table(
+    "compose_template",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("name", Text, nullable=False),
+    Column("description", Text, nullable=False, server_default=""),
+    Column("tags", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("version", Text, nullable=False),
+    Column("compose_content", Text, nullable=False),
+    Column("parameters", JSONB, nullable=False, server_default="[]"),
+    Column("source", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+compose_deployment = Table(
+    "compose_deployment",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("template_id", Text, ForeignKey("compose_template.id"), nullable=False),
+    Column("template_version", Text, nullable=False),
+    Column("node_id", Text, nullable=False),
+    Column("owner_login", Text, nullable=False),
+    Column("env_values", JSONB, nullable=False, server_default="{}"),
+    Column("host_ports", ARRAY(Integer), nullable=False, server_default="{}"),
+    Column("status", Text, nullable=False, server_default="created"),
+    Column("last_error", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+compose_deployment_log = Table(
+    "compose_deployment_log",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("deployment_id", Text, nullable=False),
+    Column("operation", Text, nullable=False),
+    Column("content", Text, nullable=False, server_default=""),
+    Column("started_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("finished_at", DateTime(timezone=True), nullable=True),
+)
