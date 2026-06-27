@@ -30,7 +30,7 @@ class ComposeServiceError(Exception):
 
 
 def _remote_dir(deployment_id: str) -> str:
-    return f"~/devpod-compose/{deployment_id}"
+    return f"devpod-compose/{deployment_id}"
 
 
 def _host_for_node(node_id: str) -> HostConfig:
@@ -147,6 +147,8 @@ async def teardown(conn: AsyncConnection, deployment_id: str) -> None:
         timeout=300.0,
     )
     await persist_op_log(conn, deployment_id, "down", out + ("\n" + err if err else ""))
+    if rc != 0:
+        _log.warning("compose_teardown_failed", deployment_id=deployment_id, rc=rc)
     await delete_deployment(conn, deployment_id)
 
 
