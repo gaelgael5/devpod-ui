@@ -26,5 +26,18 @@ def resolve_env_values(login: str, secret_ns: str, env_values: dict[str, str]) -
     return {k: _resolve_one(login, secret_ns, v) for k, v in env_values.items()}
 
 
+def _quote(value: str) -> str:
+    """Échappe une valeur .env pour éviter l'injection de lignes (spec 26 T7)."""
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+    return f'"{escaped}"'
+
+
 def render_env_file(resolved: dict[str, str]) -> str:
-    return "".join(f"{k}={v}\n" for k, v in resolved.items())
+    """Rend un dictionnaire de valeurs résolvues en contenu .env."""
+    return "".join(f"{k}={_quote(v)}\n" for k, v in resolved.items())

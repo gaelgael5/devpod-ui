@@ -4,7 +4,14 @@ from portal.compose import env_builder
 
 def test_render_env_file() -> None:
     out = env_builder.render_env_file({"A": "1", "B": "two"})
-    assert out == "A=1\nB=two\n"
+    assert out == 'A="1"\nB="two"\n'
+
+
+def test_render_env_file_escapes_newline() -> None:
+    out = env_builder.render_env_file({"S": "real\nEXTRA=injected"})
+    # exactly one physical line for the key S (no injected EXTRA= line at column 0)
+    assert out == 'S="real\\nEXTRA=injected"\n'
+    assert out.count("\n") == 1  # only the trailing line terminator
 
 
 def test_resolve_env_values_passes_through_literals(monkeypatch) -> None:
