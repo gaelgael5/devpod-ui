@@ -466,7 +466,10 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
             "required": ["workspace", "confirm"],
             "properties": {
                 "workspace": {"type": "string"},
-                "confirm": {"type": "boolean", "description": "Doit valoir true (garde anti-suppression)."},
+                "confirm": {
+                    "type": "boolean",
+                    "description": "Doit valoir true (garde anti-suppression).",
+                },
             },
         },
         "scope": "admin",

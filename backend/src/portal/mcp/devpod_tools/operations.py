@@ -11,7 +11,7 @@ import re
 import tempfile
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -37,7 +37,7 @@ def _op_path(operation_id: str) -> Path:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _write_atomic(path: Path, data: dict[str, Any]) -> None:

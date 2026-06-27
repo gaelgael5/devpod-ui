@@ -691,7 +691,6 @@ async def _recreate_workspace(
 
     Retourne le nouveau ws_id.
     """
-    from ...config.store import load_user, save_user
     from ...db.engine import _get_engine
     from ...devpod.provision import ProvisionParams, provision_workspace
 
@@ -711,6 +710,7 @@ async def _recreate_workspace(
                 git_credential=spec_updated.git_credential, host=spec_updated.host,
                 recipes=spec_updated.recipes, extra_sources=spec_updated.extra_sources,
                 profile=spec_updated.profile, recipe_volumes=spec_updated.recipe_volumes,
+                generate_ssh_key=spec_updated.ssh_key,
             ),
             bg_conn,
         )
