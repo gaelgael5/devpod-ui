@@ -1,0 +1,31 @@
+{
+    # API admin sur le réseau docker internal uniquement — port 2019 NON publié sur l'hôte.
+    # 0.0.0.0 requis : le service `portal` (conteneur distinct) appelle http://caddy:2019
+    # pour pousser les routes workspace en M6. 127.0.0.1 bloquerait cet accès inter-conteneurs.
+    # Isolation : seuls `portal` et `caddy` partagent le réseau `internal`.
+    admin 0.0.0.0:2019
+}
+
+# Portail principal : auth OIDC gérée par FastAPI lui-même.
+# PROD : TLS automatique via DNS-01 Cloudflare (wildcard *.{$BASE_DOMAIN}).
+# CF_API_TOKEN doit être renseigné dans /data/.env (token Cloudflare avec droit Edit zone DNS).
+{$BASE_DOMAIN} {
+    tls {
+        dns cloudflare {$CF_API_TOKEN}
+    }
+    reverse_proxy portal:8080 {
+        flush_interval -1
+        transport http {
+            read_timeout 0
+            write_timeout 0
+        }
+    }
+}
+
+# Workspaces (ws-*.{$BASE_DOMAIN}) : routes ajoutées dynamiquement par le portail
+# via l'API admin Caddy (forward_auth interne + reverse_proxy vers node_ip:host_port).
+# Le certificat de chaque sous-domaine est obtenu en DNS-01 Cloudflare (même token).
+#
+# Pas de bloc statique *.{$BASE_DOMAIN} : il intercepterait les sous-domaines AVANT
+# les routes dynamiques (ajoutées en fin de liste). Un sous-domaine sans route →
+# 404 Caddy par défaut, ce qui préserve le fail-closed §F-33.
