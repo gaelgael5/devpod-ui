@@ -41,3 +41,21 @@ async def test_workspace_delete_launches_operation(monkeypatch: pytest.MonkeyPat
                         lambda kind, ws, owner, work: "a" * 32)
     res = await devpod_tools._workspace_delete(None, {"workspace": "dev", "confirm": True}, "alice")
     assert res == {"operation_id": "a" * 32}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("confirm_value,include_key", [
+    (1, True),
+    ("true", True),
+    (None, False),  # missing key
+])
+async def test_workspace_delete_refuses_truthy_non_true(
+    confirm_value: object, include_key: bool
+) -> None:
+    """Verify that confirm must be exactly True, not just truthy."""
+    args = {"workspace": "dev"}
+    if include_key:
+        args["confirm"] = confirm_value
+
+    with pytest.raises(devpod_tools.DevpodToolError, match="confirm"):
+        await devpod_tools._workspace_delete(None, args, "alice")
