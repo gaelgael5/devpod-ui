@@ -21,6 +21,7 @@ from mcp.shared.exceptions import McpError
 from mcp.types import METHOD_NOT_FOUND, ErrorData
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from ...config.store import _data_root
 from ...db.user_config import load_user_db
 from ...devpod.exec import TMUX_SOCK_DETECT, tmux, ws_exec
 from .errors import DevpodToolError
@@ -106,6 +107,24 @@ async def _workspace_status(conn: AsyncConnection, args: dict[str, Any], owner_l
         "container_up": status == "running",
         "agent_up": None,  # sondé via session_* (lot 5) ; non résolu ici.
     }
+
+
+async def _workspace_logs(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    name = _require_ws(args)
+    source = str(args.get("source", "container"))
+    lines = int(args.get("lines", 200))
+    if source == "agent":
+        cap = await _session_capture(conn, {"workspace": name, "lines": lines}, owner_login)
+        return {"source": "agent", "output": cap["output"]}
+    # setup / container : journal de provisioning du portail (flux unique en v1).
+    ws_id = f"{owner_login}-{name}"
+    logs_root = _data_root() / "logs"
+    log_file = logs_root / owner_login / f"{ws_id}.log"
+    if not log_file.is_relative_to(logs_root) or not log_file.exists():
+        return {"source": source, "output": ""}
+    text = log_file.read_text(encoding="utf-8", errors="replace")
+    tail = "\n".join(text.splitlines()[-lines:])
+    return {"source": source, "output": tail}
 
 
 async def _workspace_get(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
@@ -375,6 +394,7 @@ async def _portal_reload(conn: AsyncConnection, args: dict[str, Any], owner_logi
 _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any]]] = {
     "workspace_list": _workspace_list,
     "workspace_status": _workspace_status,
+    "workspace_logs": _workspace_logs,
     "workspace_get": _workspace_get,
     "workspace_tree": _workspace_tree,
     "workspace_read_file": _workspace_read_file,

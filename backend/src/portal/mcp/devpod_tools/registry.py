@@ -37,6 +37,27 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "read",
     },
+    "workspace_logs": {
+        "description": (
+            "Retourne les logs d'un workspace (setup d'installation, agent ou conteneur)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "source": {
+                    "type": "string",
+                    "enum": ["setup", "agent", "container"],
+                    "default": "container",
+                },
+                "lines": {"type": "integer", "default": 200, "minimum": 1},
+                "since": {"type": "string", "description": "Réservé v1 (non appliqué)."},
+            },
+        },
+        "scope": "read",
+    },
     "workspace_tree": {
         "description": (
             "Liste l'arborescence du workspace à partir d'un chemin, avec profondeur "

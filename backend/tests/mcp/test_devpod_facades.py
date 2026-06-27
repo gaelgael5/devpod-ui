@@ -44,3 +44,41 @@ async def test_workspace_get_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(devpod_tools, "load_user_db", AsyncMock(return_value=cfg))
     with pytest.raises(devpod_tools.DevpodToolError):
         await devpod_tools._workspace_get(None, {"workspace": "ghost"}, "alice")
+
+
+@pytest.mark.asyncio
+async def test_workspace_logs_setup_reads_portal_log(monkeypatch, tmp_path):
+    logs = tmp_path / "logs" / "alice"
+    logs.mkdir(parents=True)
+    (logs / "alice-dev.log").write_text("line1\nline2\nline3\n", encoding="utf-8")
+    monkeypatch.setattr(devpod_tools, "_data_root", lambda: tmp_path)
+
+    res = await devpod_tools._workspace_logs(
+        None, {"workspace": "dev", "source": "setup", "lines": 2}, "alice"
+    )
+    assert res["source"] == "setup"
+    assert res["output"].splitlines() == ["line2", "line3"]
+
+
+@pytest.mark.asyncio
+async def test_workspace_logs_agent_captures_pane(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        devpod_tools,
+        "_session_capture",
+        AsyncMock(return_value={"output": "agent-buf"}),
+    )
+    res = await devpod_tools._workspace_logs(
+        None, {"workspace": "dev", "source": "agent"}, "alice"
+    )
+    assert res == {"source": "agent", "output": "agent-buf"}
+
+
+@pytest.mark.asyncio
+async def test_workspace_logs_missing_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(devpod_tools, "_data_root", lambda: tmp_path)
+    res = await devpod_tools._workspace_logs(
+        None, {"workspace": "dev", "source": "container"}, "alice"
+    )
+    assert res == {"source": "container", "output": ""}

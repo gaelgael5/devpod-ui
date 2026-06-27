@@ -51,6 +51,45 @@
 }
 ```
 
+## `devpod__workspace_logs`
+
+- **Scope** : `read`
+- **Description** : Retourne les logs d'un workspace (setup d'installation, agent ou conteneur).
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "setup",
+        "agent",
+        "container"
+      ],
+      "default": "container"
+    },
+    "lines": {
+      "type": "integer",
+      "default": 200,
+      "minimum": 1
+    },
+    "since": {
+      "type": "string",
+      "description": "Réservé v1 (non appliqué)."
+    }
+  }
+}
+```
+
 ## `devpod__workspace_tree`
 
 - **Scope** : `read`
