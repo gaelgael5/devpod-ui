@@ -235,3 +235,23 @@ async def test_node_list_maps_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
             "capacity": None,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_node_list_host_fallback_to_docker_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    h = SimpleNamespace(
+        name="node2", address="", docker_host="tcp://x:2376", usage="workspaces"
+    )
+    monkeypatch.setattr(
+        devpod_tools, "load_global", lambda: SimpleNamespace(hosts=[h])
+    )
+    res = await devpod_tools._node_list(None, {}, "alice")
+    assert res == [
+        {
+            "node_id": "node2",
+            "name": "node2",
+            "host": "tcp://x:2376",
+            "status": "configured",
+            "capacity": None,
+        }
+    ]
