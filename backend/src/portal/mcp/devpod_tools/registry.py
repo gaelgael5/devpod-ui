@@ -242,6 +242,19 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "exec",
     },
+    "session_interrupt": {
+        "description": "Envoie un signal d'interruption (Ctrl-C) au premier plan d'une session.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "session": {"type": "string", "default": "main"},
+            },
+        },
+        "scope": "exec",
+    },
     "session_capture": {
         "description": "Capture le buffer brut du pane d'une session (capture-pane).",
         "inputSchema": {

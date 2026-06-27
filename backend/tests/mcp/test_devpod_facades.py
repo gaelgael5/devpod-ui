@@ -119,3 +119,14 @@ async def test_workspace_resources_unreadable_cpu(monkeypatch: pytest.MonkeyPatc
     assert res["cpu_pct"] is None
     assert res["mem_used"] == 536870912
     assert res["mem_limit"] == 1073741824
+
+
+@pytest.mark.asyncio
+async def test_session_interrupt_sends_ctrl_c(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = AsyncMock(return_value=(0, ""))
+    monkeypatch.setattr(devpod_tools, "ws_exec", fake)
+    args = {"workspace": "dev", "session": "main"}
+    res = await devpod_tools._session_interrupt(None, args, "alice")
+    assert res == {"interrupted": True}
+    sent_cmd = fake.await_args.args[2]
+    assert "send-keys" in sent_cmd and "C-c" in sent_cmd

@@ -416,6 +416,31 @@
 }
 ```
 
+## `devpod__session_interrupt`
+
+- **Scope** : `exec`
+- **Description** : Envoie un signal d'interruption (Ctrl-C) au premier plan d'une session.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string"
+    },
+    "session": {
+      "type": "string",
+      "default": "main"
+    }
+  }
+}
+```
+
 ## `devpod__session_capture`
 
 - **Scope** : `read`
