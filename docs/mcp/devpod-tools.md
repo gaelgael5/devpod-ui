@@ -136,6 +136,42 @@
 }
 ```
 
+## `devpod__workspace_git_commit`
+
+- **Scope** : `exec`
+- **Description** : Commit conventionnel sur la branche dev (garde de branche). Push optionnel.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace",
+    "message"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string",
+      "description": "Message commit conventionnel FR."
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "push": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+}
+```
+
 ## `devpod__workspace_tree`
 
 - **Scope** : `read`

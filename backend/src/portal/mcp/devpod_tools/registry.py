@@ -84,6 +84,27 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "read",
     },
+    "workspace_git_commit": {
+        "description": (
+            "Commit conventionnel sur la branche dev (garde de branche). "
+            "Push optionnel."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "message"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "message": {
+                    "type": "string",
+                    "description": "Message commit conventionnel FR.",
+                },
+                "files": {"type": "array", "items": {"type": "string"}},
+                "push": {"type": "boolean", "default": False},
+            },
+        },
+        "scope": "exec",
+    },
     "workspace_tree": {
         "description": (
             "Liste l'arborescence du workspace à partir d'un chemin, avec profondeur "

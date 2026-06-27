@@ -184,3 +184,30 @@ async def test_git_status_with_diff_failure(monkeypatch: pytest.MonkeyPatch) -> 
         await devpod_tools._workspace_git_status(
             None, {"workspace": "dev", "with_diff": True}, "alice"
         )
+
+
+@pytest.mark.asyncio
+async def test_git_commit_refuses_non_dev_branch(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake(login, ws, cmd, timeout=30.0):
+        return (0, "main\n")  # rev-parse --abbrev-ref HEAD
+    monkeypatch.setattr(devpod_tools, "ws_exec", fake)
+    with pytest.raises(devpod_tools.DevpodToolError, match="dev"):
+        args = {"workspace": "dev", "message": "feat: x"}
+        await devpod_tools._workspace_git_commit(None, args, "alice")
+
+
+@pytest.mark.asyncio
+async def test_git_commit_on_dev_with_push(monkeypatch: pytest.MonkeyPatch) -> None:
+    seq = {"n": 0}
+    async def fake(login, ws, cmd, timeout=30.0):
+        seq["n"] += 1
+        if "abbrev-ref" in cmd:
+            return (0, "dev\n")
+        if "rev-parse HEAD" in cmd:
+            return (0, "abc123\n")
+        return (0, "")
+    monkeypatch.setattr(devpod_tools, "ws_exec", fake)
+    res = await devpod_tools._workspace_git_commit(
+        None, {"workspace": "dev", "message": "feat: x", "push": True}, "alice"
+    )
+    assert res == {"commit_sha": "abc123", "branch": "dev", "pushed": True}

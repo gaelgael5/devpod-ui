@@ -218,6 +218,49 @@ async def _workspace_git_status(
     return result
 
 
+async def _workspace_git_commit(
+    conn: AsyncConnection, args: dict[str, Any], owner_login: str
+) -> Any:
+    name = _require_ws(args)
+    message = _require_str(args, "message")
+    ws_id = f"{owner_login}-{name}"
+    root = f"/workspaces/{name}"
+
+    cmd = f"cd {shlex.quote(root)} && git rev-parse --abbrev-ref HEAD"
+    rc, branch = await ws_exec(owner_login, ws_id, cmd)
+    branch = branch.strip()
+    if rc != 0:
+        raise DevpodToolError(f"branche introuvable: {branch}")
+    if branch != "dev":
+        raise DevpodToolError(f"commit refusé : branche '{branch}' ≠ 'dev'")
+
+    files = args.get("files")
+    if isinstance(files, list) and files:
+        add = "git add " + " ".join(shlex.quote(str(f)) for f in files)
+    else:
+        add = "git add -A"
+    rc, out = await ws_exec(
+        owner_login, ws_id,
+        f"cd {shlex.quote(root)} && {add} && git commit -m {shlex.quote(message)}",
+    )
+    if rc != 0:
+        raise DevpodToolError(f"commit échoué: {out}")
+
+    rc, sha = await ws_exec(
+        owner_login, ws_id, f"cd {shlex.quote(root)} && git rev-parse HEAD"
+    )
+    sha = sha.strip()
+
+    pushed = False
+    if bool(args.get("push", False)):
+        cmd = f"cd {shlex.quote(root)} && git push origin dev"
+        rc, out = await ws_exec(owner_login, ws_id, cmd)
+        if rc != 0:
+            raise DevpodToolError(f"push échoué: {out}")
+        pushed = True
+    return {"commit_sha": sha, "branch": branch, "pushed": pushed}
+
+
 async def _workspace_get(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     cfg = await load_user_db(owner_login, conn)
@@ -510,6 +553,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_logs": _workspace_logs,
     "workspace_resources": _workspace_resources,
     "workspace_git_status": _workspace_git_status,
+    "workspace_git_commit": _workspace_git_commit,
     "workspace_get": _workspace_get,
     "workspace_tree": _workspace_tree,
     "workspace_read_file": _workspace_read_file,
