@@ -628,6 +628,38 @@ async def _workspace_delete(conn: AsyncConnection, args: dict[str, Any], owner_l
     return {"operation_id": oid}
 
 
+async def _recreate_workspace(
+    owner_login: str, name: str, mutate: Callable[[Any], Any]
+) -> str:
+    """Recrée un workspace après mutation de son spec (save -> delete shelve=False -> re-provision).
+
+    Retourne le nouveau ws_id.
+    """
+    from ...config.store import load_user, save_user
+    from ...db.engine import _get_engine
+    from ...devpod.provision import ProvisionParams, provision_workspace
+
+    cfg = await load_user(owner_login)
+    spec = next((s for s in cfg.workspaces if s.name == name), None)
+    if spec is None:
+        raise DevpodToolError(f"workspace inconnu: {name}")
+    spec_updated = mutate(spec)
+    cfg.workspaces = [spec_updated if s.name == name else s for s in cfg.workspaces]
+    await save_user(owner_login, cfg)
+    await get_service().delete(owner_login, f"{owner_login}-{name}", shelve=False)
+    async with _get_engine().begin() as bg_conn:
+        return await provision_workspace(
+            owner_login,
+            ProvisionParams(
+                name=name, source=spec_updated.source, branch=spec_updated.branch,
+                git_credential=spec_updated.git_credential, host=spec_updated.host,
+                recipes=spec_updated.recipes, extra_sources=spec_updated.extra_sources,
+                profile=spec_updated.profile, recipe_volumes=spec_updated.recipe_volumes,
+            ),
+            bg_conn,
+        )
+
+
 async def _workspace_apply_recipe(
     conn: AsyncConnection, args: dict[str, Any], owner_login: str
 ) -> Any:
@@ -636,33 +668,47 @@ async def _workspace_apply_recipe(
     recipe = _require_str(args, "recipe")
 
     async def work() -> Any:
-        from ...config.store import load_user, save_user
-        from ...db.engine import _get_engine
-        from ...devpod.provision import ProvisionParams, provision_workspace
+        recipes_holder: dict[str, Any] = {}
 
-        cfg = await load_user(owner_login)
-        spec = next((s for s in cfg.workspaces if s.name == name), None)
-        if spec is None:
-            raise DevpodToolError(f"workspace inconnu: {name}")
-        recipes = list(dict.fromkeys([*spec.recipes, recipe]))
-        spec_updated = spec.model_copy(update={"recipes": recipes})
-        cfg.workspaces = [spec_updated if s.name == name else s for s in cfg.workspaces]
-        await save_user(owner_login, cfg)
-        await get_service().delete(owner_login, f"{owner_login}-{name}", shelve=False)
-        async with _get_engine().begin() as bg_conn:
-            ws_id = await provision_workspace(
-                owner_login,
-                ProvisionParams(
-                    name=name, source=spec_updated.source, branch=spec_updated.branch,
-                    git_credential=spec_updated.git_credential, host=spec_updated.host,
-                    recipes=recipes, extra_sources=spec_updated.extra_sources,
-                    profile=spec_updated.profile, recipe_volumes=spec_updated.recipe_volumes,
-                ),
-                bg_conn,
-            )
-        return {"workspace": name, "ws_id": ws_id, "recipes": recipes, "status": "provisioning"}
+        def mutate(spec: Any) -> Any:
+            recipes = list(dict.fromkeys([*spec.recipes, recipe]))
+            recipes_holder["recipes"] = recipes
+            return spec.model_copy(update={"recipes": recipes})
+
+        ws_id = await _recreate_workspace(owner_login, name, mutate)
+        return {
+            "workspace": name,
+            "ws_id": ws_id,
+            "recipes": recipes_holder["recipes"],
+            "status": "provisioning",
+        }
 
     oid = operations.launch_operation("workspace_apply_recipe", name, owner_login, work)
+    return {"operation_id": oid}
+
+
+async def _workspace_profile_set(
+    conn: AsyncConnection, args: dict[str, Any], owner_login: str
+) -> Any:
+    """Applique un profil VS Code au workspace existant de façon asynchrone (recréation)."""
+    name = _require_ws(args)
+    profile_slug = _require_str(args, "profile")
+
+    async def work() -> Any:
+        from ...config.models import ProfileRef
+
+        def mutate(spec: Any) -> Any:
+            return spec.model_copy(update={"profile": ProfileRef(scope="user", slug=profile_slug)})
+
+        ws_id = await _recreate_workspace(owner_login, name, mutate)
+        return {
+            "workspace": name,
+            "ws_id": ws_id,
+            "profile": profile_slug,
+            "status": "provisioning",
+        }
+
+    oid = operations.launch_operation("workspace_profile_set", name, owner_login, work)
     return {"operation_id": oid}
 
 
@@ -696,6 +742,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_create": _workspace_create,
     "workspace_delete": _workspace_delete,
     "workspace_apply_recipe": _workspace_apply_recipe,
+    "workspace_profile_set": _workspace_profile_set,
 }
 
 

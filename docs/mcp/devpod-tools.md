@@ -787,3 +787,29 @@
   }
 }
 ```
+
+## `devpod__workspace_profile_set`
+
+- **Scope** : `write`
+- **Description** : Applique un profil VS Code (extensions et réglages Open VSX) au workspace (recréation).
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace",
+    "profile"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string"
+    },
+    "profile": {
+      "type": "string",
+      "description": "Identifiant du profil VS Code."
+    }
+  }
+}
+```

@@ -81,3 +81,19 @@ async def test_apply_recipe_launches_operation(monkeypatch: pytest.MonkeyPatch) 
 async def test_apply_recipe_requires_recipe() -> None:
     with pytest.raises(devpod_tools.DevpodToolError):
         await devpod_tools._workspace_apply_recipe(None, {"workspace": "dev"}, "alice")
+
+
+@pytest.mark.asyncio
+async def test_profile_set_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(devpod_tools.operations, "launch_operation",
+                        lambda kind, ws, owner, work: "c" * 32)
+    res = await devpod_tools._workspace_profile_set(
+        None, {"workspace": "dev", "profile": "fullstack"}, "alice"
+    )
+    assert res == {"operation_id": "c" * 32}
+
+
+@pytest.mark.asyncio
+async def test_profile_set_requires_profile() -> None:
+    with pytest.raises(devpod_tools.DevpodToolError):
+        await devpod_tools._workspace_profile_set(None, {"workspace": "dev"}, "alice")

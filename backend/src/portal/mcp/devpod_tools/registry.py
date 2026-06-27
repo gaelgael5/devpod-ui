@@ -445,6 +445,22 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "admin",
     },
+    "workspace_profile_set": {
+        "description": (
+            "Applique un profil VS Code (extensions et réglages Open VSX) au workspace "
+            "(recréation)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "profile"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "profile": {"type": "string", "description": "Identifiant du profil VS Code."},
+            },
+        },
+        "scope": "write",
+    },
 }
 
 
