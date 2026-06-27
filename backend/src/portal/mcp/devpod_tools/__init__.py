@@ -140,12 +140,17 @@ async def _workspace_resources(
     ws_id = f"{owner_login}-{name}"
     root = f"/workspaces/{name}"
     cg = "/sys/fs/cgroup"
+    # CPU reads anchored to emit exactly one line (missing file → empty line)
+    cpu_read = (
+        f"{{ cat {cg}/cpu.stat 2>/dev/null | "
+        f"awk '/usage_usec/{{print $2}}'; }} | head -1 | grep . || echo ''; "
+    )
     cmd = (
-        f"cat {cg}/cpu.stat 2>/dev/null | awk '/usage_usec/{{print $2}}'; "
-        f"sleep 0.1; "
-        f"cat {cg}/cpu.stat 2>/dev/null | awk '/usage_usec/{{print $2}}'; "
-        f"cat {cg}/memory.current 2>/dev/null || echo ''; "
-        f"cat {cg}/memory.max 2>/dev/null || echo ''; "
+        cpu_read +
+        "sleep 0.1; " +
+        cpu_read +
+        f"cat {cg}/memory.current 2>/dev/null || echo ''; " +
+        f"cat {cg}/memory.max 2>/dev/null || echo ''; " +
         f"df -B1 --output=used,size {shlex.quote(root)} 2>/dev/null | tail -1"
     )
     rc, out = await ws_exec(owner_login, ws_id, cmd, timeout=10.0)
@@ -154,7 +159,7 @@ async def _workspace_resources(
     lines = out.splitlines()
     u1 = _to_int_or_none(lines[0]) if len(lines) > 0 else None
     u2 = _to_int_or_none(lines[1]) if len(lines) > 1 else None
-    cpu_pct = round((u2 - u1) / 100_000 * 100, 1) if u1 is not None and u2 is not None else 0.0
+    cpu_pct = round((u2 - u1) / 100_000 * 100, 1) if u1 is not None and u2 is not None else None
     mem_used = _to_int_or_none(lines[2]) if len(lines) > 2 else None
     mem_limit = _to_int_or_none(lines[3]) if len(lines) > 3 else None  # "max" -> None
     disk_used = disk_limit = None

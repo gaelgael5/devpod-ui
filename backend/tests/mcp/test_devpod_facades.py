@@ -108,3 +108,14 @@ async def test_workspace_resources_unlimited_mem(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(devpod_tools, "ws_exec", AsyncMock(return_value=(0, payload)))
     res = await devpod_tools._workspace_resources(None, {"workspace": "dev"}, "alice")
     assert res["mem_limit"] is None
+
+
+@pytest.mark.asyncio
+async def test_workspace_resources_unreadable_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Unreadable CPU reads: empty lines for both u1 and u2
+    payload = "\n\n536870912\n1073741824\n10 100\n"
+    monkeypatch.setattr(devpod_tools, "ws_exec", AsyncMock(return_value=(0, payload)))
+    res = await devpod_tools._workspace_resources(None, {"workspace": "dev"}, "alice")
+    assert res["cpu_pct"] is None
+    assert res["mem_used"] == 536870912
+    assert res["mem_limit"] == 1073741824
