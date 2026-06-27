@@ -111,8 +111,7 @@ async def deploy(
     )
     await create_deployment(conn, dep)
     await persist_op_log(conn, deployment_id, "up", out + ("\n" + err if err else ""))
-    if rc != 0:
-        raise ComposeServiceError(f"docker compose up échoué: {(err or out)[:500]}")
+    # rc≠0 → la row est persistée (teardown peut nettoyer) ; on retourne le dep avec status="error"
     return dep
 
 
@@ -130,8 +129,9 @@ async def lifecycle(
     )
     await persist_op_log(conn, deployment_id, action, out + ("\n" + err if err else ""))
     if rc != 0:
+        # rc≠0 → statut persisté en "error" et on retourne normalement (la row existe)
         await update_deployment_status(conn, deployment_id, "error", (err or out)[:2000])
-        raise ComposeServiceError(f"docker compose {action} échoué: {(err or out)[:500]}")
+        return
     await refresh_status(conn, deployment_id)
 
 

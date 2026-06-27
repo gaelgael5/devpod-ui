@@ -17,6 +17,7 @@ from ..compose.validation import TemplateValidationError, validate_template
 from ..config.store import load_user
 from ..db.engine import get_conn
 from ..schemas.compose import DeploymentCreateBody, TemplateCreateBody, TemplateUpdateBody
+from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/compose", tags=["compose"])
@@ -88,6 +89,9 @@ async def delete_template(
     user: Annotated[UserInfo, Depends(require_admin)],
     conn: Annotated[AsyncConnection, Depends(get_conn)],
 ) -> None:
+    count = await cdb.count_deployments_for_template(conn, template_id)
+    if count > 0:
+        raise HTTPException(status_code=409, detail="template référencé par des déploiements")
     await cdb.delete_template(conn, template_id)
 
 
@@ -96,7 +100,7 @@ async def delete_template(
 # ---------------------------------------------------------------------------
 
 def _is_admin(user: UserInfo) -> bool:
-    return "admin" in user.roles
+    return get_settings().oidc_admin_role in user.roles
 
 
 async def _require_owned(

@@ -75,6 +75,11 @@ async def run_host_command(
 async def write_host_file(host: HostConfig, remote_path: str, content: str) -> None:
     if "\0" in remote_path:
         raise HostExecError("chemin distant invalide")
+    if remote_path.startswith("~"):
+        raise HostExecError(
+            "chemin distant ~ non supporté (shlex.quote casse l'expansion); "
+            "utilisez un chemin relatif"
+        )
     parent = posixpath.dirname(remote_path)
     b64 = base64.b64encode(content.encode()).decode()
     cmd = (

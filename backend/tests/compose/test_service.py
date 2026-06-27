@@ -59,7 +59,8 @@ def test_remote_dir_is_relative() -> None:
 
 
 @pytest.mark.asyncio
-async def test_deploy_failure_sets_error_and_raises(monkeypatch) -> None:
+async def test_deploy_failure_records_error(monkeypatch) -> None:
+    """rc≠0 → row persistée status=error, retour normal (pas d'exception)."""
     host = SimpleNamespace(name="n1", type="ssh", address="root@x", host_cert_slug="s")
     monkeypatch.setattr(service, "_host_for_node", lambda node_id: host)
     monkeypatch.setattr(service, "check_ports", AsyncMock())
@@ -69,12 +70,12 @@ async def test_deploy_failure_sets_error_and_raises(monkeypatch) -> None:
     monkeypatch.setattr(service, "create_deployment", AsyncMock())
     monkeypatch.setattr(service, "persist_op_log", AsyncMock())
 
-    with pytest.raises(service.ComposeServiceError):
-        await service.deploy(
-            None, deployment_id="dep1", template=_tpl(), node_id="n1",
-            owner_login="alice", secret_ns="ns", env_values={"PORT": "3000"},
-        )
+    dep = await service.deploy(
+        None, deployment_id="dep1", template=_tpl(), node_id="n1",
+        owner_login="alice", secret_ns="ns", env_values={"PORT": "3000"},
+    )
 
+    assert dep.status == "error"
     service.create_deployment.assert_awaited_once()
     deployed = service.create_deployment.await_args[0][1]
     assert deployed.status == "error"
@@ -96,3 +97,22 @@ async def test_lifecycle_restart(monkeypatch) -> None:
 
     cmd = service.run_host_command.await_args[0][1]
     assert "restart" in cmd
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_failure_records_error(monkeypatch) -> None:
+    """rc≠0 → statut mis à 'error' et retour normal (pas d'exception)."""
+    host = SimpleNamespace(name="n1", type="ssh", address="root@x", host_cert_slug="s")
+    dep = SimpleNamespace(node_id="n1")
+    monkeypatch.setattr(service, "_host_for_node", lambda node_id: host)
+    monkeypatch.setattr(service, "get_deployment", AsyncMock(return_value=dep))
+    monkeypatch.setattr(service, "run_host_command", AsyncMock(return_value=(1, "", "boom")))
+    monkeypatch.setattr(service, "persist_op_log", AsyncMock())
+    monkeypatch.setattr(service, "update_deployment_status", AsyncMock())
+
+    await service.lifecycle(None, "dep1", "restart")  # ne doit pas lever
+
+    service.update_deployment_status.assert_awaited_once()
+    args = service.update_deployment_status.await_args
+    assert args[0][2] == "error"  # positional: (conn, deployment_id, status, ...)
+    service.persist_op_log.assert_awaited_once()

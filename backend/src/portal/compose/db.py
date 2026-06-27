@@ -59,6 +59,18 @@ async def delete_template(conn: AsyncConnection, template_id: str) -> None:
     await conn.execute(delete(compose_template).where(compose_template.c.id == template_id))
 
 
+async def count_deployments_for_template(conn: AsyncConnection, template_id: str) -> int:
+    """Nombre de déploiements actifs référençant ce template (pour garder le FK cohérent)."""
+    row = (
+        await conn.execute(
+            select(func.count())
+            .select_from(compose_deployment)
+            .where(compose_deployment.c.template_id == template_id)
+        )
+    ).scalar()
+    return row or 0
+
+
 def _row_to_deployment(row: RowMapping) -> ComposeDeployment:
     return ComposeDeployment(
         id=row["id"], template_id=row["template_id"], template_version=row["template_version"],
@@ -124,7 +136,7 @@ async def conflicting_ports(
         await conn.execute(
             select(compose_deployment.c.host_ports).where(
                 (compose_deployment.c.node_id == node_id)
-                & compose_deployment.c.host_ports.op("&&")(ports)
+                & compose_deployment.c.host_ports.overlap(ports)
             )
         )
     ).all()

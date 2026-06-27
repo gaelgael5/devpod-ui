@@ -9,8 +9,6 @@ import yaml
 from .models import ComposeParam
 
 _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}")
-# Mapping de ports avec un littéral numérique en partie hôte (port hôte codé en dur).
-_HARDCODED_PORT_RE = re.compile(r"^\s*\"?(\d{1,5}):")
 
 
 class TemplateValidationError(Exception):
@@ -21,8 +19,9 @@ def referenced_vars(compose_content: str) -> set[str]:
     return set(_VAR_RE.findall(compose_content))
 
 
-def _port_mappings(parsed: dict[str, Any]) -> list[str]:
-    out: list[str] = []
+def _port_mappings(parsed: dict[str, Any]) -> list[Any]:
+    """Retourne les entrées brutes de la liste 'ports' de chaque service (str, int ou dict)."""
+    out: list[Any] = []
     services = (parsed or {}).get("services") or {}
     if not isinstance(services, dict):
         return out
@@ -31,8 +30,39 @@ def _port_mappings(parsed: dict[str, Any]) -> list[str]:
             continue
         ports = svc.get("ports") or []
         if isinstance(ports, list):
-            out.extend(str(p) for p in ports)
+            out.extend(ports)
     return out
+
+
+def _is_hardcoded_host_port(entry: Any) -> bool:
+    """True si l'entrée port publie un port hôte littéral (non via ${VAR}).
+
+    Formes supportées :
+      - str "HOST:CONTAINER"         → 2 parties, hôte = première
+      - str "IP:HOST:CONTAINER"      → 3 parties, hôte = deuxième
+      - dict {published: N, ...}     → hôte = published (int ou str de chiffres)
+    Les entrées sans port hôte (entier seul, str "80") ne déclenchent pas l'erreur.
+    """
+    if isinstance(entry, dict):
+        published = entry.get("published")
+        if published is None:
+            return False
+        if isinstance(published, int):
+            return True
+        # Chaîne : digit-only → codé en dur ; "${VAR}" → variable
+        return str(published).isdigit()
+    if isinstance(entry, int):
+        # port conteneur seul (ex. `- 8080`) → aucun port hôte publié
+        return False
+    s = str(entry)
+    parts = s.split(":")
+    if len(parts) == 2:
+        # "HOST:CONTAINER"
+        return parts[0].isdigit()
+    if len(parts) == 3:
+        # "IP:HOST:CONTAINER"
+        return parts[1].isdigit()
+    return False
 
 
 def validate_template(compose_content: str, parameters: list[ComposeParam]) -> list[str]:
@@ -51,10 +81,10 @@ def validate_template(compose_content: str, parameters: list[ComposeParam]) -> l
             f"variables référencées non déclarées en paramètres: {sorted(missing)}"
         )
 
-    for mapping in _port_mappings(parsed):
-        if _HARDCODED_PORT_RE.match(mapping):
+    for entry in _port_mappings(parsed):
+        if _is_hardcoded_host_port(entry):
             raise TemplateValidationError(
-                f"port hôte codé en dur ({mapping!r}) : "
+                f"port hôte codé en dur ({entry!r}) : "
                 f"exposez-le via un paramètre type=port (${{VAR}})"
             )
 

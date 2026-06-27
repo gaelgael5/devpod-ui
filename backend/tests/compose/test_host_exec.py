@@ -63,7 +63,13 @@ async def test_write_host_file_base64_roundtrip(monkeypatch) -> None:
         return (0, "", "")
 
     monkeypatch.setattr(host_exec, "run_host_command", fake_run)
-    await host_exec.write_host_file(_ssh_host(), "~/devpod-compose/d1/.env", "A=1\n")
+    await host_exec.write_host_file(_ssh_host(), "devpod-compose/d1/.env", "A=1\n")
     assert "base64 -d" in seen["cmd"] and "mkdir -p" in seen["cmd"]
     assert base64.b64encode(b"A=1\n").decode() in seen["cmd"]
-    assert "~/devpod-compose/d1/.env" in seen["cmd"]
+    assert "devpod-compose/d1/.env" in seen["cmd"]
+
+
+@pytest.mark.asyncio
+async def test_write_host_file_rejects_tilde_path() -> None:
+    with pytest.raises(host_exec.HostExecError):
+        await host_exec.write_host_file(_ssh_host(), "~/devpod-compose/d1/.env", "A=1\n")

@@ -62,3 +62,51 @@ services:
 """
     with pytest.raises(validation.TemplateValidationError):
         validation.validate_template(content, [])
+
+
+def test_bind_ip_hardcoded_host_port_raises() -> None:
+    content = """
+services:
+  web:
+    image: nginx:1.27.0
+    ports:
+      - "0.0.0.0:3000:80"
+"""
+    with pytest.raises(validation.TemplateValidationError):
+        validation.validate_template(content, [])
+
+
+def test_longform_hardcoded_published_raises() -> None:
+    content = """
+services:
+  web:
+    image: nginx:1.27.0
+    ports:
+      - {published: 3000, target: 80}
+"""
+    with pytest.raises(validation.TemplateValidationError):
+        validation.validate_template(content, [])
+
+
+def test_bind_ip_with_var_ok() -> None:
+    content = """
+services:
+  web:
+    image: nginx:1.27.0
+    ports:
+      - "127.0.0.1:${WEB_PORT}:80"
+"""
+    result = validation.validate_template(content, _port_param())
+    assert isinstance(result, list)  # no exception → warnings list returned
+
+
+def test_longform_published_var_ok() -> None:
+    content = """
+services:
+  web:
+    image: nginx:1.27.0
+    ports:
+      - {published: "${WEB_PORT}", target: 80}
+"""
+    result = validation.validate_template(content, _port_param())
+    assert isinstance(result, list)
