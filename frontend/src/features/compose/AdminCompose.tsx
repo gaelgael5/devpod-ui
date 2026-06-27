@@ -141,7 +141,7 @@ function TemplateCard({ template, onEdit, onDelete }: CardProps) {
       <CardFooter className="gap-2">
         <Button size="sm" variant="outline" onClick={onEdit}>
           <Pencil className="mr-1 h-3 w-3" />
-          {t('workspaces.actions.edit')}
+          {t('compose.actions.edit')}
         </Button>
         <Button
           size="sm"
@@ -150,7 +150,7 @@ function TemplateCard({ template, onEdit, onDelete }: CardProps) {
           onClick={onDelete}
         >
           <Trash2 className="mr-1 h-3 w-3" />
-          {t('workspaces.actions.delete')}
+          {t('compose.actions.delete')}
         </Button>
       </CardFooter>
     </Card>

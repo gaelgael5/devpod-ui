@@ -740,7 +740,7 @@
     "form": { "name": "Name", "description": "Description", "node": "Target node", "yaml": "docker-compose.yml", "id": "Identifier", "idHint": "Lowercase, digits, hyphens — 2 to 42 chars", "tags": "Tags", "version": "Version", "parameters": "Parameters", "paramKey": "Key", "paramLabel": "Label", "paramType": "Type", "paramRequired": "Required", "paramDefault": "Default", "paramOptions": "Options (csv)", "addParam": "Add parameter", "removeParam": "Remove" },
     "deployDialog": { "title": "Deploy {{name}}", "submit": "Deploy", "portConflict": "Port {{ports}} already in use; suggested: {{suggestion}}" },
     "status": { "running": "running", "partial": "partial", "stopped": "stopped", "error": "error", "created": "created" },
-    "actions": { "stop": "Stop", "start": "Start", "restart": "Restart", "down": "Tear down", "logs": "Logs" },
+    "actions": { "stop": "Stop", "start": "Start", "restart": "Restart", "down": "Tear down", "logs": "Logs", "edit": "Edit", "delete": "Delete" },
     "empty": { "templates": "No templates yet.", "deployments": "No deployments yet." },
     "delete": { "confirm": "Delete?", "cancel": "Cancel", "ok": "Delete", "title": "Delete template?", "description": "Template «{{name}}» will be permanently deleted." },
     "logs": { "title": "Logs — {{name}}" }

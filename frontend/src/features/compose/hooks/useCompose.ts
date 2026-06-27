@@ -29,7 +29,6 @@ export function useSaveTemplate() {
     mutationFn: ({ id, body, create }: { id: string; body: TemplateBody; create: boolean }) =>
       create ? api.createTemplate({ ...body, id }) : api.updateTemplate(id, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['compose', 'templates'] }),
-    onError: (e: Error) => toast.error(e.message),
   })
 }
 export function useDeleteTemplate() {
