@@ -7,12 +7,16 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..auth.rbac import UserInfo, require_admin
+from ..auth.rbac import UserInfo, require_admin, require_user
 from ..compose import db as cdb
-from ..compose.models import ComposeTemplate, validate_slug
+from ..compose import service as csvc
+from ..compose.models import ComposeDeployment, ComposeTemplate, validate_slug
+from ..compose.ports import PortConflict
+from ..compose.service import ComposeServiceError
 from ..compose.validation import TemplateValidationError, validate_template
+from ..config.store import load_user
 from ..db.engine import get_conn
-from ..schemas.compose import TemplateCreateBody, TemplateUpdateBody
+from ..schemas.compose import DeploymentCreateBody, TemplateCreateBody, TemplateUpdateBody
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/compose", tags=["compose"])
@@ -85,3 +89,129 @@ async def delete_template(
     conn: Annotated[AsyncConnection, Depends(get_conn)],
 ) -> None:
     await cdb.delete_template(conn, template_id)
+
+
+# ---------------------------------------------------------------------------
+# Helpers ownership
+# ---------------------------------------------------------------------------
+
+def _is_admin(user: UserInfo) -> bool:
+    return "admin" in user.roles
+
+
+async def _require_owned(
+    conn: AsyncConnection, deployment_id: str, user: UserInfo
+) -> ComposeDeployment:
+    dep = await cdb.get_deployment(conn, deployment_id)
+    if dep is None:
+        raise HTTPException(status_code=404, detail="déploiement inconnu")
+    if dep.owner_login != user.login and not _is_admin(user):
+        raise HTTPException(status_code=403, detail="déploiement d'un autre utilisateur")
+    return dep
+
+
+# ---------------------------------------------------------------------------
+# Routes déploiements (dev + ownership)
+# ---------------------------------------------------------------------------
+
+@router.get("/deployments")
+async def list_deployments(
+    user: Annotated[UserInfo, Depends(require_user)],
+    conn: Annotated[AsyncConnection, Depends(get_conn)],
+) -> list[dict[str, Any]]:
+    owner = None if _is_admin(user) else user.login
+    deps = await cdb.list_deployments(conn, owner_login=owner)
+    return [d.model_dump(mode="json") for d in deps]
+
+
+@router.post("/deployments", status_code=201)
+async def create_deployment(
+    body: DeploymentCreateBody,
+    user: Annotated[UserInfo, Depends(require_user)],
+    conn: Annotated[AsyncConnection, Depends(get_conn)],
+) -> dict[str, Any]:
+    try:
+        validate_slug(body.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    tpl = await cdb.get_template(conn, body.template_id)
+    if tpl is None:
+        raise HTTPException(status_code=404, detail="template inconnu")
+    missing = [p.key for p in tpl.parameters if p.required and p.key not in body.env_values]
+    if missing:
+        raise HTTPException(status_code=422, detail=f"paramètres requis manquants: {missing}")
+    if await cdb.get_deployment(conn, body.name) is not None:
+        raise HTTPException(status_code=409, detail=f"déploiement {body.name!r} existe déjà")
+    user_cfg = await load_user(user.login)
+    try:
+        dep = await csvc.deploy(
+            conn,
+            deployment_id=body.name,
+            template=tpl,
+            node_id=body.node_id,
+            owner_login=user.login,
+            secret_ns=user_cfg.secret_ns,
+            env_values=body.env_values,
+        )
+    except PortConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "port_conflict",
+                "conflicts": sorted(exc.conflicts),
+                "suggestion": exc.suggestion,
+            },
+        ) from exc
+    except ComposeServiceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return dep.model_dump(mode="json")
+
+
+@router.post("/deployments/{deployment_id}/{action}")
+async def deployment_action(
+    deployment_id: str,
+    action: str,
+    user: Annotated[UserInfo, Depends(require_user)],
+    conn: Annotated[AsyncConnection, Depends(get_conn)],
+) -> dict[str, Any]:
+    if action not in ("stop", "start", "restart"):
+        raise HTTPException(status_code=422, detail="action invalide")
+    await _require_owned(conn, deployment_id, user)
+    try:
+        await csvc.lifecycle(conn, deployment_id, action)  # type: ignore[arg-type]
+    except ComposeServiceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"deployment_id": deployment_id, "action": action}
+
+
+@router.delete("/deployments/{deployment_id}", status_code=204)
+async def delete_deployment(
+    deployment_id: str,
+    user: Annotated[UserInfo, Depends(require_user)],
+    conn: Annotated[AsyncConnection, Depends(get_conn)],
+) -> None:
+    await _require_owned(conn, deployment_id, user)
+    await csvc.teardown(conn, deployment_id)
+
+
+@router.get("/deployments/{deployment_id}/logs")
+async def deployment_logs(
+    deployment_id: str,
+    user: Annotated[UserInfo, Depends(require_user)],
+    conn: Annotated[AsyncConnection, Depends(get_conn)],
+    service: str | None = Query(default=None),
+    tail: int = Query(default=200, ge=1, le=5000),
+) -> dict[str, Any]:
+    await _require_owned(conn, deployment_id, user)
+    return {"output": await csvc.fetch_logs(conn, deployment_id, service=service, tail=tail)}
+
+
+@router.get("/deployments/{deployment_id}/status")
+async def deployment_status(
+    deployment_id: str,
+    user: Annotated[UserInfo, Depends(require_user)],
+    conn: Annotated[AsyncConnection, Depends(get_conn)],
+) -> dict[str, Any]:
+    await _require_owned(conn, deployment_id, user)
+    status = await csvc.refresh_status(conn, deployment_id)
+    return {"deployment_id": deployment_id, "status": status}
