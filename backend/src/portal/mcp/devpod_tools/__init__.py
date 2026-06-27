@@ -12,6 +12,7 @@ import json
 import posixpath
 import re
 import shlex
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -21,9 +22,12 @@ from mcp.types import METHOD_NOT_FOUND, ErrorData
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ...db.user_config import load_user_db
-from ...devpod.exec import ws_exec
+from ...devpod.exec import TMUX_SOCK_DETECT, tmux, ws_exec
 from .errors import DevpodToolError
 from .paths import safe_workspace_path
+
+# Préfixe socket réutilisable pour les commandes tmux multi-étapes (session_open).
+_TMUX_SOCK = '${TMUX_SOCK:+-S "$TMUX_SOCK"}'
 
 _WS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
 _DEFAULT_IGNORE = [".git", ".venv", "node_modules", "__pycache__"]
@@ -238,6 +242,105 @@ async def _workspace_restart(conn: AsyncConnection, args: dict[str, Any], owner_
     return await _workspace_start(conn, args, owner_login)
 
 
+def _session_id(workspace: str, session: str) -> str:
+    return f"{workspace}:{session}"
+
+
+async def _session_open(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    name = _require_ws(args)
+    sess = str(args.get("name", "main"))
+    command = _require_str(args, "command")
+    cwd = safe_workspace_path(name, str(args["cwd"])) if args.get("cwd") else f"/workspaces/{name}"
+    inner = f"cd {shlex.quote(cwd)} && {command}"
+    # Idempotent (I-3) : on ne relance l'agent que si la session n'existe pas déjà.
+    cmd = (
+        f"{TMUX_SOCK_DETECT}; "
+        f"tmux {_TMUX_SOCK} has-session -t {shlex.quote(sess)} 2>/dev/null || "
+        f"tmux {_TMUX_SOCK} new-session -d -s {shlex.quote(sess)} {shlex.quote(inner)}"
+    )
+    rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", cmd)
+    if rc != 0:
+        raise DevpodToolError(out)
+    return {
+        "session_id": _session_id(name, sess),
+        "workspace": name,
+        "name": sess,
+        "command": command,
+    }
+
+
+async def _session_send(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    name = _require_ws(args)
+    sess = str(args.get("session", "main"))
+    text = _require_str(args, "text")
+    submit = bool(args.get("submit", True))
+    # _origin / _depth (I-7) présents au schéma mais non câblés en v1 : ignorés ici.
+    keys = shlex.quote(text) + (" Enter" if submit else "")
+    rc, out = await ws_exec(
+        owner_login, f"{owner_login}-{name}", tmux(f"send-keys -t {shlex.quote(sess)} {keys}")
+    )
+    if rc != 0:
+        raise DevpodToolError(out)
+    return {"sent": True}
+
+
+async def _session_capture(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    name = _require_ws(args)
+    sess = str(args.get("session", "main"))
+    lines = int(args.get("lines", 200))
+    # -e conserve les codes ANSI : buffer brut tel que l'œil le verrait (I-2/I-4).
+    rc, out = await ws_exec(
+        owner_login,
+        f"{owner_login}-{name}",
+        tmux(f"capture-pane -p -e -t {shlex.quote(sess)} -S -{lines}"),
+    )
+    if rc != 0:
+        raise DevpodToolError(out)
+    return {"output": out}
+
+
+async def _session_list(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    name = _require_ws(args)
+    fmt = "'#{session_name}|#{pane_current_command}'"
+    rc, out = await ws_exec(
+        owner_login, f"{owner_login}-{name}", tmux(f"list-sessions -F {fmt} 2>/dev/null || true")
+    )
+    sessions = []
+    for line in out.splitlines():
+        if "|" not in line:
+            continue
+        sname, _, cmd = line.partition("|")
+        sessions.append(
+            {"session_id": _session_id(name, sname), "name": sname, "command": cmd, "alive": True}
+        )
+    return sessions
+
+
+async def _session_get(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    name = _require_ws(args)
+    sess = str(args.get("session", "main"))
+    fmt = "'#{session_name}|#{pane_id}|#{pane_current_command}|#{session_created}'"
+    rc, out = await ws_exec(
+        owner_login,
+        f"{owner_login}-{name}",
+        tmux(f"display-message -p -t {shlex.quote(sess)} {fmt} 2>/dev/null || true"),
+    )
+    line = out.strip()
+    if not line or "|" not in line:
+        raise DevpodToolError("session introuvable")
+    parts = line.split("|")
+    created = parts[3] if len(parts) > 3 else "0"
+    uptime = max(0, int(time.time()) - int(created)) if created.isdigit() else 0
+    return {
+        "session_id": _session_id(name, parts[0]),
+        "name": parts[0],
+        "command": parts[2] if len(parts) > 2 else "",
+        "alive": True,
+        "pane_id": parts[1] if len(parts) > 1 else "",
+        "uptime_s": uptime,
+    }
+
+
 _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any]]] = {
     "workspace_list": _workspace_list,
     "workspace_status": _workspace_status,
@@ -249,6 +352,11 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_start": _workspace_start,
     "workspace_stop": _workspace_stop,
     "workspace_restart": _workspace_restart,
+    "session_open": _session_open,
+    "session_send": _session_send,
+    "session_capture": _session_capture,
+    "session_list": _session_list,
+    "session_get": _session_get,
 }
 
 

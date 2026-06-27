@@ -159,6 +159,100 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "admin",
     },
+    "session_open": {
+        "description": "Ouvre (idempotent) une session tmux nommée et y lance une commande agent.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "command"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "command": {
+                    "type": "string",
+                    "description": "Commande lançant l'agent (ex. 'claude', 'codex'). Agnostique.",
+                },
+                "name": {
+                    "type": "string",
+                    "default": "main",
+                    "description": "Nom de la session tmux.",
+                },
+                "cwd": {"type": "string", "description": "Répertoire de travail relatif (I-5)."},
+            },
+        },
+        "scope": "exec",
+    },
+    "session_send": {
+        "description": (
+            "Envoie du texte vers le stdin de l'agent d'une session (send-keys). "
+            "N'attend pas de sortie : lire via session_capture."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "text"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "session": {"type": "string", "default": "main"},
+                "text": {"type": "string"},
+                "submit": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Si true valide l'entrée (Enter), sinon stage sans valider.",
+                },
+                "_origin": {
+                    "type": "string",
+                    "description": "RÉSERVÉ (I-7) — origine de la tâche. Non câblé en v1.",
+                },
+                "_depth": {
+                    "type": "integer",
+                    "description": "RÉSERVÉ (I-7) — profondeur de récursion. Non câblé en v1.",
+                },
+            },
+        },
+        "scope": "exec",
+    },
+    "session_capture": {
+        "description": "Capture le buffer brut du pane d'une session (capture-pane).",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "session": {"type": "string", "default": "main"},
+                "lines": {
+                    "type": "integer",
+                    "default": 200,
+                    "minimum": 1,
+                    "description": "Nombre de lignes à remonter.",
+                },
+            },
+        },
+        "scope": "read",
+    },
+    "session_list": {
+        "description": "Liste les sessions actives d'un workspace.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace"],
+            "properties": {"workspace": {"type": "string"}},
+        },
+        "scope": "read",
+    },
+    "session_get": {
+        "description": "Métadonnées d'une session (nom, commande, état, pane, uptime).",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "session": {"type": "string", "default": "main"},
+            },
+        },
+        "scope": "read",
+    },
 }
 
 
