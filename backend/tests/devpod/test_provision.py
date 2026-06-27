@@ -52,8 +52,11 @@ async def test_provision_secret_failure_redacted(monkeypatch: pytest.MonkeyPatch
         return user_cfg_stub
 
     store_mod = sys.modules.get("portal.config.store")
-    if store_mod is not None:
-        monkeypatch.setattr(store_mod, "load_user", _fake_load_user)
+    if store_mod is None:
+        import portal.config.store as _store_mod
+
+        store_mod = _store_mod
+    monkeypatch.setattr(store_mod, "load_user", _fake_load_user)
 
     # Patch registry helpers (imported from workspace_ops at call time)
     ops_mod = sys.modules.get("portal.routes.workspace_ops")
