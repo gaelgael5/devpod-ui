@@ -52,3 +52,16 @@ async def test_secrets_bind_rejects_non_reference(monkeypatch: pytest.MonkeyPatc
         await devpod_tools._workspace_secrets_bind(
             None, {"workspace": "dev", "reference": "plaintext", "target": "API_KEY"}, "alice"
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_target", ["lower_case", "123BAD", "", "BAD-NAME"])
+async def test_secrets_bind_rejects_invalid_target(
+    monkeypatch: pytest.MonkeyPatch, bad_target: str
+) -> None:
+    cfg = SimpleNamespace(workspaces=[SimpleNamespace(name="dev", env={})])
+    monkeypatch.setattr(devpod_tools, "load_user", AsyncMock(return_value=cfg))
+    with pytest.raises(devpod_tools.DevpodToolError):
+        await devpod_tools._workspace_secrets_bind(
+            None, {"workspace": "dev", "reference": "${vault://b/n}", "target": bad_target}, "alice"
+        )
