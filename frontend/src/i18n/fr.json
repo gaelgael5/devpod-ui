@@ -736,13 +736,13 @@
     "gallery": "Galerie",
     "deployments": "Déploiements",
     "deploy": "Déployer",
-    "admin": { "title": "Templates Compose", "new": "Nouveau template", "navLabel": "Templates Compose" },
-    "form": { "name": "Nom", "description": "Description", "node": "Nœud cible", "yaml": "docker-compose.yml" },
+    "admin": { "title": "Templates Compose", "new": "Nouveau template", "edit": "Modifier le template", "navLabel": "Templates Compose" },
+    "form": { "name": "Nom", "description": "Description", "node": "Nœud cible", "yaml": "docker-compose.yml", "id": "Identifiant", "idHint": "Minuscules, chiffres, tirets — 2 à 42 caractères", "tags": "Tags", "version": "Version", "parameters": "Paramètres", "paramKey": "Clé", "paramLabel": "Libellé", "paramType": "Type", "paramRequired": "Requis", "paramDefault": "Défaut", "paramOptions": "Options (csv)", "addParam": "Ajouter un paramètre", "removeParam": "Supprimer" },
     "deployDialog": { "title": "Déployer {{name}}", "submit": "Déployer", "portConflict": "Port {{ports}} déjà utilisé ; suggéré : {{suggestion}}" },
     "status": { "running": "en cours", "partial": "partiel", "stopped": "arrêté", "error": "erreur", "created": "créé" },
     "actions": { "stop": "Arrêter", "start": "Démarrer", "restart": "Redémarrer", "down": "Détruire", "logs": "Logs" },
     "empty": { "templates": "Aucun template.", "deployments": "Aucun déploiement." },
-    "delete": { "confirm": "Supprimer ?", "cancel": "Annuler", "ok": "Supprimer" },
+    "delete": { "confirm": "Supprimer ?", "cancel": "Annuler", "ok": "Supprimer", "title": "Supprimer le template ?", "description": "Le template «{{name}}» sera définitivement supprimé." },
     "logs": { "title": "Logs — {{name}}" }
   },
   "common": {
