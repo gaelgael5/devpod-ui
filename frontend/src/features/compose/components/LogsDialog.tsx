@@ -17,7 +17,7 @@ interface LogsDialogProps {
 
 export default function LogsDialog({ deploymentId, open, onOpenChange }: LogsDialogProps) {
   const { t } = useTranslation()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['compose', 'logs', deploymentId],
     queryFn: () => deploymentLogs(deploymentId, { tail: 200 }),
     enabled: open,
@@ -31,6 +31,9 @@ export default function LogsDialog({ deploymentId, open, onOpenChange }: LogsDia
         </DialogHeader>
         {isLoading && (
           <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        )}
+        {isError && (
+          <p className="text-sm text-destructive">{(error as Error)?.message ?? t('errors.generic')}</p>
         )}
         {data !== undefined && (
           <pre className="max-h-96 overflow-auto rounded bg-muted p-3 text-xs">

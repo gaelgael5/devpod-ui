@@ -1,4 +1,4 @@
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetch, apiFetchJson, ApiError } from '@/shared/api/client'
 import type {
   ComposeDeployment, ComposeTemplate, DeploymentCreateBody, NodeRef,
   TemplateBody, TemplateSaveResult,
@@ -24,7 +24,8 @@ export function updateTemplate(id: string, body: TemplateBody): Promise<Template
   })
 }
 export async function deleteTemplate(id: string): Promise<void> {
-  await apiFetch(`/api/compose/templates/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const res = await apiFetch(`/api/compose/templates/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (!res.ok) throw new ApiError(res.status, (await res.text().catch(() => '')) || res.statusText)
 }
 
 export function listNodes(): Promise<NodeRef[]> {
@@ -45,7 +46,8 @@ export async function deploymentAction(
   await apiFetchJson(`/api/compose/deployments/${encodeURIComponent(id)}/${action}`, { method: 'POST' })
 }
 export async function deleteDeployment(id: string): Promise<void> {
-  await apiFetch(`/api/compose/deployments/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const res = await apiFetch(`/api/compose/deployments/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (!res.ok) throw new ApiError(res.status, (await res.text().catch(() => '')) || res.statusText)
 }
 export function deploymentLogs(
   id: string, opts: { service?: string; tail?: number } = {},

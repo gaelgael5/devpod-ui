@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shlex
 from typing import Literal
 
@@ -24,6 +25,8 @@ from .ports import check_ports
 
 _log = structlog.get_logger(__name__)
 
+_SECRET_REF_RE = re.compile(r"^\$\{(vault|env)://.+\}$")
+
 
 class ComposeServiceError(Exception):
     """Erreur de cycle de vie d'un déploiement (FR)."""
@@ -40,6 +43,17 @@ def _host_for_node(node_id: str) -> HostConfig:
     if host.type != "ssh":
         raise ComposeServiceError(f"nœud {node_id}: type {host.type} non supporté (v1 ssh-only)")
     return host
+
+
+def _validate_secret_refs(template: ComposeTemplate, env_values: dict[str, str]) -> None:
+    for p in template.parameters:
+        if p.type == "secret":
+            val = env_values.get(p.key, "")
+            if val and not _SECRET_REF_RE.fullmatch(val):
+                raise ComposeServiceError(
+                    f"paramètre secret {p.key!r} doit être une référence"
+                    " ${vault://...} (valeur en clair refusée)"
+                )
 
 
 def _ports_from_env(template: ComposeTemplate, env_values: dict[str, str]) -> list[int]:
@@ -85,6 +99,7 @@ async def deploy(
     host = _host_for_node(node_id)
     host_ports = _ports_from_env(template, env_values)
     await check_ports(conn, host, node_id, host_ports)
+    _validate_secret_refs(template, env_values)
 
     resolved = resolve_env_values(owner_login, secret_ns, env_values)  # en mémoire uniquement
     rdir = _remote_dir(deployment_id)

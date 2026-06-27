@@ -223,9 +223,11 @@ export const handlers = [
       { id: 'browserless', name: 'Browserless', description: '', tags: ['web'],
         version: '1', compose_content: 'services: {}', parameters: [], source: 'user' },
     ])),
+  http.delete('/api/compose/templates/:id', () => new HttpResponse(null, { status: 204 })),
   http.get('/api/compose/nodes', () =>
     HttpResponse.json([{ node_id: 'n1', name: 'n1' }])),
   http.get('/api/compose/deployments', () => HttpResponse.json([])),
+  http.delete('/api/compose/deployments/:id', () => new HttpResponse(null, { status: 204 })),
   http.get('/api/compose/deployments/:id/logs', () =>
     HttpResponse.json({ output: '' })),
 ]
