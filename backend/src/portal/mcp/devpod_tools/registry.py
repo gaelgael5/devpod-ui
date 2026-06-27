@@ -231,7 +231,10 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         "scope": "exec",
     },
     "workspace_start": {
-        "description": "Démarre le conteneur du workspace.",
+        "description": (
+            "Démarre le conteneur du workspace. "
+            "Asynchrone : retourne un operation_id."
+        ),
         "inputSchema": {
             "type": "object",
             "additionalProperties": False,
@@ -241,7 +244,10 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         "scope": "admin",
     },
     "workspace_stop": {
-        "description": "Arrête le conteneur du workspace.",
+        "description": (
+            "Arrête le conteneur du workspace. "
+            "Asynchrone : retourne un operation_id."
+        ),
         "inputSchema": {
             "type": "object",
             "additionalProperties": False,
@@ -251,7 +257,10 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         "scope": "admin",
     },
     "workspace_restart": {
-        "description": "Redémarre le conteneur du workspace.",
+        "description": (
+            "Redémarre le conteneur du workspace. "
+            "Asynchrone : retourne un operation_id."
+        ),
         "inputSchema": {
             "type": "object",
             "additionalProperties": False,

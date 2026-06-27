@@ -392,7 +392,7 @@
 ## `devpod__workspace_start`
 
 - **Scope** : `admin`
-- **Description** : Démarre le conteneur du workspace.
+- **Description** : Démarre le conteneur du workspace. Asynchrone : retourne un operation_id.
 - **Schéma d'entrée** :
 
 ```json
@@ -413,7 +413,7 @@
 ## `devpod__workspace_stop`
 
 - **Scope** : `admin`
-- **Description** : Arrête le conteneur du workspace.
+- **Description** : Arrête le conteneur du workspace. Asynchrone : retourne un operation_id.
 - **Schéma d'entrée** :
 
 ```json
@@ -434,7 +434,7 @@
 ## `devpod__workspace_restart`
 
 - **Scope** : `admin`
-- **Description** : Redémarre le conteneur du workspace.
+- **Description** : Redémarre le conteneur du workspace. Asynchrone : retourne un operation_id.
 - **Schéma d'entrée** :
 
 ```json
