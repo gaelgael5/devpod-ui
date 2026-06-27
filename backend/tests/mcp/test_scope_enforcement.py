@@ -62,3 +62,26 @@ async def test_primitive_without_scope_not_enforced(monkeypatch: pytest.MonkeyPa
     # Une primitive sans scope déclaré n'est jamais bloquée par les scopes du grant.
     _setup(monkeypatch, grant_scopes=["read"], prim_scope=None)
     assert await _resolve() is not None
+
+
+@pytest.mark.asyncio
+async def test_aggregate_lists_only_callable(monkeypatch: pytest.MonkeyPatch) -> None:
+    # tools/list (aggregate_primitives) ne montre que les primitives appelables par scope.
+    grant = {
+        "enabled": True, "backend_id": "devpod-admin", "backend_key_id": None,
+        "expose_mode": "all", "expose": [], "scopes": ["read"],
+    }
+    backend = {"enabled": True, "namespace": "devpod", "url": "", "transport": "internal"}
+    prims = [
+        {"original_name": "workspace_list", "quarantined": False, "definition": {"scope": "read"}},
+        {"original_name": "workspace_stop", "quarantined": False, "definition": {"scope": "admin"}},
+    ]
+    monkeypatch.setattr(aggregator, "list_grants", AsyncMock(return_value=[grant]))
+    monkeypatch.setattr(aggregator, "get_backend", AsyncMock(return_value=backend))
+    monkeypatch.setattr(aggregator, "list_primitives", AsyncMock(return_value=prims))
+    res = await aggregator.aggregate_primitives(
+        None, apikey_id="k", owner_login="admin", kind="tool"
+    )
+    names = [p.original_name for p in res]
+    assert "workspace_list" in names
+    assert "workspace_stop" not in names

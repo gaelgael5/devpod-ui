@@ -99,6 +99,16 @@ async def aggregate_primitives(
                 continue
             if not _curation_allows(grant["expose_mode"], expose, prim["original_name"]):
                 continue
+            # Enforcement par scope, cohérent avec resolve_call : on ne liste que
+            # ce qui est réellement appelable (NULL côté grant = pas d'enforcement).
+            required_scope = (prim["definition"] or {}).get("scope")
+            grant_scopes = grant.get("scopes")
+            if (
+                required_scope
+                and grant_scopes is not None
+                and required_scope not in grant_scopes
+            ):
+                continue
             out.append(
                 AggregatedPrimitive(
                     namespaced_name=f"{namespace}{NS_SEP}{prim['original_name']}",
