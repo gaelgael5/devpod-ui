@@ -441,6 +441,31 @@
 }
 ```
 
+## `devpod__session_close`
+
+- **Scope** : `exec`
+- **Description** : Termine une session tmux nommée et le process qu'elle héberge.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace",
+    "session"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string"
+    },
+    "session": {
+      "type": "string"
+    }
+  }
+}
+```
+
 ## `devpod__session_capture`
 
 - **Scope** : `read`

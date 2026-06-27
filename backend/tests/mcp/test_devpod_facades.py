@@ -130,3 +130,18 @@ async def test_session_interrupt_sends_ctrl_c(monkeypatch: pytest.MonkeyPatch) -
     assert res == {"interrupted": True}
     sent_cmd = fake.await_args.args[2]
     assert "send-keys" in sent_cmd and "C-c" in sent_cmd
+
+
+@pytest.mark.asyncio
+async def test_session_close_kills_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = AsyncMock(return_value=(0, ""))
+    monkeypatch.setattr(devpod_tools, "ws_exec", fake)
+    res = await devpod_tools._session_close(None, {"workspace": "dev", "session": "build"}, "alice")
+    assert res == {"closed": True}
+    assert "kill-session" in fake.await_args.args[2]
+
+
+@pytest.mark.asyncio
+async def test_session_close_requires_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(devpod_tools.DevpodToolError):
+        await devpod_tools._session_close(None, {"workspace": "dev"}, "alice")

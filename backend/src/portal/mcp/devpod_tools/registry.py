@@ -255,6 +255,19 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "exec",
     },
+    "session_close": {
+        "description": "Termine une session tmux nommée et le process qu'elle héberge.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "session"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "session": {"type": "string"},
+            },
+        },
+        "scope": "exec",
+    },
     "session_capture": {
         "description": "Capture le buffer brut du pane d'une session (capture-pane).",
         "inputSchema": {

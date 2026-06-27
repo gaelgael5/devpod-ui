@@ -387,6 +387,17 @@ async def _session_interrupt(conn: AsyncConnection, args: dict[str, Any], owner_
     return {"interrupted": True}
 
 
+async def _session_close(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    name = _require_ws(args)
+    sess = _require_str(args, "session")
+    rc, out = await ws_exec(
+        owner_login, f"{owner_login}-{name}", tmux(f"kill-session -t {shlex.quote(sess)}")
+    )
+    if rc != 0:
+        raise DevpodToolError(out)
+    return {"closed": True}
+
+
 async def _session_capture(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     sess = str(args.get("session", "main"))
@@ -468,6 +479,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "session_open": _session_open,
     "session_send": _session_send,
     "session_interrupt": _session_interrupt,
+    "session_close": _session_close,
     "session_capture": _session_capture,
     "session_list": _session_list,
     "session_get": _session_get,
