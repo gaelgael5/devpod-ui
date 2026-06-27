@@ -22,7 +22,7 @@ from mcp.shared.exceptions import McpError
 from mcp.types import METHOD_NOT_FOUND, ErrorData
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ...config.store import _data_root, load_global
+from ...config.store import _data_root, load_global, load_user, save_user
 from ...db.user_config import load_user_db
 from ...devpod.exec import TMUX_SOCK_DETECT, tmux, ws_exec
 from . import operations
@@ -34,6 +34,7 @@ _TMUX_SOCK = '${TMUX_SOCK:+-S "$TMUX_SOCK"}'
 
 _WS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
 _SECRET_REF_RE = re.compile(r"^\$\{(vault|env)://.+\}$")
+_ENV_TARGET_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 _DEFAULT_IGNORE = [".git", ".venv", "node_modules", "__pycache__"]
 
 __all__ = ["DevpodToolError", "execute_internal_tool"]
@@ -348,6 +349,26 @@ async def _workspace_secrets_list(
         if isinstance(val, str) and _SECRET_REF_RE.fullmatch(val)
     ]
     return {"references": refs}
+
+
+async def _workspace_secrets_bind(
+    conn: AsyncConnection, args: dict[str, Any], owner_login: str
+) -> Any:
+    name = _require_ws(args)
+    reference = _require_str(args, "reference")
+    target = _require_str(args, "target")
+    if not _SECRET_REF_RE.fullmatch(reference):
+        raise DevpodToolError("reference invalide : attendu '${vault://...}' ou '${env://...}'")
+    if not _ENV_TARGET_RE.fullmatch(target):
+        raise DevpodToolError(f"cible env invalide: {target!r}")
+    cfg = await load_user(owner_login)
+    spec = next((s for s in cfg.workspaces if s.name == name), None)
+    if spec is None:
+        raise DevpodToolError(f"workspace inconnu: {name}")
+    updated = spec.model_copy(update={"env": {**(spec.env or {}), target: reference}})
+    cfg.workspaces = [updated if s.name == name else s for s in cfg.workspaces]
+    await save_user(owner_login, cfg)
+    return {"target": target, "bound": True}
 
 
 async def _workspace_tree(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
@@ -758,6 +779,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_tree": _workspace_tree,
     "workspace_read_file": _workspace_read_file,
     "workspace_secrets_list": _workspace_secrets_list,
+    "workspace_secrets_bind": _workspace_secrets_bind,
     "workspace_mkdir": _workspace_mkdir,
     "workspace_write_file": _workspace_write_file,
     "workspace_exec": _workspace_exec,

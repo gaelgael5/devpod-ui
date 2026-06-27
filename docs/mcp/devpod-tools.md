@@ -262,6 +262,37 @@
 }
 ```
 
+## `devpod__workspace_secrets_bind`
+
+- **Scope** : `write`
+- **Description** : Lie une référence ${vault://...} à une cible (env var) du workspace. Résolution interne au runtime ; aucune valeur retournée.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace",
+    "reference",
+    "target"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string"
+    },
+    "reference": {
+      "type": "string",
+      "description": "Référence vault, ex. '${vault://bloc/nom}'."
+    },
+    "target": {
+      "type": "string",
+      "description": "Variable d'environnement cible."
+    }
+  }
+}
+```
+
 ## `devpod__workspace_mkdir`
 
 - **Scope** : `write`

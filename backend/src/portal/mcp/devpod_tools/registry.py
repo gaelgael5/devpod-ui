@@ -157,6 +157,26 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "read",
     },
+    "workspace_secrets_bind": {
+        "description": (
+            "Lie une référence ${vault://...} à une cible (env var) du workspace. "
+            "Résolution interne au runtime ; aucune valeur retournée."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "reference", "target"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "reference": {
+                    "type": "string",
+                    "description": "Référence vault, ex. '${vault://bloc/nom}'.",
+                },
+                "target": {"type": "string", "description": "Variable d'environnement cible."},
+            },
+        },
+        "scope": "write",
+    },
     "workspace_mkdir": {
         "description": "Crée un répertoire (et ses parents) dans le workspace.",
         "inputSchema": {
