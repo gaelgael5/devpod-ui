@@ -352,6 +352,25 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         "inputSchema": {"type": "object", "additionalProperties": False, "properties": {}},
         "scope": "read",
     },
+    "operations_get": {
+        "description": "Retourne l'état, la progression et le résultat d'une opération asynchrone.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["operation_id"],
+            "properties": {"operation_id": {"type": "string"}},
+        },
+        "scope": "read",
+    },
+    "operations_list": {
+        "description": "Liste les opérations en cours, filtrables par workspace.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"workspace": {"type": "string"}},
+        },
+        "scope": "read",
+    },
     "portal_reload": {
         "description": (
             "Reconnecte le portail à un workspace dont le conteneur tourne déjà "

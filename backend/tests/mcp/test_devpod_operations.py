@@ -93,3 +93,23 @@ async def test_launch_operation_returns_id_and_runs():
         await asyncio.sleep(0.01)
     assert done.get("ran") is True
     assert operations.get_operation(oid)["result"] == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_operations_get_isolated_by_owner():
+    from portal.mcp import devpod_tools
+
+    op = operations.create_operation("workspace_create", "dev", "alice")
+    res = await devpod_tools._operations_get(None, {"operation_id": op["operation_id"]}, "alice")
+    assert res["state"] == "pending"
+    with pytest.raises(devpod_tools.DevpodToolError):
+        await devpod_tools._operations_get(None, {"operation_id": op["operation_id"]}, "bob")
+
+
+@pytest.mark.asyncio
+async def test_operations_list_for_owner():
+    from portal.mcp import devpod_tools
+
+    operations.create_operation("workspace_create", "dev", "alice")
+    res = await devpod_tools._operations_list(None, {}, "alice")
+    assert len(res) == 1

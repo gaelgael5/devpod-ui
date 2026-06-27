@@ -618,6 +618,45 @@
 }
 ```
 
+## `devpod__operations_get`
+
+- **Scope** : `read`
+- **Description** : Retourne l'état, la progression et le résultat d'une opération asynchrone.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "operation_id"
+  ],
+  "properties": {
+    "operation_id": {
+      "type": "string"
+    }
+  }
+}
+```
+
+## `devpod__operations_list`
+
+- **Scope** : `read`
+- **Description** : Liste les opérations en cours, filtrables par workspace.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "workspace": {
+      "type": "string"
+    }
+  }
+}
+```
+
 ## `devpod__portal_reload`
 
 - **Scope** : `admin`

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ...config.store import _data_root, load_global
 from ...db.user_config import load_user_db
 from ...devpod.exec import TMUX_SOCK_DETECT, tmux, ws_exec
+from . import operations
 from .errors import DevpodToolError
 from .paths import safe_workspace_path
 
@@ -565,6 +566,25 @@ async def _node_list(conn: AsyncConnection, args: dict[str, Any], owner_login: s
     return rows
 
 
+async def _operations_get(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    oid = _require_str(args, "operation_id")
+    op = operations.get_operation(oid)
+    if op is None or op.get("owner_login") != owner_login:
+        raise DevpodToolError(f"opération inconnue: {oid}")
+    return {k: op[k] for k in (
+        "operation_id", "kind", "workspace", "state", "progress", "result", "error",
+    )}
+
+
+async def _operations_list(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    ws = args.get("workspace")
+    rows = operations.list_operations(owner_login, workspace=ws if isinstance(ws, str) else None)
+    return [
+        {k: op[k] for k in ("operation_id", "kind", "workspace", "state", "progress")}
+        for op in rows
+    ]
+
+
 _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any]]] = {
     "workspace_list": _workspace_list,
     "workspace_status": _workspace_status,
@@ -589,6 +609,8 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "session_list": _session_list,
     "session_get": _session_get,
     "node_list": _node_list,
+    "operations_get": _operations_get,
+    "operations_list": _operations_list,
     "portal_reload": _portal_reload,
 }
 
