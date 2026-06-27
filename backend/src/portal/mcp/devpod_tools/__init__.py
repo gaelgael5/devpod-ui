@@ -397,8 +397,12 @@ async def _workspace_exec(conn: AsyncConnection, args: dict[str, Any], owner_log
 
 async def _workspace_stop(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
-    await get_service().stop(owner_login, f"{owner_login}-{name}")
-    return {"workspace": name, "status": "stopped"}
+
+    async def work() -> Any:
+        await get_service().stop(owner_login, f"{owner_login}-{name}")
+        return {"workspace": name, "status": "stopped"}
+
+    return {"operation_id": operations.launch_operation("workspace_stop", name, owner_login, work)}
 
 
 async def _start_existing(login: str, name: str, conn: AsyncConnection) -> str:
@@ -410,16 +414,30 @@ async def _start_existing(login: str, name: str, conn: AsyncConnection) -> str:
 
 async def _workspace_start(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
-    try:
-        await _start_existing(owner_login, name, conn)
-    except ValueError as exc:
-        raise DevpodToolError(str(exc)) from exc
-    return {"workspace": name, "status": "provisioning"}
+
+    async def work() -> Any:
+        from ...db.engine import _get_engine
+
+        async with _get_engine().begin() as bg_conn:
+            await _start_existing(owner_login, name, bg_conn)
+        return {"workspace": name, "status": "provisioning"}
+
+    return {"operation_id": operations.launch_operation("workspace_start", name, owner_login, work)}
 
 
 async def _workspace_restart(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
-    await _workspace_stop(conn, args, owner_login)
-    return await _workspace_start(conn, args, owner_login)
+    name = _require_ws(args)
+
+    async def work() -> Any:
+        from ...db.engine import _get_engine
+
+        await get_service().stop(owner_login, f"{owner_login}-{name}")
+        async with _get_engine().begin() as bg_conn:
+            await _start_existing(owner_login, name, bg_conn)
+        return {"workspace": name, "status": "provisioning"}
+
+    oid = operations.launch_operation("workspace_restart", name, owner_login, work)
+    return {"operation_id": oid}
 
 
 def _session_id(workspace: str, session: str) -> str:
