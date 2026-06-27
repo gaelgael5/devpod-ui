@@ -223,4 +223,9 @@ export const handlers = [
       { id: 'browserless', name: 'Browserless', description: '', tags: ['web'],
         version: '1', compose_content: 'services: {}', parameters: [], source: 'user' },
     ])),
+  http.get('/api/compose/nodes', () =>
+    HttpResponse.json([{ node_id: 'n1', name: 'n1' }])),
+  http.get('/api/compose/deployments', () => HttpResponse.json([])),
+  http.get('/api/compose/deployments/:id/logs', () =>
+    HttpResponse.json({ output: '' })),
 ]

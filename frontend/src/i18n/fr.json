@@ -742,7 +742,8 @@
     "status": { "running": "en cours", "partial": "partiel", "stopped": "arrêté", "error": "erreur", "created": "créé" },
     "actions": { "stop": "Arrêter", "start": "Démarrer", "restart": "Redémarrer", "down": "Détruire", "logs": "Logs" },
     "empty": { "templates": "Aucun template.", "deployments": "Aucun déploiement." },
-    "delete": { "confirm": "Supprimer ?", "cancel": "Annuler", "ok": "Supprimer" }
+    "delete": { "confirm": "Supprimer ?", "cancel": "Annuler", "ok": "Supprimer" },
+    "logs": { "title": "Logs — {{name}}" }
   },
   "common": {
     "loading": "Chargement…",
