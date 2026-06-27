@@ -67,8 +67,74 @@ OIDC_CLIENT_SECRET=<secret du client Keycloak workspace-portal>
 ACME_EMAIL=admin@yoops.org
 ```
 
+#### Créer le token Cloudflare (`CF_API_TOKEN`)
+
+`CF_API_TOKEN` permet à Caddy d'obtenir automatiquement un certificat TLS wildcard
+(`*.pod.yoops.org`) via le challenge **DNS-01 Let's Encrypt** : Caddy crée
+temporairement un enregistrement `_acme-challenge` via l'API Cloudflare, Let's
+Encrypt le vérifie, puis Caddy le supprime.
+
+1. Se connecter sur **dash.cloudflare.com** avec le compte qui gère `yoops.org`.
+2. En haut à droite : profil → **My Profile** → onglet **API Tokens**.
+3. Cliquer **Create Token** → template **"Edit zone DNS"** → **Use template**.
+4. Dans *Zone Resources* : `Include → Specific zone → yoops.org`.
+5. **Continue to summary** → **Create Token**.
+6. Copier la valeur affichée (**elle ne s'affiche qu'une seule fois**).
+
+Injecter le token sans relancer le script complet :
+
+```bash
+TOKEN="<valeur_du_token>"
+sed -i "s|^CF_API_TOKEN=.*|CF_API_TOKEN=${TOKEN}|" /data/.env
+docker compose -f /opt/workspace-portal/docker-compose.prod.yml up -d
+```
+
+> **Important** : utiliser `up -d` et non `restart` — `restart` ne relit pas
+> le `env_file`, `up -d` recrée les conteneurs avec les nouvelles variables.
+
+Caddy tente alors d'obtenir le certificat via DNS-01. Vérifier les logs :
+
+```bash
+docker compose -f /opt/workspace-portal/docker-compose.prod.yml logs -f caddy
+```
+
+Un déploiement réussi se termine par :
+
+```
+certificate obtained successfully   identifier=pod.yoops.org
+```
+
 Prérequis externes : DNS `pod.yoops.org` + `*.pod.yoops.org` routés vers la VM
-(Cloudflare Tunnel), client OIDC `workspace-portal` configuré dans le realm `yoops`.
+via Cloudflare Tunnel (voir ci-dessous), client OIDC `workspace-portal` configuré
+dans le realm `yoops`.
+
+#### Exposer la VM via Cloudflare Tunnel
+
+Le portail s'expose via un tunnel cloudflared **existant** (machine dédiée).
+Ajouter les règles suivantes dans son `config.yml` (avant le wildcard `*.yoops.org`) :
+
+```yaml
+  - hostname: pod.yoops.org
+    service: https://<IP_VM>:443
+    originRequest:
+      noTLSVerify: true
+      originServerName: pod.yoops.org
+  - hostname: "*.pod.yoops.org"
+    service: https://<IP_VM>:443
+    originRequest:
+      noTLSVerify: true
+      originServerName: pod.yoops.org
+```
+
+Remplacer `<IP_VM>` par l'IP de la VM sur le réseau interne. Recharger :
+
+```bash
+systemctl restart cloudflared
+```
+
+> `noTLSVerify` + `originServerName` : cloudflared se connecte à Caddy via IP,
+> Caddy utilise son cert Let's Encrypt pour `pod.yoops.org` — le SNI doit
+> correspondre même si la vérification du certificat est ignorée.
 
 Puis relancer la même commande pour activer TLS + OIDC :
 
