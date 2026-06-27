@@ -249,6 +249,8 @@ async def _workspace_git_commit(
     rc, sha = await ws_exec(
         owner_login, ws_id, f"cd {shlex.quote(root)} && git rev-parse HEAD"
     )
+    if rc != 0:
+        raise DevpodToolError(f"rev-parse HEAD échoué: {sha}")
     sha = sha.strip()
 
     pushed = False

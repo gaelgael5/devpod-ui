@@ -211,3 +211,4 @@ async def test_git_commit_on_dev_with_push(monkeypatch: pytest.MonkeyPatch) -> N
         None, {"workspace": "dev", "message": "feat: x", "push": True}, "alice"
     )
     assert res == {"commit_sha": "abc123", "branch": "dev", "pushed": True}
+    assert seq["n"] == 4
