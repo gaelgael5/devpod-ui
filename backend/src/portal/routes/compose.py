@@ -14,7 +14,8 @@ from ..compose.models import ComposeDeployment, ComposeTemplate, validate_slug
 from ..compose.ports import PortConflict
 from ..compose.service import ComposeServiceError
 from ..compose.validation import TemplateValidationError, validate_template
-from ..config.store import load_user
+from ..config.models import HostConfig
+from ..config.store import load_global, load_user
 from ..db.engine import get_conn
 from ..schemas.compose import DeploymentCreateBody, TemplateCreateBody, TemplateUpdateBody
 from ..settings import get_settings
@@ -25,7 +26,7 @@ router = APIRouter(prefix="/api/compose", tags=["compose"])
 
 @router.get("/templates")
 async def list_templates(
-    user: Annotated[UserInfo, Depends(require_admin)],
+    user: Annotated[UserInfo, Depends(require_user)],
     conn: Annotated[AsyncConnection, Depends(get_conn)],
     tag: str | None = Query(default=None),
 ) -> list[dict[str, Any]]:
@@ -35,7 +36,7 @@ async def list_templates(
 @router.get("/templates/{template_id}")
 async def get_template(
     template_id: str,
-    user: Annotated[UserInfo, Depends(require_admin)],
+    user: Annotated[UserInfo, Depends(require_user)],
     conn: Annotated[AsyncConnection, Depends(get_conn)],
 ) -> dict[str, Any]:
     tpl = await cdb.get_template(conn, template_id)
@@ -103,6 +104,10 @@ def _is_admin(user: UserInfo) -> bool:
     return get_settings().oidc_admin_role in user.roles
 
 
+def _eligible_nodes(hosts: list[HostConfig]) -> list[dict[str, str]]:
+    return [{"node_id": h.name, "name": h.name} for h in hosts if h.type == "ssh"]
+
+
 async def _require_owned(
     conn: AsyncConnection, deployment_id: str, user: UserInfo
 ) -> ComposeDeployment:
@@ -112,6 +117,17 @@ async def _require_owned(
     if dep.owner_login != user.login and not _is_admin(user):
         raise HTTPException(status_code=403, detail="déploiement d'un autre utilisateur")
     return dep
+
+
+# ---------------------------------------------------------------------------
+# Routes nodes (for deployment node selection)
+# ---------------------------------------------------------------------------
+
+@router.get("/nodes")
+async def list_nodes(
+    user: Annotated[UserInfo, Depends(require_user)],
+) -> list[dict[str, str]]:
+    return _eligible_nodes(load_global().hosts)
 
 
 # ---------------------------------------------------------------------------
