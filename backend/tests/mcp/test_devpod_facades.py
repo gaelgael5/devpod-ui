@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -47,7 +48,9 @@ async def test_workspace_get_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_workspace_logs_setup_reads_portal_log(monkeypatch, tmp_path):
+async def test_workspace_logs_setup_reads_portal_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     logs = tmp_path / "logs" / "alice"
     logs.mkdir(parents=True)
     (logs / "alice-dev.log").write_text("line1\nline2\nline3\n", encoding="utf-8")
@@ -61,22 +64,24 @@ async def test_workspace_logs_setup_reads_portal_log(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_workspace_logs_agent_captures_pane(monkeypatch):
-    from unittest.mock import AsyncMock
-
+async def test_workspace_logs_agent_captures_pane(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_capture = AsyncMock(return_value={"output": "agent-buf"})
     monkeypatch.setattr(
         devpod_tools,
         "_session_capture",
-        AsyncMock(return_value={"output": "agent-buf"}),
+        mock_capture,
     )
     res = await devpod_tools._workspace_logs(
         None, {"workspace": "dev", "source": "agent"}, "alice"
     )
     assert res == {"source": "agent", "output": "agent-buf"}
+    mock_capture.assert_called_once_with(
+        None, {"workspace": "dev", "lines": 200}, "alice"
+    )
 
 
 @pytest.mark.asyncio
-async def test_workspace_logs_missing_file(monkeypatch, tmp_path):
+async def test_workspace_logs_missing_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(devpod_tools, "_data_root", lambda: tmp_path)
     res = await devpod_tools._workspace_logs(
         None, {"workspace": "dev", "source": "container"}, "alice"

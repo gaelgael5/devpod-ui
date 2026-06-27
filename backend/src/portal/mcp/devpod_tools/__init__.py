@@ -6,6 +6,7 @@ quand `target.transport == "internal"`.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -122,7 +123,7 @@ async def _workspace_logs(conn: AsyncConnection, args: dict[str, Any], owner_log
     log_file = logs_root / owner_login / f"{ws_id}.log"
     if not log_file.is_relative_to(logs_root) or not log_file.exists():
         return {"source": source, "output": ""}
-    text = log_file.read_text(encoding="utf-8", errors="replace")
+    text = await asyncio.to_thread(log_file.read_text, encoding="utf-8", errors="replace")
     tail = "\n".join(text.splitlines()[-lines:])
     return {"source": source, "output": tail}
 
