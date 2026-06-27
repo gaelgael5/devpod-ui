@@ -19,11 +19,8 @@ services:
       retries: 5
 
   portal:
-    build:
-      # Contexte = racine du repo (deploy/prod/ → ../..)
-      context: ../..
-      dockerfile: deploy/Dockerfile
-    image: workspace-portal:prod
+    # Image pré-publiée par la CI sur GHCR (branche main) — aucun build sur la VM.
+    image: ghcr.io/gaelgael5/workspace-portal:main
     restart: unless-stopped
     env_file: /data/.env
     volumes:
@@ -43,17 +40,15 @@ services:
       start_period: 10s
 
   caddy:
-    build:
-      # Caddy avec plugin DNS Cloudflare (xcaddy) pour le wildcard TLS DNS-01 (§F-30)
-      context: ../..
-      dockerfile: deploy/Dockerfile.caddy
-    image: workspace-caddy:prod
+    # Image Caddy + plugin DNS Cloudflare, pré-publiée par la CI sur GHCR (branche main).
+    image: ghcr.io/gaelgael5/workspace-caddy:main
     restart: unless-stopped
     env_file: /data/.env
     volumes:
       # Caddyfile.prod : TLS DNS-01 Cloudflare sur {$BASE_DOMAIN}.
+      # Téléchargé par prod-deploy.sh à côté de ce compose (/opt/workspace-portal).
       - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
-      # Données ACME (certificats) — persistées dans un volume nommé, distinct du /data du portail.
+      # Données ACME (certificats) — volume nommé, distinct du /data du portail.
       - caddy_data:/data
       - caddy_config:/config
     ports:

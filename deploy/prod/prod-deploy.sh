@@ -1,43 +1,37 @@
 #!/usr/bin/env bash
-# prod-deploy.sh — Déploiement / mise à jour du portail workspace en PRODUCTION.
-# À exécuter directement sur la VM prod en root :
-#   cd /opt/workspace-portal && ./deploy/prod/prod-deploy.sh main
-# Suppose une VM provisionnée via scripts/proxmox-clone-vm-node.sh (docker + git + python3).
-# Idempotent : peut être relancé sans danger (aucun secret déjà présent n'est réécrit).
+# prod-deploy.sh — Bootstrap de livraison PRODUCTION du portail workspace.
 #
-# Usage :
-#   ./deploy/prod/prod-deploy.sh [BRANCH]
-#   ex : ./deploy/prod/prod-deploy.sh main
+# Conçu pour être lancé directement par :
+#   curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/main/deploy/prod/prod-deploy.sh | bash -s --
+#
+# Ne fait AUCUN git clone et ne récupère AUCUN code source. Il :
+#   1. crée /opt/workspace-portal et y télécharge les fichiers de conf nécessaires,
+#   2. initialise /data (CA, certs, config.yaml, .env) via install.sh,
+#   3. complète /data/.env avec les variables prod (postgres, vault, dev_mode),
+#   4. tire les images publiées sur GHCR (branche main) et démarre la stack,
+#   5. applique les migrations Alembic et vérifie la santé du portail.
+# Idempotent : un nouveau lancement = mise à jour vers la dernière image main.
 
 set -euo pipefail
 IFS=$'\n\t'
 
+# ─── Configuration ────────────────────────────────────────────────────────────
+REF="${REF:-main}"                       # branche source de la conf + tag image
+OWNER="gaelgael5"
+REPO="devpod-ui"
+RAW_BASE="https://raw.githubusercontent.com/${OWNER}/${REPO}/refs/heads/${REF}"
 APP_DIR="${APP_DIR:-/opt/workspace-portal}"
-COMPOSE_FILE="deploy/prod/docker-compose.prod.yml"
-ENV_EXAMPLE="deploy/prod/.env.prod.example"
-ENV_FILE="${ENV_FILE:-/data/.env}"
+DATA_ROOT="${DATA_ROOT:-/data}"
+ENV_FILE="${DATA_ROOT}/.env"
+COMPOSE_FILE="${APP_DIR}/docker-compose.prod.yml"
+BASE_DOMAIN="${BASE_DOMAIN:-pod.yoops.org}"
 
-# ─── Argument : branche cible (défaut main) ──────────────────────────────────
-TARGET_BRANCH=""
-for arg in "$@"; do
-    case "$arg" in
-        --*) echo "ERREUR : flag inconnu : $arg" >&2; exit 1 ;;
-        *)
-            if [[ -n "$TARGET_BRANCH" ]]; then
-                echo "ERREUR : plusieurs branches passées en argument." >&2; exit 1
-            fi
-            TARGET_BRANCH="$arg"
-            ;;
-    esac
-done
-
+# ─── Prérequis ────────────────────────────────────────────────────────────────
 if [[ "$(id -u)" -ne 0 ]]; then
     echo "ERREUR : ce script doit être exécuté en root." >&2
     exit 1
 fi
-
-# ─── Prérequis ────────────────────────────────────────────────────────────────
-for cmd in docker git openssl python3; do
+for cmd in docker curl openssl python3; do
     command -v "$cmd" &>/dev/null || {
         echo "ERREUR : '$cmd' introuvable." >&2; exit 1
     }
@@ -47,153 +41,86 @@ docker compose version &>/dev/null || {
     exit 1
 }
 
-# ─── Dépôt déjà présent (provisionné avec la VM) — pas de git clone ───────────
-if [[ ! -d "${APP_DIR}/.git" ]]; then
-    echo "ERREUR : dépôt absent dans ${APP_DIR}." >&2
-    echo "  La VM prod doit déjà contenir le dépôt (provisionnée via proxmox-clone-vm-node.sh)." >&2
-    exit 1
-fi
-cd "$APP_DIR"
+# ─── 1) Répertoire + téléchargement de la conf ───────────────────────────────
+echo "==> [1/5] Préparation de ${APP_DIR} (téléchargement conf, ref=${REF})..."
+mkdir -p "$APP_DIR"
 
-# ─── Mise à jour du dépôt (git pull, jamais de clone) ─────────────────────────
-# Lancé via « curl … | bash », ce script est déjà la dernière version distante :
-# aucune ré-exécution (exec "$0") n'est nécessaire ni possible (stdin, pas un fichier).
-echo "==> Mise à jour du dépôt..."
-git fetch origin
-if [[ -n "$TARGET_BRANCH" ]]; then
-    git checkout "$TARGET_BRANCH"
-fi
-CURRENT="$(git branch --show-current)"
-git pull --ff-only origin "$CURRENT"
+_dl() {  # _dl <chemin_dans_repo> <destination>
+    local src="$1" dest="$2"
+    curl -fsSL "${RAW_BASE}/${src}" -o "$dest" || {
+        echo "ERREUR : téléchargement échoué : ${RAW_BASE}/${src}" >&2; exit 1
+    }
+    echo "    ${dest}"
+}
+_dl deploy/prod/docker-compose.prod.yml "$COMPOSE_FILE"
+_dl deploy/prod/Caddyfile.prod          "${APP_DIR}/Caddyfile.prod"
+_dl scripts/install.sh                  "${APP_DIR}/install.sh"
+
+# ─── 2) Initialisation de /data (CA, certs, config.yaml, .env de base) ───────
+echo ""
+echo "==> [2/5] Initialisation de ${DATA_ROOT} (install.sh, idempotent)..."
+env PORTAL_BASE_DOMAIN="$BASE_DOMAIN" \
+    PORTAL_EXTERNAL_URL="https://${BASE_DOMAIN}" \
+    bash "${APP_DIR}/install.sh" \
+        --data-root    "$DATA_ROOT" \
+        --compose-file "$COMPOSE_FILE"
 
 # ─── Fonctions utilitaires .env ───────────────────────────────────────────────
-
-# Lit la valeur d'une clé dans $ENV_FILE (retourne "" si absente ou vide).
-# tr -d '\r' protège contre les fins de ligne CRLF (copie depuis Windows).
 _get_env() {
-    local key="$1"
-    grep -m1 "^${key}=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '\r' || true
+    grep -m1 "^$1=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '\r' || true
 }
-
-# Écrit (ou remplace) une clé=valeur dans $ENV_FILE.
 _set_env() {
-    local key="$1" value="$2"
-    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-        sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+    if grep -q "^$1=" "$ENV_FILE" 2>/dev/null; then
+        sed -i "s|^$1=.*|$1=$2|" "$ENV_FILE"
     else
-        echo "${key}=${value}" >> "$ENV_FILE"
+        echo "$1=$2" >> "$ENV_FILE"
     fi
 }
 
-# ─── 0) Initialisation du fichier .env ────────────────────────────────────────
+# ─── 3) Complément de /data/.env (clés prod absentes d'install.sh) ───────────
+# Idempotent : aucune valeur déjà présente n'est réécrite.
 echo ""
-echo "==> [0/4] Vérification de ${ENV_FILE}..."
+echo "==> [3/5] Complément de ${ENV_FILE}..."
 
-if [[ ! -f "$ENV_FILE" ]]; then
-    echo "    ${ENV_FILE} absent — copie depuis ${ENV_EXAMPLE}"
-    install -m 600 "$ENV_EXAMPLE" "$ENV_FILE"
-fi
-
-# Normaliser les fins de ligne CRLF → LF (fichier potentiellement édité sur Windows)
-if grep -qP '\r' "$ENV_FILE" 2>/dev/null; then
-    sed -i 's/\r$//' "$ENV_FILE"
-    echo "    Fins de ligne CRLF converties en LF"
-fi
-
-# POSTGRES_USER
 if [[ -z "$(_get_env POSTGRES_USER)" ]]; then
     _set_env POSTGRES_USER "portal_$(openssl rand -hex 4)"
     echo "    POSTGRES_USER généré"
 fi
-
-# POSTGRES_PASSWORD
 if [[ -z "$(_get_env POSTGRES_PASSWORD)" ]]; then
     _set_env POSTGRES_PASSWORD "$(openssl rand -hex 24)"
     echo "    POSTGRES_PASSWORD généré"
 fi
-
-# DATABASE_URL (hostname = service Docker `postgres`)
 if [[ -z "$(_get_env DATABASE_URL)" ]]; then
     _set_env DATABASE_URL \
         "postgresql+asyncpg://$(_get_env POSTGRES_USER):$(_get_env POSTGRES_PASSWORD)@postgres/portal"
     echo "    DATABASE_URL construit"
 fi
-
-# SESSION_SECRET_KEY
-if [[ -z "$(_get_env SESSION_SECRET_KEY)" ]]; then
-    _set_env SESSION_SECRET_KEY "$(openssl rand -hex 32)"
-    echo "    SESSION_SECRET_KEY généré"
-fi
-
 # PORTAL_VAULT_KEK — généré UNE SEULE FOIS, jamais réécrit (sinon vault illisible).
 if [[ -z "$(_get_env PORTAL_VAULT_KEK)" ]]; then
     _set_env PORTAL_VAULT_KEK "$(openssl rand -hex 32)"
-    echo "    PORTAL_VAULT_KEK généré (clé de chiffrement du vault — conserver le .env)"
+    echo "    PORTAL_VAULT_KEK généré (conserver le .env)"
 fi
-
-# LOCAL_USER (défaut admin)
-if [[ -z "$(_get_env LOCAL_USER)" ]]; then
-    _set_env LOCAL_USER "admin"
+if [[ -z "$(_get_env DEV_MODE)" ]]; then
+    _set_env DEV_MODE "false"
 fi
+chmod 600 "$ENV_FILE"
 
-# LOCAL_PASSWORD + LOCAL_PASSWORD_HASH (bcrypt). Hash recalculé si absent.
-if [[ -z "$(_get_env LOCAL_PASSWORD_HASH)" ]]; then
-    LOCAL_PASS="$(_get_env LOCAL_PASSWORD)"
-    if [[ -z "$LOCAL_PASS" ]]; then
-        LOCAL_PASS="$(openssl rand -hex 12)"
-        _set_env LOCAL_PASSWORD "$LOCAL_PASS"
-    fi
-    python3 -c "import bcrypt" 2>/dev/null || {
-        echo "    Installation de python3-bcrypt..."
-        apt-get install -y --no-install-recommends python3-bcrypt >/dev/null 2>&1
-    }
-    LOCAL_HASH="$(printf '%s' "$LOCAL_PASS" | python3 -c "
-import sys, bcrypt
-p = sys.stdin.read().strip().encode()
-print(bcrypt.hashpw(p, bcrypt.gensalt()).decode())
-")"
-    _set_env LOCAL_PASSWORD_HASH "$LOCAL_HASH"
-    echo "    LOCAL_PASSWORD / LOCAL_PASSWORD_HASH générés"
-fi
-
-# Validation : échouer si une variable auto-générable critique est encore vide.
-for _required_key in POSTGRES_USER POSTGRES_PASSWORD DATABASE_URL SESSION_SECRET_KEY PORTAL_VAULT_KEK; do
-    if [[ -z "$(_get_env "$_required_key")" ]]; then
-        echo "ERREUR : ${_required_key} vide dans ${ENV_FILE} après génération." >&2
-        exit 1
-    fi
-done
-
-# Charger le .env dans l'environnement shell : docker compose résout ${VAR} depuis l'env
-# en priorité sur --env-file.
-set -a
-# shellcheck source=/dev/null
-source "$ENV_FILE"
-set +a
-
-# ─── 1) Build ─────────────────────────────────────────────────────────────────
+# ─── 4) Pull des images GHCR + démarrage ─────────────────────────────────────
 echo ""
-echo "==> [1/4] Build des images (portal + caddy)..."
-docker compose -f "$COMPOSE_FILE" build
-
-# ─── 2) Redémarrage de la stack ──────────────────────────────────────────────
-echo ""
-echo "==> [2/4] Redémarrage de la stack..."
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down --remove-orphans || true
+echo "==> [4/5] Pull des images (GHCR, tag main) + démarrage de la stack..."
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
 echo ""
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
 
-# ─── 3) Migrations Alembic ────────────────────────────────────────────────────
 echo ""
-echo "==> [3/4] Migrations Alembic..."
+echo "==> Migrations Alembic..."
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" \
     exec -T portal uv run alembic upgrade head
 
-# ─── 4) Smoke — healthcheck du conteneur portal (timeout 90s) ─────────────────
-# Aucun port portal n'est publié en prod : on lit l'état du healthcheck Docker.
+# ─── 5) Smoke — healthcheck du conteneur portal (timeout 90s) ────────────────
 echo ""
-echo "==> [4/4] Smoke /health (timeout 90s)..."
+echo "==> [5/5] Smoke /health (timeout 90s)..."
 SMOKE_OK=0
 ELAPSED=0
 PORTAL_ID="$(docker compose -f "$COMPOSE_FILE" ps -q portal 2>/dev/null)"
@@ -213,20 +140,17 @@ if [[ $SMOKE_OK -ne 1 ]]; then
     exit 1
 fi
 
-# ─── Récapitulatif (affiché UNE seule fois — noter les credentials maintenant) ──
-_BASE_DOMAIN="$(_get_env BASE_DOMAIN)"
+# ─── Récapitulatif (affiché UNE seule fois — noter les credentials) ──────────
 _LOCAL_USER="$(_get_env LOCAL_USER)"
 _LOCAL_PASS="$(_get_env LOCAL_PASSWORD)"
 echo ""
 echo "══════════════════════════════════════════════════════════════════"
 echo "  ✓ Portail PROD opérationnel"
 echo ""
-echo "  Accès  : https://${_BASE_DOMAIN}"
+echo "  Accès  : https://${BASE_DOMAIN}"
 echo "  Login  : ${_LOCAL_USER} / ${_LOCAL_PASS}"
 echo "  Env    : ${ENV_FILE}  (sauvegarder — contient PORTAL_VAULT_KEK)"
 echo ""
-
-# Avertissements (pas de fail-closed : on génère, on prévient une fois).
 if [[ -z "$(_get_env CF_API_TOKEN)" ]]; then
     echo "  ⚠ CF_API_TOKEN vide → TLS DNS-01 inactif, HTTPS indisponible."
     echo "    Renseigner CF_API_TOKEN dans ${ENV_FILE} puis relancer ce script."
