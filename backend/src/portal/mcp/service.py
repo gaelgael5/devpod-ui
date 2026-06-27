@@ -166,5 +166,6 @@ async def set_grant(
         expose_mode=body.expose_mode,
         expose=body.expose,
         enabled=body.enabled,
+        scopes=[str(s) for s in body.scopes] if body.scopes is not None else None,
     )
     _log.info("mcp_grant_set", login=owner_login, apikey_id=apikey_id, backend_id=body.backend_id)

@@ -104,3 +104,5 @@ class GrantSet(BaseModel):
     expose: list[str] = []
     # False = service accordé mais temporairement désactivé (paramétrage conservé).
     enabled: bool = True
+    # Scopes accordés (backends internes type devpod). None = pas d'enforcement de scope.
+    scopes: list[Literal["read", "write", "exec", "admin"]] | None = None
