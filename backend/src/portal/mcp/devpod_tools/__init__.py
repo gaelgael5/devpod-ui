@@ -128,6 +128,49 @@ async def _workspace_logs(conn: AsyncConnection, args: dict[str, Any], owner_log
     return {"source": source, "output": tail}
 
 
+def _to_int_or_none(token: str) -> int | None:
+    token = token.strip()
+    return int(token) if token.isdigit() else None
+
+
+async def _workspace_resources(
+    conn: AsyncConnection, args: dict[str, Any], owner_login: str
+) -> Any:
+    name = _require_ws(args)
+    ws_id = f"{owner_login}-{name}"
+    root = f"/workspaces/{name}"
+    cg = "/sys/fs/cgroup"
+    cmd = (
+        f"cat {cg}/cpu.stat 2>/dev/null | awk '/usage_usec/{{print $2}}'; "
+        f"sleep 0.1; "
+        f"cat {cg}/cpu.stat 2>/dev/null | awk '/usage_usec/{{print $2}}'; "
+        f"cat {cg}/memory.current 2>/dev/null || echo ''; "
+        f"cat {cg}/memory.max 2>/dev/null || echo ''; "
+        f"df -B1 --output=used,size {shlex.quote(root)} 2>/dev/null | tail -1"
+    )
+    rc, out = await ws_exec(owner_login, ws_id, cmd, timeout=10.0)
+    if rc != 0:
+        raise DevpodToolError(f"ressources indisponibles: {out}")
+    lines = out.splitlines()
+    u1 = _to_int_or_none(lines[0]) if len(lines) > 0 else None
+    u2 = _to_int_or_none(lines[1]) if len(lines) > 1 else None
+    cpu_pct = round((u2 - u1) / 100_000 * 100, 1) if u1 is not None and u2 is not None else 0.0
+    mem_used = _to_int_or_none(lines[2]) if len(lines) > 2 else None
+    mem_limit = _to_int_or_none(lines[3]) if len(lines) > 3 else None  # "max" -> None
+    disk_used = disk_limit = None
+    if len(lines) > 4:
+        parts = lines[4].split()
+        if len(parts) == 2:
+            disk_used, disk_limit = _to_int_or_none(parts[0]), _to_int_or_none(parts[1])
+    return {
+        "cpu_pct": cpu_pct,
+        "mem_used": mem_used,
+        "mem_limit": mem_limit,
+        "disk_used": disk_used,
+        "disk_limit": disk_limit,
+    }
+
+
 async def _workspace_get(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     cfg = await load_user_db(owner_login, conn)
@@ -396,6 +439,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_list": _workspace_list,
     "workspace_status": _workspace_status,
     "workspace_logs": _workspace_logs,
+    "workspace_resources": _workspace_resources,
     "workspace_get": _workspace_get,
     "workspace_tree": _workspace_tree,
     "workspace_read_file": _workspace_read_file,

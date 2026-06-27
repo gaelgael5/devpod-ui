@@ -58,6 +58,16 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "read",
     },
+    "workspace_resources": {
+        "description": "Retourne la consommation CPU / mémoire / disque du conteneur du workspace.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace"],
+            "properties": {"workspace": {"type": "string"}},
+        },
+        "scope": "read",
+    },
     "workspace_tree": {
         "description": (
             "Liste l'arborescence du workspace à partir d'un chemin, avec profondeur "

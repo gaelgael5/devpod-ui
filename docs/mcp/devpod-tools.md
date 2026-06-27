@@ -90,6 +90,27 @@
 }
 ```
 
+## `devpod__workspace_resources`
+
+- **Scope** : `read`
+- **Description** : Retourne la consommation CPU / mémoire / disque du conteneur du workspace.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string"
+    }
+  }
+}
+```
+
 ## `devpod__workspace_tree`
 
 - **Scope** : `read`

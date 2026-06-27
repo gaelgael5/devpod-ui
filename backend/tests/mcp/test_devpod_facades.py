@@ -87,3 +87,24 @@ async def test_workspace_logs_missing_file(monkeypatch: pytest.MonkeyPatch, tmp_
         None, {"workspace": "dev", "source": "container"}, "alice"
     )
     assert res == {"source": "container", "output": ""}
+
+
+@pytest.mark.asyncio
+async def test_workspace_resources_parses_cgroup(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Sortie scriptée : usage1, usage2 (cpu), mem_used, mem_max, df disk_used disk_total
+    payload = "1000000\n1050000\n536870912\n1073741824\n2147483648 5368709120\n"
+    monkeypatch.setattr(devpod_tools, "ws_exec", AsyncMock(return_value=(0, payload)))
+    res = await devpod_tools._workspace_resources(None, {"workspace": "dev"}, "alice")
+    assert res["mem_used"] == 536870912
+    assert res["mem_limit"] == 1073741824
+    assert res["disk_used"] == 2147483648
+    assert res["disk_limit"] == 5368709120
+    assert isinstance(res["cpu_pct"], float)
+
+
+@pytest.mark.asyncio
+async def test_workspace_resources_unlimited_mem(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = "1000000\n1000000\n100\nmax\n10 100\n"
+    monkeypatch.setattr(devpod_tools, "ws_exec", AsyncMock(return_value=(0, payload)))
+    res = await devpod_tools._workspace_resources(None, {"workspace": "dev"}, "alice")
+    assert res["mem_limit"] is None
