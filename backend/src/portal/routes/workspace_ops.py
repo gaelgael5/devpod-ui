@@ -214,7 +214,7 @@ async def workspace_up(
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
-    from ..devpod.provision import ProvisionParams, provision_workspace
+    from ..devpod.provision import ProvisionParams, SecretResolutionError, provision_workspace
 
     _validate_name(name)
 
@@ -314,6 +314,8 @@ async def workspace_up(
             ),
             conn,
         )
+    except SecretResolutionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except HostNotReadyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except UnknownHostError as exc:

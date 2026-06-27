@@ -5,6 +5,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..config.models import WorkspaceSpec
@@ -13,6 +14,12 @@ from ..profiles.models import Profile
 from ..profiles.repository import ProfileError
 from ..recipes.models import RecipeMeta
 from .service import DevPodService
+
+_log = structlog.get_logger(__name__)
+
+
+class SecretResolutionError(Exception):
+    """Échec de résolution d'un secret — message rédigé, jamais la valeur ni l'erreur brute."""
 
 
 def _get_service() -> DevPodService:
@@ -61,7 +68,11 @@ async def _resolve_recipes_and_secrets(
         from ..config.store import load_user as _lu
 
         cfg = await _lu(login)
-        env = await asyncio.to_thread(_resolve_feature_secrets, login, cfg.secret_ns, all_refs)
+        try:
+            env = await asyncio.to_thread(_resolve_feature_secrets, login, cfg.secret_ns, all_refs)
+        except Exception as exc:
+            _log.warning("feature_secret_resolution_failed", login=login, error=type(exc).__name__)
+            raise SecretResolutionError(f"Secret resolution failed: {type(exc).__name__}") from exc
 
     return resolved, env
 
@@ -73,6 +84,11 @@ async def _load_profile(login: str, profile_ref: Any) -> Profile | None:
     try:
         return await AsyncProfileRepository().get(profile_ref.scope, profile_ref.slug, login)
     except ProfileError:
+        _log.warning(
+            "workspace.profile_missing",
+            scope=getattr(profile_ref, "scope", ""),
+            slug=getattr(profile_ref, "slug", ""),
+        )
         return None
 
 
