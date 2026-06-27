@@ -209,10 +209,12 @@ async def _workspace_git_status(
     if rc != 0:
         raise DevpodToolError(f"git status impossible: {out}")
     result = _parse_git_porcelain(out)
-    if bool(args.get("with_diff", False)):
+    if args.get("with_diff", False):
         diff_cmd = f"cd {shlex.quote(root)} && git diff"
         rc2, diff = await ws_exec(owner_login, ws_id, diff_cmd)
-        result["diff"] = diff if rc2 == 0 else ""
+        if rc2 != 0:
+            raise DevpodToolError(f"git diff impossible: {diff}")
+        result["diff"] = diff
     return result
 
 

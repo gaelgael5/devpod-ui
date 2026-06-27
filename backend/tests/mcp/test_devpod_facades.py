@@ -170,3 +170,17 @@ async def test_git_status_with_diff(monkeypatch: pytest.MonkeyPatch) -> None:
         None, {"workspace": "dev", "with_diff": True}, "alice"
     )
     assert res["diff"] == "diff-body"
+
+
+@pytest.mark.asyncio
+async def test_git_status_with_diff_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake(login, ws, cmd, timeout=30.0):
+        if "status" in cmd:
+            return (0, "## dev\n")
+        else:
+            return (1, "fatal: not a git repository")
+    monkeypatch.setattr(devpod_tools, "ws_exec", fake)
+    with pytest.raises(devpod_tools.DevpodToolError):
+        await devpod_tools._workspace_git_status(
+            None, {"workspace": "dev", "with_diff": True}, "alice"
+        )
