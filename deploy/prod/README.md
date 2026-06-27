@@ -37,8 +37,11 @@ curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/main/
 
 ### 2. Premier déploiement (sur la VM, en root)
 
+Le dépôt est déjà présent dans `/opt/workspace-portal` (déployé par le clonage
+de la VM) — pas de `git clone` à faire. Le script se met à jour seul via
+`git pull` :
+
 ```bash
-git clone https://github.com/gaelgael5/devpod-ui.git /opt/workspace-portal
 cd /opt/workspace-portal
 ./deploy/prod/prod-deploy.sh main
 ```
