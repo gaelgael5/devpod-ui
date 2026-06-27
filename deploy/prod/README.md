@@ -38,12 +38,12 @@ curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/main/
 ### 2. Premier déploiement (sur la VM, en root)
 
 Le dépôt est déjà présent dans `/opt/workspace-portal` (déployé par le clonage
-de la VM) — pas de `git clone` à faire. Le script se met à jour seul via
-`git pull` :
+de la VM) — **pas de `git clone`**. La livraison se lance par `curl … | bash -s`,
+comme la dev ; le script fait lui-même le `git pull` puis déploie :
 
 ```bash
-cd /opt/workspace-portal
-./deploy/prod/prod-deploy.sh main
+curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/main/deploy/prod/prod-deploy.sh \
+  | bash -s -- main
 ```
 
 Au premier lancement, le script génère automatiquement les secrets internes
@@ -64,22 +64,26 @@ Prérequis externes : enregistrement DNS `pod.yoops.org` (et `*.pod.yoops.org`)
 routé vers la VM (Cloudflare Tunnel), client OIDC `workspace-portal` configuré
 dans le realm `yoops`.
 
-Puis relancer pour activer TLS + OIDC :
+Puis relancer pour activer TLS + OIDC (même commande) :
 
 ```bash
-./deploy/prod/prod-deploy.sh main
+curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/main/deploy/prod/prod-deploy.sh \
+  | bash -s -- main
 ```
 
 ### 4. Mises à jour ultérieures
 
+Même commande, à relancer à chaque livraison :
+
 ```bash
-cd /opt/workspace-portal && ./deploy/prod/prod-deploy.sh main
+curl -sSL https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/main/deploy/prod/prod-deploy.sh \
+  | bash -s -- main
 ```
 
-Le script fait `git pull --ff-only`, se ré-exécute s'il a lui-même changé,
-rebuild, redémarre la stack, applique les migrations Alembic, puis vérifie le
-healthcheck du conteneur `portal`. Les secrets déjà présents dans `/data/.env`
-ne sont **jamais** réécrits.
+Le script fait `git pull --ff-only` dans `/opt/workspace-portal`, rebuild,
+redémarre la stack, applique les migrations Alembic, puis vérifie le healthcheck
+du conteneur `portal`. Les secrets déjà présents dans `/data/.env` ne sont
+**jamais** réécrits.
 
 ## Exploitation
 

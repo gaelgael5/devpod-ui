@@ -47,23 +47,24 @@ docker compose version &>/dev/null || {
     exit 1
 }
 
+# ─── Dépôt déjà présent (provisionné avec la VM) — pas de git clone ───────────
+if [[ ! -d "${APP_DIR}/.git" ]]; then
+    echo "ERREUR : dépôt absent dans ${APP_DIR}." >&2
+    echo "  La VM prod doit déjà contenir le dépôt (provisionnée via proxmox-clone-vm-node.sh)." >&2
+    exit 1
+fi
 cd "$APP_DIR"
 
-# ─── Auto-mise à jour : git pull d'abord, puis ré-exécution si le script a changé ──
+# ─── Mise à jour du dépôt (git pull, jamais de clone) ─────────────────────────
+# Lancé via « curl … | bash », ce script est déjà la dernière version distante :
+# aucune ré-exécution (exec "$0") n'est nécessaire ni possible (stdin, pas un fichier).
 echo "==> Mise à jour du dépôt..."
 git fetch origin
 if [[ -n "$TARGET_BRANCH" ]]; then
     git checkout "$TARGET_BRANCH"
 fi
 CURRENT="$(git branch --show-current)"
-BEFORE="$(git rev-parse HEAD)"
 git pull --ff-only origin "$CURRENT"
-AFTER="$(git rev-parse HEAD)"
-
-if [[ "$BEFORE" != "$AFTER" ]]; then
-    echo "    Dépôt mis à jour — ré-exécution du script..."
-    exec "$0" "$@"
-fi
 
 # ─── Fonctions utilitaires .env ───────────────────────────────────────────────
 
