@@ -762,3 +762,28 @@
   }
 }
 ```
+
+## `devpod__workspace_apply_recipe`
+
+- **Scope** : `admin`
+- **Description** : Applique/met à jour une recette (Dev Container Features) sur un workspace existant. Asynchrone (recréation).
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace",
+    "recipe"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string"
+    },
+    "recipe": {
+      "type": "string"
+    }
+  }
+}
+```

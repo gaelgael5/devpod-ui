@@ -429,6 +429,22 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "admin",
     },
+    "workspace_apply_recipe": {
+        "description": (
+            "Applique/met à jour une recette (Dev Container Features) sur un workspace "
+            "existant. Asynchrone (recréation)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "recipe"],
+            "properties": {
+                "workspace": {"type": "string"},
+                "recipe": {"type": "string"},
+            },
+        },
+        "scope": "admin",
+    },
 }
 
 

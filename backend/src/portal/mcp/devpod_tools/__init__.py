@@ -628,6 +628,44 @@ async def _workspace_delete(conn: AsyncConnection, args: dict[str, Any], owner_l
     return {"operation_id": oid}
 
 
+async def _workspace_apply_recipe(
+    conn: AsyncConnection, args: dict[str, Any], owner_login: str
+) -> Any:
+    """Applique/met à jour une recette sur un workspace existant de façon asynchrone."""
+    name = _require_ws(args)
+    recipe = _require_str(args, "recipe")
+
+    async def work() -> Any:
+        from ...config.store import load_user, save_user
+        from ...db.engine import _get_engine
+        from ...devpod.provision import ProvisionParams, provision_workspace
+
+        cfg = await load_user(owner_login)
+        spec = next((s for s in cfg.workspaces if s.name == name), None)
+        if spec is None:
+            raise DevpodToolError(f"workspace inconnu: {name}")
+        recipes = list(dict.fromkeys([*spec.recipes, recipe]))
+        spec_updated = spec.model_copy(update={"recipes": recipes})
+        cfg.workspaces = [spec_updated if s.name == name else s for s in cfg.workspaces]
+        await save_user(owner_login, cfg)
+        await get_service().delete(owner_login, f"{owner_login}-{name}", shelve=False)
+        async with _get_engine().begin() as bg_conn:
+            ws_id = await provision_workspace(
+                owner_login,
+                ProvisionParams(
+                    name=name, source=spec_updated.source, branch=spec_updated.branch,
+                    git_credential=spec_updated.git_credential, host=spec_updated.host,
+                    recipes=recipes, extra_sources=spec_updated.extra_sources,
+                    profile=spec_updated.profile, recipe_volumes=spec_updated.recipe_volumes,
+                ),
+                bg_conn,
+            )
+        return {"workspace": name, "ws_id": ws_id, "recipes": recipes, "status": "provisioning"}
+
+    oid = operations.launch_operation("workspace_apply_recipe", name, owner_login, work)
+    return {"operation_id": oid}
+
+
 _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any]]] = {
     "workspace_list": _workspace_list,
     "workspace_status": _workspace_status,
@@ -657,6 +695,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "portal_reload": _portal_reload,
     "workspace_create": _workspace_create,
     "workspace_delete": _workspace_delete,
+    "workspace_apply_recipe": _workspace_apply_recipe,
 }
 
 

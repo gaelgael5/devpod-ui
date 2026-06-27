@@ -59,3 +59,25 @@ async def test_workspace_delete_refuses_truthy_non_true(
 
     with pytest.raises(devpod_tools.DevpodToolError, match="confirm"):
         await devpod_tools._workspace_delete(None, args, "alice")
+
+
+@pytest.mark.asyncio
+async def test_apply_recipe_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, str] = {}
+
+    def fake_launch(kind: str, ws: str, owner: str, work: object) -> str:
+        captured.update(kind=kind)
+        return "b" * 32
+
+    monkeypatch.setattr(devpod_tools.operations, "launch_operation", fake_launch)
+    res = await devpod_tools._workspace_apply_recipe(
+        None, {"workspace": "dev", "recipe": "python"}, "alice"
+    )
+    assert res == {"operation_id": "b" * 32}
+    assert captured["kind"] == "workspace_apply_recipe"
+
+
+@pytest.mark.asyncio
+async def test_apply_recipe_requires_recipe() -> None:
+    with pytest.raises(devpod_tools.DevpodToolError):
+        await devpod_tools._workspace_apply_recipe(None, {"workspace": "dev"}, "alice")
