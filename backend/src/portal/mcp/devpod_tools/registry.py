@@ -347,6 +347,11 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "read",
     },
+    "node_list": {
+        "description": "Liste les nodes enrôlés et leur disponibilité.",
+        "inputSchema": {"type": "object", "additionalProperties": False, "properties": {}},
+        "scope": "read",
+    },
     "portal_reload": {
         "description": (
             "Reconnecte le portail à un workspace dont le conteneur tourne déjà "

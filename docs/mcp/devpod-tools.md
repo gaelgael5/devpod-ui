@@ -604,6 +604,20 @@
 }
 ```
 
+## `devpod__node_list`
+
+- **Scope** : `read`
+- **Description** : Liste les nodes enrôlés et leur disponibilité.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}
+```
+
 ## `devpod__portal_reload`
 
 - **Scope** : `admin`

@@ -22,7 +22,7 @@ from mcp.shared.exceptions import McpError
 from mcp.types import METHOD_NOT_FOUND, ErrorData
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ...config.store import _data_root
+from ...config.store import _data_root, load_global
 from ...db.user_config import load_user_db
 from ...devpod.exec import TMUX_SOCK_DETECT, tmux, ws_exec
 from .errors import DevpodToolError
@@ -549,6 +549,22 @@ async def _portal_reload(conn: AsyncConnection, args: dict[str, Any], owner_logi
     return {"workspace": name, "reconnected": True}
 
 
+async def _node_list(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    cfg = load_global()
+    rows = []
+    for h in cfg.hosts:
+        if getattr(h, "usage", "workspaces") != "workspaces":
+            continue
+        rows.append({
+            "node_id": h.name,
+            "name": h.name,
+            "host": h.address or h.docker_host or None,
+            "status": "configured",
+            "capacity": None,
+        })
+    return rows
+
+
 _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any]]] = {
     "workspace_list": _workspace_list,
     "workspace_status": _workspace_status,
@@ -572,6 +588,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "session_capture": _session_capture,
     "session_list": _session_list,
     "session_get": _session_get,
+    "node_list": _node_list,
     "portal_reload": _portal_reload,
 }
 

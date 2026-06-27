@@ -19,7 +19,7 @@ def _render() -> str:
 
 
 def test_doc_lists_all_primitives() -> None:
-    assert _DOC.read_text(encoding="utf-8").count("## `devpod__") == 23
+    assert _DOC.read_text(encoding="utf-8").count("## `devpod__") == 24
 
 
 def test_doc_is_up_to_date_with_registry() -> None:

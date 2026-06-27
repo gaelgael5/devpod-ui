@@ -212,3 +212,26 @@ async def test_git_commit_on_dev_with_push(monkeypatch: pytest.MonkeyPatch) -> N
     )
     assert res == {"commit_sha": "abc123", "branch": "dev", "pushed": True}
     assert seq["n"] == 4
+
+
+@pytest.mark.asyncio
+async def test_node_list_maps_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    h1 = SimpleNamespace(
+        name="node1", address="10.0.0.1", docker_host="", usage="workspaces"
+    )
+    h2 = SimpleNamespace(
+        name="ci", address="", docker_host="tcp://x:2376", usage="tests"
+    )
+    monkeypatch.setattr(
+        devpod_tools, "load_global", lambda: SimpleNamespace(hosts=[h1, h2])
+    )
+    res = await devpod_tools._node_list(None, {}, "alice")
+    assert res == [
+        {
+            "node_id": "node1",
+            "name": "node1",
+            "host": "10.0.0.1",
+            "status": "configured",
+            "capacity": None,
+        }
+    ]
