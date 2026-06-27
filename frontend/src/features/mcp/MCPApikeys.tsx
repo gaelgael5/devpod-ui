@@ -33,6 +33,8 @@ import {
   useDeleteGrant,
   type MCPApikey,
   type ExposeMode,
+  type MCPScope,
+  MCP_SCOPES,
 } from './api'
 import { ExposeEditor } from './ExposeEditor'
 
@@ -153,6 +155,8 @@ function GrantEditor({ apikeyId }: { apikeyId: string }) {
             currentExposeMode={current?.expose_mode ?? 'all'}
             currentExpose={current?.expose ?? []}
             currentEnabled={current?.enabled ?? true}
+            currentScopes={current?.scopes ?? null}
+            isInternal={b.transport === 'internal'}
             onSet={(body) =>
               setGrant.mutate(
                 { backend_id: b.id, ...body },
@@ -184,6 +188,7 @@ type GrantBody = {
   expose_mode: ExposeMode
   expose: string[]
   enabled: boolean
+  scopes: MCPScope[] | null
 }
 
 function GrantRow({
@@ -195,6 +200,8 @@ function GrantRow({
   currentExposeMode,
   currentExpose,
   currentEnabled,
+  currentScopes,
+  isInternal,
   onSet,
   onRemove,
 }: {
@@ -206,6 +213,8 @@ function GrantRow({
   currentExposeMode: ExposeMode
   currentExpose: string[]
   currentEnabled: boolean
+  currentScopes: MCPScope[] | null
+  isInternal: boolean
   onSet: (body: GrantBody) => void
   onRemove: () => void
 }) {
@@ -224,6 +233,7 @@ function GrantRow({
       expose_mode: currentExposeMode,
       expose: currentExpose,
       enabled: currentEnabled,
+      scopes: currentScopes,
       ...over,
     })
 
@@ -285,6 +295,29 @@ function GrantRow({
           </Select>
           {currentExposeMode !== 'all' && (
             <ExposeEditor value={currentExpose} onChange={(next) => emit({ expose: next })} />
+          )}
+          {isInternal && (
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <span className="text-xs font-semibold uppercase text-muted-foreground">
+                {t('mcp.apikeys.scopesLabel')}
+              </span>
+              {MCP_SCOPES.map((s) => (
+                <label key={s} className="flex items-center gap-1 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={(currentScopes ?? []).includes(s)}
+                    onChange={() => {
+                      const base = currentScopes ?? []
+                      const next = base.includes(s)
+                        ? base.filter((x) => x !== s)
+                        : [...base, s]
+                      emit({ scopes: next })
+                    }}
+                  />
+                  <code>{s}</code>
+                </label>
+              ))}
+            </div>
           )}
         </div>
       )}

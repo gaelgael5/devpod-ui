@@ -34,13 +34,19 @@ export default function ConsentPage() {
   async function decide(approve: boolean) {
     setBusy(true)
     const grants = approve
-      ? [...checked].map((id) => ({
-          backend_id: id,
-          backend_key_id: null,
-          expose_mode: 'all',
-          expose: [] as string[],
-          enabled: true,
-        }))
+      ? [...checked].map((id) => {
+          const b = backends.find((x) => x.id === id)
+          const base = {
+            backend_id: id,
+            backend_key_id: null,
+            expose_mode: 'all',
+            expose: [] as string[],
+            enabled: true,
+          }
+          // Backend interne (devpod) : least-privilege par défaut (read) ; l'admin
+          // élargit ensuite les scopes via l'écran des apikeys.
+          return b?.transport === 'internal' ? { ...base, scopes: ['read'] } : base
+        })
       : []
     try {
       const res = await apiFetchJson<{ redirect: string }>('/oauth/authorize/decision', {

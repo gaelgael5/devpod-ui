@@ -719,6 +719,7 @@
       "addGrant": "Autoriser",
       "removeGrant": "Retirer",
       "exposeModeLabel": "Curation des outils",
+      "scopesLabel": "Scopes accordés",
       "exposeModeAll": "Tous les outils",
       "exposeModeAllowlist": "Seulement listés",
       "exposeModeDenylist": "Tous sauf listés",

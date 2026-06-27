@@ -169,6 +169,7 @@ async def _issue(
             expose_mode=g.get("expose_mode", "all"),
             expose=g.get("expose", []),
             enabled=g.get("enabled", True),
+            scopes=g.get("scopes"),
         )
     return _token_response(access, refresh_tok)
 

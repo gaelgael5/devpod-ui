@@ -1,9 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch, apiFetchJson } from '@/shared/api/client'
 
-export type Transport = 'streamable_http' | 'sse' | 'stdio'
+export type Transport = 'streamable_http' | 'sse' | 'stdio' | 'internal'
 export type StorageType = 'local' | 'harpocrate'
 export type ExposeMode = 'all' | 'allowlist' | 'denylist'
+// Scopes d'autorisation des backends internes (devpod). Voir spec 24 §4.
+export type MCPScope = 'read' | 'write' | 'exec' | 'admin'
+export const MCP_SCOPES: MCPScope[] = ['read', 'write', 'exec', 'admin']
 
 export type BackendHealth = 'up' | 'down' | 'unknown'
 
@@ -52,6 +55,8 @@ export interface MCPGrant {
   expose: string[]
   // false = service accordé mais temporairement désactivé pour ce client.
   enabled: boolean
+  // Scopes accordés (backends internes type devpod). null = pas d'enforcement.
+  scopes: MCPScope[] | null
 }
 
 export interface BackendCreateBody {
@@ -85,6 +90,8 @@ export interface GrantSetBody {
   expose_mode: ExposeMode
   expose: string[]
   enabled: boolean
+  // Scopes accordés (backends internes type devpod). null/absent = pas d'enforcement.
+  scopes?: MCPScope[] | null
 }
 
 export interface CreatedApikey {

@@ -719,6 +719,7 @@
       "addGrant": "Authorize",
       "removeGrant": "Remove",
       "exposeModeLabel": "Tool curation",
+      "scopesLabel": "Granted scopes",
       "exposeModeAll": "All tools",
       "exposeModeAllowlist": "Only listed",
       "exposeModeDenylist": "All except listed",
