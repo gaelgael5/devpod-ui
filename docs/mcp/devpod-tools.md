@@ -453,3 +453,24 @@
   }
 }
 ```
+
+## `devpod__workspace_get`
+
+- **Scope** : `read`
+- **Description** : Retourne le descripteur complet d'un workspace (repo, branche, recette, node, sessions, dates).
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string"
+    }
+  }
+}
+```

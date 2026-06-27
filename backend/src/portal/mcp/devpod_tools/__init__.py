@@ -108,6 +108,30 @@ async def _workspace_status(conn: AsyncConnection, args: dict[str, Any], owner_l
     }
 
 
+async def _workspace_get(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    name = _require_ws(args)
+    cfg = await load_user_db(owner_login, conn)
+    spec = next((s for s in cfg.workspaces if s.name == name), None)
+    if spec is None:
+        raise DevpodToolError(f"workspace inconnu: {name}")
+    ws_id = f"{owner_login}-{name}"
+    st = await get_service().status(owner_login, ws_id)
+    sessions = await _session_list(conn, {"workspace": name}, owner_login)
+    return {
+        "id": ws_id,
+        "name": spec.name,
+        "repo": spec.source,
+        "branch": spec.branch or None,
+        "status": st.get("status", "unknown"),
+        "node": spec.host or None,
+        "recipe": spec.recipes,
+        "tags": [],
+        "devcontainer_ref": spec.devcontainer_path or spec.template or None,
+        "sessions": sessions,
+        "created_at": st.get("created_at") or st.get("updated_at"),
+    }
+
+
 def _build_tree(lines: list[str]) -> dict[str, Any]:
     """Construit une arborescence imbriquée depuis la sortie `find -printf '%y\\t%p\\n'`."""
     root: dict[str, Any] = {"name": ".", "type": "dir", "children": []}
@@ -351,6 +375,7 @@ async def _portal_reload(conn: AsyncConnection, args: dict[str, Any], owner_logi
 _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any]]] = {
     "workspace_list": _workspace_list,
     "workspace_status": _workspace_status,
+    "workspace_get": _workspace_get,
     "workspace_tree": _workspace_tree,
     "workspace_read_file": _workspace_read_file,
     "workspace_mkdir": _workspace_mkdir,

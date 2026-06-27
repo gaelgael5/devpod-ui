@@ -266,6 +266,19 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "admin",
     },
+    "workspace_get": {
+        "description": (
+            "Retourne le descripteur complet d'un workspace "
+            "(repo, branche, recette, node, sessions, dates)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace"],
+            "properties": {"workspace": {"type": "string"}},
+        },
+        "scope": "read",
+    },
 }
 
 
