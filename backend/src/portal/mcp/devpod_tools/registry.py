@@ -144,6 +144,19 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "read",
     },
+    "workspace_secrets_list": {
+        "description": (
+            "Liste les références de secrets (${vault://...}) liées au workspace. "
+            "Noms uniquement, jamais de valeurs."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace"],
+            "properties": {"workspace": {"type": "string"}},
+        },
+        "scope": "read",
+    },
     "workspace_mkdir": {
         "description": "Crée un répertoire (et ses parents) dans le workspace.",
         "inputSchema": {

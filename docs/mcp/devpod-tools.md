@@ -241,6 +241,27 @@
 }
 ```
 
+## `devpod__workspace_secrets_list`
+
+- **Scope** : `read`
+- **Description** : Liste les références de secrets (${vault://...}) liées au workspace. Noms uniquement, jamais de valeurs.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string"
+    }
+  }
+}
+```
+
 ## `devpod__workspace_mkdir`
 
 - **Scope** : `write`

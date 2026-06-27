@@ -33,6 +33,7 @@ from .paths import safe_workspace_path
 _TMUX_SOCK = '${TMUX_SOCK:+-S "$TMUX_SOCK"}'
 
 _WS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
+_SECRET_REF_RE = re.compile(r"^\$\{(vault|env)://.+\}$")
 _DEFAULT_IGNORE = [".git", ".venv", "node_modules", "__pycache__"]
 
 __all__ = ["DevpodToolError", "execute_internal_tool"]
@@ -331,6 +332,22 @@ async def _workspace_read_file(
         "size": len(data),
         "sha256": hashlib.sha256(data).hexdigest(),
     }
+
+
+async def _workspace_secrets_list(
+    conn: AsyncConnection, args: dict[str, Any], owner_login: str
+) -> Any:
+    name = _require_ws(args)
+    cfg = await load_user_db(owner_login, conn)
+    spec = next((s for s in cfg.workspaces if s.name == name), None)
+    if spec is None:
+        raise DevpodToolError(f"workspace inconnu: {name}")
+    refs = [
+        {"target": key, "reference": val}
+        for key, val in (spec.env or {}).items()
+        if isinstance(val, str) and _SECRET_REF_RE.fullmatch(val)
+    ]
+    return {"references": refs}
 
 
 async def _workspace_tree(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
@@ -740,6 +757,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_get": _workspace_get,
     "workspace_tree": _workspace_tree,
     "workspace_read_file": _workspace_read_file,
+    "workspace_secrets_list": _workspace_secrets_list,
     "workspace_mkdir": _workspace_mkdir,
     "workspace_write_file": _workspace_write_file,
     "workspace_exec": _workspace_exec,
