@@ -375,6 +375,46 @@ stat -c "%n %a" /data/.env /data/certs/ca/ca-key.pem /data/certs/portal/key.pem
 
 ---
 
+## Étape 9 — Configurer le tunnel Cloudflare (DNS wildcard workspaces)
+
+Cette étape est **obligatoire** pour que les workspaces soient accessibles depuis le navigateur.
+Chaque workspace est exposé sur un sous-domaine `ws-<id>.dev.yoops.org`. Le tunnel Cloudflare
+doit router ce wildcard vers Caddy.
+
+### Prérequis
+
+- Avoir accès à la machine qui héberge `cloudflared` (la machine Cloudflare).
+- Connaître le nom du tunnel (commande ci-dessous).
+
+### Procédure (une seule fois)
+
+```bash
+# 1. Identifier le nom du tunnel
+cloudflared tunnel list
+
+# 2. Ajouter le CNAME wildcard (remplacer <nom-du-tunnel> par la valeur trouvée ci-dessus)
+cloudflared tunnel route dns <nom-du-tunnel> "*.dev.yoops.org"
+```
+
+Résultat attendu :
+```
+Added CNAME *.dev.yoops.org which will route to this tunnel tunnelID=…
+```
+
+Cloudflare crée automatiquement l'enregistrement DNS `*.dev.yoops.org → <tunnel-uuid>.cfargotunnel.com`
+dans la zone `yoops.org`. Aucune configuration supplémentaire n'est nécessaire : Caddy gère les
+routes par workspace dynamiquement via son API admin.
+
+### Vérification
+
+```bash
+# Depuis n'importe quelle machine avec dig
+dig ws-test.dev.yoops.org
+# Doit retourner un CNAME vers <tunnel-uuid>.cfargotunnel.com, pas NXDOMAIN
+```
+
+---
+
 ## Étape suivante — Enrôler les nœuds Docker
 
 Le portail est opérationnel. Pour lui connecter un premier nœud Docker :
@@ -419,6 +459,21 @@ docker compose -f deploy/docker-compose.yml exec portal ls /data/certs/ca/
 Si `/data` est vide, `install.sh` peut être ré-exécuté — il régénèrera la CA.
 **Attention :** une nouvelle CA invalide tous les certificats de nœuds déjà enrôlés —
 ceux-ci devront être ré-enrôlés.
+
+### Workspace inaccessible — `ERR_NAME_NOT_RESOLVED`
+
+L'URL `https://ws-<id>.dev.yoops.org/` retourne une erreur DNS dans le navigateur.
+Le CNAME wildcard Cloudflare n'a pas encore été posé (étape 9 manquante).
+
+Sur la machine Cloudflare :
+
+```bash
+cloudflared tunnel list                                    # obtenir le nom du tunnel
+cloudflared tunnel route dns <nom-du-tunnel> "*.dev.yoops.org"
+```
+
+Une fois la commande exécutée, la propagation DNS est quasi-immédiate (Cloudflare).
+Rafraîchir le navigateur suffit — aucun redémarrage du portail ni de Caddy n'est nécessaire.
 
 ### Caddy ne renouvelle pas le certificat wildcard
 
