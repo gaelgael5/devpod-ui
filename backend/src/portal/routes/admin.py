@@ -182,38 +182,46 @@ class NetworkRequest(BaseModel):
     base_domain: str = ""
     external_url: str = ""
     workspace_host: str = ""
+    dev_mode: bool = False
 
 
 @router.get("/network")
-async def get_network(user: UserInfo = Depends(require_admin)) -> dict[str, str]:
+async def get_network(user: UserInfo = Depends(require_admin)) -> dict[str, object]:
     s = load_global().server
     return {
         "base_domain": s.base_domain,
         "external_url": s.external_url,
         "workspace_host": s.workspace_host,
+        "dev_mode": s.dev_mode,
     }
 
 
 @router.put("/network")
 async def put_network(
     body: NetworkRequest, user: UserInfo = Depends(require_admin)
-) -> dict[str, str]:
+) -> dict[str, object]:
     """Config réseau : domaine de base, URL externe, hôte direct des workspaces.
 
     base_domain renseigné → exposition des workspaces par sous-domaine Caddy.
+    dev_mode=True → URL directe IP:port (pas de route Caddy, pour accès local sans tunnel).
     """
     try:
         clean = validate_network(body.base_domain, body.external_url, body.workspace_host)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     cfg = load_global()
-    cfg.server = cfg.server.model_copy(update=clean)
+    cfg.server = cfg.server.model_copy(update={**clean, "dev_mode": body.dev_mode})
     from ..db.engine import _get_engine
 
     async with _get_engine().begin() as conn:
         await save_global_db(cfg, conn)
-    _log.info("network_config_updated", by=user.login, base_domain=clean["base_domain"])
-    return clean
+    _log.info(
+        "network_config_updated",
+        by=user.login,
+        base_domain=clean["base_domain"],
+        dev_mode=body.dev_mode,
+    )
+    return {**clean, "dev_mode": body.dev_mode}
 
 
 # ─── Hosts CRUD ───────────────────────────────────────────────────────────────

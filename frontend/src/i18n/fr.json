@@ -1,4 +1,28 @@
 {
+  "groups": {
+    "new": "Nouveau groupe",
+    "manage": "Gérer les groupes",
+    "rename": "Renommer",
+    "delete": "Supprimer",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "create": "Créer",
+    "ungrouped": "Sans groupe",
+    "createTitle": "Nouveau groupe",
+    "renameTitle": "Renommer le groupe",
+    "deleteTitle": "Supprimer le groupe",
+    "deleteDescription": "Supprimer le groupe «{{name}}» ? Les workspaces ne seront pas supprimés.",
+    "assignTitle": "Groupes — {{name}}",
+    "assignDescription": "Sélectionnez les groupes auxquels appartient ce workspace.",
+    "noGroupsYet": "Aucun groupe. Créez-en un d'abord.",
+    "namePlaceholder": "Nom du groupe…",
+    "error": {
+      "create": "Impossible de créer le groupe : {{message}}",
+      "rename": "Impossible de renommer le groupe : {{message}}",
+      "delete": "Impossible de supprimer le groupe : {{message}}",
+      "assign": "Impossible de mettre à jour les groupes : {{message}}"
+    }
+  },
   "workspaces": {
     "title": "Workspaces",
     "new": "Nouveau workspace",
@@ -235,6 +259,8 @@
       "externalUrlHint": "URL publique absolue du portail, ex. https://dev.yoops.org.",
       "workspaceHost": "Hôte direct des workspaces",
       "workspaceHostHint": "Optionnel. IP/hôte joignable en direct quand il n'y a pas de sous-domaine, ex. 192.168.10.50.",
+      "devMode": "Mode dev (URL directe avec port)",
+      "devModeHint": "Activé : les workspaces sont accessibles via une URL directe IP:port (sans route Caddy). À utiliser uniquement pour un accès local sans tunnel Cloudflare.",
       "save": "Enregistrer",
       "saved": "Configuration réseau enregistrée"
     },
@@ -743,7 +769,21 @@
     "actions": { "stop": "Arrêter", "start": "Démarrer", "restart": "Redémarrer", "down": "Détruire", "logs": "Logs", "edit": "Éditer", "delete": "Supprimer" },
     "empty": { "templates": "Aucun template.", "deployments": "Aucun déploiement." },
     "delete": { "confirm": "Supprimer ?", "cancel": "Annuler", "ok": "Supprimer", "title": "Supprimer le template ?", "description": "Le template «{{name}}» sera définitivement supprimé." },
-    "logs": { "title": "Logs — {{name}}" }
+    "logs": { "title": "Logs — {{name}}" },
+    "catalog": {
+      "sources": "Sources de la galerie",
+      "addSource": "Ajouter",
+      "deleteSource": "Supprimer la source",
+      "gallery": "Galerie",
+      "refresh": "Rafraîchir",
+      "filter": "Filtrer par nom, tag ou image…",
+      "import": "Importer",
+      "importing": "Import…",
+      "imported": "Template {{id}} importé",
+      "empty": "Aucun template dans le catalogue.",
+      "noMatch": "Aucun résultat pour ce filtre.",
+      "hint": "Cliquez sur Rafraîchir pour charger le catalogue."
+    }
   },
   "common": {
     "loading": "Chargement…",

@@ -6,6 +6,7 @@ export interface NetworkConfig {
   base_domain: string
   external_url: string
   workspace_host: string
+  dev_mode: boolean
 }
 
 export function useAdminNetwork() {
