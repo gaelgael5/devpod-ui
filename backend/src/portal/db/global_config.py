@@ -98,6 +98,8 @@ def _build_global_config(
             "dev_mode": row["dev_mode"],
             "workspace_host": row["workspace_host"],
             "local_domain": row["local_domain"],
+            "vs_proxy_domain": row["vs_proxy_domain"],
+            "cookie_domain": row["cookie_domain"],
             "log": {
                 "level": row["log_level"],
                 "format": row["log_format"],
@@ -233,6 +235,8 @@ def _cfg_to_scalars(cfg: GlobalConfig) -> dict[str, Any]:
         "dev_mode": cfg.server.dev_mode,
         "workspace_host": cfg.server.workspace_host,
         "local_domain": cfg.server.local_domain,
+        "vs_proxy_domain": cfg.server.vs_proxy_domain,
+        "cookie_domain": cfg.server.cookie_domain,
         "log_level": cfg.server.log.level,
         "log_format": cfg.server.log.format,
         "log_output": cfg.server.log.output,

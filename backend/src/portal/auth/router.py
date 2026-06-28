@@ -206,12 +206,23 @@ async def caddy_verify(request: Request) -> Response:
     """Endpoint Caddy forward_auth — valide la session OIDC. §F-33 fail-closed.
 
     Caddy appelle cet endpoint pour chaque requête vers un workspace.
-    Sans session valide → 302 vers le login (le navigateur est redirigé, pas de
-    page blanche). Session valide mais rôle insuffisant → 403. Sinon → 200.
-    Fail-closed : tout doute refuse l'accès au workspace.
+    Sans session valide → 302 vers le login du portail (URL absolue obligatoire —
+    une URL relative causerait une boucle infinie car Caddy intercepterait la
+    requête /auth/login sur le sous-domaine workspace et relancerait forward_auth).
+    Session valide mais rôle insuffisant → 403. Sinon → 200.
     """
     settings = get_settings()
-    login_url = f"{load_global().server.external_url}/auth/login"
+    external_url = load_global().server.external_url
+    if not external_url:
+        # external_url non configuré → fail-closed 403 plutôt que boucle infinie.
+        # Une URL relative (/auth/login) resterait sur le sous-domaine workspace,
+        # Caddy relancerait forward_auth, la même 302 serait émise → ERR_TOO_MANY_REDIRECTS.
+        _log.error("caddy_verify_no_external_url", reason="portal_not_configured")
+        return Response(
+            status_code=403,
+            content="Portal not configured — set external_url in admin settings",
+        )
+    login_url = f"{external_url}/auth/login"
     try:
         user = rbac_mod.get_current_user(request)
     except Exception as exc:
@@ -225,3 +236,73 @@ async def caddy_verify(request: Request) -> Response:
         _log.warning("caddy_verify_denied", reason="role_mismatch", login=user.login)
         return Response(status_code=403)
     return Response(status_code=200)
+
+
+@router.get("/caddy/verify-workspace")
+async def caddy_verify_workspace(request: Request) -> Response:
+    """Forward_auth pour le proxy VS Code à sous-domaine fixe (vs_proxy_domain). §F-33.
+
+    Vérifie la session OIDC puis résout le workspace actif de l'utilisateur.
+    Retourne X-Workspace-Upstream: portal:{port} que Caddy injecte dans
+    {http.vars.workspace_upstream} via le handler vars de handle_response.
+    """
+    from urllib.parse import parse_qs, urlparse
+
+    from ..db.engine import _get_engine
+    from ..db.workspace_status import list_by_login_db
+
+    settings = get_settings()
+    external_url = load_global().server.external_url
+    if not external_url:
+        _log.error("caddy_verify_workspace_no_external_url", reason="portal_not_configured")
+        return Response(
+            status_code=403,
+            content="Portal not configured — set external_url in admin settings",
+        )
+    login_url = f"{external_url}/auth/login"
+    try:
+        user = rbac_mod.get_current_user(request)
+    except Exception as exc:
+        _log.warning(
+            "caddy_verify_workspace_denied", reason="exception", exc_type=type(exc).__name__
+        )
+        return RedirectResponse(login_url, status_code=302)
+    if user is None:
+        _log.warning("caddy_verify_workspace_denied", reason="no_session")
+        return RedirectResponse(login_url, status_code=302)
+    allowed = {settings.oidc_user_role, settings.oidc_admin_role}
+    if not set(user.roles) & allowed:
+        _log.warning("caddy_verify_workspace_denied", reason="role_mismatch", login=user.login)
+        return Response(status_code=403)
+
+    # Extraire un ws_id éventuel depuis ?folder=/workspaces/{ws_id} dans l'URI forwarded.
+    ws_id_hint: str | None = None
+    forwarded_uri = request.headers.get("x-forwarded-uri", "")
+    if forwarded_uri:
+        parsed_uri = urlparse(forwarded_uri)
+        folders = parse_qs(parsed_uri.query).get("folder", [])
+        if folders:
+            parts = folders[0].strip("/").split("/")
+            if len(parts) >= 2 and parts[0] == "workspaces":
+                ws_id_hint = parts[1]
+
+    async with _get_engine().begin() as conn:
+        all_ws = await list_by_login_db(user.login, conn)
+
+    running = [w for w in all_ws if w.get("status") == "running" and w.get("host_port")]
+    if not running:
+        _log.warning("caddy_verify_workspace_no_ws", login=user.login)
+        return Response(status_code=503, content="No active workspace")
+
+    # Préférer le workspace identifié par ?folder=, sinon le premier disponible.
+    ws = next((w for w in running if w.get("ws_id") == ws_id_hint), running[0])
+    host_port = ws["host_port"]
+    _log.info(
+        "caddy_verify_workspace_ok",
+        login=user.login,
+        ws_id=ws.get("ws_id"),
+        host_port=host_port,
+    )
+    response = Response(status_code=200)
+    response.headers["X-Workspace-Upstream"] = f"portal:{host_port}"
+    return response

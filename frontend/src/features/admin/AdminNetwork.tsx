@@ -14,6 +14,8 @@ function NetworkForm({ initial }: { initial: NetworkConfig }) {
   const [externalUrl, setExternalUrl] = useState(initial.external_url)
   const [workspaceHost, setWorkspaceHost] = useState(initial.workspace_host)
   const [devMode, setDevMode] = useState(initial.dev_mode)
+  const [vsProxyDomain, setVsProxyDomain] = useState(initial.vs_proxy_domain)
+  const [cookieDomain, setCookieDomain] = useState(initial.cookie_domain)
 
   function handleSave() {
     save.mutate(
@@ -22,6 +24,8 @@ function NetworkForm({ initial }: { initial: NetworkConfig }) {
         external_url: externalUrl,
         workspace_host: workspaceHost,
         dev_mode: devMode,
+        vs_proxy_domain: vsProxyDomain,
+        cookie_domain: cookieDomain,
       },
       { onSuccess: () => toast.success(t('admin.network.saved')) },
     )
@@ -60,6 +64,28 @@ function NetworkForm({ initial }: { initial: NetworkConfig }) {
           placeholder="192.168.10.50"
         />
         <p className="text-xs text-muted-foreground">{t('admin.network.workspaceHostHint')}</p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="net-cookie-domain">{t('admin.network.cookieDomain')}</Label>
+        <Input
+          id="net-cookie-domain"
+          value={cookieDomain}
+          onChange={(e) => setCookieDomain(e.target.value)}
+          placeholder="yoops.org"
+        />
+        <p className="text-xs text-muted-foreground">{t('admin.network.cookieDomainHint')}</p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="net-vs-proxy-domain">{t('admin.network.vsProxyDomain')}</Label>
+        <Input
+          id="net-vs-proxy-domain"
+          value={vsProxyDomain}
+          onChange={(e) => setVsProxyDomain(e.target.value)}
+          placeholder="vs-dev.yoops.org"
+        />
+        <p className="text-xs text-muted-foreground">{t('admin.network.vsProxyDomainHint')}</p>
       </div>
 
       <div className="flex flex-col gap-1.5">

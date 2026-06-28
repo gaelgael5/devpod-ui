@@ -183,6 +183,8 @@ class NetworkRequest(BaseModel):
     external_url: str = ""
     workspace_host: str = ""
     dev_mode: bool = False
+    vs_proxy_domain: str = ""
+    cookie_domain: str = ""
 
 
 @router.get("/network")
@@ -193,6 +195,8 @@ async def get_network(user: UserInfo = Depends(require_admin)) -> dict[str, obje
         "external_url": s.external_url,
         "workspace_host": s.workspace_host,
         "dev_mode": s.dev_mode,
+        "vs_proxy_domain": s.vs_proxy_domain,
+        "cookie_domain": s.cookie_domain,
     }
 
 
@@ -206,7 +210,13 @@ async def put_network(
     dev_mode=True → URL directe IP:port (pas de route Caddy, pour accès local sans tunnel).
     """
     try:
-        clean = validate_network(body.base_domain, body.external_url, body.workspace_host)
+        clean = validate_network(
+            body.base_domain,
+            body.external_url,
+            body.workspace_host,
+            body.vs_proxy_domain,
+            body.cookie_domain,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     cfg = load_global()
@@ -219,6 +229,10 @@ async def put_network(
     # Invalider le singleton DevPodService (embarque ExposureService avec dev_mode/base_domain
     # baked-in). Le prochain _get_service() le recrée depuis la DB.
     _reset_service()
+    # Actualise immédiatement le domaine du cookie de session (sans redémarrage).
+    from ..settings import update_cookie_domain
+
+    update_cookie_domain(clean.get("cookie_domain", ""), clean.get("base_domain", ""))
     # Réexposer immédiatement les workspaces actifs avec la nouvelle config.
     await re_expose_running_workspaces()
     _log.info(
@@ -227,7 +241,12 @@ async def put_network(
         base_domain=clean["base_domain"],
         dev_mode=body.dev_mode,
     )
-    return {**clean, "dev_mode": body.dev_mode}
+    return {
+        **clean,
+        "dev_mode": body.dev_mode,
+        "vs_proxy_domain": clean.get("vs_proxy_domain", ""),
+        "cookie_domain": clean.get("cookie_domain", ""),
+    }
 
 
 # ─── Hosts CRUD ───────────────────────────────────────────────────────────────

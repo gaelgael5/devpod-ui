@@ -34,6 +34,8 @@ global_config = Table(
     Column("dev_mode", Boolean, nullable=False, server_default="false"),
     Column("workspace_host", Text, nullable=False, server_default=""),
     Column("local_domain", Text, nullable=False, server_default=""),
+    Column("vs_proxy_domain", Text, nullable=False, server_default=""),
+    Column("cookie_domain", Text, nullable=False, server_default=""),
     # LogConfig
     Column("log_level", Text, nullable=False, server_default="info"),
     Column("log_format", Text, nullable=False, server_default="text"),
@@ -202,9 +204,20 @@ workspaces = Table(
     Column("default_start", Text, nullable=False, server_default=""),
     Column("recipe_volumes", ARRAY(Text), nullable=False, server_default="{}"),
     Column("init_recipes", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("groups", ARRAY(Text), nullable=False, server_default="{}"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("login", "name", name="uq_workspaces_login_name"),
+)
+
+workspace_group = Table(
+    "workspace_group",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("name", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("login", "name", name="uq_workspace_group_login_name"),
 )
 
 workspace_extra_sources = Table(
@@ -550,6 +563,18 @@ mcp_oauth_authcode = Table(
     Column("grants", JSONB, nullable=False, server_default="[]"),  # backends + curation choisis
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("used", Boolean, nullable=False, server_default="false"),
+)
+
+# ─── Compose Gallery : sources de la galerie ─────────────────────────────────
+
+compose_catalog_sources = Table(
+    "compose_catalog_sources",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("url", Text, nullable=False, unique=True),
+    Column("position", Integer, nullable=False, server_default="0"),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
 # ─── Compose Gallery (lot 1) ─────────────────────────────────────────────────

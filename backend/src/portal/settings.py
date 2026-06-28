@@ -73,3 +73,26 @@ def get_settings() -> AppSettings:
     if _settings is None:
         _settings = AppSettings()
     return _settings
+
+
+# ─── Domaine effectif du cookie de session ────────────────────────────────────
+# Initialisé depuis les settings (env) dans create_app(), mis à jour depuis la
+# DB dans le lifespan et après chaque PUT /admin/network.
+# Stocké ici (settings.py) pour éviter l'import circulaire app.py ↔ routes/admin.py.
+
+_effective_cookie_domain: str | None = None
+
+
+def update_cookie_domain(cookie_domain: str, base_domain: str) -> None:
+    """Met à jour le domaine effectif du cookie de session.
+
+    cookie_domain prime sur base_domain (même logique que resolve_cookie_domain).
+    Appelable depuis create_app() et PUT /admin/network sans redémarrage.
+    """
+    global _effective_cookie_domain
+    _effective_cookie_domain = resolve_cookie_domain(cookie_domain, base_domain)
+
+
+def get_effective_cookie_domain() -> str | None:
+    """Domaine effectif courant du cookie de session (lu par _PortalSessionMiddleware)."""
+    return _effective_cookie_domain

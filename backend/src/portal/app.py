@@ -22,6 +22,7 @@ from .routes import compose as compose_routes
 from .routes.admin import router as admin_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
+from .routes.compose_sources import router_admin as compose_sources_admin_router
 from .routes.mcp import router as mcp_router
 from .routes.me import router as me_router
 from .routes.nodes import router as nodes_router
@@ -43,14 +44,36 @@ from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
 from .routes.test_vm import router as test_vm_router
 from .routes.vault import router as vault_router
+from .routes.workspace_groups import router as workspace_groups_router
 from .routes.workspace_ops import _get_service
 from .routes.workspace_ops import router as workspace_ops_router
 from .routes.workspace_sessions import router as workspace_sessions_router
 from .routes.workspace_ssh import router as workspace_ssh_router
-from .settings import get_settings, resolve_cookie_domain
+from .settings import (
+    get_effective_cookie_domain,
+    get_settings,
+    update_cookie_domain,
+)
 from .spa import should_serve_spa
 
 _log = structlog.get_logger(__name__)
+
+
+class _PortalSessionMiddleware(SessionMiddleware):
+    """SessionMiddleware dont le domaine de cookie est résolu dynamiquement.
+
+    Lit get_effective_cookie_domain() à chaque Set-Cookie au lieu d'un domaine
+    figé à l'init — permet de changer cookie_domain via /admin/network sans redémarrage.
+    """
+
+    @property  # type: ignore[override]
+    def domain(self) -> str | None:
+        return get_effective_cookie_domain()
+
+    @domain.setter
+    def domain(self, _value: str | None) -> None:
+        pass  # ignoré : on lit toujours le global via la property
+
 
 # L'environnement Docker n'a pas de routage IPv6. urllib3 (requests/harpocrate)
 # tente IPv6 en premier et échoue sans fallback. On réordonne getaddrinfo pour
@@ -109,6 +132,15 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await run_migrations(settings_obj.database_url)
         async with _get_engine().begin() as conn:
             await warm_global_cache(conn)
+            # Actualise le domaine de cookie depuis la DB (prime sur l'env).
+            from .db.global_config import get_cached_global
+
+            cached = get_cached_global()
+            if cached is not None:
+                update_cookie_domain(
+                    cached.server.cookie_domain or settings_obj.cookie_domain,
+                    cached.server.base_domain or settings_obj.base_domain,
+                )
             from .secrets.system import ensure_system_user
 
             await ensure_system_user(conn)
@@ -188,20 +220,22 @@ def create_app() -> FastAPI:
     # Ordre d'exécution requête : SessionMiddleware → SPAMiddleware → Router.
     # SPAMiddleware court-circuite le routeur API pour les navigations browser.
     app.add_middleware(SPAMiddleware)
+    # Initialise le domaine effectif du cookie depuis l'env (sera mis à jour depuis
+    # la DB dans le lifespan, et après chaque PUT /admin/network).
+    update_cookie_domain(settings.cookie_domain, settings.base_domain)
     app.add_middleware(
-        SessionMiddleware,
+        _PortalSessionMiddleware,
         secret_key=settings.session_secret_key or "dev-only-insecure-key",
         session_cookie="portal_session",
         https_only=not settings.dev_mode,
         same_site="lax",
         max_age=86400,
-        # Partage le cookie avec les workspaces (forward_auth Caddy) — COOKIE_DOMAIN
-        # prime sur BASE_DOMAIN quand portail et workspaces diffèrent d'ancêtre.
-        domain=resolve_cookie_domain(settings.cookie_domain, settings.base_domain),
+        # domain= ignoré par _PortalSessionMiddleware (lu via get_effective_cookie_domain).
     )
     app.include_router(auth_router)
     app.include_router(me_router, prefix="/me")
     app.include_router(workspace_ops_router, prefix="/me")
+    app.include_router(workspace_groups_router, prefix="/me")
     app.include_router(workspace_sessions_router, prefix="/me")
     app.include_router(test_vm_router, prefix="/me")
     app.include_router(plugins_router)
@@ -224,6 +258,7 @@ def create_app() -> FastAPI:
     app.include_router(secrets_admin_router, prefix="/admin")
     app.include_router(mcp_router, prefix="/me")
     app.include_router(compose_routes.router)
+    app.include_router(compose_sources_admin_router, prefix="/admin")
     app.include_router(oauth_router)  # racine : /.well-known/* et /oauth/*
     # static_router en dernier : son catch-all /{full_path:path} ne doit pas
     # intercepter les routes API enregistrées avant lui.

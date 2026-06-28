@@ -36,6 +36,8 @@ class ExposureService:
         dev_mode: bool = False,
         external_url: str = "",
         workspace_host: str = "",
+        vs_proxy_domain: str = "",
+        vs_proxy_verify_uri: str = "",
     ) -> None:
         self._caddy = caddy
         self._registry = registry
@@ -44,6 +46,8 @@ class ExposureService:
         self._dev_mode = dev_mode
         self._external_url = external_url
         self._workspace_host = workspace_host
+        self._vs_proxy_domain = vs_proxy_domain
+        self._vs_proxy_verify_uri = vs_proxy_verify_uri
 
     async def allocate_port(self, ws_id: str) -> int:
         """Délègue l'allocation de port au PortRegistry.
@@ -81,6 +85,20 @@ class ExposureService:
         if not _WS_ID_RE.fullmatch(ws_id):
             raise ValueError(f"Invalid ws_id: {ws_id!r}")
         folder = workspace_folder or f"/workspaces/{ws_id}"
+
+        if self._vs_proxy_domain:
+            # Proxy VS Code à sous-domaine fixe : une seule route Caddy partagée,
+            # l'upstream est résolu dynamiquement via /auth/caddy/verify-workspace.
+            if self._caddy is not None:
+                await self._caddy.upsert_vs_proxy_route(
+                    match_host=self._vs_proxy_domain,
+                    verify_uri=self._vs_proxy_verify_uri,
+                )
+            url = f"{self._url_scheme}://{self._vs_proxy_domain}/?folder={folder}"
+            await self._write_exposure(ws_id, hostname=self._vs_proxy_domain, url=url)
+            _log.info("workspace_exposed_vs_proxy", ws_id=ws_id, url=url)
+            return url
+
         if self._dev_mode:
             host = (
                 request_host
@@ -143,7 +161,8 @@ class ExposureService:
         Args:
             ws_id: identifiant du workspace à désexposer.
         """
-        if not self._dev_mode and self._caddy is not None:
+        # En mode vs_proxy ou dev_mode, pas de route per-workspace à supprimer.
+        if not self._vs_proxy_domain and not self._dev_mode and self._caddy is not None:
             route_id = f"ws-{ws_id}"
             await self._caddy.remove_route(route_id)
         await self._clear_exposure(ws_id)
