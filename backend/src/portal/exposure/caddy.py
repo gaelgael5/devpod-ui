@@ -54,15 +54,52 @@ def _ws_proxy_dynamic() -> dict[str, object]:
     }
 
 
-def _forward_auth_handler(verify_uri: str) -> dict[str, object]:
+def _forward_auth_handler(
+    verify_uri: str,
+    *,
+    after: dict[str, object] | None = None,
+) -> dict[str, object]:
     """Équivalent JSON de la directive Caddyfile `forward_auth` (§F-33 fail-closed).
 
     `forward_auth` n'est PAS un handler Caddy : c'est un reverse_proxy vers le
     serveur d'auth, réécrit en GET sur le chemin de vérification, dont la réponse
     non-2xx est renvoyée telle quelle (accès refusé) et la 2xx laisse passer la
     requête (en recopiant le Cookie). Structure issue de `caddy adapt`.
+
+    `after` : handler optionnel injecté en dernière route dans handle_response (2xx).
+    Nécessaire pour les cas où l'upstream est dynamique (vs-proxy) : les vars Caddy
+    settées dans handle_response ne propagent pas au handler suivant dans la chaîne
+    extérieure. Le proxy doit donc être DANS handle_response pour lire les vars.
     """
     parsed = urlparse(verify_uri)
+    handle_response_routes: list[dict[str, object]] = [
+        {
+            "handle": [
+                {
+                    "handler": "vars",
+                    "workspace_upstream": (
+                        "{http.reverse_proxy.header.X-Workspace-Upstream}"
+                    ),
+                }
+            ]
+        },
+        {"handle": [{"handler": "headers", "request": {"delete": ["Cookie"]}}]},
+        {
+            "handle": [
+                {
+                    "handler": "headers",
+                    "request": {
+                        "set": {"Cookie": ["{http.reverse_proxy.header.Cookie}"]}
+                    },
+                }
+            ],
+            "match": [
+                {"not": [{"vars": {"{http.reverse_proxy.header.Cookie}": [""]}}]}
+            ],
+        },
+    ]
+    if after is not None:
+        handle_response_routes.append({"handle": [after]})
     return {
         "handler": "reverse_proxy",
         "upstreams": [{"dial": parsed.netloc}],
@@ -83,32 +120,7 @@ def _forward_auth_handler(verify_uri: str) -> dict[str, object]:
         "handle_response": [
             {
                 "match": {"status_code": [2]},
-                "routes": [
-                    {
-                        "handle": [
-                            {
-                                "handler": "vars",
-                                "workspace_upstream": (
-                                    "{http.reverse_proxy.header.X-Workspace-Upstream}"
-                                ),
-                            }
-                        ]
-                    },
-                    {"handle": [{"handler": "headers", "request": {"delete": ["Cookie"]}}]},
-                    {
-                        "handle": [
-                            {
-                                "handler": "headers",
-                                "request": {
-                                    "set": {"Cookie": ["{http.reverse_proxy.header.Cookie}"]}
-                                },
-                            }
-                        ],
-                        "match": [
-                            {"not": [{"vars": {"{http.reverse_proxy.header.Cookie}": [""]}}]}
-                        ],
-                    },
-                ],
+                "routes": handle_response_routes,
             }
         ],
     }
@@ -162,7 +174,10 @@ def _build_vs_proxy_route(
             {
                 "handler": "subroute",
                 "routes": [
-                    {"handle": [_forward_auth_handler(verify_uri), _ws_proxy_dynamic()]}
+                    # Le proxy dynamique est DANS handle_response (after=) : les vars
+                    # Caddy settées dans handle_response ne propagent pas à un handler
+                    # extérieur — dial :{http.vars.workspace_upstream} resterait vide.
+                    {"handle": [_forward_auth_handler(verify_uri, after=_ws_proxy_dynamic())]}
                 ],
             }
         ],
