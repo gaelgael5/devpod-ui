@@ -93,6 +93,7 @@ class ExposureService:
                 await self._caddy.upsert_vs_proxy_route(
                     match_host=self._vs_proxy_domain,
                     verify_uri=self._vs_proxy_verify_uri,
+                    host_port=host_port,
                 )
             url = f"{self._url_scheme}://{self._vs_proxy_domain}/?folder={folder}"
             await self._write_exposure(ws_id, hostname=self._vs_proxy_domain, url=url)

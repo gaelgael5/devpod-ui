@@ -39,62 +39,21 @@ def _ws_proxy(upstream: str) -> dict[str, object]:
     }
 
 
-def _ws_proxy_dynamic() -> dict[str, object]:
-    """reverse_proxy vers le workspace avec upstream résolu dynamiquement.
-
-    L'upstream est lu depuis {http.request.header.X-Workspace-Upstream},
-    header positionné dans handle_response par `headers.request.set` à partir
-    de la réponse du serveur d'auth (mécanisme forward_auth copy_headers).
-    Utilisé uniquement avec la route vs-proxy (vs_proxy_domain).
-    """
-    return {
-        "handler": "reverse_proxy",
-        "upstreams": [{"dial": "{http.request.header.X-Workspace-Upstream}"}],
-        "flush_interval": -1,
-        "transport": {"protocol": "http", "read_buffer_size": 0},
-    }
-
-
-def _forward_auth_handler(
-    verify_uri: str,
-    *,
-    after: dict[str, object] | None = None,
-) -> dict[str, object]:
+def _forward_auth_handler(verify_uri: str) -> dict[str, object]:
     """Équivalent JSON de la directive Caddyfile `forward_auth` (§F-33 fail-closed).
 
     `forward_auth` n'est PAS un handler Caddy : c'est un reverse_proxy vers le
     serveur d'auth, réécrit en GET sur le chemin de vérification, dont la réponse
     non-2xx est renvoyée telle quelle (accès refusé) et la 2xx laisse passer la
-    requête (en recopiant le Cookie). Structure issue de `caddy adapt`.
+    requête via next (en recopiant le Cookie). Structure issue de `caddy adapt`.
 
-    `after` : handler optionnel injecté en dernière route dans handle_response (2xx).
-    Nécessaire pour les cas où l'upstream est dynamique (vs-proxy) : les vars Caddy
-    settées dans handle_response ne propagent pas au handler suivant dans la chaîne
-    extérieure. Le proxy doit donc être DANS handle_response pour lire les vars.
+    Le proxy workspace doit être dans la même liste handle que ce handler :
+    quand handle_response [2xx] complète sans écrire de réponse, Caddy appelle
+    next.ServeHTTP → le handler suivant s'exécute (ex. _ws_proxy). C'est le
+    pattern Caddyfile `forward_auth` + `reverse_proxy` enchaînés.
     """
     parsed = urlparse(verify_uri)
-    # Stratégie : copier les headers de la réponse d'auth en headers de requête
-    # (mécanisme `forward_auth copy_headers` en Caddyfile, bien documenté Caddy).
-    # On évite le handler `vars` dont le placeholder {http.reverse_proxy.header.*}
-    # ne se résout pas de façon fiable dans toutes les versions de Caddy.
-    # _ws_proxy_dynamic lit ensuite {http.request.header.X-Workspace-Upstream}.
     handle_response_routes: list[dict[str, object]] = [
-        {
-            "handle": [
-                {
-                    "handler": "headers",
-                    "request": {
-                        "set": {
-                            # Caddy lowercaseize les noms de headers dans ses placeholders
-                        # {http.reverse_proxy.header.*} → minuscules obligatoires.
-                        "X-Workspace-Upstream": [
-                            "{http.reverse_proxy.header.x-workspace-upstream}"
-                        ]
-                        }
-                    },
-                }
-            ]
-        },
         {"handle": [{"handler": "headers", "request": {"delete": ["Cookie"]}}]},
         {
             "handle": [
@@ -110,8 +69,6 @@ def _forward_auth_handler(
             ],
         },
     ]
-    if after is not None:
-        handle_response_routes.append({"handle": [after]})
     return {
         "handler": "reverse_proxy",
         "upstreams": [{"dial": parsed.netloc}],
@@ -173,12 +130,16 @@ def _build_vs_proxy_route(
     route_id: str,
     match_host: str,
     verify_uri: str,
+    host_port: int,
 ) -> dict[str, object]:
     """Route Caddy pour le proxy VS Code à sous-domaine fixe (vs_proxy_domain).
 
-    Contrairement aux routes per-workspace, l'upstream est résolu dynamiquement
-    depuis X-Workspace-Upstream retourné par /auth/caddy/verify-workspace.
+    Utilise le même pattern que _build_route : forward_auth + _ws_proxy chaînés
+    dans le même handle list. Quand handle_response [2xx] complète sans réponse,
+    Caddy appelle next → _ws_proxy s'exécute. Pas de placeholder dynamique :
+    l'upstream est inscrit dans la route au moment du workspace_up.
     """
+    upstream = f"portal:{host_port}"
     return {
         "@id": route_id,
         "match": [{"host": [match_host]}],
@@ -186,10 +147,7 @@ def _build_vs_proxy_route(
             {
                 "handler": "subroute",
                 "routes": [
-                    # Le proxy dynamique est DANS handle_response (after=) : les vars
-                    # Caddy settées dans handle_response ne propagent pas à un handler
-                    # extérieur — dial :{http.vars.workspace_upstream} resterait vide.
-                    {"handle": [_forward_auth_handler(verify_uri, after=_ws_proxy_dynamic())]}
+                    {"handle": [_forward_auth_handler(verify_uri), _ws_proxy(upstream)]}
                 ],
             }
         ],
@@ -258,18 +216,22 @@ class CaddyClient:
             raise
         _log.info("caddy_route_upserted", route_id=route_id, upstream=upstream)
 
-    async def upsert_vs_proxy_route(self, match_host: str, verify_uri: str) -> None:
+    async def upsert_vs_proxy_route(
+        self, match_host: str, verify_uri: str, host_port: int
+    ) -> None:
         """Crée ou met à jour la route VS proxy unique (@id="vs-proxy").
 
         Args:
             match_host: hostname à matcher (ex: "vs-dev.yoops.org").
             verify_uri: URI interne du forward_auth verify-workspace.
+            host_port: port du port-forward portal→workspace (ex: 40000).
         """
         route_id = "vs-proxy"
         route = _build_vs_proxy_route(
             route_id=route_id,
             match_host=match_host,
             verify_uri=verify_uri,
+            host_port=host_port,
         )
         resp = await self._client.patch(
             f"{self._admin_api}/id/{route_id}",
