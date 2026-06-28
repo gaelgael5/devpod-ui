@@ -212,9 +212,15 @@ async def put_network(
     cfg = load_global()
     cfg.server = cfg.server.model_copy(update={**clean, "dev_mode": body.dev_mode})
     from ..db.engine import _get_engine
+    from ..routes.workspace_ops import _reset_service, re_expose_running_workspaces
 
     async with _get_engine().begin() as conn:
         await save_global_db(cfg, conn)
+    # Invalider le singleton DevPodService (embarque ExposureService avec dev_mode/base_domain
+    # baked-in). Le prochain _get_service() le recrée depuis la DB.
+    _reset_service()
+    # Réexposer immédiatement les workspaces actifs avec la nouvelle config.
+    await re_expose_running_workspaces()
     _log.info(
         "network_config_updated",
         by=user.login,

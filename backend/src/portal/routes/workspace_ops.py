@@ -175,10 +175,38 @@ def _build_service() -> DevPodService:
 
 
 def _reset_service() -> None:
-    """Réinitialise le singleton du service (tests uniquement)."""
+    """Réinitialise le singleton du service."""
     global _service, _recipe_registry
     _service = None
     _recipe_registry = None
+
+
+async def re_expose_running_workspaces() -> None:
+    """Réexpose tous les workspaces en cours avec la config réseau courante (DB).
+
+    À appeler après un changement de config réseau (dev_mode, base_domain…)
+    pour que les URLs en base soient mises à jour sans redémarrer le portail.
+    """
+    from ..db.engine import _get_engine
+    from ..db.workspace_status import list_running_db
+
+    svc = _get_service()
+    if svc._exposure is None:
+        return
+    cfg = load_global()
+    node_ip = cfg.caddy.portal_host
+    async with _get_engine().begin() as conn:
+        running = await list_running_db(conn)
+    for row in running:
+        ws_id = row.get("ws_id")
+        host_port = row.get("host_port")
+        if not ws_id or not host_port:
+            continue
+        try:
+            await svc._exposure.expose(ws_id, node_ip, host_port)
+            _log.info("re_expose_ok", ws_id=ws_id, host_port=host_port)
+        except Exception as exc:
+            _log.warning("re_expose_failed", ws_id=ws_id, error=str(exc))
 
 
 def _resolve_feature_secrets(
