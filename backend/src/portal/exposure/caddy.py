@@ -85,9 +85,11 @@ def _forward_auth_handler(
                     "handler": "headers",
                     "request": {
                         "set": {
-                            "X-Workspace-Upstream": [
-                                "{http.reverse_proxy.header.X-Workspace-Upstream}"
-                            ]
+                            # Caddy lowercaseize les noms de headers dans ses placeholders
+                        # {http.reverse_proxy.header.*} → minuscules obligatoires.
+                        "X-Workspace-Upstream": [
+                            "{http.reverse_proxy.header.x-workspace-upstream}"
+                        ]
                         }
                     },
                 }
