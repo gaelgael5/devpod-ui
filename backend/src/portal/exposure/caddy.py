@@ -42,13 +42,14 @@ def _ws_proxy(upstream: str) -> dict[str, object]:
 def _ws_proxy_dynamic() -> dict[str, object]:
     """reverse_proxy vers le workspace avec upstream résolu dynamiquement.
 
-    L'upstream est extrait de {http.vars.workspace_upstream}, positionné par
-    le handler vars dans la handle_response du forward_auth verify-workspace.
+    L'upstream est lu depuis {http.request.header.X-Workspace-Upstream},
+    header positionné dans handle_response par `headers.request.set` à partir
+    de la réponse du serveur d'auth (mécanisme forward_auth copy_headers).
     Utilisé uniquement avec la route vs-proxy (vs_proxy_domain).
     """
     return {
         "handler": "reverse_proxy",
-        "upstreams": [{"dial": "{http.vars.workspace_upstream}"}],
+        "upstreams": [{"dial": "{http.request.header.X-Workspace-Upstream}"}],
         "flush_interval": -1,
         "transport": {"protocol": "http", "read_buffer_size": 0},
     }
@@ -72,16 +73,23 @@ def _forward_auth_handler(
     extérieure. Le proxy doit donc être DANS handle_response pour lire les vars.
     """
     parsed = urlparse(verify_uri)
+    # Stratégie : copier les headers de la réponse d'auth en headers de requête
+    # (mécanisme `forward_auth copy_headers` en Caddyfile, bien documenté Caddy).
+    # On évite le handler `vars` dont le placeholder {http.reverse_proxy.header.*}
+    # ne se résout pas de façon fiable dans toutes les versions de Caddy.
+    # _ws_proxy_dynamic lit ensuite {http.request.header.X-Workspace-Upstream}.
     handle_response_routes: list[dict[str, object]] = [
         {
             "handle": [
                 {
-                    "handler": "vars",
-                    # Caddy lowercaseize les noms de headers dans ses placeholders
-                    # (strings.ToLower) — utiliser la version minuscules.
-                    "workspace_upstream": (
-                        "{http.reverse_proxy.header.x-workspace-upstream}"
-                    ),
+                    "handler": "headers",
+                    "request": {
+                        "set": {
+                            "X-Workspace-Upstream": [
+                                "{http.reverse_proxy.header.X-Workspace-Upstream}"
+                            ]
+                        }
+                    },
                 }
             ]
         },
