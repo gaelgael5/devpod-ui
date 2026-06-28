@@ -89,5 +89,11 @@ Une route backend visitée directement par le navigateur (GET + `text/html`) —
 ## [mcp/db] mcp_apikey_grant.backend_key_id : nullable (backend public sans clé)
 Un grant vers un backend MCP public (sans clé d'auth, ex. DeepWiki « No key ») a `backend_key_id=NULL`. La 018 le déclarait nullable, mais d'anciennes bases l'ont créé NOT NULL (fichier corrigé après application → divergence DB/modèle). La 028 réaligne (DROP NOT NULL). Symptôme : IntegrityError dans `set_grant` → 500 muet (rollback) au premier grant sans clé (le flow OAuth). Tout grant (apikey statique OU token OAuth) vers un backend public en dépend.
 
+## [git] Vérifier la branche AVANT tout commit ou push
+Tout le code va sur `dev`. `main` est réservé aux humains — jamais de commit ni de push sur `main` directement, même si l'utilisateur dit "committe" ou "pousse". Toujours vérifier `git branch --show-current` avant d'écrire du code ou de committer. Si la branche courante n'est pas `dev`, switcher avant d'agir. Ne jamais proposer `git checkout -b feat/...`.
+
+## [exposure/cloudflare] Wildcard DNS tunnel : une commande, une fois, en dehors du portail
+Décision d'architecture retenue (§F-32) : un seul CNAME wildcard `*.dev.yoops.org` → tunnel Cloudflare, posé manuellement sur la machine `cloudflare-manager` avec `cloudflared tunnel route dns <tunnel> "*.dev.yoops.org"`. Le portail ne gère pas ce DNS — il gère uniquement les routes Caddy par workspace via l'API admin. Sans ce wildcard, tous les sous-domaines `ws-*.dev.yoops.org` retournent `NXDOMAIN` (ERR_NAME_NOT_RESOLVED). Procédure documentée dans `documentations/fr/deploiement-portail.md` § Étape 9.
+
 ## [mcp/runtime] FastMCP annonce TOUJOURS les 3 capabilities
 Un `FastMCP` avec seulement des `@srv.tool()` annonce quand même `tools` ET `resources` ET `prompts` dans ses capabilities. Donc `get_server_capabilities()` via un serveur FastMCP ne sert PAS à tester une logique capability-aware (ex. `advertised_kinds`, prune par kind). Construire `ServerCapabilities(tools={})` à la main, ou une session stub (`get_server_capabilities` + `list_tools`), pour représenter un backend tools-only réel.
