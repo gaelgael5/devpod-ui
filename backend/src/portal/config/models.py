@@ -97,6 +97,9 @@ class OidcConfig(BaseModel):
     admin_role: str = "admin"
     user_role: str = "dev"
     username_claim: str = "preferred_username"
+    # Quand False : le login local break-glass (LOCAL_USER/.env) est désactivé,
+    # même si LOCAL_USER/LOCAL_PASSWORD_HASH sont présents dans .env.
+    allow_local_auth: bool = True
 
 
 class AuthConfig(BaseModel):

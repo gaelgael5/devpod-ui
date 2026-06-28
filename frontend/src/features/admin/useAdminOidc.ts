@@ -6,14 +6,15 @@ export interface OidcConfig {
   issuer: string
   client_id: string
   has_secret: boolean
-  // redirect_uri attendu par le portail = valeur exacte à déclarer dans Keycloak.
   redirect_uri: string
+  allow_local_auth: boolean
 }
 
 export interface OidcUpdate {
   issuer: string
   client_id: string
   client_secret?: string
+  allow_local_auth: boolean
 }
 
 export function useAdminOidc() {

@@ -49,6 +49,7 @@ global_config = Table(
     Column("oidc_admin_role", Text, nullable=False, server_default="admin"),
     Column("oidc_user_role", Text, nullable=False, server_default="dev"),
     Column("oidc_username_claim", Text, nullable=False, server_default="preferred_username"),
+    Column("oidc_allow_local_auth", Boolean, nullable=False, server_default="true"),
     # SecretsConfig
     Column("secrets_backend", Text, nullable=False, server_default="inline"),
     Column("harpocrate_url", Text, nullable=False, server_default=""),

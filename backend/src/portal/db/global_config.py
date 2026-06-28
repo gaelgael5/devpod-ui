@@ -116,6 +116,7 @@ def _build_global_config(
                 "admin_role": row["oidc_admin_role"],
                 "user_role": row["oidc_user_role"],
                 "username_claim": row["oidc_username_claim"],
+                "allow_local_auth": row.get("oidc_allow_local_auth", True),
             },
         },
         "secrets": {
@@ -248,6 +249,7 @@ def _cfg_to_scalars(cfg: GlobalConfig) -> dict[str, Any]:
         "oidc_admin_role": cfg.auth.oidc.admin_role,
         "oidc_user_role": cfg.auth.oidc.user_role,
         "oidc_username_claim": cfg.auth.oidc.username_claim,
+        "oidc_allow_local_auth": cfg.auth.oidc.allow_local_auth,
         "secrets_backend": cfg.secrets.backend,
         "harpocrate_url": cfg.secrets.harpocrate.url,
         "harpocrate_api_key": cfg.secrets.harpocrate.api_key,

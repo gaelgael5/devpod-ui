@@ -97,6 +97,7 @@ class OidcUpdateRequest(BaseModel):
     issuer: str
     client_id: str
     client_secret: str = ""  # vide = conserver le secret existant
+    allow_local_auth: bool = True
 
 
 @router.get("/oidc")
@@ -112,6 +113,7 @@ async def get_admin_oidc(user: UserInfo = Depends(require_admin)) -> dict[str, o
         "client_id": oidc.client_id,
         "has_secret": bool(oidc.client_secret),
         "redirect_uri": get_settings().oidc_redirect_uri,
+        "allow_local_auth": oidc.allow_local_auth,
     }
 
 
@@ -131,6 +133,7 @@ async def put_admin_oidc(
             "issuer": body.issuer,
             "client_id": body.client_id,
             "client_secret": new_secret,
+            "allow_local_auth": body.allow_local_auth,
         }
     )
     cfg.auth = cfg.auth.model_copy(update={"oidc": new_oidc})
@@ -144,6 +147,7 @@ async def put_admin_oidc(
         "issuer": new_oidc.issuer,
         "client_id": new_oidc.client_id,
         "has_secret": bool(new_oidc.client_secret),
+        "allow_local_auth": new_oidc.allow_local_auth,
     }
 
 

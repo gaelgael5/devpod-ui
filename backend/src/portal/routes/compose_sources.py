@@ -226,7 +226,7 @@ async def import_compose_from_source(
         tags=list(meta.get("tags", [])),
         compose_content=compose_content,
         parameters=[],
-        source=compose_url,
+        source="imported",
     )
 
     existing = await cdb.get_template(conn, template_id)

@@ -36,11 +36,16 @@ def auth_flags(oidc: OidcConfig, local_user: str, local_password_hash: str) -> d
     """Flags pour la page de login.
 
     OIDC (SSO) est piloté par la config (issuer + client_id renseignés via l'admin) ;
-    le login local (admin break-glass) par le `.env` (LOCAL_USER/LOCAL_PASSWORD).
+    le login local (admin break-glass) par le `.env` (LOCAL_USER/LOCAL_PASSWORD)
+    ET par oidc.allow_local_auth (toggle UI).
     """
+    oidc_configured = bool(oidc.issuer and oidc.client_id)
+    # Le toggle allow_local_auth n'est respecté que si OIDC est opérationnel.
+    # Sans OIDC : le compte break-glass reste toujours accessible (évite le lockout).
+    local_allowed = oidc.allow_local_auth or not oidc_configured
     return {
-        "oidc_enabled": bool(oidc.issuer and oidc.client_id),
-        "local_auth_enabled": bool(local_user and local_password_hash),
+        "oidc_enabled": oidc_configured,
+        "local_auth_enabled": bool(local_user and local_password_hash and local_allowed),
     }
 
 
@@ -73,7 +78,10 @@ async def auth_config() -> dict[str, bool]:
 @router.post("/local-login")
 async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[str, bool]:
     settings = get_settings()
-    if not settings.local_user or not settings.local_password_hash:
+    oidc = load_global().auth.oidc
+    oidc_configured = bool(oidc.issuer and oidc.client_id)
+    local_allowed = oidc.allow_local_auth or not oidc_configured
+    if not settings.local_user or not settings.local_password_hash or not local_allowed:
         raise HTTPException(status_code=404, detail="Local auth not configured")
     valid = credentials.username == settings.local_user and _bcrypt.checkpw(
         credentials.password.encode(),

@@ -74,11 +74,9 @@ function GroupSection({
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
 
-  if (workspaces.length === 0) return null
-
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
+      <div className="group/header flex items-center gap-2">
         <button
           className="flex items-center gap-1.5 text-sm font-semibold text-foreground hover:text-primary transition-colors"
           onClick={() => setCollapsed((c) => !c)}
@@ -95,7 +93,7 @@ function GroupSection({
           </span>
         </button>
         {groupId !== undefined && onRename && onDelete && (
-          <div className="flex gap-0.5 ml-auto">
+          <div className="flex gap-0.5 ml-auto opacity-0 group-hover/header:opacity-100 transition-opacity">
             <Button
               size="icon"
               variant="ghost"
@@ -117,7 +115,7 @@ function GroupSection({
           </div>
         )}
       </div>
-      {!collapsed && (
+      {!collapsed && workspaces.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {workspaces.map((ws) => (
             <WorkspaceRow
