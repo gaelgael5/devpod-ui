@@ -1,11 +1,19 @@
 id: browserless-chromium
 name: Browserless Chromium
 description: Headless Chromium browser with REST/WebSocket API — compatible Puppeteer & Playwright
-version: 1.0.0
+version: 1.22.0
 tags:
   - browser
   - chromium
   - headless
   - puppeteer
   - playwright
-image: ghcr.io/browserless/chromium
+image: ghcr.io/browserless/chromium:1.22.0
+parameters:
+  - key: TOKEN
+    label: "Bearer token"
+    description: "Token d'authentification pour l'API Browserless (laisser vide = pas d'auth)"
+    type: secret
+    required: false
+    default: ""
+    secret_ref_hint: "browserless/token"

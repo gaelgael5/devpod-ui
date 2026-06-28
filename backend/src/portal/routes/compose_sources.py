@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
 from ..compose import db as cdb
-from ..compose.models import ComposeTemplate, validate_slug
+from ..compose.models import ComposeParam, ComposeTemplate, validate_slug
 from ..db.engine import get_conn
 from ..db.sources import load_compose_sources, save_compose_sources
 
@@ -218,6 +218,14 @@ async def import_compose_from_source(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    raw_params = meta.get("parameters") or []
+    try:
+        parameters = [ComposeParam.model_validate(p) for p in raw_params]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422, detail=f"meta.yaml parameters invalides: {exc}"
+        ) from exc
+
     tpl = ComposeTemplate(
         id=template_id,
         name=str(meta.get("name", template_id)),
@@ -225,7 +233,7 @@ async def import_compose_from_source(
         version=str(meta.get("version", "1.0.0")),
         tags=list(meta.get("tags", [])),
         compose_content=compose_content,
-        parameters=[],
+        parameters=parameters,
         source="imported",
     )
 

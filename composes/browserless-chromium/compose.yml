@@ -1,6 +1,10 @@
 services:
   chromium:
-    image: ghcr.io/browserless/chromium
+    image: ghcr.io/browserless/chromium:1.22.0
     ports:
-      - "3000:3000"
+      - chromium>3000:3000
     restart: unless-stopped
+    environment:
+      TIMEOUT: "30000"
+      CONCURRENT: "5"
+      TOKEN: "${TOKEN}"
