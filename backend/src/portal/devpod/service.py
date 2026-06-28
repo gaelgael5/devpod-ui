@@ -295,10 +295,14 @@ class DevPodService:
                 with contextlib.suppress(OSError):
                     os.unlink(tmp_key_path)
 
-    def _devpod_state_exists(self, ws_id: str) -> bool:
-        """Vérifie si devpod connaît ce workspace (état local présent)."""
-        home = os.environ.get("HOME", "/root")
-        return Path(f"{home}/.devpod/agent/contexts/default/workspaces/{ws_id}").exists()
+    def _devpod_state_exists(self, ws_id: str, login: str) -> bool:
+        """Vérifie si devpod connaît ce workspace (état local présent).
+
+        Le state devpod est dans DEVPOD_HOME = safe_user_path(login, 'devpod'),
+        pas dans $HOME/.devpod — $HOME est le HOME système du conteneur.
+        """
+        devpod_home = str(safe_user_path(login, "devpod"))
+        return Path(f"{devpod_home}/agent/contexts/default/workspaces/{ws_id}").exists()
 
     async def _reconnect_workspace(self, ws_id: str, login: str) -> None:
         """Re-enregistre un workspace dans devpod via devpod up.
@@ -344,7 +348,7 @@ class DevPodService:
 
             # Si devpod ne connaît pas ce workspace, relancer devpod up
             # qui re-peuplera ~/.devpod/ et relancera le port-forward en fin de tâche.
-            if not self._devpod_state_exists(ws_id):
+            if not self._devpod_state_exists(ws_id, login_for_key):
                 _log.warning(
                     "reconcile_devpod_state_missing",
                     ws_id=ws_id,
