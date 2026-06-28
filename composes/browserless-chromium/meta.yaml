@@ -1,0 +1,11 @@
+id: browserless-chromium
+name: Browserless Chromium
+description: Headless Chromium browser with REST/WebSocket API — compatible Puppeteer & Playwright
+version: 1.0.0
+tags:
+  - browser
+  - chromium
+  - headless
+  - puppeteer
+  - playwright
+image: ghcr.io/browserless/chromium

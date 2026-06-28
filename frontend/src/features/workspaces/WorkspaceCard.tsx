@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { FileText, Key, Loader2 } from 'lucide-react'
+import { FileText, FolderOpen, Key, Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -38,9 +38,10 @@ interface Props {
   onStart?: (name: string) => void
   onRecreate?: (name: string) => void
   isStarting?: boolean
+  onManageGroups?: () => void
 }
 
-export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart, onRecreate, isStarting = false }: Props) {
+export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart, onRecreate, isStarting = false, onManageGroups }: Props) {
   const { t } = useTranslation()
   const [sshKeyOpen, setSshKeyOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
@@ -188,6 +189,16 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         >
           <FileText className="h-4 w-4" />
         </Button>
+        {onManageGroups && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onManageGroups}
+            aria-label={t('groups.manage')}
+          >
+            <FolderOpen className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
       {spec.ssh_key && (
