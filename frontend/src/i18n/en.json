@@ -106,7 +106,8 @@
       "confirmDelete": "Destroy",
       "deleting": "Deleting…",
       "deleted": "Test machine deleted",
-      "deleteFailed": "Deletion failed"
+      "deleteFailed": "Deletion failed",
+      "launchService": "Launch a service"
     },
     "form": {
       "name": "Name",
@@ -840,6 +841,14 @@
       "empty": "No templates in the catalog.",
       "noMatch": "No result for this filter.",
       "hint": "Click Refresh to load the catalog."
+    },
+    "launch": {
+      "titlePick": "Pick a template",
+      "titleDeploy": "Deploy {{name}}",
+      "noTemplates": "No templates available",
+      "back": "Back",
+      "start": "Start",
+      "targetNode": "Target machine"
     }
   },
   "common": {

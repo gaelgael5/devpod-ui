@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..config.models import HostConfig
 from ..devpod.host_exec import run_host_command
-from .db import conflicting_ports
+from .db import conflicting_ports, used_ports_on_node
+from .port_aliases import PortAlias
 
 _LISTEN_RE = re.compile(r":(\d{2,5})\s")
 
@@ -35,6 +36,32 @@ async def _live_used_ports(host: HostConfig) -> set[int]:
     if rc != 0:
         return set()
     return {int(m) for m in _LISTEN_RE.findall(out) if m.isdigit()}
+
+
+async def allocate_ports(
+    conn: AsyncConnection,
+    host: HostConfig,
+    node_id: str,
+    aliases: list[PortAlias],
+) -> dict[str, int]:
+    """Alloue le premier port libre ≥ min_host_port pour chaque alias.
+
+    Combine les ports déjà en DB et les ports en écoute live sur le nœud.
+    Retourne {alias: host_port_alloué}.
+    Lève PortConflict si aucun port disponible n'est trouvé (plage épuisée).
+    """
+    db_ports = await used_ports_on_node(conn, node_id)
+    live_ports = await _live_used_ports(host)
+    occupied = db_ports | live_ports
+
+    result: dict[str, int] = {}
+    for alias in aliases:
+        port = suggest_free_port(occupied, start=alias.min_host_port)
+        if port is None:
+            raise PortConflict(set(), None)
+        result[alias.alias] = port
+        occupied.add(port)  # réserver pour les prochains alias du même déploiement
+    return result
 
 
 async def check_ports(

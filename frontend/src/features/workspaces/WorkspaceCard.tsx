@@ -20,6 +20,7 @@ import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
 import InitializersMenu from './InitializersMenu'
 import AddTestVmDialog from './AddTestVmDialog'
 import TestHostsMenu from './TestHostsMenu'
+import HostServicesSection from './HostServicesSection'
 import type { TestHost } from './useTestVm'
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
@@ -200,6 +201,8 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
           </Button>
         )}
       </div>
+
+      <HostServicesSection wsName={spec.name} enabled={s === 'running'} />
 
       {spec.ssh_key && (
         <SshKeyDialog

@@ -49,7 +49,7 @@ async def test_deploy_happy_path(monkeypatch) -> None:
     assert dep.host_ports == [3000]
     assert dep.owner_login == "alice"
     service.check_ports.assert_awaited_once()
-    assert service.write_host_file.await_count == 2  # compose + .env
+    assert service.write_host_file.await_count == 3  # compose + .env + override
 
 
 def test_remote_dir_is_relative() -> None:
@@ -137,3 +137,108 @@ async def test_lifecycle_failure_records_error(monkeypatch) -> None:
     args = service.update_deployment_status.await_args
     assert args[0][2] == "error"  # positional: (conn, deployment_id, status, ...)
     service.persist_op_log.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Mode alias (chromium>3000:3000) — auto-allocation de ports
+# ---------------------------------------------------------------------------
+
+def _alias_tpl() -> ComposeTemplate:
+    return ComposeTemplate(
+        id="chromium", name="Chromium", version="1",
+        compose_content=(
+            "services:\n"
+            "  browser:\n"
+            "    image: chromium:1.0.0\n"
+            "    ports:\n"
+            "      - chromium>3000:3000\n"
+        ),
+        parameters=[],
+        source="user",
+    )
+
+
+@pytest.mark.asyncio
+async def test_deploy_alias_mode_allocates_ports(monkeypatch) -> None:
+    """Le mode alias appelle allocate_ports, pas check_ports."""
+    host = SimpleNamespace(name="n1", type="ssh", address="root@x", host_cert_slug="s")
+    monkeypatch.setattr(service, "_host_for_node", lambda node_id: host)
+    monkeypatch.setattr(
+        service, "allocate_ports", AsyncMock(return_value={"chromium": 3005})
+    )
+    monkeypatch.setattr(service, "check_ports", AsyncMock())
+    monkeypatch.setattr(service, "resolve_env_values", lambda login, ns, ev: ev)
+    monkeypatch.setattr(service, "write_host_file", AsyncMock())
+    monkeypatch.setattr(service, "run_host_command", AsyncMock(return_value=(0, "up done", "")))
+    monkeypatch.setattr(service, "create_deployment", AsyncMock())
+    monkeypatch.setattr(service, "persist_op_log", AsyncMock())
+
+    dep = await service.deploy(
+        None, deployment_id="dep2", template=_alias_tpl(), node_id="n1",
+        owner_login="alice", secret_ns="ns", env_values={},
+    )
+
+    service.allocate_ports.assert_awaited_once()
+    service.check_ports.assert_not_awaited()
+    assert dep.host_ports == [3005]
+
+
+@pytest.mark.asyncio
+async def test_deploy_alias_mode_rewrites_yaml(monkeypatch) -> None:
+    """Le YAML écrit sur le nœud a le port résolu (3005:3000), pas l'alias."""
+    host = SimpleNamespace(name="n1", type="ssh", address="root@x", host_cert_slug="s")
+    monkeypatch.setattr(service, "_host_for_node", lambda node_id: host)
+    monkeypatch.setattr(
+        service, "allocate_ports", AsyncMock(return_value={"chromium": 3005})
+    )
+    monkeypatch.setattr(service, "resolve_env_values", lambda login, ns, ev: ev)
+    written_files: dict[str, str] = {}
+
+    async def capture_write(host, path, content):
+        written_files[path] = content
+
+    monkeypatch.setattr(service, "write_host_file", capture_write)
+    monkeypatch.setattr(service, "run_host_command", AsyncMock(return_value=(0, "", "")))
+    monkeypatch.setattr(service, "create_deployment", AsyncMock())
+    monkeypatch.setattr(service, "persist_op_log", AsyncMock())
+
+    await service.deploy(
+        None, deployment_id="dep3", template=_alias_tpl(), node_id="n1",
+        owner_login="alice", secret_ns="ns", env_values={},
+    )
+
+    compose_content = written_files["devpod-compose/dep3/docker-compose.yml"]
+    assert "3005:3000" in compose_content
+    assert "chromium>" not in compose_content
+
+    assert "devpod-compose/dep3/docker-compose.override.yml" in written_files
+    override_content = written_files["devpod-compose/dep3/docker-compose.override.yml"]
+    assert "io.yoops.portal.deployment_id" in override_content
+
+
+@pytest.mark.asyncio
+async def test_deploy_classic_mode_writes_override(monkeypatch) -> None:
+    """Même en mode classique (param type=port), l'override avec labels est écrit."""
+    host = SimpleNamespace(name="n1", type="ssh", address="root@x", host_cert_slug="s")
+    monkeypatch.setattr(service, "_host_for_node", lambda node_id: host)
+    monkeypatch.setattr(service, "check_ports", AsyncMock())
+    monkeypatch.setattr(service, "resolve_env_values", lambda login, ns, ev: ev)
+    written_files: dict[str, str] = {}
+
+    async def capture_write(host, path, content):
+        written_files[path] = content
+
+    monkeypatch.setattr(service, "write_host_file", capture_write)
+    monkeypatch.setattr(service, "run_host_command", AsyncMock(return_value=(0, "", "")))
+    monkeypatch.setattr(service, "create_deployment", AsyncMock())
+    monkeypatch.setattr(service, "persist_op_log", AsyncMock())
+
+    await service.deploy(
+        None, deployment_id="dep4", template=_tpl(), node_id="n1",
+        owner_login="alice", secret_ns="ns", env_values={"PORT": "3000"},
+    )
+
+    assert "devpod-compose/dep4/docker-compose.override.yml" in written_files
+    override = written_files["devpod-compose/dep4/docker-compose.override.yml"]
+    assert "io.yoops.portal.owner" in override
+    assert "alice" in override

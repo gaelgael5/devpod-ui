@@ -21,7 +21,9 @@ from .db import (
 )
 from .env_builder import render_env_file, resolve_env_values
 from .models import ComposeDeployment, ComposeTemplate, DeploymentStatus
-from .ports import check_ports
+from .override_builder import build_override
+from .port_aliases import parse_port_aliases, rewrite_compose_ports
+from .ports import allocate_ports, check_ports
 
 _log = structlog.get_logger(__name__)
 
@@ -97,14 +99,37 @@ async def deploy(
     env_values: dict[str, str],
 ) -> ComposeDeployment:
     host = _host_for_node(node_id)
-    host_ports = _ports_from_env(template, env_values)
-    await check_ports(conn, host, node_id, host_ports)
+
+    # Détection du mode d'allocation de ports.
+    # Mode alias (chromium>3000:3000) : allocation automatique côté portail.
+    # Mode classique (param type=port) : port fourni par l'utilisateur.
+    aliases = parse_port_aliases(template.compose_content)
+    if aliases:
+        port_map = await allocate_ports(conn, host, node_id, aliases)
+        host_ports = list(port_map.values())
+        compose_to_write = rewrite_compose_ports(template.compose_content, port_map)
+    else:
+        port_map = {}
+        host_ports = _ports_from_env(template, env_values)
+        await check_ports(conn, host, node_id, host_ports)
+        compose_to_write = template.compose_content
+
     _validate_secret_refs(template, env_values)
 
-    resolved = resolve_env_values(owner_login, secret_ns, env_values)  # en mémoire uniquement
+    resolved = resolve_env_values(owner_login, secret_ns, env_values)
     rdir = _remote_dir(deployment_id)
-    await write_host_file(host, f"{rdir}/docker-compose.yml", template.compose_content)
+
+    await write_host_file(host, f"{rdir}/docker-compose.yml", compose_to_write)
     await write_host_file(host, f"{rdir}/.env", render_env_file(resolved))
+
+    override_content = build_override(
+        compose_to_write,
+        deployment_id=deployment_id,
+        template_id=template.id,
+        owner_login=owner_login,
+    )
+    if override_content:
+        await write_host_file(host, f"{rdir}/docker-compose.override.yml", override_content)
 
     cmd = (
         f"cd {shlex.quote(rdir)} && "
@@ -126,7 +151,6 @@ async def deploy(
     )
     await create_deployment(conn, dep)
     await persist_op_log(conn, deployment_id, "up", out + ("\n" + err if err else ""))
-    # rc≠0 → la row est persistée (teardown peut nettoyer) ; on retourne le dep avec status="error"
     return dep
 
 

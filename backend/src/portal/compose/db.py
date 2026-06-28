@@ -126,6 +126,21 @@ async def delete_deployment(conn: AsyncConnection, deployment_id: str) -> None:
     )
 
 
+async def used_ports_on_node(conn: AsyncConnection, node_id: str) -> set[int]:
+    """Tous les ports host déjà réservés sur ce nœud (tous déploiements confondus)."""
+    rows = (
+        await conn.execute(
+            select(compose_deployment.c.host_ports).where(
+                compose_deployment.c.node_id == node_id
+            )
+        )
+    ).all()
+    result: set[int] = set()
+    for (hp,) in rows:
+        result |= set(hp or [])
+    return result
+
+
 async def conflicting_ports(
     conn: AsyncConnection, node_id: str, ports: list[int]
 ) -> set[int]:

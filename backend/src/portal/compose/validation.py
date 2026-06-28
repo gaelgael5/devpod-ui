@@ -7,6 +7,7 @@ from typing import Any
 import yaml
 
 from .models import ComposeParam
+from .port_aliases import is_alias_entry
 
 _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}")
 
@@ -32,6 +33,21 @@ def _port_mappings(parsed: dict[str, Any]) -> list[Any]:
         if isinstance(ports, list):
             out.extend(ports)
     return out
+
+
+def _absolute_bind_mounts(svc: dict[str, Any]) -> list[str]:
+    """Retourne les chemins de bind-mount absolus (interdits)."""
+    bad: list[str] = []
+    for vol in (svc.get("volumes") or []):
+        if isinstance(vol, str):
+            src = vol.split(":")[0]
+            if src.startswith("/"):
+                bad.append(src)
+        elif isinstance(vol, dict) and vol.get("type") == "bind":
+            src = str(vol.get("source", ""))
+            if src.startswith("/"):
+                bad.append(src)
+    return bad
 
 
 def _is_hardcoded_host_port(entry: Any) -> bool:
@@ -82,10 +98,24 @@ def validate_template(compose_content: str, parameters: list[ComposeParam]) -> l
         )
 
     for entry in _port_mappings(parsed):
+        # Le format alias>min:container est valide : il sera résolu à l'heure du déploiement.
+        if is_alias_entry(entry):
+            continue
         if _is_hardcoded_host_port(entry):
             raise TemplateValidationError(
                 f"port hôte codé en dur ({entry!r}) : "
-                f"exposez-le via un paramètre type=port (${{VAR}})"
+                f"utilisez le format alias>min_port:container_port (ex: web>3000:3000)"
+            )
+
+    # Lint : bind-mounts absolus interdits (isolation workspace-to-workspace).
+    services = parsed.get("services") or {}
+    for svc_name, svc in services.items():
+        if not isinstance(svc, dict):
+            continue
+        for bad_path in _absolute_bind_mounts(svc):
+            raise TemplateValidationError(
+                f"service {svc_name!r}: bind-mount absolu interdit ({bad_path!r}) ; "
+                f"utilisez un chemin relatif (ex: ./data:/app/data) ou un volume nommé"
             )
 
     warnings: list[str] = []

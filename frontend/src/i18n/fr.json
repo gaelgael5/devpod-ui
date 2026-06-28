@@ -106,7 +106,8 @@
       "confirmDelete": "Détruire",
       "deleting": "Suppression…",
       "deleted": "Machine de test supprimée",
-      "deleteFailed": "Échec de la suppression"
+      "deleteFailed": "Échec de la suppression",
+      "launchService": "Démarrer un service"
     },
     "form": {
       "name": "Nom",
@@ -840,6 +841,14 @@
       "empty": "Aucun template dans le catalogue.",
       "noMatch": "Aucun résultat pour ce filtre.",
       "hint": "Cliquez sur Rafraîchir pour charger le catalogue."
+    },
+    "launch": {
+      "titlePick": "Choisir un template",
+      "titleDeploy": "Déployer {{name}}",
+      "noTemplates": "Aucun template disponible",
+      "back": "Retour",
+      "start": "Démarrer",
+      "targetNode": "Machine cible"
     }
   },
   "common": {

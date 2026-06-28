@@ -110,3 +110,89 @@ services:
 """
     result = validation.validate_template(content, _port_param())
     assert isinstance(result, list)
+
+
+# ---------------------------------------------------------------------------
+# Nouveau format alias>min:container
+# ---------------------------------------------------------------------------
+
+def test_alias_port_format_accepted() -> None:
+    """chromium>3000:3000 ne doit pas être rejeté comme port codé en dur."""
+    content = """
+services:
+  browser:
+    image: chromium:1.0.0
+    ports:
+      - chromium>3000:3000
+"""
+    result = validation.validate_template(content, [])
+    assert isinstance(result, list)  # pas d'exception
+
+
+def test_multiple_alias_ports_accepted() -> None:
+    content = """
+services:
+  browser:
+    image: chromium:1.0.0
+    ports:
+      - chromium>3000:3000
+      - api>8080:8080
+"""
+    result = validation.validate_template(content, [])
+    assert isinstance(result, list)
+
+
+# ---------------------------------------------------------------------------
+# Bind-mounts absolus
+# ---------------------------------------------------------------------------
+
+def test_absolute_bind_mount_raises() -> None:
+    content = """
+services:
+  web:
+    image: nginx:1.27.0
+    volumes:
+      - /etc/nginx:/etc/nginx:ro
+"""
+    with pytest.raises(validation.TemplateValidationError, match="absolu"):
+        validation.validate_template(content, [])
+
+
+def test_absolute_bind_mount_longform_raises() -> None:
+    content = """
+services:
+  web:
+    image: nginx:1.27.0
+    volumes:
+      - type: bind
+        source: /var/data
+        target: /data
+"""
+    with pytest.raises(validation.TemplateValidationError, match="absolu"):
+        validation.validate_template(content, [])
+
+
+def test_relative_bind_mount_ok() -> None:
+    content = """
+services:
+  web:
+    image: nginx:1.27.0
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+"""
+    result = validation.validate_template(content, [])
+    assert isinstance(result, list)
+
+
+def test_named_volume_ok() -> None:
+    content = """
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
+"""
+    result = validation.validate_template(content, [])
+    assert isinstance(result, list)
