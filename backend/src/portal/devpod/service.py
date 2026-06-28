@@ -320,10 +320,10 @@ class DevPodService:
             _log.warning("reconcile_reconnect_failed", ws_id=ws_id, error=str(exc))
 
     async def reconcile_port_forwards(self) -> None:
-        """Au démarrage, relance les tunnels SSH des workspaces running persistés en DB.
+        """Au démarrage, relance les tunnels SSH et recrée les routes Caddy des workspaces running.
 
         Si le conteneur portail redémarre :
-        - État devpod présent  → relance le tunnel SSH directement.
+        - État devpod présent  → relance le tunnel SSH directement + recrée la route Caddy.
         - État devpod absent   → déclenche devpod up en arrière-plan ; devpod
           détecte le container existant, se reconnecte et relance le tunnel en fin de up().
         """
@@ -360,6 +360,7 @@ class DevPodService:
                 continue
             _log.info("reconcile_port_forward", ws_id=ws_id, host_port=host_port)
             tmp_key_path = ""
+            pf_ok = False
             try:
                 if host_cfg.host_cert_slug:
                     tmp_key_path = await _materialize_system_cert(
@@ -370,12 +371,23 @@ class DevPodService:
                     minimal_env,
                     host_port,
                 )
+                pf_ok = True
             except Exception as exc:
                 _log.warning("reconcile_port_forward_failed", ws_id=ws_id, error=str(exc))
             finally:
                 if tmp_key_path and tmp_key_path.startswith(tempfile.gettempdir()):
                     with contextlib.suppress(OSError):
                         os.unlink(tmp_key_path)
+
+            if pf_ok and self._exposure is not None:
+                # Pour SSH le tunnel est bindé sur le container portal ; Caddy atteint
+                # portal_host:host_port via le réseau Docker interne.
+                node_ip = global_cfg.caddy.portal_host
+                try:
+                    await self._exposure.expose(ws_id, node_ip, host_port)
+                    _log.info("reconcile_caddy_route_restored", ws_id=ws_id)
+                except Exception as exc:
+                    _log.warning("reconcile_expose_failed", ws_id=ws_id, error=str(exc))
 
     def reconnect(self, login: str, ws_id: str) -> None:
         """Reconnexion forcée d'un workspace dont le conteneur tourne (portal_reload, modèle a).
