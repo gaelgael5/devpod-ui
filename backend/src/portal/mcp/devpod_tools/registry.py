@@ -506,6 +506,182 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "write",
     },
+    # -----------------------------------------------------------------------
+    # Galerie docker-compose
+    # -----------------------------------------------------------------------
+    "compose_template_list": {
+        "description": "Liste les templates docker-compose disponibles.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "tag": {"type": "string", "description": "Filtre optionnel sur un tag."},
+            },
+        },
+        "scope": "read",
+    },
+    "compose_template_get": {
+        "description": "Retourne le descripteur complet d'un template (YAML inclus).",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["template_id"],
+            "properties": {
+                "template_id": {"type": "string"},
+            },
+        },
+        "scope": "read",
+    },
+    "compose_template_create": {
+        "description": (
+            "Crée un nouveau template docker-compose dans la galerie. "
+            "Le YAML est validé (ports codés en dur interdits, bind-mounts absolus interdits)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["id", "name", "compose_content"],
+            "properties": {
+                "id": {"type": "string", "description": "Slug du template (^[a-z0-9-]+$)."},
+                "name": {"type": "string"},
+                "description": {"type": "string", "default": ""},
+                "tags": {"type": "array", "items": {"type": "string"}, "default": []},
+                "version": {"type": "string", "default": "1"},
+                "compose_content": {
+                    "type": "string",
+                    "description": "Contenu YAML du docker-compose.yml.",
+                },
+                "parameters": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "default": [],
+                    "description": "Paramètres du template (type string/number/bool/enum/secret).",
+                },
+            },
+        },
+        "scope": "admin",
+    },
+    "compose_template_update": {
+        "description": (
+            "Met à jour un template existant. Seuls les champs fournis sont modifiés "
+            "(compose_content requis ; les autres reprennent la valeur existante si absents)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["id", "compose_content"],
+            "properties": {
+                "id": {"type": "string"},
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "version": {"type": "string"},
+                "compose_content": {"type": "string"},
+                "parameters": {"type": "array", "items": {"type": "object"}},
+            },
+        },
+        "scope": "admin",
+    },
+    "compose_service_list": {
+        "description": "Liste les déploiements compose de l'utilisateur, filtrables par nœud.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "node_id": {"type": "string", "description": "Filtre optionnel sur le nœud."},
+            },
+        },
+        "scope": "read",
+    },
+    "compose_service_start": {
+        "description": (
+            "Démarre un template docker-compose sur une machine de test. "
+            "Les ports alias (alias>N:M) sont alloués automatiquement."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["template_id", "node_id", "name"],
+            "properties": {
+                "template_id": {"type": "string"},
+                "node_id": {"type": "string", "description": "ID du nœud cible (node_list)."},
+                "name": {"type": "string", "description": "Slug du déploiement."},
+                "env_values": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                    "default": {},
+                    "description": "Valeurs des paramètres non-port.",
+                },
+            },
+        },
+        "scope": "exec",
+    },
+    "compose_service_stop": {
+        "description": "Arrête les conteneurs d'un déploiement (docker compose stop).",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["deployment_id"],
+            "properties": {"deployment_id": {"type": "string"}},
+        },
+        "scope": "exec",
+    },
+    "compose_service_restart": {
+        "description": "Redémarre les conteneurs d'un déploiement (docker compose restart).",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["deployment_id"],
+            "properties": {"deployment_id": {"type": "string"}},
+        },
+        "scope": "exec",
+    },
+    "compose_service_logs": {
+        "description": "Retourne les logs d'un déploiement compose.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["deployment_id"],
+            "properties": {
+                "deployment_id": {"type": "string"},
+                "service": {
+                    "type": "string",
+                    "description": "Nom d'un service spécifique (optionnel).",
+                },
+                "tail": {"type": "integer", "default": 200, "minimum": 1},
+            },
+        },
+        "scope": "read",
+    },
+    "compose_service_status": {
+        "description": "Rafraîchit et retourne le statut live d'un déploiement.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["deployment_id"],
+            "properties": {"deployment_id": {"type": "string"}},
+        },
+        "scope": "read",
+    },
+    "compose_service_down": {
+        "description": (
+            "Détruit un déploiement (docker compose down -v + nettoyage). "
+            "Irréversible : confirm doit valoir true."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["deployment_id", "confirm"],
+            "properties": {
+                "deployment_id": {"type": "string"},
+                "confirm": {
+                    "type": "boolean",
+                    "description": "Doit valoir true (garde anti-suppression).",
+                },
+            },
+        },
+        "scope": "exec",
+    },
 }
 
 

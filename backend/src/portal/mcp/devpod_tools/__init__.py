@@ -26,6 +26,7 @@ from ...config.store import _data_root, load_global, load_user, save_user
 from ...db.user_config import load_user_db
 from ...devpod.exec import TMUX_SOCK_DETECT, tmux, ws_exec
 from . import operations
+from .compose_tools import COMPOSE_IMPLS
 from .errors import DevpodToolError
 from .paths import safe_workspace_path
 
@@ -801,6 +802,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_delete": _workspace_delete,
     "workspace_apply_recipe": _workspace_apply_recipe,
     "workspace_profile_set": _workspace_profile_set,
+    **COMPOSE_IMPLS,
 }
 
 
