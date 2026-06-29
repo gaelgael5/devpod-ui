@@ -52,7 +52,7 @@ from ..devpod.vm_init import (
 from ..messages.renderer import build_host_context
 from ..messages.service import delete_message as msg_delete
 from ..messages.service import render_and_create
-from ..secrets.system import delete_system_secret, store_system_secret
+from ..secrets.system import delete_system_secret, store_system_cert, store_system_secret
 from ..settings import get_settings
 from .proxmox import (
     _fetch_spec,
@@ -203,10 +203,12 @@ async def _init_vm_ssh(
 
     slug = f"compose.{host.name}"
     async with _get_engine().begin() as conn:
-        await store_system_secret(
+        await store_system_cert(
             slug=slug,
             label=f"Clé SSH portail — {host.name}",
-            value=portal_priv,
+            private_pem=portal_priv,
+            public_key=portal_pub,
+            cert_type="ssh",
             storage_type="local",
             vault_identifier="",
             conn=conn,
