@@ -11,7 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useTestHostInfo, useHostDeployments, type HostConfig, type HostCreatePayload, type HostUserWorkspaces } from './useHosts'
+import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useTestHostsSummary, type HostConfig, type HostCreatePayload, type HostUserWorkspaces, type WorkspaceTestGroup } from './useHosts'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import TestHostParamsDialog from './TestHostParamsDialog'
@@ -189,39 +189,88 @@ function HostWorkspacesPanel({ name }: { name: string }) {
   )
 }
 
-// ─── Panel machine de test ────────────────────────────────────────────────────
+// ─── Section test hosts groupés par workspace ─────────────────────────────────
 
-function TestHostPanel({ name }: { name: string }) {
+type HostActions = {
+  onEdit: (h: HostConfig) => void
+  onDelete: (h: HostConfig) => void
+  onSsh: (h: HostConfig) => void
+  onBootstrap: (h: HostConfig) => void
+}
+
+function TestHostsGroupedSection({
+  hosts,
+  actions,
+}: {
+  hosts: HostConfig[]
+  actions: HostActions
+}) {
   const { t } = useTranslation()
-  const { data: info, isLoading: infoLoading } = useTestHostInfo(name, true)
-  const { data: deps, isLoading: depsLoading } = useHostDeployments(name, true)
+  const groups = useTestHostsSummary(hosts)
 
-  if (infoLoading) return <span className="text-xs text-muted-foreground">…</span>
-  if (!info) return <span className="text-xs text-muted-foreground">—</span>
+  if (groups.length === 0) return null
 
   return (
-    <div className="py-0.5">
-      {/* user */}
-      <TreeNode connector="└">
-        <span className="text-xs font-medium">{info.owner_login}</span>
-        <TreeGroup>
-          {/* workspace */}
-          <TreeNode connector="└">
-            <span className="text-xs font-medium">{info.workspace_name}</span>
-            <TreeGroup>
-              {/* machine de test */}
-              <TreeNode connector="└">
-                <span className="text-xs font-mono font-medium">{info.alias || name}</span>
-                <TreeGroup>
-                  {/* ressources compose */}
-                  {depsLoading && <span className="text-xs text-muted-foreground">…</span>}
-                  {!depsLoading && (!deps || deps.length === 0) && (
+    <div className="mt-4 flex flex-col gap-3">
+      <h2 className="text-sm font-semibold text-muted-foreground px-1">{t('admin.testHost.sectionTitle')}</h2>
+      {groups.map((group: WorkspaceTestGroup) => (
+        <div key={`${group.owner_login}/${group.workspace_name}`} className="rounded-lg border">
+          {/* En-tête du groupe workspace */}
+          <div className="flex items-center gap-2 border-b bg-muted/40 px-4 py-2">
+            <span className="text-xs text-muted-foreground">{group.owner_login}</span>
+            <span className="text-muted-foreground/40">/</span>
+            <span className="text-sm font-semibold">{group.workspace_name}</span>
+          </div>
+
+          {/* Hosts du groupe */}
+          <div className="divide-y">
+            {group.entries.map(({ host, info, deployments, loading }, ei) => (
+              <div key={host.name} className="px-4 py-3">
+                {/* Ligne host : alias · nom · adresse · actions */}
+                <div className="flex items-center gap-3">
+                  {info?.alias && (
+                    <span className="font-mono text-xs font-semibold text-foreground bg-muted rounded px-1.5 py-0.5">
+                      {info.alias}
+                    </span>
+                  )}
+                  <span className="text-sm font-medium">{host.name}</span>
+                  <span className="text-xs text-muted-foreground font-mono flex-1">
+                    {host.address || '—'}
+                  </span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => actions.onEdit(host)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => actions.onDelete(host)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                    {!host.host_cert_slug && (
+                      <Button size="sm" variant="outline"
+                        className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
+                        onClick={() => actions.onBootstrap(host)}>
+                        {t('admin.bootstrap.btn')}
+                      </Button>
+                    )}
+                    {host.host_cert_slug && (
+                      <Button size="sm" variant="outline"
+                        className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
+                        onClick={() => actions.onSsh(host)}>
+                        {t('admin.sshTerminal.openBtn')}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Services compose */}
+                <div className="mt-2 pl-2 border-l border-border/30">
+                  {loading && <span className="text-xs text-muted-foreground">…</span>}
+                  {!loading && deployments.length === 0 && (
                     <span className="text-xs text-muted-foreground">{t('admin.testHost.noServices')}</span>
                   )}
-                  {deps && deps.map((dep, di) => {
+                  {deployments.map((dep, di) => {
                     const s = dep.status
                     return (
-                      <TreeNode key={dep.id} connector={di === deps.length - 1 ? '└' : '├'}>
+                      <TreeNode key={dep.id} connector={di === deployments.length - 1 ? '└' : '├'}>
                         <span
                           title={dep.last_error ?? undefined}
                           className={cn('inline-flex items-center gap-1.5 text-xs', DEPLOY_STATUS_TEXT[s] ?? DEPLOY_STATUS_TEXT.error)}
@@ -236,12 +285,12 @@ function TestHostPanel({ name }: { name: string }) {
                       </TreeNode>
                     )
                   })}
-                </TreeGroup>
-              </TreeNode>
-            </TreeGroup>
-          </TreeNode>
-        </TreeGroup>
-      </TreeNode>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -386,87 +435,88 @@ export default function AdminHosts() {
       {!isLoading && !isError && !hosts?.length && (
         <p className="text-muted-foreground">{t('admin.hostsEmpty')}</p>
       )}
-      {hosts && hosts.length > 0 && (
-        <div className="rounded-lg border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.name')}</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.type')}</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.host')}</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.default')}</th>
-                <th className="px-4 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {hosts.map((h: HostConfig) => (
-                <Fragment key={h.name}>
-                  <tr className="border-b">
-                    <td className="px-4 py-2 font-medium">{h.name}</td>
-                    <td className="px-4 py-2 text-muted-foreground">{h.type}</td>
-                    <td className="px-4 py-2 text-muted-foreground font-mono text-xs">
-                      {h.type === 'ssh' ? (h.address || '—') : (h.docker_host || '—')}
-                    </td>
-                    <td className="px-4 py-2">
-                      {h.default
-                        ? <span className="text-green-600">✓</span>
-                        : <span className="text-muted-foreground">—</span>}
-                    </td>
-                    <td className="px-4 py-2">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(h)}
-                          aria-label={t('workspaces.actions.edit')}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => confirmDelete(h)} aria-label={t('admin.deleteHost')}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                        {h.type === 'ssh' && (
-                          <>
-                            <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
-                            {!h.host_cert_slug && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
-                                onClick={() => setBootstrapTarget(h)}
-                                aria-label={t('admin.bootstrap.btn')}
-                              >
-                                {t('admin.bootstrap.btn')}
+      {hosts && hosts.length > 0 && (() => {
+        const wsHosts = hosts.filter((h: HostConfig) => h.usage !== 'tests')
+        const testHosts = hosts.filter((h: HostConfig) => h.usage === 'tests')
+        const hostActions: HostActions = {
+          onEdit: openEdit,
+          onDelete: confirmDelete,
+          onSsh: setSshTarget,
+          onBootstrap: setBootstrapTarget,
+        }
+        return (
+          <>
+            {wsHosts.length > 0 && (
+              <div className="rounded-lg border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.name')}</th>
+                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.type')}</th>
+                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.host')}</th>
+                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.default')}</th>
+                      <th className="px-4 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {wsHosts.map((h: HostConfig) => (
+                      <Fragment key={h.name}>
+                        <tr className="border-b">
+                          <td className="px-4 py-2 font-medium">{h.name}</td>
+                          <td className="px-4 py-2 text-muted-foreground">{h.type}</td>
+                          <td className="px-4 py-2 text-muted-foreground font-mono text-xs">
+                            {h.type === 'ssh' ? (h.address || '—') : (h.docker_host || '—')}
+                          </td>
+                          <td className="px-4 py-2">
+                            {h.default
+                              ? <span className="text-green-600">✓</span>
+                              : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="px-4 py-2">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(h)}>
+                                <Pencil className="h-3.5 w-3.5" />
                               </Button>
-                            )}
-                            {h.host_cert_slug && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
-                                data-ssh=""
-                                onClick={() => setSshTarget(h)}
-                                aria-label={t('admin.sshTerminal.openBtn')}
-                              >
-                                {t('admin.sshTerminal.openBtn')}
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => confirmDelete(h)}>
+                                <Trash2 className="h-3.5 w-3.5" />
                               </Button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                  <tr className="border-b last:border-0 bg-muted/20">
-                    <td colSpan={5} className="px-4 py-2">
-                      {h.usage === 'tests'
-                        ? <TestHostPanel name={h.name} />
-                        : <HostWorkspacesPanel name={h.name} />
-                      }
-                    </td>
-                  </tr>
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                              {h.type === 'ssh' && (
+                                <>
+                                  <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+                                  {!h.host_cert_slug && (
+                                    <Button size="sm" variant="outline"
+                                      className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
+                                      onClick={() => setBootstrapTarget(h)}>
+                                      {t('admin.bootstrap.btn')}
+                                    </Button>
+                                  )}
+                                  {h.host_cert_slug && (
+                                    <Button size="sm" variant="outline"
+                                      className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
+                                      onClick={() => setSshTarget(h)}>
+                                      {t('admin.sshTerminal.openBtn')}
+                                    </Button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        <tr className="border-b last:border-0 bg-muted/20">
+                          <td colSpan={5} className="px-4 py-2">
+                            <HostWorkspacesPanel name={h.name} />
+                          </td>
+                        </tr>
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <TestHostsGroupedSection hosts={testHosts} actions={hostActions} />
+          </>
+        )
+      })()}
 
       <GenerateHostDialog
         open={generateOpen}

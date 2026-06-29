@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiFetch, apiFetchJson } from '@/shared/api/client'
 
@@ -241,4 +241,59 @@ export function useBootstrapSsh() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hosts'] }),
     onError: (err: Error) => toast.error(err.message),
   })
+}
+
+// ─── Groupement des hosts de test par workspace ───────────────────────────────
+
+export interface TestHostEntry {
+  host: HostConfig
+  info: TestHostInfo | null
+  deployments: HostDeployment[]
+  loading: boolean
+}
+
+export interface WorkspaceTestGroup {
+  owner_login: string
+  workspace_name: string
+  entries: TestHostEntry[]
+}
+
+export function useTestHostsSummary(hosts: HostConfig[]): WorkspaceTestGroup[] {
+  const testHosts = hosts.filter((h) => h.usage === 'tests')
+
+  const infoResults = useQueries({
+    queries: testHosts.map((h) => ({
+      queryKey: ['admin', 'hosts', h.name, 'test-info'] as const,
+      queryFn: () => apiFetchJson<TestHostInfo | null>(`/admin/hosts/${encodeURIComponent(h.name)}/test-info`),
+      staleTime: 30_000,
+    })),
+  })
+
+  const depsResults = useQueries({
+    queries: testHosts.map((h) => ({
+      queryKey: ['admin', 'hosts', h.name, 'deployments'] as const,
+      queryFn: () => apiFetchJson<HostDeployment[]>(`/admin/hosts/${encodeURIComponent(h.name)}/deployments`),
+      staleTime: 15_000,
+      refetchInterval: 15_000,
+    })),
+  })
+
+  const groupMap = new Map<string, WorkspaceTestGroup>()
+
+  testHosts.forEach((h, i) => {
+    const info = infoResults[i]?.data ?? null
+    const deps = depsResults[i]?.data ?? []
+    const loading = (infoResults[i]?.isLoading ?? true) || (depsResults[i]?.isLoading ?? true)
+    const key = info ? `${info.owner_login}/${info.workspace_name}` : `__${h.name}`
+    if (!groupMap.has(key)) {
+      groupMap.set(key, {
+        owner_login: info?.owner_login ?? '?',
+        workspace_name: info?.workspace_name ?? h.name,
+        entries: [],
+      })
+    }
+    groupMap.get(key)!.entries.push({ host: h, info, deployments: deps, loading })
+  })
+
+  return [...groupMap.values()].sort((a, b) => a.workspace_name.localeCompare(b.workspace_name))
 }

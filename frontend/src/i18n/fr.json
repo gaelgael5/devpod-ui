@@ -408,6 +408,7 @@
       "cancel": "Annuler"
     },
     "testHost": {
+      "sectionTitle": "Machines de test",
       "owner": "Appartient au workspace",
       "alias": "alias SSH",
       "noServices": "Aucun service compose actif"
