@@ -61,6 +61,15 @@ async def _ssh_capture(argv: list[str], *, timeout: float) -> tuple[int, str, st
     return rc, out.decode("utf-8", errors="replace"), err.decode("utf-8", errors="replace")
 
 
+def _check_host_key_changed(host: HostConfig, err: str) -> None:
+    if "REMOTE HOST IDENTIFICATION HAS CHANGED" in err:
+        raise HostExecError(
+            f"La clé SSH de la machine {host.name!r} ({host.address}) a changé "
+            "(réinstallation probable). Détruisez la machine de test et recréez-la "
+            "depuis l'onglet Test pour résoudre le problème."
+        )
+
+
 async def run_host_command(
     host: HostConfig, command: str, *, timeout: float = 120.0
 ) -> tuple[int, str, str]:
@@ -69,7 +78,9 @@ async def run_host_command(
     await asyncio.to_thread(known.parent.mkdir, parents=True, exist_ok=True)
     key_path = await _materialize_system_cert(host.host_cert_slug)
     argv = _argv(key_path, host.address, command, known)
-    return await _ssh_capture(argv, timeout=timeout)
+    rc, out, err = await _ssh_capture(argv, timeout=timeout)
+    _check_host_key_changed(host, err)
+    return rc, out, err
 
 
 async def write_host_file(host: HostConfig, remote_path: str, content: str) -> None:
