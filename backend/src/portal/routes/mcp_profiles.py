@@ -14,7 +14,10 @@ from ..mcp.service import new_id
 
 router = APIRouter(tags=["mcp-profiles"])
 
-_ID = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,80}$")
+# IDs profils et apikeys — UUID hex lowercase.
+_ID = Path(..., pattern=r"^[a-z0-9]{1,64}$")
+# IDs backends — alphanum + tiret + underscore (ex : devpod-admin).
+_BACKEND_ID = Path(..., pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 
 
 class ProfileCreate(BaseModel):
@@ -106,7 +109,7 @@ async def delete_profile_route(
 async def upsert_entry_route(
     body: EntryUpsert,
     profile_id: str = _ID,
-    backend_id: str = _ID,
+    backend_id: str = _BACKEND_ID,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
@@ -132,7 +135,7 @@ async def upsert_entry_route(
 @router.delete("/mcp/profiles/{profile_id}/entries/{backend_id}", status_code=204)
 async def delete_entry_route(
     profile_id: str = _ID,
-    backend_id: str = _ID,
+    backend_id: str = _BACKEND_ID,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:

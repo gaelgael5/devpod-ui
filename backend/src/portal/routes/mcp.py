@@ -14,7 +14,10 @@ from ..mcp.monitor import get_health
 
 router = APIRouter(tags=["mcp"])
 
-_ID = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+# IDs UUID hex (apikeys, clés de service) — lowercase alphanum uniquement.
+_ID = Path(..., pattern=r"^[a-z0-9]{1,64}$")
+# IDs backends — alphanum + tiret + underscore (ex : devpod-admin).
+_BACKEND_ID = Path(..., pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 
 
 def _sid(request: Request) -> str:
@@ -61,7 +64,7 @@ async def create_backend_route(
 @router.patch("/mcp/backends/{backend_id}")
 async def update_backend_route(
     body: models.BackendUpdate,
-    backend_id: str = _ID,
+    backend_id: str = _BACKEND_ID,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
@@ -77,7 +80,7 @@ async def update_backend_route(
 
 @router.delete("/mcp/backends/{backend_id}", status_code=204)
 async def delete_backend_route(
-    backend_id: str = _ID,
+    backend_id: str = _BACKEND_ID,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
@@ -90,7 +93,7 @@ async def delete_backend_route(
 
 @router.get("/mcp/backends/{backend_id}/keys")
 async def list_keys_route(
-    backend_id: str = _ID,
+    backend_id: str = _BACKEND_ID,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, Any]]:
@@ -103,7 +106,7 @@ async def list_keys_route(
 async def create_key_route(
     body: models.KeyCreate,
     request: Request,
-    backend_id: str = _ID,
+    backend_id: str = _BACKEND_ID,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
@@ -117,7 +120,7 @@ async def create_key_route(
 
 @router.delete("/mcp/backends/{backend_id}/keys/{key_id}", status_code=204)
 async def delete_key_route(
-    backend_id: str = _ID,
+    backend_id: str = _BACKEND_ID,
     key_id: str = _ID,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
@@ -176,7 +179,7 @@ async def set_apikey_profile_route(
 
 @router.get("/mcp/backends/{backend_id}/catalog")
 async def list_catalog_route(
-    backend_id: str = _ID,
+    backend_id: str = _BACKEND_ID,
     kind: str = "tool",
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
