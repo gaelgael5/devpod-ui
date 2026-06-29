@@ -15,7 +15,8 @@ def _row_to_template(row: RowMapping) -> ComposeTemplate:
         tags=list(row["tags"] or []), version=row["version"],
         compose_content=row["compose_content"],
         parameters=[ComposeParam.model_validate(p) for p in (row["parameters"] or [])],
-        source=row["source"], created_at=row.get("created_at"), updated_at=row.get("updated_at"),
+        source=row["source"], message_key=row.get("message_key"),
+        created_at=row.get("created_at"), updated_at=row.get("updated_at"),
     )
 
 
@@ -25,6 +26,7 @@ async def create_template(conn: AsyncConnection, tpl: ComposeTemplate) -> None:
             id=tpl.id, name=tpl.name, description=tpl.description, tags=tpl.tags,
             version=tpl.version, compose_content=tpl.compose_content,
             parameters=[p.model_dump() for p in tpl.parameters], source=tpl.source,
+            message_key=tpl.message_key,
         )
     )
 
@@ -50,7 +52,7 @@ async def update_template(conn: AsyncConnection, tpl: ComposeTemplate) -> None:
             name=tpl.name, description=tpl.description, tags=tpl.tags, version=tpl.version,
             compose_content=tpl.compose_content,
             parameters=[p.model_dump() for p in tpl.parameters], source=tpl.source,
-            updated_at=func.now(),
+            message_key=tpl.message_key, updated_at=func.now(),
         )
     )
 

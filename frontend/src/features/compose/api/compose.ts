@@ -62,3 +62,6 @@ export function deploymentLogs(
 export function deploymentStatus(id: string): Promise<{ deployment_id: string; status: string }> {
   return apiFetchJson(`/api/compose/deployments/${encodeURIComponent(id)}/status`)
 }
+export function getDeploymentMessage(id: string): Promise<import('./types').DeploymentMessage> {
+  return apiFetchJson(`/api/compose/deployments/${encodeURIComponent(id)}/message`)
+}

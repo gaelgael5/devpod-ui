@@ -75,3 +75,12 @@ export function useDeleteDeployment() {
     onError: (e: Error) => toast.error(e.message),
   })
 }
+export function useDeploymentMessage(uid: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['compose', 'message', uid] as const,
+    queryFn: () => api.getDeploymentMessage(uid),
+    enabled,
+    retry: false,
+    staleTime: 60_000,
+  })
+}

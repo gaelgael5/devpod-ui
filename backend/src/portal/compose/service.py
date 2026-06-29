@@ -5,6 +5,7 @@ import json
 import re
 import shlex
 import uuid
+from collections.abc import AsyncIterator
 from typing import Literal
 
 import structlog
@@ -12,8 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..config.models import HostConfig
 from ..config.store import load_global, load_user
+from ..db.engine import _get_engine
 from ..db.test_hosts import host_full_info
-from ..devpod.host_exec import HostExecError, run_host_command, write_host_file
+from ..devpod.host_exec import HostExecError, run_host_command, stream_host_command, write_host_file
 from ..messages.renderer import build_deploy_context
 from ..messages.service import delete_message as msg_delete
 from ..messages.service import render_and_create
@@ -208,6 +210,159 @@ async def deploy(
             )
 
     return dep
+
+
+async def prepare_deployment(
+    conn: AsyncConnection,
+    *,
+    template: ComposeTemplate,
+    node_id: str,
+    env_values: dict[str, str],
+) -> tuple[dict[str, int], list[int], str]:
+    """Alloue les ports et prépare le compose_content final.
+
+    Retourne (port_map, host_ports, compose_to_write). Peut lever PortConflict ou
+    ComposeServiceError — à appeler depuis un contexte DB avant de démarrer le streaming.
+    """
+    host = _host_for_node(node_id)
+    aliases = parse_port_aliases(template.compose_content)
+    if aliases:
+        port_map = await allocate_ports(conn, host, node_id, aliases)
+        host_ports = list(port_map.values())
+        compose_to_write = rewrite_compose_ports(template.compose_content, port_map)
+    else:
+        port_map = {}
+        host_ports = _ports_from_env(template, env_values)
+        await check_ports(conn, host, node_id, host_ports)
+        compose_to_write = template.compose_content
+    return port_map, host_ports, compose_to_write
+
+
+async def deploy_stream(
+    *,
+    name: str,
+    template: ComposeTemplate,
+    node_id: str,
+    owner_login: str,
+    secret_ns: str,
+    env_values: dict[str, str],
+    port_map: dict[str, int],
+    host_ports: list[int],
+    compose_to_write: str,
+) -> AsyncIterator[str]:
+    """Déploie en streamant la progression de docker compose up.
+
+    Chaque ligne yieldée est une ligne de log texte. La dernière ligne est soit
+    ``__RESULT__:{json}`` (succès) soit ``__ERROR__:{message}`` (échec).
+    Les ports ont déjà été alloués par ``prepare_deployment``.
+    """
+    host = _host_for_node(node_id)
+    _validate_secret_refs(template, env_values)
+    resolved = resolve_env_values(owner_login, secret_ns, env_values)
+    rdir = _remote_dir(name)
+
+    try:
+        await write_host_file(host, f"{rdir}/docker-compose.yml", compose_to_write)
+        await write_host_file(host, f"{rdir}/.env", render_env_file(resolved))
+        override_content = build_override(
+            compose_to_write,
+            deployment_id=name,
+            template_id=template.id,
+            owner_login=owner_login,
+        )
+        if override_content:
+            await write_host_file(
+                host, f"{rdir}/docker-compose.override.yml", override_content
+            )
+    except HostExecError as exc:
+        raise ComposeServiceError(str(exc)) from exc
+
+    yield "==> Fichiers docker-compose écrits\n"
+    yield "==> Lancement de docker compose up -d...\n"
+
+    cmd = (
+        f"cd {shlex.quote(rdir)} && "
+        f"docker compose --env-file .env --progress plain -p {shlex.quote(name)} up -d"
+    )
+
+    status: DeploymentStatus = "error"
+    compose_out = ""
+    last_err = ""
+    try:
+        async for line in stream_host_command(host, cmd, timeout=600.0):
+            compose_out += line + "\n"
+            yield line + "\n"
+        status = "running"
+    except HostExecError as exc:
+        last_err = str(exc)
+        status = "error"
+        yield f"==> ERREUR : {last_err}\n"
+
+    uid = str(uuid.uuid4())
+    dep = ComposeDeployment(
+        uid=uid,
+        id=name,
+        template_id=template.id,
+        template_version=template.version,
+        node_id=node_id,
+        owner_login=owner_login,
+        env_values=env_values,
+        host_ports=host_ports,
+        status=status,
+        last_error=None if status == "running" else (last_err or compose_out)[:2000],
+    )
+    async with _get_engine().begin() as conn:
+        await create_deployment(conn, dep)
+        await persist_op_log(conn, uid, "up", compose_out)
+
+    if status == "running" and template.message_key:
+        try:
+            async with _get_engine().begin() as conn:
+                ws_info = await host_full_info(node_id, conn)
+                if ws_info:
+                    ws_login, ws_name, ssh_alias = ws_info
+                    user_cfg = await load_user(ws_login)
+                    host_cfg = _host_for_node(node_id)
+                    ctx = build_deploy_context(
+                        owner_login=ws_login,
+                        workspace_name=ws_name,
+                        host_name=node_id,
+                        ssh_alias=ssh_alias,
+                        host_address=host_cfg.address,
+                        deployment_id=name,
+                        template_name=template.name,
+                        template_id=template.id,
+                        template_description=template.description,
+                        template_version=template.version,
+                        template_tags=template.tags,
+                        compose_content=template.compose_content,
+                        port_map={str(i): p for i, p in enumerate(host_ports)},
+                        culture=user_cfg.culture,
+                    )
+                    msg_id = await render_and_create(
+                        conn,
+                        key=template.message_key,
+                        culture=user_cfg.culture,
+                        owner_login=ws_login,
+                        workspace_name=ws_name,
+                        msg_type="compose_service",
+                        ctx=ctx,
+                    )
+                    if msg_id is not None:
+                        await update_deployment_message_id(conn, uid, msg_id)
+                        dep = dep.model_copy(update={"message_id": msg_id})
+        except Exception:
+            _log.warning(
+                "compose_deploy_stream_message_failed",
+                uid=uid,
+                name=name,
+                exc_info=True,
+            )
+
+    if status == "error":
+        yield f"__ERROR__:{last_err or 'docker compose up a échoué'}\n"
+    else:
+        yield f"__RESULT__:{dep.model_dump_json()}\n"
 
 
 async def lifecycle(

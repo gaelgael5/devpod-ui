@@ -38,8 +38,18 @@ export interface ComposeDeployment {
   host_ports: number[]
   status: DeploymentStatus
   last_error?: string | null
+  message_id?: number | null
   created_at?: string | null
   updated_at?: string | null
+}
+
+export interface DeploymentMessage {
+  id: number | null
+  owner_login: string
+  workspace_name: string
+  type: string
+  message: string
+  created_at: string | null
 }
 
 export interface NodeRef {

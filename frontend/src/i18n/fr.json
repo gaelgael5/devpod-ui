@@ -886,6 +886,11 @@
     "gallery": "Galerie",
     "deployments": "Déploiements",
     "deploy": "Déployer",
+    "message": {
+      "title": "Message du service",
+      "description": "Message contextuel pour ce service déployé",
+      "none": "Aucun message disponible pour ce déploiement"
+    },
     "admin": {
       "title": "Templates Compose",
       "new": "Nouveau template",
@@ -916,7 +921,8 @@
     "deployDialog": {
       "title": "Déployer {{name}}",
       "submit": "Déployer",
-      "portConflict": "Port {{ports}} déjà utilisé ; suggéré : {{suggestion}}"
+      "portConflict": "Port {{ports}} déjà utilisé ; suggéré : {{suggestion}}",
+      "deployFailed": "Déploiement échoué"
     },
     "status": {
       "running": "en cours",

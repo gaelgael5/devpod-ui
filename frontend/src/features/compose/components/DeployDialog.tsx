@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
+import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -17,8 +19,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { apiFetch } from '@/shared/api/client'
 import ParametersForm from './ParametersForm'
-import { useNodes, useCreateDeployment } from '../hooks/useCompose'
+import { useNodes } from '../hooks/useCompose'
 import type { ComposeTemplate, PortConflictDetail } from '../api/types'
 
 interface DeployDialogProps {
@@ -54,7 +57,7 @@ function initEnvValues(parameters: ComposeTemplate['parameters']): Record<string
 export default function DeployDialog({ template, open, onOpenChange }: DeployDialogProps) {
   const { t } = useTranslation()
   const { data: nodes = [] } = useNodes()
-  const createDeployment = useCreateDeployment()
+  const qc = useQueryClient()
 
   const [nodeId, setNodeId] = useState('')
   const [name, setName] = useState('')
@@ -62,28 +65,54 @@ export default function DeployDialog({ template, open, onOpenChange }: DeployDia
     initEnvValues(template.parameters),
   )
   const [serverError, setServerError] = useState<string | null>(null)
+  const [logs, setLogs] = useState('')
+  const [streaming, setStreaming] = useState(false)
+  const [streamDone, setStreamDone] = useState(false)
+  const logRef = useRef<HTMLPreElement>(null)
+
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight
+    }
+  }, [logs])
 
   function handleClose() {
+    if (streaming) return
     setNodeId('')
     setName('')
     setEnvValues(initEnvValues(template.parameters))
     setServerError(null)
-    createDeployment.reset()
+    setLogs('')
+    setStreaming(false)
+    setStreamDone(false)
     onOpenChange(false)
   }
 
-  async function handleSubmit() {
+  const handleSubmit = useCallback(async () => {
     setServerError(null)
+    setLogs('')
+    setStreamDone(false)
+
+    let res: Response
     try {
-      await createDeployment.mutateAsync({
-        template_id: template.id,
-        node_id: nodeId,
-        name: name.trim(),
-        env_values: envValues,
+      res = await apiFetch('/api/compose/deployments/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          template_id: template.id,
+          node_id: nodeId,
+          name: name.trim(),
+          env_values: envValues,
+        }),
       })
-      onOpenChange(false)
     } catch (e) {
-      const detail = parsePortConflict(e)
+      setServerError(e instanceof Error ? e.message : String(e))
+      return
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      const detail = parsePortConflict(new Error(text))
       if (detail?.error === 'port_conflict') {
         const ports = detail.conflicts.join(', ')
         setServerError(
@@ -92,83 +121,139 @@ export default function DeployDialog({ template, open, onOpenChange }: DeployDia
             suggestion: detail.suggestion ?? '',
           }),
         )
-        // Pre-fill the first port param with the suggestion
         if (detail.suggestion !== null) {
           const portParam = template.parameters.find((p) => p.type === 'port')
           if (portParam) {
-            setEnvValues((prev) => ({
-              ...prev,
-              [portParam.key]: String(detail.suggestion),
-            }))
+            setEnvValues((prev) => ({ ...prev, [portParam.key]: String(detail.suggestion) }))
           }
         }
       } else {
-        setServerError((e as Error).message)
+        setServerError(text || `HTTP ${res.status}`)
       }
+      return
     }
-  }
+
+    setStreaming(true)
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    let accum = ''
+    let success = false
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        accum += decoder.decode(value, { stream: true })
+        setLogs(accum)
+      }
+    } finally {
+      setStreaming(false)
+      setStreamDone(true)
+    }
+
+    const lastLine = accum.trimEnd().split('\n').at(-1) ?? ''
+    if (lastLine.startsWith('__RESULT__:')) {
+      success = true
+      void qc.invalidateQueries({ queryKey: ['compose', 'deployments'] })
+      onOpenChange(false)
+    } else if (lastLine.startsWith('__ERROR__:')) {
+      const msg = lastLine.slice('__ERROR__:'.length)
+      setServerError(msg || t('compose.deployDialog.deployFailed'))
+    }
+    if (!success && !lastLine.startsWith('__ERROR__:')) {
+      setServerError(t('compose.deployDialog.deployFailed'))
+    }
+  }, [template, nodeId, name, envValues, qc, onOpenChange, t])
 
   const missingRequired = template.parameters.some(
     (p) => p.required && !envValues[p.key]?.trim(),
   )
   const canSubmit =
-    Boolean(nodeId) && Boolean(name.trim()) && !missingRequired && !createDeployment.isPending
+    Boolean(nodeId) && Boolean(name.trim()) && !missingRequired && !streaming
+
+  const showLogs = streaming || streamDone
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
-      <DialogContent className="max-w-lg">
+    <Dialog open={open} onOpenChange={(o) => { if (!o && !streaming) handleClose() }}>
+      <DialogContent className="max-w-[45rem]">
         <DialogHeader>
           <DialogTitle>{t('compose.deployDialog.title', { name: template.name })}</DialogTitle>
         </DialogHeader>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="deploy-name">{t('compose.form.name')}</Label>
-            <Input
-              id="deploy-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="my-deployment"
-            />
+
+        {!showLogs ? (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="deploy-name">{t('compose.form.name')}</Label>
+              <Input
+                id="deploy-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="my-deployment"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="deploy-node">{t('compose.form.node')}</Label>
+              <Select value={nodeId} onValueChange={setNodeId}>
+                <SelectTrigger id="deploy-node">
+                  <SelectValue placeholder="…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {[...nodes]
+                    .sort((a, b) => {
+                      const wa = a.workspace_name ?? ''
+                      const wb = b.workspace_name ?? ''
+                      return wa !== wb ? wa.localeCompare(wb) : a.name.localeCompare(b.name)
+                    })
+                    .map((n) => (
+                      <SelectItem key={n.node_id} value={n.node_id}>
+                        {n.usage === 'tests' && n.workspace_name
+                          ? `${n.workspace_name} / ${n.alias || n.name}`
+                          : n.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {template.parameters.length > 0 && (
+              <ParametersForm
+                parameters={template.parameters}
+                values={envValues}
+                onChange={(key, value) => setEnvValues((prev) => ({ ...prev, [key]: value }))}
+              />
+            )}
+            {serverError && <p className="text-sm text-destructive">{serverError}</p>}
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="deploy-node">{t('compose.form.node')}</Label>
-            <Select value={nodeId} onValueChange={setNodeId}>
-              <SelectTrigger id="deploy-node">
-                <SelectValue placeholder="…" />
-              </SelectTrigger>
-              <SelectContent>
-                {[...nodes]
-                  .sort((a, b) => {
-                    const wa = a.workspace_name ?? ''
-                    const wb = b.workspace_name ?? ''
-                    return wa !== wb ? wa.localeCompare(wb) : a.name.localeCompare(b.name)
-                  })
-                  .map((n) => (
-                    <SelectItem key={n.node_id} value={n.node_id}>
-                      {n.usage === 'tests' && n.workspace_name
-                        ? `${n.workspace_name} / ${n.alias || n.name}`
-                        : n.name}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <pre
+              ref={logRef}
+              className="max-h-[55vh] overflow-auto whitespace-pre-wrap rounded bg-black/90 p-3 text-xs text-green-200"
+            >
+              {logs || '…'}
+            </pre>
+            {streamDone && serverError && (
+              <p className="text-sm text-destructive">{serverError}</p>
+            )}
           </div>
-          {template.parameters.length > 0 && (
-            <ParametersForm
-              parameters={template.parameters}
-              values={envValues}
-              onChange={(key, value) => setEnvValues((prev) => ({ ...prev, [key]: value }))}
-            />
-          )}
-          {serverError && <p className="text-sm text-destructive">{serverError}</p>}
-        </div>
+        )}
+
         <DialogFooter>
-          <Button variant="ghost" onClick={handleClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={() => void handleSubmit()} disabled={!canSubmit}>
-            {createDeployment.isPending ? '…' : t('compose.deployDialog.submit')}
-          </Button>
+          {!showLogs ? (
+            <>
+              <Button variant="ghost" onClick={handleClose}>
+                {t('common.cancel')}
+              </Button>
+              <Button onClick={() => void handleSubmit()} disabled={!canSubmit}>
+                {t('compose.deployDialog.submit')}
+              </Button>
+            </>
+          ) : (
+            <Button onClick={handleClose} disabled={streaming}>
+              {streaming
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : t('common.close')}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

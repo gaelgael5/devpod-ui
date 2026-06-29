@@ -9,6 +9,7 @@ import asyncio
 import base64
 import posixpath
 import shlex
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import structlog
@@ -95,6 +96,49 @@ async def run_host_command(
     rc, out, err = await _ssh_capture(argv, timeout=timeout)
     _check_host_key_changed(host, err)
     return rc, out, err
+
+
+async def stream_host_command(
+    host: HostConfig, command: str, *, timeout: float = 600.0
+) -> AsyncIterator[str]:
+    """Exécute une commande SSH en streaming (stdout+stderr mergés), yield une ligne à la fois."""
+    _require_ssh_host(host)
+    known = _data_root() / "keys" / "hosts_known"
+    await asyncio.to_thread(known.parent.mkdir, parents=True, exist_ok=True)
+    key_path = await _materialize_system_cert(host.host_cert_slug)
+    argv = _argv(key_path, host.address, command, known)
+
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    assert proc.stdout is not None  # stdout=PIPE garantit un StreamReader
+
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
+    try:
+        while True:
+            remaining = max(1.0, deadline - loop.time())
+            if loop.time() >= deadline:
+                raise HostExecError("commande nœud expirée (timeout)")
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
+            except TimeoutError:
+                raise HostExecError("commande nœud expirée (timeout)") from None
+            if not raw:
+                break
+            yield raw.decode("utf-8", errors="replace").rstrip("\n")
+    except HostExecError:
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+        raise
+
+    await proc.wait()
+    if proc.returncode != 0:
+        raise HostExecError(f"commande SSH échouée (rc={proc.returncode})")
 
 
 async def write_host_file(host: HostConfig, remote_path: str, content: str) -> None:

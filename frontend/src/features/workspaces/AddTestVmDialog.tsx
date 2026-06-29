@@ -57,7 +57,7 @@ export default function AddTestVmDialog({ wsName, open, onClose }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o && !create.running) handleClose() }}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-[45rem]">
         <DialogHeader>
           <DialogTitle>{t('workspaces.testVm.title')}</DialogTitle>
         </DialogHeader>

@@ -1,10 +1,12 @@
 """Routes /api/compose : templates (admin) + déploiements (dev)."""
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin, require_user
@@ -16,8 +18,10 @@ from ..compose.service import ComposeServiceError
 from ..compose.validation import TemplateValidationError, validate_template
 from ..config.models import HostConfig
 from ..config.store import load_global, load_user
-from ..db.engine import get_conn
+from ..db.engine import _get_engine, get_conn
 from ..db.test_hosts import host_full_info
+from ..messages import db as mdb
+from ..messages.models import WorkspaceMessage
 from ..schemas.compose import DeploymentCreateBody, TemplateCreateBody, TemplateUpdateBody
 from ..settings import get_settings
 
@@ -204,6 +208,79 @@ async def create_deployment(
     return dep.model_dump(mode="json")
 
 
+@router.post("/deployments/stream")
+async def create_deployment_stream(
+    body: DeploymentCreateBody,
+    user: Annotated[UserInfo, Depends(require_user)],
+) -> StreamingResponse:
+    """Démarre un déploiement compose en streamant la sortie de docker compose up.
+
+    Chaque ligne est un log texte. La dernière ligne est ``__RESULT__:{json}``
+    (succès) ou ``__ERROR__:{message}`` (échec).
+    """
+    try:
+        validate_slug(body.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    async with _get_engine().begin() as conn:
+        tpl = await cdb.get_template(conn, body.template_id)
+        if tpl is None:
+            raise HTTPException(status_code=404, detail="template inconnu")
+        missing = [p.key for p in tpl.parameters if p.required and p.key not in body.env_values]
+        if missing:
+            raise HTTPException(
+                status_code=422, detail=f"paramètres requis manquants: {missing}"
+            )
+        if await cdb.get_deployment_by_name_node(conn, body.name, body.node_id) is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"déploiement {body.name!r} existe déjà sur ce nœud",
+            )
+        try:
+            port_map, host_ports, compose_to_write = await csvc.prepare_deployment(
+                conn,
+                template=tpl,
+                node_id=body.node_id,
+                env_values=body.env_values,
+            )
+        except PortConflict as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "port_conflict",
+                    "conflicts": sorted(exc.conflicts),
+                    "suggestion": exc.suggestion,
+                },
+            ) from exc
+        except ComposeServiceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    user_cfg = await load_user(user.login)
+
+    async def _gen() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in csvc.deploy_stream(
+                name=body.name,
+                template=tpl,
+                node_id=body.node_id,
+                owner_login=user.login,
+                secret_ns=user_cfg.secret_ns,
+                env_values=body.env_values,
+                port_map=port_map,
+                host_ports=host_ports,
+                compose_to_write=compose_to_write,
+            ):
+                yield chunk.encode()
+        except ComposeServiceError as exc:
+            yield f"__ERROR__:{exc}\n".encode()
+        except Exception as exc:
+            _log.exception("deploy_stream_unexpected", exc=repr(exc))
+            yield f"__ERROR__:Erreur interne : {exc}\n".encode()
+
+    return StreamingResponse(_gen(), media_type="text/plain; charset=utf-8")
+
+
 @router.post("/deployments/{deployment_id}/{action}")
 async def deployment_action(
     deployment_id: str,
@@ -252,3 +329,23 @@ async def deployment_status(
     await _require_owned(conn, deployment_id, user)
     status = await csvc.refresh_status(conn, deployment_id)
     return {"deployment_id": deployment_id, "status": status}
+
+
+@router.get("/deployments/{deployment_id}/message")
+async def get_deployment_message(
+    deployment_id: str,
+    user: Annotated[UserInfo, Depends(require_user)],
+    conn: Annotated[AsyncConnection, Depends(get_conn)],
+) -> WorkspaceMessage:
+    """Retourne le message contextuel associé à un déploiement (404 si absent)."""
+    dep = await cdb.get_deployment(conn, deployment_id)
+    if dep is None:
+        raise HTTPException(status_code=404, detail="déploiement inconnu")
+    if dep.owner_login != user.login and not _is_admin(user):
+        raise HTTPException(status_code=403, detail="accès refusé")
+    if dep.message_id is None:
+        raise HTTPException(status_code=404, detail="aucun message pour ce déploiement")
+    msg = await mdb.get_message_by_id(conn, dep.message_id)
+    if msg is None:
+        raise HTTPException(status_code=404, detail="message introuvable")
+    return msg
