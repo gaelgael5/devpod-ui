@@ -43,6 +43,10 @@ export interface ComposeDeployment {
 export interface NodeRef {
   node_id: string
   name: string
+  usage?: 'workspaces' | 'tests'
+  owner_login?: string
+  workspace_name?: string
+  alias?: string
 }
 
 export interface TemplateBody {

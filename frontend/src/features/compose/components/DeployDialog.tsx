@@ -133,11 +133,19 @@ export default function DeployDialog({ template, open, onOpenChange }: DeployDia
                 <SelectValue placeholder="…" />
               </SelectTrigger>
               <SelectContent>
-                {nodes.map((n) => (
-                  <SelectItem key={n.node_id} value={n.node_id}>
-                    {n.name}
-                  </SelectItem>
-                ))}
+                {[...nodes]
+                  .sort((a, b) => {
+                    const wa = a.workspace_name ?? ''
+                    const wb = b.workspace_name ?? ''
+                    return wa !== wb ? wa.localeCompare(wb) : a.name.localeCompare(b.name)
+                  })
+                  .map((n) => (
+                    <SelectItem key={n.node_id} value={n.node_id}>
+                      {n.usage === 'tests' && n.workspace_name
+                        ? `${n.workspace_name} / ${n.alias || n.name}`
+                        : n.name}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>
