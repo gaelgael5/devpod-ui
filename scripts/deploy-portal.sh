@@ -122,6 +122,15 @@ echo ""
 echo "==> Arrêt de la stack en cours (si active)..."
 docker compose -f "$COMPOSE_FILE" down --remove-orphans || true
 
+# Détection du port 80 — si déjà utilisé, Caddy part sur 8090 pour éviter le conflit.
+if [[ -z "${CADDY_DEV_PORT:-}" ]]; then
+    if ss -tlnp 2>/dev/null | grep -q ':80 ' || \
+       netstat -tlnp 2>/dev/null | grep -q ':80 '; then
+        export CADDY_DEV_PORT="8090"
+        echo "    Port 80 déjà utilisé → CADDY_DEV_PORT=8090"
+    fi
+fi
+
 echo "==> Démarrage de la stack..."
 docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
 
