@@ -8,6 +8,7 @@ const QK = {
   template: (id?: string) => ['compose', 'template', id ?? null] as const,
   nodes: () => ['compose', 'nodes'] as const,
   deployments: () => ['compose', 'deployments'] as const,
+  logs: (id: string) => ['compose', 'logs', id] as const,
 }
 
 export function useTemplates(tag?: string) {
@@ -21,6 +22,16 @@ export function useNodes() {
 }
 export function useDeployments() {
   return useQuery({ queryKey: QK.deployments(), queryFn: api.listDeployments, refetchInterval: 10_000 })
+}
+
+export function useDeploymentLogs(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: QK.logs(id),
+    queryFn: () => api.fetchDeploymentLogs(id, { tail: 300 }),
+    enabled,
+    staleTime: 0,
+    refetchInterval: enabled ? 5_000 : false,
+  })
 }
 
 export function useSaveTemplate() {

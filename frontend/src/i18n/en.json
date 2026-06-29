@@ -946,7 +946,10 @@
       "description": "Template «{{name}}» will be permanently deleted."
     },
     "logs": {
-      "title": "Logs — {{name}}"
+      "title": "Logs — {{id}}",
+      "button": "View logs",
+      "loading": "Loading logs…",
+      "empty": "No logs available."
     },
     "catalog": {
       "sources": "Gallery sources",

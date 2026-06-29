@@ -946,7 +946,10 @@
       "description": "Le template «{{name}}» sera définitivement supprimé."
     },
     "logs": {
-      "title": "Logs — {{name}}"
+      "title": "Logs — {{id}}",
+      "button": "Voir les logs",
+      "loading": "Chargement des logs…",
+      "empty": "Aucun log disponible."
     },
     "catalog": {
       "sources": "Sources de la galerie",
