@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next'
-import { Network, Copy } from 'lucide-react'
+import { Network, Copy, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import MCPBackends from './MCPBackends'
 import MCPApikeys from './MCPApikeys'
 
@@ -14,44 +15,114 @@ export default function MCPTab() {
     toast.success(t('mcp.gatewayUrlCopied'))
   }
 
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="rounded-lg border bg-muted/40 p-5">
-        <div className="mb-2 flex items-center gap-2">
-          <Network className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-semibold">{t('mcp.title')}</span>
-        </div>
-        <p className="text-sm leading-relaxed text-muted-foreground">{t('mcp.info')}</p>
+  async function copyText(text: string) {
+    await navigator.clipboard.writeText(text)
+    toast.success(t('mcp.copy'))
+  }
 
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-          {/* Claude web → OAuth : rien à créer ici, juste l'URL à coller. */}
-          <div className="flex-1 rounded-md border bg-background p-3">
-            <p className="text-xs font-semibold text-foreground">{t('mcp.webTitle')}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{t('mcp.webHint')}</p>
-            <div className="mt-2 flex items-center gap-2">
-              <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs">
+  const claudeJsonSnippet = `{
+  "mcpServers": {
+    "devpod": {
+      "url": "${gatewayUrl}",
+      "headers": {
+        "Authorization": "Bearer <YOUR_APIKEY>"
+      }
+    }
+  }
+}`
+
+  return (
+    <Tabs defaultValue="servers" className="flex flex-col gap-4">
+      <TabsList className="w-fit">
+        <TabsTrigger value="servers">{t('mcp.tab.servers')}</TabsTrigger>
+        <TabsTrigger value="apikeys">{t('mcp.tab.apikeys')}</TabsTrigger>
+        <TabsTrigger value="oauth">{t('mcp.tab.oauth')}</TabsTrigger>
+      </TabsList>
+
+      {/* ── Onglet MCP Servers ── */}
+      <TabsContent value="servers" className="mt-0">
+        <MCPBackends />
+      </TabsContent>
+
+      {/* ── Onglet Client API Keys ── */}
+      <TabsContent value="apikeys" className="mt-0">
+        <div className="mb-4 rounded-md border bg-muted/30 p-4">
+          <p className="text-xs font-semibold text-foreground">{t('mcp.desktopTitle')}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{t('mcp.desktopHint')}</p>
+          <div className="mt-3 relative">
+            <pre className="rounded-md border bg-background px-3 py-3 text-xs font-mono overflow-x-auto pr-10">
+              {claudeJsonSnippet}
+            </pre>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="absolute top-1.5 right-1.5 h-6 w-6 p-0"
+              onClick={() => void copyText(claudeJsonSnippet)}
+              title={t('mcp.copy')}
+            >
+              <Copy className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+        <MCPApikeys />
+      </TabsContent>
+
+      {/* ── Onglet OAuth ── */}
+      <TabsContent value="oauth" className="mt-0">
+        <div className="flex flex-col gap-5">
+          {/* URL gateway */}
+          <div className="rounded-lg border bg-muted/40 p-5">
+            <div className="mb-2 flex items-center gap-2">
+              <Network className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-semibold">{t('mcp.title')}</span>
+            </div>
+            <p className="text-sm text-muted-foreground">{t('mcp.webHint')}</p>
+            <div className="mt-3 flex items-center gap-2">
+              <code className="flex-1 truncate rounded bg-background border px-2 py-1.5 text-xs font-mono">
                 {gatewayUrl}
               </code>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={copyUrl}
-                title={t('mcp.copy')}
-              >
+              <Button type="button" variant="outline" size="sm" onClick={copyUrl}>
                 <Copy className="h-3 w-3" />
               </Button>
             </div>
           </div>
-          {/* Claude Desktop / scripts → apikey statique émise ci-dessous. */}
-          <div className="flex-1 rounded-md border bg-background p-3">
-            <p className="text-xs font-semibold text-foreground">{t('mcp.desktopTitle')}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{t('mcp.desktopHint')}</p>
+
+          {/* Procédure pas-à-pas */}
+          <div className="rounded-lg border p-5 flex flex-col gap-4">
+            <h2 className="text-sm font-semibold">{t('mcp.oauth.procedureTitle')}</h2>
+            <ol className="flex flex-col gap-4">
+              {[1, 2, 3, 4, 5].map((step) => (
+                <li key={step} className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                    {step}
+                  </span>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-sm font-medium">{t(`mcp.oauth.step${step}.title`)}</span>
+                    <span className="text-xs text-muted-foreground">{t(`mcp.oauth.step${step}.desc`)}</span>
+                    {step === 1 && (
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <code className="truncate rounded border bg-muted px-2 py-0.5 text-xs font-mono">
+                          {gatewayUrl}
+                        </code>
+                        <Button type="button" variant="ghost" size="sm" className="h-6 px-2" onClick={copyUrl}>
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          {/* Note finale */}
+          <div className="flex items-start gap-2 rounded-md border border-green-200 bg-green-50 px-4 py-3 dark:border-green-900 dark:bg-green-950/30">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+            <p className="text-xs text-green-800 dark:text-green-300">{t('mcp.oauth.note')}</p>
           </div>
         </div>
-      </div>
-      <MCPBackends />
-      <MCPApikeys />
-    </div>
+      </TabsContent>
+    </Tabs>
   )
 }

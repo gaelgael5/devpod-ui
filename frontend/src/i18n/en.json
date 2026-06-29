@@ -691,8 +691,37 @@
     "webHint": "Add this URL as a custom connector in Claude. Sign-in uses OAuth — you pick the services on the consent screen. Nothing to create here.",
     "desktopTitle": "Claude Desktop / scripts",
     "desktopHint": "Issue an apikey below and paste it into the client config (Authorization: Bearer).",
-    "copy": "Copy",
+    "copy": "Copied",
     "gatewayUrlCopied": "Gateway URL copied",
+    "tab": {
+      "servers": "MCP Servers",
+      "apikeys": "Client API Keys",
+      "oauth": "OAuth"
+    },
+    "oauth": {
+      "procedureTitle": "Connecting Claude web via OAuth",
+      "step1": {
+        "title": "Open Claude.ai → Settings → Integrations",
+        "desc": "Go to claude.ai, open the Settings panel, then click \"Integrations\" (or \"Custom connectors\" depending on your plan)."
+      },
+      "step2": {
+        "title": "Add a custom connector",
+        "desc": "Click \"Add integration\" and paste the gateway URL above. Claude will auto-discover the OAuth metadata."
+      },
+      "step3": {
+        "title": "Authenticate via Keycloak",
+        "desc": "A consent screen opens. Sign in with your Keycloak account (same as the portal). Approve the requested scopes."
+      },
+      "step4": {
+        "title": "Select the MCP servers to expose",
+        "desc": "On the consent screen you can pick which registered MCP servers Claude may call during this session."
+      },
+      "step5": {
+        "title": "Start using tools in Claude",
+        "desc": "The integration is now active. Ask Claude to use a tool — it will call the gateway transparently."
+      },
+      "note": "OAuth tokens are short-lived and refresh automatically. You do not need to issue an API key for this mode."
+    },
     "backends": {
       "sectionTitle": "MCP Servers",
       "add": "Add a server",

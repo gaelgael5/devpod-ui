@@ -691,8 +691,37 @@
     "webHint": "Ajoute cette URL comme connecteur personnalisé dans Claude. La connexion se fait en OAuth — tu choisis les services sur l'écran de consentement. Rien à créer ici.",
     "desktopTitle": "Claude Desktop / scripts",
     "desktopHint": "Émets une apikey ci-dessous et colle-la dans la config du client (Authorization: Bearer).",
-    "copy": "Copier",
+    "copy": "Copié",
     "gatewayUrlCopied": "URL de la passerelle copiée",
+    "tab": {
+      "servers": "Serveurs MCP",
+      "apikeys": "Clés API client",
+      "oauth": "OAuth"
+    },
+    "oauth": {
+      "procedureTitle": "Connecter Claude web en OAuth",
+      "step1": {
+        "title": "Ouvrir Claude.ai → Paramètres → Intégrations",
+        "desc": "Va sur claude.ai, ouvre les Paramètres, puis clique sur « Intégrations » (ou « Connecteurs personnalisés » selon ton plan)."
+      },
+      "step2": {
+        "title": "Ajouter un connecteur personnalisé",
+        "desc": "Clique sur « Ajouter une intégration » et colle l'URL de la passerelle ci-dessus. Claude découvre automatiquement les métadonnées OAuth."
+      },
+      "step3": {
+        "title": "S'authentifier via Keycloak",
+        "desc": "Un écran de consentement s'ouvre. Connecte-toi avec ton compte Keycloak (identique au portail). Approuve les scopes demandés."
+      },
+      "step4": {
+        "title": "Choisir les serveurs MCP à exposer",
+        "desc": "Sur l'écran de consentement tu sélectionnes quels serveurs MCP Claude peut appeler pendant cette session."
+      },
+      "step5": {
+        "title": "Utiliser les outils dans Claude",
+        "desc": "L'intégration est active. Demande à Claude d'utiliser un outil — il appellera la passerelle de façon transparente."
+      },
+      "note": "Les tokens OAuth sont de courte durée et se renouvellent automatiquement. Aucune API key n'est nécessaire dans ce mode."
+    },
     "backends": {
       "sectionTitle": "Serveurs MCP",
       "add": "Ajouter un serveur",
