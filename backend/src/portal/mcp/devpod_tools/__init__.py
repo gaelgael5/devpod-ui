@@ -108,11 +108,18 @@ async def _workspace_status(conn: AsyncConnection, args: dict[str, Any], owner_l
     ws_id = f"{owner_login}-{name}"
     st = await get_service().status(owner_login, ws_id)
     status = st.get("status", "unknown")
+    container_up = status == "running"
+
+    agent_up: bool | None = None
+    if container_up:
+        rc, _ = await ws_exec(owner_login, ws_id, "true", timeout=5.0)
+        agent_up = rc == 0
+
     return {
         "workspace": name,
         "health": status,
-        "container_up": status == "running",
-        "agent_up": None,  # sondé via session_* (lot 5) ; non résolu ici.
+        "container_up": container_up,
+        "agent_up": agent_up,
     }
 
 
