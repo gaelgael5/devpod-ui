@@ -28,6 +28,12 @@ def _require_ssh_host(host: HostConfig) -> None:
     if host.type != "ssh":
         raise HostExecError(f"host {host.name!r} n'est pas de type ssh (v1 ssh-only)")
     if not host.address or not host.host_cert_slug:
+        if host.usage == "tests":
+            raise HostExecError(
+                f"La machine de test {host.name!r} n'a pas SSH activé. "
+                "Supprimez-la et recréez-la via le bouton « Add VM for Test » "
+                "pour relancer l'enrôlement SSH."
+            )
         missing = []
         if not host.address:
             missing.append("adresse SSH")
