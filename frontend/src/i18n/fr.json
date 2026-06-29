@@ -177,6 +177,15 @@
       "description": "Logs en temps réel du workspace {{name}}",
       "empty": "Aucun log disponible pour ce workspace.",
       "loading": "Chargement…"
+    },
+    "messages": {
+      "button": "Messages",
+      "title": "Messages — {{name}}",
+      "description": "Messages contextuels du workspace {{name}}",
+      "empty": "Aucun message pour ce workspace.",
+      "loading": "Chargement…",
+      "copy": "Copier",
+      "copied": "Copié !"
     }
   },
   "recipes": {

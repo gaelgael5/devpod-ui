@@ -177,6 +177,15 @@
       "description": "Live logs for workspace {{name}}",
       "empty": "No logs available for this workspace.",
       "loading": "Loading…"
+    },
+    "messages": {
+      "button": "Messages",
+      "title": "Messages — {{name}}",
+      "description": "Context messages for workspace {{name}}",
+      "empty": "No messages for this workspace.",
+      "loading": "Loading…",
+      "copy": "Copy",
+      "copied": "Copied!"
     }
   },
   "recipes": {

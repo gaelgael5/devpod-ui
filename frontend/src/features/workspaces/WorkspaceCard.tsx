@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { FileText, FolderOpen, Key, Loader2 } from 'lucide-react'
+import { FileText, FolderOpen, Key, Loader2, MessageSquare } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,6 +21,7 @@ import InitializersMenu from './InitializersMenu'
 import AddTestVmDialog from './AddTestVmDialog'
 import TestHostsMenu from './TestHostsMenu'
 import HostServicesSection from './HostServicesSection'
+import WorkspaceMessagesDialog from './WorkspaceMessagesDialog'
 import type { TestHost } from './useTestVm'
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
@@ -46,6 +47,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const { t } = useTranslation()
   const [sshKeyOpen, setSshKeyOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
+  const [messagesOpen, setMessagesOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [recreateOpen, setRecreateOpen] = useState(false)
   const [shellOpen, setShellOpen] = useState(false)
@@ -185,6 +187,14 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         <Button
           size="sm"
           variant="ghost"
+          onClick={() => setMessagesOpen(true)}
+          aria-label={t('workspaces.messages.button')}
+        >
+          <MessageSquare className="h-4 w-4" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
           onClick={() => setLogsOpen(true)}
           aria-label={t('workspaces.logs.button')}
         >
@@ -235,6 +245,11 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         open={logsOpen}
         onOpenChange={setLogsOpen}
         status={status.status}
+      />
+      <WorkspaceMessagesDialog
+        workspaceName={spec.name}
+        open={messagesOpen}
+        onOpenChange={setMessagesOpen}
       />
       <Dialog open={recreateOpen} onOpenChange={setRecreateOpen}>
         <DialogContent className="sm:max-w-md">
