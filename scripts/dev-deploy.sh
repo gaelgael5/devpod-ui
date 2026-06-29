@@ -115,6 +115,17 @@ if [[ -z "$(_get_env SESSION_SECRET_KEY)" ]]; then
     echo "    SESSION_SECRET_KEY généré"
 fi
 
+# Détection de conflit sur le port 80 : si un process tiers écoute déjà sur :80,
+# on utilise 8090 pour Caddy afin d'éviter le "bind: address already in use".
+# CADDY_DEV_PORT=80 par défaut (valeur absente = pas de conflit).
+if [[ -z "$(_get_env CADDY_DEV_PORT)" ]]; then
+    if ss -tlnp 2>/dev/null | grep -q ':80 ' || \
+       netstat -tlnp 2>/dev/null | grep -q ':80 '; then
+        _set_env CADDY_DEV_PORT "8090"
+        echo "    Port 80 déjà utilisé → CADDY_DEV_PORT=8090"
+    fi
+fi
+
 # Validation : échouer explicitement si une variable critique est encore vide
 for _required_key in POSTGRES_USER POSTGRES_PASSWORD SESSION_SECRET_KEY; do
     if [[ -z "$(_get_env "$_required_key")" ]]; then
