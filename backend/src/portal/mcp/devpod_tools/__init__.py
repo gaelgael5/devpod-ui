@@ -460,7 +460,9 @@ async def _start_existing(login: str, name: str, conn: AsyncConnection) -> str:
     return await start_existing_workspace(login, name, conn)
 
 
-async def _workspace_start(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+async def _workspace_reconnect(
+    conn: AsyncConnection, args: dict[str, Any], owner_login: str
+) -> Any:
     name = _require_ws(args)
 
     async def work() -> Any:
@@ -470,7 +472,8 @@ async def _workspace_start(conn: AsyncConnection, args: dict[str, Any], owner_lo
             await _start_existing(owner_login, name, bg_conn)
         return {"workspace": name, "status": "provisioning"}
 
-    return {"operation_id": operations.launch_operation("workspace_start", name, owner_login, work)}
+    op = operations.launch_operation("workspace_reconnect", name, owner_login, work)
+    return {"operation_id": op}
 
 
 async def _workspace_restart(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
@@ -815,7 +818,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_mkdir": _workspace_mkdir,
     "workspace_write_file": _workspace_write_file,
     "workspace_exec": _workspace_exec,
-    "workspace_start": _workspace_start,
+    "workspace_reconnect": _workspace_reconnect,
     "workspace_stop": _workspace_stop,
     "workspace_restart": _workspace_restart,
     "session_open": _session_open,

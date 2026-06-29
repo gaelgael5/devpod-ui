@@ -230,9 +230,10 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "exec",
     },
-    "workspace_start": {
+    "workspace_reconnect": {
         "description": (
-            "Démarre le conteneur du workspace. "
+            "Reconnecte le workspace au portail (devpod up). "
+            "Si le conteneur tourne déjà, DevPod le détecte et rétablit le tunnel sans le recréer. "
             "Asynchrone : retourne un operation_id."
         ),
         "inputSchema": {
