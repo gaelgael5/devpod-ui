@@ -26,6 +26,10 @@ services:
     image: workspace-portal:dev
     restart: unless-stopped
     env_file: /data/.env
+    environment:
+      # Accès HTTP direct (sans TLS) en dev : désactive le flag Secure sur les
+      # cookies de session, sans quoi le navigateur ne les renvoie jamais.
+      DEV_MODE: "true"
     volumes:
       - /data:/data
     ports:
