@@ -407,6 +407,11 @@
       "deleteHost": "Supprimer l'hôte",
       "cancel": "Annuler"
     },
+    "testHost": {
+      "owner": "Appartient au workspace",
+      "alias": "alias SSH",
+      "noServices": "Aucun service compose actif"
+    },
     "sshTerminal": {
       "openBtn": "SSH",
       "windowTitle": "Terminal SSH",
@@ -858,13 +863,6 @@
     "close": "Fermer",
     "edit": "Modifier",
     "delete": "Supprimer"
-  },
-  "admin": {
-    "testHost": {
-      "owner": "Appartient au workspace",
-      "alias": "alias SSH",
-      "noServices": "Aucun service compose actif"
-    }
   },
   "jinjaTemplates": {
     "title": "Templates Jinja2",

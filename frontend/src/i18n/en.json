@@ -407,6 +407,11 @@
       "deleteHost": "Delete host",
       "cancel": "Cancel"
     },
+    "testHost": {
+      "owner": "Owned by workspace",
+      "alias": "SSH alias",
+      "noServices": "No running compose services"
+    },
     "sshTerminal": {
       "openBtn": "SSH",
       "windowTitle": "SSH Terminal",
@@ -858,13 +863,6 @@
     "close": "Close",
     "edit": "Edit",
     "delete": "Delete"
-  },
-  "admin": {
-    "testHost": {
-      "owner": "Owned by workspace",
-      "alias": "SSH alias",
-      "noServices": "No running compose services"
-    }
   },
   "jinjaTemplates": {
     "title": "Jinja2 templates",
