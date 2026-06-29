@@ -1,6 +1,6 @@
 services:
   chromium:
-    image: ghcr.io/browserless/chromium:1.22.0
+    image: ghcr.io/browserless/chromium:latest
     ports:
       - chromium>3000:3000
     restart: unless-stopped
