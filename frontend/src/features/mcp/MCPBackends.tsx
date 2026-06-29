@@ -393,20 +393,18 @@ function PrimitivesList({ backendId }: { backendId: string }) {
         {t('mcp.backends.viewTools')}
       </button>
       {open && (
-        <div className="mt-2 flex flex-wrap gap-1">
+        <div className="mt-2 flex flex-col gap-1 max-h-64 overflow-y-auto pr-1">
           {isLoading && <span className="text-xs text-muted-foreground">{t('common.loading')}</span>}
           {!isLoading && tools.length === 0 && (
             <span className="text-xs text-muted-foreground">{t('mcp.backends.noTools')}</span>
           )}
           {tools.map((tool) => (
-            <Badge
-              key={tool.name}
-              variant="secondary"
-              className="font-mono text-xs cursor-default"
-              title={tool.description}
-            >
-              {tool.name}
-            </Badge>
+            <div key={tool.name} className="flex items-baseline gap-2 text-xs">
+              <code className="shrink-0 font-mono text-foreground">{tool.name}</code>
+              {tool.description && (
+                <span className="text-muted-foreground truncate">{tool.description}</span>
+              )}
+            </div>
           ))}
         </div>
       )}
