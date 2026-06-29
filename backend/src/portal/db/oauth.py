@@ -47,6 +47,7 @@ async def insert_authcode(
     code_challenge: str,
     scope: str,
     grants: list[dict[str, Any]],
+    profile_id: str | None,
     expires_at: datetime,
 ) -> None:
     await conn.execute(
@@ -58,6 +59,7 @@ async def insert_authcode(
             code_challenge=code_challenge,
             scope=scope,
             grants=grants,
+            profile_id=profile_id,
             expires_at=expires_at,
         )
     )
@@ -105,6 +107,7 @@ async def insert_oauth_token(
     client_id: str,
     refresh_token_hash: str,
     expires_at: datetime | None,
+    profile_id: str | None,
 ) -> None:
     """Insère un access token OAuth = une apikey kind='oauth'."""
     await conn.execute(
@@ -117,6 +120,7 @@ async def insert_oauth_token(
             client_id=client_id,
             refresh_token_hash=refresh_token_hash,
             expires_at=expires_at,
+            profile_id=profile_id,
         )
     )
 

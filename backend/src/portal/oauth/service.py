@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..db import mcp as mcp_db
 from ..db import oauth as db
 from ..mcp.service import APIKEY_PREFIX
 from .pkce import verify_s256
@@ -85,6 +84,7 @@ async def make_authcode(
     code_challenge: str,
     scope: str,
     grants: list[dict[str, Any]],
+    profile_id: str | None,
 ) -> str:
     """Crée un code d'autorisation (TTL court) lié aux grants consentis ; retourne le code clair."""
     code = new_secret(_CODE_PREFIX)
@@ -97,6 +97,7 @@ async def make_authcode(
         code_challenge=code_challenge,
         scope=scope,
         grants=grants,
+        profile_id=profile_id,
         expires_at=datetime.now(UTC) + _AUTHCODE_TTL,
     )
     return code
@@ -119,7 +120,10 @@ async def exchange_code(
     if not verify_s256(code_verifier, row["code_challenge"]):
         raise OAuthError("invalid_grant", "PKCE invalide")
     return await _issue(
-        conn, owner_login=row["owner_login"], client_id=client_id, grants=row["grants"]
+        conn,
+        owner_login=row["owner_login"],
+        client_id=client_id,
+        profile_id=row.get("profile_id"),
     )
 
 
@@ -146,7 +150,7 @@ async def _issue(
     *,
     owner_login: str,
     client_id: str,
-    grants: list[dict[str, Any]],
+    profile_id: str | None,
 ) -> dict[str, Any]:
     access = new_secret(APIKEY_PREFIX)
     refresh_tok = new_secret(_REFRESH_PREFIX)
@@ -159,18 +163,8 @@ async def _issue(
         client_id=client_id,
         refresh_token_hash=sha256_hex(refresh_tok),
         expires_at=None,  # long-lived révocable (D6)
+        profile_id=profile_id,
     )
-    for g in grants:
-        await mcp_db.set_grant(
-            conn,
-            apikey_id=apikey_id,
-            backend_id=g["backend_id"],
-            backend_key_id=g.get("backend_key_id"),
-            expose_mode=g.get("expose_mode", "all"),
-            expose=g.get("expose", []),
-            enabled=g.get("enabled", True),
-            scopes=g.get("scopes"),
-        )
     return _token_response(access, refresh_tok)
 
 

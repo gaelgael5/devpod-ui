@@ -83,7 +83,7 @@ export default function ConsentPage() {
       const res = await apiFetchJson<{ redirect: string }>('/oauth/authorize/decision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...oauthParams, approve, grants }),
+        body: JSON.stringify({ ...oauthParams, approve, grants, profile_id: profileId || null }),
       })
       // Garde-fou anti-XSS : ne suit que http(s), jamais javascript:/data:.
       if (!/^https?:\/\//i.test(res.redirect)) throw new Error('redirection invalide')

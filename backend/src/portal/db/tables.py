@@ -578,6 +578,7 @@ mcp_oauth_authcode = Table(
     Column("code_challenge", Text, nullable=False),  # PKCE S256
     Column("scope", Text, nullable=False, server_default=""),
     Column("grants", JSONB, nullable=False, server_default="[]"),  # backends + curation choisis
+    Column("profile_id", Text, nullable=True),  # profil sélectionné sur l'écran de consentement
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("used", Boolean, nullable=False, server_default="false"),
 )
