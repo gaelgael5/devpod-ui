@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from ..db import mcp_profiles as _profiles_db
 from ..db import oauth as db
 from ..mcp.service import APIKEY_PREFIX
 from .pkce import verify_s256
@@ -119,11 +120,29 @@ async def exchange_code(
         raise OAuthError("invalid_grant", "client_id/redirect_uri ne correspond pas au code")
     if not verify_s256(code_verifier, row["code_challenge"]):
         raise OAuthError("invalid_grant", "PKCE invalide")
+
+    profile_id: str | None = row.get("profile_id")
+
+    # Persiste les backends accordés dans mcp_profile_entry pour que
+    # list_entries_for_apikey les retrouve lors du listing des outils.
+    # tools=None signifie "toutes les primitives du backend" (filtre désactivé).
+    if profile_id:
+        for grant in (row.get("grants") or []):
+            backend_id = grant.get("backend_id")
+            if backend_id:
+                await _profiles_db.upsert_profile_entry(
+                    conn,
+                    profile_id=profile_id,
+                    backend_id=str(backend_id),
+                    backend_key_id=grant.get("backend_key_id"),
+                    tools=None,
+                )
+
     return await _issue(
         conn,
         owner_login=row["owner_login"],
         client_id=client_id,
-        profile_id=row.get("profile_id"),
+        profile_id=profile_id,
     )
 
 
