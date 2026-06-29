@@ -28,7 +28,15 @@ def _require_ssh_host(host: HostConfig) -> None:
     if host.type != "ssh":
         raise HostExecError(f"host {host.name!r} n'est pas de type ssh (v1 ssh-only)")
     if not host.address or not host.host_cert_slug:
-        raise HostExecError(f"host {host.name!r} : address/host_cert_slug non configurés")
+        missing = []
+        if not host.address:
+            missing.append("adresse SSH")
+        if not host.host_cert_slug:
+            missing.append("certificat SSH (host_cert_slug)")
+        raise HostExecError(
+            f"La machine {host.name!r} n'a pas SSH activé ({', '.join(missing)} manquant(s)). "
+            "Activez SSH sur cette machine depuis le panneau d'administration des hôtes."
+        )
 
 
 def _argv(key_path: str, address: str, command: str, known_hosts: Path) -> list[str]:
