@@ -155,6 +155,17 @@ if [[ -f "$ENV_FILE" ]]; then
         grep -q '^LOCAL_PASSWORD='      "$ENV_FILE" && sed -i "s|^LOCAL_PASSWORD=.*|LOCAL_PASSWORD=${LOCAL_PASS}|"             "$ENV_FILE" || echo "LOCAL_PASSWORD=${LOCAL_PASS}"             >> "$ENV_FILE"
         grep -q '^LOCAL_PASSWORD_HASH=' "$ENV_FILE" && sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}|" "$ENV_FILE" || echo "LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}" >> "$ENV_FILE"
         echo "    LOCAL_PASSWORD généré : ${LOCAL_PASS}"
+    else
+        # install.sh peut avoir stocké le hash sans doubler les $ (docker compose
+        # interpolerait $VAR → vide, hash corrompu dans le container).
+        # Si le hash ne commence pas par $$, on corrige l'escaping.
+        _CURRENT_HASH="$(_get_env_val LOCAL_PASSWORD_HASH)"
+        if [[ -n "$_CURRENT_HASH" ]] && [[ "$_CURRENT_HASH" != '$$'* ]]; then
+            _ESCAPED="$(printf '%s' "$_CURRENT_HASH" | sed 's/\$/\$\$/g')"
+            sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${_ESCAPED}|" "$ENV_FILE"
+            echo "    LOCAL_PASSWORD_HASH : escaping \$→\$\$\$ appliqué"
+        fi
+        unset _CURRENT_HASH _ESCAPED
     fi
 
     if [[ -z "$(_get_env_val PORTAL_VAULT_KEK)" ]]; then
