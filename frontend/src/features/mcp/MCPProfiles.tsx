@@ -253,6 +253,7 @@ function ToolsEditor({
               key={tool.name}
               type="button"
               onClick={() => toggleTool(tool.name)}
+              title={tool.description || tool.name}
               className={`flex items-center gap-1 rounded border px-2 py-0.5 text-xs transition-colors ${
                 active
                   ? 'border-primary/30 bg-primary/10 text-primary'
