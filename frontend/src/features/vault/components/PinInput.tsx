@@ -62,8 +62,7 @@ export function PinInput({ onComplete, disabled, showSubmit = false, maskDelay =
     if (digit) {
       const allFilled = d.every(Boolean)
       if (allFilled) {
-        if (showSubmit) submitRef.current?.focus()
-        else onComplete(d.join(''))
+        onComplete(d.join(''))
       } else if (i < PIN_LENGTH - 1) {
         inputRefs.current[i + 1]?.focus()
       }
@@ -101,8 +100,7 @@ export function PinInput({ onComplete, disabled, showSubmit = false, maskDelay =
 
     const allFilled = pasted.length === PIN_LENGTH
     if (allFilled) {
-      if (showSubmit) submitRef.current?.focus()
-      else onComplete(pasted)
+      onComplete(pasted)
     } else {
       inputRefs.current[Math.min(pasted.length, PIN_LENGTH - 1)]?.focus()
     }
