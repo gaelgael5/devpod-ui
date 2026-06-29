@@ -409,6 +409,8 @@
     },
     "testHost": {
       "sectionTitle": "Test machines",
+      "filterPlaceholder": "Filter by user / workspace…",
+      "filterEmpty": "No machine matches this filter.",
       "owner": "Owned by workspace",
       "alias": "SSH alias",
       "noServices": "No running compose services"

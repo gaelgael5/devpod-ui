@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Copy, KeyRound, Pencil, Trash2 } from 'lucide-react'
+import { ChevronRight, Copy, KeyRound, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -207,105 +207,154 @@ function TestHostsGroupedSection({
 }) {
   const { t } = useTranslation()
   const userGroups = useTestHostsSummary(hosts)
+  const [search, setSearch] = useState('')
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 
   if (userGroups.length === 0) return null
 
+  const q = search.trim().toLowerCase()
+  const filtered = userGroups
+    .map((ug) => ({
+      ...ug,
+      workspaces: ug.workspaces.filter(
+        (ws) =>
+          !q ||
+          ug.owner_login.toLowerCase().includes(q) ||
+          ws.workspace_name.toLowerCase().includes(q),
+      ),
+    }))
+    .filter((ug) => ug.workspaces.length > 0)
+
+  function toggleCollapse(login: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      next.has(login) ? next.delete(login) : next.add(login)
+      return next
+    })
+  }
+
   return (
     <div className="mt-4 flex flex-col gap-4">
-      <h2 className="text-sm font-semibold text-muted-foreground px-1">{t('admin.testHost.sectionTitle')}</h2>
+      <div className="flex items-center justify-between px-1">
+        <h2 className="text-sm font-semibold text-muted-foreground">{t('admin.testHost.sectionTitle')}</h2>
+        <Input
+          className="h-7 w-52 text-xs"
+          placeholder={t('admin.testHost.filterPlaceholder')}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
 
-      {userGroups.map((userGroup: UserTestGroup) => (
-        <div key={userGroup.owner_login} className="rounded-lg border">
-          {/* En-tête utilisateur */}
-          <div className="flex items-center gap-2 border-b bg-muted/60 px-4 py-2">
-            <span className="text-sm font-semibold">{userGroup.owner_login}</span>
-          </div>
+      {filtered.length === 0 && (
+        <p className="text-xs text-muted-foreground px-1">{t('admin.testHost.filterEmpty')}</p>
+      )}
 
-          {/* Workspaces de cet utilisateur */}
-          <div className="divide-y">
-            {userGroup.workspaces.map((wsGroup) => (
-              <div key={wsGroup.workspace_name}>
-                {/* En-tête workspace */}
-                <div className="flex items-center gap-2 px-4 py-2 bg-muted/20">
-                  <span className="font-mono text-[10px] text-muted-foreground/50 select-none">└</span>
-                  <span className="text-xs font-semibold">{wsGroup.workspace_name}</span>
-                </div>
+      {filtered.map((userGroup: UserTestGroup) => {
+        const isCollapsed = collapsed.has(userGroup.owner_login)
+        const totalMachines = userGroup.workspaces.reduce((n, ws) => n + ws.entries.length, 0)
+        return (
+          <div key={userGroup.owner_login} className="rounded-lg border">
+            {/* En-tête utilisateur avec collapse */}
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 border-b bg-muted/60 px-4 py-2 text-left hover:bg-muted/80 transition-colors rounded-t-lg"
+              onClick={() => toggleCollapse(userGroup.owner_login)}
+            >
+              <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform duration-150', !isCollapsed && 'rotate-90')} />
+              <span className="text-sm font-semibold">{userGroup.owner_login}</span>
+              <span className="ml-auto text-xs text-muted-foreground">
+                {userGroup.workspaces.length} workspace{userGroup.workspaces.length > 1 ? 's' : ''}
+                {' · '}
+                {totalMachines} machine{totalMachines > 1 ? 's' : ''}
+              </span>
+            </button>
 
-                {/* Machines de ce workspace */}
-                <div className="divide-y divide-border/40">
-                  {wsGroup.entries.map(({ host, info, deployments, loading }, mi) => (
-                    <div key={host.name} className="pl-8 pr-4 py-2.5">
-                      {/* Ligne machine : alias · nom · adresse · actions */}
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[10px] text-muted-foreground/50 select-none shrink-0">
-                          {mi === wsGroup.entries.length - 1 ? '└' : '├'}
-                        </span>
-                        {info?.alias && (
-                          <span className="font-mono text-xs font-semibold bg-muted rounded px-1.5 py-0.5 shrink-0">
-                            {info.alias}
-                          </span>
-                        )}
-                        <span className="text-xs font-medium shrink-0">{host.name}</span>
-                        <span className="text-xs text-muted-foreground font-mono flex-1 truncate">
-                          {host.address || '—'}
-                        </span>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => actions.onEdit(host)}>
-                            <Pencil className="h-3 w-3" />
-                          </Button>
-                          <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => actions.onDelete(host)}>
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                          {!host.host_cert_slug && (
-                            <Button size="sm" variant="outline"
-                              className="h-6 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
-                              onClick={() => actions.onBootstrap(host)}>
-                              {t('admin.bootstrap.btn')}
-                            </Button>
-                          )}
-                          {host.host_cert_slug && (
-                            <Button size="sm" variant="outline"
-                              className="h-6 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
-                              onClick={() => actions.onSsh(host)}>
-                              {t('admin.sshTerminal.openBtn')}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Services compose */}
-                      <div className="mt-1.5 pl-5 border-l border-border/30 ml-1">
-                        {loading && <span className="text-xs text-muted-foreground">…</span>}
-                        {!loading && deployments.length === 0 && (
-                          <span className="text-xs text-muted-foreground">{t('admin.testHost.noServices')}</span>
-                        )}
-                        {deployments.map((dep, di) => {
-                          const s = dep.status
-                          return (
-                            <TreeNode key={dep.id} connector={di === deployments.length - 1 ? '└' : '├'}>
-                              <span
-                                title={dep.last_error ?? undefined}
-                                className={cn('inline-flex items-center gap-1.5 text-xs', DEPLOY_STATUS_TEXT[s] ?? DEPLOY_STATUS_TEXT.error)}
-                              >
-                                <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', DEPLOY_STATUS_DOT[s] ?? DEPLOY_STATUS_DOT.error)} />
-                                <span className="font-medium">{dep.template_name}</span>
-                                <span className="opacity-60">{dep.template_version}</span>
-                                {dep.host_ports.length > 0 && (
-                                  <span className="font-mono opacity-60">:{dep.host_ports.join(',')}</span>
-                                )}
-                              </span>
-                            </TreeNode>
-                          )
-                        })}
-                      </div>
+            {!isCollapsed && (
+              <div className="divide-y">
+                {userGroup.workspaces.map((wsGroup) => (
+                  <div key={wsGroup.workspace_name}>
+                    {/* En-tête workspace */}
+                    <div className="flex items-center gap-2 px-4 py-2 bg-muted/20">
+                      <span className="font-mono text-[10px] text-muted-foreground/50 select-none">└</span>
+                      <span className="text-xs font-semibold">{wsGroup.workspace_name}</span>
                     </div>
-                  ))}
-                </div>
+
+                    {/* Machines de ce workspace */}
+                    <div className="divide-y divide-border/40">
+                      {wsGroup.entries.map(({ host, info, deployments, loading }, mi) => (
+                        <div key={host.name} className="pl-8 pr-4 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[10px] text-muted-foreground/50 select-none shrink-0">
+                              {mi === wsGroup.entries.length - 1 ? '└' : '├'}
+                            </span>
+                            {info?.alias && (
+                              <span className="font-mono text-xs font-semibold bg-muted rounded px-1.5 py-0.5 shrink-0">
+                                {info.alias}
+                              </span>
+                            )}
+                            <span className="text-xs font-medium shrink-0">{host.name}</span>
+                            <span className="text-xs text-muted-foreground font-mono flex-1 truncate">
+                              {host.address || '—'}
+                            </span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => actions.onEdit(host)}>
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => actions.onDelete(host)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                              {!host.host_cert_slug && (
+                                <Button size="sm" variant="outline"
+                                  className="h-6 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
+                                  onClick={() => actions.onBootstrap(host)}>
+                                  {t('admin.bootstrap.btn')}
+                                </Button>
+                              )}
+                              {host.host_cert_slug && (
+                                <Button size="sm" variant="outline"
+                                  className="h-6 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
+                                  onClick={() => actions.onSsh(host)}>
+                                  {t('admin.sshTerminal.openBtn')}
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Services compose */}
+                          <div className="mt-1.5 pl-5 border-l border-border/30 ml-1">
+                            {loading && <span className="text-xs text-muted-foreground">…</span>}
+                            {!loading && deployments.length === 0 && (
+                              <span className="text-xs text-muted-foreground">{t('admin.testHost.noServices')}</span>
+                            )}
+                            {deployments.map((dep, di) => {
+                              const s = dep.status
+                              return (
+                                <TreeNode key={dep.id} connector={di === deployments.length - 1 ? '└' : '├'}>
+                                  <span
+                                    title={dep.last_error ?? undefined}
+                                    className={cn('inline-flex items-center gap-1.5 text-xs', DEPLOY_STATUS_TEXT[s] ?? DEPLOY_STATUS_TEXT.error)}
+                                  >
+                                    <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', DEPLOY_STATUS_DOT[s] ?? DEPLOY_STATUS_DOT.error)} />
+                                    <span className="font-medium">{dep.template_name}</span>
+                                    <span className="opacity-60">{dep.template_version}</span>
+                                    {dep.host_ports.length > 0 && (
+                                      <span className="font-mono opacity-60">:{dep.host_ports.join(',')}</span>
+                                    )}
+                                  </span>
+                                </TreeNode>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

@@ -409,6 +409,8 @@
     },
     "testHost": {
       "sectionTitle": "Machines de test",
+      "filterPlaceholder": "Filtrer par user / workspace…",
+      "filterEmpty": "Aucune machine ne correspond à ce filtre.",
       "owner": "Appartient au workspace",
       "alias": "alias SSH",
       "noServices": "Aucun service compose actif"
