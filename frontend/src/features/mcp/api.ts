@@ -42,6 +42,7 @@ export interface MCPApikey {
   profile_id: string | null
   revoked: boolean
   created_at: string
+  last_used_at: string | null
 }
 
 export interface MCPProfile {

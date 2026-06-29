@@ -878,7 +878,9 @@
       "revoked": "Revoked",
       "revoke": "Revoke",
       "delete": "Delete",
-      "confirmDelete": "Confirm"
+      "confirmDelete": "Confirm",
+      "connectedAt": "Connected:",
+      "lastCall": "Last call:"
     },
     "saving": "Saving…",
     "save": "Save"

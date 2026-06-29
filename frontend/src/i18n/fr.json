@@ -878,7 +878,9 @@
       "revoked": "Révoquée",
       "revoke": "Révoquer",
       "delete": "Supprimer",
-      "confirmDelete": "Confirmer"
+      "confirmDelete": "Confirmer",
+      "connectedAt": "Connecté :",
+      "lastCall": "Dernier appel :"
     },
     "saving": "Enregistrement…",
     "save": "Enregistrer"
