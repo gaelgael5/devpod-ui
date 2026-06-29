@@ -689,11 +689,12 @@
   "oauth": {
     "consent": {
       "title": "Autoriser l'accès",
-      "intro": "Une application demande l'accès à ta passerelle MCP. Choisis les services qu'elle pourra utiliser.",
+      "intro": "Une application demande l'accès à ta passerelle MCP. Sélectionne un profil pour définir les services accessibles.",
       "profile": "Profil",
-      "profileNone": "Tous les services (sans profil)",
-      "backends": "Services accordés",
-      "noBackends": "Aucun service MCP enregistré.",
+      "profileNone": "— sélectionner un profil —",
+      "noProfiles": "Aucun profil. Crée-en un dans les paramètres MCP d'abord.",
+      "backends": "Services inclus",
+      "noBackends": "Ce profil ne contient aucun service.",
       "allow": "Autoriser",
       "deny": "Refuser"
     }

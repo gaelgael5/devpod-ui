@@ -689,11 +689,12 @@
   "oauth": {
     "consent": {
       "title": "Authorize access",
-      "intro": "An application requests access to your MCP gateway. Choose the services it may use.",
+      "intro": "An application requests access to your MCP gateway. Select a profile to define which services it may use.",
       "profile": "Profile",
-      "profileNone": "All services (no profile)",
-      "backends": "Granted services",
-      "noBackends": "No MCP service registered.",
+      "profileNone": "— select a profile —",
+      "noProfiles": "No profile yet. Create one in the MCP settings first.",
+      "backends": "Included services",
+      "noBackends": "This profile has no services.",
       "allow": "Authorize",
       "deny": "Deny"
     }
