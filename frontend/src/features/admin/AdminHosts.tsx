@@ -224,7 +224,7 @@ function TestHostsGroupedSection({
 
           {/* Hosts du groupe */}
           <div className="divide-y">
-            {group.entries.map(({ host, info, deployments, loading }, ei) => (
+            {group.entries.map(({ host, info, deployments, loading }) => (
               <div key={host.name} className="px-4 py-3">
                 {/* Ligne host : alias · nom · adresse · actions */}
                 <div className="flex items-center gap-3">
