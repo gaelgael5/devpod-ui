@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/shared/components/ui/button'
-import { Input } from '@/shared/components/ui/input'
-import { Label } from '@/shared/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import JinjaEditor from './JinjaEditor'
 import { useJinjaTemplates } from './useJinjaTemplates'
 import type { JinjaTemplate } from './useJinjaTemplates'
@@ -183,7 +183,7 @@ export default function AdminJinjaTemplates() {
                 <Label>{t('jinjaTemplates.key')}</Label>
                 <Input
                   value={form.key}
-                  onChange={e => setForm(f => ({ ...f, key: e.target.value }))}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm(f => ({ ...f, key: e.target.value }))}
                   disabled={!isNew}
                   placeholder="ex: test_host_available"
                   required
@@ -193,7 +193,7 @@ export default function AdminJinjaTemplates() {
                 <Label>{t('jinjaTemplates.culture')}</Label>
                 <Select
                   value={form.culture}
-                  onValueChange={v => setForm(f => ({ ...f, culture: v }))}
+                  onValueChange={(v: string) => setForm(f => ({ ...f, culture: v }))}
                   disabled={!isNew}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
