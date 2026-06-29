@@ -21,6 +21,8 @@ export default function VaultUnlock() {
   const { mutateAsync: resetVault, isPending: isResetting } = useVaultReset()
   const [error, setError] = useState<string | null>(null)
   const [showResetDialog, setShowResetDialog] = useState(false)
+  const [shake, setShake] = useState(false)
+  const [pinKey, setPinKey] = useState(0)
 
   useEffect(() => {
     if (statusData?.status === 'setup_required') navigate('/vault/setup', { replace: true })
@@ -38,6 +40,9 @@ export default function VaultUnlock() {
           ? 'Compte verrouillé — réessayez dans quelques minutes.'
           : 'PIN incorrect.',
       )
+      setShake(true)
+      setPinKey(k => k + 1)
+      setTimeout(() => setShake(false), 500)
     }
   }
 
@@ -49,7 +54,7 @@ export default function VaultUnlock() {
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-md">
+      <Card className={`w-full max-w-md${shake ? ' shake' : ''}`}>
         <CardHeader>
           <CardTitle>Déverrouiller le coffre</CardTitle>
           <CardDescription>Saisissez votre PIN pour accéder à l&apos;application.</CardDescription>
@@ -60,7 +65,7 @@ export default function VaultUnlock() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          <PinInput onComplete={handlePin} disabled={isPending} showSubmit maskDelay={0} />
+          <PinInput key={pinKey} onComplete={handlePin} disabled={isPending} showSubmit maskDelay={0} />
           <div className="text-muted-foreground flex justify-between text-center text-sm">
             <Link to="/vault/recover" className="underline">
               Code de secours oublié ?
