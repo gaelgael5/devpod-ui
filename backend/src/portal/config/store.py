@@ -52,6 +52,7 @@ def load_global() -> GlobalConfig:
     (hyperviseurs, types…) avant la configuration initiale.
     """
     from portal.db.global_config import get_cached_global
+
     from .models import AuthConfig, OidcConfig, ServerConfig
 
     try:

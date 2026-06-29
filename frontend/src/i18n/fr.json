@@ -723,6 +723,7 @@
       "noToolsCatalog": "Aucun tool indexé (backend non synchronisé)."
     },
     "oauth": {
+      "openSettings": "Ouvrir →",
       "claude": {
         "procedureTitle": "Connecter Claude.ai en OAuth",
         "step1": {
@@ -845,7 +846,9 @@
       "enabledOff": "Serveur désactivé",
       "namespacePlaceholder": "rag",
       "urlPlaceholder": "https://rag.yoops.org/mcp",
-      "slugPlaceholder": "read"
+      "slugPlaceholder": "read",
+      "viewTools": "Voir les outils",
+      "noTools": "Aucun outil catalogué."
     },
     "apikeys": {
       "sectionTitle": "Apikeys clients",

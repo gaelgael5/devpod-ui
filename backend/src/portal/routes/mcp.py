@@ -14,7 +14,7 @@ from ..mcp.monitor import get_health
 
 router = APIRouter(tags=["mcp"])
 
-_ID = Path(..., pattern=r"^[a-z0-9]{1,64}$")
+_ID = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,64}$")
 
 
 def _sid(request: Request) -> str:

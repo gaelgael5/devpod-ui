@@ -207,6 +207,9 @@ async def provision_user(login: str, sub: str, data_root: Path) -> None:
                     insert(users).values(login=login, version="1", secret_ns=secret_ns_str)
                 )
                 _log.info("user_db_row_created", login=login)
+                from ..mcp.devpod_bootstrap import ensure_devpod_backend
+
+                await ensure_devpod_backend(conn, login)
 
 
 @router.get("/caddy/verify")

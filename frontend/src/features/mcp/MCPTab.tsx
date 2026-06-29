@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Network, Copy, CheckCircle2 } from 'lucide-react'
+import { Network, Copy, CheckCircle2, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -12,11 +12,13 @@ function OAuthProcedure({
   steps,
   gatewayUrl,
   copyUrl,
+  settingsUrl,
 }: {
   provider: string
   steps: number
   gatewayUrl: string
   copyUrl: () => void
+  settingsUrl: string
 }) {
   const { t } = useTranslation()
   return (
@@ -44,6 +46,17 @@ function OAuthProcedure({
                     <Copy className="h-3 w-3" />
                   </Button>
                 </div>
+              )}
+              {step === 2 && (
+                <a
+                  href={settingsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {t('mcp.oauth.openSettings')}
+                </a>
               )}
             </div>
           </li>
@@ -156,22 +169,22 @@ export default function MCPTab() {
 
             {/* Claude */}
             <TabsContent value="claude" className="mt-0">
-              <OAuthProcedure provider="claude" steps={5} gatewayUrl={gatewayUrl} copyUrl={copyUrl} />
+              <OAuthProcedure provider="claude" steps={5} gatewayUrl={gatewayUrl} copyUrl={copyUrl} settingsUrl="https://claude.ai/settings" />
             </TabsContent>
 
             {/* OpenAI */}
             <TabsContent value="openai" className="mt-0">
-              <OAuthProcedure provider="openai" steps={4} gatewayUrl={gatewayUrl} copyUrl={copyUrl} />
+              <OAuthProcedure provider="openai" steps={4} gatewayUrl={gatewayUrl} copyUrl={copyUrl} settingsUrl="https://chatgpt.com/" />
             </TabsContent>
 
             {/* Gemini */}
             <TabsContent value="gemini" className="mt-0">
-              <OAuthProcedure provider="gemini" steps={4} gatewayUrl={gatewayUrl} copyUrl={copyUrl} />
+              <OAuthProcedure provider="gemini" steps={4} gatewayUrl={gatewayUrl} copyUrl={copyUrl} settingsUrl="https://aistudio.google.com/" />
             </TabsContent>
 
             {/* Mistral */}
             <TabsContent value="mistral" className="mt-0">
-              <OAuthProcedure provider="mistral" steps={4} gatewayUrl={gatewayUrl} copyUrl={copyUrl} />
+              <OAuthProcedure provider="mistral" steps={4} gatewayUrl={gatewayUrl} copyUrl={copyUrl} settingsUrl="https://chat.mistral.ai/" />
             </TabsContent>
           </Tabs>
 
