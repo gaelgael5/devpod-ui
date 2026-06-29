@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..db.mcp import get_backend, insert_backend
-from ..db.mcp_catalog import prune_absent, upsert_primitive
+from ..db.mcp_catalog import prune_absent, set_quarantine, upsert_primitive
 from ..db.tables import users
 from .devpod_tools.registry import DEVPOD_PRIMITIVES, definition_hash
 
@@ -39,8 +39,9 @@ async def ensure_devpod_backend(conn: AsyncConnection, login: str) -> None:
             url="",
             transport="internal",
         )
+    quarantined: list[str] = []
     for original_name, defn in DEVPOD_PRIMITIVES.items():
-        await upsert_primitive(
+        was_quarantined = await upsert_primitive(
             conn,
             backend_id=bid,
             kind="tool",
@@ -48,7 +49,14 @@ async def ensure_devpod_backend(conn: AsyncConnection, login: str) -> None:
             definition=defn,
             definition_hash=definition_hash(defn),
         )
+        if was_quarantined:
+            # Backend interne : on fait confiance à notre propre code.
+            # La quarantaine collante est levée après chaque mise à jour légitime.
+            await set_quarantine(conn, bid, "tool", original_name, False)
+            quarantined.append(original_name)
     await prune_absent(conn, bid, "tool", list(DEVPOD_PRIMITIVES))
+    if quarantined:
+        log.info("devpod_quarantine_cleared", backend_id=bid, count=len(quarantined))
 
 
 async def bootstrap_devpod(conn: AsyncConnection) -> None:
