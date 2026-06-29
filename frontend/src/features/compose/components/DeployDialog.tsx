@@ -108,7 +108,11 @@ export default function DeployDialog({ template, open, onOpenChange }: DeployDia
     }
   }
 
-  const canSubmit = Boolean(nodeId) && Boolean(name.trim()) && !createDeployment.isPending
+  const missingRequired = template.parameters.some(
+    (p) => p.required && !envValues[p.key]?.trim(),
+  )
+  const canSubmit =
+    Boolean(nodeId) && Boolean(name.trim()) && !missingRequired && !createDeployment.isPending
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
