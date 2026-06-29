@@ -42,14 +42,21 @@ if [[ ! -f "$ENV_FILE" ]]; then
     # conteneur reçoive le hash bcrypt intact ($2b$12$… → $$2b$$12$$…).
     LOCAL_HASH_ESCAPED="$(printf '%s' "$LOCAL_HASH" | sed 's/\$/\$\$/g')"
 
+    PG_USER="portal_$(openssl rand -hex 4)"
+    PG_PASS="$(openssl rand -hex 24)"
+    DB_URL="postgresql+asyncpg://${PG_USER}:${PG_PASS}@postgres/portal"
+
     sed -i "s|^SESSION_SECRET_KEY=.*|SESSION_SECRET_KEY=${SESSION_KEY}|" "$ENV_FILE"
     sed -i "s|^LOCAL_PASSWORD=.*|LOCAL_PASSWORD=${LOCAL_PASS}|" "$ENV_FILE"
     sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}|" "$ENV_FILE"
+    sed -i "s|^POSTGRES_USER=.*|POSTGRES_USER=${PG_USER}|" "$ENV_FILE"
+    sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${PG_PASS}|" "$ENV_FILE"
+    sed -i "s|^DATABASE_URL=.*|DATABASE_URL=${DB_URL}|" "$ENV_FILE"
 
     VAULT_KEK="$(openssl rand -hex 32)"
     sed -i "s|^PORTAL_VAULT_KEK=.*|PORTAL_VAULT_KEK=${VAULT_KEK}|" "$ENV_FILE"
 
-    echo "    .env créé — credentials locaux et PORTAL_VAULT_KEK générés."
+    echo "    .env créé — credentials locaux, postgres et PORTAL_VAULT_KEK générés."
 fi
 
 # ─── Génération PORTAL_VAULT_KEK si absent ou vide ───────────────────────────

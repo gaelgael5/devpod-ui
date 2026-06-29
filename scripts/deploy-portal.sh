@@ -122,25 +122,41 @@ env "${INSTALL_VARS[@]}" bash scripts/install.sh \
     --data-root    "$DATA_ROOT" \
     --compose-file "$APP_DIR/$COMPOSE_FILE"
 
-# Générer LOCAL_PASSWORD + LOCAL_PASSWORD_HASH si vides (install.sh crée le .env
-# depuis .env.example mais ne génère pas les credentials locaux).
+# Générer les credentials manquants après install.sh (crée le .env depuis
+# .env.example mais ne génère pas les secrets : postgres, session, local login).
 ENV_FILE="${DATA_ROOT}/.env"
-if [[ -f "$ENV_FILE" ]] && \
-   [[ -z "$(grep -m1 '^LOCAL_PASSWORD=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-)" ]]; then
-    command -v python3 &>/dev/null || apt-get install -y --no-install-recommends python3 >/dev/null 2>&1
-    python3 -c "import bcrypt" 2>/dev/null || apt-get install -y --no-install-recommends python3-bcrypt >/dev/null 2>&1
-    LOCAL_PASS="$(openssl rand -hex 12)"
-    LOCAL_HASH="$(PASS="$LOCAL_PASS" python3 -c \
-        "import bcrypt, os; print(bcrypt.hashpw(os.environ['PASS'].encode(), bcrypt.gensalt()).decode())")"
-    # Doubler $ → $$ pour que bash source et docker compose ne corrompent pas le hash bcrypt.
-    LOCAL_HASH_ESCAPED="$(printf '%s' "$LOCAL_HASH" | sed 's/\$/\$\$/g')"
-    if grep -q '^LOCAL_PASSWORD=' "$ENV_FILE"; then
-        sed -i "s|^LOCAL_PASSWORD=.*|LOCAL_PASSWORD=${LOCAL_PASS}|" "$ENV_FILE"
-        sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}|" "$ENV_FILE"
-    else
-        printf 'LOCAL_PASSWORD=%s\nLOCAL_PASSWORD_HASH=%s\n' "$LOCAL_PASS" "$LOCAL_HASH_ESCAPED" >> "$ENV_FILE"
+if [[ -f "$ENV_FILE" ]]; then
+    _get_env_val() { grep -m1 "^${1}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true; }
+
+    if [[ -z "$(_get_env_val POSTGRES_USER)" ]]; then
+        PG_USER="portal_$(openssl rand -hex 4)"
+        PG_PASS="$(openssl rand -hex 24)"
+        DB_URL="postgresql+asyncpg://${PG_USER}:${PG_PASS}@postgres/portal"
+        grep -q '^POSTGRES_USER='     "$ENV_FILE" && sed -i "s|^POSTGRES_USER=.*|POSTGRES_USER=${PG_USER}|"         "$ENV_FILE" || echo "POSTGRES_USER=${PG_USER}"     >> "$ENV_FILE"
+        grep -q '^POSTGRES_PASSWORD=' "$ENV_FILE" && sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${PG_PASS}|" "$ENV_FILE" || echo "POSTGRES_PASSWORD=${PG_PASS}" >> "$ENV_FILE"
+        grep -q '^DATABASE_URL='      "$ENV_FILE" && sed -i "s|^DATABASE_URL=.*|DATABASE_URL=${DB_URL}|"            "$ENV_FILE" || echo "DATABASE_URL=${DB_URL}"        >> "$ENV_FILE"
+        echo "    POSTGRES_USER généré : ${PG_USER}"
     fi
-    echo "    LOCAL_PASSWORD généré : ${LOCAL_PASS}"
+
+    if [[ -z "$(_get_env_val SESSION_SECRET_KEY)" ]]; then
+        SESSION_KEY="$(openssl rand -hex 32)"
+        grep -q '^SESSION_SECRET_KEY=' "$ENV_FILE" && sed -i "s|^SESSION_SECRET_KEY=.*|SESSION_SECRET_KEY=${SESSION_KEY}|" "$ENV_FILE" || echo "SESSION_SECRET_KEY=${SESSION_KEY}" >> "$ENV_FILE"
+        echo "    SESSION_SECRET_KEY généré"
+    fi
+
+    if [[ -z "$(_get_env_val LOCAL_PASSWORD)" ]]; then
+        command -v python3 &>/dev/null || apt-get install -y --no-install-recommends python3 >/dev/null 2>&1
+        python3 -c "import bcrypt" 2>/dev/null || apt-get install -y --no-install-recommends python3-bcrypt >/dev/null 2>&1
+        LOCAL_PASS="$(openssl rand -hex 12)"
+        LOCAL_HASH="$(PASS="$LOCAL_PASS" python3 -c \
+            "import bcrypt, os; print(bcrypt.hashpw(os.environ['PASS'].encode(), bcrypt.gensalt()).decode())")"
+        # Doubler $ → $$ : docker compose interpole $VAR dans les valeurs env_file.
+        LOCAL_HASH_ESCAPED="$(printf '%s' "$LOCAL_HASH" | sed 's/\$/\$\$/g')"
+        grep -q '^LOCAL_PASSWORD='      "$ENV_FILE" && sed -i "s|^LOCAL_PASSWORD=.*|LOCAL_PASSWORD=${LOCAL_PASS}|"             "$ENV_FILE" || echo "LOCAL_PASSWORD=${LOCAL_PASS}"             >> "$ENV_FILE"
+        grep -q '^LOCAL_PASSWORD_HASH=' "$ENV_FILE" && sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}|" "$ENV_FILE" || echo "LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}" >> "$ENV_FILE"
+        echo "    LOCAL_PASSWORD généré : ${LOCAL_PASS}"
+    fi
+    unset -f _get_env_val
 fi
 
 # Injecter OIDC_CLIENT_SECRET dans /data/.env si fourni
