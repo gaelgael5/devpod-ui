@@ -129,99 +129,119 @@ const DEPLOY_STATUS_TEXT: Record<string, string> = {
   partial: 'text-orange-500',
 }
 
+// ─── Primitives arborescence ──────────────────────────────────────────────────
+
+function TreeNode({
+  connector = '└',
+  children,
+}: {
+  connector?: '└' | '├'
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex items-start gap-1">
+      <span className="mt-0.5 shrink-0 font-mono text-[10px] text-muted-foreground/50 select-none">
+        {connector}
+      </span>
+      <div className="flex-1 min-w-0">{children}</div>
+    </div>
+  )
+}
+
+function TreeGroup({ children }: { children: React.ReactNode }) {
+  return <div className="mt-0.5 pl-3 border-l border-border/30">{children}</div>
+}
+
+// ─── Panel workspaces ─────────────────────────────────────────────────────────
+
 function HostWorkspacesPanel({ name }: { name: string }) {
   const { t } = useTranslation()
   const { data, isLoading } = useHostWorkspaces(name)
 
   if (isLoading) return <span className="text-xs text-muted-foreground">…</span>
-  if (!data || data.length === 0) {
-    return <span className="text-xs text-muted-foreground">—</span>
-  }
+  if (!data || data.length === 0) return <span className="text-xs text-muted-foreground">—</span>
 
   return (
-    <div className="flex flex-wrap gap-x-6 gap-y-1">
-      {(data as HostUserWorkspaces[]).map((u) => (
-        <div key={u.login} className="flex items-start gap-2">
-          <span className="text-xs font-medium text-foreground whitespace-nowrap">{u.login}</span>
-          <div className="flex flex-wrap gap-1">
-            {[...u.workspaces].sort((a, b) => a.name.localeCompare(b.name)).map((ws) => {
-              const s = ws.status
-              return (
-                <span
-                  key={ws.name}
-                  className={cn(
-                    'inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs',
-                    STATUS_TEXT[s] ?? STATUS_TEXT.unknown,
-                  )}
-                >
-                  <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', STATUS_DOT[s] ?? STATUS_DOT.unknown)} />
-                  {ws.name}
-                  <span className="opacity-60">({t(`workspaces.status.${s}`, s)})</span>
-                </span>
-              )
-            })}
-          </div>
-        </div>
-      ))}
+    <div className="py-0.5 space-y-0.5">
+      {(data as HostUserWorkspaces[]).map((u, ui, ua) => {
+        const sorted = [...u.workspaces].sort((a, b) => a.name.localeCompare(b.name))
+        return (
+          <TreeNode key={u.login} connector={ui === ua.length - 1 ? '└' : '├'}>
+            <span className="text-xs font-medium">{u.login}</span>
+            <TreeGroup>
+              {sorted.map((ws, wi) => {
+                const s = ws.status
+                return (
+                  <TreeNode key={ws.name} connector={wi === sorted.length - 1 ? '└' : '├'}>
+                    <span className={cn('inline-flex items-center gap-1 text-xs', STATUS_TEXT[s] ?? STATUS_TEXT.unknown)}>
+                      <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', STATUS_DOT[s] ?? STATUS_DOT.unknown)} />
+                      {ws.name}
+                      <span className="opacity-50">({t(`workspaces.status.${s}`, s)})</span>
+                    </span>
+                  </TreeNode>
+                )
+              })}
+            </TreeGroup>
+          </TreeNode>
+        )
+      })}
     </div>
   )
 }
+
+// ─── Panel machine de test ────────────────────────────────────────────────────
 
 function TestHostPanel({ name }: { name: string }) {
   const { t } = useTranslation()
   const { data: info, isLoading: infoLoading } = useTestHostInfo(name, true)
   const { data: deps, isLoading: depsLoading } = useHostDeployments(name, true)
 
-  return (
-    <div className="flex flex-col gap-2">
-      {/* Workspace propriétaire */}
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-muted-foreground">{t('admin.testHost.owner')} :</span>
-        {infoLoading && <span className="text-muted-foreground">…</span>}
-        {!infoLoading && !info && <span className="text-muted-foreground">—</span>}
-        {info && (
-          <span className="font-medium">
-            {info.owner_login}
-            <span className="mx-1 text-muted-foreground">/</span>
-            {info.workspace_name}
-            {info.alias && (
-              <span className="ml-2 font-mono text-muted-foreground">
-                ({t('admin.testHost.alias')} <span className="text-foreground">{info.alias}</span>)
-              </span>
-            )}
-          </span>
-        )}
-      </div>
+  if (infoLoading) return <span className="text-xs text-muted-foreground">…</span>
+  if (!info) return <span className="text-xs text-muted-foreground">—</span>
 
-      {/* Services compose */}
-      <div className="flex flex-wrap gap-1.5">
-        {depsLoading && <span className="text-xs text-muted-foreground">…</span>}
-        {!depsLoading && (!deps || deps.length === 0) && (
-          <span className="text-xs text-muted-foreground">{t('admin.testHost.noServices')}</span>
-        )}
-        {deps && deps.map((dep) => {
-          const s = dep.status
-          return (
-            <span
-              key={dep.id}
-              title={dep.last_error ?? undefined}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs',
-                DEPLOY_STATUS_TEXT[s] ?? DEPLOY_STATUS_TEXT.error,
-              )}
-            >
-              <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', DEPLOY_STATUS_DOT[s] ?? DEPLOY_STATUS_DOT.error)} />
-              <span className="font-medium">{dep.template_name}</span>
-              <span className="text-muted-foreground">{dep.template_version}</span>
-              {dep.host_ports.length > 0 && (
-                <span className="font-mono text-muted-foreground">
-                  :{dep.host_ports.join(',')}
-                </span>
-              )}
-            </span>
-          )
-        })}
-      </div>
+  return (
+    <div className="py-0.5">
+      {/* user */}
+      <TreeNode connector="└">
+        <span className="text-xs font-medium">{info.owner_login}</span>
+        <TreeGroup>
+          {/* workspace */}
+          <TreeNode connector="└">
+            <span className="text-xs font-medium">{info.workspace_name}</span>
+            <TreeGroup>
+              {/* machine de test */}
+              <TreeNode connector="└">
+                <span className="text-xs font-mono font-medium">{info.alias || name}</span>
+                <TreeGroup>
+                  {/* ressources compose */}
+                  {depsLoading && <span className="text-xs text-muted-foreground">…</span>}
+                  {!depsLoading && (!deps || deps.length === 0) && (
+                    <span className="text-xs text-muted-foreground">{t('admin.testHost.noServices')}</span>
+                  )}
+                  {deps && deps.map((dep, di) => {
+                    const s = dep.status
+                    return (
+                      <TreeNode key={dep.id} connector={di === deps.length - 1 ? '└' : '├'}>
+                        <span
+                          title={dep.last_error ?? undefined}
+                          className={cn('inline-flex items-center gap-1.5 text-xs', DEPLOY_STATUS_TEXT[s] ?? DEPLOY_STATUS_TEXT.error)}
+                        >
+                          <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', DEPLOY_STATUS_DOT[s] ?? DEPLOY_STATUS_DOT.error)} />
+                          <span className="font-medium">{dep.template_name}</span>
+                          <span className="opacity-60">{dep.template_version}</span>
+                          {dep.host_ports.length > 0 && (
+                            <span className="font-mono opacity-60">:{dep.host_ports.join(',')}</span>
+                          )}
+                        </span>
+                      </TreeNode>
+                    )
+                  })}
+                </TreeGroup>
+              </TreeNode>
+            </TreeGroup>
+          </TreeNode>
+        </TreeGroup>
+      </TreeNode>
     </div>
   )
 }
