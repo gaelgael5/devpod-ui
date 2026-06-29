@@ -253,12 +253,16 @@ export interface TestHostEntry {
 }
 
 export interface WorkspaceTestGroup {
-  owner_login: string
   workspace_name: string
   entries: TestHostEntry[]
 }
 
-export function useTestHostsSummary(hosts: HostConfig[]): WorkspaceTestGroup[] {
+export interface UserTestGroup {
+  owner_login: string
+  workspaces: WorkspaceTestGroup[]
+}
+
+export function useTestHostsSummary(hosts: HostConfig[]): UserTestGroup[] {
   const testHosts = hosts.filter((h) => h.usage === 'tests')
 
   const infoResults = useQueries({
@@ -278,22 +282,28 @@ export function useTestHostsSummary(hosts: HostConfig[]): WorkspaceTestGroup[] {
     })),
   })
 
-  const groupMap = new Map<string, WorkspaceTestGroup>()
+  // user → workspace → entries
+  const userMap = new Map<string, Map<string, TestHostEntry[]>>()
 
   testHosts.forEach((h, i) => {
     const info = infoResults[i]?.data ?? null
     const deps = depsResults[i]?.data ?? []
     const loading = (infoResults[i]?.isLoading ?? true) || (depsResults[i]?.isLoading ?? true)
-    const key = info ? `${info.owner_login}/${info.workspace_name}` : `__${h.name}`
-    if (!groupMap.has(key)) {
-      groupMap.set(key, {
-        owner_login: info?.owner_login ?? '?',
-        workspace_name: info?.workspace_name ?? h.name,
-        entries: [],
-      })
-    }
-    groupMap.get(key)!.entries.push({ host: h, info, deployments: deps, loading })
+    const userKey = info?.owner_login ?? '?'
+    const wsKey = info?.workspace_name ?? h.name
+
+    if (!userMap.has(userKey)) userMap.set(userKey, new Map())
+    const wsMap = userMap.get(userKey)!
+    if (!wsMap.has(wsKey)) wsMap.set(wsKey, [])
+    wsMap.get(wsKey)!.push({ host: h, info, deployments: deps, loading })
   })
 
-  return [...groupMap.values()].sort((a, b) => a.workspace_name.localeCompare(b.workspace_name))
+  return [...userMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([owner_login, wsMap]) => ({
+      owner_login,
+      workspaces: [...wsMap.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([workspace_name, entries]) => ({ workspace_name, entries })),
+    }))
 }

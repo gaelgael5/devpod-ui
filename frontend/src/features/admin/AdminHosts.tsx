@@ -11,7 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useTestHostsSummary, type HostConfig, type HostCreatePayload, type HostUserWorkspaces, type WorkspaceTestGroup } from './useHosts'
+import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useTestHostsSummary, type HostConfig, type HostCreatePayload, type HostUserWorkspaces, type UserTestGroup } from './useHosts'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import TestHostParamsDialog from './TestHostParamsDialog'
@@ -206,85 +206,100 @@ function TestHostsGroupedSection({
   actions: HostActions
 }) {
   const { t } = useTranslation()
-  const groups = useTestHostsSummary(hosts)
+  const userGroups = useTestHostsSummary(hosts)
 
-  if (groups.length === 0) return null
+  if (userGroups.length === 0) return null
 
   return (
-    <div className="mt-4 flex flex-col gap-3">
+    <div className="mt-4 flex flex-col gap-4">
       <h2 className="text-sm font-semibold text-muted-foreground px-1">{t('admin.testHost.sectionTitle')}</h2>
-      {groups.map((group: WorkspaceTestGroup) => (
-        <div key={`${group.owner_login}/${group.workspace_name}`} className="rounded-lg border">
-          {/* En-tête du groupe workspace */}
-          <div className="flex items-center gap-2 border-b bg-muted/40 px-4 py-2">
-            <span className="text-xs text-muted-foreground">{group.owner_login}</span>
-            <span className="text-muted-foreground/40">/</span>
-            <span className="text-sm font-semibold">{group.workspace_name}</span>
+
+      {userGroups.map((userGroup: UserTestGroup) => (
+        <div key={userGroup.owner_login} className="rounded-lg border">
+          {/* En-tête utilisateur */}
+          <div className="flex items-center gap-2 border-b bg-muted/60 px-4 py-2">
+            <span className="text-sm font-semibold">{userGroup.owner_login}</span>
           </div>
 
-          {/* Hosts du groupe */}
+          {/* Workspaces de cet utilisateur */}
           <div className="divide-y">
-            {group.entries.map(({ host, info, deployments, loading }) => (
-              <div key={host.name} className="px-4 py-3">
-                {/* Ligne host : alias · nom · adresse · actions */}
-                <div className="flex items-center gap-3">
-                  {info?.alias && (
-                    <span className="font-mono text-xs font-semibold text-foreground bg-muted rounded px-1.5 py-0.5">
-                      {info.alias}
-                    </span>
-                  )}
-                  <span className="text-sm font-medium">{host.name}</span>
-                  <span className="text-xs text-muted-foreground font-mono flex-1">
-                    {host.address || '—'}
-                  </span>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => actions.onEdit(host)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => actions.onDelete(host)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                    {!host.host_cert_slug && (
-                      <Button size="sm" variant="outline"
-                        className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
-                        onClick={() => actions.onBootstrap(host)}>
-                        {t('admin.bootstrap.btn')}
-                      </Button>
-                    )}
-                    {host.host_cert_slug && (
-                      <Button size="sm" variant="outline"
-                        className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
-                        onClick={() => actions.onSsh(host)}>
-                        {t('admin.sshTerminal.openBtn')}
-                      </Button>
-                    )}
-                  </div>
+            {userGroup.workspaces.map((wsGroup, wsi) => (
+              <div key={wsGroup.workspace_name}>
+                {/* En-tête workspace */}
+                <div className="flex items-center gap-2 px-4 py-2 bg-muted/20">
+                  <span className="font-mono text-[10px] text-muted-foreground/50 select-none">└</span>
+                  <span className="text-xs font-semibold">{wsGroup.workspace_name}</span>
                 </div>
 
-                {/* Services compose */}
-                <div className="mt-2 pl-2 border-l border-border/30">
-                  {loading && <span className="text-xs text-muted-foreground">…</span>}
-                  {!loading && deployments.length === 0 && (
-                    <span className="text-xs text-muted-foreground">{t('admin.testHost.noServices')}</span>
-                  )}
-                  {deployments.map((dep, di) => {
-                    const s = dep.status
-                    return (
-                      <TreeNode key={dep.id} connector={di === deployments.length - 1 ? '└' : '├'}>
-                        <span
-                          title={dep.last_error ?? undefined}
-                          className={cn('inline-flex items-center gap-1.5 text-xs', DEPLOY_STATUS_TEXT[s] ?? DEPLOY_STATUS_TEXT.error)}
-                        >
-                          <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', DEPLOY_STATUS_DOT[s] ?? DEPLOY_STATUS_DOT.error)} />
-                          <span className="font-medium">{dep.template_name}</span>
-                          <span className="opacity-60">{dep.template_version}</span>
-                          {dep.host_ports.length > 0 && (
-                            <span className="font-mono opacity-60">:{dep.host_ports.join(',')}</span>
-                          )}
+                {/* Machines de ce workspace */}
+                <div className="divide-y divide-border/40">
+                  {wsGroup.entries.map(({ host, info, deployments, loading }, mi) => (
+                    <div key={host.name} className="pl-8 pr-4 py-2.5">
+                      {/* Ligne machine : alias · nom · adresse · actions */}
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] text-muted-foreground/50 select-none shrink-0">
+                          {mi === wsGroup.entries.length - 1 ? '└' : '├'}
                         </span>
-                      </TreeNode>
-                    )
-                  })}
+                        {info?.alias && (
+                          <span className="font-mono text-xs font-semibold bg-muted rounded px-1.5 py-0.5 shrink-0">
+                            {info.alias}
+                          </span>
+                        )}
+                        <span className="text-xs font-medium shrink-0">{host.name}</span>
+                        <span className="text-xs text-muted-foreground font-mono flex-1 truncate">
+                          {host.address || '—'}
+                        </span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => actions.onEdit(host)}>
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => actions.onDelete(host)}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                          {!host.host_cert_slug && (
+                            <Button size="sm" variant="outline"
+                              className="h-6 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
+                              onClick={() => actions.onBootstrap(host)}>
+                              {t('admin.bootstrap.btn')}
+                            </Button>
+                          )}
+                          {host.host_cert_slug && (
+                            <Button size="sm" variant="outline"
+                              className="h-6 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
+                              onClick={() => actions.onSsh(host)}>
+                              {t('admin.sshTerminal.openBtn')}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Services compose */}
+                      <div className="mt-1.5 pl-5 border-l border-border/30 ml-1">
+                        {loading && <span className="text-xs text-muted-foreground">…</span>}
+                        {!loading && deployments.length === 0 && (
+                          <span className="text-xs text-muted-foreground">{t('admin.testHost.noServices')}</span>
+                        )}
+                        {deployments.map((dep, di) => {
+                          const s = dep.status
+                          return (
+                            <TreeNode key={dep.id} connector={di === deployments.length - 1 ? '└' : '├'}>
+                              <span
+                                title={dep.last_error ?? undefined}
+                                className={cn('inline-flex items-center gap-1.5 text-xs', DEPLOY_STATUS_TEXT[s] ?? DEPLOY_STATUS_TEXT.error)}
+                              >
+                                <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', DEPLOY_STATUS_DOT[s] ?? DEPLOY_STATUS_DOT.error)} />
+                                <span className="font-medium">{dep.template_name}</span>
+                                <span className="opacity-60">{dep.template_version}</span>
+                                {dep.host_ports.length > 0 && (
+                                  <span className="font-mono opacity-60">:{dep.host_ports.join(',')}</span>
+                                )}
+                              </span>
+                            </TreeNode>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
