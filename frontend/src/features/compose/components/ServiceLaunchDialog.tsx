@@ -174,7 +174,8 @@ function DeployForm({
       setStreamDone(true)
     }
 
-    const lastLine = accum.trimEnd().split('\n').at(-1) ?? ''
+    const lines = accum.trimEnd().split('\n')
+    const lastLine = lines[lines.length - 1] ?? ''
     if (lastLine.startsWith('__RESULT__:')) {
       void qc.invalidateQueries({ queryKey: ['compose', 'deployments'] })
       onSuccess()

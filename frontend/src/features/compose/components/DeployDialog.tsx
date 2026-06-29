@@ -151,7 +151,8 @@ export default function DeployDialog({ template, open, onOpenChange }: DeployDia
       setStreamDone(true)
     }
 
-    const lastLine = accum.trimEnd().split('\n').at(-1) ?? ''
+    const lines = accum.trimEnd().split('\n')
+    const lastLine = lines[lines.length - 1] ?? ''
     if (lastLine.startsWith('__RESULT__:')) {
       success = true
       void qc.invalidateQueries({ queryKey: ['compose', 'deployments'] })
