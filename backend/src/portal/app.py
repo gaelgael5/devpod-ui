@@ -144,15 +144,12 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from .openvsx import OpenVsxClient, OpenVsxSettings
 
     settings_obj = get_settings()
-    _log.info("lifespan_step", step="start")
     if settings_obj.database_url:
         from .db.migration import run_migrations
 
         await run_migrations(settings_obj.database_url)
-        _log.info("lifespan_step", step="migrations_done")
         async with _get_engine().begin() as conn:
             await warm_global_cache(conn)
-            _log.info("lifespan_step", step="warm_global_cache_done")
             # Actualise le domaine de cookie depuis la DB (prime sur l'env).
             from .db.global_config import get_optional_cached_global
 
@@ -164,32 +161,24 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 )
             from .secrets.system import ensure_system_user
 
-            _log.info("lifespan_step", step="ensure_system_user_start")
             await ensure_system_user(conn)
-            _log.info("lifespan_step", step="ensure_system_user_done")
 
             # Backend MCP interne devpod : enregistrement idempotent + catalogue.
             from .mcp.devpod_bootstrap import bootstrap_devpod
 
-            _log.info("lifespan_step", step="bootstrap_devpod_start")
             await bootstrap_devpod(conn)
-            _log.info("lifespan_step", step="bootstrap_devpod_done")
 
         # Pas de synchro automatique des recettes : c'est l'admin qui choisit quoi
         # synchroniser, via POST /admin/recipes/sync.
 
-    _log.info("lifespan_step", step="reconcile_start")
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()
-    _log.info("lifespan_step", step="reconcile_done")
 
     profile_repo = AsyncProfileRepository()
     app.dependency_overrides[get_profile_repo] = lambda: profile_repo
-    _log.info("lifespan_step", step="httpx_client_start")
     async with httpx.AsyncClient(headers={"User-Agent": "devpod-ui/1.0"}) as http:
         client = OpenVsxClient(OpenVsxSettings(), http)
         app.dependency_overrides[get_openvsx] = lambda: client
-        _log.info("lifespan_step", step="mcp_session_manager_start")
         async with app.state.mcp_session_manager.run():
             _monitor_task: asyncio.Task[None] | None = None
             _sweep_task: asyncio.Task[None] | None = None
@@ -198,7 +187,6 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     monitor_loop(settings_obj.mcp_monitor_interval_s)
                 )
                 _sweep_task = asyncio.create_task(_message_sweep_loop())
-            _log.info("lifespan_step", step="yield")
             try:
                 yield
             finally:
