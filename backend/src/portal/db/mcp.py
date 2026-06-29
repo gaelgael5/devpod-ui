@@ -220,6 +220,7 @@ _APIKEY_COLS = [
     mcp_apikey.c.id,
     mcp_apikey.c.owner_login,
     mcp_apikey.c.label,
+    mcp_apikey.c.kind,
     mcp_apikey.c.revoked,
     mcp_apikey.c.created_at,
 ]

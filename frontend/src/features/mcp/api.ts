@@ -42,6 +42,7 @@ export interface MCPApikey {
   id: string
   owner_login: string
   label: string
+  kind: 'apikey' | 'oauth'
   revoked: boolean
   created_at: string
 }

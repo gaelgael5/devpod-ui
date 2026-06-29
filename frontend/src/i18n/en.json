@@ -766,6 +766,7 @@
     },
     "apikeys": {
       "sectionTitle": "Client apikeys",
+      "oauthSectionTitle": "Active OAuth sessions",
       "add": "Issue an apikey",
       "empty": "No apikey issued.",
       "dialogTitle": "Issue a client apikey",

@@ -390,18 +390,23 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
   )
 }
 
-export default function MCPApikeys() {
+export default function MCPApikeys({ kind = 'apikey' }: { kind?: 'apikey' | 'oauth' }) {
   const { t } = useTranslation()
-  const { data: apikeys = [], isLoading } = useApikeys()
+  const { data: allApikeys = [], isLoading } = useApikeys()
   const [addOpen, setAddOpen] = useState(false)
+
+  const apikeys = allApikeys.filter((a) => (a.kind ?? 'apikey') === kind)
+  const isBearer = kind === 'apikey'
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h2 className="font-medium">{t('mcp.apikeys.sectionTitle')}</h2>
-        <Button size="sm" onClick={() => setAddOpen(true)}>
-          <Plus className="mr-1 h-4 w-4" />{t('mcp.apikeys.add')}
-        </Button>
+        <h2 className="font-medium">{isBearer ? t('mcp.apikeys.sectionTitle') : t('mcp.apikeys.oauthSectionTitle')}</h2>
+        {isBearer && (
+          <Button size="sm" onClick={() => setAddOpen(true)}>
+            <Plus className="mr-1 h-4 w-4" />{t('mcp.apikeys.add')}
+          </Button>
+        )}
       </div>
       {isLoading && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
       {!isLoading && apikeys.length === 0 && (
@@ -410,7 +415,7 @@ export default function MCPApikeys() {
       {apikeys.map((a) => (
         <ApikeyCard key={a.id} apikey={a} />
       ))}
-      <CreateApikeyDialog open={addOpen} onClose={() => setAddOpen(false)} />
+      {isBearer && <CreateApikeyDialog open={addOpen} onClose={() => setAddOpen(false)} />}
     </div>
   )
 }
