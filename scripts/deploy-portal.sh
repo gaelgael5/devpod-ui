@@ -4,8 +4,11 @@
 # Idempotent : peut être relancé sans danger.
 #
 # Usage :
-#   ./scripts/deploy-portal.sh [BRANCH]
-#   ex : ./scripts/deploy-portal.sh main
+#   ./scripts/deploy-portal.sh [BRANCH] [--resetdb]
+#   ex : ./scripts/deploy-portal.sh main --resetdb
+#
+#   --resetdb  Arrête la stack, supprime les volumes DB et le fichier .env,
+#              puis repart de zéro (nouveaux credentials générés).
 #
 # Variables d'env reconnues (toutes optionnelles si /data déjà initialisé) :
 #   REPO_URL               URL git du repo        (défaut : HTTPS public gaelgael5/devpod-ui)
@@ -26,10 +29,12 @@ APP_DIR="${APP_DIR:-/opt/workspace-portal}"
 DATA_ROOT="${DATA_ROOT:-/data}"
 COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker-compose.yml}"
 
-# ─── Argument : branche cible ─────────────────────────────────────────────────
+# ─── Arguments : branche cible + flags ───────────────────────────────────────
 TARGET_BRANCH=""
+RESETDB=0
 for arg in "$@"; do
     case "$arg" in
+        --resetdb) RESETDB=1 ;;
         --*) echo "ERREUR : flag inconnu : $arg" >&2; exit 1 ;;
         *)
             if [[ -n "$TARGET_BRANCH" ]]; then
@@ -86,6 +91,22 @@ fi
 
 cd "$APP_DIR"
 
+# ─── --resetdb : purge complète avant toute initialisation ────────────────────
+if [[ $RESETDB -eq 1 ]]; then
+    echo ""
+    echo "==> [--resetdb] Arrêt de la stack et suppression des volumes DB..."
+    docker compose -f "$COMPOSE_FILE" down --volumes --remove-orphans 2>/dev/null || true
+    echo "    Suppression des containers arrêtés résiduels..."
+    docker container prune -f || true
+    ENV_FILE="${DATA_ROOT}/.env"
+    if [[ -f "$ENV_FILE" ]]; then
+        rm -f "$ENV_FILE"
+        echo "    ${ENV_FILE} supprimé."
+    fi
+    echo "    Reset terminé — le .env et la DB seront recréés depuis zéro."
+    echo ""
+fi
+
 # ─── 2) Initialiser /data (install.sh — idempotent, §E-25) ──────────────────
 echo ""
 echo "==> [2/4] Initialisation de /data (install.sh)..."
@@ -101,8 +122,28 @@ env "${INSTALL_VARS[@]}" bash scripts/install.sh \
     --data-root    "$DATA_ROOT" \
     --compose-file "$APP_DIR/$COMPOSE_FILE"
 
-# Injecter OIDC_CLIENT_SECRET dans /data/.env si fourni
+# Générer LOCAL_PASSWORD + LOCAL_PASSWORD_HASH si vides (install.sh crée le .env
+# depuis .env.example mais ne génère pas les credentials locaux).
 ENV_FILE="${DATA_ROOT}/.env"
+if [[ -f "$ENV_FILE" ]] && \
+   [[ -z "$(grep -m1 '^LOCAL_PASSWORD=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-)" ]]; then
+    command -v python3 &>/dev/null || apt-get install -y --no-install-recommends python3 >/dev/null 2>&1
+    python3 -c "import bcrypt" 2>/dev/null || apt-get install -y --no-install-recommends python3-bcrypt >/dev/null 2>&1
+    LOCAL_PASS="$(openssl rand -hex 12)"
+    LOCAL_HASH="$(PASS="$LOCAL_PASS" python3 -c \
+        "import bcrypt, os; print(bcrypt.hashpw(os.environ['PASS'].encode(), bcrypt.gensalt()).decode())")"
+    # Doubler $ → $$ pour que bash source et docker compose ne corrompent pas le hash bcrypt.
+    LOCAL_HASH_ESCAPED="$(printf '%s' "$LOCAL_HASH" | sed 's/\$/\$\$/g')"
+    if grep -q '^LOCAL_PASSWORD=' "$ENV_FILE"; then
+        sed -i "s|^LOCAL_PASSWORD=.*|LOCAL_PASSWORD=${LOCAL_PASS}|" "$ENV_FILE"
+        sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}|" "$ENV_FILE"
+    else
+        printf 'LOCAL_PASSWORD=%s\nLOCAL_PASSWORD_HASH=%s\n' "$LOCAL_PASS" "$LOCAL_HASH_ESCAPED" >> "$ENV_FILE"
+    fi
+    echo "    LOCAL_PASSWORD généré : ${LOCAL_PASS}"
+fi
+
+# Injecter OIDC_CLIENT_SECRET dans /data/.env si fourni
 if [[ -n "${OIDC_CLIENT_SECRET:-}" ]] && [[ -f "$ENV_FILE" ]]; then
     EXISTING=$(grep -E '^OIDC_CLIENT_SECRET=.+' "$ENV_FILE" 2>/dev/null || true)
     if [[ -z "$EXISTING" ]]; then
