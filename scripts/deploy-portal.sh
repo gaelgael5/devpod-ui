@@ -156,6 +156,13 @@ if [[ -f "$ENV_FILE" ]]; then
         grep -q '^LOCAL_PASSWORD_HASH=' "$ENV_FILE" && sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}|" "$ENV_FILE" || echo "LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}" >> "$ENV_FILE"
         echo "    LOCAL_PASSWORD généré : ${LOCAL_PASS}"
     fi
+
+    if [[ -z "$(_get_env_val PORTAL_VAULT_KEK)" ]]; then
+        VAULT_KEK="$(openssl rand -hex 32)"
+        grep -q '^PORTAL_VAULT_KEK=' "$ENV_FILE" && sed -i "s|^PORTAL_VAULT_KEK=.*|PORTAL_VAULT_KEK=${VAULT_KEK}|" "$ENV_FILE" || echo "PORTAL_VAULT_KEK=${VAULT_KEK}" >> "$ENV_FILE"
+        echo "    PORTAL_VAULT_KEK généré"
+    fi
+
     unset -f _get_env_val
 fi
 
