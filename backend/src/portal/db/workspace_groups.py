@@ -101,18 +101,20 @@ async def delete_group(
 
     group_name = existing
 
-    # Retirer ce groupe de tous les workspaces
-    await conn.execute(
-        update(workspaces)
-        .where(
-            workspaces.c.login == login,
-            text(":gname = ANY(groups)").bindparams(gname=group_name),
+    # Refuser si des workspaces appartiennent encore à ce groupe
+    ws_count = (
+        await conn.execute(
+            select(func.count()).select_from(workspaces).where(
+                workspaces.c.login == login,
+                text(":gname = ANY(groups)").bindparams(gname=group_name),
+            )
         )
-        .values(
-            groups=func.array_remove(workspaces.c.groups, group_name),
-            updated_at=func.now(),
+    ).scalar_one()
+    if ws_count > 0:
+        raise ValueError(
+            f"Le groupe «{group_name}» contient encore {ws_count} workspace(s)"
+            " — retirez-les d'abord"
         )
-    )
 
     await conn.execute(
         delete(workspace_group).where(

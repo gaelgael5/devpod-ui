@@ -12,6 +12,7 @@
     "renameTitle": "Renommer le groupe",
     "deleteTitle": "Supprimer le groupe",
     "deleteDescription": "Supprimer le groupe «{{name}}» ? Les workspaces ne seront pas supprimés.",
+    "deleteNotEmpty": "Retirez d'abord les workspaces de ce groupe",
     "assignTitle": "Groupes — {{name}}",
     "assignDescription": "Sélectionnez les groupes auxquels appartient ce workspace.",
     "noGroupsYet": "Aucun groupe. Créez-en un d'abord.",

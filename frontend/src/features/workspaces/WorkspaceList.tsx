@@ -106,8 +106,10 @@ function GroupSection({
             <Button
               size="icon"
               variant="ghost"
-              className="h-6 w-6 text-destructive hover:text-destructive"
+              className="h-6 w-6 text-destructive hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed"
               onClick={() => onDelete(groupId, title)}
+              disabled={workspaces.length > 0}
+              title={workspaces.length > 0 ? t('groups.deleteNotEmpty') : undefined}
               aria-label={t('groups.delete')}
             >
               <Trash2 className="h-3 w-3" />
