@@ -57,6 +57,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
 
   return (
     <div className="rounded-lg border bg-card p-4">
+      {/* Header : nom + statut */}
       <div className="mb-2 flex items-start justify-between gap-2">
         <div>
           <div className="font-semibold text-foreground">{spec.name}</div>
@@ -73,6 +74,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         </Badge>
       </div>
 
+      {/* Recettes */}
       {spec.recipes.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-1">
           {spec.recipes.map((r) => (
@@ -86,129 +88,136 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         </div>
       )}
 
+      {/* Barre de progression provisioning */}
       {(s === 'provisioning' || isStarting) && (
         <div className="mb-3 h-1 overflow-hidden rounded-full bg-muted">
           <div className="h-full w-1/2 animate-pulse rounded-full bg-primary" />
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        {s === 'running' && status.url && (
-          <Button size="sm" asChild>
-            <a href={status.url} target="_blank" rel="noopener noreferrer">
-              {t('workspaces.actions.openVscode')}
-            </a>
-          </Button>
-        )}
+      <div className="flex flex-col gap-2">
+        {/* Rangée 1 : actions workspace + utilitaires icônes */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Actions état running */}
+          {s === 'running' && status.url && (
+            <Button size="sm" asChild>
+              <a href={status.url} target="_blank" rel="noopener noreferrer">
+                {t('workspaces.actions.openVscode')}
+              </a>
+            </Button>
+          )}
+          {s === 'running' && (
+            <Button size="sm" variant="outline" onClick={() => onStop(spec.name)}>
+              {t('workspaces.actions.stop')}
+            </Button>
+          )}
+          {s === 'running' && (
+            <Button size="sm" variant="outline" asChild>
+              <Link to={`/workspaces/${spec.name}/terminals`}>
+                {t('workspaces.terminals.open')}
+              </Link>
+            </Button>
+          )}
+          {s === 'running' && (
+            <Button size="sm" variant="outline" onClick={() => setShellOpen(true)}>
+              {t('admin.sshTerminal.openBtn')}
+            </Button>
+          )}
+
+          {/* Actions état stopped / failed */}
+          {s === 'stopped' && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onStart?.(spec.name)}
+              disabled={!onStart || isStarting}
+            >
+              {isStarting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+              {t('workspaces.actions.start')}
+            </Button>
+          )}
+          {s === 'failed' && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onStart?.(spec.name)}
+              disabled={!onStart || isStarting}
+            >
+              {isStarting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+              {t('workspaces.actions.retry')}
+            </Button>
+          )}
+          {(s === 'stopped' || s === 'unknown' || s === 'failed') && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setRecreateOpen(true)}
+              disabled={!onRecreate}
+            >
+              {t('workspaces.actions.recreate')}
+            </Button>
+          )}
+          {(s === 'stopped' || s === 'unknown' || s === 'failed' || s === 'provisioning') && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setConfirmOpen(true)}
+            >
+              {t('workspaces.actions.delete')}
+            </Button>
+          )}
+
+          {/* Utilitaires icônes — toujours visibles, regroupés en fin de rangée */}
+          <div className="ml-auto flex gap-1">
+            {spec.ssh_key && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSshKeyOpen(true)}
+                aria-label={t('workspaces.sshKey.button')}
+              >
+                <Key className="h-4 w-4" />
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setMessagesOpen(true)}
+              aria-label={t('workspaces.messages.button')}
+            >
+              <MessageSquare className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setLogsOpen(true)}
+              aria-label={t('workspaces.logs.button')}
+            >
+              <FileText className="h-4 w-4" />
+            </Button>
+            {onManageGroups && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onManageGroups}
+                aria-label={t('groups.manage')}
+              >
+                <FolderOpen className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Rangée 2 : outils machine de test (uniquement running) */}
         {s === 'running' && (
-          <Button size="sm" variant="outline" onClick={() => onStop(spec.name)}>
-            {t('workspaces.actions.stop')}
-          </Button>
-        )}
-        {s === 'running' && (
-          <Button size="sm" variant="outline" asChild>
-            <Link to={`/workspaces/${spec.name}/terminals`}>
-              {t('workspaces.terminals.open')}
-            </Link>
-          </Button>
-        )}
-        {s === 'stopped' && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onStart?.(spec.name)}
-            disabled={!onStart || isStarting}
-          >
-            {isStarting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-            {t('workspaces.actions.start')}
-          </Button>
-        )}
-        {(s === 'stopped' || s === 'unknown' || s === 'failed') && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setRecreateOpen(true)}
-            disabled={!onRecreate}
-          >
-            {t('workspaces.actions.recreate')}
-          </Button>
-        )}
-        {(s === 'stopped' || s === 'unknown' || s === 'failed' || s === 'provisioning') && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-destructive hover:text-destructive"
-            onClick={() => setConfirmOpen(true)}
-          >
-            {t('workspaces.actions.delete')}
-          </Button>
-        )}
-        {s === 'failed' && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onStart?.(spec.name)}
-            disabled={!onStart || isStarting}
-          >
-            {isStarting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-            {t('workspaces.actions.retry')}
-          </Button>
-        )}
-        {spec.ssh_key && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setSshKeyOpen(true)}
-            aria-label={t('workspaces.sshKey.button')}
-          >
-            <Key className="h-4 w-4" />
-          </Button>
-        )}
-        {s === 'running' && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
-            onClick={() => setShellOpen(true)}
-            aria-label={t('workspaces.ssh.shellButton')}
-          >
-            {t('admin.sshTerminal.openBtn')}
-          </Button>
-        )}
-        {s === 'running' && <InitializersMenu wsName={spec.name} enabled />}
-        {s === 'running' && (
-          <Button size="sm" variant="outline" onClick={() => setAddVmOpen(true)}>
-            {t('workspaces.testVm.btn')}
-          </Button>
-        )}
-        {s === 'running' && (
-          <TestHostsMenu wsName={spec.name} enabled onOpenSsh={setSshTestHost} />
-        )}
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setMessagesOpen(true)}
-          aria-label={t('workspaces.messages.button')}
-        >
-          <MessageSquare className="h-4 w-4" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setLogsOpen(true)}
-          aria-label={t('workspaces.logs.button')}
-        >
-          <FileText className="h-4 w-4" />
-        </Button>
-        {onManageGroups && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onManageGroups}
-            aria-label={t('groups.manage')}
-          >
-            <FolderOpen className="h-4 w-4" />
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <InitializersMenu wsName={spec.name} enabled />
+            <Button size="sm" variant="outline" onClick={() => setAddVmOpen(true)}>
+              {t('workspaces.testVm.btn')}
+            </Button>
+            <TestHostsMenu wsName={spec.name} enabled onOpenSsh={setSshTestHost} />
+          </div>
         )}
       </div>
 
