@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 import structlog
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
@@ -225,6 +225,16 @@ def create_app() -> FastAPI:
             )
 
     app = FastAPI(title="workspace-portal", version="0.1.0", lifespan=_lifespan)
+
+    @app.exception_handler(Exception)  # type: ignore[misc]
+    async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        _log.exception(
+            "unhandled_exception",
+            method=request.method,
+            path=str(request.url.path),
+            exc=repr(exc),
+        )
+        return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
     from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 

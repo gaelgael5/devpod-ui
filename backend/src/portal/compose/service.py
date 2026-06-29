@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..config.models import HostConfig
 from ..config.store import load_global, load_user
 from ..db.test_hosts import host_full_info
-from ..devpod.host_exec import run_host_command, write_host_file
+from ..devpod.host_exec import HostExecError, run_host_command, write_host_file
 from ..messages.renderer import build_deploy_context
 from ..messages.service import delete_message as msg_delete
 from ..messages.service import render_and_create
@@ -125,23 +125,26 @@ async def deploy(
     resolved = resolve_env_values(owner_login, secret_ns, env_values)
     rdir = _remote_dir(name)
 
-    await write_host_file(host, f"{rdir}/docker-compose.yml", compose_to_write)
-    await write_host_file(host, f"{rdir}/.env", render_env_file(resolved))
+    try:
+        await write_host_file(host, f"{rdir}/docker-compose.yml", compose_to_write)
+        await write_host_file(host, f"{rdir}/.env", render_env_file(resolved))
 
-    override_content = build_override(
-        compose_to_write,
-        deployment_id=name,
-        template_id=template.id,
-        owner_login=owner_login,
-    )
-    if override_content:
-        await write_host_file(host, f"{rdir}/docker-compose.override.yml", override_content)
+        override_content = build_override(
+            compose_to_write,
+            deployment_id=name,
+            template_id=template.id,
+            owner_login=owner_login,
+        )
+        if override_content:
+            await write_host_file(host, f"{rdir}/docker-compose.override.yml", override_content)
 
-    cmd = (
-        f"cd {shlex.quote(rdir)} && "
-        f"docker compose --env-file .env -p {shlex.quote(name)} up -d"
-    )
-    rc, out, err = await run_host_command(host, cmd, timeout=600.0)
+        cmd = (
+            f"cd {shlex.quote(rdir)} && "
+            f"docker compose --env-file .env -p {shlex.quote(name)} up -d"
+        )
+        rc, out, err = await run_host_command(host, cmd, timeout=600.0)
+    except HostExecError as exc:
+        raise ComposeServiceError(str(exc)) from exc
     status: DeploymentStatus = "running" if rc == 0 else "error"
 
     uid = str(uuid.uuid4())
@@ -216,9 +219,12 @@ async def lifecycle(
     if dep is None:
         raise ComposeServiceError(f"déploiement inconnu: {uid}")
     host = _host_for_node(dep.node_id)
-    rc, out, err = await run_host_command(
-        host, f"docker compose -p {shlex.quote(dep.id)} {action}", timeout=300.0
-    )
+    try:
+        rc, out, err = await run_host_command(
+            host, f"docker compose -p {shlex.quote(dep.id)} {action}", timeout=300.0
+        )
+    except HostExecError as exc:
+        raise ComposeServiceError(str(exc)) from exc
     await persist_op_log(conn, uid, action, out + ("\n" + err if err else ""))
     if rc != 0:
         # rc≠0 → statut persisté en "error" et on retourne normalement (la row existe)
@@ -236,11 +242,14 @@ async def teardown(conn: AsyncConnection, uid: str) -> None:
         raise ComposeServiceError(f"déploiement inconnu: {uid}")
     host = _host_for_node(dep.node_id)
     rdir = _remote_dir(dep.id)
-    rc, out, err = await run_host_command(
-        host,
-        f"docker compose -p {shlex.quote(dep.id)} down -v ; rm -rf {shlex.quote(rdir)}",
-        timeout=300.0,
-    )
+    try:
+        rc, out, err = await run_host_command(
+            host,
+            f"docker compose -p {shlex.quote(dep.id)} down -v ; rm -rf {shlex.quote(rdir)}",
+            timeout=300.0,
+        )
+    except HostExecError as exc:
+        raise ComposeServiceError(str(exc)) from exc
     await persist_op_log(conn, uid, "down", out + ("\n" + err if err else ""))
     if rc != 0:
         _log.warning("compose_teardown_failed", uid=uid, name=dep.id, rc=rc)
@@ -264,7 +273,10 @@ async def fetch_logs(
         f"docker compose -p {shlex.quote(dep.id)} logs --no-color "
         f"--tail={int(tail)}{svc}"
     )
-    _, out, err = await run_host_command(host, cmd, timeout=60.0)
+    try:
+        _, out, err = await run_host_command(host, cmd, timeout=60.0)
+    except HostExecError as exc:
+        raise ComposeServiceError(str(exc)) from exc
     return out + ("\n" + err if err else "")
 
 
@@ -273,11 +285,14 @@ async def refresh_status(conn: AsyncConnection, uid: str) -> str:
     if dep is None:
         raise ComposeServiceError(f"déploiement inconnu: {uid}")
     host = _host_for_node(dep.node_id)
-    rc, out, _ = await run_host_command(
-        host,
-        f"docker compose -p {shlex.quote(dep.id)} ps --format json",
-        timeout=60.0,
-    )
+    try:
+        rc, out, _ = await run_host_command(
+            host,
+            f"docker compose -p {shlex.quote(dep.id)} ps --format json",
+            timeout=60.0,
+        )
+    except HostExecError as exc:
+        raise ComposeServiceError(str(exc)) from exc
     status = _parse_ps_status(out) if rc == 0 else "error"
     await update_deployment_status(conn, uid, status)
     return status
