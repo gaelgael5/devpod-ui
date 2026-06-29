@@ -118,12 +118,4 @@ def validate_template(compose_content: str, parameters: list[ComposeParam]) -> l
                 f"utilisez un chemin relatif (ex: ./data:/app/data) ou un volume nommé"
             )
 
-    warnings: list[str] = []
-    for line in compose_content.splitlines():
-        has_latest = re.search(r"image:\s*\S+:latest(\s|$)", line)
-        has_no_tag = re.search(r"image:\s*[^:\s]+\s*$", line)
-        if has_latest or has_no_tag:
-            warnings.append(
-                f"image non épinglée ('latest' ou sans tag): {line.strip()}"
-            )
-    return warnings
+    return []
