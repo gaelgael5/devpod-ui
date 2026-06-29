@@ -122,21 +122,35 @@ async def exchange_code(
         raise OAuthError("invalid_grant", "PKCE invalide")
 
     profile_id: str | None = row.get("profile_id")
+    grants: list[dict[str, Any]] = [
+        g for g in (row.get("grants") or []) if g.get("backend_id")
+    ]
+
+    # Si aucun profil n'a été sélectionné sur l'écran de consentement mais que
+    # l'utilisateur a accordé des backends, on crée un profil automatique pour
+    # ce token — sinon list_entries_for_apikey retourne toujours zéro entrées.
+    if not profile_id and grants:
+        profile_id = uuid.uuid4().hex
+        await _profiles_db.insert_profile(
+            conn,
+            id=profile_id,
+            owner_login=row["owner_login"],
+            name=f"OAuth {client_id[:16]}",
+            description="Profil auto-créé lors du consentement OAuth.",
+        )
 
     # Persiste les backends accordés dans mcp_profile_entry pour que
     # list_entries_for_apikey les retrouve lors du listing des outils.
     # tools=None signifie "toutes les primitives du backend" (filtre désactivé).
     if profile_id:
-        for grant in (row.get("grants") or []):
-            backend_id = grant.get("backend_id")
-            if backend_id:
-                await _profiles_db.upsert_profile_entry(
-                    conn,
-                    profile_id=profile_id,
-                    backend_id=str(backend_id),
-                    backend_key_id=grant.get("backend_key_id"),
-                    tools=None,
-                )
+        for grant in grants:
+            await _profiles_db.upsert_profile_entry(
+                conn,
+                profile_id=profile_id,
+                backend_id=str(grant["backend_id"]),
+                backend_key_id=grant.get("backend_key_id"),
+                tools=None,
+            )
 
     return await _issue(
         conn,
