@@ -226,6 +226,9 @@ async def import_compose_from_source(
             status_code=422, detail=f"meta.yaml parameters invalides: {exc}"
         ) from exc
 
+    raw_message_key = meta.get("message_key")
+    message_key = str(raw_message_key).strip() if raw_message_key else None
+
     tpl = ComposeTemplate(
         id=template_id,
         name=str(meta.get("name", template_id)),
@@ -234,6 +237,7 @@ async def import_compose_from_source(
         tags=list(meta.get("tags", [])),
         compose_content=compose_content,
         parameters=parameters,
+        message_key=message_key,
         source="imported",
     )
 

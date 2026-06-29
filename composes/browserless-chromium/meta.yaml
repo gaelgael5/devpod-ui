@@ -9,6 +9,7 @@ tags:
   - puppeteer
   - playwright
 image: ghcr.io/browserless/chromium:1.22.0
+message_key: service-docker-compose
 parameters:
   - key: TOKEN
     label: "Bearer token"
