@@ -20,6 +20,7 @@ from typing import Any
 from mcp import types
 from mcp.shared.exceptions import McpError
 from mcp.types import METHOD_NOT_FOUND, ErrorData
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ...config.store import _data_root, load_global, load_user, save_user
@@ -601,11 +602,33 @@ async def _session_get(conn: AsyncConnection, args: dict[str, Any], owner_login:
     }
 
 
+class _ReloadResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace: str
+    reconnected: bool
+    reason: str | None = None
+
+
 async def _portal_reload(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
-    # Modèle (a) : reconnexion forcée du workspace ciblé (en arrière-plan).
-    get_service().reconnect(owner_login, f"{owner_login}-{name}")
-    return {"workspace": name, "reconnected": True}
+    ws_id = f"{owner_login}-{name}"
+
+    try:
+        st = await get_service().status(owner_login, ws_id)
+        status = st.get("status", "unknown")
+    except Exception:
+        return _ReloadResult(
+            workspace=name, reconnected=False, reason="node_unreachable"
+        ).model_dump()
+
+    if status != "running":
+        return _ReloadResult(
+            workspace=name, reconnected=False, reason="container_down"
+        ).model_dump()
+
+    get_service().reconnect(owner_login, ws_id)
+    return _ReloadResult(workspace=name, reconnected=True).model_dump()
 
 
 async def _node_list(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
