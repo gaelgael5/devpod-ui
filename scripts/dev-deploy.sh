@@ -5,8 +5,11 @@
 # Idempotent : peut être relancé sans danger.
 #
 # Usage :
-#   ./scripts/dev-deploy.sh [BRANCH]
-#   ex : ./scripts/dev-deploy.sh dev
+#   ./scripts/dev-deploy.sh [BRANCH] [--resetdb]
+#   ex : ./scripts/dev-deploy.sh dev --resetdb
+#
+#   --resetdb  Arrête la stack, supprime les volumes DB et le fichier .env,
+#              puis repart de zéro (nouveaux credentials générés).
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -15,10 +18,12 @@ APP_DIR="${APP_DIR:-/opt/workspace-portal}"
 COMPOSE_FILE="deploy/docker-compose.dev.yml"
 ENV_FILE="/data/.env"
 
-# ─── Argument : branche cible ─────────────────────────────────────────────────
+# ─── Arguments : branche cible + flags ───────────────────────────────────────
 TARGET_BRANCH=""
+RESETDB=0
 for arg in "$@"; do
     case "$arg" in
+        --resetdb) RESETDB=1 ;;
         --*) echo "ERREUR : flag inconnu : $arg" >&2; exit 1 ;;
         *)
             if [[ -n "$TARGET_BRANCH" ]]; then
@@ -50,6 +55,21 @@ AFTER="$(git rev-parse HEAD)"
 if [[ "$BEFORE" != "$AFTER" ]]; then
     echo "    Dépôt mis à jour — ré-exécution du script..."
     exec "$0" "$@"
+fi
+
+# ─── --resetdb : purge complète avant toute initialisation ────────────────────
+if [[ $RESETDB -eq 1 ]]; then
+    echo ""
+    echo "==> [--resetdb] Arrêt de la stack et suppression des volumes DB..."
+    docker compose -f "$COMPOSE_FILE" down --volumes --remove-orphans 2>/dev/null || true
+    echo "    Suppression des containers arrêtés résiduels..."
+    docker container prune -f || true
+    if [[ -f "$ENV_FILE" ]]; then
+        rm -f "$ENV_FILE"
+        echo "    ${ENV_FILE} supprimé."
+    fi
+    echo "    Reset terminé — le .env et la DB seront recréés depuis zéro."
+    echo ""
 fi
 
 # ─── Fonctions utilitaires .env ───────────────────────────────────────────────
@@ -113,6 +133,21 @@ fi
 if [[ -z "$(_get_env SESSION_SECRET_KEY)" ]]; then
     _set_env SESSION_SECRET_KEY "$(openssl rand -hex 32)"
     echo "    SESSION_SECRET_KEY généré"
+fi
+
+# Générer LOCAL_PASSWORD + LOCAL_PASSWORD_HASH si vides
+if [[ -z "$(_get_env LOCAL_PASSWORD)" ]]; then
+    command -v python3 &>/dev/null || apt-get install -y --no-install-recommends python3 >/dev/null 2>&1
+    python3 -c "import bcrypt" 2>/dev/null || apt-get install -y --no-install-recommends python3-bcrypt >/dev/null 2>&1
+    LOCAL_PASS="$(openssl rand -hex 12)"
+    LOCAL_HASH="$(PASS="$LOCAL_PASS" python3 -c \
+        "import bcrypt, os; print(bcrypt.hashpw(os.environ['PASS'].encode(), bcrypt.gensalt()).decode())")"
+    # docker compose et bash interprètent $VAR dans les env_file / source :
+    # doubler $ → $$ pour que le hash bcrypt ($2b$12$…) soit transmis intact.
+    LOCAL_HASH_ESCAPED="$(printf '%s' "$LOCAL_HASH" | sed 's/\$/\$\$/g')"
+    _set_env LOCAL_PASSWORD "$LOCAL_PASS"
+    _set_env LOCAL_PASSWORD_HASH "$LOCAL_HASH_ESCAPED"
+    echo "    LOCAL_PASSWORD généré : ${LOCAL_PASS}"
 fi
 
 # Détection de conflit sur le port 80 : si un process tiers écoute déjà sur :80,
