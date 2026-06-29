@@ -135,8 +135,9 @@ export function useWorkspaceOps() {
       apiFetchJson<{ ws_id: string; status: string }>(`/me/workspaces/${name}/recreate`, {
         method: 'POST',
       }),
-    onSuccess: () => {
+    onSuccess: (_data, name) => {
       qc.invalidateQueries({ queryKey: ['workspaces'] })
+      qc.invalidateQueries({ queryKey: ['workspace-status', name] })
     },
     onError: (err: Error) => toast.error(err.message),
   })
@@ -166,7 +167,10 @@ export function useWorkspaceOps() {
         }),
       })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['workspaces'] }),
+    onSuccess: (_data, spec) => {
+      qc.invalidateQueries({ queryKey: ['workspaces'] })
+      qc.invalidateQueries({ queryKey: ['workspace-status', spec.name] })
+    },
     onError: (err: Error) => toast.error(err.message),
   })
 

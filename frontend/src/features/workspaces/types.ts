@@ -40,6 +40,8 @@ export interface WorkspaceStatus {
 
 export const TRANSIENT: ReadonlySet<WorkspaceStatusValue> = new Set([
   'provisioning',
+  'failed',
+  'unknown',
 ])
 
 export function isTransient(s: WorkspaceStatusValue | undefined): boolean {
