@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import insert, select
@@ -36,13 +37,21 @@ async def record(
 
 
 async def list_for_owner(
-    conn: AsyncConnection, owner_login: str, limit: int = 100
+    conn: AsyncConnection,
+    owner_login: str,
+    *,
+    limit: int = 100,
+    status: str | None = None,
+    tool: str | None = None,
+    since: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Retourne les entrées d'audit d'un utilisateur, ordre chronologique inversé."""
-    q = (
-        select(al)
-        .where(al.c.owner_login == owner_login)
-        .order_by(al.c.ts.desc())
-        .limit(limit)
-    )
+    q = select(al).where(al.c.owner_login == owner_login)
+    if status is not None:
+        q = q.where(al.c.status == status)
+    if tool is not None:
+        q = q.where(al.c.namespaced_name == tool)
+    if since is not None:
+        q = q.where(al.c.ts >= since)
+    q = q.order_by(al.c.ts.desc()).limit(limit)
     return [dict(r) for r in (await conn.execute(q)).mappings().all()]

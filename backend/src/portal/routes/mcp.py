@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..db import mcp as db
 from ..db.engine import get_conn
+from ..db.mcp_audit import list_for_owner as audit_list
 from ..db.mcp_catalog import list_primitives as list_catalog_primitives
 from ..mcp import models, service
 from ..mcp.monitor import get_health
@@ -203,4 +205,34 @@ async def delete_apikey_route(
 ) -> None:
     if not await db.delete_apikey(conn, user.login, apikey_id):
         raise HTTPException(status_code=404, detail="apikey introuvable")
+
+
+# ─── Audit log ────────────────────────────────────────────────────────────────
+
+
+@router.get("/mcp/audit-log")
+async def list_audit_log_route(
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+    limit: int = Query(100, ge=1, le=1000),
+    status: str | None = Query(None, pattern=r"^(ok|error|denied|timeout)$"),
+    tool: str | None = Query(None, max_length=256),
+    since: datetime | None = Query(None),
+) -> list[dict[str, Any]]:
+    """Journal d'audit des appels MCP (100 derniers par défaut).
+
+    Filtres optionnels :
+    - **status** : ok | error | denied | timeout
+    - **tool** : nom namespacé exact (ex: devpod__workspace_list)
+    - **since** : ISO-8601, retourne uniquement les entrées après cette date
+    - **limit** : 1–1000
+    """
+    return await audit_list(
+        conn,
+        user.login,
+        limit=limit,
+        status=status,
+        tool=tool,
+        since=since,
+    )
 
