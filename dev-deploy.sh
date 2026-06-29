@@ -13,6 +13,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DATA_ROOT="${DATA_ROOT:-/data}"
 ENV_FILE="${DATA_ROOT}/.env"
 
+# ─── Auto-mise à jour du repo avant de déléguer ──────────────────────────────
+# Garantit que deploy-portal.sh sur disque est bien la version courante.
+if [[ -d "${SCRIPT_DIR}/.git" ]]; then
+    _CURRENT_BRANCH="$(git -C "$SCRIPT_DIR" branch --show-current 2>/dev/null || true)"
+    if [[ -n "$_CURRENT_BRANCH" ]]; then
+        git -C "$SCRIPT_DIR" pull --ff-only origin "$_CURRENT_BRANCH" 2>/dev/null || true
+    fi
+    unset _CURRENT_BRANCH
+fi
+
 # ─── Initialisation du .env si absent ────────────────────────────────────────
 if [[ ! -f "$ENV_FILE" ]]; then
     echo "==> .env absent — initialisation depuis deploy/.env.example..."
