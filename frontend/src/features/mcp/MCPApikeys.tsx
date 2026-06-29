@@ -208,12 +208,13 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
           <span className="text-xs text-muted-foreground shrink-0">{t('mcp.apikeys.profile')}</span>
           <Select
             value={apikey.profile_id ?? NO_PROFILE}
-            onValueChange={(v) =>
+            onValueChange={(v) => {
+              if (v === undefined || v === null) return
               setProfile.mutate(
                 { id: apikey.id, profile_id: v === NO_PROFILE ? null : v },
                 { onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) },
               )
-            }
+            }}
           >
             <SelectTrigger className="h-7 text-xs flex-1">
               <SelectValue />

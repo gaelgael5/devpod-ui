@@ -98,4 +98,4 @@ class ApikeyCreate(BaseModel):
 
 class ApikeySetProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    profile_id: str | None
+    profile_id: str | None = None
