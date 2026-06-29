@@ -111,6 +111,20 @@ async def list_deployments(
     return [_row_to_deployment(r) for r in rows]
 
 
+async def list_deployments_for_node(
+    conn: AsyncConnection, node_id: str
+) -> list[ComposeDeployment]:
+    """Tous les déploiements sur un nœud donné, triés par date décroissante."""
+    rows = (
+        await conn.execute(
+            select(compose_deployment)
+            .where(compose_deployment.c.node_id == node_id)
+            .order_by(compose_deployment.c.created_at.desc())
+        )
+    ).mappings().all()
+    return [_row_to_deployment(r) for r in rows]
+
+
 async def update_deployment_status(
     conn: AsyncConnection, deployment_id: str, status: str, last_error: str | None = None
 ) -> None:

@@ -11,7 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, type HostConfig, type HostCreatePayload, type HostUserWorkspaces } from './useHosts'
+import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useTestHostInfo, useHostDeployments, type HostConfig, type HostCreatePayload, type HostUserWorkspaces } from './useHosts'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import TestHostParamsDialog from './TestHostParamsDialog'
@@ -114,6 +114,21 @@ const STATUS_TEXT: Record<string, string> = {
   unknown:      'text-muted-foreground',
 }
 
+const DEPLOY_STATUS_DOT: Record<string, string> = {
+  running: 'bg-green-500',
+  stopped: 'bg-yellow-500',
+  created: 'bg-blue-400',
+  error:   'bg-destructive',
+  partial: 'bg-orange-400',
+}
+const DEPLOY_STATUS_TEXT: Record<string, string> = {
+  running: 'text-green-600',
+  stopped: 'text-yellow-600',
+  created: 'text-blue-500',
+  error:   'text-destructive',
+  partial: 'text-orange-500',
+}
+
 function HostWorkspacesPanel({ name }: { name: string }) {
   const { t } = useTranslation()
   const { data, isLoading } = useHostWorkspaces(name)
@@ -129,7 +144,7 @@ function HostWorkspacesPanel({ name }: { name: string }) {
         <div key={u.login} className="flex items-start gap-2">
           <span className="text-xs font-medium text-foreground whitespace-nowrap">{u.login}</span>
           <div className="flex flex-wrap gap-1">
-            {u.workspaces.map((ws) => {
+            {[...u.workspaces].sort((a, b) => a.name.localeCompare(b.name)).map((ws) => {
               const s = ws.status
               return (
                 <span
@@ -148,6 +163,65 @@ function HostWorkspacesPanel({ name }: { name: string }) {
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+function TestHostPanel({ name }: { name: string }) {
+  const { t } = useTranslation()
+  const { data: info, isLoading: infoLoading } = useTestHostInfo(name, true)
+  const { data: deps, isLoading: depsLoading } = useHostDeployments(name, true)
+
+  return (
+    <div className="flex flex-col gap-2">
+      {/* Workspace propriétaire */}
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-muted-foreground">{t('admin.testHost.owner')} :</span>
+        {infoLoading && <span className="text-muted-foreground">…</span>}
+        {!infoLoading && !info && <span className="text-muted-foreground">—</span>}
+        {info && (
+          <span className="font-medium">
+            {info.owner_login}
+            <span className="mx-1 text-muted-foreground">/</span>
+            {info.workspace_name}
+            {info.alias && (
+              <span className="ml-2 font-mono text-muted-foreground">
+                ({t('admin.testHost.alias')} <span className="text-foreground">{info.alias}</span>)
+              </span>
+            )}
+          </span>
+        )}
+      </div>
+
+      {/* Services compose */}
+      <div className="flex flex-wrap gap-1.5">
+        {depsLoading && <span className="text-xs text-muted-foreground">…</span>}
+        {!depsLoading && (!deps || deps.length === 0) && (
+          <span className="text-xs text-muted-foreground">{t('admin.testHost.noServices')}</span>
+        )}
+        {deps && deps.map((dep) => {
+          const s = dep.status
+          return (
+            <span
+              key={dep.id}
+              title={dep.last_error ?? undefined}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs',
+                DEPLOY_STATUS_TEXT[s] ?? DEPLOY_STATUS_TEXT.error,
+              )}
+            >
+              <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', DEPLOY_STATUS_DOT[s] ?? DEPLOY_STATUS_DOT.error)} />
+              <span className="font-medium">{dep.template_name}</span>
+              <span className="text-muted-foreground">{dep.template_version}</span>
+              {dep.host_ports.length > 0 && (
+                <span className="font-mono text-muted-foreground">
+                  :{dep.host_ports.join(',')}
+                </span>
+              )}
+            </span>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -361,7 +435,10 @@ export default function AdminHosts() {
                   </tr>
                   <tr className="border-b last:border-0 bg-muted/20">
                     <td colSpan={5} className="px-4 py-2">
-                      <HostWorkspacesPanel name={h.name} />
+                      {h.usage === 'tests'
+                        ? <TestHostPanel name={h.name} />
+                        : <HostWorkspacesPanel name={h.name} />
+                      }
                     </td>
                   </tr>
                 </Fragment>

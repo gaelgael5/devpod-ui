@@ -173,6 +173,48 @@ export function useHostWorkspaces(name: string) {
   })
 }
 
+export interface TestHostInfo {
+  owner_login: string
+  workspace_name: string
+  alias: string
+}
+
+export function useTestHostInfo(name: string, enabled: boolean) {
+  return useQuery<TestHostInfo | null>({
+    queryKey: ['admin', 'hosts', name, 'test-info'],
+    queryFn: () =>
+      apiFetchJson<TestHostInfo | null>(
+        `/admin/hosts/${encodeURIComponent(name)}/test-info`,
+      ),
+    enabled,
+    staleTime: 30 * 1000,
+  })
+}
+
+export interface HostDeployment {
+  id: string
+  status: string
+  template_id: string
+  template_name: string
+  template_version: string
+  host_ports: number[]
+  last_error: string | null
+  created_at: string | null
+}
+
+export function useHostDeployments(name: string, enabled: boolean) {
+  return useQuery<HostDeployment[]>({
+    queryKey: ['admin', 'hosts', name, 'deployments'],
+    queryFn: () =>
+      apiFetchJson<HostDeployment[]>(
+        `/admin/hosts/${encodeURIComponent(name)}/deployments`,
+      ),
+    enabled,
+    staleTime: 15 * 1000,
+    refetchInterval: 15 * 1000,
+  })
+}
+
 export interface BootstrapSshPayload {
   address: string
   proxmox_node: string

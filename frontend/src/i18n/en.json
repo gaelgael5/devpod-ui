@@ -859,6 +859,13 @@
     "edit": "Edit",
     "delete": "Delete"
   },
+  "admin": {
+    "testHost": {
+      "owner": "Owned by workspace",
+      "alias": "SSH alias",
+      "noServices": "No running compose services"
+    }
+  },
   "jinjaTemplates": {
     "title": "Jinja2 templates",
     "new": "New template",

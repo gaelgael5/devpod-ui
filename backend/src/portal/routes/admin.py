@@ -457,6 +457,49 @@ async def list_host_workspaces(
     return [{"login": login, "workspaces": wss} for login, wss in by_login.items()]
 
 
+@router.get("/hosts/{name}/test-info")
+async def get_host_test_info(
+    name: str,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str] | None:
+    """Retourne le workspace propriétaire d'un host de test, ou null si pas un host de test."""
+    from ..db.test_hosts import host_full_info
+
+    info = await host_full_info(name, conn)
+    if info is None:
+        return None
+    login, workspace_name, alias = info
+    return {"owner_login": login, "workspace_name": workspace_name, "alias": alias}
+
+
+@router.get("/hosts/{name}/deployments")
+async def list_host_deployments(
+    name: str,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[dict[str, object]]:
+    """Déploiements compose actifs sur ce nœud."""
+    from ..compose.db import get_template, list_deployments_for_node
+    from ..compose.models import ComposeTemplate
+
+    deps = await list_deployments_for_node(conn, name)
+    result = []
+    for dep in deps:
+        tpl: ComposeTemplate | None = await get_template(conn, dep.template_id)
+        result.append({
+            "id": dep.id,
+            "status": dep.status,
+            "template_id": dep.template_id,
+            "template_name": tpl.name if tpl else dep.template_id,
+            "template_version": dep.template_version,
+            "host_ports": dep.host_ports,
+            "last_error": dep.last_error,
+            "created_at": dep.created_at.isoformat() if dep.created_at else None,
+        })
+    return result
+
+
 # ─── Bootstrap SSH ────────────────────────────────────────────────────────────
 
 
