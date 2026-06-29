@@ -25,6 +25,7 @@ from ..db.workspace_status import (
     list_running_db,
     upsert_status_db,
 )
+from ..messages import db as _msg_db
 from ..profiles.models import Profile
 from ..recipes.models import RecipeMeta
 from .env import HostNotReadyError, _find_host, build_env
@@ -295,10 +296,14 @@ class DevPodService:
                 with contextlib.suppress(OSError):
                     os.unlink(tmp_key_path)
 
-    def _devpod_state_exists(self, ws_id: str) -> bool:
-        """Vérifie si devpod connaît ce workspace (état local présent)."""
-        home = os.environ.get("HOME", "/root")
-        return Path(f"{home}/.devpod/agent/contexts/default/workspaces/{ws_id}").exists()
+    def _devpod_state_exists(self, ws_id: str, login: str) -> bool:
+        """Vérifie si devpod connaît ce workspace (état local présent).
+
+        Le state devpod est dans DEVPOD_HOME = safe_user_path(login, 'devpod'),
+        pas dans $HOME/.devpod — $HOME est le HOME système du conteneur.
+        """
+        devpod_home = str(safe_user_path(login, "devpod"))
+        return Path(f"{devpod_home}/agent/contexts/default/workspaces/{ws_id}").exists()
 
     async def _reconnect_workspace(self, ws_id: str, login: str) -> None:
         """Re-enregistre un workspace dans devpod via devpod up.
@@ -320,10 +325,10 @@ class DevPodService:
             _log.warning("reconcile_reconnect_failed", ws_id=ws_id, error=str(exc))
 
     async def reconcile_port_forwards(self) -> None:
-        """Au démarrage, relance les tunnels SSH des workspaces running persistés en DB.
+        """Au démarrage, relance les tunnels SSH et recrée les routes Caddy des workspaces running.
 
         Si le conteneur portail redémarre :
-        - État devpod présent  → relance le tunnel SSH directement.
+        - État devpod présent  → relance le tunnel SSH directement + recrée la route Caddy.
         - État devpod absent   → déclenche devpod up en arrière-plan ; devpod
           détecte le container existant, se reconnecte et relance le tunnel en fin de up().
         """
@@ -344,7 +349,7 @@ class DevPodService:
 
             # Si devpod ne connaît pas ce workspace, relancer devpod up
             # qui re-peuplera ~/.devpod/ et relancera le port-forward en fin de tâche.
-            if not self._devpod_state_exists(ws_id):
+            if not self._devpod_state_exists(ws_id, login_for_key):
                 _log.warning(
                     "reconcile_devpod_state_missing",
                     ws_id=ws_id,
@@ -360,6 +365,7 @@ class DevPodService:
                 continue
             _log.info("reconcile_port_forward", ws_id=ws_id, host_port=host_port)
             tmp_key_path = ""
+            pf_ok = False
             try:
                 if host_cfg.host_cert_slug:
                     tmp_key_path = await _materialize_system_cert(
@@ -370,12 +376,23 @@ class DevPodService:
                     minimal_env,
                     host_port,
                 )
+                pf_ok = True
             except Exception as exc:
                 _log.warning("reconcile_port_forward_failed", ws_id=ws_id, error=str(exc))
             finally:
                 if tmp_key_path and tmp_key_path.startswith(tempfile.gettempdir()):
                     with contextlib.suppress(OSError):
                         os.unlink(tmp_key_path)
+
+            if pf_ok and self._exposure is not None:
+                # Pour SSH le tunnel est bindé sur le container portal ; Caddy atteint
+                # portal_host:host_port via le réseau Docker interne.
+                node_ip = global_cfg.caddy.portal_host
+                try:
+                    await self._exposure.expose(ws_id, node_ip, host_port)
+                    _log.info("reconcile_caddy_route_restored", ws_id=ws_id)
+                except Exception as exc:
+                    _log.warning("reconcile_expose_failed", ws_id=ws_id, error=str(exc))
 
     def reconnect(self, login: str, ws_id: str) -> None:
         """Reconnexion forcée d'un workspace dont le conteneur tourne (portal_reload, modèle a).
@@ -424,9 +441,11 @@ class DevPodService:
         rc = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120)
         if rc != 0:
             _log.warning("workspace_delete_failed", ws_id=ws_id, returncode=rc)
+        ws_name = ws_id.removeprefix(f"{login}-")
         async with _get_engine().begin() as conn:
             await persist_log_blob_from_file(ws_id, login, "delete", log_path, conn)
             await delete_status_db(ws_id, conn)
+            await _msg_db.purge_workspace_messages(conn, login, ws_name)
         _log.info("workspace_deleted", ws_id=ws_id, login=login, recovery_branch=branch)
         return {"deleted": True, "recovery_branch": branch}
 

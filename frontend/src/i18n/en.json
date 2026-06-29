@@ -1,4 +1,28 @@
 {
+  "groups": {
+    "new": "New group",
+    "manage": "Manage groups",
+    "rename": "Rename",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "save": "Save",
+    "create": "Create",
+    "ungrouped": "Ungrouped",
+    "createTitle": "New group",
+    "renameTitle": "Rename group",
+    "deleteTitle": "Delete group",
+    "deleteDescription": "Delete group «{{name}}»? Workspaces will not be deleted.",
+    "assignTitle": "Groups — {{name}}",
+    "assignDescription": "Select the groups this workspace belongs to.",
+    "noGroupsYet": "No groups yet. Create one first.",
+    "namePlaceholder": "Group name…",
+    "error": {
+      "create": "Could not create group: {{message}}",
+      "rename": "Could not rename group: {{message}}",
+      "delete": "Could not delete group: {{message}}",
+      "assign": "Could not update groups: {{message}}"
+    }
+  },
   "workspaces": {
     "title": "Workspaces",
     "new": "New workspace",
@@ -82,7 +106,8 @@
       "confirmDelete": "Destroy",
       "deleting": "Deleting…",
       "deleted": "Test machine deleted",
-      "deleteFailed": "Deletion failed"
+      "deleteFailed": "Deletion failed",
+      "launchService": "Launch a service"
     },
     "form": {
       "name": "Name",
@@ -223,7 +248,10 @@
         "step6": "Realm roles → create “dev” and “admin”, then assign them to users (Users → Role mapping).",
         "step7": "Client scopes → roles → mapper “realm roles” → enable “Add to ID token”. Otherwise roles stay empty and access is denied (the portal reads roles from the ID token).",
         "copy": "Copy"
-      }
+      },
+      "allowLocalAuth": "Allow break-glass local login",
+      "allowLocalAuthHint": "When disabled, the LOCAL_USER account (.env) cannot log in even if credentials are set.",
+      "allowLocalAuthDisabledHint": "Configure OIDC first (issuer + client ID) before disabling local login."
     },
     "network": {
       "navLabel": "Network",
@@ -235,6 +263,12 @@
       "externalUrlHint": "Absolute public URL of the portal, e.g. https://dev.yoops.org.",
       "workspaceHost": "Direct workspace host",
       "workspaceHostHint": "Optional. IP/host reachable directly when there is no sub-domain, e.g. 192.168.10.50.",
+      "cookieDomain": "Session cookie domain",
+      "cookieDomainHint": "Root domain for the session cookie, e.g. yoops.org. Required when the portal (dev.yoops.org) and the VS Code proxy (vs-dev.yoops.org) share a common ancestor. Takes effect immediately — no restart needed.",
+      "vsProxyDomain": "VS Code proxy subdomain",
+      "vsProxyDomainHint": "Fixed subdomain for VS Code access, e.g. vs-dev.yoops.org. When set, all workspaces share this domain; Caddy routes dynamically via the session cookie. Leave empty to use per-workspace subdomains.",
+      "devMode": "Dev mode (direct port URL)",
+      "devModeHint": "When enabled, workspaces are accessed via direct port URL (no Caddy route). Use only for local access without a Cloudflare tunnel.",
       "save": "Save",
       "saved": "Network configuration saved"
     },
@@ -373,6 +407,14 @@
       "deleteHost": "Delete host",
       "cancel": "Cancel"
     },
+    "testHost": {
+      "sectionTitle": "Test machines",
+      "filterPlaceholder": "Filter by user / workspace…",
+      "filterEmpty": "No machine matches this filter.",
+      "owner": "Owned by workspace",
+      "alias": "SSH alias",
+      "noServices": "No running compose services"
+    },
     "sshTerminal": {
       "openBtn": "SSH",
       "windowTitle": "SSH Terminal",
@@ -503,8 +545,6 @@
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
-    "edit": "Edit",
-    "editDialogTitle": "Edit credential",
     "deleteConfirm": "Delete credential «{{name}}»?",
     "deleteDescription": "This action cannot be undone. Workspaces using this credential will fail at next launch.",
     "errors": {
@@ -654,8 +694,121 @@
     "webHint": "Add this URL as a custom connector in Claude. Sign-in uses OAuth — you pick the services on the consent screen. Nothing to create here.",
     "desktopTitle": "Claude Desktop / scripts",
     "desktopHint": "Issue an apikey below and paste it into the client config (Authorization: Bearer).",
-    "copy": "Copy",
+    "copy": "Copied",
     "gatewayUrlCopied": "Gateway URL copied",
+    "tab": {
+      "servers": "MCP Servers",
+      "profiles": "Profiles",
+      "apikeys": "Client API Keys",
+      "oauth": "OAuth"
+    },
+    "profiles": {
+      "sectionTitle": "MCP Profiles",
+      "create": "New profile",
+      "createTitle": "Create a profile",
+      "editTitle": "Edit profile",
+      "name": "Name",
+      "description": "Description",
+      "empty": "No profile yet. Create one to start exposing services.",
+      "configure": "Configure services",
+      "confirmDelete": "Confirm delete",
+      "servicesTitle": "Services for {{name}}",
+      "addService": "Add a service",
+      "serviceKey": "Service key",
+      "autoKey": "Auto (first enabled key)",
+      "tools": "Exposed tools",
+      "allTools": "All tools",
+      "restrictTools": "Restrict to a subset",
+      "allowAllTools": "Allow all tools",
+      "noToolsCatalog": "No tools indexed yet (backend not synced)."
+    },
+    "oauth": {
+      "openSettings": "Open →",
+      "claude": {
+        "procedureTitle": "Connecting Claude.ai via OAuth",
+        "step1": {
+          "title": "Copy the gateway URL",
+          "desc": "Copy the MCP gateway URL displayed above — you'll need it to configure the connector."
+        },
+        "step2": {
+          "title": "Open Claude.ai → Settings → Integrations",
+          "desc": "Go to claude.ai, open the Settings panel, then click \"Integrations\" (or \"Custom connectors\" depending on your plan)."
+        },
+        "step3": {
+          "title": "Add a custom connector",
+          "desc": "Click \"Add integration\" and paste the gateway URL. Claude will auto-discover the OAuth metadata."
+        },
+        "step4": {
+          "title": "Authenticate via Keycloak",
+          "desc": "A consent screen opens. Sign in with your Keycloak account (same as the portal), then choose the MCP profile to expose."
+        },
+        "step5": {
+          "title": "Start using tools in Claude",
+          "desc": "The integration is now active. Ask Claude to use a tool — it will call the gateway transparently."
+        },
+        "note": "OAuth tokens are short-lived and refresh automatically. You do not need to issue an API key for this mode."
+      },
+      "openai": {
+        "procedureTitle": "Connecting ChatGPT / OpenAI via OAuth",
+        "step1": {
+          "title": "Copy the gateway URL",
+          "desc": "Copy the MCP gateway URL displayed above."
+        },
+        "step2": {
+          "title": "Open ChatGPT → Settings → Connected apps (or GPT editor → Actions)",
+          "desc": "In ChatGPT Plus/Team settings, go to \"Connected apps\". For a custom GPT, open the editor and click \"Add actions\"."
+        },
+        "step3": {
+          "title": "Paste the gateway URL and import the schema",
+          "desc": "The gateway exposes an OpenAPI schema at /openapi.json. ChatGPT will auto-import it. Set the authentication type to OAuth 2.0."
+        },
+        "step4": {
+          "title": "Authenticate and select a profile",
+          "desc": "A Keycloak consent screen opens. Sign in and choose the MCP profile to grant to this ChatGPT session."
+        },
+        "note": "OAuth tokens are short-lived. If your session expires, reconnect from the ChatGPT settings panel."
+      },
+      "gemini": {
+        "procedureTitle": "Connecting Gemini / Google AI Studio via OAuth",
+        "step1": {
+          "title": "Copy the gateway URL",
+          "desc": "Copy the MCP gateway URL displayed above."
+        },
+        "step2": {
+          "title": "Open Google AI Studio → Extensions → Add a tool",
+          "desc": "In AI Studio (aistudio.google.com), open the Extensions panel and click \"Add custom tool\" or \"Connect via MCP\"."
+        },
+        "step3": {
+          "title": "Paste the gateway URL",
+          "desc": "Enter the MCP gateway URL. Gemini will auto-discover the tool list. Select OAuth 2.0 as the auth method."
+        },
+        "step4": {
+          "title": "Authenticate and select a profile",
+          "desc": "A Keycloak consent screen opens. Sign in and choose the MCP profile to expose to Gemini."
+        },
+        "note": "If Google AI Studio does not yet support OAuth MCP natively, use a Client API key (Bearer) from the \"Client API Keys\" tab as a fallback."
+      },
+      "mistral": {
+        "procedureTitle": "Connecting Le Chat / Mistral via OAuth",
+        "step1": {
+          "title": "Copy the gateway URL",
+          "desc": "Copy the MCP gateway URL displayed above."
+        },
+        "step2": {
+          "title": "Open Le Chat → Settings → Integrations → MCP",
+          "desc": "In Le Chat (chat.mistral.ai), open Settings, then the Integrations section and click \"Add an MCP server\"."
+        },
+        "step3": {
+          "title": "Paste the gateway URL",
+          "desc": "Enter the MCP gateway URL. Le Chat supports Streamable HTTP transport. Set auth to OAuth 2.0."
+        },
+        "step4": {
+          "title": "Authenticate and select a profile",
+          "desc": "A Keycloak consent screen opens. Sign in and choose the MCP profile to expose to Mistral."
+        },
+        "note": "Le Chat MCP integration is available on Pro plans. Use a Client API key as a fallback for API / agent usage."
+      }
+    },
     "backends": {
       "sectionTitle": "MCP Servers",
       "add": "Add a server",
@@ -693,40 +846,27 @@
       "enabledOff": "Server disabled",
       "namespacePlaceholder": "rag",
       "urlPlaceholder": "https://rag.yoops.org/mcp",
-      "slugPlaceholder": "read"
+      "slugPlaceholder": "read",
+      "viewTools": "View tools",
+      "noTools": "No catalogued tools."
     },
     "apikeys": {
       "sectionTitle": "Client apikeys",
+      "oauthSectionTitle": "Active OAuth sessions",
       "add": "Issue an apikey",
       "empty": "No apikey issued.",
       "dialogTitle": "Issue a client apikey",
       "label": "Label",
       "labelPlaceholder": "e.g. Claude web — laptop",
+      "profile": "Profile",
+      "profilePlaceholder": "Select a profile…",
+      "noProfile": "No profile (no access)",
       "tokenOnceTitle": "Apikey created",
       "tokenOnceWarning": "Copy this value now — it will not be shown again.",
       "revoked": "Revoked",
       "revoke": "Revoke",
       "delete": "Delete",
-      "confirmDelete": "Confirm",
-      "grantsTitle": "Server access",
-      "grantsHint": "For each authorized server, choose the authentication key to use.",
-      "noGrants": "No access configured.",
-      "selectKey": "Choose a key…",
-      "publicAccess": "None (public)",
-      "serviceDisabled": "Disabled",
-      "disableService": "Disable for this client",
-      "enableService": "Enable for this client",
-      "addGrant": "Authorize",
-      "removeGrant": "Remove",
-      "exposeModeLabel": "Tool curation",
-      "scopesLabel": "Granted scopes",
-      "exposeModeAll": "All tools",
-      "exposeModeAllowlist": "Only listed",
-      "exposeModeDenylist": "All except listed",
-      "exposePlaceholder": "Tool name…",
-      "exposeAdd": "Add",
-      "exposeRemove": "Remove",
-      "exposeEmpty": "No tool listed."
+      "confirmDelete": "Confirm"
     },
     "saving": "Saving…",
     "save": "Save"
@@ -736,19 +876,113 @@
     "gallery": "Gallery",
     "deployments": "Deployments",
     "deploy": "Deploy",
-    "admin": { "title": "Compose templates", "new": "New template", "edit": "Edit template", "navLabel": "Compose templates" },
-    "form": { "name": "Name", "description": "Description", "node": "Target node", "yaml": "docker-compose.yml", "id": "Identifier", "idHint": "Lowercase, digits, hyphens — 2 to 42 chars", "tags": "Tags", "version": "Version", "parameters": "Parameters", "paramKey": "Key", "paramLabel": "Label", "paramType": "Type", "paramRequired": "Required", "paramDefault": "Default", "paramOptions": "Options (csv)", "addParam": "Add parameter", "removeParam": "Remove" },
-    "deployDialog": { "title": "Deploy {{name}}", "submit": "Deploy", "portConflict": "Port {{ports}} already in use; suggested: {{suggestion}}" },
-    "status": { "running": "running", "partial": "partial", "stopped": "stopped", "error": "error", "created": "created" },
-    "actions": { "stop": "Stop", "start": "Start", "restart": "Restart", "down": "Tear down", "logs": "Logs", "edit": "Edit", "delete": "Delete" },
-    "empty": { "templates": "No templates yet.", "deployments": "No deployments yet." },
-    "delete": { "confirm": "Delete?", "cancel": "Cancel", "ok": "Delete", "title": "Delete template?", "description": "Template «{{name}}» will be permanently deleted." },
-    "logs": { "title": "Logs — {{name}}" }
+    "admin": {
+      "title": "Compose templates",
+      "new": "New template",
+      "edit": "Edit template",
+      "navLabel": "Compose templates"
+    },
+    "form": {
+      "name": "Name",
+      "description": "Description",
+      "node": "Target node",
+      "yaml": "docker-compose.yml",
+      "id": "Identifier",
+      "idHint": "Lowercase, digits, hyphens — 2 to 42 chars",
+      "tags": "Tags",
+      "version": "Version",
+      "parameters": "Parameters",
+      "paramKey": "Key",
+      "paramLabel": "Label",
+      "paramType": "Type",
+      "paramRequired": "Required",
+      "paramDefault": "Default",
+      "paramOptions": "Options (csv)",
+      "addParam": "Add parameter",
+      "removeParam": "Remove"
+    },
+    "deployDialog": {
+      "title": "Deploy {{name}}",
+      "submit": "Deploy",
+      "portConflict": "Port {{ports}} already in use; suggested: {{suggestion}}"
+    },
+    "status": {
+      "running": "running",
+      "partial": "partial",
+      "stopped": "stopped",
+      "error": "error",
+      "created": "created"
+    },
+    "actions": {
+      "stop": "Stop",
+      "start": "Start",
+      "restart": "Restart",
+      "down": "Tear down",
+      "logs": "Logs",
+      "edit": "Edit",
+      "delete": "Delete"
+    },
+    "empty": {
+      "templates": "No templates yet.",
+      "deployments": "No deployments yet."
+    },
+    "delete": {
+      "confirm": "Delete?",
+      "cancel": "Cancel",
+      "ok": "Delete",
+      "title": "Delete template?",
+      "description": "Template «{{name}}» will be permanently deleted."
+    },
+    "logs": {
+      "title": "Logs — {{name}}"
+    },
+    "catalog": {
+      "sources": "Gallery sources",
+      "addSource": "Add",
+      "deleteSource": "Remove source",
+      "gallery": "Gallery",
+      "refresh": "Refresh",
+      "filter": "Filter by name, tag or image…",
+      "import": "Import",
+      "importing": "Importing…",
+      "imported": "Template {{id}} imported",
+      "empty": "No templates in the catalog.",
+      "noMatch": "No result for this filter.",
+      "hint": "Click Refresh to load the catalog."
+    },
+    "launch": {
+      "titlePick": "Pick a template",
+      "titleDeploy": "Deploy {{name}}",
+      "noTemplates": "No templates available",
+      "back": "Back",
+      "start": "Start",
+      "targetNode": "Target machine"
+    }
   },
   "common": {
     "loading": "Loading…",
     "save": "Save",
     "cancel": "Cancel",
-    "close": "Close"
+    "close": "Close",
+    "edit": "Edit",
+    "delete": "Delete"
+  },
+  "jinjaTemplates": {
+    "title": "Jinja2 templates",
+    "new": "New template",
+    "newTitle": "New template",
+    "editTitle": "Edit template",
+    "key": "Key",
+    "culture": "Culture",
+    "body": "Template body",
+    "preview": "Preview",
+    "empty": "No templates yet.",
+    "helpHost": "Test host",
+    "helpDeploy": "Compose service",
+    "contextHelp": "Available variables",
+    "previewCtx": "Preview context (JSON)",
+    "previewBtn": "Preview",
+    "invalidJson": "Invalid JSON context",
+    "confirmDelete": "Delete template {{key}} / {{culture}}?"
   }
 }

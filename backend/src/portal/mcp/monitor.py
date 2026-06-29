@@ -69,7 +69,16 @@ async def monitor_backend_once(
     *,
     open_session_fn: Any | None = None,
 ) -> BackendHealth:
-    """Synchronise le catalogue d'un backend et en déduit sa santé (up/down)."""
+    """Synchronise le catalogue d'un backend et en déduit sa santé (up/down).
+
+    Les backends `internal` (DevPod, etc.) sont hébergés dans le portail lui-même :
+    aucune connexion réseau n'est nécessaire, ils sont toujours up.
+    """
+    if backend_row.get("transport") == "internal":
+        health = BackendHealth(status="up")
+        set_health(backend_row["id"], health)
+        return health
+
     session_fn = open_session_fn if open_session_fn is not None else open_session
     bearer = await _resolve_monitor_bearer(conn, backend_row["id"])
     # Seul BackendUnavailable (injoignable) => down. Une autre erreur (ex. DB pendant

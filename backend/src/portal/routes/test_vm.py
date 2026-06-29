@@ -24,9 +24,11 @@ from ..db.engine import _get_engine
 from ..db.global_config import save_global_db
 from ..db.test_hosts import (
     assign_test_host,
+    get_test_host_message_id,
     list_test_hosts_detailed,
     next_test_alias,
     remove_test_host,
+    set_test_host_message_id,
 )
 from ..devpod.ssh_exec import run_ssh_capture
 from ..devpod.test_vm import (
@@ -45,6 +47,9 @@ from ..devpod.vm_init import (
     build_vm_root_inject_script,
     generate_root_password,
 )
+from ..messages.renderer import build_host_context
+from ..messages.service import delete_message as msg_delete
+from ..messages.service import render_and_create
 from ..secrets.system import delete_system_secret, store_system_secret
 from ..settings import get_settings
 from .proxmox import (
@@ -264,6 +269,33 @@ async def create_test_vm(
         async with _get_engine().begin() as conn:
             await save_global_db(new_cfg, conn)
             await assign_test_host(login, ws, host.name, alias, conn)
+
+        # Message contextuel pour les agents (non-bloquant).
+        try:
+            user_cfg = await load_user(login)
+            ctx = build_host_context(
+                owner_login=login,
+                workspace_name=ws,
+                host_name=host.name,
+                alias=alias,
+                address=host.address,
+                culture=user_cfg.culture,
+            )
+            async with _get_engine().begin() as conn:
+                msg_id = await render_and_create(
+                    conn,
+                    key="test_host_available",
+                    culture=user_cfg.culture,
+                    owner_login=login,
+                    workspace_name=ws,
+                    msg_type="test_host",
+                    ctx=ctx,
+                )
+                if msg_id is not None:
+                    await set_test_host_message_id(host.name, msg_id, conn)
+        except Exception:
+            _log.warning("test_host_message_create_failed", host=host.name, exc_info=True)
+
         yield (
             f"\n==> VM de test '{host.name}' creee et attachee au workspace '{ws}'\n"
         ).encode()
@@ -316,11 +348,13 @@ async def delete_test_vm(
 
     # 3-5. Nettoyage portail (secret root, association → libère l'alias, host config).
     async with _get_engine().begin() as conn:
+        message_id = await get_test_host_message_id(host_name, conn)
         await delete_system_secret(f"host.{host_name}.root-password", conn)
         await remove_test_host(host_name, conn)
         if host_cfg is not None:
             cfg.hosts = [h for h in cfg.hosts if h.name != host_name]
             await save_global_db(cfg, conn)
+        await msg_delete(conn, message_id)
 
     _log.info("test_vm_deleted", login=login, ws=ws, host=host_name, alias=alias)
 

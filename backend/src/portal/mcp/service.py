@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..db import mcp as db
 from ..vault import session as vault_session
 from ..vault.keys import get_vault_client
-from .models import ApikeyCreate, BackendCreate, GrantSet, KeyCreate
+from .models import ApikeyCreate, BackendCreate, KeyCreate
 from .runtime_secrets import encrypt_service_key
 
 _log = structlog.get_logger(__name__)
@@ -131,41 +131,32 @@ def token_hash(token: str) -> str:
 async def create_apikey(
     conn: AsyncConnection, owner_login: str, body: ApikeyCreate
 ) -> tuple[str, str]:
+    from ..db.mcp_profiles import get_profile
+
+    pid = body.profile_id
+    if pid is not None and await get_profile(conn, owner_login, pid) is None:
+        raise NotFound(f"profil '{pid}' introuvable")
     clear = APIKEY_PREFIX + _secrets.token_urlsafe(32)
     aid = new_id()
     await db.insert_apikey(
-        conn, id=aid, owner_login=owner_login, token_hash=token_hash(clear), label=body.label
+        conn,
+        id=aid,
+        owner_login=owner_login,
+        token_hash=token_hash(clear),
+        label=body.label,
+        profile_id=body.profile_id,
     )
     _log.info("mcp_apikey_created", login=owner_login, apikey_id=aid)
     return aid, clear
 
 
-async def _require_owned_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str) -> None:
+async def set_apikey_profile(
+    conn: AsyncConnection, owner_login: str, apikey_id: str, profile_id: str | None
+) -> None:
+    from ..db.mcp_profiles import get_profile
+
+    if profile_id is not None and await get_profile(conn, owner_login, profile_id) is None:
+        raise NotFound(f"profil '{profile_id}' introuvable")
     if await db.get_apikey(conn, owner_login, apikey_id) is None:
         raise NotFound(f"apikey '{apikey_id}' introuvable")
-
-
-async def set_grant(
-    conn: AsyncConnection, owner_login: str, apikey_id: str, body: GrantSet
-) -> None:
-    await _require_owned_apikey(conn, owner_login, apikey_id)
-    if await db.get_backend(conn, owner_login, body.backend_id) is None:
-        raise NotFound(f"backend '{body.backend_id}' introuvable")
-    # backend_key_id None = backend public (sans auth) : aucune clé à valider.
-    # Sinon, garde-fou : la clé doit exister ET appartenir au backend du grant.
-    if (
-        body.backend_key_id is not None
-        and await db.get_backend_key(conn, body.backend_id, body.backend_key_id) is None
-    ):
-        raise InvalidReference("backend_key_id n'appartient pas à ce backend")
-    await db.set_grant(
-        conn,
-        apikey_id=apikey_id,
-        backend_id=body.backend_id,
-        backend_key_id=body.backend_key_id,
-        expose_mode=body.expose_mode,
-        expose=body.expose,
-        enabled=body.enabled,
-        scopes=[str(s) for s in body.scopes] if body.scopes is not None else None,
-    )
-    _log.info("mcp_grant_set", login=owner_login, apikey_id=apikey_id, backend_id=body.backend_id)
+    await db.set_apikey_profile(conn, owner_login, apikey_id, profile_id)

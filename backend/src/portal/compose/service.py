@@ -10,18 +10,25 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..config.models import HostConfig
-from ..config.store import load_global
+from ..config.store import load_global, load_user
+from ..db.test_hosts import host_full_info
 from ..devpod.host_exec import run_host_command, write_host_file
+from ..messages.renderer import build_deploy_context
+from ..messages.service import delete_message as msg_delete
+from ..messages.service import render_and_create
 from .db import (
     create_deployment,
     delete_deployment,
     get_deployment,
     persist_op_log,
+    update_deployment_message_id,
     update_deployment_status,
 )
 from .env_builder import render_env_file, resolve_env_values
 from .models import ComposeDeployment, ComposeTemplate, DeploymentStatus
-from .ports import check_ports
+from .override_builder import build_override
+from .port_aliases import parse_port_aliases, rewrite_compose_ports
+from .ports import allocate_ports, check_ports
 
 _log = structlog.get_logger(__name__)
 
@@ -97,14 +104,37 @@ async def deploy(
     env_values: dict[str, str],
 ) -> ComposeDeployment:
     host = _host_for_node(node_id)
-    host_ports = _ports_from_env(template, env_values)
-    await check_ports(conn, host, node_id, host_ports)
+
+    # Détection du mode d'allocation de ports.
+    # Mode alias (chromium>3000:3000) : allocation automatique côté portail.
+    # Mode classique (param type=port) : port fourni par l'utilisateur.
+    aliases = parse_port_aliases(template.compose_content)
+    if aliases:
+        port_map = await allocate_ports(conn, host, node_id, aliases)
+        host_ports = list(port_map.values())
+        compose_to_write = rewrite_compose_ports(template.compose_content, port_map)
+    else:
+        port_map = {}
+        host_ports = _ports_from_env(template, env_values)
+        await check_ports(conn, host, node_id, host_ports)
+        compose_to_write = template.compose_content
+
     _validate_secret_refs(template, env_values)
 
-    resolved = resolve_env_values(owner_login, secret_ns, env_values)  # en mémoire uniquement
+    resolved = resolve_env_values(owner_login, secret_ns, env_values)
     rdir = _remote_dir(deployment_id)
-    await write_host_file(host, f"{rdir}/docker-compose.yml", template.compose_content)
+
+    await write_host_file(host, f"{rdir}/docker-compose.yml", compose_to_write)
     await write_host_file(host, f"{rdir}/.env", render_env_file(resolved))
+
+    override_content = build_override(
+        compose_to_write,
+        deployment_id=deployment_id,
+        template_id=template.id,
+        owner_login=owner_login,
+    )
+    if override_content:
+        await write_host_file(host, f"{rdir}/docker-compose.override.yml", override_content)
 
     cmd = (
         f"cd {shlex.quote(rdir)} && "
@@ -126,7 +156,50 @@ async def deploy(
     )
     await create_deployment(conn, dep)
     await persist_op_log(conn, deployment_id, "up", out + ("\n" + err if err else ""))
-    # rc≠0 → la row est persistée (teardown peut nettoyer) ; on retourne le dep avec status="error"
+
+    # Message contextuel pour les agents (non-bloquant, uniquement si déployé avec succès).
+    if status == "running" and template.message_key:
+        try:
+            ws_info = await host_full_info(node_id, conn)
+            if ws_info:
+                ws_login, ws_name, ssh_alias = ws_info
+                user_cfg = await load_user(ws_login)
+                host_cfg = _host_for_node(node_id)
+                ctx = build_deploy_context(
+                    owner_login=ws_login,
+                    workspace_name=ws_name,
+                    host_name=node_id,
+                    ssh_alias=ssh_alias,
+                    host_address=host_cfg.address,
+                    deployment_id=deployment_id,
+                    template_name=template.name,
+                    template_id=template.id,
+                    template_description=template.description,
+                    template_version=template.version,
+                    template_tags=template.tags,
+                    compose_content=template.compose_content,
+                    port_map={str(i): p for i, p in enumerate(host_ports)},
+                    culture=user_cfg.culture,
+                )
+                msg_id = await render_and_create(
+                    conn,
+                    key=template.message_key,
+                    culture=user_cfg.culture,
+                    owner_login=ws_login,
+                    workspace_name=ws_name,
+                    msg_type="compose_service",
+                    ctx=ctx,
+                )
+                if msg_id is not None:
+                    await update_deployment_message_id(conn, deployment_id, msg_id)
+                    dep = dep.model_copy(update={"message_id": msg_id})
+        except Exception:
+            _log.warning(
+                "compose_deploy_message_create_failed",
+                deployment_id=deployment_id,
+                exc_info=True,
+            )
+
     return dep
 
 
@@ -147,6 +220,9 @@ async def lifecycle(
         # rc≠0 → statut persisté en "error" et on retourne normalement (la row existe)
         await update_deployment_status(conn, deployment_id, "error", (err or out)[:2000])
         return
+    if action == "stop":
+        await msg_delete(conn, dep.message_id)
+        await update_deployment_message_id(conn, deployment_id, None)
     await refresh_status(conn, deployment_id)
 
 
@@ -164,6 +240,7 @@ async def teardown(conn: AsyncConnection, deployment_id: str) -> None:
     await persist_op_log(conn, deployment_id, "down", out + ("\n" + err if err else ""))
     if rc != 0:
         _log.warning("compose_teardown_failed", deployment_id=deployment_id, rc=rc)
+    await msg_delete(conn, dep.message_id)
     await delete_deployment(conn, deployment_id)
 
 

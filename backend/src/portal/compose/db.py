@@ -77,6 +77,7 @@ def _row_to_deployment(row: RowMapping) -> ComposeDeployment:
         node_id=row["node_id"], owner_login=row["owner_login"],
         env_values=dict(row["env_values"] or {}), host_ports=list(row["host_ports"] or []),
         status=row["status"], last_error=row.get("last_error"),
+        message_id=row.get("message_id"),
         created_at=row.get("created_at"), updated_at=row.get("updated_at"),
     )
 
@@ -110,6 +111,20 @@ async def list_deployments(
     return [_row_to_deployment(r) for r in rows]
 
 
+async def list_deployments_for_node(
+    conn: AsyncConnection, node_id: str
+) -> list[ComposeDeployment]:
+    """Tous les déploiements sur un nœud donné, triés par date décroissante."""
+    rows = (
+        await conn.execute(
+            select(compose_deployment)
+            .where(compose_deployment.c.node_id == node_id)
+            .order_by(compose_deployment.c.created_at.desc())
+        )
+    ).mappings().all()
+    return [_row_to_deployment(r) for r in rows]
+
+
 async def update_deployment_status(
     conn: AsyncConnection, deployment_id: str, status: str, last_error: str | None = None
 ) -> None:
@@ -120,10 +135,35 @@ async def update_deployment_status(
     )
 
 
+async def update_deployment_message_id(
+    conn: AsyncConnection, deployment_id: str, message_id: int | None
+) -> None:
+    await conn.execute(
+        update(compose_deployment)
+        .where(compose_deployment.c.id == deployment_id)
+        .values(message_id=message_id, updated_at=func.now())
+    )
+
+
 async def delete_deployment(conn: AsyncConnection, deployment_id: str) -> None:
     await conn.execute(
         delete(compose_deployment).where(compose_deployment.c.id == deployment_id)
     )
+
+
+async def used_ports_on_node(conn: AsyncConnection, node_id: str) -> set[int]:
+    """Tous les ports host déjà réservés sur ce nœud (tous déploiements confondus)."""
+    rows = (
+        await conn.execute(
+            select(compose_deployment.c.host_ports).where(
+                compose_deployment.c.node_id == node_id
+            )
+        )
+    ).all()
+    result: set[int] = set()
+    for (hp,) in rows:
+        result |= set(hp or [])
+    return result
 
 
 async def conflicting_ports(

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { TerminalSquare } from 'lucide-react'
+import { PlayCircle, TerminalSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,6 +15,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { useTestHosts, useDeleteTestHost, useResolveTestHostIp, type TestHost } from './useTestVm'
+import ServiceLaunchDialog from '@/features/compose/components/ServiceLaunchDialog'
 
 interface Props {
   /** Nom du workspace. */
@@ -35,6 +36,7 @@ export default function TestHostsMenu({ wsName, enabled, onOpenSsh }: Props) {
   const del = useDeleteTestHost(wsName)
   const resolve = useResolveTestHostIp(wsName)
   const [toDelete, setToDelete] = useState<TestHost | null>(null)
+  const [launchHost, setLaunchHost] = useState<TestHost | null>(null)
 
   if (hosts.length === 0) return null
 
@@ -79,6 +81,11 @@ export default function TestHostsMenu({ wsName, enabled, onOpenSsh }: Props) {
               <DropdownMenuItem onSelect={() => handleResolve(h)}>
                 {t('workspaces.testHosts.resolveIp')}
               </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setLaunchHost(h)} className="gap-1.5">
+                <PlayCircle className="h-3.5 w-3.5" />
+                {t('workspaces.testHosts.launchService')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 onSelect={() => setToDelete(h)}
@@ -89,6 +96,15 @@ export default function TestHostsMenu({ wsName, enabled, onOpenSsh }: Props) {
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {launchHost && (
+        <ServiceLaunchDialog
+          open
+          onOpenChange={(o) => { if (!o) setLaunchHost(null) }}
+          nodeId={launchHost.name}
+          nodeLabel={launchHost.alias}
+        />
+      )}
 
       <Dialog open={!!toDelete} onOpenChange={(o) => { if (!o) setToDelete(null) }}>
         <DialogContent className="sm:max-w-md">

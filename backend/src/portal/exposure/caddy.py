@@ -19,6 +19,16 @@ def internal_verify_uri(portal_host: str, listen: str) -> str:
     return f"http://{portal_host}:{port}/auth/caddy/verify"
 
 
+def internal_verify_workspace_uri(portal_host: str, listen: str) -> str:
+    """URI du forward_auth pour le proxy VS Code à sous-domaine fixe.
+
+    Résout dynamiquement le workspace actif de l'utilisateur et retourne
+    X-Workspace-Upstream pour que Caddy puisse router vers le bon port.
+    """
+    port = listen.rsplit(":", 1)[-1]
+    return f"http://{portal_host}:{port}/auth/caddy/verify-workspace"
+
+
 def _ws_proxy(upstream: str) -> dict[str, object]:
     """reverse_proxy vers le workspace (streaming activé pour les WebSockets VS Code)."""
     return {
@@ -35,9 +45,30 @@ def _forward_auth_handler(verify_uri: str) -> dict[str, object]:
     `forward_auth` n'est PAS un handler Caddy : c'est un reverse_proxy vers le
     serveur d'auth, réécrit en GET sur le chemin de vérification, dont la réponse
     non-2xx est renvoyée telle quelle (accès refusé) et la 2xx laisse passer la
-    requête (en recopiant le Cookie). Structure issue de `caddy adapt`.
+    requête via next (en recopiant le Cookie). Structure issue de `caddy adapt`.
+
+    Le proxy workspace doit être dans la même liste handle que ce handler :
+    quand handle_response [2xx] complète sans écrire de réponse, Caddy appelle
+    next.ServeHTTP → le handler suivant s'exécute (ex. _ws_proxy). C'est le
+    pattern Caddyfile `forward_auth` + `reverse_proxy` enchaînés.
     """
     parsed = urlparse(verify_uri)
+    handle_response_routes: list[dict[str, object]] = [
+        {"handle": [{"handler": "headers", "request": {"delete": ["Cookie"]}}]},
+        {
+            "handle": [
+                {
+                    "handler": "headers",
+                    "request": {
+                        "set": {"Cookie": ["{http.reverse_proxy.header.Cookie}"]}
+                    },
+                }
+            ],
+            "match": [
+                {"not": [{"vars": {"{http.reverse_proxy.header.Cookie}": [""]}}]}
+            ],
+        },
+    ]
     return {
         "handler": "reverse_proxy",
         "upstreams": [{"dial": parsed.netloc}],
@@ -58,23 +89,7 @@ def _forward_auth_handler(verify_uri: str) -> dict[str, object]:
         "handle_response": [
             {
                 "match": {"status_code": [2]},
-                "routes": [
-                    {"handle": [{"handler": "vars"}]},
-                    {"handle": [{"handler": "headers", "request": {"delete": ["Cookie"]}}]},
-                    {
-                        "handle": [
-                            {
-                                "handler": "headers",
-                                "request": {
-                                    "set": {"Cookie": ["{http.reverse_proxy.header.Cookie}"]}
-                                },
-                            }
-                        ],
-                        "match": [
-                            {"not": [{"vars": {"{http.reverse_proxy.header.Cookie}": [""]}}]}
-                        ],
-                    },
-                ],
+                "routes": handle_response_routes,
             }
         ],
     }
@@ -107,6 +122,35 @@ def _build_route(
         "@id": route_id,
         "match": [{"host": [match_host]}],
         "handle": handle,
+        "terminal": True,
+    }
+
+
+def _build_vs_proxy_route(
+    route_id: str,
+    match_host: str,
+    verify_uri: str,
+    host_port: int,
+) -> dict[str, object]:
+    """Route Caddy pour le proxy VS Code à sous-domaine fixe (vs_proxy_domain).
+
+    Utilise le même pattern que _build_route : forward_auth + _ws_proxy chaînés
+    dans le même handle list. Quand handle_response [2xx] complète sans réponse,
+    Caddy appelle next → _ws_proxy s'exécute. Pas de placeholder dynamique :
+    l'upstream est inscrit dans la route au moment du workspace_up.
+    """
+    upstream = f"portal:{host_port}"
+    return {
+        "@id": route_id,
+        "match": [{"host": [match_host]}],
+        "handle": [
+            {
+                "handler": "subroute",
+                "routes": [
+                    {"handle": [_forward_auth_handler(verify_uri), _ws_proxy(upstream)]}
+                ],
+            }
+        ],
         "terminal": True,
     }
 
@@ -171,6 +215,41 @@ class CaddyClient:
             _log.error("caddy_route_upsert_failed", route_id=route_id, status=resp.status_code)
             raise
         _log.info("caddy_route_upserted", route_id=route_id, upstream=upstream)
+
+    async def upsert_vs_proxy_route(
+        self, match_host: str, verify_uri: str, host_port: int
+    ) -> None:
+        """Crée ou met à jour la route VS proxy unique (@id="vs-proxy").
+
+        Args:
+            match_host: hostname à matcher (ex: "vs-dev.yoops.org").
+            verify_uri: URI interne du forward_auth verify-workspace.
+            host_port: port du port-forward portal→workspace (ex: 40000).
+        """
+        route_id = "vs-proxy"
+        route = _build_vs_proxy_route(
+            route_id=route_id,
+            match_host=match_host,
+            verify_uri=verify_uri,
+            host_port=host_port,
+        )
+        resp = await self._client.patch(
+            f"{self._admin_api}/id/{route_id}",
+            json=route,
+        )
+        if resp.status_code == 404:
+            resp = await self._client.post(
+                f"{self._admin_api}/config/apps/http/servers/{self._server_name}/routes",
+                json=route,
+            )
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError:
+            _log.error(
+                "caddy_vs_proxy_route_failed", match_host=match_host, status=resp.status_code
+            )
+            raise
+        _log.info("caddy_vs_proxy_route_upserted", match_host=match_host)
 
     async def remove_route(self, route_id: str) -> None:
         """Supprime une route Caddy par son identifiant @id.

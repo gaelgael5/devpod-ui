@@ -97,6 +97,7 @@ class OidcUpdateRequest(BaseModel):
     issuer: str
     client_id: str
     client_secret: str = ""  # vide = conserver le secret existant
+    allow_local_auth: bool = True
 
 
 @router.get("/oidc")
@@ -112,6 +113,7 @@ async def get_admin_oidc(user: UserInfo = Depends(require_admin)) -> dict[str, o
         "client_id": oidc.client_id,
         "has_secret": bool(oidc.client_secret),
         "redirect_uri": get_settings().oidc_redirect_uri,
+        "allow_local_auth": oidc.allow_local_auth,
     }
 
 
@@ -131,6 +133,7 @@ async def put_admin_oidc(
             "issuer": body.issuer,
             "client_id": body.client_id,
             "client_secret": new_secret,
+            "allow_local_auth": body.allow_local_auth,
         }
     )
     cfg.auth = cfg.auth.model_copy(update={"oidc": new_oidc})
@@ -144,6 +147,7 @@ async def put_admin_oidc(
         "issuer": new_oidc.issuer,
         "client_id": new_oidc.client_id,
         "has_secret": bool(new_oidc.client_secret),
+        "allow_local_auth": new_oidc.allow_local_auth,
     }
 
 
@@ -182,38 +186,71 @@ class NetworkRequest(BaseModel):
     base_domain: str = ""
     external_url: str = ""
     workspace_host: str = ""
+    dev_mode: bool = False
+    vs_proxy_domain: str = ""
+    cookie_domain: str = ""
 
 
 @router.get("/network")
-async def get_network(user: UserInfo = Depends(require_admin)) -> dict[str, str]:
+async def get_network(user: UserInfo = Depends(require_admin)) -> dict[str, object]:
     s = load_global().server
     return {
         "base_domain": s.base_domain,
         "external_url": s.external_url,
         "workspace_host": s.workspace_host,
+        "dev_mode": s.dev_mode,
+        "vs_proxy_domain": s.vs_proxy_domain,
+        "cookie_domain": s.cookie_domain,
     }
 
 
 @router.put("/network")
 async def put_network(
     body: NetworkRequest, user: UserInfo = Depends(require_admin)
-) -> dict[str, str]:
+) -> dict[str, object]:
     """Config réseau : domaine de base, URL externe, hôte direct des workspaces.
 
     base_domain renseigné → exposition des workspaces par sous-domaine Caddy.
+    dev_mode=True → URL directe IP:port (pas de route Caddy, pour accès local sans tunnel).
     """
     try:
-        clean = validate_network(body.base_domain, body.external_url, body.workspace_host)
+        clean = validate_network(
+            body.base_domain,
+            body.external_url,
+            body.workspace_host,
+            body.vs_proxy_domain,
+            body.cookie_domain,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     cfg = load_global()
-    cfg.server = cfg.server.model_copy(update=clean)
+    cfg.server = cfg.server.model_copy(update={**clean, "dev_mode": body.dev_mode})
     from ..db.engine import _get_engine
+    from ..routes.workspace_ops import _reset_service, re_expose_running_workspaces
 
     async with _get_engine().begin() as conn:
         await save_global_db(cfg, conn)
-    _log.info("network_config_updated", by=user.login, base_domain=clean["base_domain"])
-    return clean
+    # Invalider le singleton DevPodService (embarque ExposureService avec dev_mode/base_domain
+    # baked-in). Le prochain _get_service() le recrée depuis la DB.
+    _reset_service()
+    # Actualise immédiatement le domaine du cookie de session (sans redémarrage).
+    from ..settings import update_cookie_domain
+
+    update_cookie_domain(clean.get("cookie_domain", ""), clean.get("base_domain", ""))
+    # Réexposer immédiatement les workspaces actifs avec la nouvelle config.
+    await re_expose_running_workspaces()
+    _log.info(
+        "network_config_updated",
+        by=user.login,
+        base_domain=clean["base_domain"],
+        dev_mode=body.dev_mode,
+    )
+    return {
+        **clean,
+        "dev_mode": body.dev_mode,
+        "vs_proxy_domain": clean.get("vs_proxy_domain", ""),
+        "cookie_domain": clean.get("cookie_domain", ""),
+    }
 
 
 # ─── Hosts CRUD ───────────────────────────────────────────────────────────────
@@ -418,6 +455,49 @@ async def list_host_workspaces(
         )
 
     return [{"login": login, "workspaces": wss} for login, wss in by_login.items()]
+
+
+@router.get("/hosts/{name}/test-info")
+async def get_host_test_info(
+    name: str,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str] | None:
+    """Retourne le workspace propriétaire d'un host de test, ou null si pas un host de test."""
+    from ..db.test_hosts import host_full_info
+
+    info = await host_full_info(name, conn)
+    if info is None:
+        return None
+    login, workspace_name, alias = info
+    return {"owner_login": login, "workspace_name": workspace_name, "alias": alias}
+
+
+@router.get("/hosts/{name}/deployments")
+async def list_host_deployments(
+    name: str,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[dict[str, object]]:
+    """Déploiements compose actifs sur ce nœud."""
+    from ..compose.db import get_template, list_deployments_for_node
+    from ..compose.models import ComposeTemplate
+
+    deps = await list_deployments_for_node(conn, name)
+    result = []
+    for dep in deps:
+        tpl: ComposeTemplate | None = await get_template(conn, dep.template_id)
+        result.append({
+            "id": dep.id,
+            "status": dep.status,
+            "template_id": dep.template_id,
+            "template_name": tpl.name if tpl else dep.template_id,
+            "template_version": dep.template_version,
+            "host_ports": dep.host_ports,
+            "last_error": dep.last_error,
+            "created_at": dep.created_at.isoformat() if dep.created_at else None,
+        })
+    return result
 
 
 # ─── Bootstrap SSH ────────────────────────────────────────────────────────────

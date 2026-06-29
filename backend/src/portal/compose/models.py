@@ -42,6 +42,7 @@ class ComposeTemplate(BaseModel):
     compose_content: str
     parameters: list[ComposeParam] = Field(default_factory=list)
     source: TemplateSource = "user"
+    message_key: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -57,5 +58,6 @@ class ComposeDeployment(BaseModel):
     host_ports: list[int] = Field(default_factory=list)
     status: DeploymentStatus = "created"
     last_error: str | None = None
+    message_id: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

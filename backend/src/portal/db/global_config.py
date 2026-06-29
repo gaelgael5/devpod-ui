@@ -98,6 +98,8 @@ def _build_global_config(
             "dev_mode": row["dev_mode"],
             "workspace_host": row["workspace_host"],
             "local_domain": row["local_domain"],
+            "vs_proxy_domain": row["vs_proxy_domain"],
+            "cookie_domain": row["cookie_domain"],
             "log": {
                 "level": row["log_level"],
                 "format": row["log_format"],
@@ -114,6 +116,7 @@ def _build_global_config(
                 "admin_role": row["oidc_admin_role"],
                 "user_role": row["oidc_user_role"],
                 "username_claim": row["oidc_username_claim"],
+                "allow_local_auth": row.get("oidc_allow_local_auth", True),
             },
         },
         "secrets": {
@@ -233,6 +236,8 @@ def _cfg_to_scalars(cfg: GlobalConfig) -> dict[str, Any]:
         "dev_mode": cfg.server.dev_mode,
         "workspace_host": cfg.server.workspace_host,
         "local_domain": cfg.server.local_domain,
+        "vs_proxy_domain": cfg.server.vs_proxy_domain,
+        "cookie_domain": cfg.server.cookie_domain,
         "log_level": cfg.server.log.level,
         "log_format": cfg.server.log.format,
         "log_output": cfg.server.log.output,
@@ -244,6 +249,7 @@ def _cfg_to_scalars(cfg: GlobalConfig) -> dict[str, Any]:
         "oidc_admin_role": cfg.auth.oidc.admin_role,
         "oidc_user_role": cfg.auth.oidc.user_role,
         "oidc_username_claim": cfg.auth.oidc.username_claim,
+        "oidc_allow_local_auth": cfg.auth.oidc.allow_local_auth,
         "secrets_backend": cfg.secrets.backend,
         "harpocrate_url": cfg.secrets.harpocrate.url,
         "harpocrate_api_key": cfg.secrets.harpocrate.api_key,

@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { useAdminOidc, useSaveOidc, type OidcConfig } from './useAdminOidc'
 
 /** Formulaire — monté avec les valeurs chargées, state initialisé en lazy (pas d'effet). */
@@ -14,10 +15,11 @@ function OidcForm({ initial }: { initial: OidcConfig }) {
   const [issuer, setIssuer] = useState(initial.issuer)
   const [clientId, setClientId] = useState(initial.client_id)
   const [secret, setSecret] = useState('')
+  const [allowLocalAuth, setAllowLocalAuth] = useState(initial.allow_local_auth)
 
   function handleSave() {
     save.mutate(
-      { issuer, client_id: clientId, client_secret: secret || undefined },
+      { issuer, client_id: clientId, client_secret: secret || undefined, allow_local_auth: allowLocalAuth },
       { onSuccess: () => { toast.success(t('admin.oidc.saved')); setSecret('') } },
     )
   }
@@ -60,6 +62,23 @@ function OidcForm({ initial }: { initial: OidcConfig }) {
           placeholder={initial.has_secret ? t('admin.oidc.secretKept') : ''}
         />
         <p className="text-xs text-muted-foreground">{t('admin.oidc.secretHint')}</p>
+      </div>
+
+      <div className="flex items-center justify-between rounded-md border p-3">
+        <div className="flex flex-col gap-0.5">
+          <Label htmlFor="oidc-allow-local">{t('admin.oidc.allowLocalAuth')}</Label>
+          <p className="text-xs text-muted-foreground">
+            {!issuer || !clientId
+              ? t('admin.oidc.allowLocalAuthDisabledHint')
+              : t('admin.oidc.allowLocalAuthHint')}
+          </p>
+        </div>
+        <Switch
+          id="oidc-allow-local"
+          checked={allowLocalAuth}
+          onCheckedChange={setAllowLocalAuth}
+          disabled={!issuer || !clientId}
+        />
       </div>
 
       <div>

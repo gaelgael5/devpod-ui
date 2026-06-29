@@ -32,6 +32,13 @@ class ServerConfig(BaseModel):
     # Domaine DNS local (ex. "home.lan") ajouté au nom d'une machine de test pour
     # re-résoudre son IP DHCP. Vide → on résout le nom seul.
     local_domain: str = ""
+    # Sous-domaine fixe pour le proxy VS Code (ex. "vs-dev.yoops.org"). Quand renseigné,
+    # un seul sous-domaine sert tous les workspaces ; Caddy résout l'upstream par cookie/session.
+    vs_proxy_domain: str = ""
+    # Domaine du cookie de session (ex. "yoops.org"). Obligatoire quand portail et
+    # workspaces VS Code n'ont qu'un ancêtre commun (dev.yoops.org + vs-dev.yoops.org).
+    # Vide → base_domain est utilisé par défaut.
+    cookie_domain: str = ""
     log: LogConfig = Field(default_factory=LogConfig)
 
 
@@ -40,12 +47,18 @@ _HOSTNAME_RE = re.compile(
 )
 
 
-def validate_network(base_domain: str, external_url: str, workspace_host: str) -> dict[str, str]:
+def validate_network(
+    base_domain: str,
+    external_url: str,
+    workspace_host: str,
+    vs_proxy_domain: str = "",
+    cookie_domain: str = "",
+) -> dict[str, str]:
     """Valide/normalise la config réseau saisie par l'admin.
 
     Le vide est autorisé (routage par sous-domaine désactivé). Si renseigné :
-    base_domain/workspace_host doivent être un hôte valide (le regex couvre aussi
-    les IPv4), external_url une URL absolue http(s). Retourne les valeurs nettoyées.
+    base_domain/workspace_host/vs_proxy_domain doivent être un hôte valide,
+    external_url une URL absolue http(s). Retourne les valeurs nettoyées.
     """
     bd = base_domain.strip()
     if bd and not _HOSTNAME_RE.fullmatch(bd):
@@ -58,7 +71,19 @@ def validate_network(base_domain: str, external_url: str, workspace_host: str) -
     wh = workspace_host.strip()
     if wh and not _HOSTNAME_RE.fullmatch(wh):
         raise ValueError(f"workspace_host invalide: {workspace_host!r}")
-    return {"base_domain": bd, "external_url": eu, "workspace_host": wh}
+    vpd = vs_proxy_domain.strip()
+    if vpd and not _HOSTNAME_RE.fullmatch(vpd):
+        raise ValueError(f"vs_proxy_domain invalide: {vs_proxy_domain!r}")
+    cd = cookie_domain.strip() if cookie_domain else ""
+    if cd and not _HOSTNAME_RE.fullmatch(cd):
+        raise ValueError(f"cookie_domain invalide: {cookie_domain!r}")
+    return {
+        "base_domain": bd,
+        "external_url": eu,
+        "workspace_host": wh,
+        "vs_proxy_domain": vpd,
+        "cookie_domain": cd,
+    }
 
 
 class OidcConfig(BaseModel):
@@ -72,6 +97,9 @@ class OidcConfig(BaseModel):
     admin_role: str = "admin"
     user_role: str = "dev"
     username_claim: str = "preferred_username"
+    # Quand False : le login local break-glass (LOCAL_USER/.env) est désactivé,
+    # même si LOCAL_USER/LOCAL_PASSWORD_HASH sont présents dans .env.
+    allow_local_auth: bool = True
 
 
 class AuthConfig(BaseModel):
@@ -286,6 +314,7 @@ class WorkspaceSpec(BaseModel):
     default_start: str = ""
     recipe_volumes: list[str] = Field(default_factory=list)
     init_recipes: list[str] = Field(default_factory=list)
+    groups: list[str] = Field(default_factory=list)
 
     @field_validator("start_recipes", "init_recipes")
     @classmethod
@@ -319,6 +348,7 @@ class UserConfig(BaseModel):
 
     version: str
     secret_ns: str
+    culture: str = "fr"
     defaults: UserDefaults = Field(default_factory=UserDefaults)
     harpocrate: HarpocrateUserConfig = Field(default_factory=HarpocrateUserConfig)
     git_credentials: list[GitCredential] = Field(default_factory=list)

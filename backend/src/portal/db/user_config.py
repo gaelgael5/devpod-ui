@@ -225,6 +225,7 @@ def _ws_row_to_model(row: dict[str, Any], extra_rows: list[Any]) -> WorkspaceSpe
         default_start=row["default_start"],
         recipe_volumes=list(row["recipe_volumes"] or []),
         init_recipes=list(row["init_recipes"] or []),
+        groups=list(row["groups"] or []),
         extra_sources=[
             SourceSpec(
                 url=e["url"],
@@ -258,4 +259,5 @@ def _ws_to_row(login: str, ws: WorkspaceSpec) -> dict[str, Any]:
         "default_start": ws.default_start,
         "recipe_volumes": list(ws.recipe_volumes),
         "init_recipes": list(ws.init_recipes),
+        "groups": list(ws.groups),
     }

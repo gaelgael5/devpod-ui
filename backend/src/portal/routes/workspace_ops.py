@@ -140,7 +140,7 @@ def _build_service() -> DevPodService:
     import httpx
 
     from ..exposure import ExposureService
-    from ..exposure.caddy import CaddyClient, internal_verify_uri
+    from ..exposure.caddy import CaddyClient, internal_verify_uri, internal_verify_workspace_uri
     from ..exposure.ports import PortRegistry
 
     global_cfg = load_global()
@@ -152,9 +152,13 @@ def _build_service() -> DevPodService:
     dev_mode = global_cfg.server.dev_mode
     registry = PortRegistry()
     caddy: CaddyClient | None = None
+    vs_proxy_verify_uri = ""
     if global_cfg.caddy.admin_api:
         # Forward_auth en interne (réseau Docker) plutôt que via l'URL publique.
         verify_uri = internal_verify_uri(global_cfg.caddy.portal_host, global_cfg.server.listen)
+        vs_proxy_verify_uri = internal_verify_workspace_uri(
+            global_cfg.caddy.portal_host, global_cfg.server.listen
+        )
         caddy = CaddyClient(
             admin_api=global_cfg.caddy.admin_api,
             http_client=httpx.AsyncClient(),
@@ -169,16 +173,46 @@ def _build_service() -> DevPodService:
         dev_mode=dev_mode,
         external_url=global_cfg.server.external_url,
         workspace_host=global_cfg.server.workspace_host,
+        vs_proxy_domain=global_cfg.server.vs_proxy_domain,
+        vs_proxy_verify_uri=vs_proxy_verify_uri,
     )
 
     return DevPodService(global_cfg=global_cfg, devpod_bin=devpod_bin, exposure=exposure)
 
 
 def _reset_service() -> None:
-    """Réinitialise le singleton du service (tests uniquement)."""
+    """Réinitialise le singleton du service."""
     global _service, _recipe_registry
     _service = None
     _recipe_registry = None
+
+
+async def re_expose_running_workspaces() -> None:
+    """Réexpose tous les workspaces en cours avec la config réseau courante (DB).
+
+    À appeler après un changement de config réseau (dev_mode, base_domain…)
+    pour que les URLs en base soient mises à jour sans redémarrer le portail.
+    """
+    from ..db.engine import _get_engine
+    from ..db.workspace_status import list_running_db
+
+    svc = _get_service()
+    if svc._exposure is None:
+        return
+    cfg = load_global()
+    node_ip = cfg.caddy.portal_host
+    async with _get_engine().begin() as conn:
+        running = await list_running_db(conn)
+    for row in running:
+        ws_id = row.get("ws_id")
+        host_port = row.get("host_port")
+        if not ws_id or not host_port:
+            continue
+        try:
+            await svc._exposure.expose(ws_id, node_ip, host_port)
+            _log.info("re_expose_ok", ws_id=ws_id, host_port=host_port)
+        except Exception as exc:
+            _log.warning("re_expose_failed", ws_id=ws_id, error=str(exc))
 
 
 def _resolve_feature_secrets(

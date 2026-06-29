@@ -17,6 +17,7 @@ from ..compose.validation import TemplateValidationError, validate_template
 from ..config.models import HostConfig
 from ..config.store import load_global, load_user
 from ..db.engine import get_conn
+from ..db.test_hosts import host_full_info
 from ..schemas.compose import DeploymentCreateBody, TemplateCreateBody, TemplateUpdateBody
 from ..settings import get_settings
 
@@ -104,8 +105,8 @@ def _is_admin(user: UserInfo) -> bool:
     return get_settings().oidc_admin_role in user.roles
 
 
-def _eligible_nodes(hosts: list[HostConfig]) -> list[dict[str, str]]:
-    return [{"node_id": h.name, "name": h.name} for h in hosts if h.type == "ssh"]
+def _eligible_hosts(hosts: list[HostConfig]) -> list[HostConfig]:
+    return [h for h in hosts if h.type == "ssh"]
 
 
 async def _require_owned(
@@ -126,8 +127,21 @@ async def _require_owned(
 @router.get("/nodes")
 async def list_nodes(
     user: Annotated[UserInfo, Depends(require_user)],
-) -> list[dict[str, str]]:
-    return _eligible_nodes(load_global().hosts)
+    conn: Annotated[AsyncConnection, Depends(get_conn)],
+) -> list[dict[str, Any]]:
+    hosts = _eligible_hosts(load_global().hosts)
+    result: list[dict[str, Any]] = []
+    for h in hosts:
+        usage = h.usage or "workspaces"
+        entry: dict[str, Any] = {"node_id": h.name, "name": h.name, "usage": usage}
+        if h.usage == "tests":
+            info = await host_full_info(h.name, conn)
+            if info:
+                entry["owner_login"] = info[0]
+                entry["workspace_name"] = info[1]
+                entry["alias"] = info[2]
+        result.append(entry)
+    return result
 
 
 # ---------------------------------------------------------------------------

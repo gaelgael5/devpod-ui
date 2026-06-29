@@ -129,6 +129,9 @@ export default function AppShell() {
                   <DropdownMenuItem onClick={() => navigate('/admin/compose')}>
                     {t('compose.admin.navLabel')}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/jinja-templates')}>
+                    {t('jinjaTemplates.title')}
+                  </DropdownMenuItem>
                 </>
               )}
 

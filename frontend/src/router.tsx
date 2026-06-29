@@ -30,6 +30,7 @@ const VaultKeys = lazy(() => import('@/features/vault/VaultKeys'))
 const ConsentPage = lazy(() => import('@/features/oauth/ConsentPage'))
 const ComposeGallery = lazy(() => import('@/features/compose/ComposeGallery'))
 const AdminCompose = lazy(() => import('@/features/compose/AdminCompose'))
+const AdminJinjaTemplates = lazy(() => import('@/features/admin/AdminJinjaTemplates'))
 
 function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -149,6 +150,10 @@ export const router = createBrowserRouter([
       {
         path: '/admin/compose',
         element: <AdminGuard><Wrap><AdminCompose /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/jinja-templates',
+        element: <AdminGuard><Wrap><AdminJinjaTemplates /></Wrap></AdminGuard>,
       },
     ],
   },

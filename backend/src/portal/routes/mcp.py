@@ -8,12 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..auth.rbac import UserInfo, require_user
 from ..db import mcp as db
 from ..db.engine import get_conn
+from ..db.mcp_catalog import list_primitives as list_catalog_primitives
 from ..mcp import models, service
 from ..mcp.monitor import get_health
 
 router = APIRouter(tags=["mcp"])
 
-_ID = Path(..., pattern=r"^[a-z0-9]{1,64}$")
+_ID = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,64}$")
 
 
 def _sid(request: Request) -> str:
@@ -158,6 +159,37 @@ async def revoke_apikey_route(
     return {"id": apikey_id}
 
 
+@router.patch("/mcp/apikeys/{apikey_id}/profile")
+async def set_apikey_profile_route(
+    body: models.ApikeySetProfile,
+    apikey_id: str = _ID,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str | None]:
+    try:
+        await service.set_apikey_profile(conn, user.login, apikey_id, body.profile_id)
+    except Exception as exc:
+        _map_error(exc)
+        raise
+    return {"id": apikey_id, "profile_id": body.profile_id}
+
+
+@router.get("/mcp/backends/{backend_id}/catalog")
+async def list_catalog_route(
+    backend_id: str = _ID,
+    kind: str = "tool",
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[dict[str, Any]]:
+    if await db.get_backend(conn, user.login, backend_id) is None:
+        raise HTTPException(status_code=404, detail="backend introuvable")
+    rows = await list_catalog_primitives(conn, backend_id, kind)
+    return [
+        {"name": r["original_name"], "description": (r["definition"] or {}).get("description", "")}
+        for r in rows
+    ]
+
+
 @router.delete("/mcp/apikeys/{apikey_id}", status_code=204)
 async def delete_apikey_route(
     apikey_id: str = _ID,
@@ -167,44 +199,3 @@ async def delete_apikey_route(
     if not await db.delete_apikey(conn, user.login, apikey_id):
         raise HTTPException(status_code=404, detail="apikey introuvable")
 
-
-# ─── Grants ───────────────────────────────────────────────────────────────────
-
-
-@router.get("/mcp/apikeys/{apikey_id}/grants")
-async def list_grants_route(
-    apikey_id: str = _ID,
-    user: UserInfo = Depends(require_user),
-    conn: AsyncConnection = Depends(get_conn),
-) -> list[dict[str, Any]]:
-    if await db.get_apikey(conn, user.login, apikey_id) is None:
-        raise HTTPException(status_code=404, detail="apikey introuvable")
-    return await db.list_grants(conn, apikey_id)
-
-
-@router.put("/mcp/apikeys/{apikey_id}/grants")
-async def set_grant_route(
-    body: models.GrantSet,
-    apikey_id: str = _ID,
-    user: UserInfo = Depends(require_user),
-    conn: AsyncConnection = Depends(get_conn),
-) -> dict[str, str]:
-    try:
-        await service.set_grant(conn, user.login, apikey_id, body)
-    except Exception as exc:
-        _map_error(exc)
-        raise
-    return {"apikey_id": apikey_id, "backend_id": body.backend_id}
-
-
-@router.delete("/mcp/apikeys/{apikey_id}/grants/{backend_id}", status_code=204)
-async def delete_grant_route(
-    apikey_id: str = _ID,
-    backend_id: str = _ID,
-    user: UserInfo = Depends(require_user),
-    conn: AsyncConnection = Depends(get_conn),
-) -> None:
-    if await db.get_apikey(conn, user.login, apikey_id) is None:
-        raise HTTPException(status_code=404, detail="apikey introuvable")
-    if not await db.delete_grant(conn, apikey_id, backend_id):
-        raise HTTPException(status_code=404, detail="grant introuvable")

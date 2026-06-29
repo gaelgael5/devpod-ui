@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     ARRAY,
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -34,6 +35,8 @@ global_config = Table(
     Column("dev_mode", Boolean, nullable=False, server_default="false"),
     Column("workspace_host", Text, nullable=False, server_default=""),
     Column("local_domain", Text, nullable=False, server_default=""),
+    Column("vs_proxy_domain", Text, nullable=False, server_default=""),
+    Column("cookie_domain", Text, nullable=False, server_default=""),
     # LogConfig
     Column("log_level", Text, nullable=False, server_default="info"),
     Column("log_format", Text, nullable=False, server_default="text"),
@@ -47,6 +50,7 @@ global_config = Table(
     Column("oidc_admin_role", Text, nullable=False, server_default="admin"),
     Column("oidc_user_role", Text, nullable=False, server_default="dev"),
     Column("oidc_username_claim", Text, nullable=False, server_default="preferred_username"),
+    Column("oidc_allow_local_auth", Boolean, nullable=False, server_default="true"),
     # SecretsConfig
     Column("secrets_backend", Text, nullable=False, server_default="inline"),
     Column("harpocrate_url", Text, nullable=False, server_default=""),
@@ -160,6 +164,7 @@ users = Table(
     Column("default_ide", Text, nullable=False, server_default="openvscode"),
     Column("default_idle_timeout", Text, nullable=False, server_default="4h"),
     Column("harpocrate_api_key", Text, nullable=False, server_default=""),
+    Column("culture", Text, nullable=False, server_default="fr"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
@@ -202,9 +207,20 @@ workspaces = Table(
     Column("default_start", Text, nullable=False, server_default=""),
     Column("recipe_volumes", ARRAY(Text), nullable=False, server_default="{}"),
     Column("init_recipes", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("groups", ARRAY(Text), nullable=False, server_default="{}"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("login", "name", name="uq_workspaces_login_name"),
+)
+
+workspace_group = Table(
+    "workspace_group",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("name", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("login", "name", name="uq_workspace_group_login_name"),
 )
 
 workspace_extra_sources = Table(
@@ -230,6 +246,7 @@ workspace_test_hosts = Table(
     Column("host_name", Text, nullable=False),
     # Alias court `testN` (par workspace), pour `ssh testN` dans le container.
     Column("alias", Text, nullable=True),
+    Column("message_id", BigInteger, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint(
         "login", "workspace_name", "host_name", name="uq_wth_login_ws_host"
@@ -452,6 +469,34 @@ mcp_backend_key = Table(
     UniqueConstraint("backend_id", "slug", name="uq_mcp_backend_key_backend_slug"),
 )
 
+mcp_profile = Table(
+    "mcp_profile",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("name", Text, nullable=False),
+    Column("description", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=True),
+)
+
+mcp_profile_entry = Table(
+    "mcp_profile_entry",
+    metadata,
+    Column("profile_id", Text, ForeignKey("mcp_profile.id", ondelete="CASCADE"), nullable=False),
+    Column("backend_id", Text, ForeignKey("mcp_backend.id", ondelete="CASCADE"), nullable=False),
+    # Clé de service explicite ; null = auto-résolution (première clé enabled du backend).
+    Column(
+        "backend_key_id",
+        Text,
+        ForeignKey("mcp_backend_key.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    # null = tous les tools, [] = aucun, [...] = subset explicite.
+    Column("tools", JSONB, nullable=True),
+    UniqueConstraint("profile_id", "backend_id", name="uq_mcp_profile_entry"),
+)
+
 mcp_apikey = Table(
     "mcp_apikey",
     metadata,
@@ -466,28 +511,13 @@ mcp_apikey = Table(
     Column("client_id", Text, nullable=True),  # client OAuth émetteur (informatif)
     Column("refresh_token_hash", Text, nullable=True),  # sha256 du refresh token
     Column("expires_at", DateTime(timezone=True), nullable=True),  # NULL = pas d'expiration
-)
-
-mcp_apikey_grant = Table(
-    "mcp_apikey_grant",
-    metadata,
-    Column("apikey_id", Text, ForeignKey("mcp_apikey.id", ondelete="CASCADE"), nullable=False),
-    Column("backend_id", Text, ForeignKey("mcp_backend.id", ondelete="CASCADE"), nullable=False),
-    # nullable : un grant vers un backend public (sans auth) n'a pas de clé.
+    # Profil MCP associé ; null = aucun accès (deny-by-default).
     Column(
-        "backend_key_id",
+        "profile_id",
         Text,
-        ForeignKey("mcp_backend_key.id", ondelete="CASCADE"),
+        ForeignKey("mcp_profile.id", ondelete="SET NULL"),
         nullable=True,
     ),
-    Column("expose_mode", Text, nullable=False, server_default="all"),  # all | allowlist | denylist
-    Column("expose", JSONB, nullable=False, server_default="[]"),
-    # False = service accordé mais temporairement désactivé (invisible au runtime).
-    Column("enabled", Boolean, nullable=False, server_default="true"),
-    # Scopes accordés (read/write/exec/admin), pour les backends internes (devpod).
-    # NULL = pas d'enforcement de scope (backends externes type deepwiki inchangés).
-    Column("scopes", JSONB, nullable=True),
-    UniqueConstraint("apikey_id", "backend_id", name="uq_mcp_apikey_grant_apikey_backend"),
 )
 
 # ─── MCP Gateway (lot 2 — runtime) ───────────────────────────────────────────
@@ -552,6 +582,18 @@ mcp_oauth_authcode = Table(
     Column("used", Boolean, nullable=False, server_default="false"),
 )
 
+# ─── Compose Gallery : sources de la galerie ─────────────────────────────────
+
+compose_catalog_sources = Table(
+    "compose_catalog_sources",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("url", Text, nullable=False, unique=True),
+    Column("position", Integer, nullable=False, server_default="0"),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 # ─── Compose Gallery (lot 1) ─────────────────────────────────────────────────
 
 compose_template = Table(
@@ -565,6 +607,7 @@ compose_template = Table(
     Column("compose_content", Text, nullable=False),
     Column("parameters", JSONB, nullable=False, server_default="[]"),
     Column("source", Text, nullable=False),
+    Column("message_key", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
@@ -581,6 +624,7 @@ compose_deployment = Table(
     Column("host_ports", ARRAY(Integer), nullable=False, server_default="{}"),
     Column("status", Text, nullable=False, server_default="created"),
     Column("last_error", Text, nullable=True),
+    Column("message_id", BigInteger, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
@@ -594,4 +638,27 @@ compose_deployment_log = Table(
     Column("content", Text, nullable=False, server_default=""),
     Column("started_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("finished_at", DateTime(timezone=True), nullable=True),
+)
+
+# ─── Système de messages contextuels pour agents ──────────────────────────────
+
+jinja2_template = Table(
+    "jinja2_template",
+    metadata,
+    Column("key", Text, nullable=False),
+    Column("culture", Text, nullable=False),
+    Column("body", Text, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("key", "culture", name="pk_jinja2_template"),
+)
+
+workspace_message = Table(
+    "workspace_message",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("owner_login", Text, nullable=False),
+    Column("workspace_name", Text, nullable=False),
+    Column("type", Text, nullable=False),
+    Column("message", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )

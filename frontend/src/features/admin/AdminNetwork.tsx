@@ -13,10 +13,20 @@ function NetworkForm({ initial }: { initial: NetworkConfig }) {
   const [baseDomain, setBaseDomain] = useState(initial.base_domain)
   const [externalUrl, setExternalUrl] = useState(initial.external_url)
   const [workspaceHost, setWorkspaceHost] = useState(initial.workspace_host)
+  const [devMode, setDevMode] = useState(initial.dev_mode)
+  const [vsProxyDomain, setVsProxyDomain] = useState(initial.vs_proxy_domain)
+  const [cookieDomain, setCookieDomain] = useState(initial.cookie_domain)
 
   function handleSave() {
     save.mutate(
-      { base_domain: baseDomain, external_url: externalUrl, workspace_host: workspaceHost },
+      {
+        base_domain: baseDomain,
+        external_url: externalUrl,
+        workspace_host: workspaceHost,
+        dev_mode: devMode,
+        vs_proxy_domain: vsProxyDomain,
+        cookie_domain: cookieDomain,
+      },
       { onSuccess: () => toast.success(t('admin.network.saved')) },
     )
   }
@@ -54,6 +64,50 @@ function NetworkForm({ initial }: { initial: NetworkConfig }) {
           placeholder="192.168.10.50"
         />
         <p className="text-xs text-muted-foreground">{t('admin.network.workspaceHostHint')}</p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="net-cookie-domain">{t('admin.network.cookieDomain')}</Label>
+        <Input
+          id="net-cookie-domain"
+          value={cookieDomain}
+          onChange={(e) => setCookieDomain(e.target.value)}
+          placeholder="yoops.org"
+        />
+        <p className="text-xs text-muted-foreground">{t('admin.network.cookieDomainHint')}</p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="net-vs-proxy-domain">{t('admin.network.vsProxyDomain')}</Label>
+        <Input
+          id="net-vs-proxy-domain"
+          value={vsProxyDomain}
+          onChange={(e) => setVsProxyDomain(e.target.value)}
+          placeholder="vs-dev.yoops.org"
+        />
+        <p className="text-xs text-muted-foreground">{t('admin.network.vsProxyDomainHint')}</p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="net-dev-mode" className="flex cursor-pointer items-center gap-3">
+          <div className="relative">
+            <input
+              id="net-dev-mode"
+              type="checkbox"
+              className="sr-only"
+              checked={devMode}
+              onChange={(e) => setDevMode(e.target.checked)}
+            />
+            <div
+              className={`h-6 w-11 rounded-full transition-colors ${devMode ? 'bg-primary' : 'bg-input'}`}
+            />
+            <div
+              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${devMode ? 'translate-x-5' : 'translate-x-0.5'}`}
+            />
+          </div>
+          <span className="text-sm font-medium">{t('admin.network.devMode')}</span>
+        </label>
+        <p className="text-xs text-muted-foreground">{t('admin.network.devModeHint')}</p>
       </div>
 
       <div>

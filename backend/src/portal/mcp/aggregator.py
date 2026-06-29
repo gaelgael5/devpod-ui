@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import quote, unquote
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from portal.db.mcp import get_backend, list_grants
+from portal.db.mcp import get_backend
 from portal.db.mcp_catalog import list_primitives
+from portal.db.mcp_profiles import find_first_backend_key, list_entries_for_apikey
 
 NS_SEP = "__"
 _URI_PREFIX = "gw+"
@@ -46,7 +47,7 @@ def split_namespaced(name: str) -> tuple[str, str] | None:
     idx = name.find(NS_SEP)
     if idx <= 0:
         return None
-    return name[:idx], name[idx + len(NS_SEP) :]
+    return name[:idx], name[idx + len(NS_SEP):]
 
 
 def make_namespaced_uri(namespace: str, original_uri: str) -> str:
@@ -65,56 +66,49 @@ def split_namespaced_uri(uri: str) -> tuple[str, str] | None:
     return namespace, unquote(rest)
 
 
-def _curation_allows(
-    expose_mode: Literal["all", "allowlist", "denylist"],
-    expose: list[str],
-    original_name: str,
-) -> bool:
-    if expose_mode == "allowlist":
-        return original_name in expose
-    if expose_mode == "denylist":
-        return original_name not in expose
-    return True  # "all"
+def _tools_allow(tools: list[str] | None, original_name: str) -> bool:
+    """null = tous les tools, [] = aucun, liste = subset explicite."""
+    if tools is None:
+        return True
+    return original_name in tools
+
+
+async def _resolve_backend_key_id(
+    conn: AsyncConnection, entry: dict[str, Any]
+) -> str | None:
+    """Clé sortante : explicite dans l'entry, sinon première clé enabled du backend."""
+    if entry["backend_key_id"] is not None:
+        return entry["backend_key_id"]
+    row = await find_first_backend_key(conn, entry["backend_id"])
+    return row["id"] if row else None
 
 
 async def aggregate_primitives(
     conn: AsyncConnection, *, apikey_id: str, owner_login: str, kind: str
 ) -> list[AggregatedPrimitive]:
-    """Vue agrégée des primitives `kind` autorisées pour cette apikey.
+    """Vue agrégée des primitives `kind` autorisées pour cette apikey via son profil.
 
-    grants → backends enabled & possédés → catalogue → curation → namespacing,
-    en excluant les primitives quarantined.
+    profile_entries → backends enabled → catalogue → filtrage tools → namespacing.
     """
     out: list[AggregatedPrimitive] = []
-    for grant in await list_grants(conn, apikey_id):
-        if not grant["enabled"]:
-            continue  # service temporairement désactivé pour ce client
-        backend = await get_backend(conn, owner_login, grant["backend_id"])
+    entries = await list_entries_for_apikey(conn, apikey_id=apikey_id, owner_login=owner_login)
+    for entry in entries:
+        backend = await get_backend(conn, owner_login, entry["backend_id"])
         if backend is None or not backend["enabled"]:
             continue
         namespace = backend["namespace"]
-        expose = grant["expose"] or []
-        for prim in await list_primitives(conn, grant["backend_id"], kind):
+        tools: list[str] | None = entry["tools"]
+        for prim in await list_primitives(conn, entry["backend_id"], kind):
             if prim["quarantined"]:
                 continue
-            if not _curation_allows(grant["expose_mode"], expose, prim["original_name"]):
-                continue
-            # Enforcement par scope, cohérent avec resolve_call : on ne liste que
-            # ce qui est réellement appelable (NULL côté grant = pas d'enforcement).
-            required_scope = (prim["definition"] or {}).get("scope")
-            grant_scopes = grant.get("scopes")
-            if (
-                required_scope
-                and grant_scopes is not None
-                and required_scope not in grant_scopes
-            ):
+            if not _tools_allow(tools, prim["original_name"]):
                 continue
             out.append(
                 AggregatedPrimitive(
                     namespaced_name=f"{namespace}{NS_SEP}{prim['original_name']}",
                     kind=kind,
                     namespace=namespace,
-                    backend_id=grant["backend_id"],
+                    backend_id=entry["backend_id"],
                     original_name=prim["original_name"],
                     definition=prim["definition"],
                 )
@@ -135,36 +129,30 @@ async def _resolve_target(
 
     Ne révèle jamais l'existence d'un backend : tout cas non autorisé renvoie `None`.
     """
-    for grant in await list_grants(conn, apikey_id):
-        if not grant["enabled"]:
-            continue  # service temporairement désactivé pour ce client
-        backend = await get_backend(conn, owner_login, grant["backend_id"])
+    entries = await list_entries_for_apikey(conn, apikey_id=apikey_id, owner_login=owner_login)
+    for entry in entries:
+        backend = await get_backend(conn, owner_login, entry["backend_id"])
         if backend is None or not backend["enabled"] or backend["namespace"] != namespace:
             continue
-        if not _curation_allows(grant["expose_mode"], grant["expose"] or [], original):
-            # namespace unique par apikey (contrainte registre) : une fois le namespace
-            # trouvé, aucun autre grant ne peut autoriser cet appel → refus définitif.
+        if not _tools_allow(entry["tools"], original):
             return None
         match = next(
-            (p for p in await list_primitives(conn, grant["backend_id"], kind)
-             if p["original_name"] == original),
+            (
+                p
+                for p in await list_primitives(conn, entry["backend_id"], kind)
+                if p["original_name"] == original
+            ),
             None,
         )
         if match is None or match["quarantined"]:
             return None
-        # Enforcement par scope (spec 24 §4) : la primitive déclare son scope requis
-        # dans sa definition ; le grant accorde un ensemble de scopes. NULL côté grant
-        # = pas d'enforcement (backends externes inchangés). Deny-by-default sinon.
-        required_scope = (match["definition"] or {}).get("scope")
-        grant_scopes = grant.get("scopes")
-        if required_scope and grant_scopes is not None and required_scope not in grant_scopes:
-            return None
+        backend_key_id = await _resolve_backend_key_id(conn, entry)
         return CallTarget(
-            backend_id=grant["backend_id"],
+            backend_id=entry["backend_id"],
             original_name=original,
             url=backend["url"],
             transport=backend["transport"],
-            backend_key_id=grant["backend_key_id"],
+            backend_key_id=backend_key_id,
         )
     return None
 
@@ -186,8 +174,12 @@ async def resolve_call(
         return None
     namespace, original = parsed
     return await _resolve_target(
-        conn, apikey_id=apikey_id, owner_login=owner_login,
-        namespace=namespace, original=original, kind=kind,
+        conn,
+        apikey_id=apikey_id,
+        owner_login=owner_login,
+        namespace=namespace,
+        original=original,
+        kind=kind,
     )
 
 
@@ -208,6 +200,10 @@ async def resolve_resource(
         return None
     namespace, original = parsed
     return await _resolve_target(
-        conn, apikey_id=apikey_id, owner_login=owner_login,
-        namespace=namespace, original=original, kind=kind,
+        conn,
+        apikey_id=apikey_id,
+        owner_login=owner_login,
+        namespace=namespace,
+        original=original,
+        kind=kind,
     )

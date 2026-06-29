@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Union
+from typing import Literal
 
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from cryptography.hazmat.primitives.serialization import (
@@ -32,11 +32,7 @@ class KeyPair:
 
 
 def generate_keypair(cert_type: CertType) -> KeyPair:
-    priv: Union[
-        ed25519.Ed25519PrivateKey,
-        rsa.RSAPrivateKey,
-        ec.EllipticCurvePrivateKey,
-    ]
+    priv: ed25519.Ed25519PrivateKey | rsa.RSAPrivateKey | ec.EllipticCurvePrivateKey
     if cert_type == "ssh-ed25519":
         priv = ed25519.Ed25519PrivateKey.generate()
     elif cert_type == "ssh-rsa-2048":
