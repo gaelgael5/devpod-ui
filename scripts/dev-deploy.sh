@@ -126,10 +126,14 @@ done
 
 # Charger toutes les variables du .env dans l'environnement shell :
 # docker compose résout ${VAR} depuis l'env shell en priorité sur --env-file.
+# set +u requis : les hash bcrypt (LOCAL_PASSWORD_HASH=$2b$12$…) contiennent $2
+# que bash interprète comme paramètre positionnel → unbound variable avec set -u.
+set +u
 set -a
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 set +a
+set -u
 
 # ─── 1) Build + redémarrage ───────────────────────────────────────────────────
 echo ""
