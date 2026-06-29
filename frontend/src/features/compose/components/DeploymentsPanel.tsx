@@ -106,12 +106,12 @@ export default function DeploymentsPanel() {
     <div className="flex flex-col gap-3 mt-4">
       {deployments.map((dep) => (
         <DeploymentRow
-          key={dep.id}
+          key={dep.uid}
           deployment={dep}
-          onAction={(act) => action.mutate({ id: dep.id, action: act })}
+          onAction={(act) => action.mutate({ uid: dep.uid, action: act })}
           isPending={action.isPending}
           onDelete={() => setDeleteTarget(dep)}
-          onLogs={() => setLogsTarget(dep.id)}
+          onLogs={() => setLogsTarget(dep.uid)}
         />
       ))}
 
@@ -135,7 +135,7 @@ export default function DeploymentsPanel() {
               disabled={del.isPending}
               onClick={() => {
                 if (!deleteTarget) return
-                del.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) })
+                del.mutate(deleteTarget.uid, { onSuccess: () => setDeleteTarget(null) })
               }}
             >
               {t('compose.delete.ok')}
