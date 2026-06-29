@@ -28,7 +28,8 @@ export interface ComposeTemplate {
 }
 
 export interface ComposeDeployment {
-  id: string
+  uid: string    // UUID PK — utilisé dans les URL API
+  id: string     // slug utilisateur — affiché dans l'UI
   template_id: string
   template_version: string
   node_id: string

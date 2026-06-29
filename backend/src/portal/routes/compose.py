@@ -174,13 +174,16 @@ async def create_deployment(
     missing = [p.key for p in tpl.parameters if p.required and p.key not in body.env_values]
     if missing:
         raise HTTPException(status_code=422, detail=f"paramètres requis manquants: {missing}")
-    if await cdb.get_deployment(conn, body.name) is not None:
-        raise HTTPException(status_code=409, detail=f"déploiement {body.name!r} existe déjà")
+    if await cdb.get_deployment_by_name_node(conn, body.name, body.node_id) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"déploiement {body.name!r} existe déjà sur ce nœud",
+        )
     user_cfg = await load_user(user.login)
     try:
         dep = await csvc.deploy(
             conn,
-            deployment_id=body.name,
+            name=body.name,
             template=tpl,
             node_id=body.node_id,
             owner_login=user.login,

@@ -20,9 +20,9 @@ function statusVariant(s: DeploymentStatus): 'default' | 'secondary' | 'destruct
   return 'outline'
 }
 
-function DeploymentLogsDialog({ id, open, onOpenChange }: { id: string; open: boolean; onOpenChange: (v: boolean) => void }) {
+function DeploymentLogsDialog({ uid, id, open, onOpenChange }: { uid: string; id: string; open: boolean; onOpenChange: (v: boolean) => void }) {
   const { t } = useTranslation()
-  const { data, isLoading } = useDeploymentLogs(id, open)
+  const { data, isLoading } = useDeploymentLogs(uid, open)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -66,7 +66,7 @@ function ServiceRow({ dep }: { dep: ComposeDeployment }) {
               variant="outline"
               className="h-6 px-2 text-xs"
               disabled={pending}
-              onClick={() => action.mutate({ id: dep.id, action: 'start' })}
+              onClick={() => action.mutate({ uid: dep.uid, action: 'start' })}
             >
               {t('compose.actions.start')}
             </Button>
@@ -77,7 +77,7 @@ function ServiceRow({ dep }: { dep: ComposeDeployment }) {
               variant="outline"
               className="h-6 px-2 text-xs"
               disabled={pending}
-              onClick={() => action.mutate({ id: dep.id, action: 'stop' })}
+              onClick={() => action.mutate({ uid: dep.uid, action: 'stop' })}
             >
               {t('compose.actions.stop')}
             </Button>
@@ -87,7 +87,7 @@ function ServiceRow({ dep }: { dep: ComposeDeployment }) {
             variant="outline"
             className="h-6 px-2 text-xs"
             disabled={pending}
-            onClick={() => action.mutate({ id: dep.id, action: 'restart' })}
+            onClick={() => action.mutate({ uid: dep.uid, action: 'restart' })}
           >
             {t('compose.actions.restart')}
           </Button>
@@ -105,13 +105,13 @@ function ServiceRow({ dep }: { dep: ComposeDeployment }) {
             variant="ghost"
             className="h-6 px-2 text-xs text-destructive hover:text-destructive"
             disabled={pending}
-            onClick={() => del.mutate(dep.id)}
+            onClick={() => del.mutate(dep.uid)}
           >
             {t('compose.actions.down')}
           </Button>
         </div>
       </div>
-      <DeploymentLogsDialog id={dep.id} open={logsOpen} onOpenChange={setLogsOpen} />
+      <DeploymentLogsDialog uid={dep.uid} id={dep.id} open={logsOpen} onOpenChange={setLogsOpen} />
     </>
   )
 }
@@ -139,7 +139,7 @@ export default function HostServicesSection({ wsName, enabled }: Props) {
   return (
     <div className="mt-3 flex flex-col gap-1.5">
       {deployments.map((dep) => (
-        <ServiceRow key={dep.id} dep={dep} />
+        <ServiceRow key={dep.uid} dep={dep} />
       ))}
     </div>
   )

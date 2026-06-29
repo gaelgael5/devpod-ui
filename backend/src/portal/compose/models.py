@@ -49,7 +49,8 @@ class ComposeTemplate(BaseModel):
 
 class ComposeDeployment(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    id: str
+    uid: str   # UUID PK — utilisé dans les URL API
+    id: str    # slug utilisateur — nom docker compose + répertoire distant
     template_id: str
     template_version: str
     node_id: str

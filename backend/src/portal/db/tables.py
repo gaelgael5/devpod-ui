@@ -615,7 +615,8 @@ compose_template = Table(
 compose_deployment = Table(
     "compose_deployment",
     metadata,
-    Column("id", Text, primary_key=True),
+    Column("uid", Text, primary_key=True),           # UUID généré à la création
+    Column("id", Text, nullable=False),              # slug choisi par l'utilisateur
     Column("template_id", Text, ForeignKey("compose_template.id"), nullable=False),
     Column("template_version", Text, nullable=False),
     Column("node_id", Text, nullable=False),
@@ -627,6 +628,7 @@ compose_deployment = Table(
     Column("message_id", BigInteger, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("id", "node_id", name="uq_compose_deployment_name_node"),
 )
 
 compose_deployment_log = Table(

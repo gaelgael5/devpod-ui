@@ -73,7 +73,8 @@ async def count_deployments_for_template(conn: AsyncConnection, template_id: str
 
 def _row_to_deployment(row: RowMapping) -> ComposeDeployment:
     return ComposeDeployment(
-        id=row["id"], template_id=row["template_id"], template_version=row["template_version"],
+        uid=row["uid"], id=row["id"],
+        template_id=row["template_id"], template_version=row["template_version"],
         node_id=row["node_id"], owner_login=row["owner_login"],
         env_values=dict(row["env_values"] or {}), host_ports=list(row["host_ports"] or []),
         status=row["status"], last_error=row.get("last_error"),
@@ -85,17 +86,34 @@ def _row_to_deployment(row: RowMapping) -> ComposeDeployment:
 async def create_deployment(conn: AsyncConnection, dep: ComposeDeployment) -> None:
     await conn.execute(
         insert(compose_deployment).values(
-            id=dep.id, template_id=dep.template_id, template_version=dep.template_version,
+            uid=dep.uid, id=dep.id,
+            template_id=dep.template_id, template_version=dep.template_version,
             node_id=dep.node_id, owner_login=dep.owner_login, env_values=dep.env_values,
             host_ports=dep.host_ports, status=dep.status, last_error=dep.last_error,
         )
     )
 
 
-async def get_deployment(conn: AsyncConnection, deployment_id: str) -> ComposeDeployment | None:
+async def get_deployment(conn: AsyncConnection, uid: str) -> ComposeDeployment | None:
+    """Cherche un déploiement par son UUID (PK)."""
     row = (
         await conn.execute(
-            select(compose_deployment).where(compose_deployment.c.id == deployment_id)
+            select(compose_deployment).where(compose_deployment.c.uid == uid)
+        )
+    ).mappings().first()
+    return _row_to_deployment(row) if row else None
+
+
+async def get_deployment_by_name_node(
+    conn: AsyncConnection, name: str, node_id: str
+) -> ComposeDeployment | None:
+    """Cherche un déploiement par son slug + nœud (contrainte d'unicité métier)."""
+    row = (
+        await conn.execute(
+            select(compose_deployment).where(
+                (compose_deployment.c.id == name)
+                & (compose_deployment.c.node_id == node_id)
+            )
         )
     ).mappings().first()
     return _row_to_deployment(row) if row else None
@@ -126,28 +144,28 @@ async def list_deployments_for_node(
 
 
 async def update_deployment_status(
-    conn: AsyncConnection, deployment_id: str, status: str, last_error: str | None = None
+    conn: AsyncConnection, uid: str, status: str, last_error: str | None = None
 ) -> None:
     await conn.execute(
-        update(compose_deployment).where(compose_deployment.c.id == deployment_id).values(
+        update(compose_deployment).where(compose_deployment.c.uid == uid).values(
             status=status, last_error=last_error, updated_at=func.now()
         )
     )
 
 
 async def update_deployment_message_id(
-    conn: AsyncConnection, deployment_id: str, message_id: int | None
+    conn: AsyncConnection, uid: str, message_id: int | None
 ) -> None:
     await conn.execute(
         update(compose_deployment)
-        .where(compose_deployment.c.id == deployment_id)
+        .where(compose_deployment.c.uid == uid)
         .values(message_id=message_id, updated_at=func.now())
     )
 
 
-async def delete_deployment(conn: AsyncConnection, deployment_id: str) -> None:
+async def delete_deployment(conn: AsyncConnection, uid: str) -> None:
     await conn.execute(
-        delete(compose_deployment).where(compose_deployment.c.id == deployment_id)
+        delete(compose_deployment).where(compose_deployment.c.uid == uid)
     )
 
 
@@ -188,11 +206,11 @@ async def conflicting_ports(
 
 
 async def persist_op_log(
-    conn: AsyncConnection, deployment_id: str, operation: str, content: str
+    conn: AsyncConnection, uid: str, operation: str, content: str
 ) -> None:
     await conn.execute(
         insert(compose_deployment_log).values(
-            deployment_id=deployment_id, operation=operation, content=content,
+            deployment_id=uid, operation=operation, content=content,
             finished_at=func.now(),
         )
     )

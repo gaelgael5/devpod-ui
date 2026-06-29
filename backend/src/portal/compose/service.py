@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import uuid
 from typing import Literal
 
 import structlog
@@ -39,8 +40,8 @@ class ComposeServiceError(Exception):
     """Erreur de cycle de vie d'un déploiement (FR)."""
 
 
-def _remote_dir(deployment_id: str) -> str:
-    return f"devpod-compose/{deployment_id}"
+def _remote_dir(name: str) -> str:
+    return f"devpod-compose/{name}"
 
 
 def _host_for_node(node_id: str) -> HostConfig:
@@ -96,7 +97,7 @@ def _parse_ps_status(ps_json: str) -> str:
 async def deploy(
     conn: AsyncConnection,
     *,
-    deployment_id: str,
+    name: str,
     template: ComposeTemplate,
     node_id: str,
     owner_login: str,
@@ -122,14 +123,14 @@ async def deploy(
     _validate_secret_refs(template, env_values)
 
     resolved = resolve_env_values(owner_login, secret_ns, env_values)
-    rdir = _remote_dir(deployment_id)
+    rdir = _remote_dir(name)
 
     await write_host_file(host, f"{rdir}/docker-compose.yml", compose_to_write)
     await write_host_file(host, f"{rdir}/.env", render_env_file(resolved))
 
     override_content = build_override(
         compose_to_write,
-        deployment_id=deployment_id,
+        deployment_id=name,
         template_id=template.id,
         owner_login=owner_login,
     )
@@ -138,13 +139,15 @@ async def deploy(
 
     cmd = (
         f"cd {shlex.quote(rdir)} && "
-        f"docker compose --env-file .env -p {shlex.quote(deployment_id)} up -d"
+        f"docker compose --env-file .env -p {shlex.quote(name)} up -d"
     )
     rc, out, err = await run_host_command(host, cmd, timeout=600.0)
     status: DeploymentStatus = "running" if rc == 0 else "error"
 
+    uid = str(uuid.uuid4())
     dep = ComposeDeployment(
-        id=deployment_id,
+        uid=uid,
+        id=name,
         template_id=template.id,
         template_version=template.version,
         node_id=node_id,
@@ -155,7 +158,7 @@ async def deploy(
         last_error=None if rc == 0 else (err or out)[:2000],
     )
     await create_deployment(conn, dep)
-    await persist_op_log(conn, deployment_id, "up", out + ("\n" + err if err else ""))
+    await persist_op_log(conn, uid, "up", out + ("\n" + err if err else ""))
 
     # Message contextuel pour les agents (non-bloquant, uniquement si déployé avec succès).
     if status == "running" and template.message_key:
@@ -171,7 +174,7 @@ async def deploy(
                     host_name=node_id,
                     ssh_alias=ssh_alias,
                     host_address=host_cfg.address,
-                    deployment_id=deployment_id,
+                    deployment_id=name,
                     template_name=template.name,
                     template_id=template.id,
                     template_description=template.description,
@@ -191,12 +194,13 @@ async def deploy(
                     ctx=ctx,
                 )
                 if msg_id is not None:
-                    await update_deployment_message_id(conn, deployment_id, msg_id)
+                    await update_deployment_message_id(conn, uid, msg_id)
                     dep = dep.model_copy(update={"message_id": msg_id})
         except Exception:
             _log.warning(
                 "compose_deploy_message_create_failed",
-                deployment_id=deployment_id,
+                uid=uid,
+                name=name,
                 exc_info=True,
             )
 
@@ -205,75 +209,75 @@ async def deploy(
 
 async def lifecycle(
     conn: AsyncConnection,
-    deployment_id: str,
+    uid: str,
     action: Literal["stop", "start", "restart"],
 ) -> None:
-    dep = await get_deployment(conn, deployment_id)
+    dep = await get_deployment(conn, uid)
     if dep is None:
-        raise ComposeServiceError(f"déploiement inconnu: {deployment_id}")
+        raise ComposeServiceError(f"déploiement inconnu: {uid}")
     host = _host_for_node(dep.node_id)
     rc, out, err = await run_host_command(
-        host, f"docker compose -p {shlex.quote(deployment_id)} {action}", timeout=300.0
+        host, f"docker compose -p {shlex.quote(dep.id)} {action}", timeout=300.0
     )
-    await persist_op_log(conn, deployment_id, action, out + ("\n" + err if err else ""))
+    await persist_op_log(conn, uid, action, out + ("\n" + err if err else ""))
     if rc != 0:
         # rc≠0 → statut persisté en "error" et on retourne normalement (la row existe)
-        await update_deployment_status(conn, deployment_id, "error", (err or out)[:2000])
+        await update_deployment_status(conn, uid, "error", (err or out)[:2000])
         return
     if action == "stop":
         await msg_delete(conn, dep.message_id)
-        await update_deployment_message_id(conn, deployment_id, None)
-    await refresh_status(conn, deployment_id)
+        await update_deployment_message_id(conn, uid, None)
+    await refresh_status(conn, uid)
 
 
-async def teardown(conn: AsyncConnection, deployment_id: str) -> None:
-    dep = await get_deployment(conn, deployment_id)
+async def teardown(conn: AsyncConnection, uid: str) -> None:
+    dep = await get_deployment(conn, uid)
     if dep is None:
-        raise ComposeServiceError(f"déploiement inconnu: {deployment_id}")
+        raise ComposeServiceError(f"déploiement inconnu: {uid}")
     host = _host_for_node(dep.node_id)
-    rdir = _remote_dir(deployment_id)
+    rdir = _remote_dir(dep.id)
     rc, out, err = await run_host_command(
         host,
-        f"docker compose -p {shlex.quote(deployment_id)} down -v ; rm -rf {shlex.quote(rdir)}",
+        f"docker compose -p {shlex.quote(dep.id)} down -v ; rm -rf {shlex.quote(rdir)}",
         timeout=300.0,
     )
-    await persist_op_log(conn, deployment_id, "down", out + ("\n" + err if err else ""))
+    await persist_op_log(conn, uid, "down", out + ("\n" + err if err else ""))
     if rc != 0:
-        _log.warning("compose_teardown_failed", deployment_id=deployment_id, rc=rc)
+        _log.warning("compose_teardown_failed", uid=uid, name=dep.id, rc=rc)
     await msg_delete(conn, dep.message_id)
-    await delete_deployment(conn, deployment_id)
+    await delete_deployment(conn, uid)
 
 
 async def fetch_logs(
     conn: AsyncConnection,
-    deployment_id: str,
+    uid: str,
     *,
     service: str | None,
     tail: int,
 ) -> str:
-    dep = await get_deployment(conn, deployment_id)
+    dep = await get_deployment(conn, uid)
     if dep is None:
-        raise ComposeServiceError(f"déploiement inconnu: {deployment_id}")
+        raise ComposeServiceError(f"déploiement inconnu: {uid}")
     host = _host_for_node(dep.node_id)
     svc = f" {shlex.quote(service)}" if service else ""
     cmd = (
-        f"docker compose -p {shlex.quote(deployment_id)} logs --no-color "
+        f"docker compose -p {shlex.quote(dep.id)} logs --no-color "
         f"--tail={int(tail)}{svc}"
     )
     _, out, err = await run_host_command(host, cmd, timeout=60.0)
     return out + ("\n" + err if err else "")
 
 
-async def refresh_status(conn: AsyncConnection, deployment_id: str) -> str:
-    dep = await get_deployment(conn, deployment_id)
+async def refresh_status(conn: AsyncConnection, uid: str) -> str:
+    dep = await get_deployment(conn, uid)
     if dep is None:
-        raise ComposeServiceError(f"déploiement inconnu: {deployment_id}")
+        raise ComposeServiceError(f"déploiement inconnu: {uid}")
     host = _host_for_node(dep.node_id)
     rc, out, _ = await run_host_command(
         host,
-        f"docker compose -p {shlex.quote(deployment_id)} ps --format json",
+        f"docker compose -p {shlex.quote(dep.id)} ps --format json",
         timeout=60.0,
     )
     status = _parse_ps_status(out) if rc == 0 else "error"
-    await update_deployment_status(conn, deployment_id, status)
+    await update_deployment_status(conn, uid, status)
     return status

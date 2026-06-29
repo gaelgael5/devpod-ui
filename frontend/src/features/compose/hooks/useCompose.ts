@@ -24,10 +24,10 @@ export function useDeployments() {
   return useQuery({ queryKey: QK.deployments(), queryFn: api.listDeployments, refetchInterval: 10_000 })
 }
 
-export function useDeploymentLogs(id: string, enabled: boolean) {
+export function useDeploymentLogs(uid: string, enabled: boolean) {
   return useQuery({
-    queryKey: QK.logs(id),
-    queryFn: () => api.deploymentLogs(id, { tail: 300 }),
+    queryKey: QK.logs(uid),
+    queryFn: () => api.deploymentLogs(uid, { tail: 300 }),
     enabled,
     staleTime: 0,
     refetchInterval: enabled ? 5_000 : false,
@@ -61,8 +61,8 @@ export function useCreateDeployment() {
 export function useDeploymentAction() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, action }: { id: string; action: 'stop' | 'start' | 'restart' }) =>
-      api.deploymentAction(id, action),
+    mutationFn: ({ uid, action }: { uid: string; action: 'stop' | 'start' | 'restart' }) =>
+      api.deploymentAction(uid, action),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.deployments() }),
     onError: (e: Error) => toast.error(e.message),
   })
@@ -70,7 +70,7 @@ export function useDeploymentAction() {
 export function useDeleteDeployment() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: api.deleteDeployment,
+    mutationFn: (uid: string) => api.deleteDeployment(uid),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.deployments() }),
     onError: (e: Error) => toast.error(e.message),
   })

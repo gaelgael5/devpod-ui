@@ -41,6 +41,7 @@ class DeploymentCreateBody(BaseModel):
 
 class DeploymentOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    uid: str
     id: str
     template_id: str
     template_version: str
