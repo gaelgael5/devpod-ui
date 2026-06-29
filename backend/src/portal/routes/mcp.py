@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -14,10 +14,12 @@ from ..mcp.monitor import get_health
 
 router = APIRouter(tags=["mcp"])
 
-# IDs UUID hex (apikeys, clés de service) — lowercase alphanum uniquement.
-_ID = Path(..., pattern=r"^[a-z0-9]{1,64}$")
-# IDs backends — alphanum + tiret + underscore (ex : devpod-admin).
-_BACKEND_ID = Path(..., pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
+# Annotated type aliases — chaque paramètre de route reçoit une copie du FieldInfo
+# (FastAPI extrait les métadonnées d'Annotated sans muter l'objet Path sous-jacent).
+# NE PAS utiliser Path(...) comme valeur par défaut partagée entre plusieurs handlers :
+# FastAPI/Pydantic v2 associerait l'alias du premier paramètre à tous les suivants.
+_UuidId = Annotated[str, Path(pattern=r"^[a-z0-9]{1,64}$")]
+_BackendId = Annotated[str, Path(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")]
 
 
 def _sid(request: Request) -> str:
@@ -64,7 +66,7 @@ async def create_backend_route(
 @router.patch("/mcp/backends/{backend_id}")
 async def update_backend_route(
     body: models.BackendUpdate,
-    backend_id: str = _BACKEND_ID,
+    backend_id: _BackendId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
@@ -80,7 +82,7 @@ async def update_backend_route(
 
 @router.delete("/mcp/backends/{backend_id}", status_code=204)
 async def delete_backend_route(
-    backend_id: str = _BACKEND_ID,
+    backend_id: _BackendId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
@@ -93,7 +95,7 @@ async def delete_backend_route(
 
 @router.get("/mcp/backends/{backend_id}/keys")
 async def list_keys_route(
-    backend_id: str = _BACKEND_ID,
+    backend_id: _BackendId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, Any]]:
@@ -106,7 +108,7 @@ async def list_keys_route(
 async def create_key_route(
     body: models.KeyCreate,
     request: Request,
-    backend_id: str = _BACKEND_ID,
+    backend_id: _BackendId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
@@ -120,8 +122,8 @@ async def create_key_route(
 
 @router.delete("/mcp/backends/{backend_id}/keys/{key_id}", status_code=204)
 async def delete_key_route(
-    backend_id: str = _BACKEND_ID,
-    key_id: str = _ID,
+    backend_id: _BackendId,
+    key_id: _UuidId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
@@ -153,7 +155,7 @@ async def create_apikey_route(
 
 @router.post("/mcp/apikeys/{apikey_id}/revoke")
 async def revoke_apikey_route(
-    apikey_id: str = _ID,
+    apikey_id: _UuidId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
@@ -165,7 +167,7 @@ async def revoke_apikey_route(
 @router.patch("/mcp/apikeys/{apikey_id}/profile")
 async def set_apikey_profile_route(
     body: models.ApikeySetProfile,
-    apikey_id: str = _ID,
+    apikey_id: _UuidId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str | None]:
@@ -179,7 +181,7 @@ async def set_apikey_profile_route(
 
 @router.get("/mcp/backends/{backend_id}/catalog")
 async def list_catalog_route(
-    backend_id: str = _BACKEND_ID,
+    backend_id: _BackendId,
     kind: str = "tool",
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
@@ -195,7 +197,7 @@ async def list_catalog_route(
 
 @router.delete("/mcp/apikeys/{apikey_id}", status_code=204)
 async def delete_apikey_route(
-    apikey_id: str = _ID,
+    apikey_id: _UuidId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
