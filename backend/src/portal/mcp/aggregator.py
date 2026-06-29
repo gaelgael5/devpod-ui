@@ -3,12 +3,15 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import quote, unquote
 
+import structlog
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from portal.db.mcp import get_backend
 from portal.db.mcp_catalog import list_primitives
 from portal.db.mcp_profiles import find_first_backend_key, list_entries_for_apikey
+
+log = structlog.get_logger(__name__)
 
 NS_SEP = "__"
 _URI_PREFIX = "gw+"
@@ -130,21 +133,56 @@ async def _resolve_target(
     Ne révèle jamais l'existence d'un backend : tout cas non autorisé renvoie `None`.
     """
     entries = await list_entries_for_apikey(conn, apikey_id=apikey_id, owner_login=owner_login)
+    log.debug(
+        "resolve_target",
+        namespace=namespace,
+        original=original,
+        kind=kind,
+        entry_count=len(entries),
+        entry_backends=[e["backend_id"] for e in entries],
+    )
+    if not entries:
+        log.warning("resolve_target_no_entries", namespace=namespace, original=original)
     for entry in entries:
         backend = await get_backend(conn, owner_login, entry["backend_id"])
-        if backend is None or not backend["enabled"] or backend["namespace"] != namespace:
+        if backend is None:
+            log.debug("resolve_target_backend_missing", backend_id=entry["backend_id"])
+            continue
+        if not backend["enabled"]:
+            log.debug("resolve_target_backend_disabled", backend_id=entry["backend_id"])
+            continue
+        if backend["namespace"] != namespace:
+            log.debug(
+                "resolve_target_namespace_mismatch",
+                backend_id=entry["backend_id"],
+                backend_ns=backend["namespace"],
+                want_ns=namespace,
+            )
             continue
         if not _tools_allow(entry["tools"], original):
+            log.debug(
+                "resolve_target_tools_deny",
+                backend_id=entry["backend_id"],
+                tools_filter=entry["tools"],
+                original=original,
+            )
             return None
-        match = next(
-            (
-                p
-                for p in await list_primitives(conn, entry["backend_id"], kind)
-                if p["original_name"] == original
-            ),
-            None,
-        )
-        if match is None or match["quarantined"]:
+        prims = await list_primitives(conn, entry["backend_id"], kind)
+        match = next((p for p in prims if p["original_name"] == original), None)
+        if match is None:
+            log.debug(
+                "resolve_target_tool_not_in_catalog",
+                backend_id=entry["backend_id"],
+                original=original,
+                catalog_size=len(prims),
+            )
+            return None
+        if match["quarantined"]:
+            log.warning(
+                "resolve_target_quarantined",
+                backend_id=entry["backend_id"],
+                original=original,
+            )
             return None
         backend_key_id = await _resolve_backend_key_id(conn, entry)
         return CallTarget(
