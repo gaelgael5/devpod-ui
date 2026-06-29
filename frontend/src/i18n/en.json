@@ -897,6 +897,8 @@
       "description": "Description",
       "node": "Target node",
       "yaml": "docker-compose.yml",
+      "messageKey": "Jinja2 message template key",
+      "messageKeyHint": "Key of the Jinja2 template to render as a workspace message when the service starts (e.g. service-docker-compose). Leave empty for no message.",
       "id": "Identifier",
       "idHint": "Lowercase, digits, hyphens — 2 to 42 chars",
       "tags": "Tags",

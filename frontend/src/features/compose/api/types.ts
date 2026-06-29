@@ -22,6 +22,7 @@ export interface ComposeTemplate {
   compose_content: string
   parameters: ComposeParam[]
   source: TemplateSource
+  message_key?: string | null
   created_at?: string | null
   updated_at?: string | null
 }
@@ -57,6 +58,7 @@ export interface TemplateBody {
   compose_content: string
   parameters: ComposeParam[]
   source: TemplateSource
+  message_key: string | null
 }
 
 export interface DeploymentCreateBody {

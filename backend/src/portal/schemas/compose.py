@@ -16,6 +16,7 @@ class TemplateCreateBody(BaseModel):
     compose_content: str
     parameters: list[ComposeParam] = []
     source: TemplateSource = "user"
+    message_key: str | None = None
 
 
 class TemplateUpdateBody(BaseModel):
@@ -27,6 +28,7 @@ class TemplateUpdateBody(BaseModel):
     compose_content: str
     parameters: list[ComposeParam] = []
     source: TemplateSource = "user"
+    message_key: str | None = None
 
 
 class DeploymentCreateBody(BaseModel):
