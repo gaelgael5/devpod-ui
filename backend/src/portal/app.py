@@ -151,9 +151,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         async with _get_engine().begin() as conn:
             await warm_global_cache(conn)
             # Actualise le domaine de cookie depuis la DB (prime sur l'env).
-            from .db.global_config import get_cached_global
+            from .db.global_config import get_optional_cached_global
 
-            cached = get_cached_global()
+            cached = get_optional_cached_global()
             if cached is not None:
                 update_cookie_domain(
                     cached.server.cookie_domain or settings_obj.cookie_domain,

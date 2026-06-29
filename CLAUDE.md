@@ -128,6 +128,12 @@ Avant de déclarer une tâche terminée, **toutes** ces étapes sont obligatoire
 5. Si le code appelle `devpod` ou `docker` : les flags utilisés ont été vérifiés contre `--help` de la version installée
 6. Aucun secret ni clé dans le diff (`git diff` relu sous cet angle)
 
+### Tester sur test1
+
+**Lire [`TESTER-MON-DEV.md`](TESTER-MON-DEV.md) avant tout test sur la machine de test.**
+
+Résumé du cycle obligatoire : lint + mypy → push `dev` → `dev-deploy.sh` sur test1 → lire les vrais logs → tester via Browserless ou curl. **Ne jamais simuler l'environnement avec `docker run --rm python -c '...'`** — ces commandes n'ont pas le même contexte lifespan que la vraie stack et produisent des faux-positifs. Si un crash est silencieux : instrumenter le code avec des `log.info("lifespan_step", step=...)`, pousser, redéployer, relire. Environnement disponible : portail sur `:8080`, Browserless (Chromium headless, aucun token) sur `:3000`, Docker pour services additionnels.
+
 ### Discipline d'exécution
 - Exécute directement, ne décris pas ce que tu vas faire — fais-le
 - N'explique pas les étapes intermédiaires. Rapporte uniquement le résultat final
