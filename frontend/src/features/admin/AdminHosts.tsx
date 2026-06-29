@@ -223,7 +223,7 @@ function TestHostsGroupedSection({
 
           {/* Workspaces de cet utilisateur */}
           <div className="divide-y">
-            {userGroup.workspaces.map((wsGroup, wsi) => (
+            {userGroup.workspaces.map((wsGroup) => (
               <div key={wsGroup.workspace_name}>
                 {/* En-tête workspace */}
                 <div className="flex items-center gap-2 px-4 py-2 bg-muted/20">
