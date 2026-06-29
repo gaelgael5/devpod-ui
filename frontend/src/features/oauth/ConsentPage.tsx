@@ -1,17 +1,49 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { useBackends } from '@/features/mcp/api'
+import { useBackends, useProfiles, useProfileDetail } from '@/features/mcp/api'
 import { apiFetchJson } from '@/shared/api/client'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
-/** Écran de consentement OAuth : l'utilisateur choisit les backends MCP accordés au client. */
+/** Écran de consentement OAuth : l'utilisateur sélectionne un profil MCP pour restreindre les accords. */
 export default function ConsentPage() {
   const { t } = useTranslation()
   const [params] = useSearchParams()
   const { data: backends = [] } = useBackends()
+  const { data: profiles = [] } = useProfiles()
+
+  const [profileId, setProfileId] = useState<string>('')
+  // Auto-sélectionne le seul profil disponible
+  useEffect(() => {
+    if (profiles.length === 1 && !profileId) setProfileId(profiles[0].id)
+  }, [profiles, profileId])
+
+  const { data: profileDetail } = useProfileDetail(profileId || null)
+
+  // Si un profil est sélectionné, on n'affiche que ses backends ; sinon tous
+  const visibleBackends =
+    profileId && profileDetail
+      ? backends.filter((b) => profileDetail.entries.some((e) => e.backend_id === b.id))
+      : backends
+
   const [checked, setChecked] = useState<Set<string>>(new Set())
+  // Pré-coche les backends du profil dès qu'il est chargé
+  useEffect(() => {
+    if (profileId && profileDetail) {
+      setChecked(new Set(profileDetail.entries.map((e) => e.backend_id)))
+    } else if (!profileId) {
+      setChecked(new Set())
+    }
+  }, [profileId, profileDetail])
+
   const [busy, setBusy] = useState(false)
 
   const oauthParams = {
@@ -43,8 +75,7 @@ export default function ConsentPage() {
             expose: [] as string[],
             enabled: true,
           }
-          // Backend interne (devpod) : least-privilege par défaut (read) ; l'admin
-          // élargit ensuite les scopes via l'écran des apikeys.
+          // Backend interne (devpod) : least-privilege par défaut (read)
           return b?.transport === 'internal' ? { ...base, scopes: ['read'] } : base
         })
       : []
@@ -71,11 +102,33 @@ export default function ConsentPage() {
         </h1>
         <p className="text-center text-sm text-muted-foreground">{t('oauth.consent.intro')}</p>
 
+        {/* Sélecteur de profil — affiché uniquement si au moins un profil existe */}
+        {profiles.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold uppercase text-muted-foreground">
+              {t('oauth.consent.profile')}
+            </span>
+            <Select value={profileId} onValueChange={setProfileId}>
+              <SelectTrigger>
+                <SelectValue placeholder={t('oauth.consent.profileNone')} />
+              </SelectTrigger>
+              <SelectContent>
+                {profiles.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Liste des backends */}
         <div className="flex flex-col gap-2 rounded-md border p-3">
           <span className="text-xs font-semibold uppercase text-muted-foreground">
             {t('oauth.consent.backends')}
           </span>
-          {backends.map((b) => (
+          {visibleBackends.map((b) => (
             <label key={b.id} className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -86,7 +139,7 @@ export default function ConsentPage() {
               <code className="text-xs text-muted-foreground">{b.namespace}</code>
             </label>
           ))}
-          {backends.length === 0 && (
+          {visibleBackends.length === 0 && (
             <p className="text-xs text-muted-foreground">{t('oauth.consent.noBackends')}</p>
           )}
         </div>

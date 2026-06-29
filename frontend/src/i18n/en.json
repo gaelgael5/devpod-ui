@@ -690,6 +690,8 @@
     "consent": {
       "title": "Authorize access",
       "intro": "An application requests access to your MCP gateway. Choose the services it may use.",
+      "profile": "Profile",
+      "profileNone": "All services (no profile)",
       "backends": "Granted services",
       "noBackends": "No MCP service registered.",
       "allow": "Authorize",

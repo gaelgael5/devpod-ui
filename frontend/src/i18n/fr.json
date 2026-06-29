@@ -690,6 +690,8 @@
     "consent": {
       "title": "Autoriser l'accès",
       "intro": "Une application demande l'accès à ta passerelle MCP. Choisis les services qu'elle pourra utiliser.",
+      "profile": "Profil",
+      "profileNone": "Tous les services (sans profil)",
       "backends": "Services accordés",
       "noBackends": "Aucun service MCP enregistré.",
       "allow": "Autoriser",
