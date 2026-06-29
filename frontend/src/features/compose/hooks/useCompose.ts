@@ -27,7 +27,7 @@ export function useDeployments() {
 export function useDeploymentLogs(id: string, enabled: boolean) {
   return useQuery({
     queryKey: QK.logs(id),
-    queryFn: () => api.fetchDeploymentLogs(id, { tail: 300 }),
+    queryFn: () => api.deploymentLogs(id, { tail: 300 }),
     enabled,
     staleTime: 0,
     refetchInterval: enabled ? 5_000 : false,
