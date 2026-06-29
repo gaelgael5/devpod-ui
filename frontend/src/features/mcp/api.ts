@@ -3,10 +3,6 @@ import { apiFetch, apiFetchJson } from '@/shared/api/client'
 
 export type Transport = 'streamable_http' | 'sse' | 'stdio' | 'internal'
 export type StorageType = 'local' | 'harpocrate'
-export type ExposeMode = 'all' | 'allowlist' | 'denylist'
-// Scopes d'autorisation des backends internes (devpod). Voir spec 24 §4.
-export type MCPScope = 'read' | 'write' | 'exec' | 'admin'
-export const MCP_SCOPES: MCPScope[] = ['read', 'write', 'exec', 'admin']
 
 export type BackendHealth = 'up' | 'down' | 'unknown'
 
@@ -43,21 +39,39 @@ export interface MCPApikey {
   owner_login: string
   label: string
   kind: 'apikey' | 'oauth'
+  profile_id: string | null
   revoked: boolean
   created_at: string
 }
 
-export interface MCPGrant {
-  apikey_id: string
+export interface MCPProfile {
+  id: string
+  owner_login: string
+  name: string
+  description: string
+  created_at: string
+  updated_at: string | null
+}
+
+export interface MCPProfileEntry {
+  profile_id: string
   backend_id: string
-  // null = backend public (sans clé de service) — la colonne DB est nullable.
   backend_key_id: string | null
-  expose_mode: ExposeMode
-  expose: string[]
-  // false = service accordé mais temporairement désactivé pour ce client.
-  enabled: boolean
-  // Scopes accordés (backends internes type devpod). null = pas d'enforcement.
-  scopes: MCPScope[] | null
+  tools: string[] | null
+}
+
+export interface MCPProfileDetail extends MCPProfile {
+  entries: MCPProfileEntry[]
+}
+
+export interface ProfileCreateBody {
+  name: string
+  description?: string
+}
+
+export interface EntryUpsertBody {
+  backend_key_id?: string | null
+  tools: string[] | null
 }
 
 export interface BackendCreateBody {
@@ -84,17 +98,6 @@ export interface KeyCreateBody {
   vault_identifier?: string | null
 }
 
-export interface GrantSetBody {
-  backend_id: string
-  // null = backend public (sans authentification) : aucune clé de service
-  backend_key_id: string | null
-  expose_mode: ExposeMode
-  expose: string[]
-  enabled: boolean
-  // Scopes accordés (backends internes type devpod). null/absent = pas d'enforcement.
-  scopes?: MCPScope[] | null
-}
-
 export interface CreatedApikey {
   id: string
   token: string
@@ -104,7 +107,9 @@ const QK = {
   backends: () => ['mcp', 'backends'] as const,
   keys: (backendId: string | null) => ['mcp', 'keys', backendId] as const,
   apikeys: () => ['mcp', 'apikeys'] as const,
-  grants: (apikeyId: string | null) => ['mcp', 'grants', apikeyId] as const,
+  profiles: () => ['mcp', 'profiles'] as const,
+  profile: (id: string | null) => ['mcp', 'profile', id] as const,
+  catalog: (backendId: string | null) => ['mcp', 'catalog', backendId] as const,
 }
 
 // ── Backends ──────────────────────────────────────────────────────────────────
@@ -204,12 +209,28 @@ export function useApikeys() {
 export function useCreateApikey() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: { label: string }) =>
+    mutationFn: (body: { label: string; profile_id?: string | null }) =>
       apiFetchJson<CreatedApikey>('/me/mcp/apikeys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.apikeys() }),
+  })
+}
+
+export function useSetApikeyProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, profile_id }: { id: string; profile_id: string | null }) =>
+      apiFetchJson<{ id: string; profile_id: string | null }>(
+        `/me/mcp/apikeys/${encodeURIComponent(id)}/profile`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile_id }),
+        },
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.apikeys() }),
   })
 }
@@ -234,41 +255,105 @@ export function useDeleteApikey() {
   })
 }
 
-// ── Grants ────────────────────────────────────────────────────────────────────
+// ── Profils ────────────────────────────────────────────────────────────────────
 
-export function useGrants(apikeyId: string | null) {
+export function useProfiles() {
   return useQuery({
-    queryKey: QK.grants(apikeyId),
-    queryFn: () =>
-      apiFetchJson<MCPGrant[]>(`/me/mcp/apikeys/${encodeURIComponent(apikeyId!)}/grants`),
-    enabled: apikeyId !== null,
+    queryKey: QK.profiles(),
+    queryFn: () => apiFetchJson<MCPProfile[]>('/me/mcp/profiles'),
   })
 }
 
-export function useSetGrant(apikeyId: string) {
+export function useProfileDetail(profileId: string | null) {
+  return useQuery({
+    queryKey: QK.profile(profileId),
+    queryFn: () =>
+      apiFetchJson<MCPProfileDetail>(`/me/mcp/profiles/${encodeURIComponent(profileId!)}`),
+    enabled: profileId !== null,
+  })
+}
+
+export function useCreateProfile() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: GrantSetBody) =>
-      apiFetchJson<{ apikey_id: string; backend_id: string }>(
-        `/me/mcp/apikeys/${encodeURIComponent(apikeyId)}/grants`,
+    mutationFn: (body: ProfileCreateBody) =>
+      apiFetchJson<{ id: string }>('/me/mcp/profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.profiles() }),
+  })
+}
+
+export function useUpdateProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string; name: string; description: string }) =>
+      apiFetchJson<{ id: string }>(`/me/mcp/profiles/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: QK.profiles() })
+      qc.invalidateQueries({ queryKey: QK.profile(vars.id) })
+    },
+  })
+}
+
+export function useDeleteProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/me/mcp/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.profiles() }),
+  })
+}
+
+export function useUpsertEntry(profileId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ backend_id, ...body }: EntryUpsertBody & { backend_id: string }) =>
+      apiFetchJson<{ profile_id: string; backend_id: string }>(
+        `/me/mcp/profiles/${encodeURIComponent(profileId)}/entries/${encodeURIComponent(backend_id)}`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         },
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: QK.grants(apikeyId) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.profile(profileId) }),
   })
 }
 
-export function useDeleteGrant(apikeyId: string) {
+export function useDeleteEntry(profileId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (backendId: string) =>
       apiFetch(
-        `/me/mcp/apikeys/${encodeURIComponent(apikeyId)}/grants/${encodeURIComponent(backendId)}`,
+        `/me/mcp/profiles/${encodeURIComponent(profileId)}/entries/${encodeURIComponent(backendId)}`,
         { method: 'DELETE' },
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: QK.grants(apikeyId) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.profile(profileId) }),
+  })
+}
+
+// ── Catalog ────────────────────────────────────────────────────────────────────
+
+export interface CatalogTool {
+  name: string
+  description: string
+}
+
+export function useBackendCatalog(backendId: string | null) {
+  return useQuery({
+    queryKey: QK.catalog(backendId),
+    queryFn: () =>
+      apiFetchJson<CatalogTool[]>(
+        `/me/mcp/backends/${encodeURIComponent(backendId!)}/catalog`,
+      ),
+    enabled: backendId !== null,
+    staleTime: 60_000,
   })
 }

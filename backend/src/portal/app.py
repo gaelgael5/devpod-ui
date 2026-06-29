@@ -25,6 +25,7 @@ from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
 from .routes.jinja_templates import router as jinja_templates_router
 from .routes.mcp import router as mcp_router
+from .routes.mcp_profiles import router as mcp_profiles_router
 from .routes.me import router as me_router
 from .routes.nodes import router as nodes_router
 from .routes.oauth import router as oauth_router
@@ -277,6 +278,7 @@ def create_app() -> FastAPI:
     app.include_router(secrets_me_router, prefix="/me")
     app.include_router(secrets_admin_router, prefix="/admin")
     app.include_router(mcp_router, prefix="/me")
+    app.include_router(mcp_profiles_router, prefix="/me")
     app.include_router(compose_routes.router)
     app.include_router(compose_sources_admin_router, prefix="/admin")
     app.include_router(jinja_templates_router, prefix="/admin")

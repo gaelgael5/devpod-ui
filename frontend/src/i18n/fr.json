@@ -698,32 +698,115 @@
     "gatewayUrlCopied": "URL de la passerelle copiée",
     "tab": {
       "servers": "Serveurs MCP",
+      "profiles": "Profils",
       "apikeys": "Clés API client",
       "oauth": "OAuth"
     },
+    "profiles": {
+      "sectionTitle": "Profils MCP",
+      "create": "Nouveau profil",
+      "createTitle": "Créer un profil",
+      "editTitle": "Modifier le profil",
+      "name": "Nom",
+      "description": "Description",
+      "empty": "Aucun profil. Créez-en un pour exposer des services.",
+      "configure": "Configurer les services",
+      "confirmDelete": "Confirmer la suppression",
+      "servicesTitle": "Services du profil {{name}}",
+      "addService": "Ajouter un service",
+      "serviceKey": "Clé de service",
+      "autoKey": "Auto (première clé active)",
+      "tools": "Tools exposés",
+      "allTools": "Tous les tools",
+      "restrictTools": "Restreindre à un sous-ensemble",
+      "allowAllTools": "Autoriser tous les tools",
+      "noToolsCatalog": "Aucun tool indexé (backend non synchronisé)."
+    },
     "oauth": {
-      "procedureTitle": "Connecter Claude web en OAuth",
-      "step1": {
-        "title": "Ouvrir Claude.ai → Paramètres → Intégrations",
-        "desc": "Va sur claude.ai, ouvre les Paramètres, puis clique sur « Intégrations » (ou « Connecteurs personnalisés » selon ton plan)."
+      "claude": {
+        "procedureTitle": "Connecter Claude.ai en OAuth",
+        "step1": {
+          "title": "Copier l'URL de la passerelle",
+          "desc": "Copie l'URL MCP affichée ci-dessus — elle servira à configurer le connecteur."
+        },
+        "step2": {
+          "title": "Ouvrir Claude.ai → Paramètres → Intégrations",
+          "desc": "Va sur claude.ai, ouvre les Paramètres, puis clique sur « Intégrations » (ou « Connecteurs personnalisés » selon ton plan)."
+        },
+        "step3": {
+          "title": "Ajouter un connecteur personnalisé",
+          "desc": "Clique sur « Ajouter une intégration » et colle l'URL de la passerelle. Claude découvre automatiquement les métadonnées OAuth."
+        },
+        "step4": {
+          "title": "S'authentifier via Keycloak",
+          "desc": "Un écran de consentement s'ouvre. Connecte-toi avec ton compte Keycloak (identique au portail), puis choisis le profil MCP à exposer."
+        },
+        "step5": {
+          "title": "Utiliser les outils dans Claude",
+          "desc": "L'intégration est active. Demande à Claude d'utiliser un outil — il appellera la passerelle de façon transparente."
+        },
+        "note": "Les tokens OAuth sont de courte durée et se renouvellent automatiquement. Aucune API key n'est nécessaire dans ce mode."
       },
-      "step2": {
-        "title": "Ajouter un connecteur personnalisé",
-        "desc": "Clique sur « Ajouter une intégration » et colle l'URL de la passerelle ci-dessus. Claude découvre automatiquement les métadonnées OAuth."
+      "openai": {
+        "procedureTitle": "Connecter ChatGPT / OpenAI en OAuth",
+        "step1": {
+          "title": "Copier l'URL de la passerelle",
+          "desc": "Copie l'URL MCP affichée ci-dessus."
+        },
+        "step2": {
+          "title": "Ouvrir ChatGPT → Paramètres → Apps connectées (ou éditeur GPT → Actions)",
+          "desc": "Dans ChatGPT Plus/Team, va dans « Apps connectées ». Pour un GPT personnalisé, ouvre l'éditeur et clique sur « Ajouter des actions »."
+        },
+        "step3": {
+          "title": "Coller l'URL et importer le schéma",
+          "desc": "La passerelle expose un schéma OpenAPI à /openapi.json. ChatGPT l'importe automatiquement. Sélectionne OAuth 2.0 comme type d'authentification."
+        },
+        "step4": {
+          "title": "S'authentifier et choisir un profil",
+          "desc": "Un écran de consentement Keycloak s'ouvre. Connecte-toi et choisis le profil MCP à accorder à cette session ChatGPT."
+        },
+        "note": "Les tokens OAuth sont de courte durée. Si la session expire, reconnecte-toi depuis les paramètres ChatGPT."
       },
-      "step3": {
-        "title": "S'authentifier via Keycloak",
-        "desc": "Un écran de consentement s'ouvre. Connecte-toi avec ton compte Keycloak (identique au portail). Approuve les scopes demandés."
+      "gemini": {
+        "procedureTitle": "Connecter Gemini / Google AI Studio en OAuth",
+        "step1": {
+          "title": "Copier l'URL de la passerelle",
+          "desc": "Copie l'URL MCP affichée ci-dessus."
+        },
+        "step2": {
+          "title": "Ouvrir Google AI Studio → Extensions → Ajouter un outil",
+          "desc": "Dans AI Studio (aistudio.google.com), ouvre le panneau Extensions et clique sur « Ajouter un outil personnalisé » ou « Se connecter via MCP »."
+        },
+        "step3": {
+          "title": "Coller l'URL de la passerelle",
+          "desc": "Saisie l'URL MCP. Gemini découvre automatiquement la liste des outils. Sélectionne OAuth 2.0 comme méthode d'auth."
+        },
+        "step4": {
+          "title": "S'authentifier et choisir un profil",
+          "desc": "Un écran de consentement Keycloak s'ouvre. Connecte-toi et choisis le profil MCP à exposer à Gemini."
+        },
+        "note": "Si Google AI Studio ne supporte pas encore OAuth MCP nativement, utilise une clé API client (Bearer) depuis l'onglet « Clés API client » en secours."
       },
-      "step4": {
-        "title": "Choisir les serveurs MCP à exposer",
-        "desc": "Sur l'écran de consentement tu sélectionnes quels serveurs MCP Claude peut appeler pendant cette session."
-      },
-      "step5": {
-        "title": "Utiliser les outils dans Claude",
-        "desc": "L'intégration est active. Demande à Claude d'utiliser un outil — il appellera la passerelle de façon transparente."
-      },
-      "note": "Les tokens OAuth sont de courte durée et se renouvellent automatiquement. Aucune API key n'est nécessaire dans ce mode."
+      "mistral": {
+        "procedureTitle": "Connecter Le Chat / Mistral en OAuth",
+        "step1": {
+          "title": "Copier l'URL de la passerelle",
+          "desc": "Copie l'URL MCP affichée ci-dessus."
+        },
+        "step2": {
+          "title": "Ouvrir Le Chat → Paramètres → Intégrations → MCP",
+          "desc": "Dans Le Chat (chat.mistral.ai), ouvre les Paramètres, puis la section Intégrations et clique sur « Ajouter un serveur MCP »."
+        },
+        "step3": {
+          "title": "Coller l'URL de la passerelle",
+          "desc": "Saisie l'URL MCP. Le Chat supporte le transport Streamable HTTP. Sélectionne OAuth 2.0."
+        },
+        "step4": {
+          "title": "S'authentifier et choisir un profil",
+          "desc": "Un écran de consentement Keycloak s'ouvre. Connecte-toi et choisis le profil MCP à exposer à Mistral."
+        },
+        "note": "L'intégration MCP de Le Chat est disponible sur les plans Pro. Utilise une clé API client en secours pour les usages API / agent."
+      }
     },
     "backends": {
       "sectionTitle": "Serveurs MCP",
@@ -772,31 +855,15 @@
       "dialogTitle": "Émettre une apikey client",
       "label": "Libellé",
       "labelPlaceholder": "ex : Claude web — laptop",
+      "profile": "Profil",
+      "profilePlaceholder": "Sélectionner un profil…",
+      "noProfile": "Aucun profil (aucun accès)",
       "tokenOnceTitle": "Apikey créée",
       "tokenOnceWarning": "Copiez cette valeur maintenant — elle ne sera plus affichée.",
       "revoked": "Révoquée",
       "revoke": "Révoquer",
       "delete": "Supprimer",
-      "confirmDelete": "Confirmer",
-      "grantsTitle": "Accès aux serveurs",
-      "grantsHint": "Pour chaque serveur autorisé, choisissez la clé d'authentification à utiliser.",
-      "noGrants": "Aucun accès configuré.",
-      "selectKey": "Choisir une clé…",
-      "publicAccess": "Aucune (public)",
-      "serviceDisabled": "Désactivé",
-      "disableService": "Désactiver pour ce client",
-      "enableService": "Activer pour ce client",
-      "addGrant": "Autoriser",
-      "removeGrant": "Retirer",
-      "exposeModeLabel": "Curation des outils",
-      "scopesLabel": "Scopes accordés",
-      "exposeModeAll": "Tous les outils",
-      "exposeModeAllowlist": "Seulement listés",
-      "exposeModeDenylist": "Tous sauf listés",
-      "exposePlaceholder": "Nom d'outil…",
-      "exposeAdd": "Ajouter",
-      "exposeRemove": "Retirer",
-      "exposeEmpty": "Aucun outil listé."
+      "confirmDelete": "Confirmer"
     },
     "saving": "Enregistrement…",
     "save": "Enregistrer"

@@ -698,32 +698,115 @@
     "gatewayUrlCopied": "Gateway URL copied",
     "tab": {
       "servers": "MCP Servers",
+      "profiles": "Profiles",
       "apikeys": "Client API Keys",
       "oauth": "OAuth"
     },
+    "profiles": {
+      "sectionTitle": "MCP Profiles",
+      "create": "New profile",
+      "createTitle": "Create a profile",
+      "editTitle": "Edit profile",
+      "name": "Name",
+      "description": "Description",
+      "empty": "No profile yet. Create one to start exposing services.",
+      "configure": "Configure services",
+      "confirmDelete": "Confirm delete",
+      "servicesTitle": "Services for {{name}}",
+      "addService": "Add a service",
+      "serviceKey": "Service key",
+      "autoKey": "Auto (first enabled key)",
+      "tools": "Exposed tools",
+      "allTools": "All tools",
+      "restrictTools": "Restrict to a subset",
+      "allowAllTools": "Allow all tools",
+      "noToolsCatalog": "No tools indexed yet (backend not synced)."
+    },
     "oauth": {
-      "procedureTitle": "Connecting Claude web via OAuth",
-      "step1": {
-        "title": "Open Claude.ai → Settings → Integrations",
-        "desc": "Go to claude.ai, open the Settings panel, then click \"Integrations\" (or \"Custom connectors\" depending on your plan)."
+      "claude": {
+        "procedureTitle": "Connecting Claude.ai via OAuth",
+        "step1": {
+          "title": "Copy the gateway URL",
+          "desc": "Copy the MCP gateway URL displayed above — you'll need it to configure the connector."
+        },
+        "step2": {
+          "title": "Open Claude.ai → Settings → Integrations",
+          "desc": "Go to claude.ai, open the Settings panel, then click \"Integrations\" (or \"Custom connectors\" depending on your plan)."
+        },
+        "step3": {
+          "title": "Add a custom connector",
+          "desc": "Click \"Add integration\" and paste the gateway URL. Claude will auto-discover the OAuth metadata."
+        },
+        "step4": {
+          "title": "Authenticate via Keycloak",
+          "desc": "A consent screen opens. Sign in with your Keycloak account (same as the portal), then choose the MCP profile to expose."
+        },
+        "step5": {
+          "title": "Start using tools in Claude",
+          "desc": "The integration is now active. Ask Claude to use a tool — it will call the gateway transparently."
+        },
+        "note": "OAuth tokens are short-lived and refresh automatically. You do not need to issue an API key for this mode."
       },
-      "step2": {
-        "title": "Add a custom connector",
-        "desc": "Click \"Add integration\" and paste the gateway URL above. Claude will auto-discover the OAuth metadata."
+      "openai": {
+        "procedureTitle": "Connecting ChatGPT / OpenAI via OAuth",
+        "step1": {
+          "title": "Copy the gateway URL",
+          "desc": "Copy the MCP gateway URL displayed above."
+        },
+        "step2": {
+          "title": "Open ChatGPT → Settings → Connected apps (or GPT editor → Actions)",
+          "desc": "In ChatGPT Plus/Team settings, go to \"Connected apps\". For a custom GPT, open the editor and click \"Add actions\"."
+        },
+        "step3": {
+          "title": "Paste the gateway URL and import the schema",
+          "desc": "The gateway exposes an OpenAPI schema at /openapi.json. ChatGPT will auto-import it. Set the authentication type to OAuth 2.0."
+        },
+        "step4": {
+          "title": "Authenticate and select a profile",
+          "desc": "A Keycloak consent screen opens. Sign in and choose the MCP profile to grant to this ChatGPT session."
+        },
+        "note": "OAuth tokens are short-lived. If your session expires, reconnect from the ChatGPT settings panel."
       },
-      "step3": {
-        "title": "Authenticate via Keycloak",
-        "desc": "A consent screen opens. Sign in with your Keycloak account (same as the portal). Approve the requested scopes."
+      "gemini": {
+        "procedureTitle": "Connecting Gemini / Google AI Studio via OAuth",
+        "step1": {
+          "title": "Copy the gateway URL",
+          "desc": "Copy the MCP gateway URL displayed above."
+        },
+        "step2": {
+          "title": "Open Google AI Studio → Extensions → Add a tool",
+          "desc": "In AI Studio (aistudio.google.com), open the Extensions panel and click \"Add custom tool\" or \"Connect via MCP\"."
+        },
+        "step3": {
+          "title": "Paste the gateway URL",
+          "desc": "Enter the MCP gateway URL. Gemini will auto-discover the tool list. Select OAuth 2.0 as the auth method."
+        },
+        "step4": {
+          "title": "Authenticate and select a profile",
+          "desc": "A Keycloak consent screen opens. Sign in and choose the MCP profile to expose to Gemini."
+        },
+        "note": "If Google AI Studio does not yet support OAuth MCP natively, use a Client API key (Bearer) from the \"Client API Keys\" tab as a fallback."
       },
-      "step4": {
-        "title": "Select the MCP servers to expose",
-        "desc": "On the consent screen you can pick which registered MCP servers Claude may call during this session."
-      },
-      "step5": {
-        "title": "Start using tools in Claude",
-        "desc": "The integration is now active. Ask Claude to use a tool — it will call the gateway transparently."
-      },
-      "note": "OAuth tokens are short-lived and refresh automatically. You do not need to issue an API key for this mode."
+      "mistral": {
+        "procedureTitle": "Connecting Le Chat / Mistral via OAuth",
+        "step1": {
+          "title": "Copy the gateway URL",
+          "desc": "Copy the MCP gateway URL displayed above."
+        },
+        "step2": {
+          "title": "Open Le Chat → Settings → Integrations → MCP",
+          "desc": "In Le Chat (chat.mistral.ai), open Settings, then the Integrations section and click \"Add an MCP server\"."
+        },
+        "step3": {
+          "title": "Paste the gateway URL",
+          "desc": "Enter the MCP gateway URL. Le Chat supports Streamable HTTP transport. Set auth to OAuth 2.0."
+        },
+        "step4": {
+          "title": "Authenticate and select a profile",
+          "desc": "A Keycloak consent screen opens. Sign in and choose the MCP profile to expose to Mistral."
+        },
+        "note": "Le Chat MCP integration is available on Pro plans. Use a Client API key as a fallback for API / agent usage."
+      }
     },
     "backends": {
       "sectionTitle": "MCP Servers",
@@ -772,31 +855,15 @@
       "dialogTitle": "Issue a client apikey",
       "label": "Label",
       "labelPlaceholder": "e.g. Claude web — laptop",
+      "profile": "Profile",
+      "profilePlaceholder": "Select a profile…",
+      "noProfile": "No profile (no access)",
       "tokenOnceTitle": "Apikey created",
       "tokenOnceWarning": "Copy this value now — it will not be shown again.",
       "revoked": "Revoked",
       "revoke": "Revoke",
       "delete": "Delete",
-      "confirmDelete": "Confirm",
-      "grantsTitle": "Server access",
-      "grantsHint": "For each authorized server, choose the authentication key to use.",
-      "noGrants": "No access configured.",
-      "selectKey": "Choose a key…",
-      "publicAccess": "None (public)",
-      "serviceDisabled": "Disabled",
-      "disableService": "Disable for this client",
-      "enableService": "Enable for this client",
-      "addGrant": "Authorize",
-      "removeGrant": "Remove",
-      "exposeModeLabel": "Tool curation",
-      "scopesLabel": "Granted scopes",
-      "exposeModeAll": "All tools",
-      "exposeModeAllowlist": "Only listed",
-      "exposeModeDenylist": "All except listed",
-      "exposePlaceholder": "Tool name…",
-      "exposeAdd": "Add",
-      "exposeRemove": "Remove",
-      "exposeEmpty": "No tool listed."
+      "confirmDelete": "Confirm"
     },
     "saving": "Saving…",
     "save": "Save"

@@ -5,6 +5,57 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import MCPBackends from './MCPBackends'
 import MCPApikeys from './MCPApikeys'
+import MCPProfiles from './MCPProfiles'
+
+function OAuthProcedure({
+  provider,
+  steps,
+  gatewayUrl,
+  copyUrl,
+}: {
+  provider: string
+  steps: number
+  gatewayUrl: string
+  copyUrl: () => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="rounded-lg border p-5 flex flex-col gap-4">
+      <h2 className="text-sm font-semibold">{t(`mcp.oauth.${provider}.procedureTitle`)}</h2>
+      <ol className="flex flex-col gap-4">
+        {Array.from({ length: steps }, (_, i) => i + 1).map((step) => (
+          <li key={step} className="flex items-start gap-3">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+              {step}
+            </span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium">
+                {t(`mcp.oauth.${provider}.step${step}.title`)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {t(`mcp.oauth.${provider}.step${step}.desc`)}
+              </span>
+              {step === 1 && (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <code className="truncate rounded border bg-muted px-2 py-0.5 text-xs font-mono">
+                    {gatewayUrl}
+                  </code>
+                  <Button type="button" variant="ghost" size="sm" className="h-6 px-2" onClick={copyUrl}>
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+      <div className="flex items-start gap-2 rounded-md border border-green-200 bg-green-50 px-4 py-3 dark:border-green-900 dark:bg-green-950/30">
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+        <p className="text-xs text-green-800 dark:text-green-300">{t(`mcp.oauth.${provider}.note`)}</p>
+      </div>
+    </div>
+  )
+}
 
 export default function MCPTab() {
   const { t } = useTranslation()
@@ -35,6 +86,7 @@ export default function MCPTab() {
     <Tabs defaultValue="servers" className="flex flex-col gap-4">
       <TabsList className="w-fit">
         <TabsTrigger value="servers">{t('mcp.tab.servers')}</TabsTrigger>
+        <TabsTrigger value="profiles">{t('mcp.tab.profiles')}</TabsTrigger>
         <TabsTrigger value="apikeys">{t('mcp.tab.apikeys')}</TabsTrigger>
         <TabsTrigger value="oauth">{t('mcp.tab.oauth')}</TabsTrigger>
       </TabsList>
@@ -42,6 +94,11 @@ export default function MCPTab() {
       {/* ── Onglet MCP Servers ── */}
       <TabsContent value="servers" className="mt-0">
         <MCPBackends />
+      </TabsContent>
+
+      {/* ── Onglet Profils ── */}
+      <TabsContent value="profiles" className="mt-0">
+        <MCPProfiles />
       </TabsContent>
 
       {/* ── Onglet Client API Keys ── */}
@@ -88,39 +145,35 @@ export default function MCPTab() {
             </div>
           </div>
 
-          {/* Procédure pas-à-pas */}
-          <div className="rounded-lg border p-5 flex flex-col gap-4">
-            <h2 className="text-sm font-semibold">{t('mcp.oauth.procedureTitle')}</h2>
-            <ol className="flex flex-col gap-4">
-              {[1, 2, 3, 4, 5].map((step) => (
-                <li key={step} className="flex items-start gap-3">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-                    {step}
-                  </span>
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm font-medium">{t(`mcp.oauth.step${step}.title`)}</span>
-                    <span className="text-xs text-muted-foreground">{t(`mcp.oauth.step${step}.desc`)}</span>
-                    {step === 1 && (
-                      <div className="mt-1.5 flex items-center gap-2">
-                        <code className="truncate rounded border bg-muted px-2 py-0.5 text-xs font-mono">
-                          {gatewayUrl}
-                        </code>
-                        <Button type="button" variant="ghost" size="sm" className="h-6 px-2" onClick={copyUrl}>
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </div>
+          {/* Procédures par client — onglets */}
+          <Tabs defaultValue="claude" className="flex flex-col gap-3">
+            <TabsList className="w-fit">
+              <TabsTrigger value="claude">Claude</TabsTrigger>
+              <TabsTrigger value="openai">OpenAI</TabsTrigger>
+              <TabsTrigger value="gemini">Gemini</TabsTrigger>
+              <TabsTrigger value="mistral">Mistral</TabsTrigger>
+            </TabsList>
 
-          {/* Note finale */}
-          <div className="flex items-start gap-2 rounded-md border border-green-200 bg-green-50 px-4 py-3 dark:border-green-900 dark:bg-green-950/30">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
-            <p className="text-xs text-green-800 dark:text-green-300">{t('mcp.oauth.note')}</p>
-          </div>
+            {/* Claude */}
+            <TabsContent value="claude" className="mt-0">
+              <OAuthProcedure provider="claude" steps={5} gatewayUrl={gatewayUrl} copyUrl={copyUrl} />
+            </TabsContent>
+
+            {/* OpenAI */}
+            <TabsContent value="openai" className="mt-0">
+              <OAuthProcedure provider="openai" steps={4} gatewayUrl={gatewayUrl} copyUrl={copyUrl} />
+            </TabsContent>
+
+            {/* Gemini */}
+            <TabsContent value="gemini" className="mt-0">
+              <OAuthProcedure provider="gemini" steps={4} gatewayUrl={gatewayUrl} copyUrl={copyUrl} />
+            </TabsContent>
+
+            {/* Mistral */}
+            <TabsContent value="mistral" className="mt-0">
+              <OAuthProcedure provider="mistral" steps={4} gatewayUrl={gatewayUrl} copyUrl={copyUrl} />
+            </TabsContent>
+          </Tabs>
 
           {/* Sessions OAuth actives */}
           <MCPApikeys kind="oauth" />

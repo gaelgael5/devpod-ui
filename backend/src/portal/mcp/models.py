@@ -93,16 +93,9 @@ class BackendUpdate(BaseModel):
 class ApikeyCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str = ""
+    profile_id: str | None = None
 
 
-class GrantSet(BaseModel):
+class ApikeySetProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    backend_id: str
-    # None = backend public (sans authentification) : aucune clé de service.
-    backend_key_id: str | None = None
-    expose_mode: Literal["all", "allowlist", "denylist"] = "all"
-    expose: list[str] = []
-    # False = service accordé mais temporairement désactivé (paramétrage conservé).
-    enabled: bool = True
-    # Scopes accordés (backends internes type devpod). None = pas d'enforcement de scope.
-    scopes: list[Literal["read", "write", "exec", "admin"]] | None = None
+    profile_id: str | None

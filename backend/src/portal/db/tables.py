@@ -469,6 +469,34 @@ mcp_backend_key = Table(
     UniqueConstraint("backend_id", "slug", name="uq_mcp_backend_key_backend_slug"),
 )
 
+mcp_profile = Table(
+    "mcp_profile",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("name", Text, nullable=False),
+    Column("description", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=True),
+)
+
+mcp_profile_entry = Table(
+    "mcp_profile_entry",
+    metadata,
+    Column("profile_id", Text, ForeignKey("mcp_profile.id", ondelete="CASCADE"), nullable=False),
+    Column("backend_id", Text, ForeignKey("mcp_backend.id", ondelete="CASCADE"), nullable=False),
+    # Clé de service explicite ; null = auto-résolution (première clé enabled du backend).
+    Column(
+        "backend_key_id",
+        Text,
+        ForeignKey("mcp_backend_key.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    # null = tous les tools, [] = aucun, [...] = subset explicite.
+    Column("tools", JSONB, nullable=True),
+    UniqueConstraint("profile_id", "backend_id", name="uq_mcp_profile_entry"),
+)
+
 mcp_apikey = Table(
     "mcp_apikey",
     metadata,
@@ -483,28 +511,13 @@ mcp_apikey = Table(
     Column("client_id", Text, nullable=True),  # client OAuth émetteur (informatif)
     Column("refresh_token_hash", Text, nullable=True),  # sha256 du refresh token
     Column("expires_at", DateTime(timezone=True), nullable=True),  # NULL = pas d'expiration
-)
-
-mcp_apikey_grant = Table(
-    "mcp_apikey_grant",
-    metadata,
-    Column("apikey_id", Text, ForeignKey("mcp_apikey.id", ondelete="CASCADE"), nullable=False),
-    Column("backend_id", Text, ForeignKey("mcp_backend.id", ondelete="CASCADE"), nullable=False),
-    # nullable : un grant vers un backend public (sans auth) n'a pas de clé.
+    # Profil MCP associé ; null = aucun accès (deny-by-default).
     Column(
-        "backend_key_id",
+        "profile_id",
         Text,
-        ForeignKey("mcp_backend_key.id", ondelete="CASCADE"),
+        ForeignKey("mcp_profile.id", ondelete="SET NULL"),
         nullable=True,
     ),
-    Column("expose_mode", Text, nullable=False, server_default="all"),  # all | allowlist | denylist
-    Column("expose", JSONB, nullable=False, server_default="[]"),
-    # False = service accordé mais temporairement désactivé (invisible au runtime).
-    Column("enabled", Boolean, nullable=False, server_default="true"),
-    # Scopes accordés (read/write/exec/admin), pour les backends internes (devpod).
-    # NULL = pas d'enforcement de scope (backends externes type deepwiki inchangés).
-    Column("scopes", JSONB, nullable=True),
-    UniqueConstraint("apikey_id", "backend_id", name="uq_mcp_apikey_grant_apikey_backend"),
 )
 
 # ─── MCP Gateway (lot 2 — runtime) ───────────────────────────────────────────

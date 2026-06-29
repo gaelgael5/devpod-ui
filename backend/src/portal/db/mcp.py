@@ -3,10 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import delete, func, insert, or_, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from .tables import mcp_apikey, mcp_apikey_grant, mcp_backend, mcp_backend_key
+from .tables import mcp_apikey, mcp_backend, mcp_backend_key
 
 _BACKEND_COLS = [
     mcp_backend.c.id,
@@ -223,17 +222,40 @@ _APIKEY_COLS = [
     mcp_apikey.c.kind,
     mcp_apikey.c.revoked,
     mcp_apikey.c.created_at,
+    mcp_apikey.c.profile_id,
 ]
 
 
 async def insert_apikey(
-    conn: AsyncConnection, *, id: str, owner_login: str, token_hash: str, label: str
+    conn: AsyncConnection,
+    *,
+    id: str,
+    owner_login: str,
+    token_hash: str,
+    label: str,
+    profile_id: str | None = None,
 ) -> None:
     await conn.execute(
         insert(mcp_apikey).values(
-            id=id, owner_login=owner_login, token_hash=token_hash, label=label
+            id=id,
+            owner_login=owner_login,
+            token_hash=token_hash,
+            label=label,
+            profile_id=profile_id,
         )
     )
+
+
+async def set_apikey_profile(
+    conn: AsyncConnection, owner_login: str, apikey_id: str, profile_id: str | None
+) -> bool:
+    q = (
+        update(mcp_apikey)
+        .where(mcp_apikey.c.id == apikey_id, mcp_apikey.c.owner_login == owner_login)
+        .values(profile_id=profile_id)
+        .returning(mcp_apikey.c.id)
+    )
+    return (await conn.execute(q)).first() is not None
 
 
 async def list_apikeys(conn: AsyncConnection, owner_login: str) -> list[dict[str, Any]]:
@@ -285,66 +307,3 @@ async def delete_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str)
     )
     return (await conn.execute(q)).first() is not None
 
-
-# ---------------------------------------------------------------------------
-# Grants
-# ---------------------------------------------------------------------------
-
-
-async def set_grant(
-    conn: AsyncConnection,
-    *,
-    apikey_id: str,
-    backend_id: str,
-    backend_key_id: str | None,
-    expose_mode: str = "all",
-    expose: list[str] | None = None,
-    enabled: bool = True,
-    scopes: list[str] | None = None,
-) -> None:
-    expose = expose or []
-    stmt = pg_insert(mcp_apikey_grant).values(
-        apikey_id=apikey_id,
-        backend_id=backend_id,
-        backend_key_id=backend_key_id,
-        expose_mode=expose_mode,
-        expose=expose,
-        enabled=enabled,
-        scopes=scopes,
-    )
-    stmt = stmt.on_conflict_do_update(
-        constraint="uq_mcp_apikey_grant_apikey_backend",
-        set_={
-            "backend_key_id": backend_key_id,
-            "expose_mode": expose_mode,
-            "expose": expose,
-            "enabled": enabled,
-            "scopes": scopes,
-        },
-    )
-    await conn.execute(stmt)
-
-
-async def list_grants(conn: AsyncConnection, apikey_id: str) -> list[dict[str, Any]]:
-    q = select(
-        mcp_apikey_grant.c.apikey_id,
-        mcp_apikey_grant.c.backend_id,
-        mcp_apikey_grant.c.backend_key_id,
-        mcp_apikey_grant.c.expose_mode,
-        mcp_apikey_grant.c.expose,
-        mcp_apikey_grant.c.enabled,
-        mcp_apikey_grant.c.scopes,
-    ).where(mcp_apikey_grant.c.apikey_id == apikey_id)
-    return [dict(r) for r in (await conn.execute(q)).mappings().all()]
-
-
-async def delete_grant(conn: AsyncConnection, apikey_id: str, backend_id: str) -> bool:
-    q = (
-        delete(mcp_apikey_grant)
-        .where(
-            mcp_apikey_grant.c.apikey_id == apikey_id,
-            mcp_apikey_grant.c.backend_id == backend_id,
-        )
-        .returning(mcp_apikey_grant.c.apikey_id)
-    )
-    return (await conn.execute(q)).first() is not None
