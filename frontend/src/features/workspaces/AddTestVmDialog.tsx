@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import i18n from '@/i18n'
 import { Loader2 } from 'lucide-react'
@@ -32,6 +32,13 @@ export default function AddTestVmDialog({ wsName, open, onClose }: Props) {
   const { data: spec, isLoading } = useTestVmScript(open ? hypervisor : null)
   const [vmid, setVmid] = useState('')
   const create = useCreateTestVm()
+  const logRef = useRef<HTMLPreElement>(null)
+
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight
+    }
+  }, [create.logs])
 
   const idArg: ScriptArg | undefined = spec
     ? flattenArgs(spec.args).find(a => a.identifier)
@@ -120,7 +127,7 @@ export default function AddTestVmDialog({ wsName, open, onClose }: Props) {
             )}
           </div>
         ) : (
-          <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded bg-black/90 p-3 text-xs text-green-200">
+          <pre ref={logRef} className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded bg-black/90 p-3 text-xs text-green-200">
             {create.logs || '…'}
           </pre>
         )}
