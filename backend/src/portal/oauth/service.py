@@ -202,9 +202,11 @@ async def _issue(
 
 
 def _token_response(access: str, refresh_tok: str) -> dict[str, Any]:
+    # expires_in : doit être un entier positif selon RFC 6749 (null → rejeté par
+    # certains clients OAuth). Nos tokens sont long-lived et révocables côté portail.
     return {
         "access_token": access,
         "token_type": "Bearer",
         "refresh_token": refresh_tok,
-        "expires_in": None,
+        "expires_in": 315360000,  # 10 ans
     }
