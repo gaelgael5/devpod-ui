@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -91,6 +91,40 @@ async def workspace_for_host(
         )
     ).mappings().first()
     return (row["login"], row["workspace_name"]) if row else None
+
+
+async def host_full_info(
+    host_name: str, conn: AsyncConnection
+) -> tuple[str, str, str] | None:
+    """(login, workspace_name, alias) pour un host de test, ou None."""
+    row = (
+        await conn.execute(
+            select(_t.c.login, _t.c.workspace_name, _t.c.alias).where(
+                _t.c.host_name == host_name
+            )
+        )
+    ).mappings().first()
+    return (row["login"], row["workspace_name"], row["alias"] or "") if row else None
+
+
+async def get_test_host_message_id(
+    host_name: str, conn: AsyncConnection
+) -> int | None:
+    """Retourne le message_id associé à un host de test, ou None."""
+    return (
+        await conn.execute(
+            select(_t.c.message_id).where(_t.c.host_name == host_name)
+        )
+    ).scalar_one_or_none()
+
+
+async def set_test_host_message_id(
+    host_name: str, message_id: int | None, conn: AsyncConnection
+) -> None:
+    """Enregistre le message_id associé à un host de test."""
+    await conn.execute(
+        update(_t).where(_t.c.host_name == host_name).values(message_id=message_id)
+    )
 
 
 async def remove_test_host(host_name: str, conn: AsyncConnection) -> None:

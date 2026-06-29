@@ -25,6 +25,7 @@ from ..db.workspace_status import (
     list_running_db,
     upsert_status_db,
 )
+from ..messages import db as _msg_db
 from ..profiles.models import Profile
 from ..recipes.models import RecipeMeta
 from .env import HostNotReadyError, _find_host, build_env
@@ -440,9 +441,11 @@ class DevPodService:
         rc = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120)
         if rc != 0:
             _log.warning("workspace_delete_failed", ws_id=ws_id, returncode=rc)
+        ws_name = ws_id.removeprefix(f"{login}-")
         async with _get_engine().begin() as conn:
             await persist_log_blob_from_file(ws_id, login, "delete", log_path, conn)
             await delete_status_db(ws_id, conn)
+            await _msg_db.purge_workspace_messages(conn, login, ws_name)
         _log.info("workspace_deleted", ws_id=ws_id, login=login, recovery_branch=branch)
         return {"deleted": True, "recovery_branch": branch}
 

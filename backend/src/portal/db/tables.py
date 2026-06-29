@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     ARRAY,
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -163,6 +164,7 @@ users = Table(
     Column("default_ide", Text, nullable=False, server_default="openvscode"),
     Column("default_idle_timeout", Text, nullable=False, server_default="4h"),
     Column("harpocrate_api_key", Text, nullable=False, server_default=""),
+    Column("culture", Text, nullable=False, server_default="fr"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
@@ -244,6 +246,7 @@ workspace_test_hosts = Table(
     Column("host_name", Text, nullable=False),
     # Alias court `testN` (par workspace), pour `ssh testN` dans le container.
     Column("alias", Text, nullable=True),
+    Column("message_id", BigInteger, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint(
         "login", "workspace_name", "host_name", name="uq_wth_login_ws_host"
@@ -591,6 +594,7 @@ compose_template = Table(
     Column("compose_content", Text, nullable=False),
     Column("parameters", JSONB, nullable=False, server_default="[]"),
     Column("source", Text, nullable=False),
+    Column("message_key", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
@@ -607,6 +611,7 @@ compose_deployment = Table(
     Column("host_ports", ARRAY(Integer), nullable=False, server_default="{}"),
     Column("status", Text, nullable=False, server_default="created"),
     Column("last_error", Text, nullable=True),
+    Column("message_id", BigInteger, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
@@ -620,4 +625,27 @@ compose_deployment_log = Table(
     Column("content", Text, nullable=False, server_default=""),
     Column("started_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("finished_at", DateTime(timezone=True), nullable=True),
+)
+
+# ─── Système de messages contextuels pour agents ──────────────────────────────
+
+jinja2_template = Table(
+    "jinja2_template",
+    metadata,
+    Column("key", Text, nullable=False),
+    Column("culture", Text, nullable=False),
+    Column("body", Text, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("key", "culture", name="pk_jinja2_template"),
+)
+
+workspace_message = Table(
+    "workspace_message",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("owner_login", Text, nullable=False),
+    Column("workspace_name", Text, nullable=False),
+    Column("type", Text, nullable=False),
+    Column("message", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )

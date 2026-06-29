@@ -855,6 +855,26 @@
     "loading": "Loading…",
     "save": "Save",
     "cancel": "Cancel",
-    "close": "Close"
+    "close": "Close",
+    "edit": "Edit",
+    "delete": "Delete"
+  },
+  "jinjaTemplates": {
+    "title": "Jinja2 templates",
+    "new": "New template",
+    "newTitle": "New template",
+    "editTitle": "Edit template",
+    "key": "Key",
+    "culture": "Culture",
+    "body": "Template body",
+    "preview": "Preview",
+    "empty": "No templates yet.",
+    "helpHost": "Test host",
+    "helpDeploy": "Compose service",
+    "contextHelp": "Available variables",
+    "previewCtx": "Preview context (JSON)",
+    "previewBtn": "Preview",
+    "invalidJson": "Invalid JSON context",
+    "confirmDelete": "Delete template {{key}} / {{culture}}?"
   }
 }

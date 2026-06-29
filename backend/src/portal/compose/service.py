@@ -10,13 +10,18 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..config.models import HostConfig
-from ..config.store import load_global
+from ..config.store import load_global, load_user
+from ..db.test_hosts import host_full_info
 from ..devpod.host_exec import run_host_command, write_host_file
+from ..messages.renderer import build_deploy_context
+from ..messages.service import delete_message as msg_delete
+from ..messages.service import render_and_create
 from .db import (
     create_deployment,
     delete_deployment,
     get_deployment,
     persist_op_log,
+    update_deployment_message_id,
     update_deployment_status,
 )
 from .env_builder import render_env_file, resolve_env_values
@@ -151,6 +156,50 @@ async def deploy(
     )
     await create_deployment(conn, dep)
     await persist_op_log(conn, deployment_id, "up", out + ("\n" + err if err else ""))
+
+    # Message contextuel pour les agents (non-bloquant, uniquement si déployé avec succès).
+    if status == "running" and template.message_key:
+        try:
+            ws_info = await host_full_info(node_id, conn)
+            if ws_info:
+                ws_login, ws_name, ssh_alias = ws_info
+                user_cfg = await load_user(ws_login)
+                host_cfg = _host_for_node(node_id)
+                ctx = build_deploy_context(
+                    owner_login=ws_login,
+                    workspace_name=ws_name,
+                    host_name=node_id,
+                    ssh_alias=ssh_alias,
+                    host_address=host_cfg.address,
+                    deployment_id=deployment_id,
+                    template_name=template.name,
+                    template_id=template.id,
+                    template_description=template.description,
+                    template_version=template.version,
+                    template_tags=template.tags,
+                    compose_content=template.compose_content,
+                    port_map={str(i): p for i, p in enumerate(host_ports)},
+                    culture=user_cfg.culture,
+                )
+                msg_id = await render_and_create(
+                    conn,
+                    key=template.message_key,
+                    culture=user_cfg.culture,
+                    owner_login=ws_login,
+                    workspace_name=ws_name,
+                    msg_type="compose_service",
+                    ctx=ctx,
+                )
+                if msg_id is not None:
+                    await update_deployment_message_id(conn, deployment_id, msg_id)
+                    dep = dep.model_copy(update={"message_id": msg_id})
+        except Exception:
+            _log.warning(
+                "compose_deploy_message_create_failed",
+                deployment_id=deployment_id,
+                exc_info=True,
+            )
+
     return dep
 
 
@@ -171,6 +220,9 @@ async def lifecycle(
         # rc≠0 → statut persisté en "error" et on retourne normalement (la row existe)
         await update_deployment_status(conn, deployment_id, "error", (err or out)[:2000])
         return
+    if action == "stop":
+        await msg_delete(conn, dep.message_id)
+        await update_deployment_message_id(conn, deployment_id, None)
     await refresh_status(conn, deployment_id)
 
 
@@ -188,6 +240,7 @@ async def teardown(conn: AsyncConnection, deployment_id: str) -> None:
     await persist_op_log(conn, deployment_id, "down", out + ("\n" + err if err else ""))
     if rc != 0:
         _log.warning("compose_teardown_failed", deployment_id=deployment_id, rc=rc)
+    await msg_delete(conn, dep.message_id)
     await delete_deployment(conn, deployment_id)
 
 

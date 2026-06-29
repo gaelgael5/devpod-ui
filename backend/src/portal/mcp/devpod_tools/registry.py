@@ -682,6 +682,30 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "exec",
     },
+    "workspace_messages": {
+        "description": (
+            "Liste les messages contextuels du workspace : machines de test disponibles, "
+            "services docker-compose démarrés (ports, alias SSH, etc.). "
+            "À lire en début de session pour connaître l'environnement de travail."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace_name"],
+            "properties": {
+                "workspace_name": {
+                    "type": "string",
+                    "description": "Nom du workspace dont on veut lire les messages.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Nombre max de messages retournés (1-500, défaut 50).",
+                    "default": 50,
+                },
+            },
+        },
+        "scope": "read",
+    },
 }
 
 

@@ -77,6 +77,7 @@ def _row_to_deployment(row: RowMapping) -> ComposeDeployment:
         node_id=row["node_id"], owner_login=row["owner_login"],
         env_values=dict(row["env_values"] or {}), host_ports=list(row["host_ports"] or []),
         status=row["status"], last_error=row.get("last_error"),
+        message_id=row.get("message_id"),
         created_at=row.get("created_at"), updated_at=row.get("updated_at"),
     )
 
@@ -117,6 +118,16 @@ async def update_deployment_status(
         update(compose_deployment).where(compose_deployment.c.id == deployment_id).values(
             status=status, last_error=last_error, updated_at=func.now()
         )
+    )
+
+
+async def update_deployment_message_id(
+    conn: AsyncConnection, deployment_id: str, message_id: int | None
+) -> None:
+    await conn.execute(
+        update(compose_deployment)
+        .where(compose_deployment.c.id == deployment_id)
+        .values(message_id=message_id, updated_at=func.now())
     )
 
 

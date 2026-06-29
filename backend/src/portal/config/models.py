@@ -348,6 +348,7 @@ class UserConfig(BaseModel):
 
     version: str
     secret_ns: str
+    culture: str = "fr"
     defaults: UserDefaults = Field(default_factory=UserDefaults)
     harpocrate: HarpocrateUserConfig = Field(default_factory=HarpocrateUserConfig)
     git_credentials: list[GitCredential] = Field(default_factory=list)

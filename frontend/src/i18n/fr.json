@@ -855,6 +855,26 @@
     "loading": "Chargement…",
     "save": "Enregistrer",
     "cancel": "Annuler",
-    "close": "Fermer"
+    "close": "Fermer",
+    "edit": "Modifier",
+    "delete": "Supprimer"
+  },
+  "jinjaTemplates": {
+    "title": "Templates Jinja2",
+    "new": "Nouveau template",
+    "newTitle": "Nouveau template",
+    "editTitle": "Modifier le template",
+    "key": "Clé",
+    "culture": "Culture",
+    "body": "Corps du template",
+    "preview": "Aperçu",
+    "empty": "Aucun template pour l'instant.",
+    "helpHost": "Machine de test",
+    "helpDeploy": "Service compose",
+    "contextHelp": "Variables disponibles",
+    "previewCtx": "Contexte de prévisualisation (JSON)",
+    "previewBtn": "Prévisualiser",
+    "invalidJson": "Contexte JSON invalide",
+    "confirmDelete": "Supprimer le template {{key}} / {{culture}} ?"
   }
 }

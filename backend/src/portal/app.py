@@ -23,6 +23,7 @@ from .routes.admin import router as admin_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
+from .routes.jinja_templates import router as jinja_templates_router
 from .routes.mcp import router as mcp_router
 from .routes.me import router as me_router
 from .routes.nodes import router as nodes_router
@@ -45,6 +46,7 @@ from .routes.static import router as static_router
 from .routes.test_vm import router as test_vm_router
 from .routes.vault import router as vault_router
 from .routes.workspace_groups import router as workspace_groups_router
+from .routes.workspace_messages import router as workspace_messages_router
 from .routes.workspace_ops import _get_service
 from .routes.workspace_ops import router as workspace_ops_router
 from .routes.workspace_sessions import router as workspace_sessions_router
@@ -118,6 +120,21 @@ class SPAMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+async def _message_sweep_loop(interval_s: float = 3600.0) -> None:
+    """Tâche de fond : purge les messages orphelins toutes les `interval_s` secondes."""
+    from .db.engine import _get_engine
+    from .messages.service import sweep_orphans
+
+    await asyncio.sleep(60)  # délai initial — laisse le portail démarrer
+    while True:
+        try:
+            async with _get_engine().begin() as conn:
+                await sweep_orphans(conn)
+        except Exception:
+            _log.warning("message_sweep_failed", exc_info=True)
+        await asyncio.sleep(interval_s)
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from .db.engine import _get_engine
@@ -163,17 +180,20 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.dependency_overrides[get_openvsx] = lambda: client
         async with app.state.mcp_session_manager.run():
             _monitor_task: asyncio.Task[None] | None = None
+            _sweep_task: asyncio.Task[None] | None = None
             if settings_obj.database_url:
                 _monitor_task = asyncio.create_task(
                     monitor_loop(settings_obj.mcp_monitor_interval_s)
                 )
+                _sweep_task = asyncio.create_task(_message_sweep_loop())
             try:
                 yield
             finally:
-                if _monitor_task is not None:
-                    _monitor_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await _monitor_task
+                for _task in (_monitor_task, _sweep_task):
+                    if _task is not None:
+                        _task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await _task
 
 
 def create_app() -> FastAPI:
@@ -259,6 +279,8 @@ def create_app() -> FastAPI:
     app.include_router(mcp_router, prefix="/me")
     app.include_router(compose_routes.router)
     app.include_router(compose_sources_admin_router, prefix="/admin")
+    app.include_router(jinja_templates_router, prefix="/admin")
+    app.include_router(workspace_messages_router, prefix="/me")
     app.include_router(oauth_router)  # racine : /.well-known/* et /oauth/*
     # static_router en dernier : son catch-all /{full_path:path} ne doit pas
     # intercepter les routes API enregistrées avant lui.
