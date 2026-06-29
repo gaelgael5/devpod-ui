@@ -83,6 +83,12 @@ async def get_backend(
     return dict(row) if row else None
 
 
+async def backend_exists(conn: AsyncConnection, backend_id: str) -> bool:
+    """Vérifie qu'un backend existe (sans filtre owner — la sécurité est au niveau dispatch)."""
+    q = select(mcp_backend.c.id).where(mcp_backend.c.id == backend_id)
+    return (await conn.execute(q)).first() is not None
+
+
 async def update_backend(
     conn: AsyncConnection,
     owner_login: str,

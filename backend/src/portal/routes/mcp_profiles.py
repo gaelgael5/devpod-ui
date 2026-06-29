@@ -112,8 +112,7 @@ async def upsert_entry_route(
 ) -> dict[str, str]:
     if await db.get_profile(conn, user.login, profile_id) is None:
         raise HTTPException(status_code=404, detail="profil introuvable")
-    user_backend_ids = {b["id"] for b in await mcp_db.list_backends(conn, user.login)}
-    if backend_id not in user_backend_ids:
+    if not await mcp_db.backend_exists(conn, backend_id):
         raise HTTPException(status_code=404, detail="backend introuvable")
     if (
         body.backend_key_id is not None
