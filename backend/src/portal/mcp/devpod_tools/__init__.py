@@ -285,6 +285,7 @@ async def _workspace_get(conn: AsyncConnection, args: dict[str, Any], owner_logi
     ws_id = f"{owner_login}-{name}"
     st = await get_service().status(owner_login, ws_id)
     sessions = await _session_list(conn, {"workspace": name}, owner_login)
+    raw_dt = st.get("created_at") or st.get("updated_at")
     return {
         "id": ws_id,
         "name": spec.name,
@@ -296,7 +297,7 @@ async def _workspace_get(conn: AsyncConnection, args: dict[str, Any], owner_logi
         "tags": [],
         "devcontainer_ref": spec.devcontainer_path or spec.template or None,
         "sessions": sessions,
-        "created_at": st.get("created_at") or st.get("updated_at"),
+        "created_at": raw_dt.isoformat() if hasattr(raw_dt, "isoformat") else raw_dt,
     }
 
 
