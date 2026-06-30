@@ -784,6 +784,10 @@ async def _workspace_delete(conn: AsyncConnection, args: dict[str, Any], owner_l
 
     async def work() -> Any:
         result = await get_service().delete(owner_login, f"{owner_login}-{name}", shelve=True)
+        # Retire le spec de la config user pour que workspace_list ne montre plus le workspace.
+        cfg = await load_user(owner_login)
+        cfg.workspaces = [ws for ws in cfg.workspaces if ws.name != name]
+        await save_user(owner_login, cfg)
         return {"workspace": name, "deleted": True, **result}
 
     oid = operations.launch_operation("workspace_delete", name, owner_login, work)
