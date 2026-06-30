@@ -270,11 +270,14 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
     },
     "workspace_reconnect": {
         "description": (
-            "Reconnecte le workspace au portail (devpod up). "
-            "Si le conteneur tourne déjà, DevPod le détecte et rétablit le tunnel sans le recréer. "
-            "Asynchrone : retourne un operation_id. "
-            "Impact: non-destructive — devpod up idempotent : "
-            "tunnel rétabli sans recréation si le conteneur est déjà running."
+            "Lance un devpod up sur un workspace existant. Couvre deux cas d'usage : "
+            "(1) relancer un workspace arrêté (équivalent workspace_start) — "
+            "recharge le spec, résout les recipes/secrets/profile et redémarre le conteneur ; "
+            "(2) rétablir le tunnel portail→VS Code après un redémarrage du portail "
+            "sans toucher au conteneur ni aux sessions tmux actives. "
+            "Différence avec workspace_restart : ne fait PAS de stop préalable — "
+            "utiliser workspace_restart pour un redémarrage propre depuis un état running. "
+            "Asynchrone : retourne un operation_id à interroger via operations_get."
         ),
         "inputSchema": {
             "type": "object",
