@@ -433,23 +433,26 @@ function BackendCard({ backend }: { backend: MCPBackend }) {
           </Badge>
         )}
         {backend.health === 'down' && (
-          <>
-            <Badge variant="destructive">{t('mcp.backends.healthDown')}</Badge>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 px-1.5"
-              disabled={probe.isPending}
-              onClick={() =>
-                probe.mutate(backend.id, {
-                  onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
-                })
-              }
-              title={t('mcp.backends.probe')}
-            >
-              <RefreshCw className={`h-3.5 w-3.5${probe.isPending ? ' animate-spin' : ''}`} />
-            </Button>
-          </>
+          <Badge variant="destructive">{t('mcp.backends.healthDown')}</Badge>
+        )}
+        {(!backend.health || backend.health === 'unknown') && (
+          <Badge variant="secondary">{t('mcp.backends.healthUnknown')}</Badge>
+        )}
+        {backend.health !== 'up' && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-1.5"
+            disabled={probe.isPending}
+            onClick={() =>
+              probe.mutate(backend.id, {
+                onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
+              })
+            }
+            title={t('mcp.backends.probe')}
+          >
+            <RefreshCw className={`h-3.5 w-3.5${probe.isPending ? ' animate-spin' : ''}`} />
+          </Button>
         )}
         {!backend.enabled && <Badge variant="secondary">{t('mcp.backends.statusDisabled')}</Badge>}
         <span className="ml-2 text-xs text-muted-foreground">{backend.url}</span>
