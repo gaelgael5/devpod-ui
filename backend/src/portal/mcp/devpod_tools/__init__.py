@@ -701,14 +701,22 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
         raise DevpodToolError("init_recipes doit être un tableau de strings")
     init_recipes = [str(r) for r in raw_init if r]
 
+    git_credential = str(args.get("git_credential", ""))
+
     raw_profile = args.get("profile")
     profile_ref: Any = None
     if raw_profile is not None:
         from ...config.models import ProfileRef
+        raw_str = str(raw_profile)
+        parts = raw_str.split("/", 1)
+        if len(parts) == 2:
+            scope, slug = parts[0], parts[1]
+        else:
+            scope, slug = "shared", parts[0]
         try:
-            profile_ref = ProfileRef.model_validate(raw_profile)
+            profile_ref = ProfileRef.model_validate({"scope": scope, "slug": slug})
         except Exception as exc:
-            raise DevpodToolError(f"profile invalide: {exc}") from exc
+            raise DevpodToolError(f"profile invalide {raw_str!r}: {exc}") from exc
 
     async def work() -> Any:
         from ...db.engine import _get_engine
@@ -722,6 +730,7 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
                     source=repo,
                     branch=branch,
                     host=node,
+                    git_credential=git_credential,
                     recipes=recipes,
                     init_recipes=init_recipes,
                     generate_ssh_key=ssh_key,

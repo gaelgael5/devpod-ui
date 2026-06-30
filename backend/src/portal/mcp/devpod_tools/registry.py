@@ -557,18 +557,18 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
                     "description": "Génère une clé SSH dédiée pour ce workspace.",
                 },
                 "profile": {
-                    "type": "object",
-                    "description": "Profil VS Code à appliquer.",
-                    "additionalProperties": False,
-                    "required": ["scope", "slug"],
-                    "properties": {
-                        "scope": {
-                            "type": "string",
-                            "enum": ["shared", "user"],
-                            "description": "shared = profil partagé, user = profil personnel.",
-                        },
-                        "slug": {"type": "string", "description": "Identifiant du profil."},
-                    },
+                    "type": "string",
+                    "description": (
+                        "Profil VS Code au format 'scope/slug' (ex: 'shared/python-dev') "
+                        "ou 'slug' seul (scope shared implicite)."
+                    ),
+                },
+                "git_credential": {
+                    "type": "string",
+                    "description": (
+                        "Nom du credential git (défini dans la config user) "
+                        "pour cloner un repo privé (ex: 'github-ssh')."
+                    ),
                 },
                 "node": {"type": "string", "description": "Node cible. Défaut : placement auto."},
             },
