@@ -644,49 +644,49 @@ Liste les backends MCP fédérés accessibles et leur disponibilité.
 | Méthode | Scope | Impact | Long-running |
 |---------|-------|--------|:---:|
 | `workspace_list` ✅ | read | read-only | — |
-| `workspace_get` ❌ | read | read-only | — |
-| `workspace_status` | read | read-only | — |
-| `workspace_create` | admin | non-destructive | ✓ |
-| `workspace_delete` | admin | destructive-data | ✓ |
-| `workspace_stop` | admin | destructive-sessions | ✓ |
-| `workspace_restart` | admin | destructive-sessions | ✓ |
-| `workspace_reconnect` | admin | non-destructive | ✓ |
-| `workspace_apply_recipe` | admin | destructive-sessions | ✓ |
-| `workspace_logs` | read | read-only | — |
-| `workspace_resources` | read | read-only | — |
-| `workspace_exec` | exec | write-safe | — |
-| `workspace_tree` | read | read-only | — |
-| `workspace_read_file` | read | read-only | — |
-| `workspace_write_file` | write | write-safe | — |
-| `workspace_mkdir` | write | write-safe | — |
-| `workspace_messages` | read | read-only | — |
-| `workspace_git_status` | read | read-only | — |
-| `workspace_git_commit` | exec | write-safe | — |
-| `workspace_profile_set` | admin | destructive-sessions | ✓ |
-| `workspace_secrets_list` | read | read-only | — |
-| `workspace_secrets_bind` | write | write-safe | — |
-| `session_list` | read | read-only | — |
-| `session_get` | read | read-only | — |
-| `session_open` | exec | non-destructive | — |
-| `session_close` | exec | non-destructive | — |
-| `session_send` | exec | non-destructive | — |
-| `session_capture` | read | read-only | — |
-| `session_interrupt` | exec | non-destructive | — |
-| `operations_get` | read | read-only | — |
-| `operations_list` | read | read-only | — |
-| `node_list` | read | read-only | — |
-| `compose_service_list` | read | read-only | — |
-| `compose_service_start` | admin | non-destructive | — |
-| `compose_service_stop` | admin | destructive-sessions | — |
-| `compose_service_restart` | admin | destructive-sessions | — |
-| `compose_service_status` | read | read-only | — |
-| `compose_service_logs` | read | read-only | — |
-| `compose_service_down` | admin | destructive-data | — |
-| `compose_template_list` | read | read-only | — |
-| `compose_template_get` | read | read-only | — |
-| `compose_template_create` | admin | write-safe | — |
-| `compose_template_update` | admin | write-safe | — |
-| `portal_reload` | admin | non-destructive | — |
-| `gateway__list_backends` | — | read-only | — |
+| `workspace_get` ✅ | read | read-only | — |
+| `workspace_status` ✅ | read | read-only | — |
+| `workspace_create` ✅✅ | admin | non-destructive | ✓ |
+| `workspace_delete` ✅ | admin | destructive-data | ✓ |
+| `workspace_stop` ✅ | admin | destructive-sessions | ✓ |
+| `workspace_restart` ✅ | admin | destructive-sessions | ✓ |
+| `workspace_reconnect` ✅ | admin | non-destructive | ✓ |
+| `workspace_apply_recipe` ✅ | admin | destructive-sessions | ✓ |
+| `workspace_logs` ✅ | read | read-only | — |
+| `workspace_resources` ✅ | read | read-only | — |
+| `workspace_exec` ✅ | exec | write-safe | — |
+| `workspace_tree` ✅ | read | read-only | — |
+| `workspace_read_file` ✅ | read | read-only | — |
+| `workspace_write_file` ✅ | write | write-safe | — |
+| `workspace_mkdir` ✅ | write | write-safe | — |
+| `workspace_messages` ✅ | read | read-only | — |
+| `workspace_git_status` ✅ | read | read-only | — |
+| `workspace_git_commit` ✅ | exec | write-safe | — |
+| `workspace_profile_set` ✅ | admin | destructive-sessions | ✓ |
+| `workspace_secrets_list` ✅ | read | read-only | — |
+| `workspace_secrets_bind` ✅ | write | write-safe | — |
+| `session_list` ✅ | read | read-only | — |
+| `session_get` ✅ | read | read-only | — |
+| `session_open` ✅ | exec | non-destructive | — |
+| `session_close` ✅ | exec | non-destructive | — |
+| `session_send` ✅ | exec | non-destructive | — |
+| `session_capture` ✅ | read | read-only | — |
+| `session_interrupt` ✅ | exec | non-destructive | — |
+| `operations_get` ✅ | read | read-only | — |
+| `operations_list` ✅ | read | read-only | — |
+| `node_list` ✅ | read | read-only | — |
+| `compose_service_list` ✅ | read | read-only | — |
+| `compose_service_start` ✅ | admin | non-destructive | — |
+| `compose_service_stop` ✅ | admin | destructive-sessions | — |
+| `compose_service_restart` ✅ | admin | destructive-sessions | — |
+| `compose_service_status` ✅ | read | read-only | — |
+| `compose_service_logs` ✅ | read | read-only | — |
+| `compose_service_down` ✅ | admin | destructive-data | — |
+| `compose_template_list` ✅ | read | read-only | — |
+| `compose_template_get` ✅ | read | read-only | — |
+| `compose_template_create` ✅ | admin | write-safe | — |
+| `compose_template_update` ✅ | admin | write-safe | — |
+| `portal_reload` ✅ | admin | non-destructive | — |
+| `gateway__list_backends` ✅ | — | read-only | — |
 
 **Total : 45 méthodes**
