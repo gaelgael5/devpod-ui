@@ -125,7 +125,7 @@ async def execute_tool_call(
                 conn, target.original_name, arguments, owner_login=owner_login
             )
         else:
-            async with session_fn(target.url, bearer=bearer) as session:
+            async with session_fn(target.url, transport=target.transport, bearer=bearer) as session:
                 result = await call_backend_tool(session, target.original_name, arguments)
     except BackendUnavailable as exc:
         await audit_record(
@@ -194,7 +194,7 @@ async def execute_prompt_get(
 
     started = time.perf_counter()
     try:
-        async with session_fn(target.url, bearer=bearer) as session:
+        async with session_fn(target.url, transport=target.transport, bearer=bearer) as session:
             result = await get_backend_prompt(session, target.original_name, arguments)
     except BackendUnavailable as exc:
         await audit_record(

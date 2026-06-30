@@ -159,6 +159,18 @@ export function useDeleteBackend() {
   })
 }
 
+export function useProbeBackend() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetchJson<{ id: string; health: BackendHealth }>(
+        `/me/mcp/backends/${encodeURIComponent(id)}/probe`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.backends() }),
+  })
+}
+
 // ── Clés de service ─────────────────────────────────────────────────────────────
 
 export function useBackendKeys(backendId: string | null) {

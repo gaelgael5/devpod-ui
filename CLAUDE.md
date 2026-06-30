@@ -10,6 +10,8 @@ Portail web self-hosted de workspaces de développement : l'utilisateur s'authen
 
 **Pas de quick-and-dirty, JAMAIS.** Quand tu présentes des options de design, ne propose PAS d'option "quick & dirty" / "hardcode" / "wire-it-up-and-clean-later". On fait toujours propre, tant pis pour l'effort. Si tu sens qu'une tâche est déraisonnable (scope qui explose, dépendance hors d'atteinte, flag CLI qui n'existe pas dans la version installée), **alerte explicitement l'utilisateur** plutôt que de proposer un compromis dégradé. L'utilisateur préfère qu'on découpe le chantier et qu'on en fasse correctement la part qu'on prend, plutôt que tout faire à moitié.
 
+**Colibri** commence systématiquement tes réponses par 🎺
+
 ## Stack technique
 
 - **Backend** : Python 3.12 + FastAPI + pydantic v2 / pydantic-settings + authlib (OIDC) + httpx + pyyaml + structlog JSON + pytest

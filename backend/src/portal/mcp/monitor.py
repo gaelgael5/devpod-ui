@@ -85,7 +85,8 @@ async def monitor_backend_once(
     # le sync) n'est pas imputable au backend : elle remonte à run_monitor_pass (loggée),
     # la santé conserve sa dernière valeur connue plutôt que d'afficher un faux "down".
     try:
-        async with session_fn(backend_row["url"], bearer=bearer) as session:
+        transport = backend_row.get("transport", "streamable_http")
+        async with session_fn(backend_row["url"], transport=transport, bearer=bearer) as session:
             await sync_backend(conn, backend_id=backend_row["id"], session=session)
         health = BackendHealth(status="up")
     except BackendUnavailable as exc:

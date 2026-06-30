@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Server, Plus, KeyRound, ExternalLink, Pencil, Power, PowerOff, ChevronDown, ChevronRight } from 'lucide-react'
+import { Server, Plus, KeyRound, ExternalLink, Pencil, Power, PowerOff, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -27,6 +27,7 @@ import {
   useCreateBackend,
   useUpdateBackend,
   useDeleteBackend,
+  useProbeBackend,
   useBackendKeys,
   useCreateKey,
   useDeleteKey,
@@ -415,6 +416,7 @@ function PrimitivesList({ backendId }: { backendId: string }) {
 function BackendCard({ backend }: { backend: MCPBackend }) {
   const { t } = useTranslation()
   const del = useDeleteBackend()
+  const probe = useProbeBackend()
   const [confirmDel, setConfirmDel] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const isDeletable = backend.namespace !== 'devpod'
@@ -431,7 +433,23 @@ function BackendCard({ backend }: { backend: MCPBackend }) {
           </Badge>
         )}
         {backend.health === 'down' && (
-          <Badge variant="destructive">{t('mcp.backends.healthDown')}</Badge>
+          <>
+            <Badge variant="destructive">{t('mcp.backends.healthDown')}</Badge>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-1.5"
+              disabled={probe.isPending}
+              onClick={() =>
+                probe.mutate(backend.id, {
+                  onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
+                })
+              }
+              title={t('mcp.backends.probe')}
+            >
+              <RefreshCw className={`h-3.5 w-3.5${probe.isPending ? ' animate-spin' : ''}`} />
+            </Button>
+          </>
         )}
         {!backend.enabled && <Badge variant="secondary">{t('mcp.backends.statusDisabled')}</Badge>}
         <span className="ml-2 text-xs text-muted-foreground">{backend.url}</span>

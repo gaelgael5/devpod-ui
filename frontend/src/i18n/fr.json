@@ -849,6 +849,7 @@
       "statusDisabled": "Désactivé",
       "healthUp": "En ligne",
       "healthDown": "Hors ligne",
+      "probe": "Retenter la connexion",
       "appUrl": "URL de l'application (optionnel)",
       "appUrlHint": "Lien web optionnel affiché dans la liste pour ouvrir l'application.",
       "openApp": "Ouvrir l'app",

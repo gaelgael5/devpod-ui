@@ -12,7 +12,7 @@ from ..db.engine import get_conn
 from ..db.mcp_audit import list_for_owner as audit_list
 from ..db.mcp_catalog import list_primitives as list_catalog_primitives
 from ..mcp import models, service
-from ..mcp.monitor import get_health
+from ..mcp.monitor import get_health, monitor_backend_once
 
 router = APIRouter(tags=["mcp"])
 
@@ -80,6 +80,21 @@ async def update_backend_route(
     if not ok:
         raise HTTPException(status_code=404, detail="backend introuvable")
     return {"id": backend_id}
+
+
+@router.post("/mcp/backends/{backend_id}/probe")
+async def probe_backend_route(
+    backend_id: _BackendId,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str]:
+    """Force un re-probe immédiat du backend et retourne son état de santé."""
+    backends = await db.list_backends(conn, user.login)
+    backend = next((b for b in backends if b["id"] == backend_id), None)
+    if backend is None:
+        raise HTTPException(status_code=404, detail="backend introuvable")
+    health = await monitor_backend_once(conn, backend)
+    return {"id": backend_id, "health": health.status}
 
 
 @router.delete("/mcp/backends/{backend_id}", status_code=204)
