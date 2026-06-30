@@ -689,10 +689,26 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
     repo = _require_str(args, "repo")
     branch = str(args.get("branch", "dev"))
     node = str(args.get("node", ""))
+    ssh_key = bool(args.get("ssh_key", False))
+
     raw_recipes = args.get("recipes", [])
     if not isinstance(raw_recipes, list):
         raise DevpodToolError("recipes doit être un tableau de strings")
     recipes = [str(r) for r in raw_recipes if r]
+
+    raw_init = args.get("init_recipes", [])
+    if not isinstance(raw_init, list):
+        raise DevpodToolError("init_recipes doit être un tableau de strings")
+    init_recipes = [str(r) for r in raw_init if r]
+
+    raw_profile = args.get("profile")
+    profile_ref: Any = None
+    if raw_profile is not None:
+        from ...config.models import ProfileRef
+        try:
+            profile_ref = ProfileRef.model_validate(raw_profile)
+        except Exception as exc:
+            raise DevpodToolError(f"profile invalide: {exc}") from exc
 
     async def work() -> Any:
         from ...db.engine import _get_engine
@@ -702,7 +718,14 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
             ws_id = await provision_workspace(
                 owner_login,
                 ProvisionParams(
-                    name=name, source=repo, branch=branch, host=node, recipes=recipes
+                    name=name,
+                    source=repo,
+                    branch=branch,
+                    host=node,
+                    recipes=recipes,
+                    init_recipes=init_recipes,
+                    generate_ssh_key=ssh_key,
+                    profile=profile_ref,
                 ),
                 bg_conn,
             )

@@ -541,7 +541,34 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
                 "recipes": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Recettes à appliquer (ordre respecté). Défaut : auto-détection.",  # noqa: E501
+                    "description": "Recettes appliquées au build du conteneur (ordre respecté).",
+                },
+                "init_recipes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Actions d'initialisation déclenchables à la demande "
+                        "(ex: claude-bypass-permissions)."
+                    ),
+                },
+                "ssh_key": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Génère une clé SSH dédiée pour ce workspace.",
+                },
+                "profile": {
+                    "type": "object",
+                    "description": "Profil VS Code à appliquer.",
+                    "additionalProperties": False,
+                    "required": ["scope", "slug"],
+                    "properties": {
+                        "scope": {
+                            "type": "string",
+                            "enum": ["shared", "user"],
+                            "description": "shared = profil partagé, user = profil personnel.",
+                        },
+                        "slug": {"type": "string", "description": "Identifiant du profil."},
+                    },
                 },
                 "node": {"type": "string", "description": "Node cible. Défaut : placement auto."},
             },
