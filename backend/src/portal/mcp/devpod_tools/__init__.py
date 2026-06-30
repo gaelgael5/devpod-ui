@@ -688,9 +688,11 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
         raise DevpodToolError(f"nom de workspace invalide: {name!r}")
     repo = _require_str(args, "repo")
     branch = str(args.get("branch", "dev"))
-    recipe = args.get("recipe")
     node = str(args.get("node", ""))
-    recipes = [str(recipe)] if isinstance(recipe, str) and recipe else []
+    raw_recipes = args.get("recipes", [])
+    if not isinstance(raw_recipes, list):
+        raise DevpodToolError("recipes doit être un tableau de strings")
+    recipes = [str(r) for r in raw_recipes if r]
 
     async def work() -> Any:
         from ...db.engine import _get_engine

@@ -525,7 +525,7 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
     },
     "workspace_create": {
         "description": (
-            "Crée un workspace depuis un repo et une recette. "
+            "Crée un workspace depuis un repo et une liste de recettes. "
             "Asynchrone : retourne un operation_id. "
             "Impact: non-destructive — provisionne un nouveau workspace ; "
             "n'affecte pas les workspaces existants."
@@ -538,7 +538,11 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
                 "name": {"type": "string"},
                 "repo": {"type": "string", "description": "URL du dépôt git."},
                 "branch": {"type": "string", "default": "dev"},
-                "recipe": {"type": "string", "description": "Recette. Défaut : auto-détection."},
+                "recipes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Recettes à appliquer (ordre respecté). Défaut : auto-détection.",  # noqa: E501
+                },
                 "node": {"type": "string", "description": "Node cible. Défaut : placement auto."},
             },
         },
