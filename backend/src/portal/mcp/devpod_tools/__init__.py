@@ -719,9 +719,31 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
             raise DevpodToolError(f"profile invalide {raw_str!r}: {exc}") from exc
 
     async def work() -> Any:
+        import asyncio
+
+        from ...config.models import WorkspaceSpec
         from ...db.engine import _get_engine
         from ...devpod.provision import ProvisionParams, provision_workspace
 
+        # 1. Sauvegarde du spec dans la config user (le rend visible dans workspace_list).
+        cfg = await load_user(owner_login)
+        if any(ws.name == name for ws in cfg.workspaces):
+            raise DevpodToolError(f"workspace {name!r} existe déjà")
+        ws_spec = WorkspaceSpec(
+            name=name,
+            source=repo,
+            branch=branch,
+            host=node,
+            git_credential=git_credential,
+            recipes=recipes,
+            init_recipes=init_recipes,
+            ssh_key=ssh_key,
+            profile=profile_ref,
+        )
+        cfg.workspaces.append(ws_spec)
+        await save_user(owner_login, cfg)
+
+        # 2. Provisionnement (lance devpod up en tâche de fond).
         async with _get_engine().begin() as bg_conn:
             ws_id = await provision_workspace(
                 owner_login,
@@ -738,7 +760,17 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
                 ),
                 bg_conn,
             )
-        return {"workspace": name, "ws_id": ws_id, "status": "provisioning"}
+
+        # 3. Attente de la fin du devpod up (max 30 min, poll DB toutes les 15s).
+        terminal = {"running", "failed", "stopped", "unknown"}
+        for _ in range(120):
+            await asyncio.sleep(15)
+            st = await get_service().status(owner_login, ws_id)
+            if st.get("status", "provisioning") in terminal:
+                break
+
+        final_status = st.get("status", "unknown")
+        return {"workspace": name, "ws_id": ws_id, "status": final_status}
 
     oid = operations.launch_operation("workspace_create", name, owner_login, work)
     return {"operation_id": oid}
