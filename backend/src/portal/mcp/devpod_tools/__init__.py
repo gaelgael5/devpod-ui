@@ -681,42 +681,72 @@ async def _operations_list(conn: AsyncConnection, args: dict[str, Any], owner_lo
     ]
 
 
+def _parse_profile_ref(raw: Any) -> Any:
+    """Parse 'scope/slug' ou 'slug' → ProfileRef, ou None si raw est None."""
+    if raw is None:
+        return None
+    from ...config.models import ProfileRef
+    raw_str = str(raw)
+    parts = raw_str.split("/", 1)
+    scope, slug = (parts[0], parts[1]) if len(parts) == 2 else ("shared", parts[0])
+    try:
+        return ProfileRef.model_validate({"scope": scope, "slug": slug})
+    except Exception as exc:
+        raise DevpodToolError(f"profile invalide {raw_str!r}: {exc}") from exc
+
+
 async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     """Crée un workspace de façon asynchrone. Retourne un operation_id (spec 25 §B)."""
     name = str(args.get("name", ""))
     if not _WS_NAME_RE.fullmatch(name):
         raise DevpodToolError(f"nom de workspace invalide: {name!r}")
-    repo = _require_str(args, "repo")
-    branch = str(args.get("branch", "dev"))
-    node = str(args.get("node", ""))
-    ssh_key = bool(args.get("ssh_key", False))
 
-    raw_recipes = args.get("recipes", [])
+    # Résolution de la base (based_on) : les champs du workspace source servent de défauts.
+    based_on = args.get("based_on")
+    base_spec: Any = None
+    if based_on is not None:
+        based_on = str(based_on)
+        if based_on == name:
+            raise DevpodToolError("based_on ne peut pas référencer le workspace en cours de création")  # noqa: E501
+        cfg_base = await load_user(owner_login)
+        base_spec = next((w for w in cfg_base.workspaces if w.name == based_on), None)
+        if base_spec is None:
+            raise DevpodToolError(f"workspace source introuvable: {based_on!r}")
+
+    # Merge : valeur explicite dans args > valeur du workspace source > défaut.
+    def _get(key: str, default: Any) -> Any:
+        if key in args:
+            return args[key]
+        if base_spec is not None:
+            return getattr(base_spec, key, default)
+        return default
+
+    if "repo" not in args and base_spec is None:
+        raise DevpodToolError("paramètre requis manquant: 'repo' (ou fournir 'based_on')")
+
+    repo = str(_get("source", "") or args.get("repo", ""))
+    # "repo" dans args mappe sur "source" dans WorkspaceSpec
+    if "repo" in args:
+        repo = str(args["repo"])
+
+    branch = str(_get("branch", "dev"))
+    node = str(_get("host", "") if "node" not in args else args["node"])
+    ssh_key = bool(_get("ssh_key", False))
+    git_credential = str(_get("git_credential", ""))
+
+    raw_recipes = _get("recipes", [])
     if not isinstance(raw_recipes, list):
         raise DevpodToolError("recipes doit être un tableau de strings")
     recipes = [str(r) for r in raw_recipes if r]
 
-    raw_init = args.get("init_recipes", [])
+    raw_init = _get("init_recipes", [])
     if not isinstance(raw_init, list):
         raise DevpodToolError("init_recipes doit être un tableau de strings")
     init_recipes = [str(r) for r in raw_init if r]
 
-    git_credential = str(args.get("git_credential", ""))
-
-    raw_profile = args.get("profile")
-    profile_ref: Any = None
-    if raw_profile is not None:
-        from ...config.models import ProfileRef
-        raw_str = str(raw_profile)
-        parts = raw_str.split("/", 1)
-        if len(parts) == 2:
-            scope, slug = parts[0], parts[1]
-        else:
-            scope, slug = "shared", parts[0]
-        try:
-            profile_ref = ProfileRef.model_validate({"scope": scope, "slug": slug})
-        except Exception as exc:
-            raise DevpodToolError(f"profile invalide {raw_str!r}: {exc}") from exc
+    profile_ref: Any = _parse_profile_ref(
+        args.get("profile", base_spec.profile if base_spec is not None else None)
+    )
 
     async def work() -> Any:
         import asyncio

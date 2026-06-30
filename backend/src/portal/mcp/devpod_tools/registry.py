@@ -526,6 +526,8 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
     "workspace_create": {
         "description": (
             "Crée un workspace depuis un repo et une liste de recettes. "
+            "Si 'based_on' est fourni, les propriétés du workspace existant sont utilisées "
+            "comme base et les paramètres explicitement fournis les écrasent. "
             "Asynchrone : retourne un operation_id. "
             "Impact: non-destructive — provisionne un nouveau workspace ; "
             "n'affecte pas les workspaces existants."
@@ -533,9 +535,17 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         "inputSchema": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["name", "repo"],
+            "required": ["name"],
             "properties": {
                 "name": {"type": "string"},
+                "based_on": {
+                    "type": "string",
+                    "description": (
+                        "Nom d'un workspace existant à utiliser comme modèle. "
+                        "Ses propriétés (repo, branch, recipes, etc.) sont copiées, "
+                        "puis écrasées par les paramètres explicitement fournis."
+                    ),
+                },
                 "repo": {"type": "string", "description": "URL du dépôt git."},
                 "branch": {"type": "string", "default": "dev"},
                 "recipes": {
