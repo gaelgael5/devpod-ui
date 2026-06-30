@@ -39,6 +39,9 @@ async def open_session(
     d'initialisation est convertie en BackendUnavailable.
     """
     headers: dict[str, str] | None = {"Authorization": f"Bearer {bearer}"} if bearer else None
+    _log.debug(
+        "mcp_open_session_start", url=url, transport=transport, has_bearer=bearer is not None
+    )
     try:
         if transport == "sse":
             async with (
@@ -51,6 +54,7 @@ async def open_session(
                 ClientSession(read, write) as session,
             ):
                 await session.initialize()
+                _log.debug("mcp_open_session_ok", url=url, transport=transport)
                 yield session
         else:
             timeout = httpx.Timeout(timeout_s, read=sse_read_timeout_s)
@@ -61,6 +65,7 @@ async def open_session(
                 ClientSession(read, write) as session,
             ):
                 await session.initialize()
+                _log.debug("mcp_open_session_ok", url=url, transport=transport)
                 yield session
     except BackendUnavailable:
         raise
@@ -69,9 +74,10 @@ async def open_session(
             "mcp_backend_unavailable",
             url=url,
             transport=transport,
-            error=type(exc).__name__,
+            exc_type=type(exc).__name__,
+            error=str(exc),
             # bearer intentionnellement absent du log
         )
         raise BackendUnavailable(
-            f"backend injoignable: {type(exc).__name__}",
+            f"backend injoignable ({type(exc).__name__}): {exc}",
         ) from exc

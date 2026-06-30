@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -13,6 +14,8 @@ from ..db.mcp_audit import list_for_owner as audit_list
 from ..db.mcp_catalog import list_primitives as list_catalog_primitives
 from ..mcp import models, service
 from ..mcp.monitor import get_health, monitor_backend_once
+
+_log = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["mcp"])
 
@@ -89,11 +92,14 @@ async def probe_backend_route(
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
     """Force un re-probe immédiat du backend et retourne son état de santé."""
+    _log.info("mcp_probe_requested", backend_id=backend_id, login=user.login)
     backends = await db.list_backends(conn, user.login)
     backend = next((b for b in backends if b["id"] == backend_id), None)
     if backend is None:
+        _log.warning("mcp_probe_backend_not_found", backend_id=backend_id, login=user.login)
         raise HTTPException(status_code=404, detail="backend introuvable")
     health = await monitor_backend_once(conn, backend)
+    _log.info("mcp_probe_result", backend_id=backend_id, status=health.status, error=health.error)
     return {"id": backend_id, "health": health.status}
 
 
