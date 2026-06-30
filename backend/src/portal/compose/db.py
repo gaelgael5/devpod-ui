@@ -106,6 +106,16 @@ async def get_deployment(conn: AsyncConnection, uid: str) -> ComposeDeployment |
     return _row_to_deployment(row) if row else None
 
 
+async def get_deployment_by_slug(conn: AsyncConnection, slug: str) -> ComposeDeployment | None:
+    """Cherche un déploiement par son slug (colonne id, identifiant user-facing)."""
+    row = (
+        await conn.execute(
+            select(compose_deployment).where(compose_deployment.c.id == slug)
+        )
+    ).mappings().first()
+    return _row_to_deployment(row) if row else None
+
+
 async def get_deployment_by_name_node(
     conn: AsyncConnection, name: str, node_id: str
 ) -> ComposeDeployment | None:
