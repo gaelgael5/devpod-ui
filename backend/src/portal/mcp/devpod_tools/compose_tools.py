@@ -212,7 +212,7 @@ async def _compose_service_start(
     try:
         dep = await csvc.deploy(
             conn,
-            deployment_id=name,
+            name=name,
             template=tpl,
             node_id=node_id,
             owner_login=owner_login,
