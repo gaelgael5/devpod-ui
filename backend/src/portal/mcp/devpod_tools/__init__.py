@@ -252,9 +252,13 @@ async def _workspace_git_commit(
         add = "git add " + " ".join(shlex.quote(str(f)) for f in files)
     else:
         add = "git add -A"
+    git_identity = (
+        f"-c user.name={shlex.quote(owner_login)} "
+        f"-c user.email={shlex.quote(f'{owner_login}@workspace-portal.local')}"
+    )
     rc, out = await ws_exec(
         owner_login, ws_id,
-        f"cd {shlex.quote(root)} && {add} && git commit -m {shlex.quote(message)}",
+        f"cd {shlex.quote(root)} && {add} && git {git_identity} commit -m {shlex.quote(message)}",
     )
     if rc != 0:
         raise DevpodToolError(f"commit échoué: {out}")
