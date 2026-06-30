@@ -682,10 +682,14 @@ async def _operations_list(conn: AsyncConnection, args: dict[str, Any], owner_lo
 
 
 def _parse_profile_ref(raw: Any) -> Any:
-    """Parse 'scope/slug' ou 'slug' → ProfileRef, ou None si raw est None."""
+    """Parse 'scope/slug' ou 'slug' → ProfileRef, ou None si raw est None.
+    Accepte aussi un ProfileRef existant (hérité de based_on) — retourné tel quel.
+    """
     if raw is None:
         return None
     from ...config.models import ProfileRef
+    if isinstance(raw, ProfileRef):
+        return raw
     raw_str = str(raw)
     parts = raw_str.split("/", 1)
     scope, slug = (parts[0], parts[1]) if len(parts) == 2 else ("shared", parts[0])
