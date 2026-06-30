@@ -896,19 +896,18 @@ async def _workspace_profile_set(
 ) -> Any:
     """Applique un profil VS Code au workspace existant de façon asynchrone (recréation)."""
     name = _require_ws(args)
-    profile_slug = _require_str(args, "profile")
+    raw_profile = _require_str(args, "profile")
+    profile_ref = _parse_profile_ref(raw_profile)
 
     async def work() -> Any:
-        from ...config.models import ProfileRef
-
         def mutate(spec: Any) -> Any:
-            return spec.model_copy(update={"profile": ProfileRef(scope="user", slug=profile_slug)})
+            return spec.model_copy(update={"profile": profile_ref})
 
         ws_id = await _recreate_workspace(owner_login, name, mutate)
         return {
             "workspace": name,
             "ws_id": ws_id,
-            "profile": profile_slug,
+            "profile": raw_profile,
             "status": "provisioning",
         }
 
