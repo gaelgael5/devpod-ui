@@ -151,7 +151,7 @@ async def _workspace_resources(
 ) -> Any:
     name = _require_ws(args)
     ws_id = f"{owner_login}-{name}"
-    root = f"/workspaces/{name}"
+    root = f"/workspaces/{owner_login}-{name}"
     cg = "/sys/fs/cgroup"
     # CPU reads anchored to emit exactly one line (missing file → empty line)
     cpu_read = (
@@ -216,7 +216,7 @@ async def _workspace_git_status(
 ) -> Any:
     name = _require_ws(args)
     ws_id = f"{owner_login}-{name}"
-    root = f"/workspaces/{name}"
+    root = f"/workspaces/{owner_login}-{name}"
     cmd = f"cd {shlex.quote(root)} && git status --porcelain=v1 -b"
     rc, out = await ws_exec(owner_login, ws_id, cmd)
     if rc != 0:
@@ -237,7 +237,7 @@ async def _workspace_git_commit(
     name = _require_ws(args)
     message = _require_str(args, "message")
     ws_id = f"{owner_login}-{name}"
-    root = f"/workspaces/{name}"
+    root = f"/workspaces/{owner_login}-{name}"
 
     cmd = f"cd {shlex.quote(root)} && git rev-parse --abbrev-ref HEAD"
     rc, branch = await ws_exec(owner_login, ws_id, cmd)
@@ -333,7 +333,7 @@ async def _workspace_read_file(
 ) -> Any:
     name = _require_ws(args)
     rel = _require_str(args, "path")
-    p = safe_workspace_path(name, rel)
+    p = safe_workspace_path(f"{owner_login}-{name}",rel)
     rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", f"cat {shlex.quote(p)}")
     if rc != 0:
         raise DevpodToolError(f"lecture impossible: {out}")
@@ -384,7 +384,7 @@ async def _workspace_secrets_bind(
 
 async def _workspace_tree(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
-    p = safe_workspace_path(name, str(args.get("path", ".")))
+    p = safe_workspace_path(f"{owner_login}-{name}",str(args.get("path", ".")))
     depth = int(args.get("depth", 2))
     ignore = args.get("ignore", _DEFAULT_IGNORE)
     prune = ""
@@ -401,7 +401,7 @@ async def _workspace_tree(conn: AsyncConnection, args: dict[str, Any], owner_log
 async def _workspace_mkdir(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     rel = _require_str(args, "path")
-    p = safe_workspace_path(name, rel)
+    p = safe_workspace_path(f"{owner_login}-{name}",rel)
     rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", f"mkdir -p {shlex.quote(p)}")
     if rc != 0:
         raise DevpodToolError(out)
@@ -413,7 +413,7 @@ async def _workspace_write_file(
 ) -> Any:
     name = _require_ws(args)
     rel = _require_str(args, "path")
-    p = safe_workspace_path(name, rel)
+    p = safe_workspace_path(f"{owner_login}-{name}",rel)
     content = _require_str(args, "content")
     create = bool(args.get("create_dirs", True))
     b64 = base64.b64encode(content.encode()).decode()
@@ -436,9 +436,11 @@ async def _workspace_exec(conn: AsyncConnection, args: dict[str, Any], owner_log
     command = _require_str(args, "command")
     timeout = int(args.get("timeout_s", 60))
     cwd_arg = args.get("cwd")
-    cwd = safe_workspace_path(name, str(cwd_arg)) if cwd_arg else f"/workspaces/{name}"
+    ws_id = f"{owner_login}-{name}"
+    default_cwd = f"/workspaces/{ws_id}"
+    cwd = safe_workspace_path(ws_id, str(cwd_arg)) if cwd_arg else default_cwd
     full = f"cd {shlex.quote(cwd)} && {command}"
-    rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", full, timeout=float(timeout))
+    rc, out = await ws_exec(owner_login, ws_id, full, timeout=float(timeout))
     # Commande one-shot : le code retour fait partie du résultat (pas une erreur métier).
     # ws_exec fusionne stdout+stderr → stderr vide en v1 (séparation = backlog §7).
     return {"stdout": out, "stderr": "", "exit_code": rc}
@@ -500,7 +502,9 @@ async def _session_open(conn: AsyncConnection, args: dict[str, Any], owner_login
     name = _require_ws(args)
     sess = str(args.get("name", "main"))
     command = _require_str(args, "command")
-    cwd = safe_workspace_path(name, str(args["cwd"])) if args.get("cwd") else f"/workspaces/{name}"
+    ws_id = f"{owner_login}-{name}"
+    default_cwd = f"/workspaces/{ws_id}"
+    cwd = safe_workspace_path(ws_id, str(args["cwd"])) if args.get("cwd") else default_cwd
     inner = f"cd {shlex.quote(cwd)} && {command}"
     # Idempotent (I-3) : on ne relance l'agent que si la session n'existe pas déjà.
     cmd = (
