@@ -25,7 +25,9 @@ router_admin = APIRouter(tags=["profile-sources"])
 
 _YAML_FNAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.yaml$")
 
-_DEFAULT_SOURCE = "https://raw.githubusercontent.com/ag-flow/ressources/refs/heads/main/profiles/"
+_DEFAULT_SOURCE = (
+    "https://raw.githubusercontent.com/ag-flow/ressources/refs/heads/main/profiles/toc.txt"
+)
 
 
 class ProfileSourcesPayload(BaseModel):

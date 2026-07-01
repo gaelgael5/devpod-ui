@@ -36,7 +36,9 @@ def _normalize_recipe_yaml(data: Any) -> Any:
         data["type"] = data.pop("category")
     return data
 
-_DEFAULT_SOURCE = "https://raw.githubusercontent.com/ag-flow/ressources/main/recipes/toc.txt"
+_DEFAULT_SOURCE = (
+    "https://raw.githubusercontent.com/ag-flow/ressources/refs/heads/main/recipes/toc.txt"
+)
 
 
 class RecipeSourcesPayload(BaseModel):

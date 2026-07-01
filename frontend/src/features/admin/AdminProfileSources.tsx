@@ -107,7 +107,7 @@ export default function AdminProfileSources() {
             <Input
               value={newSourceUrl}
               onChange={(e) => setNewSourceUrl(e.target.value)}
-              placeholder="https://raw.githubusercontent.com/…/profiles/"
+              placeholder="https://raw.githubusercontent.com/…/profiles/toc.txt"
               className="flex-1 font-mono text-xs"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
