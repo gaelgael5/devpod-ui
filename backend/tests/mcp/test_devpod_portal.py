@@ -34,13 +34,14 @@ async def test_portal_reload_container_down(monkeypatch: pytest.MonkeyPatch) -> 
         )
         monkeypatch.setattr(devpod_tools, "get_service", lambda s=svc: s)
         res = await devpod_tools._portal_reload(None, {"workspace": "dev"}, "admin")
-        assert res == {"workspace": "dev", "reconnected": False, "reason": "container_down"}, bad_status
+        expected = {"workspace": "dev", "reconnected": False, "reason": "container_down"}
+        assert res == expected, bad_status
         svc.reconnect.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_portal_reload_node_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Exception lors de la lecture du statut → reason='node_unreachable', pas d'exception propagée."""
+    """Exception sur lecture du statut → reason='node_unreachable', pas d'exception propagée."""
     svc = SimpleNamespace(
         status=AsyncMock(side_effect=RuntimeError("db down")),
         reconnect=MagicMock(),

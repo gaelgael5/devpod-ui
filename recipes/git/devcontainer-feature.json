@@ -1,6 +1,0 @@
-{
-  "id": "git",
-  "version": "1.0.0",
-  "name": "Git",
-  "description": "Configure Git globalement (user.name / user.email via variables d'environnement)"
-}

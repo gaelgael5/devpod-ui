@@ -1,7 +1,0 @@
-﻿id: codex
-key: 38dec658-24b6-46d6-a7a9-f25bd0b4692b
-version: 1.0.0
-description: "Install OpenAI Codex CLI (requiert Node.js)"
-type: install
-installs_after:
-  - 08d27187-d87f-4140-a65e-0891b59441f1

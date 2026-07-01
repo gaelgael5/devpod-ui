@@ -1,6 +1,0 @@
-{
-  "id": "ansible",
-  "version": "1.0.0",
-  "name": "Ansible",
-  "description": "Ansible + ansible-lint dans un venv /opt/ansible (requiert Python)"
-}
