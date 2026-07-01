@@ -208,7 +208,6 @@ class DevPodService:
                 dc_path = self._write_devcontainer(
                     login,
                     ws_id,
-                    host_port=host_port if host_cfg.type == "docker-tls" else None,
                     recipes=recipes,
                     feature_env=feature_env,
                     extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
@@ -253,12 +252,11 @@ class DevPodService:
             if ws_spec.branch and effective_source:
                 devpod_source = f"{effective_source}@{ws_spec.branch}"
 
-            # Pour SSH : devpod ssh -L bind sur 0.0.0.0 dans le container portal ;
-            # Caddy atteint portal:{host_port} via le réseau Docker interne.
-            # Pour docker-tls : l'IP réelle du nœud Docker est utilisée directement.
-            node_ip = self._resolve_node_ip(host_cfg)
-            if host_cfg.type == "ssh":
-                node_ip = global_cfg.caddy.portal_host
+            # Le tunnel openvscode (ssh -o ProxyCommand "devpod ssh --stdio") est
+            # bindé sur 0.0.0.0:{host_port} DANS le conteneur portail pour tous les
+            # types de host : l'upstream des routes Caddy / URLs est donc toujours
+            # le portail, jamais le nœud (dont le pare-feu n'expose que 2376).
+            node_ip = global_cfg.caddy.portal_host
 
             # Plusieurs sources → ouvrir /workspaces pour voir tous les repos clonés.
             # Source unique ou image seule → ouvrir directement /workspaces/{ws_id}.
@@ -337,8 +335,6 @@ class DevPodService:
         async with _get_engine().connect() as conn:
             running_rows = await list_running_db(conn)
         for data in running_rows:
-            if data.get("host_type") != "ssh":
-                continue
             ws_id: str = data.get("ws_id", "")
             host_port_raw = data.get("host_port")
             host_name: str = data.get("host_name", "")
@@ -385,8 +381,8 @@ class DevPodService:
                         os.unlink(tmp_key_path)
 
             if pf_ok and self._exposure is not None:
-                # Pour SSH le tunnel est bindé sur le container portal ; Caddy atteint
-                # portal_host:host_port via le réseau Docker interne.
+                # Le tunnel est bindé sur le container portal (tous types de host) ;
+                # Caddy atteint portal_host:host_port via le réseau Docker interne.
                 node_ip = global_cfg.caddy.portal_host
                 try:
                     await self._exposure.expose(ws_id, node_ip, host_port)
@@ -488,7 +484,6 @@ class DevPodService:
         self,
         login: str,
         ws_id: str,
-        host_port: int | None = None,
         recipes: list[RecipeMeta] | None = None,
         feature_env: dict[str, str] | None = None,
         extra_sources: list[SourceSpec] | None = None,
@@ -504,8 +499,6 @@ class DevPodService:
             content: dict[str, Any] = {
                 "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
             }
-            if host_port is not None:
-                content["appPorts"] = [f"{host_port}:{_OPENVSCODE_SERVER_PORT}"]
 
             if recipes:
                 key_to_id: dict[str, str] = {r.key: r.id for r in recipes}
@@ -718,21 +711,6 @@ class DevPodService:
         )
         await proc.communicate()
 
-    def _resolve_node_ip(self, host_cfg: Any) -> str:
-        """Résout l'IP du nœud Docker/SSH depuis l'HostConfig."""
-        from ..config.models import HostConfig
-
-        if not isinstance(host_cfg, HostConfig):
-            return "127.0.0.1"
-        if host_cfg.type == "docker-tls" and host_cfg.docker_host:
-            return urlparse(host_cfg.docker_host).hostname or "127.0.0.1"
-        if host_cfg.type == "ssh" and host_cfg.address:
-            addr = host_cfg.address
-            if "@" in addr:
-                _, addr = addr.split("@", 1)
-            return addr.strip() or "127.0.0.1"
-        return "127.0.0.1"
-
     def _minimal_env(self, login: str) -> dict[str, str]:
         """Env minimal pour les commandes stop/delete (pas de secrets)."""
         return {
@@ -745,9 +723,6 @@ class DevPodService:
         ws_id: str,
         env: dict[str, str],
         host_port: int,
-        ssh_host: str = "",
-        ssh_user: str = "root",
-        ssh_key_path: str = "",
     ) -> None:
         """
         Expose le port 3000 du devcontainer via le tunnel SSH écrit par DevPod.
@@ -901,15 +876,11 @@ class DevPodService:
                 "host_name": host_name,
             }
 
-            if status == "running" and host_type == "ssh" and host_port is not None:
-                await self._start_port_forward(
-                    ws_id,
-                    env,
-                    host_port,
-                    ssh_host=ssh_host,
-                    ssh_user=ssh_user,
-                    ssh_key_path=ssh_key_path,
-                )
+            # Tunnel openvscode pour TOUS les types de host : `devpod ssh --stdio`
+            # est agnostique du provider (docker exec via daemon TLS pour docker-tls,
+            # ssh pour les VMs). Le port n'est jamais publié sur le nœud.
+            if status == "running" and host_port is not None:
+                await self._start_port_forward(ws_id, env, host_port)
 
             if status == "running" and self._exposure is not None and host_port is not None:
                 extra["host_port"] = host_port
