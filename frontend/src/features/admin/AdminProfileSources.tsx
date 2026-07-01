@@ -202,7 +202,7 @@ export default function AdminProfileSources() {
                     onClick={() => importProfile.mutate(p.source_url)}
                     disabled={imported || importProfile.isPending}
                   >
-                    {importProfile.isPending
+                    {importProfile.isPending && importProfile.variables === p.source_url
                       ? t('admin.profileSources.importing')
                       : t('admin.profileSources.import')}
                   </Button>
