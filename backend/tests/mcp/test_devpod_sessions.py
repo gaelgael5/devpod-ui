@@ -105,13 +105,44 @@ async def test_list_parses_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
     ]
 
 
+_HASH_A = "a" * 64
+_HASH_B = "b" * 64
+
+
 @pytest.mark.asyncio
 async def test_get_parses_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
-    _capture(monkeypatch, out="main|%0|claude|0")
+    # Sortie composée : méta + hash1 + hash2 (spec 32 §4).
+    _capture(monkeypatch, out=f"main|%0|claude|0\n{_HASH_A}\n{_HASH_A}")
     res = await devpod_tools._session_get(None, {"workspace": "dev"}, "admin")
     assert res["session_id"] == "dev:main"
-    assert res["pane_id"] == "%0" and res["command"] == "claude" and res["alive"] is True
+    assert res["pane_id"] == "%0"
+    assert res["command"] == "claude"
+    assert res["foreground"] == "claude"
+    assert res["alive"] is True
     assert res["uptime_s"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_get_processing_false_when_stable(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Deux captures identiques → pane stable → processing=False.
+    _capture(monkeypatch, out=f"main|%0|bash|0\n{_HASH_A}\n{_HASH_A}")
+    res = await devpod_tools._session_get(None, {"workspace": "dev"}, "admin")
+    assert res["processing"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_processing_true_when_changing(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Deux captures différentes → pane change → processing=True.
+    _capture(monkeypatch, out=f"main|%0|claude|0\n{_HASH_A}\n{_HASH_B}")
+    res = await devpod_tools._session_get(None, {"workspace": "dev"}, "admin")
+    assert res["processing"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_foreground_reflects_pane_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    _capture(monkeypatch, out=f"main|%0|codex|0\n{_HASH_A}\n{_HASH_A}")
+    res = await devpod_tools._session_get(None, {"workspace": "dev"}, "admin")
+    assert res["foreground"] == "codex"
 
 
 @pytest.mark.asyncio

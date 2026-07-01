@@ -634,7 +634,7 @@
 ## `devpod__session_get`
 
 - **Scope** : `read`
-- **Description** : Métadonnées d'une session (nom, commande, état, pane, uptime). Impact: read-only — aucune mutation.
+- **Description** : Métadonnées d'une session : nom, foreground (process en avant-plan), processing (bool : pane change sur ~1 s → true, stable → false), pane, uptime. LIMITE (spec 32 §5) : processing=false signifie uniquement que le pane est stable — PAS que la session est disponible. Cela recouvre 'a fini', 'attend une réponse' et 'bloqué', indistinguables au niveau PTY. Toujours lire session_capture avant d'agir. Impact: read-only — aucune mutation.
 - **Schéma d'entrée** :
 
 ```json

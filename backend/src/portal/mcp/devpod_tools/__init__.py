@@ -647,22 +647,38 @@ async def _session_list(conn: AsyncConnection, args: dict[str, Any], owner_login
 async def _session_get(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     sess = str(args.get("session", "main"))
+    q_sess = shlex.quote(sess)
     fmt = "'#{session_name}|#{pane_id}|#{pane_current_command}|#{session_created}'"
-    rc, out = await ws_exec(
-        owner_login,
-        f"{owner_login}-{name}",
-        tmux(f"display-message -p -t {shlex.quote(sess)} {fmt} 2>/dev/null || true"),
+    _tc = f"tmux {_TMUX_SOCK}"
+    # Commande composée (spec 32 §4) :
+    #   ligne 0 : métadonnées existantes
+    #   ligne 1 : hash capture-pane initial
+    #   ligne 2 : hash capture-pane après ~1 s (change=processing, stable=not processing)
+    cmd = (
+        f"{TMUX_SOCK_DETECT}; "
+        f"{_tc} display-message -p -t {q_sess} {fmt} 2>/dev/null || true; "
+        f"{_tc} capture-pane -p -t {q_sess} 2>/dev/null | sha256sum | cut -d' ' -f1; "
+        f"sleep 1; "
+        f"{_tc} capture-pane -p -t {q_sess} 2>/dev/null | sha256sum | cut -d' ' -f1"
     )
-    line = out.strip()
-    if not line or "|" not in line:
+    rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", cmd, timeout=10.0)
+    lines_out = out.splitlines()
+    meta_line = lines_out[0].strip() if lines_out else ""
+    if not meta_line or "|" not in meta_line:
         raise DevpodToolError("session introuvable")
-    parts = line.split("|")
+    parts = meta_line.split("|")
     created = parts[3] if len(parts) > 3 else "0"
     uptime = max(0, int(time.time()) - int(created)) if created.isdigit() else 0
+    foreground = parts[2] if len(parts) > 2 else ""
+    hash1 = lines_out[1].strip() if len(lines_out) > 1 else ""
+    hash2 = lines_out[2].strip() if len(lines_out) > 2 else ""
+    processing = bool(hash1 and hash2 and hash1 != hash2)
     return {
         "session_id": _session_id(name, parts[0]),
         "name": parts[0],
-        "command": parts[2] if len(parts) > 2 else "",
+        "command": foreground,  # rétrocompatibilité
+        "foreground": foreground,  # process en avant-plan (spec 32 §4)
+        "processing": processing,  # pane stable=False, change=True (spec 32 §4)
         "alive": True,
         "pane_id": parts[1] if len(parts) > 1 else "",
         "uptime_s": uptime,
