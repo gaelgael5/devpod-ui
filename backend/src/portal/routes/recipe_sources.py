@@ -109,6 +109,14 @@ async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
     return resp.text
 
 
+async def _fetch_bytes(client: httpx.AsyncClient, url: str) -> bytes:
+    """Variante binaire de _fetch_text — pour les fichiers sources des ops `copy`."""
+    await asyncio.to_thread(_check_ssrf, url)
+    resp = await client.get(url, timeout=10.0, follow_redirects=False)
+    resp.raise_for_status()
+    return resp.content
+
+
 # ---------------------------------------------------------------------------
 # Fetch helpers (format .sh legacy et format répertoire)
 # ---------------------------------------------------------------------------
@@ -295,37 +303,48 @@ def _unique_recipe_id(base_id: str, shared_dir: Path) -> str:
     return f"{base_id}-{counter}"
 
 
+def _meta_to_yaml(meta: RecipeMeta) -> str:
+    """Sérialise un RecipeMeta complet (ops incluses) en YAML rechargeable par from_yaml."""
+    data = meta.model_dump(by_alias=True, mode="json")
+    # Le validateur TransformOp refuse une clé `value` (même None) pour op=remove.
+    for tr in data.get("transform") or []:
+        if tr.get("op") == "remove":
+            tr.pop("value", None)
+    # YAML minimal : pas de clés vides ni de memory_volume nul.
+    for key in ("options", "installs_after", "requires_secrets", "copy", "transform"):
+        if not data.get(key):
+            data.pop(key, None)
+    if data.get("memory_volume") is None:
+        data.pop("memory_volume", None)
+    return yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+
+def _validate_copy_source(source: str) -> None:
+    """Rejette les sources `copy` qui sortiraient du dossier de la recette."""
+    p = Path(source)
+    if not source or p.is_absolute() or ".." in p.parts:
+        raise ValueError(
+            f"copy source {source!r} must be a relative path inside the recipe directory"
+        )
+
+
 def _write_recipe(
     shared_dir: Path,
-    recipe_id: str,
-    version: str,
-    description: str,
+    meta: RecipeMeta,
     install_script: str,
-    options: dict[str, Any] | None = None,
-    installs_after: list[str] | None = None,
-    recipe_type: Literal["install", "start", "initialize"] = "install",
-    key: str | None = None,
+    files: dict[str, bytes] | None = None,
 ) -> None:
-    recipe_path = shared_dir / recipe_id
-    tmp_str = tempfile.mkdtemp(dir=shared_dir, prefix=f".tmp-{recipe_id}-")
+    """Écrit le dossier complet d'une recette : meta (ops incluses), scripts, fichiers.
+
+    `files` contient les fichiers compagnons (sources des ops `copy`), chemins
+    relatifs au dossier de la recette — validés par _validate_copy_source en amont.
+    """
+    recipe_path = shared_dir / meta.id
+    tmp_str = tempfile.mkdtemp(dir=shared_dir, prefix=f".tmp-{meta.id}-")
     tmp = Path(tmp_str)
     try:
-        meta_kwargs: dict[str, Any] = {
-            "id": recipe_id,
-            "version": version,
-            "description": description,
-            "type": recipe_type,
-            "options": options or {},
-            "installs_after": installs_after or [],
-        }
-        if key is not None:
-            meta_kwargs["key"] = key
-        meta = RecipeMeta(**meta_kwargs)
-        (tmp / "recipe.meta.yaml").write_text(
-            yaml.dump(meta.model_dump(by_alias=True), default_flow_style=False),
-            encoding="utf-8",
-        )
-        feature_json: dict[str, Any] = {"id": recipe_id, "version": version}
+        (tmp / "recipe.meta.yaml").write_text(_meta_to_yaml(meta), encoding="utf-8")
+        feature_json: dict[str, Any] = {"id": meta.id, "version": meta.version}
         if meta.options:
             feature_json["options"] = {k: v.model_dump() for k, v in meta.options.items()}
         (tmp / "devcontainer-feature.json").write_text(
@@ -334,6 +353,10 @@ def _write_recipe(
         install_sh = tmp / "install.sh"
         install_sh.write_text(install_script, encoding="utf-8")
         install_sh.chmod(0o755)
+        for rel, content in (files or {}).items():
+            dest = tmp / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content)
         tmp.rename(recipe_path)
     except Exception:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -366,6 +389,7 @@ async def _import_single_recipe(
     fname = url_path.name
 
     recipe_type: Literal["install", "start", "initialize"] = "install"
+    files: dict[str, bytes] = {}
     if fname == "install.sh":
         dir_base_url = source_url.rsplit("/", 1)[0]
         meta_url = f"{dir_base_url}/recipe.meta.yaml"
@@ -378,28 +402,35 @@ async def _import_single_recipe(
                 raise
         meta_text = await _fetch_text(http, meta_url)
         meta = RecipeMeta.model_validate(_normalize_recipe_yaml(yaml.safe_load(meta_text)))
-        recipe_type = meta.type
-        options_dict = {k: v.model_dump() for k, v in meta.options.items()}
-        installs_after = meta.installs_after
         base_id = meta.id
-        version = meta.version
-        description = meta.description
+        # Fichiers compagnons des ops `copy` : sans eux, la recette initialize
+        # serait un no-op silencieux au moment du run.
+        for c in meta.copies:
+            _validate_copy_source(c.source)
+            src_file_url = f"{dir_base_url}/{c.source}"
+            try:
+                files[c.source] = await _fetch_bytes(http, src_file_url)
+            except httpx.HTTPStatusError as exc:
+                raise ValueError(
+                    f"copy source {c.source!r} introuvable ({src_file_url}, "
+                    f"HTTP {exc.response.status_code}) — les sources de type "
+                    "répertoire ne sont pas supportées via toc.txt"
+                ) from exc
     else:
         install_script = await _fetch_text(http, source_url)
         headers = _parse_sh_headers(install_script)
         base_id = fname[:-3] if fname.endswith(".sh") else fname
-        version = headers.get("version", "1.0.0")
-        description = headers.get("description", "")
         raw_type = headers.get("type", "install")
         if raw_type == "start":
             recipe_type = "start"
         elif raw_type == "initialize":
             recipe_type = "initialize"
         # sinon recipe_type reste "install" (valeur par défaut)
-        options_dict = {}
-        installs_after = []
         meta = RecipeMeta(
-            id=base_id, version=version, description=description, type=recipe_type
+            id=base_id,
+            version=headers.get("version", "1.0.0"),
+            description=headers.get("description", ""),
+            type=recipe_type,
         )
 
     if not _RECIPE_ID_RE.fullmatch(base_id):
@@ -407,26 +438,10 @@ async def _import_single_recipe(
 
     await _purge_orphan_recipe_dirs(base_id, shared_dir, conn)
     recipe_id = await asyncio.to_thread(_unique_recipe_id, base_id, shared_dir)
-    await asyncio.to_thread(
-        _write_recipe,
-        shared_dir,
-        recipe_id,
-        version,
-        description,
-        install_script,
-        options_dict,
-        installs_after,
-        recipe_type,
-        meta.key,
-    )
-    final_meta = RecipeMeta(
-        id=recipe_id,
-        key=meta.key,
-        version=version,
-        description=description,
-        type=recipe_type,
-        installs_after=installs_after,
-    )
+    # model_copy : conserve copies/transform/options — un RecipeMeta reconstruit
+    # partiellement perdait les ops initialize (recette "applied" sans effet).
+    final_meta = meta.model_copy(update={"id": recipe_id})
+    await asyncio.to_thread(_write_recipe, shared_dir, final_meta, install_script, files)
     await upsert_recipe_db(final_meta, "shared", None, conn)
     return recipe_id, final_meta
 
@@ -513,6 +528,9 @@ async def import_recipe_from_source(
             )
     except HTTPException:
         raise
+    except ValueError as exc:
+        # Contenu distant invalide (id hors format, copy source absente/traversal…)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
