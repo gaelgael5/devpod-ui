@@ -94,7 +94,19 @@ async def vscode_http_proxy(request: Request, path: str = "") -> Response:
     """
     login = _session_login(request)
     if not login:
-        external_url = load_global().server.external_url or ""
+        external_url = (load_global().server.external_url or "").rstrip("/")
+        if not external_url:
+            # external_url non configuré : un redirect relatif /auth/login serait
+            # réécrit par Caddy en /vsproxy/auth/login → boucle infinie.
+            return Response(
+                status_code=401,
+                media_type="text/html",
+                content=(
+                    "<html><body><h1>Non authentifié</h1>"
+                    "<p>Connectez-vous au portail d'abord, "
+                    "puis revenez sur cette page.</p></body></html>"
+                ),
+            )
         return RedirectResponse(url=f"{external_url}/auth/login", status_code=302)
 
     qs = request.url.query
