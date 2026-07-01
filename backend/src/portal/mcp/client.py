@@ -52,6 +52,7 @@ async def fetch_primitives(session: ClientSession) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
 
     if "tool" in kinds:
+        logger.debug("mcp.client.fetch_primitives.tools.start")
         tools_result = await session.list_tools()
         for tool in tools_result.tools:
             d = tool.model_dump(mode="json", exclude_none=True)
@@ -59,6 +60,7 @@ async def fetch_primitives(session: ClientSession) -> list[dict[str, Any]]:
         logger.debug("mcp.client.fetch_primitives.tools", count=len(tools_result.tools))
 
     if "resource" in kinds:
+        logger.debug("mcp.client.fetch_primitives.resources.start")
         resources_result = await session.list_resources()
         for resource in resources_result.resources:
             d = resource.model_dump(mode="json", exclude_none=True)
@@ -66,6 +68,7 @@ async def fetch_primitives(session: ClientSession) -> list[dict[str, Any]]:
         logger.debug("mcp.client.fetch_primitives.resources", count=len(resources_result.resources))
 
     if "prompt" in kinds:
+        logger.debug("mcp.client.fetch_primitives.prompts.start")
         prompts_result = await session.list_prompts()
         for prompt in prompts_result.prompts:
             d = prompt.model_dump(mode="json", exclude_none=True)

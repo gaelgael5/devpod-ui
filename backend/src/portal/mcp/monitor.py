@@ -15,6 +15,8 @@ from portal.mcp.runtime_secrets import UnresolvableSecret, resolve_grant_key
 
 _log = structlog.get_logger(__name__)
 
+_PROBE_TIMEOUT_S = 60.0  # timeout global par probe (connexion + sync)
+
 
 class BackendHealth(BaseModel):
     """Statut de santé d'un backend MCP, dérivé du dernier monitoring."""
@@ -94,9 +96,19 @@ async def monitor_backend_once(
     # le sync) n'est pas imputable au backend : elle remonte à run_monitor_pass (loggée),
     # la santé conserve sa dernière valeur connue plutôt que d'afficher un faux "down".
     try:
-        async with session_fn(url, transport=transport, bearer=bearer) as session:
-            await sync_backend(conn, backend_id=backend_id, session=session)
+        async with asyncio.timeout(_PROBE_TIMEOUT_S):
+            async with session_fn(url, transport=transport, bearer=bearer) as session:
+                await sync_backend(conn, backend_id=backend_id, session=session)
         health = BackendHealth(status="up")
+    except TimeoutError:
+        _log.warning(
+            "mcp_monitor_probe_timeout",
+            backend_id=backend_id,
+            url=url,
+            transport=transport,
+            timeout_s=_PROBE_TIMEOUT_S,
+        )
+        health = BackendHealth(status="down", error=f"probe timeout après {_PROBE_TIMEOUT_S}s")
     except BackendUnavailable as exc:
         health = BackendHealth(status="down", error=str(exc))
     set_health(backend_id, health)
