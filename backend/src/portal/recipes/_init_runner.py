@@ -125,7 +125,8 @@ def sentinel_path(spec: dict[str, Any], src_root: str | None = None) -> Path:
         else:
             base = target
     else:
-        raise ValueError("recipe initialize without any copy/transform op")
+        # Recipe sans op (marqueur pur) : sentinel dans le home du workspace.
+        base = Path.home()
     name = f"{spec['recipe_id']}@{spec['version']}"
     return base / ".portal" / name
 

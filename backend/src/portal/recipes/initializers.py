@@ -131,6 +131,7 @@ async def run_initializer(
         _log.warning("initializer_no_result", ws_id=ws_id, recipe=meta.id, rc=rc)
         raise InitializerError(log or f"no result from runner (exit {rc})")
     if result.get("error"):
+        _log.warning("initializer_runner_error", ws_id=ws_id, recipe=meta.id, error=result["error"])
         raise InitializerError(str(result["error"]))
 
     _log.info(
