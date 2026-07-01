@@ -58,7 +58,10 @@ class RegisterBody(BaseModel):
     @classmethod
     def validate_slug(cls, v: str) -> str:
         if not _SLUG_RE.fullmatch(v):
-            raise ValueError("slug: alphanum minuscules + tirets/underscores")
+            raise ValueError(
+                f"Slug invalide : {v!r} — minuscules, chiffres, tirets/underscores uniquement "
+                "(ex. admin-key)"
+            )
         return v
 
     @field_validator("secret_type")

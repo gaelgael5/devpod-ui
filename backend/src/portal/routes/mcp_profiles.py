@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, ConfigDict
@@ -14,7 +14,9 @@ from ..mcp.service import new_id
 
 router = APIRouter(tags=["mcp-profiles"])
 
-_ID = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,80}$")
+# Annotated type aliases — cf. mcp.py pour la justification du choix Annotated vs constante Path.
+_ProfileId = Annotated[str, Path(pattern=r"^[a-z0-9]{1,64}$")]
+_BackendId = Annotated[str, Path(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")]
 
 
 class ProfileCreate(BaseModel):
@@ -63,7 +65,7 @@ async def create_profile_route(
 
 @router.get("/mcp/profiles/{profile_id}")
 async def get_profile_route(
-    profile_id: str = _ID,
+    profile_id: _ProfileId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
@@ -77,7 +79,7 @@ async def get_profile_route(
 @router.put("/mcp/profiles/{profile_id}")
 async def update_profile_route(
     body: ProfileUpdate,
-    profile_id: str = _ID,
+    profile_id: _ProfileId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
@@ -91,7 +93,7 @@ async def update_profile_route(
 
 @router.delete("/mcp/profiles/{profile_id}", status_code=204)
 async def delete_profile_route(
-    profile_id: str = _ID,
+    profile_id: _ProfileId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
@@ -105,15 +107,14 @@ async def delete_profile_route(
 @router.put("/mcp/profiles/{profile_id}/entries/{backend_id}")
 async def upsert_entry_route(
     body: EntryUpsert,
-    profile_id: str = _ID,
-    backend_id: str = _ID,
+    profile_id: _ProfileId,
+    backend_id: _BackendId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
     if await db.get_profile(conn, user.login, profile_id) is None:
         raise HTTPException(status_code=404, detail="profil introuvable")
-    user_backend_ids = {b["id"] for b in await mcp_db.list_backends(conn, user.login)}
-    if backend_id not in user_backend_ids:
+    if not await mcp_db.backend_exists(conn, backend_id):
         raise HTTPException(status_code=404, detail="backend introuvable")
     if (
         body.backend_key_id is not None
@@ -132,8 +133,8 @@ async def upsert_entry_route(
 
 @router.delete("/mcp/profiles/{profile_id}/entries/{backend_id}", status_code=204)
 async def delete_entry_route(
-    profile_id: str = _ID,
-    backend_id: str = _ID,
+    profile_id: _ProfileId,
+    backend_id: _BackendId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:

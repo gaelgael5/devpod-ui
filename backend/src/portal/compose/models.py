@@ -1,4 +1,5 @@
 """Modèles de la galerie docker-compose (spec 26 §4 + cadrage)."""
+
 from __future__ import annotations
 
 import re
@@ -42,6 +43,9 @@ class ComposeTemplate(BaseModel):
     compose_content: str
     parameters: list[ComposeParam] = Field(default_factory=list)
     source: TemplateSource = "user"
+    # Fichiers compagnons (ex. config.alloy) déployés dans le même répertoire que
+    # docker-compose.yml. Réservé aux templates builtin.
+    extra_files: dict[str, str] = Field(default_factory=dict)
     message_key: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -49,7 +53,8 @@ class ComposeTemplate(BaseModel):
 
 class ComposeDeployment(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    id: str
+    uid: str  # UUID PK — utilisé dans les URL API
+    id: str  # slug utilisateur — nom docker compose + répertoire distant
     template_id: str
     template_version: str
     node_id: str

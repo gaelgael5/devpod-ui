@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..db import mcp as mcp_db
+from ..db import mcp_profiles as _profiles_db
 from ..db import oauth as db
 from ..mcp.service import APIKEY_PREFIX
 from .pkce import verify_s256
@@ -85,6 +85,7 @@ async def make_authcode(
     code_challenge: str,
     scope: str,
     grants: list[dict[str, Any]],
+    profile_id: str | None,
 ) -> str:
     """Crée un code d'autorisation (TTL court) lié aux grants consentis ; retourne le code clair."""
     code = new_secret(_CODE_PREFIX)
@@ -97,6 +98,7 @@ async def make_authcode(
         code_challenge=code_challenge,
         scope=scope,
         grants=grants,
+        profile_id=profile_id,
         expires_at=datetime.now(UTC) + _AUTHCODE_TTL,
     )
     return code
@@ -118,8 +120,43 @@ async def exchange_code(
         raise OAuthError("invalid_grant", "client_id/redirect_uri ne correspond pas au code")
     if not verify_s256(code_verifier, row["code_challenge"]):
         raise OAuthError("invalid_grant", "PKCE invalide")
+
+    profile_id: str | None = row.get("profile_id")
+    grants: list[dict[str, Any]] = [
+        g for g in (row.get("grants") or []) if g.get("backend_id")
+    ]
+
+    # Si aucun profil n'a été sélectionné sur l'écran de consentement mais que
+    # l'utilisateur a accordé des backends, on crée un profil automatique pour
+    # ce token — sinon list_entries_for_apikey retourne toujours zéro entrées.
+    if not profile_id and grants:
+        profile_id = uuid.uuid4().hex
+        await _profiles_db.insert_profile(
+            conn,
+            id=profile_id,
+            owner_login=row["owner_login"],
+            name=f"OAuth {client_id[:16]}",
+            description="Profil auto-créé lors du consentement OAuth.",
+        )
+
+    # Persiste les backends accordés dans mcp_profile_entry pour que
+    # list_entries_for_apikey les retrouve lors du listing des outils.
+    # tools=None signifie "toutes les primitives du backend" (filtre désactivé).
+    if profile_id:
+        for grant in grants:
+            await _profiles_db.upsert_profile_entry(
+                conn,
+                profile_id=profile_id,
+                backend_id=str(grant["backend_id"]),
+                backend_key_id=grant.get("backend_key_id"),
+                tools=None,
+            )
+
     return await _issue(
-        conn, owner_login=row["owner_login"], client_id=client_id, grants=row["grants"]
+        conn,
+        owner_login=row["owner_login"],
+        client_id=client_id,
+        profile_id=profile_id,
     )
 
 
@@ -146,7 +183,7 @@ async def _issue(
     *,
     owner_login: str,
     client_id: str,
-    grants: list[dict[str, Any]],
+    profile_id: str | None,
 ) -> dict[str, Any]:
     access = new_secret(APIKEY_PREFIX)
     refresh_tok = new_secret(_REFRESH_PREFIX)
@@ -159,25 +196,17 @@ async def _issue(
         client_id=client_id,
         refresh_token_hash=sha256_hex(refresh_tok),
         expires_at=None,  # long-lived révocable (D6)
+        profile_id=profile_id,
     )
-    for g in grants:
-        await mcp_db.set_grant(
-            conn,
-            apikey_id=apikey_id,
-            backend_id=g["backend_id"],
-            backend_key_id=g.get("backend_key_id"),
-            expose_mode=g.get("expose_mode", "all"),
-            expose=g.get("expose", []),
-            enabled=g.get("enabled", True),
-            scopes=g.get("scopes"),
-        )
     return _token_response(access, refresh_tok)
 
 
 def _token_response(access: str, refresh_tok: str) -> dict[str, Any]:
+    # expires_in : doit être un entier positif selon RFC 6749 (null → rejeté par
+    # certains clients OAuth). Nos tokens sont long-lived et révocables côté portail.
     return {
         "access_token": access,
         "token_type": "Bearer",
         "refresh_token": refresh_tok,
-        "expires_in": None,
+        "expires_in": 315360000,  # 10 ans
     }

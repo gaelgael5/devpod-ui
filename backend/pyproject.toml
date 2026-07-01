@@ -66,3 +66,9 @@ filterwarnings = ["error::DeprecationWarning"]
 
 [tool.uv.sources]
 harpocrate = { path = "../Sdk/harpocrate-0.6.0", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+]

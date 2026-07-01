@@ -1,20 +1,30 @@
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..db import mcp as db
 from ..db.engine import get_conn
+from ..db.mcp_audit import list_for_owner as audit_list
 from ..db.mcp_catalog import list_primitives as list_catalog_primitives
 from ..mcp import models, service
-from ..mcp.monitor import get_health
+from ..mcp.monitor import get_health, monitor_backend_once
+
+_log = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["mcp"])
 
-_ID = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+# Annotated type aliases — chaque paramètre de route reçoit une copie du FieldInfo
+# (FastAPI extrait les métadonnées d'Annotated sans muter l'objet Path sous-jacent).
+# NE PAS utiliser Path(...) comme valeur par défaut partagée entre plusieurs handlers :
+# FastAPI/Pydantic v2 associerait l'alias du premier paramètre à tous les suivants.
+_UuidId = Annotated[str, Path(pattern=r"^[a-z0-9]{1,64}$")]
+_BackendId = Annotated[str, Path(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")]
 
 
 def _sid(request: Request) -> str:
@@ -61,7 +71,7 @@ async def create_backend_route(
 @router.patch("/mcp/backends/{backend_id}")
 async def update_backend_route(
     body: models.BackendUpdate,
-    backend_id: str = _ID,
+    backend_id: _BackendId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
@@ -75,9 +85,27 @@ async def update_backend_route(
     return {"id": backend_id}
 
 
+@router.post("/mcp/backends/{backend_id}/probe")
+async def probe_backend_route(
+    backend_id: _BackendId,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str]:
+    """Force un re-probe immédiat du backend et retourne son état de santé."""
+    _log.info("mcp_probe_requested", backend_id=backend_id, login=user.login)
+    backends = await db.list_backends(conn, user.login)
+    backend = next((b for b in backends if b["id"] == backend_id), None)
+    if backend is None:
+        _log.warning("mcp_probe_backend_not_found", backend_id=backend_id, login=user.login)
+        raise HTTPException(status_code=404, detail="backend introuvable")
+    health = await monitor_backend_once(conn, backend)
+    _log.info("mcp_probe_result", backend_id=backend_id, status=health.status, error=health.error)
+    return {"id": backend_id, "health": health.status}
+
+
 @router.delete("/mcp/backends/{backend_id}", status_code=204)
 async def delete_backend_route(
-    backend_id: str = _ID,
+    backend_id: _BackendId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
@@ -90,7 +118,7 @@ async def delete_backend_route(
 
 @router.get("/mcp/backends/{backend_id}/keys")
 async def list_keys_route(
-    backend_id: str = _ID,
+    backend_id: _BackendId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, Any]]:
@@ -103,7 +131,7 @@ async def list_keys_route(
 async def create_key_route(
     body: models.KeyCreate,
     request: Request,
-    backend_id: str = _ID,
+    backend_id: _BackendId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
@@ -117,8 +145,8 @@ async def create_key_route(
 
 @router.delete("/mcp/backends/{backend_id}/keys/{key_id}", status_code=204)
 async def delete_key_route(
-    backend_id: str = _ID,
-    key_id: str = _ID,
+    backend_id: _BackendId,
+    key_id: _UuidId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
@@ -150,7 +178,7 @@ async def create_apikey_route(
 
 @router.post("/mcp/apikeys/{apikey_id}/revoke")
 async def revoke_apikey_route(
-    apikey_id: str = _ID,
+    apikey_id: _UuidId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
@@ -162,7 +190,7 @@ async def revoke_apikey_route(
 @router.patch("/mcp/apikeys/{apikey_id}/profile")
 async def set_apikey_profile_route(
     body: models.ApikeySetProfile,
-    apikey_id: str = _ID,
+    apikey_id: _UuidId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str | None]:
@@ -176,7 +204,7 @@ async def set_apikey_profile_route(
 
 @router.get("/mcp/backends/{backend_id}/catalog")
 async def list_catalog_route(
-    backend_id: str = _ID,
+    backend_id: _BackendId,
     kind: str = "tool",
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
@@ -192,10 +220,40 @@ async def list_catalog_route(
 
 @router.delete("/mcp/apikeys/{apikey_id}", status_code=204)
 async def delete_apikey_route(
-    apikey_id: str = _ID,
+    apikey_id: _UuidId,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
     if not await db.delete_apikey(conn, user.login, apikey_id):
         raise HTTPException(status_code=404, detail="apikey introuvable")
+
+
+# ─── Audit log ────────────────────────────────────────────────────────────────
+
+
+@router.get("/mcp/audit-log")
+async def list_audit_log_route(
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+    limit: int = Query(100, ge=1, le=1000),
+    status: str | None = Query(None, pattern=r"^(ok|error|denied|timeout)$"),
+    tool: str | None = Query(None, max_length=256),
+    since: datetime | None = Query(None),
+) -> list[dict[str, Any]]:
+    """Journal d'audit des appels MCP (100 derniers par défaut).
+
+    Filtres optionnels :
+    - **status** : ok | error | denied | timeout
+    - **tool** : nom namespacé exact (ex: devpod__workspace_list)
+    - **since** : ISO-8601, retourne uniquement les entrées après cette date
+    - **limit** : 1–1000
+    """
+    return await audit_list(
+        conn,
+        user.login,
+        limit=limit,
+        status=status,
+        tool=tool,
+        since=since,
+    )
 

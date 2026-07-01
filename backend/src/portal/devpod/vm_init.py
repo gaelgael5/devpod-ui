@@ -5,8 +5,12 @@ SSH multi-hop (container, puis PVE → VM) n'est exerçable que sur serveur.
 """
 from __future__ import annotations
 
+import asyncio
+import os
 import secrets
 import shlex
+import tempfile
+from pathlib import Path
 
 # Marqueurs délimitant le bloc ~/.ssh/config d'un host de test (un par host) :
 # permettent un remplacement idempotent à la re-création sans toucher aux autres.
@@ -24,6 +28,43 @@ CONTAINER_KEYGEN_CMD = (
 def generate_root_password(nbytes: int = 12) -> str:
     """Mot de passe aléatoire URL-safe (alphabet [A-Za-z0-9_-])."""
     return secrets.token_urlsafe(nbytes)
+
+
+async def generate_ed25519_keypair() -> tuple[str, str]:
+    """Génère une paire de clés ED25519. Retourne (pem_privé, pubkey_openssh)."""
+    with tempfile.TemporaryDirectory() as d:
+        keyfile = os.path.join(d, "portal_key")
+        proc = await asyncio.create_subprocess_exec(
+            "ssh-keygen", "-t", "ed25519", "-f", keyfile, "-N", "", "-q",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(proc.wait(), timeout=15.0)
+        priv = Path(keyfile).read_text()
+        pub = Path(f"{keyfile}.pub").read_text().strip()
+    return priv, pub
+
+
+def build_portal_key_inject_script(portal_pubkey: str, vm_address: str) -> str:
+    """Script exécuté sur le nœud PVE : injecte la pubkey du portail dans
+    ~/.ssh/authorized_keys de l'utilisateur SSH de la VM (sans sudo).
+
+    Permet au portail de se connecter directement à la VM pour les opérations
+    docker-compose (host_exec / run_host_command).
+    """
+    ppub_q = shlex.quote(portal_pubkey)
+    inner = (
+        "set -euo pipefail; "
+        "mkdir -p ~/.ssh && chmod 700 ~/.ssh && "
+        f"(grep -qxF {ppub_q} ~/.ssh/authorized_keys 2>/dev/null || "
+        f"echo {ppub_q} >> ~/.ssh/authorized_keys) && "
+        "chmod 600 ~/.ssh/authorized_keys"
+    )
+    return (
+        "set -euo pipefail\n"
+        "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 "
+        f"{shlex.quote(vm_address)} {shlex.quote(inner)}\n"
+    )
 
 
 def build_vm_root_inject_script(pubkey: str, password: str, vm_address: str) -> str:

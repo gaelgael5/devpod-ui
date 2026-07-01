@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
+import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -11,8 +13,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { apiFetch } from '@/shared/api/client'
 import ParametersForm from './ParametersForm'
-import { useTemplates, useCreateDeployment } from '../hooks/useCompose'
+import { useTemplates } from '../hooks/useCompose'
 import type { ComposeTemplate, PortConflictDetail } from '../api/types'
 
 interface Props {
@@ -24,10 +27,9 @@ interface Props {
   nodeLabel: string
 }
 
-function parsePortConflict(e: unknown): PortConflictDetail | null {
-  if (!(e instanceof Error)) return null
+function parsePortConflict(text: string): PortConflictDetail | null {
   try {
-    const parsed = JSON.parse(e.message) as Record<string, unknown>
+    const parsed = JSON.parse(text) as Record<string, unknown>
     const inner =
       typeof parsed.detail === 'object' && parsed.detail !== null
         ? (parsed.detail as Record<string, unknown>)
@@ -44,11 +46,7 @@ function parsePortConflict(e: unknown): PortConflictDetail | null {
 }
 
 /** Étape 1 : sélection du template */
-function TemplatePicker({
-  onPick,
-}: {
-  onPick: (tpl: ComposeTemplate) => void
-}) {
+function TemplatePicker({ onPick }: { onPick: (tpl: ComposeTemplate) => void }) {
   const { t } = useTranslation()
   const { data: templates = [], isLoading } = useTemplates()
 
@@ -86,7 +84,7 @@ function TemplatePicker({
   )
 }
 
-/** Étape 2 : paramètres + nom du déploiement */
+/** Étape 2 : paramètres + streaming */
 function DeployForm({
   template,
   nodeId,
@@ -101,40 +99,119 @@ function DeployForm({
   onSuccess: () => void
 }) {
   const { t } = useTranslation()
-  const createDeployment = useCreateDeployment()
+  const qc = useQueryClient()
   const [name, setName] = useState('')
   const [envValues, setEnvValues] = useState<Record<string, string>>(
     () => Object.fromEntries(template.parameters.map((p) => [p.key, p.default ?? ''])),
   )
   const [serverError, setServerError] = useState<string | null>(null)
+  const [logs, setLogs] = useState('')
+  const [streaming, setStreaming] = useState(false)
+  const [streamDone, setStreamDone] = useState(false)
+  const logRef = useRef<HTMLPreElement>(null)
 
-  async function handleSubmit() {
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight
+    }
+  }, [logs])
+
+  const handleSubmit = useCallback(async () => {
     setServerError(null)
+    setLogs('')
+    setStreamDone(false)
+
+    let res: Response
     try {
-      await createDeployment.mutateAsync({
-        template_id: template.id,
-        node_id: nodeId,
-        name: name.trim(),
-        env_values: envValues,
+      res = await apiFetch('/api/compose/deployments/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          template_id: template.id,
+          node_id: nodeId,
+          name: name.trim(),
+          env_values: envValues,
+        }),
       })
-      onSuccess()
     } catch (e) {
-      const conflict = parsePortConflict(e)
+      setServerError(e instanceof Error ? e.message : String(e))
+      return
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      const conflict = parsePortConflict(text)
       if (conflict?.error === 'port_conflict') {
         const ports = conflict.conflicts.join(', ')
-        setServerError(t('compose.deployDialog.portConflict', { ports, suggestion: conflict.suggestion ?? '' }))
+        setServerError(
+          t('compose.deployDialog.portConflict', { ports, suggestion: conflict.suggestion ?? '' }),
+        )
         if (conflict.suggestion !== null) {
           const portParam = template.parameters.find((p) => p.type === 'port')
           if (portParam)
             setEnvValues((prev) => ({ ...prev, [portParam.key]: String(conflict.suggestion) }))
         }
       } else {
-        setServerError((e as Error).message)
+        setServerError(text || `HTTP ${res.status}`)
       }
+      return
     }
-  }
 
-  const canSubmit = Boolean(name.trim()) && !createDeployment.isPending
+    setStreaming(true)
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    let accum = ''
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        accum += decoder.decode(value, { stream: true })
+        setLogs(accum)
+      }
+    } finally {
+      setStreaming(false)
+      setStreamDone(true)
+    }
+
+    const lines = accum.trimEnd().split('\n')
+    const lastLine = lines[lines.length - 1] ?? ''
+    if (lastLine.startsWith('__RESULT__:')) {
+      void qc.invalidateQueries({ queryKey: ['compose', 'deployments'] })
+      onSuccess()
+    } else {
+      const msg = lastLine.startsWith('__ERROR__:')
+        ? lastLine.slice('__ERROR__:'.length)
+        : t('compose.deployDialog.deployFailed')
+      setServerError(msg || t('compose.deployDialog.deployFailed'))
+    }
+  }, [template, nodeId, name, envValues, qc, onSuccess, t])
+
+  const canSubmit = Boolean(name.trim()) && !streaming
+  const showLogs = streaming || streamDone
+
+  if (showLogs) {
+    return (
+      <div className="flex flex-col gap-3">
+        <pre
+          ref={logRef}
+          className="max-h-[55vh] overflow-auto whitespace-pre-wrap rounded bg-black/90 p-3 text-xs text-green-200"
+        >
+          {logs || '…'}
+        </pre>
+        {streamDone && serverError && (
+          <p className="text-sm text-destructive">{serverError}</p>
+        )}
+        <DialogFooter>
+          <Button onClick={onBack} disabled={streaming}>
+            {streaming
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : t('common.close')}
+          </Button>
+        </DialogFooter>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -168,7 +245,7 @@ function DeployForm({
           {t('compose.launch.back')}
         </Button>
         <Button onClick={() => void handleSubmit()} disabled={!canSubmit}>
-          {createDeployment.isPending ? '…' : t('compose.launch.start')}
+          {t('compose.launch.start')}
         </Button>
       </DialogFooter>
     </div>
@@ -186,7 +263,7 @@ export default function ServiceLaunchDialog({ open, onOpenChange, nodeId, nodeLa
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-[45rem]">
         <DialogHeader>
           <DialogTitle>
             {selected

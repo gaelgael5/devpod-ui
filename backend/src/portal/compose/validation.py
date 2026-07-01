@@ -1,4 +1,5 @@
 """Validation et lint des templates compose (spec 26 §5/§7)."""
+
 from __future__ import annotations
 
 import re
@@ -6,8 +7,18 @@ from typing import Any
 
 import yaml
 
-from .models import ComposeParam
+from .models import ComposeParam, TemplateSource
 from .port_aliases import is_alias_entry
+
+# Bind-mounts système autorisés pour les templates builtin uniquement (lecture seule).
+_BUILTIN_ALLOWED_BINDS: frozenset[str] = frozenset(
+    {
+        "/var/run/docker.sock",
+        "/var/log",
+        "/run/log/journal",
+        "/etc/machine-id",
+    }
+)
 
 _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}")
 
@@ -38,7 +49,7 @@ def _port_mappings(parsed: dict[str, Any]) -> list[Any]:
 def _absolute_bind_mounts(svc: dict[str, Any]) -> list[str]:
     """Retourne les chemins de bind-mount absolus (interdits)."""
     bad: list[str] = []
-    for vol in (svc.get("volumes") or []):
+    for vol in svc.get("volumes") or []:
         if isinstance(vol, str):
             src = vol.split(":")[0]
             if src.startswith("/"):
@@ -81,7 +92,11 @@ def _is_hardcoded_host_port(entry: Any) -> bool:
     return False
 
 
-def validate_template(compose_content: str, parameters: list[ComposeParam]) -> list[str]:
+def validate_template(
+    compose_content: str,
+    parameters: list[ComposeParam],
+    source: TemplateSource = "user",
+) -> list[str]:
     try:
         parsed = yaml.safe_load(compose_content)
     except yaml.YAMLError as exc:
@@ -108,22 +123,17 @@ def validate_template(compose_content: str, parameters: list[ComposeParam]) -> l
             )
 
     # Lint : bind-mounts absolus interdits (isolation workspace-to-workspace).
+    # Exception : templates builtin autorisés sur la whitelist système (lecture seule).
     services = parsed.get("services") or {}
     for svc_name, svc in services.items():
         if not isinstance(svc, dict):
             continue
         for bad_path in _absolute_bind_mounts(svc):
+            if source == "builtin" and bad_path in _BUILTIN_ALLOWED_BINDS:
+                continue
             raise TemplateValidationError(
                 f"service {svc_name!r}: bind-mount absolu interdit ({bad_path!r}) ; "
                 f"utilisez un chemin relatif (ex: ./data:/app/data) ou un volume nommé"
             )
 
-    warnings: list[str] = []
-    for line in compose_content.splitlines():
-        has_latest = re.search(r"image:\s*\S+:latest(\s|$)", line)
-        has_no_tag = re.search(r"image:\s*[^:\s]+\s*$", line)
-        if has_latest or has_no_tag:
-            warnings.append(
-                f"image non épinglée ('latest' ou sans tag): {line.strip()}"
-            )
-    return warnings
+    return []

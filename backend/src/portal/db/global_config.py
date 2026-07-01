@@ -28,6 +28,11 @@ def get_cached_global() -> GlobalConfig:
     return _cache
 
 
+def get_optional_cached_global() -> GlobalConfig | None:
+    """Retourne la GlobalConfig depuis le cache RAM, ou None si absente/non initialisée."""
+    return _cache
+
+
 async def warm_global_cache(conn: AsyncConnection) -> None:
     """Charge la GlobalConfig depuis la DB et peuple le cache. Appelé au lifespan."""
     global _cache

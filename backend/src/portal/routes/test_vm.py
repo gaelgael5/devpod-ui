@@ -44,13 +44,15 @@ from ..devpod.vm_init import (
     CONTAINER_KEYGEN_CMD,
     build_container_ssh_config_cmd,
     build_container_ssh_config_remove_cmd,
+    build_portal_key_inject_script,
     build_vm_root_inject_script,
+    generate_ed25519_keypair,
     generate_root_password,
 )
 from ..messages.renderer import build_host_context
 from ..messages.service import delete_message as msg_delete
 from ..messages.service import render_and_create
-from ..secrets.system import delete_system_secret, store_system_secret
+from ..secrets.system import delete_system_secret, store_system_cert, store_system_secret
 from ..settings import get_settings
 from .proxmox import (
     _fetch_spec,
@@ -167,6 +169,58 @@ async def _init_vm_ssh(
     else:
         detail = cfg_err.strip()[:200]
         yield f"==> AVERTISSEMENT : alias SSH non écrit ({detail})\n".encode()
+
+    # Activation SSH portail : génère une clé ED25519 dédiée, l'injecte dans la VM
+    # et met à jour host_cert_slug — permet d'utiliser cette machine pour les services compose.
+    yield b"\n==> Activation SSH portail (services compose)...\n"
+    try:
+        portal_priv, portal_pub = await generate_ed25519_keypair()
+    except Exception as exc:
+        yield f"==> AVERTISSEMENT : génération clé SSH portail échouée ({exc})\n".encode()
+        return
+
+    portal_inject = build_portal_key_inject_script(portal_pub, host.address)
+    ssh_cmd2 = ["ssh", *_ssh_opts(node), f"{node.ssh_user}@{node.address}", "bash -s"]
+    proc2 = await asyncio.create_subprocess_exec(
+        *ssh_cmd2,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        _, serr2 = await asyncio.wait_for(
+            proc2.communicate(input=portal_inject.encode()), timeout=30.0
+        )
+    except TimeoutError:
+        proc2.kill()
+        await proc2.wait()
+        yield "==> AVERTISSEMENT : injection clé SSH portail (timeout)\n".encode()
+        return
+    if proc2.returncode != 0:
+        detail2 = serr2.decode("utf-8", errors="replace").strip()[:300]
+        yield f"==> AVERTISSEMENT : injection clé SSH portail : {detail2}\n".encode()
+        return
+
+    slug = f"compose.{host.name}"
+    async with _get_engine().begin() as conn:
+        await store_system_cert(
+            slug=slug,
+            label=f"Clé SSH portail — {host.name}",
+            private_pem=portal_priv,
+            public_key=portal_pub,
+            cert_type="ssh",
+            storage_type="local",
+            vault_identifier="",
+            conn=conn,
+        )
+        new_cfg = load_global()
+        for h in new_cfg.hosts:
+            if h.name == host.name:
+                h.host_cert_slug = slug
+                break
+        await save_global_db(new_cfg, conn)
+
+    yield "==> SSH portail actif — services compose disponibles sur cette machine\n".encode()
 
 
 @router.get("/workspaces/{ws}/test-hosts")

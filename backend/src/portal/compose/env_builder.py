@@ -1,4 +1,5 @@
 """Génération du .env d'un déploiement : résolution secrets en mémoire (spec 26 §6)."""
+
 from __future__ import annotations
 
 from ..config.store import load_global, safe_user_path
@@ -38,6 +39,14 @@ def _quote(value: str) -> str:
     return f'"{escaped}"'
 
 
-def render_env_file(resolved: dict[str, str]) -> str:
-    """Rend un dictionnaire de valeurs résolvues en contenu .env."""
-    return "".join(f"{k}={_quote(v)}\n" for k, v in resolved.items())
+def render_env_file(
+    resolved: dict[str, str],
+    context_vars: dict[str, str] | None = None,
+) -> str:
+    """Rend un dictionnaire de valeurs résolvues en contenu .env.
+
+    Les context_vars (injectées par le portail, non saisies par l'user) sont
+    ajoutées après les valeurs user et prennent la priorité en cas de doublon.
+    """
+    merged = {**resolved, **(context_vars or {})}
+    return "".join(f"{k}={_quote(v)}\n" for k, v in merged.items())

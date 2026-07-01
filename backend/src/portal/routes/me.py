@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..auth.rbac import UserInfo, require_user
 from ..certificates import service as cert_svc
 from ..config.models import GitCredential, UserConfig, WorkspaceSpec
-from ..config.store import load_user, safe_user_path, save_user
+from ..config.store import load_global, load_user, safe_user_path, save_user
 from ..db.engine import get_conn
 from ..devpod.git import run_git_ls_remote
 from ..secrets import service as secret_svc
@@ -33,6 +33,13 @@ async def get_current_user(user: UserInfo = Depends(require_user)) -> dict[str, 
     return {"login": user.login, "roles": user.roles}
 
 
+@router.get("/logs-config")
+async def get_logs_config(_user: UserInfo = Depends(require_user)) -> dict[str, object]:
+    """Expose les paramètres Grafana nécessaires au frontend (pas de secrets)."""
+    cfg = load_global()
+    return {"enabled": cfg.logs.enabled, "grafana_url": cfg.logs.grafana_url}
+
+
 @router.get("/config")
 async def get_config(user: UserInfo = Depends(require_user)) -> dict[str, object]:
     cfg = await load_user(user.login)
@@ -50,7 +57,7 @@ async def put_config(
         new_cfg = UserConfig.model_validate(merged)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    await save_user(user.login,new_cfg)
+    await save_user(user.login, new_cfg)
     _log.info("user_config_updated", login=user.login)
     return new_cfg.model_dump(mode="json")
 
@@ -69,7 +76,7 @@ async def add_workspace(
     if any(ws.name == workspace.name for ws in cfg.workspaces):
         raise HTTPException(status_code=409, detail=f"Workspace {workspace.name!r} already exists")
     cfg.workspaces.append(workspace)
-    await save_user(user.login,cfg)
+    await save_user(user.login, cfg)
     _log.info("workspace_added", login=user.login, name=workspace.name)
     return workspace.model_dump(mode="json")
 
@@ -103,8 +110,7 @@ async def list_git_branches(
             )
         elif "Repository not found" in err or "not found" in err.lower():
             detail = (
-                "Dépôt introuvable ou accès refusé."
-                " Vérifiez l'URL et les permissions du token."
+                "Dépôt introuvable ou accès refusé. Vérifiez l'URL et les permissions du token."
             )
         elif "Could not resolve host" in err or "unable to resolve" in err.lower():
             detail = "Hôte introuvable. Vérifiez l'URL du dépôt."
@@ -137,7 +143,7 @@ class _GitCredentialCreate(BaseModel):
     host: str
     kind: Literal["ssh", "token"]
     username: str = ""
-    cert_slug: str = ""    # si kind=ssh : slug dans harpo_certificates
+    cert_slug: str = ""  # si kind=ssh : slug dans harpo_certificates
     secret_slug: str = ""  # si kind=token : slug dans harpo_secrets
 
 
@@ -176,9 +182,7 @@ async def add_git_credential(
         if not body.cert_slug:
             raise HTTPException(status_code=422, detail="cert_slug requis pour un credential SSH")
         try:
-            pem = await cert_svc.reveal_private_key(
-                user.login, _sid(request), body.cert_slug, conn
-            )
+            pem = await cert_svc.reveal_private_key(user.login, _sid(request), body.cert_slug, conn)
         except cert_svc.VaultLocked:
             raise HTTPException(status_code=403, detail="vault_locked") from None
         except cert_svc.CertNotFound:
@@ -223,7 +227,7 @@ class _GitCredentialUpdate(BaseModel):
     host: str | None = None
     kind: Literal["ssh", "token"] | None = None
     username: str | None = None
-    cert_slug: str | None = None    # si kind=ssh : nouveau cert depuis harpo_certificates
+    cert_slug: str | None = None  # si kind=ssh : nouveau cert depuis harpo_certificates
     secret_slug: str | None = None  # si kind=token : nouveau secret depuis harpo_secrets
 
 
@@ -288,9 +292,7 @@ async def patch_git_credential(
             if old_key_path and old_key_path != new_key_path:
                 key_to_delete = Path(old_key_path)
         elif cred.kind != "ssh":
-            raise HTTPException(
-                status_code=422, detail="cert_slug requis pour passer en mode SSH"
-            )
+            raise HTTPException(status_code=422, detail="cert_slug requis pour passer en mode SSH")
         elif effective_name != name and cred.key_path:
             # Renommage sans changement de cert : déplacer le fichier
             old_file = Path(cred.key_path)
@@ -361,7 +363,7 @@ async def delete_git_credential(
     if not cred:
         raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
     cfg.git_credentials = [c for c in cfg.git_credentials if c.name != name]
-    await save_user(user.login,cfg)
+    await save_user(user.login, cfg)
     if cred.kind == "ssh" and cred.key_path:
         key_file = Path(cred.key_path)
         if key_file.exists():
@@ -380,6 +382,6 @@ async def delete_workspace(name: str, user: UserInfo = Depends(require_user)) ->
     cfg.workspaces = [ws for ws in cfg.workspaces if ws.name != name]
     if len(cfg.workspaces) == before:
         raise HTTPException(status_code=404, detail=f"Workspace {name!r} not found")
-    await save_user(user.login,cfg)
+    await save_user(user.login, cfg)
     _log.info("workspace_deleted", login=user.login, name=name)
     return {"deleted": name}

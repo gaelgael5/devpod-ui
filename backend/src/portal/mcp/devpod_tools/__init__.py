@@ -4,6 +4,7 @@ Façade I-1 : les impls appellent les services internes du portail (`DevPodServi
 `ws_exec`), jamais SSH/tmux en direct. Routé depuis `handlers.execute_tool_call`
 quand `target.transport == "internal"`.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,14 +21,21 @@ from typing import Any
 from mcp import types
 from mcp.shared.exceptions import McpError
 from mcp.types import METHOD_NOT_FOUND, ErrorData
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import func as sqlfunc
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ...config.store import _data_root, load_global, load_user, save_user
+from ...db.tables import compose_deployment as dep_table
+from ...db.tables import workspace_test_hosts as wth_table
+from ...db.tables import workspaces as ws_table
 from ...db.user_config import load_user_db
 from ...devpod.exec import TMUX_SOCK_DETECT, tmux, ws_exec
 from . import operations
 from .compose_tools import COMPOSE_IMPLS
 from .errors import DevpodToolError
+from .logs_tools import LOGS_IMPLS
 from .message_tools import MESSAGE_IMPLS
 from .paths import safe_workspace_path
 
@@ -78,9 +86,12 @@ def _ws_summary(spec: Any, ws_id: str, status: str) -> dict[str, Any]:
         "id": ws_id,
         "name": spec.name,
         "repo": spec.source,
+        "branch": spec.branch or None,
         "status": status,
-        "node": spec.host or None,
-        "recipe": spec.recipes,
+        "node_id": spec.host or None,
+        "node": spec.host or None,  # deprecated — utiliser node_id
+        "recipes": spec.recipes,
+        "recipe": spec.recipes,  # deprecated — utiliser recipes
         "tags": [],  # WorkspaceSpec n'a pas de tags en v1 (backlog).
     }
 
@@ -104,14 +115,26 @@ async def _workspace_list(conn: AsyncConnection, args: dict[str, Any], owner_log
 
 async def _workspace_status(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
+    cfg = await load_user_db(owner_login, conn)
+    spec = next((s for s in cfg.workspaces if s.name == name), None)
+    if spec is None:
+        raise DevpodToolError(f"workspace inconnu: {name}")
     ws_id = f"{owner_login}-{name}"
     st = await get_service().status(owner_login, ws_id)
     status = st.get("status", "unknown")
+    container_up = status == "running"
+
+    agent_up: bool | None = None
+    if container_up:
+        rc, _ = await ws_exec(owner_login, ws_id, "true", timeout=5.0)
+        agent_up = rc == 0
+
     return {
         "workspace": name,
         "health": status,
-        "container_up": status == "running",
-        "agent_up": None,  # sondé via session_* (lot 5) ; non résolu ici.
+        "container_up": container_up,
+        "agent_up": agent_up,
+        "node_id": spec.host or None,
     }
 
 
@@ -143,7 +166,7 @@ async def _workspace_resources(
 ) -> Any:
     name = _require_ws(args)
     ws_id = f"{owner_login}-{name}"
-    root = f"/workspaces/{name}"
+    root = f"/workspaces/{owner_login}-{name}"
     cg = "/sys/fs/cgroup"
     # CPU reads anchored to emit exactly one line (missing file → empty line)
     cpu_read = (
@@ -151,12 +174,12 @@ async def _workspace_resources(
         f"awk '/usage_usec/{{print $2}}'; }} | head -1 | grep . || echo ''; "
     )
     cmd = (
-        cpu_read +
-        "sleep 0.1; " +
-        cpu_read +
-        f"cat {cg}/memory.current 2>/dev/null || echo ''; " +
-        f"cat {cg}/memory.max 2>/dev/null || echo ''; " +
-        f"df -B1 --output=used,size {shlex.quote(root)} 2>/dev/null | tail -1"
+        cpu_read
+        + "sleep 0.1; "
+        + cpu_read
+        + f"cat {cg}/memory.current 2>/dev/null || echo ''; "
+        + f"cat {cg}/memory.max 2>/dev/null || echo ''; "
+        + f"df -B1 --output=used,size {shlex.quote(root)} 2>/dev/null | tail -1"
     )
     rc, out = await ws_exec(owner_login, ws_id, cmd, timeout=10.0)
     if rc != 0:
@@ -208,7 +231,7 @@ async def _workspace_git_status(
 ) -> Any:
     name = _require_ws(args)
     ws_id = f"{owner_login}-{name}"
-    root = f"/workspaces/{name}"
+    root = f"/workspaces/{owner_login}-{name}"
     cmd = f"cd {shlex.quote(root)} && git status --porcelain=v1 -b"
     rc, out = await ws_exec(owner_login, ws_id, cmd)
     if rc != 0:
@@ -229,7 +252,7 @@ async def _workspace_git_commit(
     name = _require_ws(args)
     message = _require_str(args, "message")
     ws_id = f"{owner_login}-{name}"
-    root = f"/workspaces/{name}"
+    root = f"/workspaces/{owner_login}-{name}"
 
     cmd = f"cd {shlex.quote(root)} && git rev-parse --abbrev-ref HEAD"
     rc, branch = await ws_exec(owner_login, ws_id, cmd)
@@ -244,16 +267,19 @@ async def _workspace_git_commit(
         add = "git add " + " ".join(shlex.quote(str(f)) for f in files)
     else:
         add = "git add -A"
+    git_identity = (
+        f"-c user.name={shlex.quote(owner_login)} "
+        f"-c user.email={shlex.quote(f'{owner_login}@workspace-portal.local')}"
+    )
     rc, out = await ws_exec(
-        owner_login, ws_id,
-        f"cd {shlex.quote(root)} && {add} && git commit -m {shlex.quote(message)}",
+        owner_login,
+        ws_id,
+        f"cd {shlex.quote(root)} && {add} && git {git_identity} commit -m {shlex.quote(message)}",
     )
     if rc != 0:
         raise DevpodToolError(f"commit échoué: {out}")
 
-    rc, sha = await ws_exec(
-        owner_login, ws_id, f"cd {shlex.quote(root)} && git rev-parse HEAD"
-    )
+    rc, sha = await ws_exec(owner_login, ws_id, f"cd {shlex.quote(root)} && git rev-parse HEAD")
     if rc != 0:
         raise DevpodToolError(f"rev-parse HEAD échoué: {sha}")
     sha = sha.strip()
@@ -277,18 +303,26 @@ async def _workspace_get(conn: AsyncConnection, args: dict[str, Any], owner_logi
     ws_id = f"{owner_login}-{name}"
     st = await get_service().status(owner_login, ws_id)
     sessions = await _session_list(conn, {"workspace": name}, owner_login)
+    raw_dt = st.get("created_at") or st.get("updated_at")
     return {
         "id": ws_id,
         "name": spec.name,
         "repo": spec.source,
         "branch": spec.branch or None,
         "status": st.get("status", "unknown"),
-        "node": spec.host or None,
-        "recipe": spec.recipes,
+        "node_id": spec.host or None,
+        "node": spec.host or None,  # deprecated — utiliser node_id
+        "recipes": spec.recipes,
+        "recipe": spec.recipes,  # deprecated — utiliser recipes
+        "profile": f"{spec.profile.scope}/{spec.profile.slug}" if spec.profile else None,
+        "init_recipes": spec.init_recipes or [],
+        "secret_bindings": {
+            k: v for k, v in (spec.env or {}).items() if _SECRET_REF_RE.fullmatch(v or "")
+        },
         "tags": [],
         "devcontainer_ref": spec.devcontainer_path or spec.template or None,
         "sessions": sessions,
-        "created_at": st.get("created_at") or st.get("updated_at"),
+        "created_at": raw_dt.isoformat() if hasattr(raw_dt, "isoformat") else raw_dt,
     }
 
 
@@ -324,7 +358,7 @@ async def _workspace_read_file(
 ) -> Any:
     name = _require_ws(args)
     rel = _require_str(args, "path")
-    p = safe_workspace_path(name, rel)
+    p = safe_workspace_path(f"{owner_login}-{name}", rel)
     rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", f"cat {shlex.quote(p)}")
     if rc != 0:
         raise DevpodToolError(f"lecture impossible: {out}")
@@ -375,7 +409,7 @@ async def _workspace_secrets_bind(
 
 async def _workspace_tree(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
-    p = safe_workspace_path(name, str(args.get("path", ".")))
+    p = safe_workspace_path(f"{owner_login}-{name}", str(args.get("path", ".")))
     depth = int(args.get("depth", 2))
     ignore = args.get("ignore", _DEFAULT_IGNORE)
     prune = ""
@@ -392,7 +426,7 @@ async def _workspace_tree(conn: AsyncConnection, args: dict[str, Any], owner_log
 async def _workspace_mkdir(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     rel = _require_str(args, "path")
-    p = safe_workspace_path(name, rel)
+    p = safe_workspace_path(f"{owner_login}-{name}", rel)
     rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", f"mkdir -p {shlex.quote(p)}")
     if rc != 0:
         raise DevpodToolError(out)
@@ -404,7 +438,7 @@ async def _workspace_write_file(
 ) -> Any:
     name = _require_ws(args)
     rel = _require_str(args, "path")
-    p = safe_workspace_path(name, rel)
+    p = safe_workspace_path(f"{owner_login}-{name}", rel)
     content = _require_str(args, "content")
     create = bool(args.get("create_dirs", True))
     b64 = base64.b64encode(content.encode()).decode()
@@ -427,9 +461,11 @@ async def _workspace_exec(conn: AsyncConnection, args: dict[str, Any], owner_log
     command = _require_str(args, "command")
     timeout = int(args.get("timeout_s", 60))
     cwd_arg = args.get("cwd")
-    cwd = safe_workspace_path(name, str(cwd_arg)) if cwd_arg else f"/workspaces/{name}"
+    ws_id = f"{owner_login}-{name}"
+    default_cwd = f"/workspaces/{ws_id}"
+    cwd = safe_workspace_path(ws_id, str(cwd_arg)) if cwd_arg else default_cwd
     full = f"cd {shlex.quote(cwd)} && {command}"
-    rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", full, timeout=float(timeout))
+    rc, out = await ws_exec(owner_login, ws_id, full, timeout=float(timeout))
     # Commande one-shot : le code retour fait partie du résultat (pas une erreur métier).
     # ws_exec fusionne stdout+stderr → stderr vide en v1 (séparation = backlog §7).
     return {"stdout": out, "stderr": "", "exit_code": rc}
@@ -452,7 +488,9 @@ async def _start_existing(login: str, name: str, conn: AsyncConnection) -> str:
     return await start_existing_workspace(login, name, conn)
 
 
-async def _workspace_start(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+async def _workspace_reconnect(
+    conn: AsyncConnection, args: dict[str, Any], owner_login: str
+) -> Any:
     name = _require_ws(args)
 
     async def work() -> Any:
@@ -462,7 +500,8 @@ async def _workspace_start(conn: AsyncConnection, args: dict[str, Any], owner_lo
             await _start_existing(owner_login, name, bg_conn)
         return {"workspace": name, "status": "provisioning"}
 
-    return {"operation_id": operations.launch_operation("workspace_start", name, owner_login, work)}
+    op = operations.launch_operation("workspace_reconnect", name, owner_login, work)
+    return {"operation_id": op}
 
 
 async def _workspace_restart(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
@@ -488,7 +527,9 @@ async def _session_open(conn: AsyncConnection, args: dict[str, Any], owner_login
     name = _require_ws(args)
     sess = str(args.get("name", "main"))
     command = _require_str(args, "command")
-    cwd = safe_workspace_path(name, str(args["cwd"])) if args.get("cwd") else f"/workspaces/{name}"
+    ws_id = f"{owner_login}-{name}"
+    default_cwd = f"/workspaces/{ws_id}"
+    cwd = safe_workspace_path(ws_id, str(args["cwd"])) if args.get("cwd") else default_cwd
     inner = f"cd {shlex.quote(cwd)} && {command}"
     # Idempotent (I-3) : on ne relance l'agent que si la session n'existe pas déjà.
     cmd = (
@@ -513,10 +554,26 @@ async def _session_send(conn: AsyncConnection, args: dict[str, Any], owner_login
     text = _require_str(args, "text")
     submit = bool(args.get("submit", True))
     # _origin / _depth (I-7) présents au schéma mais non câblés en v1 : ignorés ici.
-    keys = shlex.quote(text) + (" Enter" if submit else "")
-    rc, out = await ws_exec(
-        owner_login, f"{owner_login}-{name}", tmux(f"send-keys -t {shlex.quote(sess)} {keys}")
-    )
+    #
+    # Correctif bracketed-paste (spec 32 §3) : émettre deux send-keys distincts avec
+    # un court délai pour que l'Enter ne soit pas avalé par la clôture du paste.
+    _tc = f"tmux {_TMUX_SOCK}"
+    q_sess = shlex.quote(sess)
+    if text and submit:
+        # Texte + validation : littéral -l, puis sleep, puis Enter propre.
+        cmd = (
+            f"{TMUX_SOCK_DETECT}; "
+            f"{_tc} send-keys -t {q_sess} -l {shlex.quote(text)}"
+            f" && sleep 0.1"
+            f" && {_tc} send-keys -t {q_sess} Enter"
+        )
+    elif submit:
+        # Texte vide + submit=true : Enter seul.
+        cmd = tmux(f"send-keys -t {q_sess} Enter")
+    else:
+        # submit=false : texte seul (pas d'Enter), littéral -l.
+        cmd = tmux(f"send-keys -t {q_sess} -l {shlex.quote(text)}")
+    rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", cmd)
     if rc != 0:
         raise DevpodToolError(out)
     return {"sent": True}
@@ -561,17 +618,28 @@ async def _session_capture(conn: AsyncConnection, args: dict[str, Any], owner_lo
 
 async def _session_list(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
-    fmt = "'#{session_name}|#{pane_current_command}'"
+    fmt = "'#{session_name}|#{pane_current_command}|#{session_created}'"
     rc, out = await ws_exec(
         owner_login, f"{owner_login}-{name}", tmux(f"list-sessions -F {fmt} 2>/dev/null || true")
     )
     sessions = []
+    now = int(time.time())
     for line in out.splitlines():
         if "|" not in line:
             continue
-        sname, _, cmd = line.partition("|")
+        parts = line.split("|", 2)
+        sname = parts[0]
+        cmd = parts[1] if len(parts) > 1 else ""
+        created_raw = parts[2] if len(parts) > 2 else ""
+        uptime = max(0, now - int(created_raw)) if created_raw.isdigit() else None
         sessions.append(
-            {"session_id": _session_id(name, sname), "name": sname, "command": cmd, "alive": True}
+            {
+                "session_id": _session_id(name, sname),
+                "name": sname,
+                "command": cmd,
+                "alive": True,
+                "uptime_s": uptime,
+            }
         )
     return sessions
 
@@ -579,48 +647,153 @@ async def _session_list(conn: AsyncConnection, args: dict[str, Any], owner_login
 async def _session_get(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     sess = str(args.get("session", "main"))
+    q_sess = shlex.quote(sess)
     fmt = "'#{session_name}|#{pane_id}|#{pane_current_command}|#{session_created}'"
-    rc, out = await ws_exec(
-        owner_login,
-        f"{owner_login}-{name}",
-        tmux(f"display-message -p -t {shlex.quote(sess)} {fmt} 2>/dev/null || true"),
+    _tc = f"tmux {_TMUX_SOCK}"
+    # Commande composée (spec 32 §4) :
+    #   ligne 0 : métadonnées existantes
+    #   ligne 1 : hash capture-pane initial
+    #   ligne 2 : hash capture-pane après ~1 s (change=processing, stable=not processing)
+    cmd = (
+        f"{TMUX_SOCK_DETECT}; "
+        f"{_tc} display-message -p -t {q_sess} {fmt} 2>/dev/null || true; "
+        f"{_tc} capture-pane -p -t {q_sess} 2>/dev/null | sha256sum | cut -d' ' -f1; "
+        f"sleep 1; "
+        f"{_tc} capture-pane -p -t {q_sess} 2>/dev/null | sha256sum | cut -d' ' -f1"
     )
-    line = out.strip()
-    if not line or "|" not in line:
+    rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", cmd, timeout=10.0)
+    lines_out = out.splitlines()
+    meta_line = lines_out[0].strip() if lines_out else ""
+    if not meta_line or "|" not in meta_line:
         raise DevpodToolError("session introuvable")
-    parts = line.split("|")
+    parts = meta_line.split("|")
     created = parts[3] if len(parts) > 3 else "0"
     uptime = max(0, int(time.time()) - int(created)) if created.isdigit() else 0
+    foreground = parts[2] if len(parts) > 2 else ""
+    hash1 = lines_out[1].strip() if len(lines_out) > 1 else ""
+    hash2 = lines_out[2].strip() if len(lines_out) > 2 else ""
+    processing = bool(hash1 and hash2 and hash1 != hash2)
     return {
         "session_id": _session_id(name, parts[0]),
         "name": parts[0],
-        "command": parts[2] if len(parts) > 2 else "",
+        "command": foreground,  # rétrocompatibilité
+        "foreground": foreground,  # process en avant-plan (spec 32 §4)
+        "processing": processing,  # pane stable=False, change=True (spec 32 §4)
         "alive": True,
         "pane_id": parts[1] if len(parts) > 1 else "",
         "uptime_s": uptime,
     }
 
 
+class _ReloadResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace: str
+    reconnected: bool
+    reason: str | None = None
+
+
 async def _portal_reload(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
-    # Modèle (a) : reconnexion forcée du workspace ciblé (en arrière-plan).
-    get_service().reconnect(owner_login, f"{owner_login}-{name}")
-    return {"workspace": name, "reconnected": True}
+    ws_id = f"{owner_login}-{name}"
+
+    try:
+        st = await get_service().status(owner_login, ws_id)
+        status = st.get("status", "unknown")
+    except Exception:
+        return _ReloadResult(
+            workspace=name, reconnected=False, reason="node_unreachable"
+        ).model_dump()
+
+    if status != "running":
+        return _ReloadResult(
+            workspace=name, reconnected=False, reason="container_down"
+        ).model_dump()
+
+    get_service().reconnect(owner_login, ws_id)
+    return _ReloadResult(workspace=name, reconnected=True).model_dump()
 
 
 async def _node_list(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    include = set(args.get("include") or [])
     cfg = load_global()
+
+    # Liens workspace_test_hosts → lifecycle des hosts générés
+    link_rows = (
+        (
+            await conn.execute(
+                select(
+                    wth_table.c.host_name, wth_table.c.workspace_name, wth_table.c.created_at
+                ).where(wth_table.c.login == owner_login)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    host_links: dict[str, Any] = {r["host_name"]: r for r in link_rows}
+
+    # Workload (opt-in : deux COUNT par login)
+    ws_counts: dict[str, int] = {}
+    dep_counts: dict[str, int] = {}
+    if "workload" in include:
+        ws_rows = (
+            (
+                await conn.execute(
+                    select(ws_table.c.host, sqlfunc.count().label("cnt"))
+                    .where(ws_table.c.login == owner_login)
+                    .group_by(ws_table.c.host)
+                )
+            )
+            .mappings()
+            .all()
+        )
+        ws_counts = {r["host"]: r["cnt"] for r in ws_rows}
+
+        dep_rows = (
+            (
+                await conn.execute(
+                    select(dep_table.c.node_id, sqlfunc.count().label("cnt"))
+                    .where(dep_table.c.owner_login == owner_login)
+                    .group_by(dep_table.c.node_id)
+                )
+            )
+            .mappings()
+            .all()
+        )
+        dep_counts = {r["node_id"]: r["cnt"] for r in dep_rows}
+
     rows = []
     for h in cfg.hosts:
-        if getattr(h, "usage", "workspaces") != "workspaces":
-            continue
-        rows.append({
-            "node_id": h.name,
-            "name": h.name,
+        node_id = h.name
+        is_test = h.usage == "tests"
+        link = host_links.get(node_id)
+
+        entry: dict[str, Any] = {
+            "node_id": node_id,
+            "role": "test" if is_test else "dev",
             "host": h.address or h.docker_host or None,
-            "status": "configured",
-            "capacity": None,
-        })
+            "health": {"reachable": None, "status": "configured", "last_seen": None},
+            "lifecycle": {
+                "origin": "generated" if is_test else "enrolled",
+                "ephemeral": is_test,
+                "created_at": link["created_at"].isoformat() if link else None,
+                "linked_workspace": link["workspace_name"] if link else None,
+            },
+        }
+        if "workload" in include:
+            entry["workload"] = {
+                "workspaces": ws_counts.get(node_id, 0),
+                "compose_deployments": dep_counts.get(node_id, 0),
+            }
+        # Vague B : capacity/load/docker exigent un daemon de métriques (non implémenté).
+        # Renvoie null proprement ; inclure dans `include` ne change pas le résultat pour l'instant.
+        if "capacity" in include:
+            entry["capacity"] = None
+        if "load" in include:
+            entry["load"] = None
+        if "docker" in include:
+            entry["docker"] = None
+        rows.append(entry)
     return rows
 
 
@@ -629,18 +802,46 @@ async def _operations_get(conn: AsyncConnection, args: dict[str, Any], owner_log
     op = operations.get_operation(oid)
     if op is None or op.get("owner_login") != owner_login:
         raise DevpodToolError(f"opération inconnue: {oid}")
-    return {k: op[k] for k in (
-        "operation_id", "kind", "workspace", "state", "progress", "result", "error",
-    )}
+    return {
+        k: op.get(k)
+        for k in (
+            "operation_id",
+            "kind",
+            "workspace",
+            "state",
+            "progress",
+            "result",
+            "error",
+            "created_at",
+            "updated_at",
+        )
+    }
 
 
 async def _operations_list(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     ws = args.get("workspace")
     rows = operations.list_operations(owner_login, workspace=ws if isinstance(ws, str) else None)
-    return [
-        {k: op[k] for k in ("operation_id", "kind", "workspace", "state", "progress")}
-        for op in rows
-    ]
+    _KEYS = ("operation_id", "kind", "workspace", "state", "progress", "created_at")
+    return [{k: op.get(k) for k in _KEYS} for op in rows]
+
+
+def _parse_profile_ref(raw: Any) -> Any:
+    """Parse 'scope/slug' ou 'slug' → ProfileRef, ou None si raw est None.
+    Accepte aussi un ProfileRef existant (hérité de based_on) — retourné tel quel.
+    """
+    if raw is None:
+        return None
+    from ...config.models import ProfileRef
+
+    if isinstance(raw, ProfileRef):
+        return raw
+    raw_str = str(raw)
+    parts = raw_str.split("/", 1)
+    scope, slug = (parts[0], parts[1]) if len(parts) == 2 else ("shared", parts[0])
+    try:
+        return ProfileRef.model_validate({"scope": scope, "slug": slug})
+    except Exception as exc:
+        raise DevpodToolError(f"profile invalide {raw_str!r}: {exc}") from exc
 
 
 async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
@@ -648,25 +849,112 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
     name = str(args.get("name", ""))
     if not _WS_NAME_RE.fullmatch(name):
         raise DevpodToolError(f"nom de workspace invalide: {name!r}")
-    repo = _require_str(args, "repo")
-    branch = str(args.get("branch", "dev"))
-    recipe = args.get("recipe")
-    node = str(args.get("node", ""))
-    recipes = [str(recipe)] if isinstance(recipe, str) and recipe else []
+
+    # Résolution de la base (based_on) : les champs du workspace source servent de défauts.
+    based_on = args.get("based_on")
+    base_spec: Any = None
+    if based_on is not None:
+        based_on = str(based_on)
+        if based_on == name:
+            raise DevpodToolError(
+                "based_on ne peut pas référencer le workspace en cours de création"
+            )  # noqa: E501
+        cfg_base = await load_user(owner_login)
+        base_spec = next((w for w in cfg_base.workspaces if w.name == based_on), None)
+        if base_spec is None:
+            raise DevpodToolError(f"workspace source introuvable: {based_on!r}")
+
+    # Merge : valeur explicite dans args > valeur du workspace source > défaut.
+    def _get(key: str, default: Any) -> Any:
+        if key in args:
+            return args[key]
+        if base_spec is not None:
+            return getattr(base_spec, key, default)
+        return default
+
+    if "repo" not in args and base_spec is None:
+        raise DevpodToolError("paramètre requis manquant: 'repo' (ou fournir 'based_on')")
+
+    repo = str(_get("source", "") or args.get("repo", ""))
+    # "repo" dans args mappe sur "source" dans WorkspaceSpec
+    if "repo" in args:
+        repo = str(args["repo"])
+
+    branch = str(_get("branch", "dev"))
+    if "node_id" in args or "node" in args:
+        node = str(args.get("node_id") or args.get("node") or "")
+    else:
+        node = str(_get("host", ""))
+    ssh_key = bool(_get("ssh_key", False))
+    git_credential = str(_get("git_credential", ""))
+
+    raw_recipes = _get("recipes", [])
+    if not isinstance(raw_recipes, list):
+        raise DevpodToolError("recipes doit être un tableau de strings")
+    recipes = [str(r) for r in raw_recipes if r]
+
+    raw_init = _get("init_recipes", [])
+    if not isinstance(raw_init, list):
+        raise DevpodToolError("init_recipes doit être un tableau de strings")
+    init_recipes = [str(r) for r in raw_init if r]
+
+    profile_ref: Any = _parse_profile_ref(
+        args.get("profile", base_spec.profile if base_spec is not None else None)
+    )
 
     async def work() -> Any:
+        import asyncio
+
+        from ...config.models import WorkspaceSpec
         from ...db.engine import _get_engine
         from ...devpod.provision import ProvisionParams, provision_workspace
 
+        # 1. Sauvegarde du spec dans la config user (le rend visible dans workspace_list).
+        cfg = await load_user(owner_login)
+        if any(ws.name == name for ws in cfg.workspaces):
+            raise DevpodToolError(f"workspace {name!r} existe déjà")
+        ws_spec = WorkspaceSpec(
+            name=name,
+            source=repo,
+            branch=branch,
+            host=node,
+            git_credential=git_credential,
+            recipes=recipes,
+            init_recipes=init_recipes,
+            ssh_key=ssh_key,
+            profile=profile_ref,
+        )
+        cfg.workspaces.append(ws_spec)
+        await save_user(owner_login, cfg)
+
+        # 2. Provisionnement (lance devpod up en tâche de fond).
         async with _get_engine().begin() as bg_conn:
             ws_id = await provision_workspace(
                 owner_login,
                 ProvisionParams(
-                    name=name, source=repo, branch=branch, host=node, recipes=recipes
+                    name=name,
+                    source=repo,
+                    branch=branch,
+                    host=node,
+                    git_credential=git_credential,
+                    recipes=recipes,
+                    init_recipes=init_recipes,
+                    generate_ssh_key=ssh_key,
+                    profile=profile_ref,
                 ),
                 bg_conn,
             )
-        return {"workspace": name, "ws_id": ws_id, "status": "provisioning"}
+
+        # 3. Attente de la fin du devpod up (max 30 min, poll DB toutes les 15s).
+        terminal = {"running", "failed", "stopped", "unknown"}
+        for _ in range(120):
+            await asyncio.sleep(15)
+            st = await get_service().status(owner_login, ws_id)
+            if st.get("status", "provisioning") in terminal:
+                break
+
+        final_status = st.get("status", "unknown")
+        return {"workspace": name, "ws_id": ws_id, "status": final_status}
 
     oid = operations.launch_operation("workspace_create", name, owner_login, work)
     return {"operation_id": oid}
@@ -680,15 +968,17 @@ async def _workspace_delete(conn: AsyncConnection, args: dict[str, Any], owner_l
 
     async def work() -> Any:
         result = await get_service().delete(owner_login, f"{owner_login}-{name}", shelve=True)
+        # Retire le spec de la config user pour que workspace_list ne montre plus le workspace.
+        cfg = await load_user(owner_login)
+        cfg.workspaces = [ws for ws in cfg.workspaces if ws.name != name]
+        await save_user(owner_login, cfg)
         return {"workspace": name, "deleted": True, **result}
 
     oid = operations.launch_operation("workspace_delete", name, owner_login, work)
     return {"operation_id": oid}
 
 
-async def _recreate_workspace(
-    owner_login: str, name: str, mutate: Callable[[Any], Any]
-) -> str:
+async def _recreate_workspace(owner_login: str, name: str, mutate: Callable[[Any], Any]) -> str:
     """Recrée un workspace après mutation de son spec (save -> delete shelve=False -> re-provision).
 
     Retourne le nouveau ws_id.
@@ -708,10 +998,15 @@ async def _recreate_workspace(
         return await provision_workspace(
             owner_login,
             ProvisionParams(
-                name=name, source=spec_updated.source, branch=spec_updated.branch,
-                git_credential=spec_updated.git_credential, host=spec_updated.host,
-                recipes=spec_updated.recipes, extra_sources=spec_updated.extra_sources,
-                profile=spec_updated.profile, recipe_volumes=spec_updated.recipe_volumes,
+                name=name,
+                source=spec_updated.source,
+                branch=spec_updated.branch,
+                git_credential=spec_updated.git_credential,
+                host=spec_updated.host,
+                recipes=spec_updated.recipes,
+                extra_sources=spec_updated.extra_sources,
+                profile=spec_updated.profile,
+                recipe_volumes=spec_updated.recipe_volumes,
                 generate_ssh_key=spec_updated.ssh_key,
             ),
             bg_conn,
@@ -750,19 +1045,18 @@ async def _workspace_profile_set(
 ) -> Any:
     """Applique un profil VS Code au workspace existant de façon asynchrone (recréation)."""
     name = _require_ws(args)
-    profile_slug = _require_str(args, "profile")
+    raw_profile = _require_str(args, "profile")
+    profile_ref = _parse_profile_ref(raw_profile)
 
     async def work() -> Any:
-        from ...config.models import ProfileRef
-
         def mutate(spec: Any) -> Any:
-            return spec.model_copy(update={"profile": ProfileRef(scope="user", slug=profile_slug)})
+            return spec.model_copy(update={"profile": profile_ref})
 
         ws_id = await _recreate_workspace(owner_login, name, mutate)
         return {
             "workspace": name,
             "ws_id": ws_id,
-            "profile": profile_slug,
+            "profile": raw_profile,
             "status": "provisioning",
         }
 
@@ -785,7 +1079,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_mkdir": _workspace_mkdir,
     "workspace_write_file": _workspace_write_file,
     "workspace_exec": _workspace_exec,
-    "workspace_start": _workspace_start,
+    "workspace_reconnect": _workspace_reconnect,
     "workspace_stop": _workspace_stop,
     "workspace_restart": _workspace_restart,
     "session_open": _session_open,
@@ -805,6 +1099,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_profile_set": _workspace_profile_set,
     **COMPOSE_IMPLS,
     **MESSAGE_IMPLS,
+    **LOGS_IMPLS,
 }
 
 

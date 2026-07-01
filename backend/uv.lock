@@ -2187,6 +2187,12 @@ dev = [
     { name = "types-pyyaml" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.13" },
@@ -2217,6 +2223,12 @@ requires-dist = [
     { name = "types-pyyaml", marker = "extra == 'dev'" },
 ]
 provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.0.3" },
+    { name = "pytest-asyncio", specifier = ">=1.4.0" },
+]
 
 [[package]]
 name = "wrapt"

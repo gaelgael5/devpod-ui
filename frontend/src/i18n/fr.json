@@ -12,6 +12,7 @@
     "renameTitle": "Renommer le groupe",
     "deleteTitle": "Supprimer le groupe",
     "deleteDescription": "Supprimer le groupe «{{name}}» ? Les workspaces ne seront pas supprimés.",
+    "deleteNotEmpty": "Retirez d'abord les workspaces de ce groupe",
     "assignTitle": "Groupes — {{name}}",
     "assignDescription": "Sélectionnez les groupes auxquels appartient ce workspace.",
     "noGroupsYet": "Aucun groupe. Créez-en un d'abord.",
@@ -176,6 +177,15 @@
       "description": "Logs en temps réel du workspace {{name}}",
       "empty": "Aucun log disponible pour ce workspace.",
       "loading": "Chargement…"
+    },
+    "messages": {
+      "button": "Messages",
+      "title": "Messages — {{name}}",
+      "description": "Messages contextuels du workspace {{name}}",
+      "empty": "Aucun message pour ce workspace.",
+      "loading": "Chargement…",
+      "copy": "Copier",
+      "copied": "Copié !"
     }
   },
   "recipes": {
@@ -445,7 +455,8 @@
     "theme": "Thème",
     "language": "Langue",
     "dark": "Sombre",
-    "light": "Clair"
+    "light": "Clair",
+    "logs": "Logs (Grafana)"
   },
   "auth": {
     "login": "Se connecter avec Keycloak",
@@ -679,9 +690,12 @@
   "oauth": {
     "consent": {
       "title": "Autoriser l'accès",
-      "intro": "Une application demande l'accès à ta passerelle MCP. Choisis les services qu'elle pourra utiliser.",
-      "backends": "Services accordés",
-      "noBackends": "Aucun service MCP enregistré.",
+      "intro": "Une application demande l'accès à ta passerelle MCP. Sélectionne un profil pour définir les services accessibles.",
+      "profile": "Profil",
+      "profileNone": "— sélectionner un profil —",
+      "noProfiles": "Aucun profil. Crée-en un dans les paramètres MCP d'abord.",
+      "backends": "Services inclus",
+      "noBackends": "Ce profil ne contient aucun service.",
       "allow": "Autoriser",
       "deny": "Refuser"
     }
@@ -836,6 +850,8 @@
       "statusDisabled": "Désactivé",
       "healthUp": "En ligne",
       "healthDown": "Hors ligne",
+      "healthUnknown": "Vérification…",
+      "probe": "Retenter la connexion",
       "appUrl": "URL de l'application (optionnel)",
       "appUrlHint": "Lien web optionnel affiché dans la liste pour ouvrir l'application.",
       "openApp": "Ouvrir l'app",
@@ -866,7 +882,9 @@
       "revoked": "Révoquée",
       "revoke": "Révoquer",
       "delete": "Supprimer",
-      "confirmDelete": "Confirmer"
+      "confirmDelete": "Confirmer",
+      "connectedAt": "Connecté :",
+      "lastCall": "Dernier appel :"
     },
     "saving": "Enregistrement…",
     "save": "Enregistrer"
@@ -876,6 +894,11 @@
     "gallery": "Galerie",
     "deployments": "Déploiements",
     "deploy": "Déployer",
+    "message": {
+      "title": "Message du service",
+      "description": "Message contextuel pour ce service déployé",
+      "none": "Aucun message disponible pour ce déploiement"
+    },
     "admin": {
       "title": "Templates Compose",
       "new": "Nouveau template",
@@ -887,6 +910,8 @@
       "description": "Description",
       "node": "Nœud cible",
       "yaml": "docker-compose.yml",
+      "messageKey": "Clé du template Jinja2",
+      "messageKeyHint": "Clé du template Jinja2 à rendre comme message workspace au démarrage du service (ex. service-docker-compose). Laisser vide pour aucun message.",
       "id": "Identifiant",
       "idHint": "Minuscules, chiffres, tirets — 2 à 42 caractères",
       "tags": "Tags",
@@ -904,7 +929,8 @@
     "deployDialog": {
       "title": "Déployer {{name}}",
       "submit": "Déployer",
-      "portConflict": "Port {{ports}} déjà utilisé ; suggéré : {{suggestion}}"
+      "portConflict": "Port {{ports}} déjà utilisé ; suggéré : {{suggestion}}",
+      "deployFailed": "Déploiement échoué"
     },
     "status": {
       "running": "en cours",
@@ -934,7 +960,10 @@
       "description": "Le template «{{name}}» sera définitivement supprimé."
     },
     "logs": {
-      "title": "Logs — {{name}}"
+      "title": "Logs — {{id}}",
+      "button": "Voir les logs",
+      "loading": "Chargement des logs…",
+      "empty": "Aucun log disponible."
     },
     "catalog": {
       "sources": "Sources de la galerie",

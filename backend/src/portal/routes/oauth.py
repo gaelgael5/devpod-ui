@@ -183,6 +183,7 @@ class DecisionBody(BaseModel):
     scope: str = ""
     approve: bool
     grants: list[dict[str, Any]] = []
+    profile_id: str | None = None
 
 
 @router.post("/oauth/authorize/decision")
@@ -210,6 +211,7 @@ async def decision(
         code_challenge=body.code_challenge,
         scope=body.scope,
         grants=body.grants,
+        profile_id=body.profile_id,
     )
     q = urlencode({"code": code, "state": body.state})
     return {"redirect": f"{body.redirect_uri}{sep}{q}"}

@@ -3,6 +3,7 @@
 L'override ajoute uniquement les labels de traçabilité sur tous les services ;
 il ne touche pas aux ports (la réécriture est faite en amont dans port_aliases).
 """
+
 from __future__ import annotations
 
 from typing import Any

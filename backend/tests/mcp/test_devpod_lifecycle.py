@@ -1,5 +1,5 @@
 # backend/tests/mcp/test_devpod_lifecycle.py
-"""Impls workspace_start / stop / restart — modèle async operations_* (spec 25)."""
+"""Impls workspace_reconnect / stop / restart — modèle async operations_* (spec 25)."""
 from __future__ import annotations
 
 import pytest
@@ -22,7 +22,7 @@ async def test_stop_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_reconnect_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, str] = {}
 
     def fake_launch(kind: str, workspace: str, owner_login: str, work: object) -> str:
@@ -30,9 +30,9 @@ async def test_start_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None
         return "e" * 32
 
     monkeypatch.setattr(devpod_tools.operations, "launch_operation", fake_launch)
-    res = await devpod_tools._workspace_start(None, {"workspace": "dev"}, "admin")
+    res = await devpod_tools._workspace_reconnect(None, {"workspace": "dev"}, "admin")
     assert res == {"operation_id": "e" * 32}
-    assert captured == {"kind": "workspace_start", "workspace": "dev", "owner": "admin"}
+    assert captured == {"kind": "workspace_reconnect", "workspace": "dev", "owner": "admin"}
 
 
 @pytest.mark.asyncio

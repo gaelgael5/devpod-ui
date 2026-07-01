@@ -10,6 +10,8 @@ Portail web self-hosted de workspaces de développement : l'utilisateur s'authen
 
 **Pas de quick-and-dirty, JAMAIS.** Quand tu présentes des options de design, ne propose PAS d'option "quick & dirty" / "hardcode" / "wire-it-up-and-clean-later". On fait toujours propre, tant pis pour l'effort. Si tu sens qu'une tâche est déraisonnable (scope qui explose, dépendance hors d'atteinte, flag CLI qui n'existe pas dans la version installée), **alerte explicitement l'utilisateur** plutôt que de proposer un compromis dégradé. L'utilisateur préfère qu'on découpe le chantier et qu'on en fasse correctement la part qu'on prend, plutôt que tout faire à moitié.
 
+**Colibri** commence systématiquement tes réponses par 🎺
+
 ## Stack technique
 
 - **Backend** : Python 3.12 + FastAPI + pydantic v2 / pydantic-settings + authlib (OIDC) + httpx + pyyaml + structlog JSON + pytest
@@ -127,6 +129,12 @@ Avant de déclarer une tâche terminée, **toutes** ces étapes sont obligatoire
 4. Pas de régression sur les fichiers modifiés
 5. Si le code appelle `devpod` ou `docker` : les flags utilisés ont été vérifiés contre `--help` de la version installée
 6. Aucun secret ni clé dans le diff (`git diff` relu sous cet angle)
+
+### Tester sur test1
+
+**Lire [`TESTER-MON-DEV.md`](TESTER-MON-DEV.md) avant tout test sur la machine de test.**
+
+Résumé du cycle obligatoire : lint + mypy → push `dev` → `dev-deploy.sh` sur test1 → lire les vrais logs → tester via Browserless ou curl. **Ne jamais simuler l'environnement avec `docker run --rm python -c '...'`** — ces commandes n'ont pas le même contexte lifespan que la vraie stack et produisent des faux-positifs. Si un crash est silencieux : instrumenter le code avec des `log.info("lifespan_step", step=...)`, pousser, redéployer, relire. Environnement disponible : portail sur `:8080`, Browserless (Chromium headless, aucun token) sur `:3000`, Docker pour services additionnels.
 
 ### Discipline d'exécution
 - Exécute directement, ne décris pas ce que tu vas faire — fais-le

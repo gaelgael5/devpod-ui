@@ -17,6 +17,9 @@ async def test_workspace_get_descriptor(monkeypatch: pytest.MonkeyPatch) -> None
         recipes=["python"],
         devcontainer_path="",
         template="",
+        profile=None,
+        init_recipes=[],
+        env={},
     )
     cfg = SimpleNamespace(workspaces=[spec])
     monkeypatch.setattr(devpod_tools, "load_user_db", AsyncMock(return_value=cfg))
@@ -34,7 +37,12 @@ async def test_workspace_get_descriptor(monkeypatch: pytest.MonkeyPatch) -> None
     assert res["repo"] == "git@x/y.git"
     assert res["status"] == "running"
     assert res["node"] == "node1"
+    assert res["node_id"] == "node1"
     assert res["recipe"] == ["python"]
+    assert res["recipes"] == ["python"]
+    assert res["profile"] is None
+    assert res["init_recipes"] == []
+    assert res["secret_bindings"] == {}
     assert res["sessions"] == [{"name": "main"}]
     assert res["created_at"] == "2026-06-01T00:00:00Z"
 

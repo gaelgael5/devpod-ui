@@ -12,6 +12,7 @@
     "renameTitle": "Rename group",
     "deleteTitle": "Delete group",
     "deleteDescription": "Delete group «{{name}}»? Workspaces will not be deleted.",
+    "deleteNotEmpty": "Move workspaces out of this group first",
     "assignTitle": "Groups — {{name}}",
     "assignDescription": "Select the groups this workspace belongs to.",
     "noGroupsYet": "No groups yet. Create one first.",
@@ -176,6 +177,15 @@
       "description": "Live logs for workspace {{name}}",
       "empty": "No logs available for this workspace.",
       "loading": "Loading…"
+    },
+    "messages": {
+      "button": "Messages",
+      "title": "Messages — {{name}}",
+      "description": "Context messages for workspace {{name}}",
+      "empty": "No messages for this workspace.",
+      "loading": "Loading…",
+      "copy": "Copy",
+      "copied": "Copied!"
     }
   },
   "recipes": {
@@ -445,7 +455,8 @@
     "theme": "Theme",
     "language": "Language",
     "dark": "Dark",
-    "light": "Light"
+    "light": "Light",
+    "logs": "Logs (Grafana)"
   },
   "auth": {
     "login": "Log in with Keycloak",
@@ -679,9 +690,12 @@
   "oauth": {
     "consent": {
       "title": "Authorize access",
-      "intro": "An application requests access to your MCP gateway. Choose the services it may use.",
-      "backends": "Granted services",
-      "noBackends": "No MCP service registered.",
+      "intro": "An application requests access to your MCP gateway. Select a profile to define which services it may use.",
+      "profile": "Profile",
+      "profileNone": "— select a profile —",
+      "noProfiles": "No profile yet. Create one in the MCP settings first.",
+      "backends": "Included services",
+      "noBackends": "This profile has no services.",
       "allow": "Authorize",
       "deny": "Deny"
     }
@@ -836,6 +850,8 @@
       "statusDisabled": "Disabled",
       "healthUp": "Online",
       "healthDown": "Offline",
+      "healthUnknown": "Checking…",
+      "probe": "Retry connection",
       "appUrl": "Application URL (optional)",
       "appUrlHint": "Optional web link shown in the list to open the application.",
       "openApp": "Open app",
@@ -866,7 +882,9 @@
       "revoked": "Revoked",
       "revoke": "Revoke",
       "delete": "Delete",
-      "confirmDelete": "Confirm"
+      "confirmDelete": "Confirm",
+      "connectedAt": "Connected:",
+      "lastCall": "Last call:"
     },
     "saving": "Saving…",
     "save": "Save"
@@ -876,6 +894,11 @@
     "gallery": "Gallery",
     "deployments": "Deployments",
     "deploy": "Deploy",
+    "message": {
+      "title": "Service message",
+      "description": "Contextual message for this deployed service",
+      "none": "No message available for this deployment"
+    },
     "admin": {
       "title": "Compose templates",
       "new": "New template",
@@ -887,6 +910,8 @@
       "description": "Description",
       "node": "Target node",
       "yaml": "docker-compose.yml",
+      "messageKey": "Jinja2 message template key",
+      "messageKeyHint": "Key of the Jinja2 template to render as a workspace message when the service starts (e.g. service-docker-compose). Leave empty for no message.",
       "id": "Identifier",
       "idHint": "Lowercase, digits, hyphens — 2 to 42 chars",
       "tags": "Tags",
@@ -904,7 +929,8 @@
     "deployDialog": {
       "title": "Deploy {{name}}",
       "submit": "Deploy",
-      "portConflict": "Port {{ports}} already in use; suggested: {{suggestion}}"
+      "portConflict": "Port {{ports}} already in use; suggested: {{suggestion}}",
+      "deployFailed": "Deployment failed"
     },
     "status": {
       "running": "running",
@@ -934,7 +960,10 @@
       "description": "Template «{{name}}» will be permanently deleted."
     },
     "logs": {
-      "title": "Logs — {{name}}"
+      "title": "Logs — {{id}}",
+      "button": "View logs",
+      "loading": "Loading logs…",
+      "empty": "No logs available."
     },
     "catalog": {
       "sources": "Gallery sources",

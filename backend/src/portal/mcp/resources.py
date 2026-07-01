@@ -95,7 +95,7 @@ async def execute_resource_read(
 
     started = time.perf_counter()
     try:
-        async with session_fn(target.url, bearer=bearer) as session:
+        async with session_fn(target.url, transport=target.transport, bearer=bearer) as session:
             original_uri = _ANYURL.validate_python(target.original_name)
             result = await read_backend_resource(session, original_uri)
     except BackendUnavailable as exc:

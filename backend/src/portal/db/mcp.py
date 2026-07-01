@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import delete, func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from .tables import mcp_apikey, mcp_backend, mcp_backend_key
+from .tables import mcp_apikey, mcp_audit_log, mcp_backend, mcp_backend_key
 
 _BACKEND_COLS = [
     mcp_backend.c.id,
@@ -81,6 +81,12 @@ async def get_backend(
     )
     row = (await conn.execute(q)).mappings().first()
     return dict(row) if row else None
+
+
+async def backend_exists(conn: AsyncConnection, backend_id: str) -> bool:
+    """Vérifie qu'un backend existe (sans filtre owner — la sécurité est au niveau dispatch)."""
+    q = select(mcp_backend.c.id).where(mcp_backend.c.id == backend_id)
+    return (await conn.execute(q)).first() is not None
 
 
 async def update_backend(
@@ -259,8 +265,17 @@ async def set_apikey_profile(
 
 
 async def list_apikeys(conn: AsyncConnection, owner_login: str) -> list[dict[str, Any]]:
+    last_used_subq = (
+        select(
+            mcp_audit_log.c.apikey_id,
+            func.max(mcp_audit_log.c.ts).label("last_used_at"),
+        )
+        .group_by(mcp_audit_log.c.apikey_id)
+        .subquery()
+    )
     q = (
-        select(*_APIKEY_COLS)
+        select(*_APIKEY_COLS, last_used_subq.c.last_used_at)
+        .outerjoin(last_used_subq, mcp_apikey.c.id == last_used_subq.c.apikey_id)
         .where(mcp_apikey.c.owner_login == owner_login)
         .order_by(mcp_apikey.c.created_at)
     )

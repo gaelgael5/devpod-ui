@@ -35,6 +35,62 @@ services:
     networks:
       - internal
 
+  loki:
+    image: grafana/loki:3.3.2
+    restart: unless-stopped
+    # user root : le volume Docker nommé est créé root:root ; Loki uid 10001
+    # ne peut pas créer ses sous-répertoires sans ça.
+    user: "0"
+    command: -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    ports:
+      # Port publié sur le host pour recevoir les push des collecteurs distants.
+      - "3100:3100"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3100/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    restart: unless-stopped
+    env_file: /data/.env
+    environment:
+      GF_DATABASE_TYPE: postgres
+      GF_DATABASE_HOST: ${GF_DATABASE_HOST:?GF_DATABASE_HOST requis}
+      GF_DATABASE_NAME: grafana
+      GF_DATABASE_USER: ${GF_DATABASE_USER:?GF_DATABASE_USER requis}
+      GF_DATABASE_PASSWORD: ${GF_DATABASE_PASSWORD:?GF_DATABASE_PASSWORD requis}
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: Keycloak
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: grafana
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: ${GF_OAUTH_CLIENT_SECRET:?GF_OAUTH_CLIENT_SECRET requis}
+      GF_AUTH_GENERIC_OAUTH_SCOPES: openid email profile
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: ${GF_OAUTH_AUTH_URL:?GF_OAUTH_AUTH_URL requis}
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: ${GF_OAUTH_TOKEN_URL:?GF_OAUTH_TOKEN_URL requis}
+      GF_AUTH_GENERIC_OAUTH_API_URL: ${GF_OAUTH_API_URL:?GF_OAUTH_API_URL requis}
+      GF_SERVER_ROOT_URL: ${GF_SERVER_ROOT_URL:?GF_SERVER_ROOT_URL requis}
+    volumes:
+      - ./grafana-provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      loki:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 networks:
   internal:
     driver: bridge
@@ -42,3 +98,5 @@ networks:
 volumes:
   caddy_acme:
   caddy_config:
+  loki_data:
+  grafana_data:

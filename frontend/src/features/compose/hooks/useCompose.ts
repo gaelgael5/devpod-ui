@@ -8,6 +8,7 @@ const QK = {
   template: (id?: string) => ['compose', 'template', id ?? null] as const,
   nodes: () => ['compose', 'nodes'] as const,
   deployments: () => ['compose', 'deployments'] as const,
+  logs: (id: string) => ['compose', 'logs', id] as const,
 }
 
 export function useTemplates(tag?: string) {
@@ -21,6 +22,16 @@ export function useNodes() {
 }
 export function useDeployments() {
   return useQuery({ queryKey: QK.deployments(), queryFn: api.listDeployments, refetchInterval: 10_000 })
+}
+
+export function useDeploymentLogs(uid: string, enabled: boolean) {
+  return useQuery({
+    queryKey: QK.logs(uid),
+    queryFn: () => api.deploymentLogs(uid, { tail: 300 }),
+    enabled,
+    staleTime: 0,
+    refetchInterval: enabled ? 5_000 : false,
+  })
 }
 
 export function useSaveTemplate() {
@@ -50,8 +61,8 @@ export function useCreateDeployment() {
 export function useDeploymentAction() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, action }: { id: string; action: 'stop' | 'start' | 'restart' }) =>
-      api.deploymentAction(id, action),
+    mutationFn: ({ uid, action }: { uid: string; action: 'stop' | 'start' | 'restart' }) =>
+      api.deploymentAction(uid, action),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.deployments() }),
     onError: (e: Error) => toast.error(e.message),
   })
@@ -59,8 +70,17 @@ export function useDeploymentAction() {
 export function useDeleteDeployment() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: api.deleteDeployment,
+    mutationFn: (uid: string) => api.deleteDeployment(uid),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.deployments() }),
     onError: (e: Error) => toast.error(e.message),
+  })
+}
+export function useDeploymentMessage(uid: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['compose', 'message', uid] as const,
+    queryFn: () => api.getDeploymentMessage(uid),
+    enabled,
+    retry: false,
+    staleTime: 60_000,
   })
 }

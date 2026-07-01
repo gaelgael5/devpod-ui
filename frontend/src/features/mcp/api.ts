@@ -42,6 +42,7 @@ export interface MCPApikey {
   profile_id: string | null
   revoked: boolean
   created_at: string
+  last_used_at: string | null
 }
 
 export interface MCPProfile {
@@ -154,6 +155,18 @@ export function useDeleteBackend() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch(`/me/mcp/backends/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.backends() }),
+  })
+}
+
+export function useProbeBackend() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetchJson<{ id: string; health: BackendHealth }>(
+        `/me/mcp/backends/${encodeURIComponent(id)}/probe`,
+        { method: 'POST' },
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.backends() }),
   })
 }

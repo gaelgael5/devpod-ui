@@ -177,6 +177,7 @@ async def _compose_service_list(
             "node_id": d.node_id,
             "status": d.status,
             "host_ports": d.host_ports,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
         }
         for d in deps
     ]
@@ -205,14 +206,14 @@ async def _compose_service_start(
     if missing:
         raise DevpodToolError(f"paramètres requis manquants: {missing}")
 
-    if await cdb.get_deployment(conn, name) is not None:
+    if await cdb.get_deployment_by_slug(conn, name) is not None:
         raise DevpodToolError(f"déploiement {name!r} existe déjà")
 
     user_cfg = await load_user(owner_login)
     try:
         dep = await csvc.deploy(
             conn,
-            deployment_id=name,
+            name=name,
             template=tpl,
             node_id=node_id,
             owner_login=owner_login,
@@ -239,11 +240,11 @@ async def _compose_service_stop(
     conn: AsyncConnection, args: dict[str, Any], owner_login: str
 ) -> Any:
     dep_id = _require_str(args, "deployment_id")
-    dep = await cdb.get_deployment(conn, dep_id)
+    dep = await cdb.get_deployment_by_slug(conn, dep_id)
     if dep is None or dep.owner_login != owner_login:
         raise DevpodToolError(f"déploiement inconnu: {dep_id}")
     try:
-        await csvc.lifecycle(conn, dep_id, "stop")
+        await csvc.lifecycle(conn, dep.uid, "stop")
     except ComposeServiceError as exc:
         raise DevpodToolError(str(exc)) from exc
     return {"deployment_id": dep_id, "action": "stop"}
@@ -253,11 +254,11 @@ async def _compose_service_restart(
     conn: AsyncConnection, args: dict[str, Any], owner_login: str
 ) -> Any:
     dep_id = _require_str(args, "deployment_id")
-    dep = await cdb.get_deployment(conn, dep_id)
+    dep = await cdb.get_deployment_by_slug(conn, dep_id)
     if dep is None or dep.owner_login != owner_login:
         raise DevpodToolError(f"déploiement inconnu: {dep_id}")
     try:
-        await csvc.lifecycle(conn, dep_id, "restart")
+        await csvc.lifecycle(conn, dep.uid, "restart")
     except ComposeServiceError as exc:
         raise DevpodToolError(str(exc)) from exc
     return {"deployment_id": dep_id, "action": "restart"}
@@ -267,14 +268,14 @@ async def _compose_service_logs(
     conn: AsyncConnection, args: dict[str, Any], owner_login: str
 ) -> Any:
     dep_id = _require_str(args, "deployment_id")
-    dep = await cdb.get_deployment(conn, dep_id)
+    dep = await cdb.get_deployment_by_slug(conn, dep_id)
     if dep is None or dep.owner_login != owner_login:
         raise DevpodToolError(f"déploiement inconnu: {dep_id}")
     service = args.get("service")
     tail = int(args.get("tail", 200))
     try:
         output = await csvc.fetch_logs(
-            conn, dep_id,
+            conn, dep.uid,
             service=str(service) if service else None,
             tail=min(max(tail, 1), 5000),
         )
@@ -290,11 +291,11 @@ async def _compose_service_down(
     confirm = args.get("confirm", False)
     if not confirm:
         raise DevpodToolError("confirm doit valoir true pour détruire un déploiement")
-    dep = await cdb.get_deployment(conn, dep_id)
+    dep = await cdb.get_deployment_by_slug(conn, dep_id)
     if dep is None or dep.owner_login != owner_login:
         raise DevpodToolError(f"déploiement inconnu: {dep_id}")
     try:
-        await csvc.teardown(conn, dep_id)
+        await csvc.teardown(conn, dep.uid)
     except ComposeServiceError as exc:
         raise DevpodToolError(str(exc)) from exc
     return {"deployment_id": dep_id, "torn_down": True}
@@ -304,11 +305,11 @@ async def _compose_service_status(
     conn: AsyncConnection, args: dict[str, Any], owner_login: str
 ) -> Any:
     dep_id = _require_str(args, "deployment_id")
-    dep = await cdb.get_deployment(conn, dep_id)
+    dep = await cdb.get_deployment_by_slug(conn, dep_id)
     if dep is None or dep.owner_login != owner_login:
         raise DevpodToolError(f"déploiement inconnu: {dep_id}")
     try:
-        status = await csvc.refresh_status(conn, dep_id)
+        status = await csvc.refresh_status(conn, dep.uid)
     except ComposeServiceError as exc:
         raise DevpodToolError(str(exc)) from exc
     return {"deployment_id": dep_id, "status": status, "host_ports": dep.host_ports}

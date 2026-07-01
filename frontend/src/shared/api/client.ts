@@ -21,6 +21,20 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   return res
 }
 
+export async function apiFetchVoid(path: string, init?: RequestInit): Promise<void> {
+  const res = await apiFetch(path, init)
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    let message = text || res.statusText
+    try {
+      const json = JSON.parse(text)
+      if (typeof json.detail === 'string') message = json.detail
+    } catch { /* not JSON */ }
+    throw new ApiError(res.status, message)
+  }
+  // 204 No Content — pas de corps à désérialiser
+}
+
 export async function apiFetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await apiFetch(path, init)
   if (!res.ok) {

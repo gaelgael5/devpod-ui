@@ -15,6 +15,8 @@ from portal.mcp.runtime_secrets import UnresolvableSecret, resolve_grant_key
 
 _log = structlog.get_logger(__name__)
 
+_PROBE_TIMEOUT_S = 60.0  # timeout global par probe (connexion + sync)
+
 
 class BackendHealth(BaseModel):
     """Statut de santé d'un backend MCP, dérivé du dernier monitoring."""
@@ -80,17 +82,44 @@ async def monitor_backend_once(
         return health
 
     session_fn = open_session_fn if open_session_fn is not None else open_session
-    bearer = await _resolve_monitor_bearer(conn, backend_row["id"])
+    backend_id = backend_row["id"]
+    transport = backend_row.get("transport", "streamable_http")
+    url = backend_row["url"]
+    _log.info(
+        "mcp_monitor_probe_start",
+        backend_id=backend_id,
+        url=url,
+        transport=transport,
+    )
+    bearer = await _resolve_monitor_bearer(conn, backend_id)
     # Seul BackendUnavailable (injoignable) => down. Une autre erreur (ex. DB pendant
     # le sync) n'est pas imputable au backend : elle remonte à run_monitor_pass (loggée),
     # la santé conserve sa dernière valeur connue plutôt que d'afficher un faux "down".
     try:
-        async with session_fn(backend_row["url"], bearer=bearer) as session:
-            await sync_backend(conn, backend_id=backend_row["id"], session=session)
+        async with asyncio.timeout(_PROBE_TIMEOUT_S):
+            async with session_fn(url, transport=transport, bearer=bearer) as session:
+                await sync_backend(conn, backend_id=backend_id, session=session)
         health = BackendHealth(status="up")
+    except TimeoutError:
+        _log.warning(
+            "mcp_monitor_probe_timeout",
+            backend_id=backend_id,
+            url=url,
+            transport=transport,
+            timeout_s=_PROBE_TIMEOUT_S,
+        )
+        health = BackendHealth(status="down", error=f"probe timeout après {_PROBE_TIMEOUT_S}s")
     except BackendUnavailable as exc:
         health = BackendHealth(status="down", error=str(exc))
-    set_health(backend_row["id"], health)
+    set_health(backend_id, health)
+    _log.info(
+        "mcp_monitor_probe_done",
+        backend_id=backend_id,
+        url=url,
+        transport=transport,
+        status=health.status,
+        error=health.error,
+    )
     return health
 
 

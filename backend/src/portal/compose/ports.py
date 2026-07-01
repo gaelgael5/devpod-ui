@@ -1,4 +1,5 @@
 """Détection de conflit et suggestion de port hôte (spec 26 §7)."""
+
 from __future__ import annotations
 
 import re

@@ -135,11 +135,44 @@ export function useWorkspaceOps() {
       apiFetchJson<{ ws_id: string; status: string }>(`/me/workspaces/${name}/recreate`, {
         method: 'POST',
       }),
-    onSuccess: () => {
+    onSuccess: (_data, name) => {
       qc.invalidateQueries({ queryKey: ['workspaces'] })
+      qc.invalidateQueries({ queryKey: ['workspace-status', name] })
     },
     onError: (err: Error) => toast.error(err.message),
   })
 
-  return { createWorkspace, stopWorkspace, deleteWorkspace, recreateWorkspace }
+  // Démarre un workspace existant (stopped/failed) sans passer par POST /me/workspaces
+  // qui retournerait 409 — la config est déjà enregistrée.
+  const startWorkspace = useMutation({
+    mutationFn: (spec: WorkspaceSpec) => {
+      const extra = spec.extra_sources.map((s) => ({
+        url: s.url,
+        branch: s.branch,
+        git_credential: s.git_credential,
+      }))
+      return apiFetchJson(`/me/workspaces/${spec.name}/up`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: spec.source,
+          branch: spec.branch,
+          git_credential: spec.git_credential,
+          host: spec.host,
+          recipes: spec.recipes,
+          extra_sources: extra,
+          generate_ssh_key: spec.ssh_key,
+          profile: spec.profile,
+          recipe_volumes: spec.recipe_volumes ?? [],
+        }),
+      })
+    },
+    onSuccess: (_data, spec) => {
+      qc.invalidateQueries({ queryKey: ['workspaces'] })
+      qc.invalidateQueries({ queryKey: ['workspace-status', spec.name] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  return { createWorkspace, startWorkspace, stopWorkspace, deleteWorkspace, recreateWorkspace }
 }

@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 import structlog
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
@@ -151,9 +151,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         async with _get_engine().begin() as conn:
             await warm_global_cache(conn)
             # Actualise le domaine de cookie depuis la DB (prime sur l'env).
-            from .db.global_config import get_cached_global
+            from .db.global_config import get_optional_cached_global
 
-            cached = get_cached_global()
+            cached = get_optional_cached_global()
             if cached is not None:
                 update_cookie_domain(
                     cached.server.cookie_domain or settings_obj.cookie_domain,
@@ -167,6 +167,11 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             from .mcp.devpod_bootstrap import bootstrap_devpod
 
             await bootstrap_devpod(conn)
+
+            # Templates compose builtin (Alloy collector, etc.).
+            from .compose.compose_bootstrap import seed_builtin_templates
+
+            await seed_builtin_templates(conn)
 
         # Pas de synchro automatique des recettes : c'est l'admin qui choisit quoi
         # synchroniser, via POST /admin/recipes/sync.
@@ -220,11 +225,20 @@ def create_app() -> FastAPI:
             )
         else:
             raise RuntimeError(
-                "PORTAL_VAULT_KEK must be set in .env. "
-                "Generate with: openssl rand -hex 32"
+                "PORTAL_VAULT_KEK must be set in .env. Generate with: openssl rand -hex 32"
             )
 
     app = FastAPI(title="workspace-portal", version="0.1.0", lifespan=_lifespan)
+
+    @app.exception_handler(Exception)  # type: ignore[misc]
+    async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        _log.exception(
+            "unhandled_exception",
+            method=request.method,
+            path=str(request.url.path),
+            exc=repr(exc),
+        )
+        return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
     from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 

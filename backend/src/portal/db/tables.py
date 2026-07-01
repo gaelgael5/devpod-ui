@@ -248,9 +248,7 @@ workspace_test_hosts = Table(
     Column("alias", Text, nullable=True),
     Column("message_id", BigInteger, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
-    UniqueConstraint(
-        "login", "workspace_name", "host_name", name="uq_wth_login_ws_host"
-    ),
+    UniqueConstraint("login", "workspace_name", "host_name", name="uq_wth_login_ws_host"),
 )
 
 # ─── Tour 10 : node_certificates (Groupe 4 — dépend de hosts) ───────────────
@@ -403,9 +401,9 @@ harpo_certificates = Table(
     # tls-rsa-2048 | tls-rsa-4096 | tls-ec-p256 | tls-ec-p384
     Column("cert_type", Text, nullable=False),
     Column("public_key", Text, nullable=False),
-    Column("private_key_local", LargeBinary, nullable=True),   # AES-GCM, master_key
-    Column("private_key_vault_ref", Text, nullable=True),       # ${vault://id:certificats/slug/private}
-    Column("storage_type", Text, nullable=False),               # local | harpocrate
+    Column("private_key_local", LargeBinary, nullable=True),  # AES-GCM, master_key
+    Column("private_key_vault_ref", Text, nullable=True),  # ${vault://id:certificats/slug/private}
+    Column("storage_type", Text, nullable=False),  # local | harpocrate
     Column("vault_identifier", Text, nullable=True),
     Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
     Column("is_public", Boolean, nullable=False, server_default="false"),
@@ -578,6 +576,7 @@ mcp_oauth_authcode = Table(
     Column("code_challenge", Text, nullable=False),  # PKCE S256
     Column("scope", Text, nullable=False, server_default=""),
     Column("grants", JSONB, nullable=False, server_default="[]"),  # backends + curation choisis
+    Column("profile_id", Text, nullable=True),  # profil sélectionné sur l'écran de consentement
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("used", Boolean, nullable=False, server_default="false"),
 )
@@ -607,6 +606,7 @@ compose_template = Table(
     Column("compose_content", Text, nullable=False),
     Column("parameters", JSONB, nullable=False, server_default="[]"),
     Column("source", Text, nullable=False),
+    Column("extra_files", JSONB, nullable=False, server_default="{}"),
     Column("message_key", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
@@ -615,7 +615,8 @@ compose_template = Table(
 compose_deployment = Table(
     "compose_deployment",
     metadata,
-    Column("id", Text, primary_key=True),
+    Column("uid", Text, primary_key=True),  # UUID généré à la création
+    Column("id", Text, nullable=False),  # slug choisi par l'utilisateur
     Column("template_id", Text, ForeignKey("compose_template.id"), nullable=False),
     Column("template_version", Text, nullable=False),
     Column("node_id", Text, nullable=False),
@@ -627,6 +628,7 @@ compose_deployment = Table(
     Column("message_id", BigInteger, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("id", "node_id", name="uq_compose_deployment_name_node"),
 )
 
 compose_deployment_log = Table(

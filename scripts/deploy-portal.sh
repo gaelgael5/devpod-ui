@@ -4,8 +4,11 @@
 # Idempotent : peut être relancé sans danger.
 #
 # Usage :
-#   ./scripts/deploy-portal.sh [BRANCH]
-#   ex : ./scripts/deploy-portal.sh main
+#   ./scripts/deploy-portal.sh [BRANCH] [--resetdb]
+#   ex : ./scripts/deploy-portal.sh main --resetdb
+#
+#   --resetdb  Arrête la stack, supprime les volumes DB et le fichier .env,
+#              puis repart de zéro (nouveaux credentials générés).
 #
 # Variables d'env reconnues (toutes optionnelles si /data déjà initialisé) :
 #   REPO_URL               URL git du repo        (défaut : HTTPS public gaelgael5/devpod-ui)
@@ -26,10 +29,12 @@ APP_DIR="${APP_DIR:-/opt/workspace-portal}"
 DATA_ROOT="${DATA_ROOT:-/data}"
 COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker-compose.yml}"
 
-# ─── Argument : branche cible ─────────────────────────────────────────────────
+# ─── Arguments : branche cible + flags ───────────────────────────────────────
 TARGET_BRANCH=""
+RESETDB=0
 for arg in "$@"; do
     case "$arg" in
+        --resetdb) RESETDB=1 ;;
         --*) echo "ERREUR : flag inconnu : $arg" >&2; exit 1 ;;
         *)
             if [[ -n "$TARGET_BRANCH" ]]; then
@@ -86,6 +91,22 @@ fi
 
 cd "$APP_DIR"
 
+# ─── --resetdb : purge complète avant toute initialisation ────────────────────
+if [[ $RESETDB -eq 1 ]]; then
+    echo ""
+    echo "==> [--resetdb] Arrêt de la stack et suppression des volumes DB..."
+    docker compose -f "$COMPOSE_FILE" down --volumes --remove-orphans 2>/dev/null || true
+    echo "    Suppression des containers arrêtés résiduels..."
+    docker container prune -f || true
+    ENV_FILE="${DATA_ROOT}/.env"
+    if [[ -f "$ENV_FILE" ]]; then
+        rm -f "$ENV_FILE"
+        echo "    ${ENV_FILE} supprimé."
+    fi
+    echo "    Reset terminé — le .env et la DB seront recréés depuis zéro."
+    echo ""
+fi
+
 # ─── 2) Initialiser /data (install.sh — idempotent, §E-25) ──────────────────
 echo ""
 echo "==> [2/4] Initialisation de /data (install.sh)..."
@@ -101,8 +122,62 @@ env "${INSTALL_VARS[@]}" bash scripts/install.sh \
     --data-root    "$DATA_ROOT" \
     --compose-file "$APP_DIR/$COMPOSE_FILE"
 
-# Injecter OIDC_CLIENT_SECRET dans /data/.env si fourni
+# Générer les credentials manquants après install.sh (crée le .env depuis
+# .env.example mais ne génère pas les secrets : postgres, session, local login).
 ENV_FILE="${DATA_ROOT}/.env"
+if [[ -f "$ENV_FILE" ]]; then
+    _get_env_val() { grep -m1 "^${1}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true; }
+
+    if [[ -z "$(_get_env_val POSTGRES_USER)" ]]; then
+        PG_USER="portal_$(openssl rand -hex 4)"
+        PG_PASS="$(openssl rand -hex 24)"
+        DB_URL="postgresql+asyncpg://${PG_USER}:${PG_PASS}@postgres/portal"
+        grep -q '^POSTGRES_USER='     "$ENV_FILE" && sed -i "s|^POSTGRES_USER=.*|POSTGRES_USER=${PG_USER}|"         "$ENV_FILE" || echo "POSTGRES_USER=${PG_USER}"     >> "$ENV_FILE"
+        grep -q '^POSTGRES_PASSWORD=' "$ENV_FILE" && sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${PG_PASS}|" "$ENV_FILE" || echo "POSTGRES_PASSWORD=${PG_PASS}" >> "$ENV_FILE"
+        grep -q '^DATABASE_URL='      "$ENV_FILE" && sed -i "s|^DATABASE_URL=.*|DATABASE_URL=${DB_URL}|"            "$ENV_FILE" || echo "DATABASE_URL=${DB_URL}"        >> "$ENV_FILE"
+        echo "    POSTGRES_USER généré : ${PG_USER}"
+    fi
+
+    if [[ -z "$(_get_env_val SESSION_SECRET_KEY)" ]]; then
+        SESSION_KEY="$(openssl rand -hex 32)"
+        grep -q '^SESSION_SECRET_KEY=' "$ENV_FILE" && sed -i "s|^SESSION_SECRET_KEY=.*|SESSION_SECRET_KEY=${SESSION_KEY}|" "$ENV_FILE" || echo "SESSION_SECRET_KEY=${SESSION_KEY}" >> "$ENV_FILE"
+        echo "    SESSION_SECRET_KEY généré"
+    fi
+
+    if [[ -z "$(_get_env_val LOCAL_PASSWORD)" ]]; then
+        command -v python3 &>/dev/null || apt-get install -y --no-install-recommends python3 >/dev/null 2>&1
+        python3 -c "import bcrypt" 2>/dev/null || apt-get install -y --no-install-recommends python3-bcrypt >/dev/null 2>&1
+        LOCAL_PASS="$(openssl rand -hex 12)"
+        LOCAL_HASH="$(PASS="$LOCAL_PASS" python3 -c \
+            "import bcrypt, os; print(bcrypt.hashpw(os.environ['PASS'].encode(), bcrypt.gensalt()).decode())")"
+        # Doubler $ → $$ : docker compose interpole $VAR dans les valeurs env_file.
+        LOCAL_HASH_ESCAPED="$(printf '%s' "$LOCAL_HASH" | sed 's/\$/\$\$/g')"
+        grep -q '^LOCAL_PASSWORD='      "$ENV_FILE" && sed -i "s|^LOCAL_PASSWORD=.*|LOCAL_PASSWORD=${LOCAL_PASS}|"             "$ENV_FILE" || echo "LOCAL_PASSWORD=${LOCAL_PASS}"             >> "$ENV_FILE"
+        grep -q '^LOCAL_PASSWORD_HASH=' "$ENV_FILE" && sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}|" "$ENV_FILE" || echo "LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}" >> "$ENV_FILE"
+        echo "    LOCAL_PASSWORD généré : ${LOCAL_PASS}"
+    else
+        # install.sh peut avoir stocké le hash sans doubler les $ (docker compose
+        # interpolerait $VAR → vide, hash corrompu dans le container).
+        # Si le hash ne commence pas par $$, on corrige l'escaping.
+        _CURRENT_HASH="$(_get_env_val LOCAL_PASSWORD_HASH)"
+        if [[ -n "$_CURRENT_HASH" ]] && [[ "$_CURRENT_HASH" != '$$'* ]]; then
+            _ESCAPED="$(printf '%s' "$_CURRENT_HASH" | sed 's/\$/\$\$/g')"
+            sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${_ESCAPED}|" "$ENV_FILE"
+            echo "    LOCAL_PASSWORD_HASH : escaping \$→\$\$\$ appliqué"
+        fi
+        unset _CURRENT_HASH _ESCAPED
+    fi
+
+    if [[ -z "$(_get_env_val PORTAL_VAULT_KEK)" ]]; then
+        VAULT_KEK="$(openssl rand -hex 32)"
+        grep -q '^PORTAL_VAULT_KEK=' "$ENV_FILE" && sed -i "s|^PORTAL_VAULT_KEK=.*|PORTAL_VAULT_KEK=${VAULT_KEK}|" "$ENV_FILE" || echo "PORTAL_VAULT_KEK=${VAULT_KEK}" >> "$ENV_FILE"
+        echo "    PORTAL_VAULT_KEK généré"
+    fi
+
+    unset -f _get_env_val
+fi
+
+# Injecter OIDC_CLIENT_SECRET dans /data/.env si fourni
 if [[ -n "${OIDC_CLIENT_SECRET:-}" ]] && [[ -f "$ENV_FILE" ]]; then
     EXISTING=$(grep -E '^OIDC_CLIENT_SECRET=.+' "$ENV_FILE" 2>/dev/null || true)
     if [[ -z "$EXISTING" ]]; then
@@ -116,24 +191,33 @@ fi
 # ─── 3) Build + démarrage de la stack ─────────────────────────────────────────
 echo ""
 echo "==> [3/4] Build de l'image Docker (frontend + backend)..."
-docker compose -f "$COMPOSE_FILE" build
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build
 
 echo ""
 echo "==> Arrêt de la stack en cours (si active)..."
-docker compose -f "$COMPOSE_FILE" down --remove-orphans || true
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down --remove-orphans || true
+
+# Détection du port 80 — si déjà utilisé, Caddy part sur 8090 pour éviter le conflit.
+if [[ -z "${CADDY_DEV_PORT:-}" ]]; then
+    if ss -tlnp 2>/dev/null | grep -q ':80 ' || \
+       netstat -tlnp 2>/dev/null | grep -q ':80 '; then
+        export CADDY_DEV_PORT="8090"
+        echo "    Port 80 déjà utilisé → CADDY_DEV_PORT=8090"
+    fi
+fi
 
 echo "==> Démarrage de la stack..."
-docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
 
 echo ""
-docker compose -f "$COMPOSE_FILE" ps
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
 
 # ─── 4) Smoke /health ─────────────────────────────────────────────────────────
 echo ""
 echo "==> [4/4] Smoke /health (timeout 60s)..."
 SMOKE_OK=0
 ELAPSED=0
-PORTAL_ID="$(docker compose -f "$COMPOSE_FILE" ps -q portal 2>/dev/null)"
+PORTAL_ID="$(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps -q portal 2>/dev/null)"
 while [[ $ELAPSED -lt 90 ]]; do
     STATUS="$(docker inspect --format='{{.State.Health.Status}}' "$PORTAL_ID" 2>/dev/null)"
     if [[ "$STATUS" == "healthy" ]]; then

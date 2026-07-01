@@ -27,7 +27,7 @@ import type { WorkspaceSpec } from './types'
 
 function WorkspaceRow({ spec, onManageGroups }: { spec: WorkspaceSpec; onManageGroups: () => void }) {
   const { data: status } = useWorkspaceStatus(spec.name)
-  const { stopWorkspace, deleteWorkspace, createWorkspace, recreateWorkspace } = useWorkspaceOps()
+  const { stopWorkspace, deleteWorkspace, startWorkspace, recreateWorkspace } = useWorkspaceOps()
   const liveStatus = status ?? { ws_id: `?-${spec.name}`, status: 'unknown' as const }
 
   return (
@@ -36,19 +36,9 @@ function WorkspaceRow({ spec, onManageGroups }: { spec: WorkspaceSpec; onManageG
       status={liveStatus}
       onStop={(n) => stopWorkspace.mutate(n)}
       onDelete={(n, shelve) => deleteWorkspace.mutate({ name: n, shelve })}
-      onStart={(n) =>
-        createWorkspace.mutate({
-          name: n,
-          sources: [
-            { url: spec.source, branch: spec.branch, credential: spec.git_credential },
-            ...spec.extra_sources.map(s => ({ url: s.url, branch: s.branch, credential: s.git_credential })),
-          ],
-          host: spec.host,
-          recipes: spec.recipes,
-        })
-      }
+      onStart={() => startWorkspace.mutate(spec)}
       onRecreate={(n) => recreateWorkspace.mutate(n)}
-      isStarting={createWorkspace.isPending}
+      isStarting={startWorkspace.isPending}
       onManageGroups={onManageGroups}
     />
   )
@@ -106,8 +96,10 @@ function GroupSection({
             <Button
               size="icon"
               variant="ghost"
-              className="h-6 w-6 text-destructive hover:text-destructive"
+              className="h-6 w-6 text-destructive hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed"
               onClick={() => onDelete(groupId, title)}
+              disabled={workspaces.length > 0}
+              title={workspaces.length > 0 ? t('groups.deleteNotEmpty') : undefined}
               aria-label={t('groups.delete')}
             >
               <Trash2 className="h-3 w-3" />

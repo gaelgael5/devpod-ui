@@ -84,6 +84,15 @@ async def create_message(
     return result.scalar_one()
 
 
+async def get_message_by_id(
+    conn: AsyncConnection, message_id: int
+) -> WorkspaceMessage | None:
+    row = (
+        await conn.execute(select(_wm).where(_wm.c.id == message_id))
+    ).mappings().first()
+    return WorkspaceMessage(**dict(row)) if row else None
+
+
 async def delete_message(conn: AsyncConnection, message_id: int) -> None:
     await conn.execute(delete(_wm).where(_wm.c.id == message_id))
 

@@ -16,6 +16,7 @@ class TemplateCreateBody(BaseModel):
     compose_content: str
     parameters: list[ComposeParam] = []
     source: TemplateSource = "user"
+    message_key: str | None = None
 
 
 class TemplateUpdateBody(BaseModel):
@@ -27,6 +28,7 @@ class TemplateUpdateBody(BaseModel):
     compose_content: str
     parameters: list[ComposeParam] = []
     source: TemplateSource = "user"
+    message_key: str | None = None
 
 
 class DeploymentCreateBody(BaseModel):
@@ -39,6 +41,7 @@ class DeploymentCreateBody(BaseModel):
 
 class DeploymentOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    uid: str
     id: str
     template_id: str
     template_version: str

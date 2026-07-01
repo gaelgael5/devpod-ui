@@ -43,6 +43,7 @@ def _dep(dep_id: str = "dep1", owner: str = "alice") -> SimpleNamespace:
         owner_login=owner,
         host_ports=[3005],
         status="running",
+        created_at=None,
         model_dump=lambda mode=None: {
             "id": dep_id, "node_id": "node1", "status": "running", "host_ports": [3005]
         },

@@ -39,6 +39,7 @@ class ProvisionParams:
     extra_sources: list[Any] = field(default_factory=list)
     profile: Any = None
     recipe_volumes: list[str] = field(default_factory=list)
+    init_recipes: list[str] = field(default_factory=list)
     generate_ssh_key: bool = False
     request_host: str = ""
 
@@ -111,6 +112,8 @@ async def provision_workspace(
         extra_sources=params.extra_sources,
         profile=params.profile,
         recipe_volumes=params.recipe_volumes,
+        init_recipes=params.init_recipes,
+        ssh_key=params.generate_ssh_key,
     )
     return await _get_service().up(
         login=login,

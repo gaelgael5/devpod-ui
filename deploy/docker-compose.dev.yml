@@ -9,12 +9,13 @@ services:
       POSTGRES_DB: portal
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     ports:
       - "5432:5432"
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-portal}"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d portal"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -26,11 +27,16 @@ services:
     image: workspace-portal:dev
     restart: unless-stopped
     env_file: /data/.env
+    environment:
+      # Accès HTTP direct (sans TLS) en dev : désactive le flag Secure sur les
+      # cookies de session, sans quoi le navigateur ne les renvoie jamais.
+      DEV_MODE: "true"
     volumes:
       - /data:/data
     ports:
-      # Plage de ports du tunnel SSH workspace — accès direct en dev (bypass DNS/Caddy)
-      # Correspond à la plage PortRegistry (40000-49999) ; 20 suffisent pour le dev local.
+      # Accès direct au portail en dev (bypass Caddy) — smoke test + debug
+      - "8080:8080"
+      # Plage de ports du tunnel SSH workspace
       - "40000-40019:40000-40019"
     depends_on:
       postgres:
@@ -49,16 +55,73 @@ services:
     restart: unless-stopped
     env_file: /data/.env
     volumes:
-      # Host matcher http://{$BASE_DOMAIN} : le portail répond sur le domaine de base
-      # et les routes workspace (ws-*.{domaine}) sont ajoutées dynamiquement (M6).
-      # Caddyfile.dev (catch-all :80) ne convient qu'au dev local sans domaine.
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     ports:
-      - "80:80"
+      # CADDY_DEV_PORT=80 par défaut. Sur une machine où le port 80 est déjà pris
+      # (ex. Caddy de prod), définir CADDY_DEV_PORT=8090 dans /data/.env.
+      - "${CADDY_DEV_PORT:-80}:80"
     networks:
       - internal
+
+  loki:
+    image: grafana/loki:3.3.2
+    restart: unless-stopped
+    # user root : le volume Docker nommé est créé root:root ; Loki uid 10001
+    # ne peut pas créer ses sous-répertoires sans ça.
+    user: "0"
+    command: -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    ports:
+      # Port publié sur le host pour recevoir les push des collecteurs distants.
+      - "3100:3100"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3100/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    restart: unless-stopped
+    env_file: /data/.env
+    environment:
+      GF_DATABASE_TYPE: postgres
+      GF_DATABASE_HOST: postgres:5432
+      GF_DATABASE_NAME: grafana
+      GF_DATABASE_USER: ${POSTGRES_USER}
+      GF_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: Keycloak
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: grafana
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: ${GF_OAUTH_CLIENT_SECRET:-}
+      GF_AUTH_GENERIC_OAUTH_SCOPES: openid email profile
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: ${GF_OAUTH_AUTH_URL:-}
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: ${GF_OAUTH_TOKEN_URL:-}
+      GF_AUTH_GENERIC_OAUTH_API_URL: ${GF_OAUTH_API_URL:-}
+      GF_SERVER_ROOT_URL: ${GF_SERVER_ROOT_URL:-http://localhost:3000}
+    volumes:
+      - ./grafana-provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      postgres:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 networks:
   internal:
@@ -68,3 +131,5 @@ volumes:
   caddy_data:
   caddy_config:
   postgres_data:
+  loki_data:
+  grafana_data:

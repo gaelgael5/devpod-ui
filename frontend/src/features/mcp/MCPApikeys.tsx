@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Key, Plus, Copy, Check, Ban } from 'lucide-react'
+import { Key, Plus, Copy, Check, Ban, Clock } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -32,6 +32,14 @@ import {
 } from './api'
 
 const NO_PROFILE = '__none__'
+
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(new Date(iso))
+}
 
 function CreateApikeyDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation()
@@ -208,12 +216,13 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
           <span className="text-xs text-muted-foreground shrink-0">{t('mcp.apikeys.profile')}</span>
           <Select
             value={apikey.profile_id ?? NO_PROFILE}
-            onValueChange={(v) =>
+            onValueChange={(v) => {
+              if (v === undefined || v === null) return
               setProfile.mutate(
                 { id: apikey.id, profile_id: v === NO_PROFILE ? null : v },
                 { onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) },
               )
-            }
+            }}
           >
             <SelectTrigger className="h-7 text-xs flex-1">
               <SelectValue />
@@ -230,6 +239,17 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
           )}
         </div>
       )}
+
+      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 border-l pl-3">
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Clock className="h-3 w-3 shrink-0" />
+          {t('mcp.apikeys.connectedAt')} {fmtDate(apikey.created_at)}
+        </span>
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Clock className="h-3 w-3 shrink-0" />
+          {t('mcp.apikeys.lastCall')} {fmtDate(apikey.last_used_at)}
+        </span>
+      </div>
     </div>
   )
 }

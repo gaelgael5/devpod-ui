@@ -22,12 +22,14 @@ export interface ComposeTemplate {
   compose_content: string
   parameters: ComposeParam[]
   source: TemplateSource
+  message_key?: string | null
   created_at?: string | null
   updated_at?: string | null
 }
 
 export interface ComposeDeployment {
-  id: string
+  uid: string    // UUID PK — utilisé dans les URL API
+  id: string     // slug utilisateur — affiché dans l'UI
   template_id: string
   template_version: string
   node_id: string
@@ -36,8 +38,18 @@ export interface ComposeDeployment {
   host_ports: number[]
   status: DeploymentStatus
   last_error?: string | null
+  message_id?: number | null
   created_at?: string | null
   updated_at?: string | null
+}
+
+export interface DeploymentMessage {
+  id: number | null
+  owner_login: string
+  workspace_name: string
+  type: string
+  message: string
+  created_at: string | null
 }
 
 export interface NodeRef {
@@ -57,6 +69,7 @@ export interface TemplateBody {
   compose_content: string
   parameters: ComposeParam[]
   source: TemplateSource
+  message_key: string | null
 }
 
 export interface DeploymentCreateBody {

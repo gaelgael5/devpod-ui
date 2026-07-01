@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
-import { apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
 export interface WorkspaceGroup {
   id: number
@@ -57,7 +57,7 @@ export function useDeleteGroup() {
   const { t } = useTranslation()
   return useMutation({
     mutationFn: (id: number) =>
-      apiFetchJson<void>(`/me/workspace-groups/${id}`, { method: 'DELETE' }),
+      apiFetchVoid(`/me/workspace-groups/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK })
       qc.invalidateQueries({ queryKey: ['workspaces'] })

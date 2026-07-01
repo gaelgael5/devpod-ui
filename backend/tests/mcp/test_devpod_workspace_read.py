@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -35,15 +35,40 @@ async def test_workspace_list_maps_and_filters(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
-async def test_workspace_status_maps_running(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_workspace_status_running_agent_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Container running + ws_exec rc=0 → agent_up=True."""
     svc = SimpleNamespace(
         status=AsyncMock(return_value={"ws_id": "admin-dev", "status": "running"})
     )
     monkeypatch.setattr(devpod_tools, "get_service", lambda: svc)
-    res = await devpod_tools._workspace_status(None, {"workspace": "dev"}, "admin")
-    assert res == {
-        "workspace": "dev", "health": "running", "container_up": True, "agent_up": None
-    }
+    with patch("portal.mcp.devpod_tools.ws_exec", AsyncMock(return_value=(0, ""))):
+        res = await devpod_tools._workspace_status(None, {"workspace": "dev"}, "admin")
+    assert res == {"workspace": "dev", "health": "running", "container_up": True, "agent_up": True}
+
+
+@pytest.mark.asyncio
+async def test_workspace_status_running_agent_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Container running mais ws_exec rc≠0 (SSH timeout) → agent_up=False."""
+    svc = SimpleNamespace(
+        status=AsyncMock(return_value={"ws_id": "admin-dev", "status": "running"})
+    )
+    monkeypatch.setattr(devpod_tools, "get_service", lambda: svc)
+    with patch("portal.mcp.devpod_tools.ws_exec", AsyncMock(return_value=(1, "SSH command timed out"))):
+        res = await devpod_tools._workspace_status(None, {"workspace": "dev"}, "admin")
+    assert res == {"workspace": "dev", "health": "running", "container_up": True, "agent_up": False}
+
+
+@pytest.mark.asyncio
+async def test_workspace_status_container_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Container stopped → agent_up=None (pas de probe), ws_exec non appelé."""
+    svc = SimpleNamespace(
+        status=AsyncMock(return_value={"ws_id": "admin-dev", "status": "stopped"})
+    )
+    monkeypatch.setattr(devpod_tools, "get_service", lambda: svc)
+    with patch("portal.mcp.devpod_tools.ws_exec", AsyncMock()) as mock_exec:
+        res = await devpod_tools._workspace_status(None, {"workspace": "dev"}, "admin")
+    assert res == {"workspace": "dev", "health": "stopped", "container_up": False, "agent_up": None}
+    mock_exec.assert_not_called()
 
 
 @pytest.mark.asyncio

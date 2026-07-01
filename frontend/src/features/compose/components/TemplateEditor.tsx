@@ -36,6 +36,7 @@ export default function TemplateEditor({ template, open, onOpenChange }: Templat
   const [tags, setTags] = useState('')
   const [version, setVersion] = useState('1.0.0')
   const [composeContent, setComposeContent] = useState('services: {}\n')
+  const [messageKey, setMessageKey] = useState<string>('')
   const [parameters, setParameters] = useState<ComposeParam[]>([])
   const [serverError, setServerError] = useState<string | null>(null)
   const [idError, setIdError] = useState<string | null>(null)
@@ -49,6 +50,7 @@ export default function TemplateEditor({ template, open, onOpenChange }: Templat
       setTags(template.tags.join(', '))
       setVersion(template.version)
       setComposeContent(template.compose_content)
+      setMessageKey(template.message_key ?? '')
       setParameters(template.parameters)
     } else {
       setId('')
@@ -57,6 +59,7 @@ export default function TemplateEditor({ template, open, onOpenChange }: Templat
       setTags('')
       setVersion('1.0.0')
       setComposeContent('services: {}\n')
+      setMessageKey('')
       setParameters([])
     }
     setServerError(null)
@@ -77,6 +80,7 @@ export default function TemplateEditor({ template, open, onOpenChange }: Templat
       compose_content: composeContent,
       parameters,
       source: 'user',
+      message_key: messageKey.trim() || null,
     }
     try {
       const result = await save.mutateAsync({
@@ -156,6 +160,16 @@ export default function TemplateEditor({ template, open, onOpenChange }: Templat
           <div>
             <Label>{t('compose.form.yaml')}</Label>
             <YamlEditor value={composeContent} onChange={setComposeContent} minHeight="200px" />
+          </div>
+          <div>
+            <Label htmlFor="tpl-message-key">{t('compose.form.messageKey')}</Label>
+            <Input
+              id="tpl-message-key"
+              value={messageKey}
+              onChange={(e) => setMessageKey(e.target.value)}
+              placeholder="service-docker-compose"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">{t('compose.form.messageKeyHint')}</p>
           </div>
           <ParameterRows params={parameters} onChange={setParameters} />
           {serverError && (

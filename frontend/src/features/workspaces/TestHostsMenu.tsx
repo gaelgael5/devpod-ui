@@ -72,8 +72,11 @@ export default function TestHostsMenu({ wsName, enabled, onOpenSsh }: Props) {
           {hosts.map((h, idx) => (
             <div key={h.name}>
               {idx > 0 && <DropdownMenuSeparator />}
-              <DropdownMenuLabel className="font-normal font-mono text-xs">
-                {h.alias} — {h.ip}
+              <DropdownMenuLabel className="flex flex-col gap-0.5 leading-tight">
+                <span className="font-semibold text-sm">{h.name}</span>
+                <span className="font-normal font-mono text-xs text-muted-foreground">
+                  {h.alias} — {h.ip}
+                </span>
               </DropdownMenuLabel>
               <DropdownMenuItem onSelect={() => onOpenSsh(h)}>
                 {t('workspaces.testHosts.openSsh')}

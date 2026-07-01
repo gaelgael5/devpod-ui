@@ -156,7 +156,7 @@ class HostConfig(BaseModel):
     storage_type: Literal["local", "harpocrate"] = "local"
     vault_identifier: str = ""
     # Destination du host : workspaces (sélectionnable à la création) ou tests.
-    usage: Literal["workspaces", "tests"] = "workspaces"
+    usage: Literal["workspaces", "tests", "portail"] = "workspaces"
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
@@ -214,6 +214,17 @@ class CloudflareManagerConfig(BaseModel):
     api_key: str = ""
 
 
+class LogsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    loki_push_url: str | None = None
+    loki_query_url: str | None = None
+    grafana_url: str | None = None
+    module: str = "devpod"
+    push_token: str | None = None  # littéral ou ${vault://...}/${env://...}
+
+
 class GlobalConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -227,6 +238,7 @@ class GlobalConfig(BaseModel):
     hypervisors: list[Hypervisor] = Field(default_factory=list)
     caddy: CaddyConfig = Field(default_factory=CaddyConfig)
     cloudflare_manager: CloudflareManagerConfig = Field(default_factory=CloudflareManagerConfig)
+    logs: LogsConfig = Field(default_factory=LogsConfig)
 
     @model_validator(mode="before")
     @classmethod

@@ -6,7 +6,8 @@ from contextlib import asynccontextmanager
 import httpx
 import structlog
 from mcp import ClientSession
-from mcp.client.streamable_http import (  # type: ignore[attr-defined]
+from mcp.client.sse import sse_client  # type: ignore[import-not-found]
+from mcp.client.streamable_http import (  # type: ignore[import-not-found]
     create_mcp_http_client,
     streamable_http_client,
 )
@@ -26,48 +27,57 @@ class BackendUnavailable(Exception):
 async def open_session(
     url: str,
     *,
+    transport: str = "streamable_http",
     bearer: str | None = None,
     timeout_s: float = 30.0,
     sse_read_timeout_s: float = 300.0,
 ) -> AsyncIterator[ClientSession]:
-    """Ouvre une session MCP Streamable HTTP vers un backend, initialisée.
+    """Ouvre une session MCP vers un backend selon son transport, initialisée.
 
+    Supporte `streamable_http` (défaut) et `sse` (protocole legacy).
     Injecte un bearer token si fourni. Toute erreur de connexion ou
-    d'initialisation est convertie en BackendUnavailable (le runtime exclut
-    alors le backend sans faire échouer l'agrégation globale).
-
-    Args:
-        url: URL du backend MCP (ex. http://host/mcp).
-        bearer: Token d'autorisation Bearer optionnel.
-        timeout_s: Timeout de connexion et requête (défaut 30s).
-        sse_read_timeout_s: Timeout de lecture du flux SSE, utilisé pour les
-            réponses streamées des tools longs (défaut 300s). Correspond à
-            l'ancien paramètre ``sse_read_timeout`` de l'API dépréciée.
-
-    Note SDK (mcp 1.28+) : l'API actuelle de streamable_http_client accepte
-    un httpx.AsyncClient pré-configuré ; headers et timeout sont passés via
-    create_mcp_http_client.
+    d'initialisation est convertie en BackendUnavailable.
     """
-    headers = {"Authorization": f"Bearer {bearer}"} if bearer else None
-    timeout = httpx.Timeout(timeout_s, read=sse_read_timeout_s)
-    http_client = create_mcp_http_client(headers=headers, timeout=timeout)
+    headers: dict[str, str] | None = {"Authorization": f"Bearer {bearer}"} if bearer else None
+    _log.debug(
+        "mcp_open_session_start", url=url, transport=transport, has_bearer=bearer is not None
+    )
     try:
-        async with (
-            http_client,
-            streamable_http_client(url, http_client=http_client) as (read, write, _get_sid),
-            ClientSession(read, write) as session,
-        ):
-            await session.initialize()
-            yield session
+        if transport == "sse":
+            async with (
+                sse_client(
+                    url,
+                    headers=headers,
+                    timeout=timeout_s,
+                    sse_read_timeout=sse_read_timeout_s,
+                ) as (read, write),
+                ClientSession(read, write) as session,
+            ):
+                await session.initialize()
+                _log.debug("mcp_open_session_ok", url=url, transport=transport)
+                yield session
+        else:
+            timeout = httpx.Timeout(timeout_s, read=sse_read_timeout_s)
+            http_client = create_mcp_http_client(headers=headers, timeout=timeout)
+            async with (
+                http_client,
+                streamable_http_client(url, http_client=http_client) as (read, write, _get_sid),
+                ClientSession(read, write) as session,
+            ):
+                await session.initialize()
+                _log.debug("mcp_open_session_ok", url=url, transport=transport)
+                yield session
     except BackendUnavailable:
         raise
     except Exception as exc:
         _log.warning(
             "mcp_backend_unavailable",
             url=url,
-            error=type(exc).__name__,
+            transport=transport,
+            exc_type=type(exc).__name__,
+            error=str(exc),
             # bearer intentionnellement absent du log
         )
         raise BackendUnavailable(
-            f"backend injoignable: {type(exc).__name__}",
+            f"backend injoignable ({type(exc).__name__}): {exc}",
         ) from exc
