@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -362,7 +363,10 @@ export default function AdminJinjaTemplates() {
                   <div className="mt-1 flex flex-wrap gap-1">
                     <Badge variant="secondary" className="text-xs">{rt.culture}</Badge>
                     {isPresent(rt) && (
-                      <Badge variant="outline" className="text-xs">{t('jinjaTemplates.gallery.present')}</Badge>
+                      <span className="inline-flex items-center gap-1 rounded-md border border-green-600 px-2 py-0.5 text-xs text-green-600">
+                        <CheckCircle2 className="h-3 w-3" />
+                        {t('jinjaTemplates.gallery.present')}
+                      </span>
                     )}
                   </div>
                 </div>
