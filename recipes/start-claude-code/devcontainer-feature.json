@@ -1,7 +1,0 @@
-{
-  "id": "start-claude-code",
-  "version": "1.0.0",
-  "name": "Start Claude Code (remote-control)",
-  "description": "Lance Claude Code en mode remote-control au démarrage du devcontainer",
-  "installsAfter": ["ghcr.io/devcontainers/features/node"]
-}

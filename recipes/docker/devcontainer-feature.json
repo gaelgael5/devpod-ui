@@ -1,6 +1,0 @@
-{
-  "id": "docker",
-  "version": "1.0.0",
-  "name": "Docker CLI",
-  "description": "Install Docker CLI (client uniquement, sans daemon)"
-}

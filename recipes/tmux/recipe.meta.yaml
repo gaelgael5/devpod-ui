@@ -1,5 +1,0 @@
-﻿id: tmux
-key: cb8ed825-1f74-4c7e-bc35-13b5adb532ed
-version: "1.0.0"
-description: "Installe tmux — requis pour les sessions terminal persistantes du portail"
-type: install

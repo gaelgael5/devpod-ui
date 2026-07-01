@@ -1,2 +1,0 @@
-browserless-chromium/
-searxng/
