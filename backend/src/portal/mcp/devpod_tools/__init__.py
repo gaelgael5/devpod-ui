@@ -554,10 +554,26 @@ async def _session_send(conn: AsyncConnection, args: dict[str, Any], owner_login
     text = _require_str(args, "text")
     submit = bool(args.get("submit", True))
     # _origin / _depth (I-7) présents au schéma mais non câblés en v1 : ignorés ici.
-    keys = shlex.quote(text) + (" Enter" if submit else "")
-    rc, out = await ws_exec(
-        owner_login, f"{owner_login}-{name}", tmux(f"send-keys -t {shlex.quote(sess)} {keys}")
-    )
+    #
+    # Correctif bracketed-paste (spec 32 §3) : émettre deux send-keys distincts avec
+    # un court délai pour que l'Enter ne soit pas avalé par la clôture du paste.
+    _tc = f"tmux {_TMUX_SOCK}"
+    q_sess = shlex.quote(sess)
+    if text and submit:
+        # Texte + validation : littéral -l, puis sleep, puis Enter propre.
+        cmd = (
+            f"{TMUX_SOCK_DETECT}; "
+            f"{_tc} send-keys -t {q_sess} -l {shlex.quote(text)}"
+            f" && sleep 0.1"
+            f" && {_tc} send-keys -t {q_sess} Enter"
+        )
+    elif submit:
+        # Texte vide + submit=true : Enter seul.
+        cmd = tmux(f"send-keys -t {q_sess} Enter")
+    else:
+        # submit=false : texte seul (pas d'Enter), littéral -l.
+        cmd = tmux(f"send-keys -t {q_sess} -l {shlex.quote(text)}")
+    rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", cmd)
     if rc != 0:
         raise DevpodToolError(out)
     return {"sent": True}
