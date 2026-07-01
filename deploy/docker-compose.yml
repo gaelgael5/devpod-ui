@@ -38,6 +38,9 @@ services:
   loki:
     image: grafana/loki:3.3.2
     restart: unless-stopped
+    # user root : le volume Docker nommé est créé root:root ; Loki uid 10001
+    # ne peut pas créer ses sous-répertoires sans ça.
+    user: "0"
     command: -config.file=/etc/loki/config.yaml
     volumes:
       - ./loki-config.yaml:/etc/loki/config.yaml:ro
