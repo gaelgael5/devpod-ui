@@ -455,7 +455,8 @@
     "theme": "Thème",
     "language": "Langue",
     "dark": "Sombre",
-    "light": "Clair"
+    "light": "Clair",
+    "logs": "Logs (Grafana)"
   },
   "auth": {
     "login": "Se connecter avec Keycloak",

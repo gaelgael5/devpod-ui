@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container } from 'lucide-react'
+import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   DropdownMenu,
@@ -12,6 +12,7 @@ import {
 import { useUserStore } from '@/store/user'
 import { useThemeStore } from '@/store/theme'
 import { cn } from '@/lib/utils'
+import { useLogsConfig } from '@/features/grafana/useLogsConfig'
 
 const RAIL_LINK =
   'flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
@@ -24,6 +25,7 @@ export default function AppShell() {
   const clear = useUserStore((s) => s.clear)
   const isAdmin = useUserStore((s) => s.isAdmin())
   const { theme, toggle } = useThemeStore()
+  const { data: logsConfig } = useLogsConfig()
 
   function handleLogout() {
     clear()
@@ -73,6 +75,17 @@ export default function AppShell() {
         >
           <Container size={18} />
         </NavLink>
+        {logsConfig?.enabled && logsConfig.grafana_url && (
+          <a
+            href={logsConfig.grafana_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={RAIL_LINK}
+            title={t('nav.logs')}
+          >
+            <Activity size={18} />
+          </a>
+        )}
 
         {/* Profile menu at bottom */}
         <div className="mt-auto">
