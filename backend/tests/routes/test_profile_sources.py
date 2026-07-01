@@ -4,8 +4,45 @@ import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 import yaml
 from fastapi.testclient import TestClient
+
+
+class _RecordingClient:
+    """Faux httpx.AsyncClient qui enregistre les URLs demandées et sert le toc.txt."""
+
+    def __init__(self, toc_text: str) -> None:
+        self.toc_text = toc_text
+        self.requested: list[str] = []
+
+    async def get(self, url: str, timeout: float = 5.0, follow_redirects: bool = False):
+        self.requested.append(url)
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.text = self.toc_text
+        return resp
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "https://example.com/profiles/",
+        "https://example.com/profiles",
+        "https://example.com/profiles/toc.txt",
+    ],
+)
+async def test_preview_one_source_accepts_dir_and_tocurl(source: str) -> None:
+    """Accepte le dossier comme l'URL complète du toc.txt, sans doubler /toc.txt."""
+    from portal.routes.profile_sources import _preview_one_source
+
+    client = _RecordingClient("python-dev.yaml | Python Dev | Profil Python | 8\n")
+    results = await _preview_one_source(client, source)
+
+    assert client.requested == ["https://example.com/profiles/toc.txt"]
+    assert len(results) == 1
+    assert results[0]["source_url"] == "https://example.com/profiles/python-dev.yaml"
+    assert results[0]["source_base"] == "https://example.com/profiles"
 
 
 def _make_admin_app(tmp_path: Path):

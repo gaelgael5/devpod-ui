@@ -25,7 +25,7 @@ router_admin = APIRouter(tags=["profile-sources"])
 
 _YAML_FNAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.yaml$")
 
-_DEFAULT_SOURCE = "https://raw.githubusercontent.com/ag-flow/ressources/main/profiles/"
+_DEFAULT_SOURCE = "https://raw.githubusercontent.com/ag-flow/ressources/refs/heads/main/profiles/"
 
 
 class ProfileSourcesPayload(BaseModel):
@@ -63,8 +63,23 @@ async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
     return resp.text
 
 
-async def _preview_one_source(client: httpx.AsyncClient, base_url: str) -> list[dict[str, Any]]:
-    toc_url = base_url.rstrip("/") + "/toc.txt"
+def _split_toc_url(source: str) -> tuple[str, str]:
+    """Normalise une source de profils en (toc_url, dir_base).
+
+    Accepte indifféremment le dossier (``.../profiles/``) ou l'URL complète du
+    fichier d'index (``.../profiles/toc.txt``) — même convention que les sources
+    de recettes. ``dir_base`` est le répertoire sans slash final ; ``toc_url``
+    pointe toujours sur un unique ``toc.txt``.
+    """
+    stripped = source.rstrip("/")
+    head, _, tail = stripped.rpartition("/")
+    if tail == "toc.txt":
+        return stripped, head
+    return f"{stripped}/toc.txt", stripped
+
+
+async def _preview_one_source(client: httpx.AsyncClient, source: str) -> list[dict[str, Any]]:
+    toc_url, dir_base = _split_toc_url(source)
     try:
         toc = await _fetch_text(client, toc_url)
     except Exception as exc:
@@ -82,8 +97,8 @@ async def _preview_one_source(client: httpx.AsyncClient, base_url: str) -> list[
         results.append(
             {
                 **parsed,
-                "source_url": f"{base_url.rstrip('/')}/{parsed['filename']}",
-                "source_base": base_url,
+                "source_url": f"{dir_base}/{parsed['filename']}",
+                "source_base": dir_base,
             }
         )
     return results

@@ -9,7 +9,7 @@ _DEFAULT_RECIPE_SOURCE = (
     "https://raw.githubusercontent.com/ag-flow/ressources/main/recipes/toc.txt"
 )
 _DEFAULT_PROFILE_SOURCE = (
-    "https://raw.githubusercontent.com/ag-flow/ressources/main/profiles/"
+    "https://raw.githubusercontent.com/ag-flow/ressources/refs/heads/main/profiles/"
 )
 _DEFAULT_COMPOSE_SOURCE = (
     "https://raw.githubusercontent.com/ag-flow/ressources/main/composes/toc.txt"
