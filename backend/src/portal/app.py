@@ -168,6 +168,11 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
             await bootstrap_devpod(conn)
 
+            # Templates compose builtin (Alloy collector, etc.).
+            from .compose.compose_bootstrap import seed_builtin_templates
+
+            await seed_builtin_templates(conn)
+
         # Pas de synchro automatique des recettes : c'est l'admin qui choisit quoi
         # synchroniser, via POST /admin/recipes/sync.
 
@@ -220,8 +225,7 @@ def create_app() -> FastAPI:
             )
         else:
             raise RuntimeError(
-                "PORTAL_VAULT_KEK must be set in .env. "
-                "Generate with: openssl rand -hex 32"
+                "PORTAL_VAULT_KEK must be set in .env. Generate with: openssl rand -hex 32"
             )
 
     app = FastAPI(title="workspace-portal", version="0.1.0", lifespan=_lifespan)

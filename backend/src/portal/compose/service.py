@@ -1,4 +1,5 @@
 """Orchestration du cycle de vie d'un déploiement compose (spec 26 §5)."""
+
 from __future__ import annotations
 
 import json
@@ -37,6 +38,12 @@ _log = structlog.get_logger(__name__)
 
 _SECRET_REF_RE = re.compile(r"^\$\{(vault|env)://.+\}$")
 
+_ROLE_MAP: dict[str, str] = {
+    "portail": "portail",
+    "workspaces": "workspace",
+    "tests": "test",
+}
+
 
 class ComposeServiceError(Exception):
     """Erreur de cycle de vie d'un déploiement (FR)."""
@@ -44,6 +51,22 @@ class ComposeServiceError(Exception):
 
 def _remote_dir(name: str) -> str:
     return f"devpod-compose/{name}"
+
+
+def _log_context_vars(host: HostConfig) -> dict[str, str]:
+    """Variables de contexte injectées par le portail (LOKI_URL, HOSTNAME, MODULE, ROLE).
+
+    Retourne un dict vide si logs.enabled=false ou si loki_push_url n'est pas configurée.
+    """
+    cfg = load_global()
+    if not cfg.logs.enabled or not cfg.logs.loki_push_url:
+        return {}
+    return {
+        "LOKI_URL": cfg.logs.loki_push_url,
+        "MODULE": cfg.logs.module,
+        "HOSTNAME": host.name,
+        "ROLE": _ROLE_MAP.get(host.usage, "workspace"),
+    }
 
 
 def _host_for_node(node_id: str) -> HostConfig:
@@ -129,7 +152,11 @@ async def deploy(
 
     try:
         await write_host_file(host, f"{rdir}/docker-compose.yml", compose_to_write)
-        await write_host_file(host, f"{rdir}/.env", render_env_file(resolved))
+        for fname, fcontent in template.extra_files.items():
+            await write_host_file(host, f"{rdir}/{fname}", fcontent)
+        await write_host_file(
+            host, f"{rdir}/.env", render_env_file(resolved, _log_context_vars(host))
+        )
 
         override_content = build_override(
             compose_to_write,
@@ -141,8 +168,7 @@ async def deploy(
             await write_host_file(host, f"{rdir}/docker-compose.override.yml", override_content)
 
         cmd = (
-            f"cd {shlex.quote(rdir)} && "
-            f"docker compose --env-file .env -p {shlex.quote(name)} up -d"
+            f"cd {shlex.quote(rdir)} && docker compose --env-file .env -p {shlex.quote(name)} up -d"
         )
         rc, out, err = await run_host_command(host, cmd, timeout=600.0)
     except HostExecError as exc:
@@ -263,7 +289,11 @@ async def deploy_stream(
 
     try:
         await write_host_file(host, f"{rdir}/docker-compose.yml", compose_to_write)
-        await write_host_file(host, f"{rdir}/.env", render_env_file(resolved))
+        for fname, fcontent in template.extra_files.items():
+            await write_host_file(host, f"{rdir}/{fname}", fcontent)
+        await write_host_file(
+            host, f"{rdir}/.env", render_env_file(resolved, _log_context_vars(host))
+        )
         override_content = build_override(
             compose_to_write,
             deployment_id=name,
@@ -271,9 +301,7 @@ async def deploy_stream(
             owner_login=owner_login,
         )
         if override_content:
-            await write_host_file(
-                host, f"{rdir}/docker-compose.override.yml", override_content
-            )
+            await write_host_file(host, f"{rdir}/docker-compose.override.yml", override_content)
     except HostExecError as exc:
         raise ComposeServiceError(str(exc)) from exc
 
@@ -424,10 +452,7 @@ async def fetch_logs(
         raise ComposeServiceError(f"déploiement inconnu: {uid}")
     host = _host_for_node(dep.node_id)
     svc = f" {shlex.quote(service)}" if service else ""
-    cmd = (
-        f"docker compose -p {shlex.quote(dep.id)} logs --no-color "
-        f"--tail={int(tail)}{svc}"
-    )
+    cmd = f"docker compose -p {shlex.quote(dep.id)} logs --no-color --tail={int(tail)}{svc}"
     try:
         _, out, err = await run_host_command(host, cmd, timeout=60.0)
     except HostExecError as exc:

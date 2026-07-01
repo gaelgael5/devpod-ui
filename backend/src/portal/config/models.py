@@ -156,7 +156,7 @@ class HostConfig(BaseModel):
     storage_type: Literal["local", "harpocrate"] = "local"
     vault_identifier: str = ""
     # Destination du host : workspaces (sélectionnable à la création) ou tests.
-    usage: Literal["workspaces", "tests"] = "workspaces"
+    usage: Literal["workspaces", "tests", "portail"] = "workspaces"
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")

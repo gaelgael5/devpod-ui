@@ -9,6 +9,7 @@ Exemple : "chromium>3000:3000"
 À l'heure du déploiement, le moteur alloue un port libre ≥ min_host_port
 et réécrit les entrées dans le contenu YAML envoyé au nœud.
 """
+
 from __future__ import annotations
 
 import re
@@ -40,7 +41,7 @@ def is_alias_entry(entry: Any) -> bool:
 
 def _collect_port_entries(parsed: dict[str, Any]) -> list[str]:
     entries: list[str] = []
-    for svc in ((parsed.get("services") or {}).values()):
+    for svc in (parsed.get("services") or {}).values():
         if not isinstance(svc, dict):
             continue
         for p in svc.get("ports") or []:
