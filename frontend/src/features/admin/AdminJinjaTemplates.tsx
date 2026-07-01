@@ -1,12 +1,18 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
 import JinjaEditor from './JinjaEditor'
 import { useJinjaTemplates } from './useJinjaTemplates'
 import type { JinjaTemplate } from './useJinjaTemplates'
+import { useJinjaTemplateSources, type RemoteJinjaTemplate } from './useJinjaTemplateSources'
 
 const CONTEXT_HELP_HOST = `# Variables disponibles — machine de test
 host.name          # nom du host (ex: vm-abc)
@@ -73,6 +79,8 @@ function TemplateRow({ tpl, onEdit, onDelete }: {
 export default function AdminJinjaTemplates() {
   const { t } = useTranslation()
   const { templates, upsert, remove, preview } = useJinjaTemplates()
+  const { sourcesQuery, updateSources, previewQuery, importTemplate, exportBundle } =
+    useJinjaTemplateSources()
 
   const [editing, setEditing] = useState<JinjaTemplate | null>(null)
   const [isNew, setIsNew] = useState(false)
@@ -81,6 +89,35 @@ export default function AdminJinjaTemplates() {
   const [previewResult, setPreviewResult] = useState<string | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [contextHelp, setContextHelp] = useState<'host' | 'deploy'>('host')
+  const [newSourceUrl, setNewSourceUrl] = useState('')
+  const [confirmOverwrite, setConfirmOverwrite] = useState<RemoteJinjaTemplate | null>(null)
+
+  const sources = sourcesQuery.data?.sources ?? []
+  const remoteTemplates = previewQuery.data?.templates ?? []
+  const presentKeys = new Set((templates.data ?? []).map(t => `${t.key}/${t.culture}`))
+
+  function isPresent(rt: RemoteJinjaTemplate) {
+    return presentKeys.has(`${rt.key}/${rt.culture}`)
+  }
+  function addSource() {
+    const url = newSourceUrl.trim()
+    if (!url) return
+    updateSources.mutate([...sources, url])
+    setNewSourceUrl('')
+  }
+  function removeSource(idx: number) {
+    updateSources.mutate(sources.filter((_, i) => i !== idx))
+  }
+  function doImport(rt: RemoteJinjaTemplate, overwrite: boolean) {
+    importTemplate.mutate(
+      { source_url: rt.source_url, key: rt.key, culture: rt.culture, overwrite },
+      { onSuccess: () => setConfirmOverwrite(null) },
+    )
+  }
+  function onImportClick(rt: RemoteJinjaTemplate) {
+    if (isPresent(rt)) setConfirmOverwrite(rt)
+    else doImport(rt, false)
+  }
 
   function openNew() {
     setForm({ key: '', culture: 'fr', body: '' })
@@ -140,7 +177,10 @@ export default function AdminJinjaTemplates() {
     <div className="mx-auto max-w-5xl space-y-6 p-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">{t('jinjaTemplates.title')}</h1>
-        <Button onClick={openNew}>{t('jinjaTemplates.new')}</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => exportBundle()}>{t('jinjaTemplates.export')}</Button>
+          <Button onClick={openNew}>{t('jinjaTemplates.new')}</Button>
+        </div>
       </div>
 
       {templates.isLoading && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
@@ -277,6 +317,90 @@ export default function AdminJinjaTemplates() {
           </form>
         </div>
       )}
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold">{t('jinjaTemplates.gallery.sources')}</h2>
+        <div className="flex flex-col gap-2">
+          {sources.map((url, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <Input value={url} readOnly className="flex-1 font-mono text-xs opacity-80" />
+              <Button size="sm" variant="ghost" onClick={() => removeSource(idx)}>✕</Button>
+            </div>
+          ))}
+          <div className="flex items-center gap-2">
+            <Input
+              value={newSourceUrl}
+              onChange={e => setNewSourceUrl(e.target.value)}
+              placeholder="https://raw.githubusercontent.com/…/jinja/toc.txt"
+              className="flex-1 font-mono text-xs"
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSource() } }}
+            />
+            <Button size="sm" variant="outline" onClick={addSource}
+              disabled={!newSourceUrl.trim() || updateSources.isPending}>
+              {t('jinjaTemplates.gallery.add')}
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">{t('jinjaTemplates.gallery.title')}</h2>
+          <Button size="sm" variant="outline" onClick={() => previewQuery.refetch()}
+            disabled={previewQuery.isFetching}>
+            {t('jinjaTemplates.gallery.refresh')}
+          </Button>
+        </div>
+        {remoteTemplates.length === 0 && !previewQuery.isFetching && (
+          <p className="text-sm text-muted-foreground">{t('jinjaTemplates.gallery.empty')}</p>
+        )}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {remoteTemplates.map(rt => (
+            <div key={rt.source_url} className="rounded-lg border bg-card p-4">
+              <div className="mb-1 flex items-start justify-between gap-2">
+                <div>
+                  <div className="font-mono text-sm font-medium">{rt.key}</div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <Badge variant="secondary" className="text-xs">{rt.culture}</Badge>
+                    {isPresent(rt) && (
+                      <span className="inline-flex items-center gap-1 rounded-md border border-green-600 px-2 py-0.5 text-xs text-green-600">
+                        <CheckCircle2 className="h-3 w-3" />
+                        {t('jinjaTemplates.gallery.present')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <Button size="sm" onClick={() => onImportClick(rt)} disabled={importTemplate.isPending}>
+                  {importTemplate.isPending
+                    ? t('jinjaTemplates.gallery.importing')
+                    : t('jinjaTemplates.gallery.import')}
+                </Button>
+              </div>
+              <div className="mt-2 text-sm text-muted-foreground">{rt.description}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <Dialog open={Boolean(confirmOverwrite)} onOpenChange={o => !o && setConfirmOverwrite(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('jinjaTemplates.gallery.overwriteConfirmTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('jinjaTemplates.gallery.overwriteConfirmDescription', {
+                key: confirmOverwrite?.key, culture: confirmOverwrite?.culture,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmOverwrite(null)}>{t('common.cancel')}</Button>
+            <Button variant="destructive" disabled={importTemplate.isPending}
+              onClick={() => confirmOverwrite && doImport(confirmOverwrite, true)}>
+              {t('jinjaTemplates.gallery.overwrite')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

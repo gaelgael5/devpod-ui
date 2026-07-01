@@ -1,10 +1,12 @@
 """Admin CRUD des templates Jinja2 (clé × culture)."""
 from __future__ import annotations
 
+import io
+import zipfile
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -39,6 +41,44 @@ async def list_jinja_templates(
     conn: AsyncConnection = Depends(get_conn),
 ) -> list[Jinja2Template]:
     return await mdb.list_templates(conn)
+
+
+def _toc_desc(body: str) -> str:
+    """Première ligne non vide, sans pipe ni saut de ligne, tronquée à 80 car."""
+    for line in body.splitlines():
+        s = line.strip()
+        if s:
+            return s.replace("|", "/")[:80]
+    return ""
+
+
+def build_templates_zip(templates: list[Jinja2Template]) -> bytes:
+    """Construit un bundle ZIP : toc.txt + un <key>.<culture>.j2 par template."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        toc_lines: list[str] = []
+        for t in templates:
+            fname = f"{t.key}.{t.culture}.j2"
+            toc_lines.append(f"{fname} | {t.key} | {t.culture} | {_toc_desc(t.body)}")
+            zf.writestr(fname, t.body)
+        toc = ("\n".join(toc_lines) + "\n") if toc_lines else ""
+        zf.writestr("toc.txt", toc)
+    return buf.getvalue()
+
+
+@router.get("/jinja-templates/export")
+async def export_jinja_templates(
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> Response:
+    templates = await mdb.list_templates(conn)
+    data = build_templates_zip(templates)
+    _log.info("jinja_templates_exported", count=len(templates), by=user.login)
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="jinja-templates.zip"'},
+    )
 
 
 @router.get("/jinja-templates/{key}/{culture}")

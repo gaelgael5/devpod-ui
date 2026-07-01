@@ -4,10 +4,13 @@ from __future__ import annotations
 import pytest
 
 from portal.db.sources import (
+    _DEFAULT_JINJA_SOURCE,
     _DEFAULT_PROFILE_SOURCE,
     _DEFAULT_RECIPE_SOURCE,
+    load_jinja_template_sources,
     load_profile_sources,
     load_recipe_sources,
+    save_jinja_template_sources,
     save_profile_sources,
     save_recipe_sources,
 )
@@ -78,3 +81,20 @@ async def test_profile_sources_replace_on_save(db_conn):
     await save_profile_sources([], db_conn)
     result = await load_profile_sources(db_conn)
     assert result == [_DEFAULT_PROFILE_SOURCE]
+
+
+# ─── jinja_template_sources ───────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_jinja_sources_default_when_empty(db_conn):
+    result = await load_jinja_template_sources(db_conn)
+    assert result == [_DEFAULT_JINJA_SOURCE]
+
+
+@pytest.mark.asyncio
+async def test_jinja_sources_save_and_load(db_conn):
+    urls = ["https://example.com/jinja/toc.txt", "https://example.org/j/"]
+    await save_jinja_template_sources(urls, db_conn)
+    result = await load_jinja_template_sources(db_conn)
+    assert result == urls

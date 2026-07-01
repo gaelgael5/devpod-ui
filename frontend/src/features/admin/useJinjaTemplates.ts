@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
 export interface JinjaTemplate {
   key: string
@@ -30,7 +30,7 @@ export function useJinjaTemplates() {
 
   const remove = useMutation({
     mutationFn: ({ key, culture }: { key: string; culture: string }) =>
-      apiFetchJson<void>(`/admin/jinja-templates/${encodeURIComponent(key)}/${encodeURIComponent(culture)}`, {
+      apiFetchVoid(`/admin/jinja-templates/${encodeURIComponent(key)}/${encodeURIComponent(culture)}`, {
         method: 'DELETE',
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK }),

@@ -593,6 +593,18 @@ compose_catalog_sources = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
+# ─── Jinja Gallery : sources de la galerie de templates Jinja2 ───────────────
+
+jinja_template_sources = Table(
+    "jinja_template_sources",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("url", Text, nullable=False, unique=True),
+    Column("position", Integer, nullable=False, server_default="0"),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 # ─── Compose Gallery (lot 1) ─────────────────────────────────────────────────
 
 compose_template = Table(

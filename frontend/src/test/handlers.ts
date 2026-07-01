@@ -217,6 +217,11 @@ export const handlers = [
   http.put('/me/mcp/apikeys/:id/grants', () => HttpResponse.json({ apikey_id: 'a-new', backend_id: 'b1' })),
   http.delete('/me/mcp/apikeys/:id/grants/:backendId', () => new HttpResponse(null, { status: 204 })),
 
+  // Admin jinja-templates
+  http.get('/admin/jinja-templates', () => HttpResponse.json([])),
+  http.get('/admin/jinja-template-sources', () => HttpResponse.json({ sources: [] })),
+  http.get('/admin/jinja-template-sources/preview', () => HttpResponse.json({ templates: [] })),
+
   // Handlers compose-gallery
   http.get('/api/compose/templates', () =>
     HttpResponse.json([

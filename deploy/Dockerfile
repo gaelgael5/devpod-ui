@@ -77,8 +77,8 @@ COPY backend/alembic.ini ./
 # Assets frontend buildés dans le stage précédent
 COPY --from=frontend-builder /build/dist ./static
 
-# Catalogue de recettes bundlées — synchronisées vers /data/recipes/ au démarrage
-COPY recipes/ /app/recipes/
+# Les recettes ne sont pas embarquées dans l'image : elles proviennent de /data
+# (recettes admin) ou d'une source externe au runtime, jamais du build.
 
 # Exposer le venv uv sur PATH — évite le surcoût de `uv run` à chaque démarrage
 ENV PATH="/app/.venv/bin:$PATH"

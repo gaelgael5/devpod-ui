@@ -685,6 +685,15 @@
       "PAT_GITLAB": "Personal Access Token — GitLab",
       "PAT_AZURE": "Personal Access Token — Azure DevOps",
       "API_KEY": "Generic API Key"
+    },
+    "patHelp": {
+      "title": "How do I get a Personal Access Token (PAT)?",
+      "intro": "A PAT lets the portal clone and push your private Git repositories on your behalf. Create one on your provider, then register it here. Use the minimum scopes and set an expiration date.",
+      "docLink": "Docs",
+      "github": "GitHub — Settings → Developer settings → Personal access tokens → Fine-grained tokens (or Tokens (classic)) → Generate token. Grant Contents: Read and write (fine-grained) or the repo scope (classic). Copy the token (github_pat_… or ghp_…).",
+      "gitlab": "GitLab — Preferences → Access Tokens → Add new token. Select the read_repository and write_repository scopes (or api). Copy the token (glpat-…).",
+      "bitbucket": "Bitbucket Cloud — Personal settings → App passwords → Create app password. Grant Repositories: Read and Write; use it as the token. (Bitbucket Data Center: Manage account → HTTP access tokens.)",
+      "azure": "Azure DevOps — User settings → Personal access tokens → New Token. Grant the Code (Read & Write) scope. Copy the token."
     }
   },
   "oauth": {
@@ -1012,6 +1021,21 @@
     "previewCtx": "Preview context (JSON)",
     "previewBtn": "Preview",
     "invalidJson": "Invalid JSON context",
-    "confirmDelete": "Delete template {{key}} / {{culture}}?"
+    "confirmDelete": "Delete template {{key}} / {{culture}}?",
+    "export": "Export",
+    "gallery": {
+      "sources": "Configured sources",
+      "title": "Template gallery",
+      "add": "Add",
+      "refresh": "Refresh gallery",
+      "import": "Import",
+      "importing": "Importing…",
+      "present": "present",
+      "empty": "No templates available in sources.",
+      "imported": "Template {{key}} / {{culture}} imported",
+      "overwriteConfirmTitle": "Overwrite existing template?",
+      "overwriteConfirmDescription": "Template {{key}} / {{culture}} already exists. Importing will overwrite its current content.",
+      "overwrite": "Overwrite"
+    }
   }
 }
