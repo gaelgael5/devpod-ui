@@ -191,11 +191,11 @@ fi
 # ─── 3) Build + démarrage de la stack ─────────────────────────────────────────
 echo ""
 echo "==> [3/4] Build de l'image Docker (frontend + backend)..."
-docker compose -f "$COMPOSE_FILE" build
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build
 
 echo ""
 echo "==> Arrêt de la stack en cours (si active)..."
-docker compose -f "$COMPOSE_FILE" down --remove-orphans || true
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down --remove-orphans || true
 
 # Détection du port 80 — si déjà utilisé, Caddy part sur 8090 pour éviter le conflit.
 if [[ -z "${CADDY_DEV_PORT:-}" ]]; then
@@ -207,17 +207,17 @@ if [[ -z "${CADDY_DEV_PORT:-}" ]]; then
 fi
 
 echo "==> Démarrage de la stack..."
-docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
 
 echo ""
-docker compose -f "$COMPOSE_FILE" ps
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
 
 # ─── 4) Smoke /health ─────────────────────────────────────────────────────────
 echo ""
 echo "==> [4/4] Smoke /health (timeout 60s)..."
 SMOKE_OK=0
 ELAPSED=0
-PORTAL_ID="$(docker compose -f "$COMPOSE_FILE" ps -q portal 2>/dev/null)"
+PORTAL_ID="$(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps -q portal 2>/dev/null)"
 while [[ $ELAPSED -lt 90 ]]; do
     STATUS="$(docker inspect --format='{{.State.Health.Status}}' "$PORTAL_ID" 2>/dev/null)"
     if [[ "$STATUS" == "healthy" ]]; then
