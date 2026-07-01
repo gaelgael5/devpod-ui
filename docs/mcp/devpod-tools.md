@@ -1261,3 +1261,75 @@ Paramètre optionnel `include` pour enrichir la réponse : - 'workload' : compte
   }
 }
 ```
+
+## `devpod__logs_query`
+
+- **Scope** : `read`
+- **Description** : Interroge les logs centralisés de la stack (tous les hosts + workspaces + système). Filtres structurés par host/role/project/service/unit/level, ou expression LogQL brute pour les cas avancés. Retourne les lignes correspondantes et un lien Grafana pré-filtré. Préférer cet outil à workspace_logs/compose_service_logs pour une vue transverse ou historique ; les outils par-conteneur restent utiles pour du point-in-time sur une cible. Impact: read-only — aucune mutation, simple lecture de l'agrégateur Loki.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Expression LogQL brute (échappatoire puissance). Si fournie, prime sur les filtres."
+    },
+    "host": {
+      "type": "string",
+      "description": "Filtre label 'host'."
+    },
+    "role": {
+      "type": "string",
+      "description": "Filtre label 'role' (portail/workspace/test)."
+    },
+    "project": {
+      "type": "string",
+      "description": "Filtre label 'compose_project' (workspace ou déploiement compose)."
+    },
+    "service": {
+      "type": "string",
+      "description": "Filtre label 'compose_service'."
+    },
+    "unit": {
+      "type": "string",
+      "description": "Filtre label 'unit' (logs journald, ex. 'docker.service')."
+    },
+    "level": {
+      "type": "string",
+      "description": "Filtre niveau structlog via '| json | level=\"...\"'."
+    },
+    "since": {
+      "type": "string",
+      "default": "1h",
+      "description": "Fenêtre relative (15m, 6h, 2d). Ignoré si start/end fournis."
+    },
+    "start": {
+      "type": "string",
+      "description": "Borne absolue de début (RFC 3339). Optionnelle."
+    },
+    "end": {
+      "type": "string",
+      "description": "Borne absolue de fin (RFC 3339). Optionnelle."
+    },
+    "limit": {
+      "type": "integer",
+      "default": 200,
+      "minimum": 1,
+      "maximum": 5000,
+      "description": "Nombre max de lignes retournées."
+    },
+    "direction": {
+      "type": "string",
+      "enum": [
+        "forward",
+        "backward"
+      ],
+      "default": "backward",
+      "description": "Ordre (backward = plus récent d'abord)."
+    }
+  }
+}
+```

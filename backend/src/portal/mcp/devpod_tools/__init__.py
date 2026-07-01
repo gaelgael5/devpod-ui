@@ -35,6 +35,7 @@ from ...devpod.exec import TMUX_SOCK_DETECT, tmux, ws_exec
 from . import operations
 from .compose_tools import COMPOSE_IMPLS
 from .errors import DevpodToolError
+from .logs_tools import LOGS_IMPLS
 from .message_tools import MESSAGE_IMPLS
 from .paths import safe_workspace_path
 
@@ -316,9 +317,7 @@ async def _workspace_get(conn: AsyncConnection, args: dict[str, Any], owner_logi
         "profile": f"{spec.profile.scope}/{spec.profile.slug}" if spec.profile else None,
         "init_recipes": spec.init_recipes or [],
         "secret_bindings": {
-            k: v
-            for k, v in (spec.env or {}).items()
-            if _SECRET_REF_RE.fullmatch(v or "")
+            k: v for k, v in (spec.env or {}).items() if _SECRET_REF_RE.fullmatch(v or "")
         },
         "tags": [],
         "devcontainer_ref": spec.devcontainer_path or spec.template or None,
@@ -1068,6 +1067,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_profile_set": _workspace_profile_set,
     **COMPOSE_IMPLS,
     **MESSAGE_IMPLS,
+    **LOGS_IMPLS,
 }
 
 

@@ -5,12 +5,16 @@ namespace `devpod`, transport `internal`, url vide. Le catalogue est peuplé dep
 le registre `DEVPOD_PRIMITIVES`. L'admin accorde ensuite son grant (+ scopes) comme
 pour tout backend.
 """
+
 from __future__ import annotations
+
+from typing import Any
 
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from ..config.store import load_global
 from ..db.mcp import get_backend, insert_backend
 from ..db.mcp_catalog import prune_absent, set_quarantine, upsert_primitive
 from ..db.tables import users
@@ -26,6 +30,17 @@ def backend_id_for(login: str) -> str:
     return f"devpod-{login}"
 
 
+def _active_primitives() -> dict[str, dict[str, Any]]:
+    """Retourne les primitives actives selon la config globale.
+
+    logs_query est exclue si logs.enabled=false (spec 31 §2).
+    """
+    cfg = load_global()
+    if cfg.logs.enabled:
+        return DEVPOD_PRIMITIVES
+    return {k: v for k, v in DEVPOD_PRIMITIVES.items() if k != "logs_query"}
+
+
 async def ensure_devpod_backend(conn: AsyncConnection, login: str) -> None:
     """Crée (si absent) le backend devpod du user et synchronise son catalogue."""
     bid = backend_id_for(login)
@@ -39,7 +54,8 @@ async def ensure_devpod_backend(conn: AsyncConnection, login: str) -> None:
             url="",
             transport="internal",
         )
-    for original_name, defn in DEVPOD_PRIMITIVES.items():
+    active = _active_primitives()
+    for original_name, defn in active.items():
         await upsert_primitive(
             conn,
             backend_id=bid,
@@ -53,7 +69,7 @@ async def ensure_devpod_backend(conn: AsyncConnection, login: str) -> None:
         # inconditionnellement — qu'elle ait été déclenchée maintenant ou lors
         # d'un run précédent.
         await set_quarantine(conn, bid, "tool", original_name, False)
-    await prune_absent(conn, bid, "tool", list(DEVPOD_PRIMITIVES))
+    await prune_absent(conn, bid, "tool", list(active))
 
 
 async def bootstrap_devpod(conn: AsyncConnection) -> None:
@@ -62,4 +78,4 @@ async def bootstrap_devpod(conn: AsyncConnection) -> None:
     logins = [r[0] for r in rows.all()]
     for login in logins:
         await ensure_devpod_backend(conn, login)
-    log.info("devpod_bootstrap_done", users=len(logins), primitives=len(DEVPOD_PRIMITIVES))
+    log.info("devpod_bootstrap_done", users=len(logins), primitives=len(_active_primitives()))
