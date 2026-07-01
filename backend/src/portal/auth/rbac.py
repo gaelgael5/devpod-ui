@@ -15,6 +15,8 @@ _log = structlog.get_logger(__name__)
 
 # Regex username : DNS-safe, max 40 chars, autorise points (LDAP)
 _USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,38}[a-z0-9]$")
+_INVALID_CHARS_RE = re.compile(r"[^a-z0-9._-]")
+_MULTI_SEP_RE = re.compile(r"[-._]{2,}")
 
 
 class UsernameError(ValueError):
@@ -26,6 +28,23 @@ class UserInfo:
     login: str
     roles: list[str] = field(default_factory=list)
     sub: str = ""
+
+
+def normalize_login(raw: str) -> str:
+    """Dérive un login valide depuis un claim brut (email ou username LDAP/OIDC).
+
+    - email → partie locale (avant @)
+    - caractères invalides → tiret
+    - séparateurs multiples → un seul tiret
+    - tronqué à 40 caractères
+    """
+    candidate = raw.lower()
+    if "@" in candidate:
+        candidate = candidate.split("@")[0]
+    candidate = _INVALID_CHARS_RE.sub("-", candidate)
+    candidate = _MULTI_SEP_RE.sub("-", candidate)
+    candidate = candidate.strip("-._")[:40].rstrip("-._")
+    return candidate
 
 
 def validate_username(username: str) -> str:

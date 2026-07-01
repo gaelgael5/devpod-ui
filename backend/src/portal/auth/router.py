@@ -18,7 +18,7 @@ from ..config.store import _data_root, ensure_user_dir, load_global
 from ..settings import get_settings
 from . import rbac as rbac_mod
 from .oidc import OIDCClient, OIDCError
-from .rbac import UsernameError, extract_roles, validate_username
+from .rbac import UsernameError, extract_roles, normalize_login, validate_username
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -122,11 +122,12 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
         _log.warning("oidc_callback_error", error=str(exc))
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-    raw_login = claims.get(oidc.username_claim, "")
+    raw_login = str(claims.get(oidc.username_claim, ""))
+    login_name = normalize_login(raw_login)
     try:
-        login_name = validate_username(str(raw_login))
+        validate_username(login_name)
     except UsernameError as exc:
-        _log.warning("oidc_invalid_username", username=raw_login)
+        _log.warning("oidc_invalid_username", username=raw_login, normalized=login_name)
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     roles = extract_roles(claims, oidc.role_claim)
