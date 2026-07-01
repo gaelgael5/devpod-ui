@@ -202,6 +202,11 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         _task.cancel()
                         with contextlib.suppress(asyncio.CancelledError):
                             await _task
+                # Ferme le pool DB : indispensable pour que deux apps successives
+                # (tests TestClient) ne partagent pas un engine lié à un ancien loop.
+                from .db.engine import dispose_engine
+
+                await dispose_engine()
 
 
 def create_app() -> FastAPI:
