@@ -685,6 +685,15 @@
       "PAT_GITLAB": "Personal Access Token — GitLab",
       "PAT_AZURE": "Personal Access Token — Azure DevOps",
       "API_KEY": "Clé API générique"
+    },
+    "patHelp": {
+      "title": "Comment obtenir un Personal Access Token (PAT) ?",
+      "intro": "Un PAT permet au portail de cloner et pousser tes dépôts Git privés en ton nom. Crée-le chez ton fournisseur, puis enregistre-le ici. Limite les scopes au minimum et fixe une date d'expiration.",
+      "docLink": "Doc",
+      "github": "GitHub — Settings → Developer settings → Personal access tokens → Fine-grained tokens (ou Tokens (classic)) → Generate token. Accorde Contents : Read and write (fine-grained) ou le scope repo (classic). Copie le token (github_pat_… ou ghp_…).",
+      "gitlab": "GitLab — Préférences → Jetons d'accès → Ajouter un jeton. Coche les scopes read_repository et write_repository (ou api). Copie le token (glpat-…).",
+      "bitbucket": "Bitbucket Cloud — Paramètres personnels → Mots de passe d'application → Créer. Accorde Dépôts : Lecture et Écriture ; utilise-le comme token. (Bitbucket Data Center : Gérer le compte → Jetons d'accès HTTP.)",
+      "azure": "Azure DevOps — User settings → Personal access tokens → New Token. Accorde le scope Code (Read & Write). Copie le token."
     }
   },
   "oauth": {

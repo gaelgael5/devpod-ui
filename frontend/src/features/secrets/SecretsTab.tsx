@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { KeyRound, Plus, Eye, EyeOff, Copy, Check, Pencil } from 'lucide-react'
+import { KeyRound, Plus, Eye, EyeOff, Copy, Check, Pencil, ExternalLink } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -29,6 +29,27 @@ import {
   type Secret,
 } from './api'
 import { useVaultKeys } from '@/features/vault/api'
+
+const PAT_PROVIDERS = [
+  {
+    key: 'github',
+    docUrl:
+      'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens',
+  },
+  {
+    key: 'gitlab',
+    docUrl: 'https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html',
+  },
+  {
+    key: 'bitbucket',
+    docUrl: 'https://support.atlassian.com/bitbucket-cloud/docs/create-an-app-password/',
+  },
+  {
+    key: 'azure',
+    docUrl:
+      'https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate',
+  },
+] as const
 
 function slugify(label: string): string {
   return label
@@ -479,6 +500,32 @@ export default function SecretsTab() {
         </div>
         <p className="text-sm text-muted-foreground leading-relaxed">{t('secrets.info')}</p>
       </div>
+
+      {/* How to get a PAT */}
+      <details className="rounded-lg border bg-card">
+        <summary className="cursor-pointer px-5 py-3 text-sm font-medium">
+          {t('secrets.patHelp.title')}
+        </summary>
+        <div className="flex flex-col gap-3 border-t px-5 py-4 text-sm text-muted-foreground">
+          <p className="leading-relaxed">{t('secrets.patHelp.intro')}</p>
+          <ul className="flex flex-col gap-2">
+            {PAT_PROVIDERS.map((p) => (
+              <li key={p.key} className="leading-relaxed">
+                {t(`secrets.patHelp.${p.key}`)}{' '}
+                <a
+                  href={p.docUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 whitespace-nowrap text-primary underline underline-offset-2"
+                >
+                  {t('secrets.patHelp.docLink')}
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </details>
 
       {/* List header */}
       <div className="flex items-center justify-between">
