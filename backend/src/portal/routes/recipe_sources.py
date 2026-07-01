@@ -251,6 +251,33 @@ class RecipeImportRequest(BaseModel):
     source_url: str
 
 
+async def _purge_orphan_recipe_dirs(
+    base_id: str, shared_dir: Path, conn: AsyncConnection
+) -> None:
+    """Supprime les dossiers de recettes présents sur le disque mais absents de la DB.
+
+    Scanne base_id, base_id-1, base_id-2, ... et supprime les orphelins afin que
+    l'import suivant puisse réutiliser l'ID canonique sans générer de suffixe.
+    """
+    from ..db.recipes import get_recipe_db
+
+    counter = 0
+    while True:
+        dir_id = base_id if counter == 0 else f"{base_id}-{counter}"
+        cand = shared_dir / dir_id
+        if not cand.exists():
+            if counter == 0:
+                return  # rien à nettoyer
+            break
+        in_db = await get_recipe_db(dir_id, "shared", None, conn) is not None
+        if not in_db:
+            await asyncio.to_thread(shutil.rmtree, cand, True)
+            _log.info("orphan_recipe_dir_purged", path=str(cand))
+        counter += 1
+        if counter > 100:
+            break
+
+
 def _unique_recipe_id(base_id: str, shared_dir: Path) -> str:
     if not (shared_dir / base_id).exists():
         return base_id
@@ -362,6 +389,7 @@ async def _import_single_recipe(
     if not _RECIPE_ID_RE.fullmatch(base_id):
         raise ValueError(f"Invalid recipe id: {base_id!r}")
 
+    await _purge_orphan_recipe_dirs(base_id, shared_dir, conn)
     recipe_id = await asyncio.to_thread(_unique_recipe_id, base_id, shared_dir)
     await asyncio.to_thread(
         _write_recipe,

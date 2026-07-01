@@ -64,18 +64,16 @@ if [[ $RESETDB -eq 1 ]]; then
     docker compose -f "$COMPOSE_FILE" down --volumes --remove-orphans 2>/dev/null || true
     echo "    Suppression des containers arrêtés résiduels..."
     docker container prune -f || true
-    if [[ -f "$ENV_FILE" ]]; then
-        rm -f "$ENV_FILE"
-        echo "    ${ENV_FILE} supprimé."
+    # /data est un bind mount : non supprimé par 'down --volumes'.
+    # On purge tout son contenu (CA, certs, recettes, workspaces, .env…).
+    # ATTENTION : les nœuds précédemment enrôlés devront être ré-enrôlés.
+    if [[ -d /data ]]; then
+        find /data -mindepth 1 -delete 2>/dev/null || true
+        echo "    /data purgé intégralement (CA, certs, recettes, workspaces)."
     fi
-    # Recettes découplées du build : elles vivent dans /data (volume) et ne sont
-    # PAS purgées par 'down --volumes'. Sans ça, les dossiers orphelins subsistent
-    # après un reset DB et font suffixer les imports en '-1'.
-    if [[ -d /data/recipes ]]; then
-        rm -rf /data/recipes/* 2>/dev/null || true
-        echo "    /data/recipes vidé (recettes réimportables depuis la galerie)."
-    fi
-    echo "    Reset terminé — le .env, la DB et /data/recipes seront recréés depuis zéro."
+    echo "    Re-initialisation de /data via install.sh..."
+    bash "$APP_DIR/scripts/install.sh"
+    echo "    Reset terminé — DB et /data seront recréés depuis zéro."
     echo ""
 fi
 
