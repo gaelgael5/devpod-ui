@@ -285,7 +285,8 @@ def _write_recipe(
             installs_after=installs_after or [],
         )
         (tmp / "recipe.meta.yaml").write_text(
-            yaml.dump(meta.model_dump(), default_flow_style=False), encoding="utf-8"
+            yaml.dump(meta.model_dump(by_alias=True), default_flow_style=False),
+            encoding="utf-8",
         )
         feature_json: dict[str, Any] = {"id": recipe_id, "version": version}
         if meta.options:

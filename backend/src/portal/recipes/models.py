@@ -139,7 +139,7 @@ class TransformOp(BaseModel):
 
 
 class RecipeMeta(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     @model_validator(mode="before")
     @classmethod

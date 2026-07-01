@@ -68,7 +68,14 @@ if [[ $RESETDB -eq 1 ]]; then
         rm -f "$ENV_FILE"
         echo "    ${ENV_FILE} supprimé."
     fi
-    echo "    Reset terminé — le .env et la DB seront recréés depuis zéro."
+    # Recettes découplées du build : elles vivent dans /data (volume) et ne sont
+    # PAS purgées par 'down --volumes'. Sans ça, les dossiers orphelins subsistent
+    # après un reset DB et font suffixer les imports en '-1'.
+    if [[ -d /data/recipes ]]; then
+        rm -rf /data/recipes/* 2>/dev/null || true
+        echo "    /data/recipes vidé (recettes réimportables depuis la galerie)."
+    fi
+    echo "    Reset terminé — le .env, la DB et /data/recipes seront recréés depuis zéro."
     echo ""
 fi
 
