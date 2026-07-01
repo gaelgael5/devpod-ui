@@ -12,6 +12,7 @@ Vocabulaire d'impact (ligne "Impact:" de chaque description) :
                         travail en cours perdu ; appeler session_list avant d'exécuter
   destructive-data    : supprime workspace ou volumes → données perdues définitivement
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -155,8 +156,7 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
     },
     "workspace_read_file": {
         "description": (
-            "Lit le contenu d'un fichier du workspace. "
-            "Impact: read-only — aucune mutation."
+            "Lit le contenu d'un fichier du workspace. Impact: read-only — aucune mutation."
         ),
         "inputSchema": {
             "type": "object",
@@ -434,8 +434,7 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
     },
     "session_list": {
         "description": (
-            "Liste les sessions actives d'un workspace. "
-            "Impact: read-only — aucune mutation."
+            "Liste les sessions actives d'un workspace. Impact: read-only — aucune mutation."
         ),
         "inputSchema": {
             "type": "object",
@@ -463,10 +462,37 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
     },
     "node_list": {
         "description": (
-            "Liste les nodes enrôlés et leur disponibilité. "
+            "Liste TOUS les hosts Docker de l'infra (enrôlés et machines de test générées), "
+            "qualifiés par leur rôle. Outil de découverte d'infra : un seul appel suffit pour "
+            "construire le modèle mental complet du fleet avant d'agir (logs, exec, déploiement). "
+            "\n\nChaque entrée inclut : node_id (stable, cohérent avec compose_service_list "
+            "et workspace_list), role ('dev'=host enrôlé | 'test'=machine éphémère générée), "
+            "host (adresse SSH/Docker), health (statut configuré ; reachable=null : probe live "
+            "non implémenté), lifecycle (origin, ephemeral, linked_workspace). "
+            "\n\nParamètre optionnel `include` pour enrichir la réponse : "
+            "- 'workload' : compteurs workspaces + compose_deployments par node ; "
+            "- 'capacity', 'load', 'docker' : Vague B non collecté → null pour l'instant. "
+            "Pour le modèle mental complet : include=['workload']. "
             "Impact: read-only — aucune mutation."
         ),
-        "inputSchema": {"type": "object", "additionalProperties": False, "properties": {}},
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "include": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["workload", "capacity", "load", "docker"],
+                    },
+                    "description": (
+                        "Champs optionnels à inclure dans la réponse. "
+                        "'workload' ajoute les compteurs workspaces/compose_deployments. "
+                        "'capacity', 'load', 'docker' sont prévus (Vague B) mais renvoient null."
+                    ),
+                },
+            },
+        },
         "scope": "read",
     },
     "operations_get": {
@@ -648,8 +674,7 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
     # -----------------------------------------------------------------------
     "compose_template_list": {
         "description": (
-            "Liste les templates docker-compose disponibles. "
-            "Impact: read-only — aucune mutation."
+            "Liste les templates docker-compose disponibles. Impact: read-only — aucune mutation."
         ),
         "inputSchema": {
             "type": "object",
@@ -798,8 +823,7 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
     },
     "compose_service_logs": {
         "description": (
-            "Retourne les logs d'un déploiement compose. "
-            "Impact: read-only — aucune mutation."
+            "Retourne les logs d'un déploiement compose. Impact: read-only — aucune mutation."
         ),
         "inputSchema": {
             "type": "object",

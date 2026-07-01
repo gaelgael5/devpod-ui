@@ -4,6 +4,7 @@ Façade I-1 : les impls appellent les services internes du portail (`DevPodServi
 `ws_exec`), jamais SSH/tmux en direct. Routé depuis `handlers.execute_tool_call`
 quand `target.transport == "internal"`.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -21,9 +22,14 @@ from mcp import types
 from mcp.shared.exceptions import McpError
 from mcp.types import METHOD_NOT_FOUND, ErrorData
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import func as sqlfunc
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ...config.store import _data_root, load_global, load_user, save_user
+from ...db.tables import compose_deployment as dep_table
+from ...db.tables import workspace_test_hosts as wth_table
+from ...db.tables import workspaces as ws_table
 from ...db.user_config import load_user_db
 from ...devpod.exec import TMUX_SOCK_DETECT, tmux, ws_exec
 from . import operations
@@ -159,12 +165,12 @@ async def _workspace_resources(
         f"awk '/usage_usec/{{print $2}}'; }} | head -1 | grep . || echo ''; "
     )
     cmd = (
-        cpu_read +
-        "sleep 0.1; " +
-        cpu_read +
-        f"cat {cg}/memory.current 2>/dev/null || echo ''; " +
-        f"cat {cg}/memory.max 2>/dev/null || echo ''; " +
-        f"df -B1 --output=used,size {shlex.quote(root)} 2>/dev/null | tail -1"
+        cpu_read
+        + "sleep 0.1; "
+        + cpu_read
+        + f"cat {cg}/memory.current 2>/dev/null || echo ''; "
+        + f"cat {cg}/memory.max 2>/dev/null || echo ''; "
+        + f"df -B1 --output=used,size {shlex.quote(root)} 2>/dev/null | tail -1"
     )
     rc, out = await ws_exec(owner_login, ws_id, cmd, timeout=10.0)
     if rc != 0:
@@ -257,15 +263,14 @@ async def _workspace_git_commit(
         f"-c user.email={shlex.quote(f'{owner_login}@workspace-portal.local')}"
     )
     rc, out = await ws_exec(
-        owner_login, ws_id,
+        owner_login,
+        ws_id,
         f"cd {shlex.quote(root)} && {add} && git {git_identity} commit -m {shlex.quote(message)}",
     )
     if rc != 0:
         raise DevpodToolError(f"commit échoué: {out}")
 
-    rc, sha = await ws_exec(
-        owner_login, ws_id, f"cd {shlex.quote(root)} && git rev-parse HEAD"
-    )
+    rc, sha = await ws_exec(owner_login, ws_id, f"cd {shlex.quote(root)} && git rev-parse HEAD")
     if rc != 0:
         raise DevpodToolError(f"rev-parse HEAD échoué: {sha}")
     sha = sha.strip()
@@ -337,7 +342,7 @@ async def _workspace_read_file(
 ) -> Any:
     name = _require_ws(args)
     rel = _require_str(args, "path")
-    p = safe_workspace_path(f"{owner_login}-{name}",rel)
+    p = safe_workspace_path(f"{owner_login}-{name}", rel)
     rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", f"cat {shlex.quote(p)}")
     if rc != 0:
         raise DevpodToolError(f"lecture impossible: {out}")
@@ -388,7 +393,7 @@ async def _workspace_secrets_bind(
 
 async def _workspace_tree(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
-    p = safe_workspace_path(f"{owner_login}-{name}",str(args.get("path", ".")))
+    p = safe_workspace_path(f"{owner_login}-{name}", str(args.get("path", ".")))
     depth = int(args.get("depth", 2))
     ignore = args.get("ignore", _DEFAULT_IGNORE)
     prune = ""
@@ -405,7 +410,7 @@ async def _workspace_tree(conn: AsyncConnection, args: dict[str, Any], owner_log
 async def _workspace_mkdir(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     rel = _require_str(args, "path")
-    p = safe_workspace_path(f"{owner_login}-{name}",rel)
+    p = safe_workspace_path(f"{owner_login}-{name}", rel)
     rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", f"mkdir -p {shlex.quote(p)}")
     if rc != 0:
         raise DevpodToolError(out)
@@ -417,7 +422,7 @@ async def _workspace_write_file(
 ) -> Any:
     name = _require_ws(args)
     rel = _require_str(args, "path")
-    p = safe_workspace_path(f"{owner_login}-{name}",rel)
+    p = safe_workspace_path(f"{owner_login}-{name}", rel)
     content = _require_str(args, "content")
     create = bool(args.get("create_dirs", True))
     b64 = base64.b64encode(content.encode()).decode()
@@ -651,18 +656,85 @@ async def _portal_reload(conn: AsyncConnection, args: dict[str, Any], owner_logi
 
 
 async def _node_list(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
+    include = set(args.get("include") or [])
     cfg = load_global()
+
+    # Liens workspace_test_hosts → lifecycle des hosts générés
+    link_rows = (
+        (
+            await conn.execute(
+                select(
+                    wth_table.c.host_name, wth_table.c.workspace_name, wth_table.c.created_at
+                ).where(wth_table.c.login == owner_login)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    host_links: dict[str, Any] = {r["host_name"]: r for r in link_rows}
+
+    # Workload (opt-in : deux COUNT par login)
+    ws_counts: dict[str, int] = {}
+    dep_counts: dict[str, int] = {}
+    if "workload" in include:
+        ws_rows = (
+            (
+                await conn.execute(
+                    select(ws_table.c.host, sqlfunc.count().label("cnt"))
+                    .where(ws_table.c.login == owner_login)
+                    .group_by(ws_table.c.host)
+                )
+            )
+            .mappings()
+            .all()
+        )
+        ws_counts = {r["host"]: r["cnt"] for r in ws_rows}
+
+        dep_rows = (
+            (
+                await conn.execute(
+                    select(dep_table.c.node_id, sqlfunc.count().label("cnt"))
+                    .where(dep_table.c.owner_login == owner_login)
+                    .group_by(dep_table.c.node_id)
+                )
+            )
+            .mappings()
+            .all()
+        )
+        dep_counts = {r["node_id"]: r["cnt"] for r in dep_rows}
+
     rows = []
     for h in cfg.hosts:
-        if getattr(h, "usage", "workspaces") != "workspaces":
-            continue
-        rows.append({
-            "node_id": h.name,
-            "name": h.name,
+        node_id = h.name
+        is_test = h.usage == "tests"
+        link = host_links.get(node_id)
+
+        entry: dict[str, Any] = {
+            "node_id": node_id,
+            "role": "test" if is_test else "dev",
             "host": h.address or h.docker_host or None,
-            "status": "configured",
-            "capacity": None,
-        })
+            "health": {"reachable": None, "status": "configured", "last_seen": None},
+            "lifecycle": {
+                "origin": "generated" if is_test else "enrolled",
+                "ephemeral": is_test,
+                "created_at": link["created_at"].isoformat() if link else None,
+                "linked_workspace": link["workspace_name"] if link else None,
+            },
+        }
+        if "workload" in include:
+            entry["workload"] = {
+                "workspaces": ws_counts.get(node_id, 0),
+                "compose_deployments": dep_counts.get(node_id, 0),
+            }
+        # Vague B : capacity/load/docker exigent un daemon de métriques (non implémenté).
+        # Renvoie null proprement ; inclure dans `include` ne change pas le résultat pour l'instant.
+        if "capacity" in include:
+            entry["capacity"] = None
+        if "load" in include:
+            entry["load"] = None
+        if "docker" in include:
+            entry["docker"] = None
+        rows.append(entry)
     return rows
 
 
@@ -671,9 +743,18 @@ async def _operations_get(conn: AsyncConnection, args: dict[str, Any], owner_log
     op = operations.get_operation(oid)
     if op is None or op.get("owner_login") != owner_login:
         raise DevpodToolError(f"opération inconnue: {oid}")
-    return {k: op[k] for k in (
-        "operation_id", "kind", "workspace", "state", "progress", "result", "error",
-    )}
+    return {
+        k: op[k]
+        for k in (
+            "operation_id",
+            "kind",
+            "workspace",
+            "state",
+            "progress",
+            "result",
+            "error",
+        )
+    }
 
 
 async def _operations_list(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
@@ -692,6 +773,7 @@ def _parse_profile_ref(raw: Any) -> Any:
     if raw is None:
         return None
     from ...config.models import ProfileRef
+
     if isinstance(raw, ProfileRef):
         return raw
     raw_str = str(raw)
@@ -715,7 +797,9 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
     if based_on is not None:
         based_on = str(based_on)
         if based_on == name:
-            raise DevpodToolError("based_on ne peut pas référencer le workspace en cours de création")  # noqa: E501
+            raise DevpodToolError(
+                "based_on ne peut pas référencer le workspace en cours de création"
+            )  # noqa: E501
         cfg_base = await load_user(owner_login)
         base_spec = next((w for w in cfg_base.workspaces if w.name == based_on), None)
         if base_spec is None:
@@ -832,9 +916,7 @@ async def _workspace_delete(conn: AsyncConnection, args: dict[str, Any], owner_l
     return {"operation_id": oid}
 
 
-async def _recreate_workspace(
-    owner_login: str, name: str, mutate: Callable[[Any], Any]
-) -> str:
+async def _recreate_workspace(owner_login: str, name: str, mutate: Callable[[Any], Any]) -> str:
     """Recrée un workspace après mutation de son spec (save -> delete shelve=False -> re-provision).
 
     Retourne le nouveau ws_id.
@@ -854,10 +936,15 @@ async def _recreate_workspace(
         return await provision_workspace(
             owner_login,
             ProvisionParams(
-                name=name, source=spec_updated.source, branch=spec_updated.branch,
-                git_credential=spec_updated.git_credential, host=spec_updated.host,
-                recipes=spec_updated.recipes, extra_sources=spec_updated.extra_sources,
-                profile=spec_updated.profile, recipe_volumes=spec_updated.recipe_volumes,
+                name=name,
+                source=spec_updated.source,
+                branch=spec_updated.branch,
+                git_credential=spec_updated.git_credential,
+                host=spec_updated.host,
+                recipes=spec_updated.recipes,
+                extra_sources=spec_updated.extra_sources,
+                profile=spec_updated.profile,
+                recipe_volumes=spec_updated.recipe_volumes,
                 generate_ssh_key=spec_updated.ssh_key,
             ),
             bg_conn,
