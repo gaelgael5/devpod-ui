@@ -53,7 +53,10 @@ async def test_workspace_status_running_agent_down(monkeypatch: pytest.MonkeyPat
         status=AsyncMock(return_value={"ws_id": "admin-dev", "status": "running"})
     )
     monkeypatch.setattr(devpod_tools, "get_service", lambda: svc)
-    with patch("portal.mcp.devpod_tools.ws_exec", AsyncMock(return_value=(1, "SSH command timed out"))):
+    with patch(
+        "portal.mcp.devpod_tools.ws_exec",
+        AsyncMock(return_value=(1, "SSH command timed out")),
+    ):
         res = await devpod_tools._workspace_status(None, {"workspace": "dev"}, "admin")
     assert res == {"workspace": "dev", "health": "running", "container_up": True, "agent_up": False}
 
