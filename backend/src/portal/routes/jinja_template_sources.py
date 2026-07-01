@@ -60,6 +60,7 @@ def _parse_toc_line(line: str) -> dict[str, Any] | None:
 
 
 async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
+    # NB: callers must _check_ssrf the host first — fetched URLs share that validated host
     resp = await client.get(url, timeout=5.0, follow_redirects=False)
     resp.raise_for_status()
     return resp.text
@@ -146,6 +147,8 @@ async def import_jinja_template(
     filename = body.source_url.rsplit("/", 1)[-1]
     if not _J2_FNAME_RE.fullmatch(filename):
         raise HTTPException(status_code=422, detail=f"Invalid filename: {filename!r}")
+    if not body.source_url.startswith("https://"):
+        raise HTTPException(status_code=422, detail=f"URL must be HTTPS: {body.source_url!r}")
 
     await asyncio.to_thread(_check_ssrf, body.source_url)
     async with httpx.AsyncClient() as http:

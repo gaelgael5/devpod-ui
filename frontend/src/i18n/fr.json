@@ -1023,7 +1023,6 @@
       "importing": "Import…",
       "present": "présent",
       "empty": "Aucun template disponible dans les sources.",
-      "filter": "Filtrer…",
       "imported": "Template {{key}} / {{culture}} importé",
       "overwriteConfirmTitle": "Écraser le template existant ?",
       "overwriteConfirmDescription": "Le template {{key}} / {{culture}} existe déjà en base. L'importer écrasera son contenu actuel.",
