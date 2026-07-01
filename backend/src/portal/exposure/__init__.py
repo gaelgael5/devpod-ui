@@ -87,17 +87,19 @@ class ExposureService:
         folder = workspace_folder or f"/workspaces/{ws_id}"
 
         if self._vs_proxy_domain:
-            # Proxy VS Code à sous-domaine fixe : une seule route Caddy partagée,
-            # l'upstream est résolu dynamiquement via /auth/caddy/verify-workspace.
+            # Proxy VS Code applicatif : une route Caddy statique rewrite /* → /vsproxy/*
+            # et proxy vers le portail Python. L'auth est gérée dans /vsproxy/* (Option A).
+            # La route est idempotente : on la (re)crée à chaque expose() pour garantir
+            # qu'elle existe même après un restart Caddy.
             if self._caddy is not None:
-                await self._caddy.upsert_vs_proxy_route(
+                portal_upstream = urlparse(self._vs_proxy_verify_uri).netloc
+                await self._caddy.upsert_vs_portal_route(
                     match_host=self._vs_proxy_domain,
-                    verify_uri=self._vs_proxy_verify_uri,
-                    host_port=host_port,
+                    portal_upstream=portal_upstream,
                 )
             url = f"{self._url_scheme}://{self._vs_proxy_domain}/?folder={folder}"
             await self._write_exposure(ws_id, hostname=self._vs_proxy_domain, url=url)
-            _log.info("workspace_exposed_vs_proxy", ws_id=ws_id, url=url)
+            _log.info("workspace_exposed_vs_portal", ws_id=ws_id, url=url)
             return url
 
         if self._dev_mode:

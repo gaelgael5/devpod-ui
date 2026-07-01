@@ -85,6 +85,7 @@ export interface CreateTestVmState {
 
 /** Crée une VM de test en streamant les logs (mêmes mécaniques que useDestroyVm). */
 export function useCreateTestVm() {
+  const qc = useQueryClient()
   const [state, setState] = useState<CreateTestVmState>({
     logs: '', running: false, done: false, error: null,
   })
@@ -116,11 +117,12 @@ export function useCreateTestVm() {
         setState(s => ({ ...s, logs: snap }))
       }
       setState(s => ({ ...s, logs: accum, running: false, done: true }))
+      qc.invalidateQueries({ queryKey: ['me', 'workspaces', wsName, 'test-hosts'] })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setState(s => ({ ...s, error: msg, running: false, done: true }))
     }
-  }, [])
+  }, [qc])
 
   return { ...state, execute, reset }
 }

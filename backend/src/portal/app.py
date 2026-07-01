@@ -47,6 +47,7 @@ from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
 from .routes.test_vm import router as test_vm_router
 from .routes.vault import router as vault_router
+from .routes.vscode_proxy import router as vscode_proxy_router
 from .routes.workspace_groups import router as workspace_groups_router
 from .routes.workspace_messages import router as workspace_messages_router
 from .routes.workspace_ops import _get_service
@@ -300,6 +301,8 @@ def create_app() -> FastAPI:
     app.include_router(jinja_sources_admin_router, prefix="/admin")
     app.include_router(workspace_messages_router, prefix="/me")
     app.include_router(oauth_router)  # racine : /.well-known/* et /oauth/*
+    # Proxy applicatif VS Code : /vsproxy/* (HTTP + WS) — avant static_router.
+    app.include_router(vscode_proxy_router)
     # static_router en dernier : son catch-all /{full_path:path} ne doit pas
     # intercepter les routes API enregistrées avant lui.
     app.include_router(static_router)

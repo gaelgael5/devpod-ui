@@ -155,6 +155,48 @@ def _build_vs_proxy_route(
     }
 
 
+def _build_vs_portal_route(
+    route_id: str,
+    match_host: str,
+    portal_upstream: str,
+) -> dict[str, object]:
+    """Route Caddy pour le proxy VS Code applicatif (sans forward_auth).
+
+    Réécrit /* → /vsproxy/* et proxy vers le portail Python.
+    L'authentification est gérée dans le handler /vsproxy/* du portail.
+    Le flush_interval=-1 active le streaming sans bufferisation (WebSocket + SSE).
+    """
+    return {
+        "@id": route_id,
+        "match": [{"host": [match_host]}],
+        "handle": [
+            {
+                "handler": "subroute",
+                "routes": [
+                    {
+                        "handle": [
+                            {
+                                "handler": "rewrite",
+                                "uri": "/vsproxy{uri}",
+                            },
+                            {
+                                "handler": "reverse_proxy",
+                                "upstreams": [{"dial": portal_upstream}],
+                                "flush_interval": -1,
+                                "transport": {
+                                    "protocol": "http",
+                                    "read_buffer_size": 0,
+                                },
+                            },
+                        ]
+                    }
+                ],
+            }
+        ],
+        "terminal": True,
+    }
+
+
 class CaddyClient:
     """Client pour l'API admin Caddy — gestion dynamique des routes workspace.
 
@@ -250,6 +292,46 @@ class CaddyClient:
             )
             raise
         _log.info("caddy_vs_proxy_route_upserted", match_host=match_host)
+
+    async def upsert_vs_portal_route(
+        self, match_host: str, portal_upstream: str
+    ) -> None:
+        """Crée ou met à jour la route VS Code proxy applicatif (@id="vs-portal").
+
+        Contrairement à upsert_vs_proxy_route, cette route ne contient pas de
+        forward_auth : l'authentification est gérée dans le portail Python via
+        le cookie de session. Caddy se contente de réécrire /* → /vsproxy/* et
+        de proxy vers portal_upstream.
+
+        Args:
+            match_host: hostname à matcher (ex: "vs-dev.yoops.org").
+            portal_upstream: adresse dial du portail (ex: "portal:8080").
+        """
+        route_id = "vs-portal"
+        route = _build_vs_portal_route(
+            route_id=route_id,
+            match_host=match_host,
+            portal_upstream=portal_upstream,
+        )
+        resp = await self._client.patch(
+            f"{self._admin_api}/id/{route_id}",
+            json=route,
+        )
+        if resp.status_code == 404:
+            resp = await self._client.post(
+                f"{self._admin_api}/config/apps/http/servers/{self._server_name}/routes",
+                json=route,
+            )
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError:
+            _log.error(
+                "caddy_vs_portal_route_failed",
+                match_host=match_host,
+                status=resp.status_code,
+            )
+            raise
+        _log.info("caddy_vs_portal_route_upserted", match_host=match_host)
 
     async def remove_route(self, route_id: str) -> None:
         """Supprime une route Caddy par son identifiant @id.
