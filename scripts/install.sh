@@ -201,6 +201,10 @@ import sys, bcrypt
 p = sys.stdin.read().strip().encode()
 print(bcrypt.hashpw(p, bcrypt.gensalt()).decode())
 ")
+    # docker compose interpole \$VAR dans les env_file : doubler \$ → \$\$ pour que
+    # le hash bcrypt (\$2b\$12\$…) arrive intact dans le conteneur (même convention
+    # que dev-deploy.sh, sinon le hash est tronqué → ValueError: Invalid salt).
+    LOCAL_HASH=$(printf '%s' "$LOCAL_HASH" | sed 's/\$/\$\$/g')
 
     cat > "$ENV_FILE" <<ENVEOF
 # Généré par install.sh
