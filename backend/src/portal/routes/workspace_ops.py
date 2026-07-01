@@ -261,13 +261,45 @@ async def workspace_up(
 
     _validate_name(name)
 
+    # Fusion spec stocké ⊕ requête : seuls les champs EXPLICITEMENT présents dans
+    # le corps priment (model_fields_set). Un up partiel — a fortiori un corps
+    # vide — ne doit jamais effacer la config stockée (source, host, recettes…) :
+    # c'était une perte de données silencieuse.
+    from ..config.store import load_user
+    from ..config.store import save_user as _save_user
+
+    _spec_fields = (
+        "source",
+        "branch",
+        "git_credential",
+        "host",
+        "recipes",
+        "extra_sources",
+        "profile",
+        "recipe_volumes",
+    )
+    _user_cfg = await load_user(user.login)
+    _stored = next((ws for ws in _user_cfg.workspaces if ws.name == name), None)
+    _overrides = {k: getattr(req, k) for k in _spec_fields if k in req.model_fields_set}
+    try:
+        if _stored is not None:
+            effective = WorkspaceSpec.model_validate(
+                {**_stored.model_dump(), **{k: v for k, v in _overrides.items()}}
+            )
+        else:
+            effective = WorkspaceSpec(
+                name=name, **{k: getattr(req, k) for k in _spec_fields}
+            )
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     # Validation des recipe IDs (avant tout accès disque)
-    for rid in req.recipes:
+    for rid in effective.recipes:
         if not _RECIPE_ID_PATTERN.fullmatch(rid):
             raise HTTPException(status_code=422, detail=f"Invalid recipe id {rid!r}")
 
     # Validation des sources supplémentaires
-    for idx, src in enumerate(req.extra_sources):
+    for idx, src in enumerate(effective.extra_sources):
         if not src.url:
             raise HTTPException(
                 status_code=422, detail=f"extra_sources[{idx}].url must not be empty"
@@ -278,65 +310,34 @@ async def workspace_up(
                 detail=f"extra_sources[{idx}].url must not start with '-'",
             )
 
-    # Validation du spec (avant le pre-flight git)
-    try:
-        WorkspaceSpec(
-            name=name,
-            source=req.source,
-            branch=req.branch,
-            git_credential=req.git_credential,
-            host=req.host,
-            recipes=req.recipes,
-            extra_sources=req.extra_sources,
-            profile=req.profile,
-            recipe_volumes=req.recipe_volumes,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
     # Pre-flight git : vérifie l'accès au dépôt avant de lancer devpod up
-    if req.source:
-        returncode, _, stderr = await run_git_ls_remote(req.source, req.git_credential, user.login)
+    if effective.source:
+        returncode, _, stderr = await run_git_ls_remote(
+            effective.source, effective.git_credential, user.login
+        )
         if returncode != 0:
             err = stderr.decode(errors="replace").strip() if stderr else ""
             _log.warning(
                 "workspace_git_preflight_failed",
                 login=user.login,
-                source=req.source,
+                source=effective.source,
                 returncode=returncode,
                 err=err[:300],
             )
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    f"Dépôt git inaccessible — vérifiez l'URL et les credentials ({req.source})"
+                    "Dépôt git inaccessible — vérifiez l'URL et les credentials "
+                    f"({effective.source})"
                 ),
             )
 
-    # Synchronise le spec en DB — le host (et autres champs) peut différer de la valeur
-    # stockée lors de la création initiale (ex. 409 ignoré, reprovisioning avec autre host).
-    from ..config.store import load_user
-    from ..config.store import save_user as _save_user
-
-    _up_fields = {
-        "source": req.source,
-        "branch": req.branch,
-        "git_credential": req.git_credential,
-        "host": req.host,
-        "recipes": req.recipes,
-        "extra_sources": req.extra_sources,
-        "profile": req.profile,
-        "recipe_volumes": req.recipe_volumes,
-    }
-    _user_cfg = await load_user(user.login)
-    for _i, _existing in enumerate(_user_cfg.workspaces):
-        if _existing.name == name:
-            _updated = _existing.model_copy(update=_up_fields)
-            if _updated != _existing:
-                _user_cfg.workspaces[_i] = _updated
-                await _save_user(user.login, _user_cfg)
-                _log.info("workspace_spec_synced", login=user.login, name=name)
-            break
+    # Synchronise le spec fusionné en DB s'il diffère du stocké (ex. reprovisioning
+    # avec un autre host demandé explicitement dans la requête).
+    if _stored is not None and effective != _stored:
+        _user_cfg.workspaces[_user_cfg.workspaces.index(_stored)] = effective
+        await _save_user(user.login, _user_cfg)
+        _log.info("workspace_spec_synced", login=user.login, name=name)
 
     request_host = request.headers.get("x-forwarded-host") or request.url.hostname or ""
     try:
@@ -344,14 +345,15 @@ async def workspace_up(
             user.login,
             ProvisionParams(
                 name=name,
-                source=req.source,
-                branch=req.branch,
-                git_credential=req.git_credential,
-                host=req.host,
-                recipes=req.recipes,
-                extra_sources=req.extra_sources,
-                profile=req.profile,
-                recipe_volumes=req.recipe_volumes,
+                source=effective.source,
+                branch=effective.branch,
+                git_credential=effective.git_credential,
+                host=effective.host,
+                recipes=effective.recipes,
+                extra_sources=effective.extra_sources,
+                profile=effective.profile,
+                recipe_volumes=effective.recipe_volumes,
+                init_recipes=effective.init_recipes,
                 generate_ssh_key=req.generate_ssh_key,
                 request_host=request_host,
             ),
