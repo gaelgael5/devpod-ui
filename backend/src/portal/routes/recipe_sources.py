@@ -365,7 +365,13 @@ async def _import_single_recipe(
     if fname == "install.sh":
         dir_base_url = source_url.rsplit("/", 1)[0]
         meta_url = f"{dir_base_url}/recipe.meta.yaml"
-        install_script = await _fetch_text(http, source_url)
+        try:
+            install_script = await _fetch_text(http, source_url)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                install_script = ""  # optionnel pour les recettes type=initialize
+            else:
+                raise
         meta_text = await _fetch_text(http, meta_url)
         meta = RecipeMeta.model_validate(_normalize_recipe_yaml(yaml.safe_load(meta_text)))
         recipe_type = meta.type
