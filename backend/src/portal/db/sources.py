@@ -3,7 +3,12 @@ from __future__ import annotations
 from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from .tables import compose_catalog_sources, profile_sources, recipe_sources
+from .tables import (
+    compose_catalog_sources,
+    jinja_template_sources,
+    profile_sources,
+    recipe_sources,
+)
 
 _DEFAULT_RECIPE_SOURCE = (
     "https://raw.githubusercontent.com/ag-flow/ressources/refs/heads/main/recipes/toc.txt"
@@ -72,5 +77,30 @@ async def save_compose_sources(sources: list[str], conn: AsyncConnection) -> Non
     if sources:
         await conn.execute(
             insert(compose_catalog_sources),
+            [{"url": url, "position": i} for i, url in enumerate(sources)],
+        )
+
+
+_DEFAULT_JINJA_SOURCE = (
+    "https://raw.githubusercontent.com/ag-flow/ressources/refs/heads/main/jinja/toc.txt"
+)
+
+
+async def load_jinja_template_sources(conn: AsyncConnection) -> list[str]:
+    rows = (
+        await conn.execute(
+            select(jinja_template_sources.c.url)
+            .where(jinja_template_sources.c.enabled.is_(True))
+            .order_by(jinja_template_sources.c.position)
+        )
+    ).scalars().all()
+    return list(rows) if rows else [_DEFAULT_JINJA_SOURCE]
+
+
+async def save_jinja_template_sources(sources: list[str], conn: AsyncConnection) -> None:
+    await conn.execute(delete(jinja_template_sources))
+    if sources:
+        await conn.execute(
+            insert(jinja_template_sources),
             [{"url": url, "position": i} for i, url in enumerate(sources)],
         )
