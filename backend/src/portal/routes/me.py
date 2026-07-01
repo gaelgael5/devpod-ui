@@ -15,6 +15,7 @@ from ..certificates import service as cert_svc
 from ..config.models import GitCredential, UserConfig, WorkspaceSpec
 from ..config.store import load_global, load_user, safe_user_path, save_user
 from ..db.engine import get_conn
+from ..db.tables import users
 from ..devpod.git import run_git_ls_remote
 from ..secrets import service as secret_svc
 
@@ -26,6 +27,49 @@ router = APIRouter(tags=["me"])
 
 def _sid(request: Request) -> str:
     return str(request.session.get("session_id", ""))
+
+
+class _ProfilePatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str
+
+
+@router.get("/profile")
+async def get_profile(
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    from sqlalchemy import select
+
+    row = (
+        await conn.execute(
+            select(users.c.login, users.c.email, users.c.display_name).where(
+                users.c.login == user.login
+            )
+        )
+    ).mappings().one_or_none()
+    if row is None:
+        return {"login": user.login, "email": "", "display_name": ""}
+    return {"login": row["login"], "email": row["email"], "display_name": row["display_name"]}
+
+
+@router.patch("/profile")
+async def patch_profile(
+    body: _ProfilePatch,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    from sqlalchemy import update
+
+    display_name = body.display_name.strip()
+    if len(display_name) > 80:
+        raise HTTPException(status_code=422, detail="display_name must be ≤ 80 characters")
+    await conn.execute(
+        update(users).where(users.c.login == user.login).values(display_name=display_name)
+    )
+    _log.info("user_display_name_updated", login=user.login)
+    return {"login": user.login, "display_name": display_name}
 
 
 @router.get("")

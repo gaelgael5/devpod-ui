@@ -31,6 +31,7 @@ const ConsentPage = lazy(() => import('@/features/oauth/ConsentPage'))
 const ComposeGallery = lazy(() => import('@/features/compose/ComposeGallery'))
 const AdminCompose = lazy(() => import('@/features/compose/AdminCompose'))
 const AdminJinjaTemplates = lazy(() => import('@/features/admin/AdminJinjaTemplates'))
+const ProfilePage = lazy(() => import('@/features/profile/ProfilePage'))
 
 function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -146,6 +147,7 @@ export const router = createBrowserRouter([
         path: '/admin/network',
         element: <AdminGuard><Wrap><AdminNetwork /></Wrap></AdminGuard>,
       },
+      { path: '/profile', element: <Wrap><ProfilePage /></Wrap> },
       { path: '/compose', element: <Wrap><ComposeGallery /></Wrap> },
       {
         path: '/admin/compose',

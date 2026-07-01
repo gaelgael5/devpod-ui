@@ -122,11 +122,20 @@ def _available_with_bundled_fallback(db_available: dict[str, RecipeMeta]) -> dic
     )
     if not fs:
         return db_available
-    # FS a priorité sur DB pour garantir que les GUIDs (key) des recettes bundlées
-    # sont toujours corrects — la DB peut avoir un key périmé si la recette a été
-    # insérée avant l'introduction du champ key dans recipe.meta.yaml.
+    # Fusion FS + DB : FS apporte type/version/description/scripts (recettes bundlées à jour),
+    # DB est la source authoritative pour le key — le YAML local peut avoir un key aléatoire
+    # si la recette a été importée avant la correction de _write_recipe.
     # Les recettes uniquement en DB (créées par l'utilisateur) sont préservées.
-    return {**db_available, **fs}
+    merged: dict[str, RecipeMeta] = {}
+    for rid, fs_meta in fs.items():
+        if rid in db_available and db_available[rid].key != fs_meta.key:
+            merged[rid] = fs_meta.model_copy(update={"key": db_available[rid].key})
+        else:
+            merged[rid] = fs_meta
+    for rid, db_meta in db_available.items():
+        if rid not in merged:
+            merged[rid] = db_meta
+    return merged
 
 
 def _get_service() -> DevPodService:

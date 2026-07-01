@@ -304,19 +304,23 @@ def _write_recipe(
     options: dict[str, Any] | None = None,
     installs_after: list[str] | None = None,
     recipe_type: Literal["install", "start", "initialize"] = "install",
+    key: str | None = None,
 ) -> None:
     recipe_path = shared_dir / recipe_id
     tmp_str = tempfile.mkdtemp(dir=shared_dir, prefix=f".tmp-{recipe_id}-")
     tmp = Path(tmp_str)
     try:
-        meta = RecipeMeta(
-            id=recipe_id,
-            version=version,
-            description=description,
-            type=recipe_type,
-            options=options or {},
-            installs_after=installs_after or [],
-        )
+        meta_kwargs: dict[str, Any] = {
+            "id": recipe_id,
+            "version": version,
+            "description": description,
+            "type": recipe_type,
+            "options": options or {},
+            "installs_after": installs_after or [],
+        }
+        if key is not None:
+            meta_kwargs["key"] = key
+        meta = RecipeMeta(**meta_kwargs)
         (tmp / "recipe.meta.yaml").write_text(
             yaml.dump(meta.model_dump(by_alias=True), default_flow_style=False),
             encoding="utf-8",
@@ -413,6 +417,7 @@ async def _import_single_recipe(
         options_dict,
         installs_after,
         recipe_type,
+        meta.key,
     )
     final_meta = RecipeMeta(
         id=recipe_id,

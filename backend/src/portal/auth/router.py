@@ -132,8 +132,9 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
 
     roles = extract_roles(claims, oidc.role_claim)
     sub = str(claims.get("sub", ""))
+    email = str(claims.get("email", ""))
 
-    await provision_user(login=login_name, sub=sub, data_root=_data_root())
+    await provision_user(login=login_name, sub=sub, data_root=_data_root(), email=email)
 
     request.session.setdefault("session_id", str(uuid.uuid4()))
     request.session["user"] = {"login": login_name, "roles": roles, "sub": sub}
@@ -158,7 +159,7 @@ async def logout(request: Request) -> RedirectResponse:
     return resp
 
 
-async def provision_user(login: str, sub: str, data_root: Path) -> None:
+async def provision_user(login: str, sub: str, data_root: Path, email: str = "") -> None:
     """Crée le répertoire + config YAML initiale si absent, upsert la row users. Idempotent."""
     validate_username(login)
     user_dir = data_root / "users" / login
@@ -205,12 +206,23 @@ async def provision_user(login: str, sub: str, data_root: Path) -> None:
             ).scalar_one_or_none()
             if existing is None:
                 await conn.execute(
-                    insert(users).values(login=login, version="1", secret_ns=secret_ns_str)
+                    insert(users).values(
+                        login=login,
+                        version="1",
+                        secret_ns=secret_ns_str,
+                        email=email,
+                    )
                 )
                 _log.info("user_db_row_created", login=login)
                 from ..mcp.devpod_bootstrap import ensure_devpod_backend
 
                 await ensure_devpod_backend(conn, login)
+            elif email:
+                from sqlalchemy import update
+
+                await conn.execute(
+                    update(users).where(users.c.login == login).values(email=email)
+                )
 
 
 @router.get("/caddy/verify")

@@ -165,6 +165,8 @@ users = Table(
     Column("default_idle_timeout", Text, nullable=False, server_default="4h"),
     Column("harpocrate_api_key", Text, nullable=False, server_default=""),
     Column("culture", Text, nullable=False, server_default="fr"),
+    Column("email", Text, nullable=False, server_default=""),
+    Column("display_name", Text, nullable=False, server_default=""),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )

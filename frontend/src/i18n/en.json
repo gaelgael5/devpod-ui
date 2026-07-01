@@ -1037,5 +1037,16 @@
       "overwriteConfirmDescription": "Template {{key}} / {{culture}} already exists. Importing will overwrite its current content.",
       "overwrite": "Overwrite"
     }
+  },
+  "profile": {
+    "title": "My profile",
+    "login": "Login",
+    "loginHint": "Your login cannot be changed.",
+    "email": "Email address",
+    "displayName": "Display name",
+    "displayNamePlaceholder": "Your display name",
+    "save": "Save",
+    "saved": "Changes saved.",
+    "saveError": "Failed to save changes."
   }
 }

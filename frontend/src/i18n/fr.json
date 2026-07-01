@@ -1037,5 +1037,16 @@
       "overwriteConfirmDescription": "Le template {{key}} / {{culture}} existe déjà en base. L'importer écrasera son contenu actuel.",
       "overwrite": "Écraser"
     }
+  },
+  "profile": {
+    "title": "Mon profil",
+    "login": "Identifiant",
+    "loginHint": "L'identifiant est immuable.",
+    "email": "Adresse email",
+    "displayName": "Nom d'affichage",
+    "displayNamePlaceholder": "Votre nom affiché",
+    "save": "Enregistrer",
+    "saved": "Modifications enregistrées.",
+    "saveError": "Erreur lors de la sauvegarde."
   }
 }
