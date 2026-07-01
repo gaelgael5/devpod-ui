@@ -17,7 +17,7 @@ import structlog
 from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
-from ..config.store import load_global, safe_user_path
+from ..config.store import load_global
 from ..db.engine import _get_engine
 from ..db.recipes import load_recipes_as_dict
 from ..db.test_hosts import list_test_hosts_for_workspace
@@ -168,11 +168,12 @@ async def workspace_ssh_terminal(
         tmux_cmd,
     ]
 
-    # DEVPOD_HOME → devpod ssh --stdio trouve la config workspace.
+    # Env complet (DEVPOD_HOME + DOCKER_* pour docker-tls) → devpod ssh --stdio
+    # trouve la config workspace ET peut joindre le daemon du nœud.
+    from ..devpod.ssh_exec import workspace_env
+
     devpod_env = {
-        **dict(os.environ),
-        "DEVPOD_HOME": str(safe_user_path(login, "devpod")),
-        "HOME": os.environ.get("HOME", "/root"),
+        **(await workspace_env(login, ws_id)),
         # SSH propage TERM local vers le PTY remote avec -t -t.
         # Le processus portal n'a pas de vrai terminal → forcer xterm-256color.
         "TERM": "xterm-256color",

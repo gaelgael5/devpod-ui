@@ -78,6 +78,33 @@ def ssh_env(login: str) -> dict[str, str]:
     }
 
 
+async def workspace_env(login: str, ws_id: str) -> dict[str, str]:
+    """Env complet pour un appel devpod ciblant ws_id.
+
+    ssh_env + DOCKER_HOST/DOCKER_TLS_VERIFY/DOCKER_CERT_PATH si le host du
+    workspace est docker-tls — sans quoi devpod cherche /var/run/docker.sock
+    et tout `devpod ssh --stdio` échoue (initializers, sessions, terminal).
+    """
+    env = ssh_env(login)
+    name = ws_id[len(login) + 1 :] if ws_id.startswith(f"{login}-") else ws_id
+    try:
+        from ..config.store import load_user
+        from .env import _find_host
+
+        cfg = load_global()
+        user_cfg = await load_user(login)
+        ws = next((w for w in user_cfg.workspaces if w.name == name), None)
+        host = _find_host(ws.host if ws is not None else "", cfg)
+    except Exception:
+        _log.warning("workspace_env_host_unresolved", login=login, ws_id=ws_id)
+        return env
+    if host.type == "docker-tls":
+        env["DOCKER_HOST"] = host.docker_host
+        env["DOCKER_TLS_VERIFY"] = "1"
+        env["DOCKER_CERT_PATH"] = cfg.devpod.client_cert_path
+    return env
+
+
 async def run_ssh_capture(
     login: str, ws_id: str, remote_cmd: str, *, timeout: float = 60.0
 ) -> tuple[int, str, str]:
@@ -91,7 +118,7 @@ async def run_ssh_capture(
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        env=ssh_env(login),
+        env=await workspace_env(login, ws_id),
     )
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
