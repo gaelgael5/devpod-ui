@@ -1012,6 +1012,22 @@
     "previewCtx": "Contexte de prévisualisation (JSON)",
     "previewBtn": "Prévisualiser",
     "invalidJson": "Contexte JSON invalide",
-    "confirmDelete": "Supprimer le template {{key}} / {{culture}} ?"
+    "confirmDelete": "Supprimer le template {{key}} / {{culture}} ?",
+    "export": "Exporter",
+    "gallery": {
+      "sources": "Sources configurées",
+      "title": "Galerie de templates",
+      "add": "Ajouter",
+      "refresh": "Rafraîchir la galerie",
+      "import": "Importer",
+      "importing": "Import…",
+      "present": "présent",
+      "empty": "Aucun template disponible dans les sources.",
+      "filter": "Filtrer…",
+      "imported": "Template {{key}} / {{culture}} importé",
+      "overwriteConfirmTitle": "Écraser le template existant ?",
+      "overwriteConfirmDescription": "Le template {{key}} / {{culture}} existe déjà en base. L'importer écrasera son contenu actuel.",
+      "overwrite": "Écraser"
+    }
   }
 }
