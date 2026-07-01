@@ -331,7 +331,6 @@ class DevPodService:
           détecte le container existant, se reconnecte et relance le tunnel en fin de up().
         """
         global_cfg = load_global()
-        minimal_env = {"HOME": os.environ.get("HOME", "/root")}
         async with _get_engine().connect() as conn:
             running_rows = await list_running_db(conn)
         for data in running_rows:
@@ -360,6 +359,18 @@ class DevPodService:
                 _log.warning("reconcile_host_not_found", ws_id=ws_id, host_name=host_name)
                 continue
             _log.info("reconcile_port_forward", ws_id=ws_id, host_port=host_port)
+            # Env complet requis : sans DEVPOD_HOME, `devpod ssh --stdio` cherche le
+            # workspace dans le contexte par défaut → "workspace doesn't exist" et le
+            # tunnel meurt silencieusement. DOCKER_* requis pour les hosts docker-tls.
+            tunnel_env = {
+                "HOME": os.environ.get("HOME", "/root"),
+                "PATH": os.environ.get("PATH", ""),
+                "DEVPOD_HOME": str(safe_user_path(login_for_key, "devpod")),
+            }
+            if host_cfg.type == "docker-tls":
+                tunnel_env["DOCKER_HOST"] = host_cfg.docker_host
+                tunnel_env["DOCKER_TLS_VERIFY"] = "1"
+                tunnel_env["DOCKER_CERT_PATH"] = global_cfg.devpod.client_cert_path
             tmp_key_path = ""
             pf_ok = False
             try:
@@ -369,7 +380,7 @@ class DevPodService:
                     )
                 await self._start_port_forward(
                     ws_id,
-                    minimal_env,
+                    tunnel_env,
                     host_port,
                 )
                 pf_ok = True
@@ -753,9 +764,25 @@ class DevPodService:
             stderr=asyncio.subprocess.PIPE,
         )
         self._port_forward_procs[ws_id] = proc
-        _log.info("port_forward_started", ws_id=ws_id, host_port=host_port)
         # Laisser le tunnel SSH s'établir avant que Caddy tente de router
         await asyncio.sleep(_PORT_FORWARD_SETTLE_S)
+        # Un tunnel qui meurt immédiatement (workspace inconnu, daemon injoignable…)
+        # doit être une erreur visible, pas un listener fantôme.
+        if proc.returncode is not None:
+            stderr_txt = ""
+            if proc.stderr is not None:
+                with contextlib.suppress(Exception):
+                    stderr_txt = (await proc.stderr.read()).decode(errors="replace")
+            self._port_forward_procs.pop(ws_id, None)
+            _log.error(
+                "port_forward_died",
+                ws_id=ws_id,
+                host_port=host_port,
+                returncode=proc.returncode,
+                stderr=stderr_txt[-500:],
+            )
+            raise RuntimeError(f"port-forward {ws_id} died: {stderr_txt[-200:]}")
+        _log.info("port_forward_started", ws_id=ws_id, host_port=host_port)
 
     async def _stop_port_forward(self, ws_id: str) -> None:
         """Arrête le processus devpod port-forward s'il est en cours (best-effort)."""
@@ -880,7 +907,12 @@ class DevPodService:
             # est agnostique du provider (docker exec via daemon TLS pour docker-tls,
             # ssh pour les VMs). Le port n'est jamais publié sur le nœud.
             if status == "running" and host_port is not None:
-                await self._start_port_forward(ws_id, env, host_port)
+                try:
+                    await self._start_port_forward(ws_id, env, host_port)
+                except Exception:
+                    # Workspace démarré mais tunnel KO : on garde le statut running,
+                    # l'erreur est loguée (le proxy VS Code répondra 502/503).
+                    _log.error("port_forward_start_failed", ws_id=ws_id, exc_info=True)
 
             if status == "running" and self._exposure is not None and host_port is not None:
                 extra["host_port"] = host_port
