@@ -92,6 +92,11 @@ class OidcConfig(BaseModel):
     issuer: str
     client_id: str
     client_secret: str
+
+    @field_validator("issuer", "client_id", "client_secret", mode="before")
+    @classmethod
+    def _strip(cls, v: object) -> object:
+        return v.strip() if isinstance(v, str) else v
     scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email", "roles"])
     role_claim: str = "realm_access.roles"
     admin_role: str = "admin"
