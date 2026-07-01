@@ -85,9 +85,12 @@ def _ws_summary(spec: Any, ws_id: str, status: str) -> dict[str, Any]:
         "id": ws_id,
         "name": spec.name,
         "repo": spec.source,
+        "branch": spec.branch or None,
         "status": status,
-        "node": spec.host or None,
-        "recipe": spec.recipes,
+        "node_id": spec.host or None,
+        "node": spec.host or None,  # deprecated — utiliser node_id
+        "recipes": spec.recipes,
+        "recipe": spec.recipes,  # deprecated — utiliser recipes
         "tags": [],  # WorkspaceSpec n'a pas de tags en v1 (backlog).
     }
 
@@ -111,6 +114,10 @@ async def _workspace_list(conn: AsyncConnection, args: dict[str, Any], owner_log
 
 async def _workspace_status(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
+    cfg = await load_user_db(owner_login, conn)
+    spec = next((s for s in cfg.workspaces if s.name == name), None)
+    if spec is None:
+        raise DevpodToolError(f"workspace inconnu: {name}")
     ws_id = f"{owner_login}-{name}"
     st = await get_service().status(owner_login, ws_id)
     status = st.get("status", "unknown")
@@ -126,6 +133,7 @@ async def _workspace_status(conn: AsyncConnection, args: dict[str, Any], owner_l
         "health": status,
         "container_up": container_up,
         "agent_up": agent_up,
+        "node_id": spec.host or None,
     }
 
 
@@ -301,8 +309,17 @@ async def _workspace_get(conn: AsyncConnection, args: dict[str, Any], owner_logi
         "repo": spec.source,
         "branch": spec.branch or None,
         "status": st.get("status", "unknown"),
-        "node": spec.host or None,
-        "recipe": spec.recipes,
+        "node_id": spec.host or None,
+        "node": spec.host or None,  # deprecated — utiliser node_id
+        "recipes": spec.recipes,
+        "recipe": spec.recipes,  # deprecated — utiliser recipes
+        "profile": f"{spec.profile.scope}/{spec.profile.slug}" if spec.profile else None,
+        "init_recipes": spec.init_recipes or [],
+        "secret_bindings": {
+            k: v
+            for k, v in (spec.env or {}).items()
+            if _SECRET_REF_RE.fullmatch(v or "")
+        },
         "tags": [],
         "devcontainer_ref": spec.devcontainer_path or spec.template or None,
         "sessions": sessions,
@@ -586,17 +603,28 @@ async def _session_capture(conn: AsyncConnection, args: dict[str, Any], owner_lo
 
 async def _session_list(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
-    fmt = "'#{session_name}|#{pane_current_command}'"
+    fmt = "'#{session_name}|#{pane_current_command}|#{session_created}'"
     rc, out = await ws_exec(
         owner_login, f"{owner_login}-{name}", tmux(f"list-sessions -F {fmt} 2>/dev/null || true")
     )
     sessions = []
+    now = int(time.time())
     for line in out.splitlines():
         if "|" not in line:
             continue
-        sname, _, cmd = line.partition("|")
+        parts = line.split("|", 2)
+        sname = parts[0]
+        cmd = parts[1] if len(parts) > 1 else ""
+        created_raw = parts[2] if len(parts) > 2 else ""
+        uptime = max(0, now - int(created_raw)) if created_raw.isdigit() else None
         sessions.append(
-            {"session_id": _session_id(name, sname), "name": sname, "command": cmd, "alive": True}
+            {
+                "session_id": _session_id(name, sname),
+                "name": sname,
+                "command": cmd,
+                "alive": True,
+                "uptime_s": uptime,
+            }
         )
     return sessions
 
@@ -744,7 +772,7 @@ async def _operations_get(conn: AsyncConnection, args: dict[str, Any], owner_log
     if op is None or op.get("owner_login") != owner_login:
         raise DevpodToolError(f"opération inconnue: {oid}")
     return {
-        k: op[k]
+        k: op.get(k)
         for k in (
             "operation_id",
             "kind",
@@ -753,6 +781,8 @@ async def _operations_get(conn: AsyncConnection, args: dict[str, Any], owner_log
             "progress",
             "result",
             "error",
+            "created_at",
+            "updated_at",
         )
     }
 
@@ -760,10 +790,8 @@ async def _operations_get(conn: AsyncConnection, args: dict[str, Any], owner_log
 async def _operations_list(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     ws = args.get("workspace")
     rows = operations.list_operations(owner_login, workspace=ws if isinstance(ws, str) else None)
-    return [
-        {k: op[k] for k in ("operation_id", "kind", "workspace", "state", "progress")}
-        for op in rows
-    ]
+    _KEYS = ("operation_id", "kind", "workspace", "state", "progress", "created_at")
+    return [{k: op.get(k) for k in _KEYS} for op in rows]
 
 
 def _parse_profile_ref(raw: Any) -> Any:
@@ -822,7 +850,10 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
         repo = str(args["repo"])
 
     branch = str(_get("branch", "dev"))
-    node = str(_get("host", "") if "node" not in args else args["node"])
+    if "node_id" in args or "node" in args:
+        node = str(args.get("node_id") or args.get("node") or "")
+    else:
+        node = str(_get("host", ""))
     ssh_key = bool(_get("ssh_key", False))
     git_credential = str(_get("git_credential", ""))
 

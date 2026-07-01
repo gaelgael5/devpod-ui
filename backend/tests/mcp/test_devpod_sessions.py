@@ -60,8 +60,10 @@ async def test_list_parses_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
     _capture(monkeypatch, out="main|node\nbuild|python")
     res = await devpod_tools._session_list(None, {"workspace": "dev"}, "admin")
     assert res == [
-        {"session_id": "dev:main", "name": "main", "command": "node", "alive": True},
-        {"session_id": "dev:build", "name": "build", "command": "python", "alive": True},
+        {"session_id": "dev:main", "name": "main", "command": "node", "alive": True,
+         "uptime_s": None},
+        {"session_id": "dev:build", "name": "build", "command": "python", "alive": True,
+         "uptime_s": None},
     ]
 
 

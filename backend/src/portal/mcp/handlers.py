@@ -35,8 +35,13 @@ GATEWAY_LIST_BACKENDS = "gateway__list_backends"
 _NATIVE_TOOLS: list[types.Tool] = [
     types.Tool(
         name=GATEWAY_LIST_BACKENDS,
-        description="Liste les backends MCP fédérés accessibles et leur disponibilité.",
-        inputSchema={"type": "object", "properties": {}},
+        description=(
+            "Liste les backends MCP fédérés configurés par l'utilisateur et leur disponibilité. "
+            "Retourne : id, namespace, name, url, transport, app_url, enabled, health. "
+            "health = dernier monitoring périodique ; 'unknown' si jamais sondé. "
+            "Impact: read-only — aucune mutation."
+        ),
+        inputSchema={"type": "object", "additionalProperties": False, "properties": {}},
     )
 ]
 
@@ -68,8 +73,12 @@ async def _gateway_list_backends(
     backends = await list_backends(conn, owner_login)
     payload = [
         {
+            "id": b["id"],
             "namespace": b["namespace"],
             "name": b["name"],
+            "url": b.get("url"),
+            "transport": b.get("transport"),
+            "app_url": b.get("app_url"),
             "enabled": b["enabled"],
             "health": get_health(b["id"]).status,
         }

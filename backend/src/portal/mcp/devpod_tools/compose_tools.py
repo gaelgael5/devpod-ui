@@ -177,6 +177,7 @@ async def _compose_service_list(
             "node_id": d.node_id,
             "status": d.status,
             "host_ports": d.host_ports,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
         }
         for d in deps
     ]

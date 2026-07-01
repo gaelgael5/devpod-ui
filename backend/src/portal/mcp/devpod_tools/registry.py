@@ -69,7 +69,10 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
                     "default": "container",
                 },
                 "lines": {"type": "integer", "default": 200, "minimum": 1},
-                "since": {"type": "string", "description": "Réservé v1 (non appliqué)."},
+                "since": {
+                    "type": "string",
+                    "description": "NON IMPLÉMENTÉ en v1 — ignoré. Filtrage à venir.",
+                },
             },
         },
         "scope": "read",
@@ -250,7 +253,9 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
             "Exécute une commande non-interactive dans le conteneur du workspace et "
             "retourne sa sortie. "
             "Impact: write-safe — exécute dans le conteneur en cours ; "
-            "pas de redémarrage du conteneur."
+            "pas de redémarrage du conteneur. "
+            "Note: stdout et stderr sont fusionnés dans le champ 'stdout' (v1) ; "
+            "'stderr' est toujours vide."
         ),
         "inputSchema": {
             "type": "object",
@@ -606,7 +611,14 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
                         "pour cloner un repo privé (ex: 'github-ssh')."
                     ),
                 },
-                "node": {"type": "string", "description": "Node cible. Défaut : placement auto."},
+                "node": {
+                    "type": "string",
+                    "description": "Node cible. Défaut : placement auto. Déprécié — cf. node_id.",
+                },
+                "node_id": {
+                    "type": "string",
+                    "description": "ID du nœud cible (node_list). Alias de 'node'.",
+                },
             },
         },
         "scope": "admin",
@@ -667,7 +679,7 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
                 "profile": {"type": "string", "description": "Identifiant du profil VS Code."},
             },
         },
-        "scope": "write",
+        "scope": "admin",
     },
     # -----------------------------------------------------------------------
     # Galerie docker-compose
@@ -756,6 +768,8 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
     "compose_service_list": {
         "description": (
             "Liste les déploiements compose de l'utilisateur, filtrables par nœud. "
+            "Le champ 'status' est déclaratif (issu de la DB) — "
+            "appeler compose_service_status pour un état live. "
             "Impact: read-only — aucune mutation."
         ),
         "inputSchema": {
@@ -884,11 +898,15 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         "inputSchema": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["workspace_name"],
+            "required": ["workspace"],
             "properties": {
-                "workspace_name": {
+                "workspace": {
                     "type": "string",
                     "description": "Nom du workspace dont on veut lire les messages.",
+                },
+                "workspace_name": {
+                    "type": "string",
+                    "description": "Déprécié — utiliser 'workspace'.",
                 },
                 "limit": {
                     "type": "integer",
