@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+import os
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi.testclient import TestClient
 
 
 class _RecordingClient:
@@ -43,3 +46,99 @@ async def test_preview_one_source_parses_and_builds_urls(source: str) -> None:
     assert r["description"] == "Message dispo"
     assert r["source_url"] == "https://ex.com/jinja/test_host_available.fr.j2"
     assert r["source_base"] == "https://ex.com/jinja"
+
+
+def _make_admin_app(tmp_path: Path):
+    import portal.settings as mod
+    from portal.routes.workspace_ops import _reset_service
+
+    mod._settings = None
+    os.environ["PORTAL_DATA_ROOT"] = str(tmp_path)
+    os.environ["SESSION_SECRET_KEY"] = "test-secret-key-32chars-minimum!!"
+    mod._settings = None
+    _reset_service()
+
+    from portal.app import create_app
+    from portal.auth.rbac import UserInfo, require_admin
+
+    app = create_app()
+    app.dependency_overrides[require_admin] = lambda: UserInfo(login="admin", roles=["admin"])
+    return app
+
+
+def _mock_http(body_text: str):
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.text = body_text
+    client = AsyncMock()
+    client.get = AsyncMock(return_value=resp)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=None)
+    return client
+
+
+def test_import_creates_template(tmp_path: Path) -> None:
+    app = _make_admin_app(tmp_path)
+    http = _mock_http("Bonjour {{ user.login }}")
+    with (
+        TestClient(app) as client,
+        patch("portal.routes.jinja_template_sources._check_ssrf", return_value=None),
+        patch("portal.routes.jinja_template_sources.httpx.AsyncClient", return_value=http),
+    ):
+        resp = client.post(
+            "/admin/jinja-template-sources/import",
+            json={
+                "source_url": "https://ex.com/jinja/welcome.fr.j2",
+                "key": "welcome",
+                "culture": "fr",
+            },
+        )
+    assert resp.status_code == 200
+    assert resp.json()["key"] == "welcome"
+    assert resp.json()["body"] == "Bonjour {{ user.login }}"
+
+
+def test_import_conflict_without_overwrite(tmp_path: Path) -> None:
+    app = _make_admin_app(tmp_path)
+    http = _mock_http("v1")
+    common = dict(
+        source_url="https://ex.com/jinja/welcome.fr.j2", key="welcome", culture="fr"
+    )
+    with (
+        TestClient(app) as client,
+        patch("portal.routes.jinja_template_sources._check_ssrf", return_value=None),
+        patch("portal.routes.jinja_template_sources.httpx.AsyncClient", return_value=http),
+    ):
+        first = client.post("/admin/jinja-template-sources/import", json=common)
+        assert first.status_code == 200
+        second = client.post("/admin/jinja-template-sources/import", json=common)
+    assert second.status_code == 409
+    assert second.json()["detail"] == "template_exists"
+
+
+def test_import_overwrite(tmp_path: Path) -> None:
+    app = _make_admin_app(tmp_path)
+    with (
+        TestClient(app) as client,
+        patch("portal.routes.jinja_template_sources._check_ssrf", return_value=None),
+    ):
+        with patch(
+            "portal.routes.jinja_template_sources.httpx.AsyncClient",
+            return_value=_mock_http("v1"),
+        ):
+            client.post(
+                "/admin/jinja-template-sources/import",
+                json={"source_url": "https://ex.com/jinja/welcome.fr.j2",
+                      "key": "welcome", "culture": "fr"},
+            )
+        with patch(
+            "portal.routes.jinja_template_sources.httpx.AsyncClient",
+            return_value=_mock_http("v2"),
+        ):
+            resp = client.post(
+                "/admin/jinja-template-sources/import",
+                json={"source_url": "https://ex.com/jinja/welcome.fr.j2",
+                      "key": "welcome", "culture": "fr", "overwrite": True},
+            )
+    assert resp.status_code == 200
+    assert resp.json()["body"] == "v2"

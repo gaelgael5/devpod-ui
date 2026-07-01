@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..auth.rbac import UserInfo, require_admin
 from ..db.engine import get_conn
 from ..db.sources import load_jinja_template_sources, save_jinja_template_sources
+from ..messages import db as mdb
+from ..messages.models import Jinja2Template
 from ._sources_util import split_toc_url
 from .recipe_sources import _check_ssrf
 
@@ -129,3 +131,40 @@ async def preview_jinja_template_sources(
                 continue
             all_templates.extend(await _preview_one_source(http, src_url))
     return {"templates": all_templates}
+
+
+@router_admin.post("/jinja-template-sources/import", status_code=200)
+async def import_jinja_template(
+    body: JinjaImportRequest,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> Jinja2Template:
+    if not _KEY_RE.fullmatch(body.key):
+        raise HTTPException(status_code=422, detail=f"Invalid key: {body.key!r}")
+    if not _CULTURE_RE.fullmatch(body.culture):
+        raise HTTPException(status_code=422, detail=f"Invalid culture: {body.culture!r}")
+    filename = body.source_url.rsplit("/", 1)[-1]
+    if not _J2_FNAME_RE.fullmatch(filename):
+        raise HTTPException(status_code=422, detail=f"Invalid filename: {filename!r}")
+
+    await asyncio.to_thread(_check_ssrf, body.source_url)
+    async with httpx.AsyncClient() as http:
+        try:
+            content = await _fetch_text(http, body.source_url)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Cannot fetch template: {exc}") from exc
+
+    existing = await mdb.get_template(conn, body.key, body.culture)
+    if existing is not None and not body.overwrite:
+        raise HTTPException(status_code=409, detail="template_exists")
+
+    tpl = Jinja2Template(key=body.key, culture=body.culture, body=content)
+    await mdb.upsert_template(conn, tpl)
+    _log.info(
+        "jinja_template_imported",
+        key=body.key,
+        culture=body.culture,
+        overwrite=body.overwrite,
+        by=user.login,
+    )
+    return tpl
