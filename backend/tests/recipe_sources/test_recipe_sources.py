@@ -17,7 +17,7 @@ _MOCK_PUBLIC_ADDR = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34
 # Mock address that triggers the SSRF block (private RFC-1918 range)
 _MOCK_INTERNAL_ADDR = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.1", 0))]
 
-_DEFAULT_SOURCE = "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/recipes/toc.txt"
+_DEFAULT_SOURCE = "https://raw.githubusercontent.com/ag-flow/ressources/main/recipes/toc.txt"
 
 
 def _write_global_config(tmp_path: Path) -> None:

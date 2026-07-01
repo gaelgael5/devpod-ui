@@ -6,13 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from .tables import compose_catalog_sources, profile_sources, recipe_sources
 
 _DEFAULT_RECIPE_SOURCE = (
-    "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/recipes/toc.txt"
+    "https://raw.githubusercontent.com/ag-flow/ressources/main/recipes/toc.txt"
 )
 _DEFAULT_PROFILE_SOURCE = (
-    "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/profiles/"
+    "https://raw.githubusercontent.com/ag-flow/ressources/main/profiles/"
 )
 _DEFAULT_COMPOSE_SOURCE = (
-    "https://raw.githubusercontent.com/gaelgael5/devpod-ui/dev/composes/toc.txt"
+    "https://raw.githubusercontent.com/ag-flow/ressources/main/composes/toc.txt"
 )
 
 
