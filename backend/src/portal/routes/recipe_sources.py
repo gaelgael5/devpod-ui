@@ -158,6 +158,12 @@ async def _fetch_dir_recipe(
 
     try:
         install_script = await _fetch_text(client, sh_url)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            install_script = ""  # optionnel pour les recettes type=initialize
+        else:
+            _log.warning("recipe_install_fetch_failed", url=sh_url, error=str(exc))
+            return None
     except Exception as exc:
         _log.warning("recipe_install_fetch_failed", url=sh_url, error=str(exc))
         return None
