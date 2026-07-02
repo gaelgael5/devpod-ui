@@ -210,13 +210,10 @@ function ToolsEditor({
   const { data: catalog = [] } = useBackendCatalog(backendId)
 
   const allSelected = tools === null
+  const readOnlyNames = catalog.filter((c) => c.scope === 'read').map((c) => c.name)
 
-  function toggleAll() {
-    upsert.mutate({
-      backend_id: backendId,
-      backend_key_id: keyId,
-      tools: allSelected ? [] : null,
-    })
+  function applyPreset(next: string[] | null) {
+    upsert.mutate({ backend_id: backendId, backend_key_id: keyId, tools: next })
   }
 
   function toggleTool(name: string) {
@@ -237,13 +234,31 @@ function ToolsEditor({
         <span className="text-xs font-semibold uppercase text-muted-foreground">
           {t('mcp.profiles.tools')}
         </span>
-        <button
-          type="button"
-          className="ml-auto text-xs text-primary underline-offset-2 hover:underline"
-          onClick={toggleAll}
-        >
-          {allSelected ? t('mcp.profiles.restrictTools') : t('mcp.profiles.allowAllTools')}
-        </button>
+        <div className="ml-auto flex gap-2">
+          <button
+            type="button"
+            className="text-xs text-primary underline-offset-2 hover:underline"
+            onClick={() => applyPreset(null)}
+          >
+            {t('mcp.profiles.allowAllTools')}
+          </button>
+          {readOnlyNames.length > 0 && (
+            <button
+              type="button"
+              className="text-xs text-primary underline-offset-2 hover:underline"
+              onClick={() => applyPreset(readOnlyNames)}
+            >
+              {t('mcp.profiles.allowReadOnlyTools')}
+            </button>
+          )}
+          <button
+            type="button"
+            className="text-xs text-primary underline-offset-2 hover:underline"
+            onClick={() => applyPreset([])}
+          >
+            {t('mcp.profiles.allowNoneTools')}
+          </button>
+        </div>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {catalog.map((tool) => {

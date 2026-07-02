@@ -770,8 +770,9 @@
       "autoKey": "Auto (première clé active)",
       "tools": "Tools exposés",
       "allTools": "Tous les tools",
-      "restrictTools": "Restreindre à un sous-ensemble",
-      "allowAllTools": "Autoriser tous les tools",
+      "allowAllTools": "Tout autoriser",
+      "allowNoneTools": "Tout interdire",
+      "allowReadOnlyTools": "Lecture seule",
       "noToolsCatalog": "Aucun tool indexé (backend non synchronisé)."
     },
     "oauth": {

@@ -213,7 +213,13 @@ async def list_catalog_route(
         raise HTTPException(status_code=404, detail="backend introuvable")
     rows = await list_catalog_primitives(conn, backend_id, kind)
     return [
-        {"name": r["original_name"], "description": (r["definition"] or {}).get("description", "")}
+        {
+            "name": r["original_name"],
+            "description": (r["definition"] or {}).get("description", ""),
+            # Contrat read/write/exec/admin — présent pour le backend interne devpod
+            # (DEVPOD_PRIMITIVES), absent pour les backends externes.
+            "scope": (r["definition"] or {}).get("scope"),
+        }
         for r in rows
     ]
 

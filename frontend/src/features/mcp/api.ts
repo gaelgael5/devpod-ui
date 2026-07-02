@@ -354,9 +354,12 @@ export function useDeleteEntry(profileId: string) {
 
 // ── Catalog ────────────────────────────────────────────────────────────────────
 
+export type CatalogToolScope = 'read' | 'write' | 'exec' | 'admin' | null
+
 export interface CatalogTool {
   name: string
   description: string
+  scope: CatalogToolScope
 }
 
 export function useBackendCatalog(backendId: string | null) {

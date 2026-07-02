@@ -770,8 +770,9 @@
       "autoKey": "Auto (first enabled key)",
       "tools": "Exposed tools",
       "allTools": "All tools",
-      "restrictTools": "Restrict to a subset",
-      "allowAllTools": "Allow all tools",
+      "allowAllTools": "Allow all",
+      "allowNoneTools": "Allow none",
+      "allowReadOnlyTools": "Read-only",
       "noToolsCatalog": "No tools indexed yet (backend not synced)."
     },
     "oauth": {

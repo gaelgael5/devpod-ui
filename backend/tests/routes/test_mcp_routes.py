@@ -93,6 +93,53 @@ async def test_backend_rejects_duplicate_namespace(client: AsyncClient) -> None:
     assert r.status_code == 409
 
 
+async def test_catalog_route_exposes_scope(client: AsyncClient, db_conn: AsyncConnection) -> None:
+    """Le champ scope (read/write/exec/admin) du registre devpod doit survivre au /catalog."""
+    from portal.db.mcp import insert_backend
+    from portal.db.mcp_catalog import upsert_primitive
+
+    await insert_backend(
+        db_conn, id="devpod-alice", owner_login="alice", namespace="devpod",
+        name="DevPod workspaces", url="", transport="internal",
+    )
+    await upsert_primitive(
+        db_conn, backend_id="devpod-alice", kind="tool", original_name="workspace_list",
+        definition={"description": "Liste les workspaces.", "scope": "read"},
+        definition_hash="h1",
+    )
+    await upsert_primitive(
+        db_conn, backend_id="devpod-alice", kind="tool", original_name="workspace_delete",
+        definition={"description": "Supprime un workspace.", "scope": "admin"},
+        definition_hash="h2",
+    )
+
+    r = await client.get("/me/mcp/backends/devpod-alice/catalog")
+    assert r.status_code == 200
+    by_name = {t["name"]: t["scope"] for t in r.json()}
+    assert by_name == {"workspace_list": "read", "workspace_delete": "admin"}
+
+
+async def test_catalog_route_scope_null_for_external_backend(
+    client: AsyncClient, db_conn: AsyncConnection
+) -> None:
+    """Un backend externe sans champ scope dans sa définition → scope=null, pas d'erreur."""
+    r = await client.post("/me/mcp/backends", json={
+        "namespace": "rag", "name": "RAG", "url": "https://rag/mcp", "transport": "streamable_http",
+    })
+    bid = r.json()["id"]
+
+    from portal.db.mcp_catalog import upsert_primitive
+
+    await upsert_primitive(
+        db_conn, backend_id=bid, kind="tool", original_name="search",
+        definition={"description": "Recherche."}, definition_hash="h3",
+    )
+
+    r = await client.get(f"/me/mcp/backends/{bid}/catalog")
+    assert r.status_code == 200
+    assert r.json() == [{"name": "search", "description": "Recherche.", "scope": None}]
+
+
 async def test_apikey_create_returns_clear_once(client: AsyncClient) -> None:
     r = await client.post("/me/mcp/apikeys", json={"label": "cli"})
     assert r.status_code == 201
