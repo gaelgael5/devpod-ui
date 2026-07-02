@@ -53,6 +53,8 @@ class HostCreateRequest(BaseModel):
     proxmox_node: str = ""
     vmid: str = ""
     ci_password: str = ""  # valeur brute, stockée dans harpo au CREATE/UPDATE
+    # None = défaut à la création ("workspaces"), valeur existante préservée à l'update.
+    usage: Literal["workspaces", "tests", "portail"] | None = None
 
 
 class BootstrapSshRequest(BaseModel):
@@ -296,7 +298,7 @@ async def add_host(
         host_cert_slug="",
         storage_type="local",
         vault_identifier="",
-        usage="workspaces",
+        usage=body.usage or "workspaces",
     )
     cfg.hosts.append(host)
     await save_global_db(cfg, conn)
@@ -343,9 +345,9 @@ async def update_host(
         vmid=body.vmid,
         ci_password_secret_slug=ci_slug,
         host_cert_slug=existing.host_cert_slug,  # conservé
-        storage_type="local",
-        vault_identifier="",
-        usage=existing.usage,  # préservé (pas exposé au payload)
+        storage_type=existing.storage_type,  # conservé (l'update ne doit rien réinitialiser)
+        vault_identifier=existing.vault_identifier,  # conservé
+        usage=body.usage if body.usage is not None else existing.usage,
     )
     cfg.hosts[idx] = host
     await save_global_db(cfg, conn)
@@ -484,7 +486,7 @@ async def list_host_deployments(
     from ..compose.models import ComposeTemplate
 
     deps = await list_deployments_for_node(conn, name)
-    result = []
+    result: list[dict[str, object]] = []
     for dep in deps:
         tpl: ComposeTemplate | None = await get_template(conn, dep.template_id)
         result.append({
