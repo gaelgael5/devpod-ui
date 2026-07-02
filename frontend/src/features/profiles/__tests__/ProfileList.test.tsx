@@ -15,11 +15,13 @@ describe('ProfileList', () => {
     expect(await screen.findByText('Frontend React')).toBeInTheDocument()
   })
 
-  it("n'affiche pas les profils partagés ni le bouton Fork", async () => {
+  it('affiche les profils partagés avec un bouton Fork', async () => {
+    // Depuis la galerie de profils, les profils partagés sont visibles par les
+    // devs et forkables (section « partagés » + useForkProfile).
     renderWithProviders(<ProfileList />)
     await screen.findByText('Frontend React')
-    expect(screen.queryByText('Python Dev')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /forker|fork/i })).not.toBeInTheDocument()
+    expect(screen.getByText('Python Dev')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /forker|fork/i })).toBeInTheDocument()
   })
 
   it('affiche le bouton Nouveau profil', async () => {

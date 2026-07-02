@@ -4,23 +4,42 @@ import uuid
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from portal.auth.rbac import UserInfo, require_user
+from portal.db.engine import get_conn
 from portal.db.mcp import (
     find_apikey_by_hash,
+    get_apikey,
     get_backend,
     insert_backend_key,
-    list_grants,
 )
+from portal.db.mcp_profiles import insert_profile, list_profile_entries
 from portal.db.tables import mcp_backend_key, users
 from portal.mcp import models, service
 from portal.mcp.runtime_secrets import decrypt_service_key
+from portal.routes.mcp_profiles import router as profiles_router
 from portal.vault import session as vault_session
 
 
 async def _user(conn: AsyncConnection, login: str = "alice") -> None:
     await conn.execute(insert(users).values(login=login, version="1", secret_ns=str(uuid.uuid4())))
+
+
+def _profiles_client(conn: AsyncConnection, login: str = "alice") -> AsyncClient:
+    """Client ASGI sur le router profils MCP, auth et connexion DB court-circuitées.
+
+    La validation des entries (backend/clé) vit dans la route, pas dans le
+    service — on la teste donc à travers le router.
+    """
+    app = FastAPI()
+    app.include_router(profiles_router)
+    app.dependency_overrides[require_user] = lambda: UserInfo(login=login, roles=["dev"])
+    app.dependency_overrides[get_conn] = lambda: conn
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
 def test_namespace_rejects_double_underscore() -> None:
@@ -123,7 +142,8 @@ async def test_create_apikey_returns_clear_once_and_stores_hash(
     assert found is not None and found["id"] == aid
 
 
-async def test_set_grant_rejects_key_from_other_backend(db_conn: AsyncConnection) -> None:
+async def test_profile_entry_rejects_key_from_other_backend(db_conn: AsyncConnection) -> None:
+    """Équivalent profils de l'ancien set_grant : clé d'un autre backend refusée (404)."""
     await _user(db_conn)
     b1 = await service.create_backend(
         db_conn, "alice",
@@ -142,16 +162,17 @@ async def test_set_grant_rejects_key_from_other_backend(db_conn: AsyncConnection
         storage_type="local", secret_value_local=b"x",
         secret_value_vault_ref=None, vault_identifier=None,
     )
-    aid, _ = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
+    await insert_profile(db_conn, id="p1", owner_login="alice", name="Profil test")
 
-    # clé de b2 affectée à un grant sur b1 → refus
-    with pytest.raises(service.InvalidReference):
-        await service.set_grant(
-            db_conn, "alice", aid, models.GrantSet(backend_id=b1, backend_key_id="kB2")
-        )
+    # clé de b2 affectée à une entry sur b1 → refus, aucune entry créée
+    async with _profiles_client(db_conn) as client:
+        resp = await client.put(f"/mcp/profiles/p1/entries/{b1}", json={"backend_key_id": "kB2"})
+    assert resp.status_code == 404
+    assert await list_profile_entries(db_conn, "p1") == []
 
 
-async def test_set_grant_happy_path(db_conn: AsyncConnection) -> None:
+async def test_profile_entry_happy_path(db_conn: AsyncConnection) -> None:
+    """Équivalent profils de l'ancien set_grant happy path : entry backend + clé explicite."""
     await _user(db_conn)
     b1 = await service.create_backend(
         db_conn, "alice",
@@ -164,12 +185,13 @@ async def test_set_grant_happy_path(db_conn: AsyncConnection) -> None:
         storage_type="local", secret_value_local=b"x",
         secret_value_vault_ref=None, vault_identifier=None,
     )
-    aid, _ = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
-    await service.set_grant(
-        db_conn, "alice", aid, models.GrantSet(backend_id=b1, backend_key_id="kB1")
-    )
-    grants = await list_grants(db_conn, aid)
-    assert len(grants) == 1 and grants[0]["backend_key_id"] == "kB1"
+    await insert_profile(db_conn, id="p1", owner_login="alice", name="Profil test")
+
+    async with _profiles_client(db_conn) as client:
+        resp = await client.put(f"/mcp/profiles/p1/entries/{b1}", json={"backend_key_id": "kB1"})
+    assert resp.status_code == 200
+    entries = await list_profile_entries(db_conn, "p1")
+    assert len(entries) == 1 and entries[0]["backend_key_id"] == "kB1"
 
 
 async def test_create_harpocrate_key_writes_vault_and_stores_ref(
@@ -255,30 +277,43 @@ async def test_create_harpocrate_key_requires_unlocked_vault(db_conn: AsyncConne
         )
 
 
-async def test_set_grant_rejects_foreign_apikey(db_conn: AsyncConnection) -> None:
+async def test_set_apikey_profile_happy_path(db_conn: AsyncConnection) -> None:
+    """Rattachement apikey → profil (remplace l'ancien grant apikey → backend)."""
+    await _user(db_conn)
+    await insert_profile(db_conn, id="p1", owner_login="alice", name="Profil test")
+    aid, _ = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
+
+    await service.set_apikey_profile(db_conn, "alice", aid, "p1")
+    got = await get_apikey(db_conn, "alice", aid)
+    assert got is not None and got["profile_id"] == "p1"
+
+
+async def test_set_apikey_profile_rejects_foreign_apikey(db_conn: AsyncConnection) -> None:
+    """bob ne peut pas rattacher un profil à l'apikey d'alice (NotFound)."""
     await _user(db_conn)
     await _user(db_conn, "bob")
-    b1 = await service.create_backend(
-        db_conn, "alice",
-        models.BackendCreate(
-            namespace="rag", name="RAG", url="https://rag/mcp", transport="streamable_http"
-        ),
-    )
-    await insert_backend_key(
-        db_conn, id="kB1", backend_id=b1, slug="read", description="",
-        storage_type="local", secret_value_local=b"x",
-        secret_value_vault_ref=None, vault_identifier=None,
-    )
+    await insert_profile(db_conn, id="pb", owner_login="bob", name="Profil bob")
     aid, _ = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
-    # bob tente de greffer un grant sur l'apikey d'alice
+
     with pytest.raises(service.NotFound):
-        await service.set_grant(
-            db_conn, "bob", aid, models.GrantSet(backend_id=b1, backend_key_id="kB1")
-        )
+        await service.set_apikey_profile(db_conn, "bob", aid, "pb")
 
 
-async def test_set_grant_public_backend_without_key(db_conn: AsyncConnection) -> None:
-    """Backend public (sans auth) : grant valide avec backend_key_id=None, sans clé."""
+async def test_set_apikey_profile_rejects_foreign_profile(db_conn: AsyncConnection) -> None:
+    """alice ne peut pas rattacher le profil de bob à sa propre apikey (NotFound)."""
+    await _user(db_conn)
+    await _user(db_conn, "bob")
+    await insert_profile(db_conn, id="pb", owner_login="bob", name="Profil bob")
+    aid, _ = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
+
+    with pytest.raises(service.NotFound):
+        await service.set_apikey_profile(db_conn, "alice", aid, "pb")
+    got = await get_apikey(db_conn, "alice", aid)
+    assert got is not None and got["profile_id"] is None
+
+
+async def test_profile_entry_public_backend_without_key(db_conn: AsyncConnection) -> None:
+    """Backend public (sans auth) : entry valide sans backend_key_id, aucune clé exigée."""
     await _user(db_conn)
     b1 = await service.create_backend(
         db_conn, "alice",
@@ -287,19 +322,21 @@ async def test_set_grant_public_backend_without_key(db_conn: AsyncConnection) ->
             url="https://mcp.deepwiki.com/mcp", transport="streamable_http",
         ),
     )
-    aid, _ = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
+    await insert_profile(db_conn, id="p1", owner_login="alice", name="Profil test")
 
-    # aucune clé créée pour ce backend : le grant public ne doit pas en exiger
-    await service.set_grant(db_conn, "alice", aid, models.GrantSet(backend_id=b1))
+    # aucune clé créée pour ce backend : l'entry publique ne doit pas en exiger
+    async with _profiles_client(db_conn) as client:
+        resp = await client.put(f"/mcp/profiles/p1/entries/{b1}", json={})
+    assert resp.status_code == 200
 
-    grants = await list_grants(db_conn, aid)
-    assert len(grants) == 1
-    assert grants[0]["backend_id"] == b1
-    assert grants[0]["backend_key_id"] is None
+    entries = await list_profile_entries(db_conn, "p1")
+    assert len(entries) == 1
+    assert entries[0]["backend_id"] == b1
+    assert entries[0]["backend_key_id"] is None
 
 
-async def test_set_grant_stores_curation(db_conn: AsyncConnection) -> None:
-    """set_grant transmet expose_mode/expose à la DB ; list_grants les retourne."""
+async def test_profile_entry_stores_tools_curation(db_conn: AsyncConnection) -> None:
+    """L'entry porte la curation `tools` (remplace expose_mode/expose des grants)."""
     await _user(db_conn)
     b1 = await service.create_backend(
         db_conn, "alice",
@@ -307,25 +344,20 @@ async def test_set_grant_stores_curation(db_conn: AsyncConnection) -> None:
             namespace="rag", name="RAG", url="https://rag/mcp", transport="streamable_http"
         ),
     )
-    aid, _ = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
+    await insert_profile(db_conn, id="p1", owner_login="alice", name="Profil test")
 
-    await service.set_grant(
-        db_conn, "alice", aid,
-        models.GrantSet(
-            backend_id=b1, expose_mode="allowlist", expose=["rag__search", "rag__index"]
-        ),
-    )
-    grants = await list_grants(db_conn, aid)
-    assert len(grants) == 1
-    assert grants[0]["expose_mode"] == "allowlist"
-    assert grants[0]["expose"] == ["rag__search", "rag__index"]
+    async with _profiles_client(db_conn) as client:
+        resp = await client.put(
+            f"/mcp/profiles/p1/entries/{b1}", json={"tools": ["search", "index"]}
+        )
+        assert resp.status_code == 200
+        entries = await list_profile_entries(db_conn, "p1")
+        assert len(entries) == 1
+        assert entries[0]["tools"] == ["search", "index"]
 
-    # upsert : on change la curation, la ligne doit être mise à jour (pas de doublon)
-    await service.set_grant(
-        db_conn, "alice", aid,
-        models.GrantSet(backend_id=b1, expose_mode="denylist", expose=["rag__admin"]),
-    )
-    grants = await list_grants(db_conn, aid)
-    assert len(grants) == 1
-    assert grants[0]["expose_mode"] == "denylist"
-    assert grants[0]["expose"] == ["rag__admin"]
+        # upsert : on change la curation, la ligne doit être mise à jour (pas de doublon)
+        resp = await client.put(f"/mcp/profiles/p1/entries/{b1}", json={"tools": []})
+        assert resp.status_code == 200
+    entries = await list_profile_entries(db_conn, "p1")
+    assert len(entries) == 1
+    assert entries[0]["tools"] == []

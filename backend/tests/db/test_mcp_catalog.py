@@ -6,11 +6,11 @@ from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from portal.db.mcp_catalog import list_primitives, set_quarantine, upsert_primitive
+from portal.db.mcp_profiles import list_profile_entries, upsert_profile_entry
 from portal.db.tables import (
-    mcp_apikey,
-    mcp_apikey_grant,
     mcp_audit_log,
     mcp_backend,
+    mcp_profile,
     mcp_tool_catalog,
     users,
 )
@@ -71,21 +71,34 @@ async def test_upsert_detects_rugpull(db_conn: AsyncConnection) -> None:
     assert rows[0]["quarantined"] is False
 
 
-async def test_grant_curation_defaults(db_conn: AsyncConnection) -> None:
+async def test_profile_entry_curation_defaults(db_conn: AsyncConnection) -> None:
+    """Curation par défaut d'une entry de profil : tools NULL = tous les tools.
+
+    Remplace l'ancien test sur mcp_apikey_grant (expose_mode='all' / expose=[]) :
+    la curation vit désormais sur mcp_profile_entry.tools
+    (null = tout, [] = rien, [...] = subset explicite).
+    """
     await _seed_backend(db_conn)
     await db_conn.execute(
-        insert(mcp_apikey).values(
-            id="a1", owner_login="alice", token_hash="tok_hash", label="cli"
-        )
+        insert(mcp_profile).values(id="p1", owner_login="alice", name="défaut")
     )
-    await db_conn.execute(
-        insert(mcp_apikey_grant).values(apikey_id="a1", backend_id="b1")
+    await upsert_profile_entry(
+        db_conn, profile_id="p1", backend_id="b1", backend_key_id=None, tools=None
     )
-    row = (
-        await db_conn.execute(
-            select(mcp_apikey_grant.c.expose_mode, mcp_apikey_grant.c.expose)
-            .where(mcp_apikey_grant.c.apikey_id == "a1")
-        )
-    ).one()
-    assert row.expose_mode == "all"
-    assert row.expose == []
+    entries = await list_profile_entries(db_conn, "p1")
+    assert len(entries) == 1
+    assert entries[0]["tools"] is None  # NULL = tous les tools exposés
+    assert entries[0]["backend_key_id"] is None  # backend public sans clé
+
+    # Curation explicite : subset, puis liste vide (= aucun tool)
+    await upsert_profile_entry(
+        db_conn, profile_id="p1", backend_id="b1", backend_key_id=None, tools=["search"]
+    )
+    entries = await list_profile_entries(db_conn, "p1")
+    assert entries[0]["tools"] == ["search"]
+
+    await upsert_profile_entry(
+        db_conn, profile_id="p1", backend_id="b1", backend_key_id=None, tools=[]
+    )
+    entries = await list_profile_entries(db_conn, "p1")
+    assert entries[0]["tools"] == []

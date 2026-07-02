@@ -53,6 +53,7 @@ describe('AdminHosts', () => {
     const sshBtn = screen.getByRole('button', { name: /^SSH$/i })
     expect(sshBtn).toBeInTheDocument()
     await userEvent.click(sshBtn)
-    expect(screen.getByText(/debian@192\.168\.10\.175/)).toBeInTheDocument()
+    // L'adresse apparaît deux fois : cellule du tableau + bandeau de la fenêtre SSH ouverte.
+    expect(screen.getAllByText(/debian@192\.168\.10\.175/)).toHaveLength(2)
   })
 })

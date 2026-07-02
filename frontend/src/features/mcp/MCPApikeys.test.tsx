@@ -28,53 +28,33 @@ describe('MCPApikeys', () => {
     expect(screen.getByText(/will not be shown again/i)).toBeInTheDocument()
   })
 
-  it('enregistre la curation allowlist avec un outil via le PUT grant', async () => {
+  it("affiche le profil MCP associé à l'apikey", async () => {
+    // La curation par grant (expose_mode/expose) n'existe plus : une apikey
+    // référence un profil MCP (curation `tools` portée par les entries du profil).
     const { server } = await import('@/test/server')
-    let putBody: unknown = null
     server.use(
       http.get('/me/mcp/apikeys', () =>
         HttpResponse.json([
-          { id: 'ak1', owner_login: 'alice', label: 'Laptop', revoked: false, created_at: '' },
-        ]),
-      ),
-      http.get('/me/mcp/backends', () =>
-        HttpResponse.json([
           {
-            id: 'b1', owner_login: 'alice', namespace: 'rag', name: 'RAG',
-            url: 'https://rag/mcp', transport: 'streamable_http', enabled: true,
-            created_at: '', updated_at: '',
+            id: 'ak1', owner_login: 'alice', label: 'Laptop', profile_id: 'p1',
+            revoked: false, created_at: '', last_used_at: null,
           },
         ]),
       ),
-      http.get('/me/mcp/apikeys/:id/grants', () =>
+      http.get('/me/mcp/profiles', () =>
         HttpResponse.json([
           {
-            apikey_id: 'ak1', backend_id: 'b1', backend_key_id: null,
-            expose_mode: 'allowlist', expose: [],
+            id: 'p1', owner_login: 'alice', name: 'Perso',
+            description: '', created_at: '', updated_at: null,
           },
         ]),
       ),
-      http.put('/me/mcp/apikeys/:id/grants', async ({ request }) => {
-        putBody = await request.json()
-        return HttpResponse.json({ apikey_id: 'ak1', backend_id: 'b1' })
-      }),
     )
 
-    const user = userEvent.setup()
     renderWithProviders(<MCPApikeys />)
 
-    // Le grant est déjà en mode allowlist → l'éditeur de liste est affiché.
-    const input = await screen.findByPlaceholderText(/tool name/i)
-    await user.type(input, 'search')
-    await user.click(screen.getByRole('button', { name: /^Add$/i }))
-
-    await waitFor(() => {
-      expect(putBody).toMatchObject({
-        backend_id: 'b1',
-        backend_key_id: null,
-        expose_mode: 'allowlist',
-        expose: ['search'],
-      })
-    })
+    expect(await screen.findByText('Laptop')).toBeInTheDocument()
+    // Le nom du profil apparaît deux fois : badge de la ligne + valeur du sélecteur.
+    expect(await screen.findAllByText('Perso')).toHaveLength(2)
   })
 })

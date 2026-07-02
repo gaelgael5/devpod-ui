@@ -22,8 +22,8 @@ export const handlers = [
   ),
   http.get('/recipes', () =>
     HttpResponse.json([
-      { id: 'claude-code', version: '1.0.0', description: 'Claude Code CLI', installs_after: [], requires_secrets: [{ path: 'llm/anthropic_key', env: 'ANTHROPIC_API_KEY' }] },
-      { id: 'aider', version: '1.0.0', description: 'Aider AI pair programmer', installs_after: [], requires_secrets: [{ path: 'llm/anthropic_key', env: 'ANTHROPIC_API_KEY' }] },
+      { id: 'claude-code', key: '11111111-1111-4111-8111-111111111111', version: '1.0.0', description: 'Claude Code CLI', type: 'install', scope: 'shared', installs_after: [], requires_secrets: [{ path: 'llm/anthropic_key', env: 'ANTHROPIC_API_KEY' }] },
+      { id: 'aider', key: '22222222-2222-4222-8222-222222222222', version: '1.0.0', description: 'Aider AI pair programmer', type: 'install', scope: 'shared', installs_after: [], requires_secrets: [{ path: 'llm/anthropic_key', env: 'ANTHROPIC_API_KEY' }] },
     ])
   ),
   http.get('/me/recipes', () => HttpResponse.json([])),
@@ -34,6 +34,9 @@ export const handlers = [
       { name: 'ssh-dev', type: 'ssh', default: false, address: 'debian@192.168.10.175', host_cert_slug: 'hosts/ssh_dev_ed25519', storage_type: 'local' },
     ])
   ),
+  http.get('/me/git/branches', () => HttpResponse.json({ branches: [] })),
+  http.get('/admin/hosts/:name/workspaces', () => HttpResponse.json([])),
+  http.get('/admin/hosts/:name/deployments', () => HttpResponse.json([])),
   http.get('/admin/hypervisor-types', () => HttpResponse.json([])),
   http.get('/admin/oidc', () =>
     HttpResponse.json({ issuer: '', client_id: '', has_secret: false }),

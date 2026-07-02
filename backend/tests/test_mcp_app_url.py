@@ -1,10 +1,10 @@
-# backend/tests/test_mcp_app_url_grant.py
-"""Modèles MCP : app_url (backend) + enabled (grant)."""
+# backend/tests/test_mcp_app_url.py
+"""Modèles MCP : app_url optionnelle sur BackendCreate/BackendUpdate."""
 from __future__ import annotations
 
 import pytest
 
-from portal.mcp.models import BackendCreate, BackendUpdate, GrantSet
+from portal.mcp.models import BackendCreate, BackendUpdate
 
 
 def test_backend_create_app_url_optional_default_empty() -> None:
@@ -27,11 +27,3 @@ def test_backend_update_app_url() -> None:
         name="n", url="https://x", transport="streamable_http", enabled=True, app_url="http://a.lan"
     )
     assert b.app_url == "http://a.lan"
-
-
-def test_grant_set_enabled_default_true() -> None:
-    assert GrantSet(backend_id="b").enabled is True
-
-
-def test_grant_set_enabled_false() -> None:
-    assert GrantSet(backend_id="b", enabled=False).enabled is False
