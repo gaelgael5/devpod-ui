@@ -95,7 +95,7 @@
       "close": "Close"
     },
     "testHosts": {
-      "menu": "SSH test",
+      "actionsMenu": "Actions",
       "openSsh": "Open SSH session",
       "resolveIp": "Resolve IP (DNS)",
       "resolving": "Resolving IP…",

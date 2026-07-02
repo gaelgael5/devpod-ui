@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { FileText, FolderOpen, Key, Loader2, MessageSquare } from 'lucide-react'
+import { Code2, FileText, FolderOpen, Key, Loader2, MessageSquare, Play, Square } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,17 +19,17 @@ import LogDialog from './LogDialog'
 import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
 import InitializersMenu from './InitializersMenu'
 import AddTestVmDialog from './AddTestVmDialog'
-import TestHostsMenu from './TestHostsMenu'
 import HostServicesSection from './HostServicesSection'
 import WorkspaceMessagesDialog from './WorkspaceMessagesDialog'
+import { STATUS_TONE_CLASS } from './statusTone'
 import type { TestHost } from './useTestVm'
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
-  running: 'bg-green-500/10 text-green-600 border-green-500/30',
-  stopped: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30',
-  provisioning: 'bg-primary/10 text-primary border-primary/30',
-  failed: 'bg-destructive/10 text-destructive border-destructive/30',
-  unknown: 'bg-muted text-muted-foreground border-border',
+  running: STATUS_TONE_CLASS.running,
+  stopped: STATUS_TONE_CLASS.stopped,
+  provisioning: STATUS_TONE_CLASS.progress,
+  failed: STATUS_TONE_CLASS.error,
+  unknown: STATUS_TONE_CLASS.neutral,
 }
 
 interface Props {
@@ -94,15 +94,20 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
 
       <div className="flex flex-wrap gap-2">
         {s === 'running' && status.url && (
-          <Button size="sm" asChild>
+          <Button size="sm" asChild aria-label={t('workspaces.actions.openVscode')}>
             <a href={status.url} target="_blank" rel="noopener noreferrer">
-              {t('workspaces.actions.openVscode')}
+              <Code2 className="h-4 w-4" />
             </a>
           </Button>
         )}
         {s === 'running' && (
-          <Button size="sm" variant="outline" onClick={() => onStop(spec.name)}>
-            {t('workspaces.actions.stop')}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onStop(spec.name)}
+            aria-label={t('workspaces.actions.stop')}
+          >
+            <Square className="h-4 w-4" />
           </Button>
         )}
         {s === 'running' && (
@@ -118,9 +123,9 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             variant="outline"
             onClick={() => onStart?.(spec.name)}
             disabled={!onStart || isStarting}
+            aria-label={t('workspaces.actions.start')}
           >
-            {isStarting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-            {t('workspaces.actions.start')}
+            {isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           </Button>
         )}
         {(s === 'stopped' || s === 'unknown' || s === 'failed') && (
@@ -181,9 +186,6 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             {t('workspaces.testVm.btn')}
           </Button>
         )}
-        {s === 'running' && (
-          <TestHostsMenu wsName={spec.name} enabled onOpenSsh={setSshTestHost} />
-        )}
         <Button
           size="sm"
           variant="ghost"
@@ -212,7 +214,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         )}
       </div>
 
-      <HostServicesSection wsName={spec.name} enabled={s === 'running'} />
+      <HostServicesSection wsName={spec.name} enabled={s === 'running'} onOpenSsh={setSshTestHost} />
 
       {spec.ssh_key && (
         <SshKeyDialog
