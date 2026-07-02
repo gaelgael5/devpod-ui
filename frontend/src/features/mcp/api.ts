@@ -167,7 +167,12 @@ export function useProbeBackend() {
         `/me/mcp/backends/${encodeURIComponent(id)}/probe`,
         { method: 'POST' },
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: QK.backends() }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: QK.backends() })
+      // Le probe resynchronise aussi le catalogue (ex. backend internal devpod) —
+      // rafraîchit la liste "View tools" affichée si elle est déjà ouverte.
+      qc.invalidateQueries({ queryKey: QK.catalog(id) })
+    },
   })
 }
 

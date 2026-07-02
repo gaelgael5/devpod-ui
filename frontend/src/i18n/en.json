@@ -891,6 +891,7 @@
       "healthDown": "Offline",
       "healthUnknown": "Checking…",
       "probe": "Retry connection",
+      "refreshTools": "Refresh tools",
       "appUrl": "Application URL (optional)",
       "appUrlHint": "Optional web link shown in the list to open the application.",
       "openApp": "Open app",

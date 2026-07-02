@@ -74,9 +74,15 @@ async def monitor_backend_once(
     """Synchronise le catalogue d'un backend et en déduit sa santé (up/down).
 
     Les backends `internal` (DevPod, etc.) sont hébergés dans le portail lui-même :
-    aucune connexion réseau n'est nécessaire, ils sont toujours up.
+    aucune connexion réseau n'est nécessaire, ils sont toujours up. Leur catalogue
+    n'est resynchronisé qu'à la création d'un user ou au redémarrage du portail —
+    ce passage de moniteur (périodique ou déclenché à la main via /probe) est
+    l'occasion de le rafraîchir aussi, ex. après un changement de logs.enabled.
     """
     if backend_row.get("transport") == "internal":
+        from .devpod_bootstrap import ensure_devpod_backend
+
+        await ensure_devpod_backend(conn, backend_row["owner_login"])
         health = BackendHealth(status="up")
         set_health(backend_row["id"], health)
         return health

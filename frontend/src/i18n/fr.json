@@ -891,6 +891,7 @@
       "healthDown": "Hors ligne",
       "healthUnknown": "Vérification…",
       "probe": "Retenter la connexion",
+      "refreshTools": "Rafraîchir les tools",
       "appUrl": "URL de l'application (optionnel)",
       "appUrlHint": "Lien web optionnel affiché dans la liste pour ouvrir l'application.",
       "openApp": "Ouvrir l'app",

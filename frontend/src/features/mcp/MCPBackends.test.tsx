@@ -63,4 +63,31 @@ describe('MCPBackends', () => {
     await user.click(await screen.findByRole('button', { name: /Add a server/i }))
     expect(await screen.findByText(/Register an MCP server/i)).toBeInTheDocument()
   })
+
+  it('affiche un bouton "Refresh tools" sur le backend interne devpod (toujours online)', async () => {
+    const { server } = await import('@/test/server')
+    let probeCalled = false
+    server.use(
+      http.get('/me/mcp/backends', () =>
+        HttpResponse.json([
+          {
+            id: 'devpod-alice', owner_login: 'alice', namespace: 'devpod',
+            name: 'DevPod workspaces', url: '', transport: 'internal', enabled: true,
+            created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
+            health: 'up',
+          },
+        ])),
+      http.get('/me/mcp/backends/:id/keys', () => HttpResponse.json([])),
+      http.post('/me/mcp/backends/:id/probe', () => {
+        probeCalled = true
+        return HttpResponse.json({ id: 'devpod-alice', health: 'up' })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<MCPBackends />)
+
+    const button = await screen.findByTitle('Refresh tools')
+    await user.click(button)
+    expect(probeCalled).toBe(true)
+  })
 })

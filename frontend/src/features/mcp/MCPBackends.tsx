@@ -438,7 +438,7 @@ function BackendCard({ backend }: { backend: MCPBackend }) {
         {(!backend.health || backend.health === 'unknown') && (
           <Badge variant="secondary">{t('mcp.backends.healthUnknown')}</Badge>
         )}
-        {backend.health !== 'up' && (
+        {(backend.health !== 'up' || backend.transport === 'internal') && (
           <Button
             size="sm"
             variant="ghost"
@@ -449,7 +449,11 @@ function BackendCard({ backend }: { backend: MCPBackend }) {
                 onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
               })
             }
-            title={t('mcp.backends.probe')}
+            title={
+              backend.transport === 'internal'
+                ? t('mcp.backends.refreshTools')
+                : t('mcp.backends.probe')
+            }
           >
             <RefreshCw className={`h-3.5 w-3.5${probe.isPending ? ' animate-spin' : ''}`} />
           </Button>

@@ -91,6 +91,26 @@ async def test_monitor_backend_once_up(db_conn: AsyncConnection) -> None:
     assert len(await list_primitives(db_conn, "b1", "tool")) == 1
 
 
+async def test_monitor_backend_once_internal_resyncs_catalog(db_conn: AsyncConnection) -> None:
+    """Backend interne (devpod) : toujours 'up', et son catalogue est resynchronisé
+    (auparavant un no-op — seul un redémarrage du portail ou un nouveau user le faisait)."""
+    reset_health()
+    await db_conn.execute(
+        insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
+    )
+    backend = {
+        "id": "devpod-alice", "owner_login": "alice", "namespace": "devpod",
+        "name": "DevPod workspaces", "url": "", "transport": "internal", "enabled": True,
+    }
+    await db_conn.execute(insert(mcp_backend).values(**backend))
+
+    health = await monitor_backend_once(db_conn, backend)
+
+    assert health.status == "up"
+    from portal.db.mcp_catalog import list_primitives
+    assert len(await list_primitives(db_conn, "devpod-alice", "tool")) > 0
+
+
 async def test_monitor_backend_once_down(db_conn: AsyncConnection) -> None:
     reset_health()
     backend = await _seed_backend(db_conn)
