@@ -308,6 +308,27 @@
       "save": "Save",
       "saved": "Network configuration saved"
     },
+    "logs": {
+      "navLabel": "Logs",
+      "title": "Centralized logs",
+      "intro": "Controls the Loki/Grafana log pipeline: the Logs button in Workspaces, the logs_query MCP tool, and the variables injected into deployed Alloy collectors.",
+      "enabled": "Centralized logs enabled",
+      "enabledHint": "When off, the portal injects no collector, hides the Logs link, and disables the logs_query MCP tool.",
+      "lokiPushUrl": "Loki push URL",
+      "lokiPushUrlHint": "Must be reachable from every host, including remote test servers — an IP/hostname, not a Docker service name. E.g. http://192.168.10.196:3100/loki/api/v1/push.",
+      "lokiQueryUrl": "Loki query URL",
+      "lokiQueryUrlHint": "Used by the logs_query MCP tool, running inside the portal — the internal Docker service name works, e.g. http://loki:3100.",
+      "grafanaUrl": "Grafana URL",
+      "grafanaUrlHint": "Public URL used for the Logs link and Grafana deep-links, e.g. https://log.dev.yoops.org.",
+      "module": "Module label",
+      "moduleHint": "Common 'module' label applied to every collector (default: devpod).",
+      "pushToken": "Push token",
+      "pushTokenKept": "•••••••• (kept unless changed)",
+      "pushTokenHint": "Optional — only if Loki requires auth. Literal value or ${vault://...}/${env://...} reference. Leave empty to keep the current one.",
+      "missingUrls": "Loki push URL and query URL are required to enable centralized logs.",
+      "save": "Save",
+      "saved": "Logs configuration saved"
+    },
     "testHostParams": {
       "btn": "Test host config",
       "title": "Test host configuration",

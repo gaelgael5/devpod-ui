@@ -154,6 +154,73 @@ async def put_admin_oidc(
     }
 
 
+# ─── Configuration de la chaîne de logs centralisés (spec 30 §2) ──────────────
+# enabled/loki_push_url/loki_query_url/grafana_url/module/push_token : le bloc
+# qui pilote à la fois le bouton "Logs" (GET /me/logs-config), la primitive MCP
+# logs_query et les variables injectées aux collecteurs Alloy déployés.
+
+
+class LogsConfigUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    loki_push_url: str = ""
+    loki_query_url: str = ""
+    grafana_url: str = ""
+    module: str = "devpod"
+    push_token: str = ""  # vide = conserve le token existant (littéral ou ${vault://...})
+
+
+def _logs_config_out(cfg: GlobalConfig) -> dict[str, object]:
+    return {
+        "enabled": cfg.logs.enabled,
+        "loki_push_url": cfg.logs.loki_push_url or "",
+        "loki_query_url": cfg.logs.loki_query_url or "",
+        "grafana_url": cfg.logs.grafana_url or "",
+        "module": cfg.logs.module,
+        "has_push_token": bool(cfg.logs.push_token),
+    }
+
+
+@router.get("/logs-config")
+async def get_admin_logs_config(user: UserInfo = Depends(require_admin)) -> dict[str, object]:
+    return _logs_config_out(load_global())
+
+
+@router.put("/logs-config")
+async def put_admin_logs_config(
+    body: LogsConfigUpdateRequest,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    """Active/configure la chaîne de logs. enabled=true exige les deux URLs Loki —
+    sans elles ni les collecteurs (push) ni logs_query (query) n'auraient de cible.
+
+    N'affecte pas le catalogue MCP des backends existants (logs_query n'y apparaît
+    qu'après un redémarrage du portail ou un clic sur "Refresh tools" par backend).
+    """
+    if body.enabled and (not body.loki_push_url.strip() or not body.loki_query_url.strip()):
+        raise HTTPException(
+            status_code=422,
+            detail="loki_push_url et loki_query_url sont requis pour activer les logs",
+        )
+    cfg = load_global()
+    new_token = body.push_token.strip() or cfg.logs.push_token
+    cfg.logs = cfg.logs.model_copy(
+        update={
+            "enabled": body.enabled,
+            "loki_push_url": body.loki_push_url.strip() or None,
+            "loki_query_url": body.loki_query_url.strip() or None,
+            "grafana_url": body.grafana_url.strip() or None,
+            "module": body.module.strip() or "devpod",
+            "push_token": new_token,
+        }
+    )
+    await save_global_db(cfg, conn)
+    _log.info("logs_config_updated", by=user.login, enabled=body.enabled)
+    return _logs_config_out(cfg)
+
+
 # ─── Configuration OIDC de Grafana (SSO Keycloak du login Grafana lui-même) ───
 # Distinct de /oidc (le portail) et de logs.push_token (l'auth des collecteurs
 # Alloy→Loki). Auth/token/userinfo dérivées de auth.oidc.issuer : même realm

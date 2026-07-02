@@ -18,6 +18,7 @@ const AdminProxmox = lazy(() => import('@/features/admin/AdminProxmox'))
 const AdminHypervisorTypes = lazy(() => import('@/features/admin/AdminHypervisorTypes'))
 const AdminOidc = lazy(() => import('@/features/admin/AdminOidc'))
 const AdminNetwork = lazy(() => import('@/features/admin/AdminNetwork'))
+const AdminLogs = lazy(() => import('@/features/admin/AdminLogs'))
 const ProfileList = lazy(() => import('@/features/profiles/ProfileList'))
 const ProfileEditor = lazy(() => import('@/features/profiles/ProfileEditor'))
 const AdminProfileEditor = lazy(() => import('@/features/admin/AdminProfileEditor'))
@@ -146,6 +147,10 @@ export const router = createBrowserRouter([
       {
         path: '/admin/network',
         element: <AdminGuard><Wrap><AdminNetwork /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/logs',
+        element: <AdminGuard><Wrap><AdminLogs /></Wrap></AdminGuard>,
       },
       { path: '/profile', element: <Wrap><ProfilePage /></Wrap> },
       { path: '/compose', element: <Wrap><ComposeGallery /></Wrap> },
