@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { useAdminOidc, useSaveOidc, type OidcConfig } from './useAdminOidc'
+import GrafanaOidcSection from './GrafanaOidcSection'
 
 /** Formulaire — monté avec les valeurs chargées, state initialisé en lazy (pas d'effet). */
 function OidcForm({ initial }: { initial: OidcConfig }) {
@@ -144,6 +145,7 @@ export default function AdminOidc() {
         <>
           <OidcForm initial={data} />
           <KeycloakGuide redirectUri={data.redirect_uri} />
+          <GrafanaOidcSection />
         </>
       )}
     </div>

@@ -48,6 +48,10 @@ global_config = Table(
     Column("logs_grafana_url", Text, nullable=False, server_default=""),
     Column("logs_module", Text, nullable=False, server_default="devpod"),
     Column("logs_push_token", Text, nullable=False, server_default=""),
+    Column(
+        "logs_grafana_oauth_client_id", Text, nullable=False, server_default="agflow-grafana"
+    ),
+    Column("logs_grafana_oauth_client_secret", Text, nullable=False, server_default=""),
     # OidcConfig
     Column("oidc_issuer", Text, nullable=False),
     Column("oidc_client_id", Text, nullable=False),

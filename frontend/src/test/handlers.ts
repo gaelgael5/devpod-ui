@@ -6,6 +6,9 @@ export const handlers = [
   ),
   http.get('/me/workspaces', () => HttpResponse.json([])),
   http.get('/me/git-credentials', () => HttpResponse.json([])),
+  http.post('/me/git-credentials/:name/test', () =>
+    HttpResponse.json({ ok: true, message: '' }),
+  ),
   http.post('/me/workspaces', () => HttpResponse.json({}, { status: 201 })),
   http.delete('/me/workspaces/:name', () => HttpResponse.json({ deleted: 'ok' })),
   http.post('/me/workspaces/:name/up', () =>
@@ -40,6 +43,17 @@ export const handlers = [
   http.get('/admin/hypervisor-types', () => HttpResponse.json([])),
   http.get('/admin/oidc', () =>
     HttpResponse.json({ issuer: '', client_id: '', has_secret: false }),
+  ),
+  http.get('/admin/grafana-oidc', () =>
+    HttpResponse.json({
+      client_id: 'agflow-grafana',
+      has_secret: false,
+      auth_url: null,
+      token_url: null,
+      userinfo_url: null,
+      redirect_uri: null,
+      grafana_url: null,
+    }),
   ),
   http.get('/me/test-hypervisors', () => HttpResponse.json([])),
   http.get('/admin/recipes', () => HttpResponse.json([])),

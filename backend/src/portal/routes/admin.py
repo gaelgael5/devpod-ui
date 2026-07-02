@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
+from ..config.env_file import update_env_file
 from ..config.models import GlobalConfig, HostConfig, Hypervisor, validate_network
 from ..config.store import _data_root, load_global
 from ..db.engine import get_conn
@@ -151,6 +152,93 @@ async def put_admin_oidc(
         "has_secret": bool(new_oidc.client_secret),
         "allow_local_auth": new_oidc.allow_local_auth,
     }
+
+
+# ─── Configuration OIDC de Grafana (SSO Keycloak du login Grafana lui-même) ───
+# Distinct de /oidc (le portail) et de logs.push_token (l'auth des collecteurs
+# Alloy→Loki). Auth/token/userinfo dérivées de auth.oidc.issuer : même realm
+# Keycloak, un seul champ à saisir (le client secret Grafana).
+
+
+def _keycloak_endpoints(issuer: str) -> tuple[str, str, str]:
+    base = issuer.rstrip("/")
+    return (
+        f"{base}/protocol/openid-connect/auth",
+        f"{base}/protocol/openid-connect/token",
+        f"{base}/protocol/openid-connect/userinfo",
+    )
+
+
+class GrafanaOidcUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_id: str = "agflow-grafana"
+    client_secret: str = ""  # vide = conserver le secret existant
+
+
+@router.get("/grafana-oidc")
+async def get_admin_grafana_oidc(user: UserInfo = Depends(require_admin)) -> dict[str, object]:
+    """Config SSO Grafana : URLs Keycloak dérivées, secret jamais ré-exposé."""
+    cfg = load_global()
+    auth_url = token_url = userinfo_url = None
+    if cfg.auth.oidc.issuer:
+        auth_url, token_url, userinfo_url = _keycloak_endpoints(cfg.auth.oidc.issuer)
+    redirect_uri = (
+        f"{cfg.logs.grafana_url.rstrip('/')}/login/generic_oauth"
+        if cfg.logs.grafana_url
+        else None
+    )
+    return {
+        "client_id": cfg.logs.grafana_oauth_client_id,
+        "has_secret": bool(cfg.logs.grafana_oauth_client_secret),
+        "auth_url": auth_url,
+        "token_url": token_url,
+        "userinfo_url": userinfo_url,
+        "redirect_uri": redirect_uri,
+        "grafana_url": cfg.logs.grafana_url,
+    }
+
+
+@router.put("/grafana-oidc")
+async def put_admin_grafana_oidc(
+    body: GrafanaOidcUpdateRequest,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    """Enregistre client_id/secret Grafana ; secret vide = conservé.
+
+    Écrit aussi GF_OAUTH_* dans /data/.env (env_file de Grafana) — un
+    redémarrage du conteneur Grafana reste nécessaire pour que ça s'applique
+    (Grafana ne recharge pas sa config OAuth à chaud).
+    """
+    cfg = load_global()
+    if not cfg.auth.oidc.issuer:
+        raise HTTPException(
+            status_code=422,
+            detail="L'issuer OIDC du portail doit être configuré avant le SSO Grafana",
+        )
+    new_secret = body.client_secret or cfg.logs.grafana_oauth_client_secret
+    cfg.logs = cfg.logs.model_copy(
+        update={
+            "grafana_oauth_client_id": body.client_id,
+            "grafana_oauth_client_secret": new_secret,
+        }
+    )
+    await save_global_db(cfg, conn)
+
+    auth_url, token_url, userinfo_url = _keycloak_endpoints(cfg.auth.oidc.issuer)
+    env_updates = {
+        "GF_OAUTH_CLIENT_ID": body.client_id,
+        "GF_OAUTH_AUTH_URL": auth_url,
+        "GF_OAUTH_TOKEN_URL": token_url,
+        "GF_OAUTH_API_URL": userinfo_url,
+    }
+    if body.client_secret:
+        env_updates["GF_OAUTH_CLIENT_SECRET"] = body.client_secret
+    update_env_file(_data_root() / ".env", env_updates)
+
+    _log.info("grafana_oauth_config_updated", by=user.login, client_id=body.client_id)
+    return {"client_id": body.client_id, "has_secret": bool(new_secret)}
 
 
 # ─── Domaine local (résolution DNS des VM de test DHCP) ──────────────────────

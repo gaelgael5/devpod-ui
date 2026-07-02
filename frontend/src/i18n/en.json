@@ -261,7 +261,33 @@
       },
       "allowLocalAuth": "Allow break-glass local login",
       "allowLocalAuthHint": "When disabled, the LOCAL_USER account (.env) cannot log in even if credentials are set.",
-      "allowLocalAuthDisabledHint": "Configure OIDC first (issuer + client ID) before disabling local login."
+      "allowLocalAuthDisabledHint": "Configure OIDC first (issuer + client ID) before disabling local login.",
+      "grafana": {
+        "title": "Grafana SSO",
+        "intro": "Lets admins/users log into Grafana with their Keycloak account instead of a local password. Uses the same realm as the portal (issuer above).",
+        "clientId": "Client ID",
+        "clientSecret": "Client secret",
+        "secretKept": "(unchanged)",
+        "secretHint": "Leave empty to keep the existing secret.",
+        "save": "Save",
+        "saved": "Grafana SSO configuration saved",
+        "restartNeeded": "Grafana must be restarted for this change to take effect (it does not reload OAuth settings live).",
+        "missingIssuer": "Configure the portal OIDC issuer above first.",
+        "missingGrafanaUrl": "Set the Grafana URL (admin network settings) to get the exact redirect URI.",
+        "endpoints": "Keycloak endpoints (derived from the issuer)",
+        "authUrl": "Authorization URL",
+        "tokenUrl": "Token URL",
+        "userinfoUrl": "Userinfo URL",
+        "guide": {
+          "title": "How to create the Grafana client in Keycloak",
+          "step1": "Clients → Create client → type OpenID Connect, Client ID: the one above.",
+          "step2": "Enable “Client authentication” (confidential client) and keep only “Standard flow”.",
+          "step3": "Set the Valid redirect URI to exactly this value:",
+          "step4": "Set Web origins to:",
+          "step5": "Open the Credentials tab, copy the Client secret, and paste it in the field above.",
+          "copy": "Copy"
+        }
+      }
     },
     "network": {
       "navLabel": "Network",
@@ -535,6 +561,9 @@
     "empty": "No credentials configured.",
     "add": "Add credential",
     "edit": "Edit",
+    "testConnection": "Test connection",
+    "testSuccess": "Connection successful",
+    "testFailure": "Connection failed",
     "editDialogTitle": "Edit credential",
     "name": "Name",
     "namePlaceholder": "my-github-token",

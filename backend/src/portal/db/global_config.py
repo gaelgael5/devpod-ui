@@ -118,6 +118,8 @@ def _build_global_config(
             "grafana_url": row["logs_grafana_url"] or None,
             "module": row["logs_module"],
             "push_token": row["logs_push_token"] or None,
+            "grafana_oauth_client_id": row["logs_grafana_oauth_client_id"],
+            "grafana_oauth_client_secret": row["logs_grafana_oauth_client_secret"] or None,
         },
         "auth": {
             "oidc": {
@@ -260,6 +262,8 @@ def _cfg_to_scalars(cfg: GlobalConfig) -> dict[str, Any]:
         "logs_grafana_url": cfg.logs.grafana_url or "",
         "logs_module": cfg.logs.module,
         "logs_push_token": cfg.logs.push_token or "",
+        "logs_grafana_oauth_client_id": cfg.logs.grafana_oauth_client_id,
+        "logs_grafana_oauth_client_secret": cfg.logs.grafana_oauth_client_secret or "",
         "oidc_issuer": cfg.auth.oidc.issuer,
         "oidc_client_id": cfg.auth.oidc.client_id,
         "oidc_client_secret": cfg.auth.oidc.client_secret,

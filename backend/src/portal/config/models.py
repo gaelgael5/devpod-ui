@@ -228,6 +228,11 @@ class LogsConfig(BaseModel):
     grafana_url: str | None = None
     module: str = "devpod"
     push_token: str | None = None  # littéral ou ${vault://...}/${env://...}
+    # Client OAuth Keycloak du login SSO de Grafana lui-même — distinct de
+    # push_token qui authentifie les collecteurs Alloy vers Loki. Auth/token/
+    # userinfo URL dérivées de auth.oidc.issuer (même realm Keycloak).
+    grafana_oauth_client_id: str = "agflow-grafana"
+    grafana_oauth_client_secret: str | None = None
 
 
 class GlobalConfig(BaseModel):

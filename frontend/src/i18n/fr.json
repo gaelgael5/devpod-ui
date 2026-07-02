@@ -261,7 +261,33 @@
       },
       "allowLocalAuth": "Autoriser le compte local break-glass",
       "allowLocalAuthHint": "Quand désactivé, le compte LOCAL_USER (.env) ne peut pas se connecter, même si les identifiants sont configurés.",
-      "allowLocalAuthDisabledHint": "Configurez d'abord OIDC (issuer + client ID) avant de désactiver le login local."
+      "allowLocalAuthDisabledHint": "Configurez d'abord OIDC (issuer + client ID) avant de désactiver le login local.",
+      "grafana": {
+        "title": "SSO Grafana",
+        "intro": "Permet de se connecter à Grafana avec le compte Keycloak au lieu d'un mot de passe local. Utilise le même realm que le portail (issuer ci-dessus).",
+        "clientId": "Client ID",
+        "clientSecret": "Secret client",
+        "secretKept": "(inchangé)",
+        "secretHint": "Laisser vide pour conserver le secret existant.",
+        "save": "Enregistrer",
+        "saved": "Configuration SSO Grafana enregistrée",
+        "restartNeeded": "Un redémarrage de Grafana est nécessaire pour appliquer ce changement (il ne recharge pas sa config OAuth à chaud).",
+        "missingIssuer": "Configurez d'abord l'issuer OIDC du portail ci-dessus.",
+        "missingGrafanaUrl": "Renseignez l'URL de Grafana (config réseau admin) pour obtenir l'URI de redirection exacte.",
+        "endpoints": "Endpoints Keycloak (dérivés de l'issuer)",
+        "authUrl": "URL d'autorisation",
+        "tokenUrl": "URL du token",
+        "userinfoUrl": "URL userinfo",
+        "guide": {
+          "title": "Créer le client Grafana dans Keycloak",
+          "step1": "Clients → Create client → type OpenID Connect, Client ID : celui ci-dessus.",
+          "step2": "Activer « Client authentication » (client confidentiel) et ne garder que « Standard flow ».",
+          "step3": "Renseigner le Valid redirect URI avec exactement cette valeur :",
+          "step4": "Renseigner Web origins avec :",
+          "step5": "Ouvrir l'onglet Credentials, copier le Client secret, et le coller dans le champ ci-dessus.",
+          "copy": "Copier"
+        }
+      }
     },
     "network": {
       "navLabel": "Réseau",
@@ -535,6 +561,9 @@
     "empty": "Aucun credential configuré.",
     "add": "Ajouter un credential",
     "edit": "Modifier",
+    "testConnection": "Tester la connexion",
+    "testSuccess": "Connexion réussie",
+    "testFailure": "Échec de la connexion",
     "editDialogTitle": "Modifier le credential",
     "name": "Nom",
     "namePlaceholder": "mon-token-github",

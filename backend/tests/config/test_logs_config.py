@@ -16,6 +16,7 @@ def test_defaults_disabled() -> None:
     assert cfg.grafana_url is None
     assert cfg.module == "devpod"
     assert cfg.push_token is None
+    assert cfg.grafana_oauth_client_secret is None
 
 
 def test_full_config() -> None:
@@ -26,9 +27,11 @@ def test_full_config() -> None:
         grafana_url="https://log.dev.yoops.org",
         module="devpod",
         push_token="${vault://logs/loki_push_token}",
+        grafana_oauth_client_secret="gf-secret",
     )
     assert cfg.enabled is True
     assert cfg.push_token == "${vault://logs/loki_push_token}"
+    assert cfg.grafana_oauth_client_secret == "gf-secret"
 
 
 def test_extra_field_forbidden() -> None:

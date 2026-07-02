@@ -86,6 +86,7 @@ def full_cfg() -> GlobalConfig:
                 "grafana_url": "http://192.168.10.196:3001",
                 "module": "devpod-test",
                 "push_token": "${vault://bloc/loki-token}",
+                "grafana_oauth_client_secret": "gf-secret-xyz",
             },
             "hypervisor_types": [
                 {
@@ -161,6 +162,7 @@ async def test_save_and_load_full(db_conn, full_cfg):
     assert result.logs.grafana_url == "http://192.168.10.196:3001"
     assert result.logs.module == "devpod-test"
     assert result.logs.push_token == "${vault://bloc/loki-token}"
+    assert result.logs.grafana_oauth_client_secret == "gf-secret-xyz"
 
 
 @pytest.mark.asyncio
@@ -176,6 +178,7 @@ async def test_logs_config_defaults_when_unset(db_conn, minimal_cfg):
     assert result.logs.grafana_url is None
     assert result.logs.module == "devpod"
     assert result.logs.push_token is None
+    assert result.logs.grafana_oauth_client_secret is None
 
 
 @pytest.mark.asyncio
