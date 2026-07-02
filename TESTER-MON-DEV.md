@@ -2,7 +2,10 @@
 
 ## Environnement de test disponible
 
-### Machine test1 (`192.168.10.173`)
+### Machine test1 (`192.168.10.196`)
+
+> ⚠️ Les VMs de test sont éphémères : l'IP peut changer d'une session à l'autre.
+> L'alias SSH `test1` (~/.ssh/config) est la source de vérité — l'utiliser partout.
 
 Alias SSH `test1` (défini dans `~/.ssh/config`). VM dédiée aux tests du portail, accessible en SSH depuis le devpod.
 
@@ -12,10 +15,10 @@ Répertoire du projet : `/opt/workspace-portal-dev` (branche `dev`, clonée manu
 
 | Service | Accès | Rôle |
 |---------|-------|------|
-| Portal  | `http://192.168.10.173:8080` | Portail complet (bypass Caddy) |
-| Caddy   | `http://192.168.10.173:8090` | Reverse proxy dev |
-| PostgreSQL | `192.168.10.173:5432` | Base de données |
-| Browserless | `http://192.168.10.173:3000` | Chromium headless — tests UI autonomes |
+| Portal  | `http://192.168.10.196:8080` | Portail complet (bypass Caddy) |
+| Caddy   | `http://192.168.10.196:8090` | Reverse proxy dev |
+| PostgreSQL | `192.168.10.196:5432` | Base de données |
+| Browserless | `http://192.168.10.196:3000` | Chromium headless — tests UI autonomes |
 
 ### Browserless v2 (`ghcr.io/browserless/chromium`)
 
@@ -25,13 +28,13 @@ Permet de tester l'UI de façon autonome sans intervention humaine : naviguer, r
 
 ```bash
 # Screenshot d'une page
-curl -s -X POST http://192.168.10.173:3000/screenshot \
+curl -s -X POST http://192.168.10.196:3000/screenshot \
   -H "Content-Type: application/json" \
-  -d '{"url": "http://192.168.10.173:8080/health"}' \
+  -d '{"url": "http://192.168.10.196:8080/health"}' \
   -o /tmp/screen.png
 
 # Vérifier que Browserless répond
-curl -s http://192.168.10.173:3000/config | head -5
+curl -s http://192.168.10.196:3000/config | head -5
 ```
 
 L'image Browserless peut aussi exécuter du JavaScript arbitraire via `POST /function` — utile pour simuler des clics, remplir des formulaires, attendre des éléments.
@@ -68,7 +71,7 @@ ssh test1 "APP_DIR=/opt/workspace-portal-dev bash /opt/workspace-portal-dev/scri
 ssh test1 "docker compose -f /opt/workspace-portal-dev/deploy/docker-compose.dev.yml logs portal --tail=100"
 
 # 5. Tester via Browserless ou curl
-curl -s http://192.168.10.173:8080/health
+curl -s http://192.168.10.196:8080/health
 ```
 
 `dev-deploy.sh` est **idempotent** et **auto-mise à jour** (il se ré-exécute lui-même si le script a changé dans le pull). Ne jamais faire `git pull` manuellement sur test1 — le script le fait.
@@ -133,11 +136,11 @@ ssh test1 "docker compose -f /opt/workspace-portal-dev/deploy/docker-compose.dev
 Browserless permet de tester l'interface sans intervention humaine. Utiliser `POST /function` pour exécuter du JavaScript dans Chromium :
 
 ```bash
-curl -s -X POST http://192.168.10.173:3000/function \
+curl -s -X POST http://192.168.10.196:3000/function \
   -H "Content-Type: application/json" \
   -d '{
     "code": "async ({ page }) => {
-      await page.goto(\"http://192.168.10.173:8080\");
+      await page.goto(\"http://192.168.10.196:8080\");
       await page.waitForSelector(\"#app\", { timeout: 5000 });
       return { title: await page.title(), url: page.url() };
     }"
@@ -147,10 +150,10 @@ curl -s -X POST http://192.168.10.173:3000/function \
 Pour un screenshot après interaction :
 
 ```bash
-curl -s -X POST http://192.168.10.173:3000/screenshot \
+curl -s -X POST http://192.168.10.196:3000/screenshot \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "http://192.168.10.173:8080",
+    "url": "http://192.168.10.196:8080",
     "options": { "fullPage": true }
   }' -o /tmp/screen.png
 ```

@@ -6,8 +6,8 @@ from contextlib import asynccontextmanager
 import httpx
 import structlog
 from mcp import ClientSession
-from mcp.client.sse import sse_client  # type: ignore[import-not-found]
-from mcp.client.streamable_http import (  # type: ignore[import-not-found]
+from mcp.client.sse import sse_client
+from mcp.client.streamable_http import (  # type: ignore[attr-defined]
     create_mcp_http_client,
     streamable_http_client,
 )

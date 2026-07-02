@@ -71,7 +71,7 @@ class _PortalSessionMiddleware(SessionMiddleware):
     figé à l'init — permet de changer cookie_domain via /admin/network sans redémarrage.
     """
 
-    @property  # type: ignore[override]
+    @property
     def domain(self) -> str | None:
         return get_effective_cookie_domain()
 
@@ -237,7 +237,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="workspace-portal", version="0.1.0", lifespan=_lifespan)
 
-    @app.exception_handler(Exception)  # type: ignore[misc]
+    @app.exception_handler(Exception)
     async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         _log.exception(
             "unhandled_exception",

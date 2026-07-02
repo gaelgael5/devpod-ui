@@ -184,7 +184,7 @@ async def workspace_ssh_terminal(
     # PTY local : SSH reçoit un vrai terminal → SIGWINCH propagé correctement.
     # Avec stdin=PIPE, SSH ne peut pas détecter les changements de taille et
     # tmux reste à 80 colonnes même si la fenêtre du navigateur est plus large.
-    master_fd, slave_fd = pty.openpty()  # type: ignore[attr-defined]
+    master_fd, slave_fd = pty.openpty()
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -198,9 +198,9 @@ async def workspace_ssh_terminal(
 
     def _pty_resize(cols: int, rows: int) -> None:
         with contextlib.suppress(OSError):
-            fcntl.ioctl(  # type: ignore[attr-defined]
+            fcntl.ioctl(
                 master_fd,
-                termios.TIOCSWINSZ,  # type: ignore[attr-defined]
+                termios.TIOCSWINSZ,
                 struct.pack("HHHH", rows, cols, 0, 0),
             )
 

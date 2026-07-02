@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from portal.vault import session as vault_session
 from portal.vault.pin import (
-    PinLockedError,
-    PinNotSetupError,
     PinSetupResult,
     PinWrongError,
     get_vault_status,
-    recover_pin,
     setup_pin,
     unlock_pin,
 )
@@ -54,9 +52,11 @@ async def test_setup_returns_recovery_code(conn):
 
 
 async def test_setup_already_exists_raises(conn):
-    with patch("portal.vault.pin.has_pin_config", new=AsyncMock(return_value=True)):
-        with pytest.raises(ValueError, match="already"):
-            await setup_pin("alice", _PIN, _SID, conn)
+    with (
+        patch("portal.vault.pin.has_pin_config", new=AsyncMock(return_value=True)),
+        pytest.raises(ValueError, match="already"),
+    ):
+        await setup_pin("alice", _PIN, _SID, conn)
 
 
 async def test_unlock_success(conn):
@@ -108,9 +108,9 @@ async def test_unlock_wrong_pin_raises(conn):
     with (
         patch("portal.vault.pin.get_pin_config", new=AsyncMock(return_value=config)),
         patch("portal.vault.pin.increment_pin_attempts", new=AsyncMock(return_value=1)),
+        pytest.raises(PinWrongError),
     ):
-        with pytest.raises(PinWrongError):
-            await unlock_pin("alice", "000000", _SID, conn)
+        await unlock_pin("alice", "000000", _SID, conn)
     assert not vault_session.is_unlocked(_SID)
 
 

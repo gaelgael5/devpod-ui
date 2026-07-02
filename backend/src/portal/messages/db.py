@@ -81,7 +81,7 @@ async def create_message(
         )
         .returning(_wm.c.id)
     )
-    return result.scalar_one()
+    return int(result.scalar_one())
 
 
 async def get_message_by_id(

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from portal.vault import session as vault_session
 from portal.vault.keys import (
@@ -48,9 +49,11 @@ async def test_add_key_success(conn):
 
 
 async def test_add_key_exists_raises(conn):
-    with patch("portal.vault.keys.vault_key_exists", new=AsyncMock(return_value=True)):
-        with pytest.raises(KeyAlreadyExists):
-            await add_key("alice", _SID, "api1", _TOKEN, _URL, "", conn)
+    with (
+        patch("portal.vault.keys.vault_key_exists", new=AsyncMock(return_value=True)),
+        pytest.raises(KeyAlreadyExists),
+    ):
+        await add_key("alice", _SID, "api1", _TOKEN, _URL, "", conn)
 
 
 async def test_list_keys(conn):
@@ -65,9 +68,11 @@ async def test_list_keys(conn):
 
 
 async def test_delete_not_found_raises(conn):
-    with patch("portal.vault.keys.delete_vault_key", new=AsyncMock(return_value=False)):
-        with pytest.raises(KeyNotFound):
-            await delete_key("alice", _SID, "ghost", conn)
+    with (
+        patch("portal.vault.keys.delete_vault_key", new=AsyncMock(return_value=False)),
+        pytest.raises(KeyNotFound),
+    ):
+        await delete_key("alice", _SID, "ghost", conn)
 
 
 async def test_delete_success(conn):

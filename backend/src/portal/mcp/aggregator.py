@@ -81,9 +81,9 @@ async def _resolve_backend_key_id(
 ) -> str | None:
     """Clé sortante : explicite dans l'entry, sinon première clé enabled du backend."""
     if entry["backend_key_id"] is not None:
-        return entry["backend_key_id"]
+        return str(entry["backend_key_id"])
     row = await find_first_backend_key(conn, entry["backend_id"])
-    return row["id"] if row else None
+    return str(row["id"]) if row else None
 
 
 async def aggregate_primitives(

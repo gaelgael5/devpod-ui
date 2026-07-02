@@ -106,3 +106,15 @@ Au premier démarrage (DB vide), `warm_global_cache()` set `_cache = None`. L'ap
 
 ## [mcp/runtime] FastMCP annonce TOUJOURS les 3 capabilities
 Un `FastMCP` avec seulement des `@srv.tool()` annonce quand même `tools` ET `resources` ET `prompts` dans ses capabilities. Donc `get_server_capabilities()` via un serveur FastMCP ne sert PAS à tester une logique capability-aware (ex. `advertised_kinds`, prune par kind). Construire `ServerCapabilities(tools={})` à la main, ou une session stub (`get_server_capabilities` + `list_tools`), pour représenter un backend tools-only réel.
+
+## [devpod] TOUT appel `devpod ssh --stdio` exige DEVPOD_HOME + DOCKER_* (docker-tls)
+Sans DEVPOD_HOME → « workspace doesn't exist » ; sans DOCKER_HOST/TLS → devpod cherche /var/run/docker.sock. Utiliser `workspace_env(login, ws_id)` (ssh_exec.py), jamais un env minimal. Le tunnel openvscode est bindé dans le conteneur portail pour TOUS les types de host — le port n'est jamais publié sur le nœud (pare-feu = 2376 seulement).
+
+## [devcontainer] Le champ spec est `appPort`, pas `appPorts`
+Un champ inconnu dans devcontainer.json est ignoré en silence par DevPod. Vérifier chaque clé contre la spec/le source DevPod avant usage.
+
+## [compose/env] Tout `$` écrit dans /data/.env doit être doublé (`$$`)
+docker compose interpole les env_file : un hash bcrypt non échappé est tronqué (`Invalid salt`). Convention appliquée par install.sh ET dev-deploy.sh.
+
+## [api] Update partiel : ne JAMAIS écraser un spec stocké avec les défauts du DTO
+POST /up écrasait source/host avec "" (perte de données). Fusionner via `req.model_fields_set` : seuls les champs explicitement envoyés priment.

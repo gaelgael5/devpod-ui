@@ -3,8 +3,11 @@ from __future__ import annotations
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from cryptography.hazmat.primitives.serialization import (
-    Encoding, NoEncryption, PrivateFormat, PublicFormat, load_pem_private_key,
-    load_ssh_private_key, load_ssh_public_key,
+    Encoding,
+    PublicFormat,
+    load_pem_private_key,
+    load_ssh_private_key,
+    load_ssh_public_key,
 )
 
 from portal.certificates.keygen import CertType, generate_keypair

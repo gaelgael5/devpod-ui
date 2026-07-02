@@ -80,9 +80,13 @@ def rewrite_compose_ports(compose_content: str, port_map: dict[str, int]) -> str
     """
     result = compose_content
     for alias, host_port in port_map.items():
+
+        def _replace(m: re.Match[str], p: int = host_port) -> str:
+            return f"{p}:{m.group(2)}"
+
         result = re.sub(
             rf"{re.escape(alias)}>(\d{{1,5}}):(\d{{1,5}})",
-            lambda m, p=host_port: f"{p}:{m.group(2)}",
+            _replace,
             result,
         )
     return result

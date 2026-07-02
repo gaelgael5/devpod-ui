@@ -39,7 +39,9 @@ def _mocks(grant_enabled: bool):
 async def test_aggregate_skips_disabled_grant() -> None:
     g, b, p = _mocks(False)
     with g, b, p:
-        out = await aggregator.aggregate_primitives(None, apikey_id="ak", owner_login="u", kind="tool")
+        out = await aggregator.aggregate_primitives(
+            None, apikey_id="ak", owner_login="u", kind="tool"
+        )
     assert out == []
 
 
@@ -47,7 +49,9 @@ async def test_aggregate_skips_disabled_grant() -> None:
 async def test_aggregate_includes_enabled_grant() -> None:
     g, b, p = _mocks(True)
     with g, b, p:
-        out = await aggregator.aggregate_primitives(None, apikey_id="ak", owner_login="u", kind="tool")
+        out = await aggregator.aggregate_primitives(
+            None, apikey_id="ak", owner_login="u", kind="tool"
+        )
     assert [o.original_name for o in out] == ["tool"]
 
 
