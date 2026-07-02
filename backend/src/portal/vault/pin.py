@@ -156,11 +156,47 @@ async def reset_vault(login: str, session_id: str, conn: AsyncConnection) -> Non
     _log.info("vault_reset", login=login)
 
 
+async def _dev_auto_unlock(login: str, session_id: str, conn: AsyncConnection) -> bool:
+    """Mode dev (VAULT_DEV_PIN + dev_mode) : initialise/déverrouille sans friction.
+
+    - Aucun PIN configuré → en crée un avec VAULT_DEV_PIN (comme un premier setup).
+    - PIN configuré et VAULT_DEV_PIN le déverrouille → déverrouillé.
+    - PIN configuré mais différent (l'utilisateur a choisi le sien) → False,
+      SANS consommer de tentative ni risquer un lockout : retombe sur le flux
+      normal, l'utilisateur saisit son vrai PIN à la main.
+    """
+    settings = get_settings()
+    if not settings.dev_mode or not settings.vault_dev_pin:
+        return False
+    dev_pin = settings.vault_dev_pin
+
+    if vault_session.is_unlocked(session_id):
+        return True
+
+    if not await has_pin_config(login, conn):
+        await setup_pin(login, dev_pin, session_id, conn)
+        return True
+
+    config = await get_pin_config(login, conn)
+    if config is None:
+        return False
+    try:
+        wrap_key = derive_wrap_key(dev_pin, bytes(config["pin_salt"]), _kek())
+        master_key = decrypt_master_key(bytes(config["encrypted_master_key"]), wrap_key)
+    except InvalidKey:
+        return False
+    vault_session.set_master_key(session_id, master_key)
+    _log.info("vault_dev_pin_auto_unlocked", login=login)
+    return True
+
+
 async def get_vault_status(
     login: str, session_id: str, conn: AsyncConnection
 ) -> Literal["disabled", "setup_required", "locked", "unlocked"]:
     if not vault_enabled():
         return "disabled"
+    if await _dev_auto_unlock(login, session_id, conn):
+        return "unlocked"
     if not await has_pin_config(login, conn):
         return "setup_required"
     if vault_session.is_unlocked(session_id):

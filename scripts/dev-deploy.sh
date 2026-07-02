@@ -146,6 +146,15 @@ if [[ -z "$(_get_env PORTAL_VAULT_KEK)" ]]; then
     echo "    PORTAL_VAULT_KEK généré"
 fi
 
+# Générer VAULT_DEV_PIN si vide : VM de test éphémère → le vault de chaque
+# utilisateur s'initialise/déverrouille automatiquement avec ce PIN (dev_mode
+# uniquement, cf. portal.vault.pin._dev_auto_unlock). Évite de ressaisir un
+# PIN à chaque redéploiement. Jamais généré par install.sh (instances réelles).
+if [[ -z "$(_get_env VAULT_DEV_PIN)" ]]; then
+    _set_env VAULT_DEV_PIN "$(printf '%06d' "$((RANDOM % 1000000))")"
+    echo "    VAULT_DEV_PIN généré"
+fi
+
 # Générer LOCAL_PASSWORD + LOCAL_PASSWORD_HASH si vides
 if [[ -z "$(_get_env LOCAL_PASSWORD)" ]]; then
     command -v python3 &>/dev/null || apt-get install -y --no-install-recommends python3 >/dev/null 2>&1

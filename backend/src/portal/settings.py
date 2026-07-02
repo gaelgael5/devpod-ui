@@ -51,6 +51,12 @@ class AppSettings(BaseSettings):
     # Vault : KEK 32 bytes hex (64 chars). Obligatoire en production.
     portal_vault_kek: str = ""
 
+    # Dev only (nécessite dev_mode=true) : PIN utilisé pour initialiser/déverrouiller
+    # automatiquement le vault de chaque utilisateur — évite de ressaisir un PIN à
+    # chaque redémarrage sur une VM de test éphémère. Vide = comportement normal
+    # (l'utilisateur choisit son propre PIN). Ignoré si dev_mode=false.
+    vault_dev_pin: str = ""
+
     # MCP : intervalle de la boucle de monitoring des backends (secondes).
     mcp_monitor_interval_s: float = 300.0
 
