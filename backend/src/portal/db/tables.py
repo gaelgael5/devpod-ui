@@ -667,6 +667,22 @@ compose_deployment_log = Table(
     Column("finished_at", DateTime(timezone=True), nullable=True),
 )
 
+# Préférence utilisateur : déployer automatiquement ce template sur chaque
+# nouvelle machine de test qu'il crée (lié à user + template, pas au host —
+# voir cadrage utilisateur : la vignette est globale, le choix est personnel).
+compose_auto_start = Table(
+    "compose_auto_start",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column(
+        "template_id", Text, ForeignKey("compose_template.id", ondelete="CASCADE"), nullable=False
+    ),
+    Column("env_values", JSONB, nullable=False, server_default="{}"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("owner_login", "template_id", name="uq_compose_auto_start_login_tpl"),
+)
+
 # ─── Système de messages contextuels pour agents ──────────────────────────────
 
 jinja2_template = Table(

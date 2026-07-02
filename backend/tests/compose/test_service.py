@@ -5,7 +5,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from portal.compose import service
-from portal.compose.models import ComposeParam, ComposeTemplate
+from portal.compose.models import ComposeAutoStart, ComposeParam, ComposeTemplate
+from portal.compose.ports import PortConflict
+from portal.compose.service import ComposeServiceError
 
 
 def test_parse_ps_status_running() -> None:
@@ -242,3 +244,132 @@ async def test_deploy_classic_mode_writes_override(monkeypatch) -> None:
     override = written_files["devpod-compose/dep4/docker-compose.override.yml"]
     assert "io.yoops.portal.owner" in override
     assert "alice" in override
+
+
+# ---------------------------------------------------------------------------
+# deploy_auto_start_templates
+# ---------------------------------------------------------------------------
+
+
+def _auto_entry(template_id: str, env_values: dict[str, str] | None = None) -> ComposeAutoStart:
+    return ComposeAutoStart(
+        id=1, owner_login="alice", template_id=template_id, env_values=env_values or {}
+    )
+
+
+@pytest.mark.asyncio
+async def test_deploy_auto_start_skips_when_no_entries(monkeypatch) -> None:
+    monkeypatch.setattr(service, "list_auto_start_for_user", AsyncMock(return_value=[]))
+    monkeypatch.setattr(service, "deploy", AsyncMock())
+
+    lines = [
+        line
+        async for line in service.deploy_auto_start_templates(
+            None, owner_login="alice", secret_ns="ns", node_id="n1"
+        )
+    ]
+    assert lines == []
+    service.deploy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_deploy_auto_start_skips_existing_deployment(monkeypatch) -> None:
+    """Idempotence : ne rien faire si un déploiement existe déjà sur ce nœud."""
+    monkeypatch.setattr(
+        service,
+        "list_auto_start_for_user",
+        AsyncMock(return_value=[_auto_entry("alloy-collector")]),
+    )
+    monkeypatch.setattr(
+        service, "get_deployment_by_name_node", AsyncMock(return_value=SimpleNamespace(uid="x"))
+    )
+    monkeypatch.setattr(service, "deploy", AsyncMock())
+
+    lines = [
+        line
+        async for line in service.deploy_auto_start_templates(
+            None, owner_login="alice", secret_ns="ns", node_id="n1"
+        )
+    ]
+    assert lines == []
+    service.deploy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_deploy_auto_start_deploys_missing_template(monkeypatch) -> None:
+    tpl = _tpl()
+    monkeypatch.setattr(
+        service, "list_auto_start_for_user",
+        AsyncMock(return_value=[_auto_entry(tpl.id, {"PORT": "3000"})]),
+    )
+    monkeypatch.setattr(service, "get_deployment_by_name_node", AsyncMock(return_value=None))
+    monkeypatch.setattr(service, "get_template", AsyncMock(return_value=tpl))
+    monkeypatch.setattr(service, "deploy", AsyncMock())
+
+    lines = [
+        line
+        async for line in service.deploy_auto_start_templates(
+            None, owner_login="alice", secret_ns="ns", node_id="n1"
+        )
+    ]
+    assert any("démarré" in line for line in lines)
+    service.deploy.assert_awaited_once_with(
+        None,
+        name=tpl.id,
+        template=tpl,
+        node_id="n1",
+        owner_login="alice",
+        secret_ns="ns",
+        env_values={"PORT": "3000"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_deploy_auto_start_one_failure_does_not_block_others(monkeypatch) -> None:
+    """Best-effort : une entrée en échec n'empêche pas les suivantes."""
+    tpl_a = ComposeTemplate(id="a", name="A", version="1", compose_content="services: {}")
+    tpl_b = ComposeTemplate(id="b", name="B", version="1", compose_content="services: {}")
+    monkeypatch.setattr(
+        service, "list_auto_start_for_user",
+        AsyncMock(return_value=[_auto_entry("a"), _auto_entry("b")]),
+    )
+    monkeypatch.setattr(service, "get_deployment_by_name_node", AsyncMock(return_value=None))
+
+    async def fake_get_template(conn, template_id):
+        return tpl_a if template_id == "a" else tpl_b
+
+    monkeypatch.setattr(service, "get_template", fake_get_template)
+
+    deploy_mock = AsyncMock(side_effect=[ComposeServiceError("boom"), None])
+    monkeypatch.setattr(service, "deploy", deploy_mock)
+
+    lines = [
+        line
+        async for line in service.deploy_auto_start_templates(
+            None, owner_login="alice", secret_ns="ns", node_id="n1"
+        )
+    ]
+    assert deploy_mock.await_count == 2
+    assert any("AVERTISSEMENT" in line for line in lines)
+    assert any("démarré" in line for line in lines)
+
+
+@pytest.mark.asyncio
+async def test_deploy_auto_start_survives_port_conflict(monkeypatch) -> None:
+    tpl = _tpl()
+    monkeypatch.setattr(
+        service, "list_auto_start_for_user", AsyncMock(return_value=[_auto_entry(tpl.id)])
+    )
+    monkeypatch.setattr(service, "get_deployment_by_name_node", AsyncMock(return_value=None))
+    monkeypatch.setattr(service, "get_template", AsyncMock(return_value=tpl))
+    monkeypatch.setattr(
+        service, "deploy", AsyncMock(side_effect=PortConflict({3000}, 3001))
+    )
+
+    lines = [
+        line
+        async for line in service.deploy_auto_start_templates(
+            None, owner_login="alice", secret_ns="ns", node_id="n1"
+        )
+    ]
+    assert any("AVERTISSEMENT" in line for line in lines)

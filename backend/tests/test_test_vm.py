@@ -7,6 +7,7 @@ from portal.devpod.test_vm import (
     build_test_host_views,
     build_test_vm_args,
     build_testhost_ssh_command,
+    host_cert_ready,
     map_result_to_host,
     replace_host_ip,
     substitute_param_vars,
@@ -150,3 +151,17 @@ def test_build_test_host_views_preserves_order() -> None:
     views = build_test_host_views([("b", "test1"), ("a", "test2")], hosts)
     assert [v["alias"] for v in views] == ["test1", "test2"]
     assert [v["name"] for v in views] == ["b", "a"]
+
+
+def test_host_cert_ready_true_when_slug_set() -> None:
+    hosts = [_ssh_host("h1")]
+    hosts[0].host_cert_slug = "compose.h1"
+    assert host_cert_ready(hosts, "h1") is True
+
+
+def test_host_cert_ready_false_when_slug_missing() -> None:
+    assert host_cert_ready([_ssh_host("h1")], "h1") is False
+
+
+def test_host_cert_ready_false_when_host_unknown() -> None:
+    assert host_cert_ready([_ssh_host("h1")], "unknown") is False

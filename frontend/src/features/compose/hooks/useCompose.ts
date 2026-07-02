@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import * as api from '../api/compose'
-import type { DeploymentCreateBody, TemplateBody } from '../api/types'
+import type { AutoStartUpdateBody, DeploymentCreateBody, TemplateBody } from '../api/types'
 
 const QK = {
   templates: (tag?: string) => ['compose', 'templates', tag ?? null] as const,
@@ -40,6 +40,15 @@ export function useSaveTemplate() {
     mutationFn: ({ id, body, create }: { id: string; body: TemplateBody; create: boolean }) =>
       create ? api.createTemplate({ ...body, id }) : api.updateTemplate(id, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['compose', 'templates'] }),
+  })
+}
+export function useSetAutoStart() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: AutoStartUpdateBody }) =>
+      api.setAutoStart(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compose', 'templates'] }),
+    onError: (e: Error) => toast.error(e.message),
   })
 }
 export function useDeleteTemplate() {

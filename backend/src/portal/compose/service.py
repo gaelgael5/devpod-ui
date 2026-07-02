@@ -24,6 +24,9 @@ from .db import (
     create_deployment,
     delete_deployment,
     get_deployment,
+    get_deployment_by_name_node,
+    get_template,
+    list_auto_start_for_user,
     persist_op_log,
     update_deployment_message_id,
     update_deployment_status,
@@ -32,7 +35,7 @@ from .env_builder import render_env_file, resolve_env_values
 from .models import ComposeDeployment, ComposeTemplate, DeploymentStatus
 from .override_builder import build_override
 from .port_aliases import parse_port_aliases, rewrite_compose_ports
-from .ports import allocate_ports, check_ports
+from .ports import PortConflict, allocate_ports, check_ports
 
 _log = structlog.get_logger(__name__)
 
@@ -476,3 +479,45 @@ async def refresh_status(conn: AsyncConnection, uid: str) -> str:
     status = _parse_ps_status(out) if rc == 0 else "error"
     await update_deployment_status(conn, uid, status)
     return status
+
+
+async def deploy_auto_start_templates(
+    conn: AsyncConnection, *, owner_login: str, secret_ns: str, node_id: str
+) -> AsyncIterator[str]:
+    """Déploie sur `node_id` les templates cochés auto-start par `owner_login`.
+
+    Best-effort : une entrée en échec (port, validation, exécution SSH) est journalisée
+    et n'empêche pas les suivantes. Ne redéploie jamais un template déjà présent sur ce
+    nœud (cadrage utilisateur : idempotence = ne rien faire si ça existe déjà).
+    """
+    entries = await list_auto_start_for_user(conn, owner_login)
+    if not entries:
+        return
+    for entry in entries:
+        if await get_deployment_by_name_node(conn, entry.template_id, node_id) is not None:
+            continue
+        tpl = await get_template(conn, entry.template_id)
+        if tpl is None:
+            _log.warning("auto_start_template_missing", template_id=entry.template_id)
+            continue
+        yield f"==> Auto-start : déploiement de {tpl.name}...\n"
+        try:
+            await deploy(
+                conn,
+                name=entry.template_id,
+                template=tpl,
+                node_id=node_id,
+                owner_login=owner_login,
+                secret_ns=secret_ns,
+                env_values=entry.env_values,
+            )
+        except (ComposeServiceError, PortConflict) as exc:
+            _log.warning(
+                "auto_start_deploy_failed",
+                template_id=entry.template_id,
+                node_id=node_id,
+                exc=repr(exc),
+            )
+            yield f"==> AVERTISSEMENT : auto-start {tpl.name} échoué ({exc})\n"
+            continue
+        yield f"==> {tpl.name} démarré (auto-start)\n"

@@ -15,3 +15,6 @@ def test_compose_tables_declared() -> None:
     assert expected_dcols <= dcols
     lcols = set(tables.compose_deployment_log.c.keys())
     assert {"id", "deployment_id", "operation", "content", "started_at", "finished_at"} <= lcols
+    assert tables.compose_auto_start.name == "compose_auto_start"
+    acols = set(tables.compose_auto_start.c.keys())
+    assert {"id", "owner_login", "template_id", "env_values", "created_at"} <= acols

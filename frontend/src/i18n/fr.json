@@ -970,6 +970,12 @@
       "portConflict": "Port {{ports}} déjà utilisé ; suggéré : {{suggestion}}",
       "deployFailed": "Déploiement échoué"
     },
+    "autoStart": {
+      "label": "Démarrage auto sur mes machines de test",
+      "dialogTitle": "Démarrage auto — {{name}}",
+      "dialogHint": "Ce template a besoin de valeurs avant de pouvoir être déployé automatiquement sur chaque nouvelle machine de test que vous créez.",
+      "enable": "Activer"
+    },
     "status": {
       "running": "en cours",
       "partial": "partiel",

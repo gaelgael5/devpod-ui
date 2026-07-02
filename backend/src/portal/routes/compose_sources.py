@@ -5,6 +5,7 @@ import asyncio
 import ipaddress
 import re
 import socket as _socket
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..auth.rbac import UserInfo, require_admin
 from ..compose import db as cdb
 from ..compose.models import ComposeParam, ComposeTemplate, validate_slug
+from ..compose.validation import TemplateValidationError, validate_template
 from ..db.engine import get_conn
 from ..db.sources import load_compose_sources, save_compose_sources
 
@@ -72,6 +74,15 @@ async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
     resp = await client.get(url, timeout=5.0, follow_redirects=False)
     resp.raise_for_status()
     return resp.text
+
+
+def _validate_extra_file_name(name: str) -> None:
+    """Rejette les noms de fichiers compagnons hors du dossier du template."""
+    p = Path(name)
+    if not name or p.is_absolute() or ".." in p.parts:
+        raise ValueError(
+            f"extra_files entry {name!r} must be a relative filename inside the template directory"
+        )
 
 
 # ─── Parseur toc.txt compose ─────────────────────────────────────────────────
@@ -197,7 +208,8 @@ async def import_compose_from_source(
     await asyncio.to_thread(_check_ssrf, body.source_url)
 
     compose_url = body.source_url
-    meta_url = compose_url.rsplit("/", 1)[0] + "/meta.yaml"
+    base_url = compose_url.rsplit("/", 1)[0]
+    meta_url = f"{base_url}/meta.yaml"
 
     try:
         async with httpx.AsyncClient() as http:
@@ -226,8 +238,32 @@ async def import_compose_from_source(
             status_code=422, detail=f"meta.yaml parameters invalides: {exc}"
         ) from exc
 
+    # Fichiers compagnons (ex. config.alloy) déclarés dans meta.yaml, résolus dans
+    # le même dossier que compose.yml — sans eux un template avec dépendances
+    # (ex. le collecteur Alloy) échouerait silencieusement au déploiement.
+    raw_extra_files = meta.get("extra_files") or []
+    extra_files: dict[str, str] = {}
+    try:
+        async with httpx.AsyncClient() as http:
+            for filename in raw_extra_files:
+                filename = str(filename)
+                try:
+                    _validate_extra_file_name(filename)
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail=str(exc)) from exc
+                extra_files[filename] = await _fetch_text(http, f"{base_url}/{filename}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     raw_message_key = meta.get("message_key")
     message_key = str(raw_message_key).strip() if raw_message_key else None
+
+    try:
+        validate_template(compose_content, parameters, source="imported")
+    except TemplateValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     tpl = ComposeTemplate(
         id=template_id,
@@ -237,6 +273,7 @@ async def import_compose_from_source(
         tags=list(meta.get("tags", [])),
         compose_content=compose_content,
         parameters=parameters,
+        extra_files=extra_files,
         message_key=message_key,
         source="imported",
     )

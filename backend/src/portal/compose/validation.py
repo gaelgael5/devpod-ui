@@ -10,7 +10,12 @@ import yaml
 from .models import ComposeParam, TemplateSource
 from .port_aliases import is_alias_entry
 
-# Bind-mounts système autorisés pour les templates builtin uniquement (lecture seule).
+# Bind-mounts système autorisés (lecture seule) pour les templates builtin ou
+# importés (source réseau explicitement configurée puis validée par un admin —
+# même niveau de confiance que l'import de recettes, qui exécute déjà des
+# install.sh arbitraires). Jamais pour les templates "user" (créés/édités par
+# un utilisateur quelconque via l'API/MCP).
+_SYSTEM_BIND_ALLOWED_SOURCES: frozenset[TemplateSource] = frozenset({"builtin", "imported"})
 _BUILTIN_ALLOWED_BINDS: frozenset[str] = frozenset(
     {
         "/var/run/docker.sock",
@@ -128,13 +133,14 @@ def validate_template(
             )
 
     # Lint : bind-mounts absolus interdits (isolation workspace-to-workspace).
-    # Exception : templates builtin autorisés sur la whitelist système (lecture seule).
+    # Exception : templates builtin/imported autorisés sur la whitelist système
+    # (lecture seule) — jamais les templates "user".
     services = parsed.get("services") or {}
     for svc_name, svc in services.items():
         if not isinstance(svc, dict):
             continue
         for bad_path in _absolute_bind_mounts(svc):
-            if source == "builtin" and bad_path in _BUILTIN_ALLOWED_BINDS:
+            if source in _SYSTEM_BIND_ALLOWED_SOURCES and bad_path in _BUILTIN_ALLOWED_BINDS:
                 continue
             raise TemplateValidationError(
                 f"service {svc_name!r}: bind-mount absolu interdit ({bad_path!r}) ; "

@@ -142,3 +142,9 @@ def map_result_to_host(
         proxmox_node=resolved_node,
         usage="tests",
     )
+
+
+def host_cert_ready(hosts: Iterable[HostConfig], host_name: str) -> bool:
+    """True si `host_name` a un `host_cert_slug` posé (SSH portail actif → compose déployable)."""
+    host = next((h for h in hosts if h.name == host_name), None)
+    return bool(host and host.host_cert_slug)

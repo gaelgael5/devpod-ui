@@ -18,6 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from ..auth.rbac import UserInfo, require_user
+from ..compose import service as csvc
 from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor
 from ..config.store import load_global, load_user
 from ..db.engine import _get_engine
@@ -35,6 +36,7 @@ from ..devpod.test_vm import (
     build_resolve_fqdn,
     build_test_host_views,
     build_test_vm_args,
+    host_cert_ready,
     map_result_to_host,
     parse_last_json,
     replace_host_ip,
@@ -356,6 +358,19 @@ async def create_test_vm(
 
         async for msg in _init_vm_ssh(login, ws, host, node, alias):
             yield msg
+
+        # Auto-start : uniquement si le SSH portail a bien été activé (host_cert_slug
+        # posé par _init_vm_ssh) — sinon les services compose ne sont pas déployables.
+        if host_cert_ready(load_global().hosts, host.name):
+            auto_user_cfg = await load_user(login)
+            async with _get_engine().begin() as conn:
+                async for line in csvc.deploy_auto_start_templates(
+                    conn,
+                    owner_login=login,
+                    secret_ns=auto_user_cfg.secret_ns,
+                    node_id=host.name,
+                ):
+                    yield line.encode()
 
     return StreamingResponse(_stream(), media_type="text/plain; charset=utf-8")
 

@@ -1,6 +1,6 @@
 import { apiFetch, apiFetchJson, ApiError } from '@/shared/api/client'
 import type {
-  ComposeDeployment, ComposeTemplate, DeploymentCreateBody, NodeRef,
+  AutoStartUpdateBody, ComposeDeployment, ComposeTemplate, DeploymentCreateBody, NodeRef,
   TemplateBody, TemplateSaveResult,
 } from './types'
 
@@ -26,6 +26,14 @@ export function updateTemplate(id: string, body: TemplateBody): Promise<Template
 export async function deleteTemplate(id: string): Promise<void> {
   const res = await apiFetch(`/api/compose/templates/${encodeURIComponent(id)}`, { method: 'DELETE' })
   if (!res.ok) throw new ApiError(res.status, (await res.text().catch(() => '')) || res.statusText)
+}
+
+export function setAutoStart(
+  templateId: string, body: AutoStartUpdateBody,
+): Promise<{ template_id: string; enabled: boolean }> {
+  return apiFetchJson(`/api/compose/templates/${encodeURIComponent(templateId)}/auto-start`, {
+    method: 'PUT', headers: J, body: JSON.stringify(body),
+  })
 }
 
 export function listNodes(): Promise<NodeRef[]> {

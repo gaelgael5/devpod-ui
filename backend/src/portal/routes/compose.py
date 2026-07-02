@@ -22,7 +22,12 @@ from ..db.engine import _get_engine, get_conn
 from ..db.test_hosts import host_full_info
 from ..messages import db as mdb
 from ..messages.models import WorkspaceMessage
-from ..schemas.compose import DeploymentCreateBody, TemplateCreateBody, TemplateUpdateBody
+from ..schemas.compose import (
+    AutoStartUpdateBody,
+    DeploymentCreateBody,
+    TemplateCreateBody,
+    TemplateUpdateBody,
+)
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -35,7 +40,11 @@ async def list_templates(
     conn: Annotated[AsyncConnection, Depends(get_conn)],
     tag: str | None = Query(default=None),
 ) -> list[dict[str, Any]]:
-    return [t.model_dump(mode="json") for t in await cdb.list_templates(conn, tag)]
+    auto_start = {a.template_id for a in await cdb.list_auto_start_for_user(conn, user.login)}
+    return [
+        {**t.model_dump(mode="json"), "auto_start": t.id in auto_start}
+        for t in await cdb.list_templates(conn, tag)
+    ]
 
 
 @router.get("/templates/{template_id}")
@@ -99,6 +108,28 @@ async def delete_template(
     if count > 0:
         raise HTTPException(status_code=409, detail="template référencé par des déploiements")
     await cdb.delete_template(conn, template_id)
+
+
+@router.put("/templates/{template_id}/auto-start")
+async def set_auto_start(
+    template_id: str,
+    body: AutoStartUpdateBody,
+    user: Annotated[UserInfo, Depends(require_user)],
+    conn: Annotated[AsyncConnection, Depends(get_conn)],
+) -> dict[str, Any]:
+    """Active/désactive le déploiement automatique de ce template sur les futures
+    machines de test de l'utilisateur (spec cadrage : lié à user+template, pas au host)."""
+    tpl = await cdb.get_template(conn, template_id)
+    if tpl is None:
+        raise HTTPException(status_code=404, detail="template inconnu")
+    if body.enabled:
+        missing = [p.key for p in tpl.parameters if p.required and p.key not in body.env_values]
+        if missing:
+            raise HTTPException(status_code=422, detail=f"paramètres requis manquants: {missing}")
+        await cdb.upsert_auto_start(conn, user.login, template_id, body.env_values)
+    else:
+        await cdb.delete_auto_start(conn, user.login, template_id)
+    return {"template_id": template_id, "enabled": body.enabled}
 
 
 # ---------------------------------------------------------------------------
