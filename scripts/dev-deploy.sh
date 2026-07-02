@@ -140,6 +140,12 @@ if [[ -z "$(_get_env SESSION_SECRET_KEY)" ]]; then
     echo "    SESSION_SECRET_KEY généré"
 fi
 
+# Générer PORTAL_VAULT_KEK si vide (requis hors dev_mode ; vault désactivé sinon)
+if [[ -z "$(_get_env PORTAL_VAULT_KEK)" ]]; then
+    _set_env PORTAL_VAULT_KEK "$(openssl rand -hex 32)"
+    echo "    PORTAL_VAULT_KEK généré"
+fi
+
 # Générer LOCAL_PASSWORD + LOCAL_PASSWORD_HASH si vides
 if [[ -z "$(_get_env LOCAL_PASSWORD)" ]]; then
     command -v python3 &>/dev/null || apt-get install -y --no-install-recommends python3 >/dev/null 2>&1

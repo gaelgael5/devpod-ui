@@ -53,8 +53,21 @@ class PinNotSetupError(Exception):
     pass
 
 
+class VaultDisabledError(Exception):
+    """PORTAL_VAULT_KEK absent : la feature vault est désactivée (dev mode)."""
+
+
+def vault_enabled() -> bool:
+    return bool(get_settings().portal_vault_kek)
+
+
 def _kek() -> bytes:
-    return bytes.fromhex(get_settings().portal_vault_kek)
+    kek_hex = get_settings().portal_vault_kek
+    if not kek_hex:
+        # Fail closed : dériver des clés depuis une KEK vide chiffrerait le
+        # vault avec du vide. Ne doit jamais être silencieux.
+        raise VaultDisabledError("PORTAL_VAULT_KEK is not set — vault disabled")
+    return bytes.fromhex(kek_hex)
 
 
 async def setup_pin(
@@ -145,7 +158,9 @@ async def reset_vault(login: str, session_id: str, conn: AsyncConnection) -> Non
 
 async def get_vault_status(
     login: str, session_id: str, conn: AsyncConnection
-) -> Literal["setup_required", "locked", "unlocked"]:
+) -> Literal["disabled", "setup_required", "locked", "unlocked"]:
+    if not vault_enabled():
+        return "disabled"
     if not await has_pin_config(login, conn):
         return "setup_required"
     if vault_session.is_unlocked(session_id):

@@ -24,6 +24,7 @@ from ..vault.pin import (
     PinNotSetupError,
     PinSetupResult,
     PinWrongError,
+    VaultDisabledError,
     get_vault_status,
     recover_pin,
     reset_vault,
@@ -108,6 +109,8 @@ async def pin_setup(
 ) -> dict[str, str]:
     try:
         result: PinSetupResult = await setup_pin(user.login, body.pin, _sid(request), conn)
+    except VaultDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"recovery_code": result.recovery_code}
@@ -122,6 +125,8 @@ async def pin_unlock(
 ) -> dict[str, str]:
     try:
         await unlock_pin(user.login, body.pin, _sid(request), conn)
+    except VaultDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except PinLockedError as exc:
         raise HTTPException(
             status_code=423,
@@ -148,6 +153,8 @@ async def pin_recover(
         result = await recover_pin(
             user.login, body.recovery_code, body.new_pin, _sid(request), conn
         )
+    except VaultDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except PinWrongError as exc:
         raise HTTPException(status_code=403, detail="Incorrect recovery code") from exc
     except PinNotSetupError as exc:

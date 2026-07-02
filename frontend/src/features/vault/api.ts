@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch, apiFetchJson } from '@/shared/api/client'
 
-export type VaultStatus = 'setup_required' | 'locked' | 'unlocked'
+export type VaultStatus = 'disabled' | 'setup_required' | 'locked' | 'unlocked'
 
 export interface VaultKey {
   identifier: string

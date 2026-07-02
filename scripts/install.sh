@@ -189,6 +189,7 @@ if [[ -f "$ENV_FILE" ]]; then
 else
     echo "==> Génération de /data/.env..."
     SESSION_KEY=$(openssl rand -hex 32)
+    VAULT_KEK=$(openssl rand -hex 32)
 
     # Credentials auth locale — bcrypt via python3
     python3 -c "import bcrypt" 2>/dev/null || {
@@ -211,6 +212,7 @@ print(bcrypt.hashpw(p, bcrypt.gensalt()).decode())
 # Perms 600 requises — ne JAMAIS commiter ce fichier (§D-21)
 
 SESSION_SECRET_KEY=${SESSION_KEY}
+PORTAL_VAULT_KEK=${VAULT_KEK}
 OIDC_CLIENT_SECRET=
 HARPOCRATE_API_KEY=
 CFM_API_KEY=
