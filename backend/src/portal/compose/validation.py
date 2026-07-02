@@ -20,7 +20,12 @@ _BUILTIN_ALLOWED_BINDS: frozenset[str] = frozenset(
     }
 )
 
-_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}")
+# Formes compose : ${VAR}, ${VAR:-def}, ${VAR-def}, ${VAR:?msg}, ${VAR?msg}, ${VAR:+alt}
+_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?[-+?][^}]*)?\}")
+
+# Variables de contexte injectées par le portail à chaque déploiement
+# (compose/service.py _log_context_vars) : toujours considérées déclarées.
+PORTAL_INJECTED_VARS: frozenset[str] = frozenset({"LOKI_URL", "HOSTNAME", "MODULE", "ROLE"})
 
 
 class TemplateValidationError(Exception):
@@ -106,7 +111,7 @@ def validate_template(
 
     declared = {p.key for p in parameters}
     used = referenced_vars(compose_content)
-    missing = used - declared
+    missing = used - declared - PORTAL_INJECTED_VARS
     if missing:
         raise TemplateValidationError(
             f"variables référencées non déclarées en paramètres: {sorted(missing)}"
@@ -136,4 +141,26 @@ def validate_template(
                 f"utilisez un chemin relatif (ex: ./data:/app/data) ou un volume nommé"
             )
 
-    return []
+    # Warnings (non bloquants) : images non épinglées → déploiements non reproductibles.
+    warnings: list[str] = []
+    for svc_name, svc in services.items():
+        if not isinstance(svc, dict):
+            continue
+        image = svc.get("image")
+        if not isinstance(image, str) or not image or "${" in image:
+            continue
+        # Le tag est dans le dernier segment (après le dernier '/'), pour ne pas
+        # confondre le port d'un registre (registry:5000/img) avec un tag.
+        ref = image.rsplit("/", 1)[-1]
+        if ":" not in ref:
+            warnings.append(
+                f"service {svc_name!r}: image {image!r} sans tag (latest implicite) — "
+                "épinglez une version"
+            )
+        elif ref.endswith(":latest"):
+            warnings.append(
+                f"service {svc_name!r}: image {image!r} utilise le tag latest — "
+                "épinglez une version"
+            )
+
+    return warnings
