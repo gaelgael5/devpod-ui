@@ -194,7 +194,7 @@ export default function WorkspaceList() {
           <Button size="sm" variant="outline" asChild>
             <a href={logsConfig.grafana_url} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="mr-1 h-4 w-4" />
-              {t('settings.logs')}
+              {t('nav.logs')}
             </a>
           </Button>
         )}
