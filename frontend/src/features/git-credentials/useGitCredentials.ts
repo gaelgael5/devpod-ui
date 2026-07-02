@@ -72,3 +72,18 @@ export function useDeleteGitCredential() {
     onSuccess: () => qc.invalidateQueries({ queryKey: QK }),
   })
 }
+
+export interface TestCredentialResult {
+  ok: boolean
+  message: string
+}
+
+export function useTestGitCredential() {
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetchJson<TestCredentialResult>(
+        `/me/git-credentials/${encodeURIComponent(name)}/test`,
+        { method: 'POST' },
+      ),
+  })
+}

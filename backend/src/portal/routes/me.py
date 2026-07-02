@@ -16,7 +16,7 @@ from ..config.models import GitCredential, UserConfig, WorkspaceSpec
 from ..config.store import load_global, load_user, safe_user_path, save_user
 from ..db.engine import get_conn
 from ..db.tables import users
-from ..devpod.git import run_git_ls_remote
+from ..devpod.git import probe_git_credential, run_git_ls_remote
 from ..secrets import service as secret_svc
 
 _CRED_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}[a-z0-9]$")
@@ -417,6 +417,21 @@ async def delete_git_credential(
             pub_file.unlink()
     _log.info("git_credential_deleted", login=user.login, name=name)
     return {"deleted": name}
+
+
+@router.post("/git-credentials/{name}/test")
+async def test_git_credential_connection(
+    name: str,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, object]:
+    """Teste l'authentification d'un credential sur son host (sans dépôt réel)."""
+    cfg = await load_user(user.login)
+    cred = next((c for c in cfg.git_credentials if c.name == name), None)
+    if not cred:
+        raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
+    ok, message = await probe_git_credential(name, cred.host, user.login)
+    _log.info("git_credential_tested", login=user.login, name=name, ok=ok)
+    return {"ok": ok, "message": message}
 
 
 @router.delete("/workspaces/{name}")
