@@ -111,6 +111,14 @@ def _build_global_config(
                 "output": row["log_output"],
             },
         },
+        "logs": {
+            "enabled": row["logs_enabled"],
+            "loki_push_url": row["logs_loki_push_url"] or None,
+            "loki_query_url": row["logs_loki_query_url"] or None,
+            "grafana_url": row["logs_grafana_url"] or None,
+            "module": row["logs_module"],
+            "push_token": row["logs_push_token"] or None,
+        },
         "auth": {
             "oidc": {
                 "issuer": row["oidc_issuer"],
@@ -246,6 +254,12 @@ def _cfg_to_scalars(cfg: GlobalConfig) -> dict[str, Any]:
         "log_level": cfg.server.log.level,
         "log_format": cfg.server.log.format,
         "log_output": cfg.server.log.output,
+        "logs_enabled": cfg.logs.enabled,
+        "logs_loki_push_url": cfg.logs.loki_push_url or "",
+        "logs_loki_query_url": cfg.logs.loki_query_url or "",
+        "logs_grafana_url": cfg.logs.grafana_url or "",
+        "logs_module": cfg.logs.module,
+        "logs_push_token": cfg.logs.push_token or "",
         "oidc_issuer": cfg.auth.oidc.issuer,
         "oidc_client_id": cfg.auth.oidc.client_id,
         "oidc_client_secret": cfg.auth.oidc.client_secret,

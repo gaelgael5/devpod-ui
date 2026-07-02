@@ -79,6 +79,14 @@ def full_cfg() -> GlobalConfig:
             },
             "caddy": {"admin_api": "http://caddy:2019", "portal_host": "myportal"},
             "cloudflare_manager": {"url": "https://cf.example.com", "api_key": "cfkey"},
+            "logs": {
+                "enabled": True,
+                "loki_push_url": "http://loki:3100/loki/api/v1/push",
+                "loki_query_url": "http://loki:3100",
+                "grafana_url": "http://192.168.10.196:3001",
+                "module": "devpod-test",
+                "push_token": "${vault://bloc/loki-token}",
+            },
             "hypervisor_types": [
                 {
                     "name": "proxmox",
@@ -106,7 +114,7 @@ def full_cfg() -> GlobalConfig:
                     "type": "docker-tls",
                     "docker_host": "tcp://192.168.1.20:2376",
                     "address": "192.168.1.20",
-                    "key_path": "/data/certs/worker01",
+                    "host_cert_slug": "hosts/worker01",
                 }
             ],
         }
@@ -148,6 +156,38 @@ async def test_save_and_load_full(db_conn, full_cfg):
     assert result.devpod.defaults.idle_timeout == "4h"
     assert result.caddy.portal_host == "myportal"
     assert result.cloudflare_manager.api_key == "cfkey"
+    assert result.logs.enabled is True
+    assert result.logs.loki_push_url == "http://loki:3100/loki/api/v1/push"
+    assert result.logs.grafana_url == "http://192.168.10.196:3001"
+    assert result.logs.module == "devpod-test"
+    assert result.logs.push_token == "${vault://bloc/loki-token}"
+
+
+@pytest.mark.asyncio
+async def test_logs_config_defaults_when_unset(db_conn, minimal_cfg):
+    # minimal_cfg ne fixe pas `logs` → LogsConfig() par défaut, round-trip
+    # via des colonnes NOT NULL (chaînes vides converties en None à la lecture).
+    await save_global_db(minimal_cfg, db_conn)
+    result = await load_global_db(db_conn)
+
+    assert result.logs.enabled is False
+    assert result.logs.loki_push_url is None
+    assert result.logs.loki_query_url is None
+    assert result.logs.grafana_url is None
+    assert result.logs.module == "devpod"
+    assert result.logs.push_token is None
+
+
+@pytest.mark.asyncio
+async def test_logs_config_survives_double_save(db_conn, minimal_cfg, full_cfg):
+    # Régression du bug initial : `logs` était accepté par PUT /admin/config
+    # mais jamais persisté → perdu au redémarrage suivant du portail.
+    await save_global_db(minimal_cfg, db_conn)
+    await save_global_db(full_cfg, db_conn)
+    result = await load_global_db(db_conn)
+
+    assert result.logs.enabled is True
+    assert result.logs.grafana_url == "http://192.168.10.196:3001"
 
 
 @pytest.mark.asyncio

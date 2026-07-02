@@ -41,6 +41,13 @@ global_config = Table(
     Column("log_level", Text, nullable=False, server_default="info"),
     Column("log_format", Text, nullable=False, server_default="text"),
     Column("log_output", Text, nullable=False, server_default=""),
+    # LogsConfig (Loki/Grafana — distinct du LogConfig structlog ci-dessus)
+    Column("logs_enabled", Boolean, nullable=False, server_default="false"),
+    Column("logs_loki_push_url", Text, nullable=False, server_default=""),
+    Column("logs_loki_query_url", Text, nullable=False, server_default=""),
+    Column("logs_grafana_url", Text, nullable=False, server_default=""),
+    Column("logs_module", Text, nullable=False, server_default="devpod"),
+    Column("logs_push_token", Text, nullable=False, server_default=""),
     # OidcConfig
     Column("oidc_issuer", Text, nullable=False),
     Column("oidc_client_id", Text, nullable=False),
