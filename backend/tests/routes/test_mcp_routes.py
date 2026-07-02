@@ -8,7 +8,6 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from portal.db.mcp import insert_backend_key
 from portal.db.tables import users
 
 
@@ -105,48 +104,7 @@ async def test_apikey_create_returns_clear_once(client: AsyncClient) -> None:
     assert "token" not in r.json()[0] and "token_hash" not in r.json()[0]
 
 
-async def test_grant_key_must_belong_to_backend(
-    client: AsyncClient, db_conn: AsyncConnection
-) -> None:
-    b1 = (
-        await client.post(
-            "/me/mcp/backends",
-            json={
-                "namespace": "rag",
-                "name": "RAG",
-                "url": "https://rag/mcp",
-                "transport": "streamable_http",
-            },
-        )
-    ).json()["id"]
-    b2 = (
-        await client.post(
-            "/me/mcp/backends",
-            json={
-                "namespace": "wf",
-                "name": "WF",
-                "url": "https://wf/mcp",
-                "transport": "streamable_http",
-            },
-        )
-    ).json()["id"]
-    # clé insérée directement en DB (évite la dépendance vault dans un test route)
-    await insert_backend_key(
-        db_conn,
-        id="kB2",
-        backend_id=b2,
-        slug="read",
-        description="",
-        storage_type="local",
-        secret_value_local=b"x",
-        secret_value_vault_ref=None,
-        vault_identifier=None,
-    )
-    aid = (await client.post("/me/mcp/apikeys", json={"label": "cli"})).json()["id"]
-
-    # clé de b2 affectée à un grant sur b1 → 422
-    r = await client.put(
-        f"/me/mcp/apikeys/{aid}/grants",
-        json={"backend_id": b1, "backend_key_id": "kB2"},
-    )
-    assert r.status_code == 422
+# NOTE : l'ancien test « clé d'un autre backend refusée sur PUT /apikeys/{id}/grants »
+# a été retiré : la route grants n'existe plus (refactor profils MCP). Le comportement
+# équivalent (PUT /me/mcp/profiles/{id}/entries/{backend_id} → 404) est couvert par
+# tests/mcp/test_service.py::test_profile_entry_rejects_key_from_other_backend.

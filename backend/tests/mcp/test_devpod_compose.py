@@ -37,6 +37,7 @@ def _tpl(tpl_id: str = "chromium") -> SimpleNamespace:
 def _dep(dep_id: str = "dep1", owner: str = "alice") -> SimpleNamespace:
     return SimpleNamespace(
         id=dep_id,
+        uid=f"uid-{dep_id}",
         template_id="chromium",
         template_version="1",
         node_id="node1",
@@ -184,7 +185,7 @@ async def test_service_list_filters_by_node(monkeypatch: pytest.MonkeyPatch) -> 
 @pytest.mark.asyncio
 async def test_service_start_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(compose_tools.cdb, "get_template", AsyncMock(return_value=_tpl()))
-    monkeypatch.setattr(compose_tools.cdb, "get_deployment", AsyncMock(return_value=None))
+    monkeypatch.setattr(compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=None))
     user_ns = SimpleNamespace(secret_ns="ns")
     monkeypatch.setattr(compose_tools, "load_user", AsyncMock(return_value=user_ns))
     monkeypatch.setattr(compose_tools.csvc, "deploy", AsyncMock(return_value=_dep()))
@@ -207,7 +208,9 @@ async def test_service_start_unknown_template_raises(monkeypatch: pytest.MonkeyP
 @pytest.mark.asyncio
 async def test_service_start_duplicate_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(compose_tools.cdb, "get_template", AsyncMock(return_value=_tpl()))
-    monkeypatch.setattr(compose_tools.cdb, "get_deployment", AsyncMock(return_value=_dep()))
+    monkeypatch.setattr(
+        compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=_dep())
+    )
     with pytest.raises(DevpodToolError, match="existe déjà"):
         await compose_tools._compose_service_start(
             None, {"template_id": "chromium", "node_id": "node1", "name": "dep1"}, "alice"
@@ -220,27 +223,34 @@ async def test_service_start_duplicate_raises(monkeypatch: pytest.MonkeyPatch) -
 
 @pytest.mark.asyncio
 async def test_service_stop_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(compose_tools.cdb, "get_deployment", AsyncMock(return_value=_dep()))
+    monkeypatch.setattr(
+        compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=_dep())
+    )
     monkeypatch.setattr(compose_tools.csvc, "lifecycle", AsyncMock())
     result = await compose_tools._compose_service_stop(None, {"deployment_id": "dep1"}, "alice")
     assert result["action"] == "stop"
-    compose_tools.csvc.lifecycle.assert_awaited_once_with(None, "dep1", "stop")
+    compose_tools.csvc.lifecycle.assert_awaited_once_with(None, "uid-dep1", "stop")
 
 
 @pytest.mark.asyncio
 async def test_service_stop_wrong_owner_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     dep_bob = _dep("dep1", "bob")
-    monkeypatch.setattr(compose_tools.cdb, "get_deployment", AsyncMock(return_value=dep_bob))
+    monkeypatch.setattr(
+        compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=dep_bob)
+    )
     with pytest.raises(DevpodToolError, match="inconnu"):
         await compose_tools._compose_service_stop(None, {"deployment_id": "dep1"}, "alice")
 
 
 @pytest.mark.asyncio
 async def test_service_restart_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(compose_tools.cdb, "get_deployment", AsyncMock(return_value=_dep()))
+    monkeypatch.setattr(
+        compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=_dep())
+    )
     monkeypatch.setattr(compose_tools.csvc, "lifecycle", AsyncMock())
     result = await compose_tools._compose_service_restart(None, {"deployment_id": "dep1"}, "alice")
     assert result["action"] == "restart"
+    compose_tools.csvc.lifecycle.assert_awaited_once_with(None, "uid-dep1", "restart")
 
 
 # ---------------------------------------------------------------------------
@@ -257,13 +267,15 @@ async def test_service_down_requires_confirm(monkeypatch: pytest.MonkeyPatch) ->
 
 @pytest.mark.asyncio
 async def test_service_down_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(compose_tools.cdb, "get_deployment", AsyncMock(return_value=_dep()))
+    monkeypatch.setattr(
+        compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=_dep())
+    )
     monkeypatch.setattr(compose_tools.csvc, "teardown", AsyncMock())
     result = await compose_tools._compose_service_down(
         None, {"deployment_id": "dep1", "confirm": True}, "alice"
     )
     assert result["torn_down"] is True
-    compose_tools.csvc.teardown.assert_awaited_once_with(None, "dep1")
+    compose_tools.csvc.teardown.assert_awaited_once_with(None, "uid-dep1")
 
 
 # ---------------------------------------------------------------------------
