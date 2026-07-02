@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useAdminNetwork } from './useAdminNetwork'
 import { useAdminLogs, useSaveLogs, type LogsConfig } from './useAdminLogs'
 
 /** Formulaire monté avec les valeurs chargées (state initialisé en lazy, pas d'effet). */
@@ -135,6 +136,23 @@ function LogsForm({ initial }: { initial: LogsConfig }) {
 export default function AdminLogs() {
   const { t } = useTranslation()
   const { data, isLoading, isError } = useAdminLogs()
+  // Réutilise server.workspace_host (déjà configurable dans /admin/network — "IP/host
+  // joignable en direct") pour pré-remplir les URLs Loki/Grafana au premier réglage,
+  // au lieu d'un champ IP dédié qui ferait doublon.
+  const { data: network } = useAdminNetwork()
+
+  const suggested = network?.workspace_host
+    ? {
+        loki_push_url: `http://${network.workspace_host}:3100/loki/api/v1/push`,
+        grafana_url: `http://${network.workspace_host}:3001`,
+      }
+    : { loki_push_url: '', grafana_url: '' }
+
+  const initial = data && {
+    ...data,
+    loki_push_url: data.loki_push_url || suggested.loki_push_url,
+    grafana_url: data.grafana_url || suggested.grafana_url,
+  }
 
   return (
     <div className="mx-auto max-w-lg">
@@ -142,7 +160,7 @@ export default function AdminLogs() {
       <p className="mb-6 text-sm text-muted-foreground">{t('admin.logs.intro')}</p>
       {isLoading && <p className="text-muted-foreground">…</p>}
       {isError && <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>}
-      {data && <LogsForm initial={data} />}
+      {initial && <LogsForm initial={initial} />}
     </div>
   )
 }

@@ -44,6 +44,12 @@ export const handlers = [
   http.get('/admin/oidc', () =>
     HttpResponse.json({ issuer: '', client_id: '', has_secret: false }),
   ),
+  http.get('/admin/network', () =>
+    HttpResponse.json({
+      base_domain: '', external_url: '', workspace_host: '', dev_mode: false,
+      vs_proxy_domain: '', cookie_domain: '',
+    }),
+  ),
   http.get('/admin/grafana-oidc', () =>
     HttpResponse.json({
       client_id: 'agflow-grafana',

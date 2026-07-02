@@ -58,4 +58,37 @@ describe('AdminLogs', () => {
       module: CONFIG.module,
     })
   })
+
+  it('pré-remplit les URLs Loki/Grafana depuis workspace_host quand elles sont vides', async () => {
+    server.use(
+      http.get('/admin/logs-config', () =>
+        HttpResponse.json({ ...CONFIG, loki_push_url: '', grafana_url: '' })),
+      http.get('/admin/network', () =>
+        HttpResponse.json({
+          base_domain: '', external_url: '', workspace_host: '192.168.10.164', dev_mode: false,
+          vs_proxy_domain: '', cookie_domain: '',
+        })),
+    )
+    renderWithProviders(<AdminLogs />)
+
+    expect(
+      await screen.findByDisplayValue('http://192.168.10.164:3100/loki/api/v1/push'),
+    ).toBeInTheDocument()
+    expect(screen.getByDisplayValue('http://192.168.10.164:3001')).toBeInTheDocument()
+  })
+
+  it('ne touche pas aux URLs déjà configurées même si workspace_host est renseigné', async () => {
+    server.use(
+      http.get('/admin/logs-config', () => HttpResponse.json(CONFIG)),
+      http.get('/admin/network', () =>
+        HttpResponse.json({
+          base_domain: '', external_url: '', workspace_host: '192.168.10.164', dev_mode: false,
+          vs_proxy_domain: '', cookie_domain: '',
+        })),
+    )
+    renderWithProviders(<AdminLogs />)
+
+    expect(await screen.findByDisplayValue(CONFIG.loki_push_url)).toBeInTheDocument()
+    expect(screen.queryByDisplayValue(/192\.168\.10\.164/)).not.toBeInTheDocument()
+  })
 })
