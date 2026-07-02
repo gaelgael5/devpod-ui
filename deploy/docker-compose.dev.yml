@@ -109,6 +109,11 @@ services:
     volumes:
       - ./grafana-provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
+    ports:
+      # Accès direct en dev (bypass Caddy) — le port hôte 3000 est déjà pris par
+      # Browserless sur les VMs de test, d'où 3001. GF_SERVER_ROOT_URL doit
+      # refléter ce port dans /data/.env pour que l'OAuth Grafana redirige juste.
+      - "3001:3000"
     depends_on:
       postgres:
         condition: service_healthy
