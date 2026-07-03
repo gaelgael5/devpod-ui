@@ -45,4 +45,25 @@ describe('AdminNetwork', () => {
 
     await waitFor(() => expect(received).toEqual({ host: 'portal' }))
   })
+
+  it('Resolve reste cliquable mais n’appelle pas le backend si le champ est vide', async () => {
+    let called = false
+    server.use(
+      http.get('/admin/network', () =>
+        HttpResponse.json({ base_domain: '', external_url: '', workspace_host: '' }),
+      ),
+      http.post('/admin/network/resolve-workspace-host', () => {
+        called = true
+        return HttpResponse.json({ fqdn: '', ip: '' })
+      }),
+    )
+    renderWithProviders(<AdminNetwork />)
+
+    const button = await screen.findByRole('button', { name: 'Resolve' })
+    expect(button).toBeEnabled()
+    await userEvent.setup().click(button)
+
+    await new Promise((r) => setTimeout(r, 50))
+    expect(called).toBe(false)
+  })
 })

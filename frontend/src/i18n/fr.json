@@ -299,6 +299,7 @@
       "externalUrlHint": "URL publique absolue du portail, ex. https://dev.yoops.org.",
       "workspaceHost": "Adresse LAN du portail",
       "resolve": "Résoudre",
+      "resolveEmpty": "Saisis d'abord un hostname ou une IP.",
       "workspaceHostHint": "Optionnel. IP LAN de la machine qui héberge le conteneur du portail, utilisée pour construire les URLs directes des workspaces quand il n'y a pas de routage par sous-domaine (dev mode). Tous les tunnels des workspaces convergent sur le portail : une seule valeur couvre tous les nœuds. Ex. 192.168.10.50.",
       "cookieDomain": "Domaine du cookie de session",
       "cookieDomainHint": "Domaine racine du cookie de session, ex. yoops.org. Obligatoire quand portail (dev.yoops.org) et proxy VS Code (vs-dev.yoops.org) n'ont qu'un ancêtre commun. Prend effet immédiatement, sans redémarrage.",

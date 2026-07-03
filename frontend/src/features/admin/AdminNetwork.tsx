@@ -74,13 +74,18 @@ function NetworkForm({ initial }: { initial: NetworkConfig }) {
           <Button
             type="button"
             variant="outline"
-            disabled={!workspaceHost.trim() || resolve.isPending}
-            onClick={() =>
-              resolve.mutate(workspaceHost.trim(), {
+            disabled={resolve.isPending}
+            onClick={() => {
+              const host = workspaceHost.trim()
+              if (!host) {
+                toast.error(t('admin.network.resolveEmpty'))
+                return
+              }
+              resolve.mutate(host, {
                 onSuccess: (r) => toast.success(`${r.fqdn} → ${r.ip}`),
                 onError: (e) => toast.error(e.message),
               })
-            }
+            }}
           >
             {t('admin.network.resolve')}
           </Button>
