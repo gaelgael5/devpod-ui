@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from portal.config.models import HostConfig
 from portal.devpod.test_vm import (
-    build_resolve_fqdn,
     build_test_host_views,
     build_test_vm_args,
     build_testhost_ssh_command,
@@ -12,6 +11,7 @@ from portal.devpod.test_vm import (
     replace_host_ip,
     substitute_param_vars,
 )
+from portal.net import build_resolve_fqdn
 
 
 def _ssh_host(name: str = "host-test-114-1", addr: str = "debian@192.168.10.160") -> HostConfig:

@@ -182,6 +182,7 @@ def _build_service() -> DevPodService:
         dev_mode=dev_mode,
         external_url=global_cfg.server.external_url,
         workspace_host=global_cfg.server.workspace_host,
+        local_domain=global_cfg.server.local_domain,
         vs_proxy_domain=global_cfg.server.vs_proxy_domain,
         vs_proxy_verify_uri=vs_proxy_verify_uri,
     )

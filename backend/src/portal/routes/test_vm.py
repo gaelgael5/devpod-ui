@@ -4,11 +4,11 @@ L'utilisateur ne fournit que l'hyperviseur et le vmid ; tous les autres args son
 figés par le paramétrage admin (`test_host_params` du type). Le host créé est marqué
 `usage=tests` et associé au workspace.
 """
+
 from __future__ import annotations
 
 import asyncio
 import re
-import socket
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -33,7 +33,6 @@ from ..db.test_hosts import (
 )
 from ..devpod.ssh_exec import run_ssh_capture
 from ..devpod.test_vm import (
-    build_resolve_fqdn,
     build_test_host_views,
     build_test_vm_args,
     host_cert_ready,
@@ -54,6 +53,7 @@ from ..devpod.vm_init import (
 from ..messages.renderer import build_host_context
 from ..messages.service import delete_message as msg_delete
 from ..messages.service import render_and_create
+from ..net import build_resolve_fqdn, resolve_ipv4
 from ..secrets.system import delete_system_secret, store_system_cert, store_system_secret
 from ..settings import get_settings
 from .proxmox import (
@@ -130,9 +130,7 @@ async def _init_vm_ssh(
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        _, serr = await asyncio.wait_for(
-            proc.communicate(input=inject.encode()), timeout=60.0
-        )
+        _, serr = await asyncio.wait_for(proc.communicate(input=inject.encode()), timeout=60.0)
     except TimeoutError:
         proc.kill()
         await proc.wait()
@@ -165,8 +163,7 @@ async def _init_vm_ssh(
     )
     if cfg_rc == 0:
         yield (
-            f"==> Alias SSH '{alias}' ajouté au ~/.ssh/config du container "
-            f"(ssh {alias})\n"
+            f"==> Alias SSH '{alias}' ajouté au ~/.ssh/config du container (ssh {alias})\n"
         ).encode()
     else:
         detail = cfg_err.strip()[:200]
@@ -352,9 +349,7 @@ async def create_test_vm(
         except Exception:
             _log.warning("test_host_message_create_failed", host=host.name, exc_info=True)
 
-        yield (
-            f"\n==> VM de test '{host.name}' creee et attachee au workspace '{ws}'\n"
-        ).encode()
+        yield (f"\n==> VM de test '{host.name}' creee et attachee au workspace '{ws}'\n").encode()
 
         async for msg in _init_vm_ssh(login, ws, host, node, alias):
             yield msg
@@ -409,9 +404,7 @@ async def delete_test_vm(
 
     # 2. Retirer l'alias du ~/.ssh/config du container (best-effort).
     try:
-        await run_ssh_capture(
-            login, f"{login}-{ws}", build_container_ssh_config_remove_cmd(alias)
-        )
+        await run_ssh_capture(login, f"{login}-{ws}", build_container_ssh_config_remove_cmd(alias))
     except Exception:
         _log.warning("test_vm_ssh_config_cleanup_failed", host=host_name, exc_info=True)
 
@@ -426,15 +419,6 @@ async def delete_test_vm(
         await msg_delete(conn, message_id)
 
     _log.info("test_vm_deleted", login=login, ws=ws, host=host_name, alias=alias)
-
-
-async def _resolve_ipv4(fqdn: str) -> str:
-    """Première IPv4 résolue pour `fqdn` via le resolver du portail (async)."""
-    loop = asyncio.get_event_loop()
-    infos = await loop.getaddrinfo(fqdn, None, family=socket.AF_INET)
-    if not infos:
-        raise OSError(f"no address for {fqdn}")
-    return str(infos[0][4][0])
 
 
 @router.post("/workspaces/{ws}/test-vm/{host_name}/resolve-ip")
@@ -468,7 +452,7 @@ async def resolve_test_vm_ip(
 
     fqdn = build_resolve_fqdn(host_name, cfg.server.local_domain)
     try:
-        new_ip = await _resolve_ipv4(fqdn)
+        new_ip = await resolve_ipv4(fqdn)
     except OSError as exc:
         raise HTTPException(status_code=502, detail=f"Unresolvable: {fqdn} ({exc})") from exc
 
@@ -482,9 +466,7 @@ async def resolve_test_vm_ip(
 
     # Réécrit le bloc ~/.ssh/config du container avec la nouvelle IP (best-effort).
     try:
-        await run_ssh_capture(
-            login, f"{login}-{ws}", build_container_ssh_config_cmd(alias, new_ip)
-        )
+        await run_ssh_capture(login, f"{login}-{ws}", build_container_ssh_config_cmd(alias, new_ip))
     except Exception:
         _log.warning("test_vm_ssh_config_refresh_failed", host=host_name, exc_info=True)
 

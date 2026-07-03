@@ -118,6 +118,15 @@ export default function AppShell() {
               {isAdmin && (
                 <>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => navigate('/admin/network')}>
+                    {t('admin.network.navLabel')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/logs')}>
+                    {t('admin.logs.navLabel')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
+                    {t('admin.oidc.navLabel')}
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/hypervisor-types')}>
                     {t('admin.hypervisorTypes')}
                   </DropdownMenuItem>
@@ -132,15 +141,6 @@ export default function AppShell() {
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/profile-sources')}>
                     {t('admin.profileSources.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
-                    {t('admin.oidc.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/network')}>
-                    {t('admin.network.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/logs')}>
-                    {t('admin.logs.navLabel')}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/compose')}>
                     {t('compose.admin.navLabel')}

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ipaddress
 import re
 from urllib.parse import urlparse
 
@@ -8,6 +7,7 @@ import structlog
 
 from ..db.engine import _get_engine
 from ..db.workspace_status import get_status_db, upsert_status_db
+from ..net import build_resolve_fqdn, is_ipv4, resolve_ipv4
 from .caddy import CaddyClient
 from .ports import PortRegistry
 
@@ -36,6 +36,7 @@ class ExposureService:
         dev_mode: bool = False,
         external_url: str = "",
         workspace_host: str = "",
+        local_domain: str = "",
         vs_proxy_domain: str = "",
         vs_proxy_verify_uri: str = "",
     ) -> None:
@@ -46,8 +47,26 @@ class ExposureService:
         self._dev_mode = dev_mode
         self._external_url = external_url
         self._workspace_host = workspace_host
+        self._local_domain = local_domain
         self._vs_proxy_domain = vs_proxy_domain
         self._vs_proxy_verify_uri = vs_proxy_verify_uri
+
+    async def _resolved_workspace_host(self) -> str:
+        """workspace_host prêt pour une URL navigateur.
+
+        Vide si non configuré. IP littérale → telle quelle. Sinon hostname
+        re-résolu en IP courante via `<workspace_host>.<local_domain>` (couvre le
+        DHCP) ; en cas d'échec de résolution, on retombe sur le hostname littéral.
+        """
+        wh = self._workspace_host.strip()
+        if not wh or is_ipv4(wh):
+            return wh
+        fqdn = build_resolve_fqdn(wh, self._local_domain)
+        try:
+            return await resolve_ipv4(fqdn)
+        except OSError as exc:
+            _log.warning("workspace_host_resolve_failed", host=wh, fqdn=fqdn, error=str(exc))
+            return wh
 
     async def allocate_port(self, ws_id: str) -> int:
         """Délègue l'allocation de port au PortRegistry.
@@ -105,7 +124,7 @@ class ExposureService:
         if self._dev_mode:
             host = (
                 request_host
-                or self._workspace_host
+                or await self._resolved_workspace_host()
                 or urlparse(self._external_url).hostname
                 or "localhost"
             )
@@ -116,18 +135,12 @@ class ExposureService:
 
         if not self._base_domain:
             # Pas de base_domain → impossible de router par sous-domaine.
-            # Fallback URL directe : priorité à l'IP routable du nœud Docker,
-            # puis workspace_host configuré, puis l'hôte de la requête.
-            def _is_ip(s: str) -> bool:
-                try:
-                    ipaddress.ip_address(s)
-                    return True
-                except ValueError:
-                    return False
-
+            # Fallback URL directe : priorité au workspace_host configuré (résolu en
+            # IP courante si hostname), puis à l'IP routable du nœud Docker, puis
+            # l'hôte de la requête.
             host = (
-                self._workspace_host
-                or (node_ip if _is_ip(node_ip) else None)
+                await self._resolved_workspace_host()
+                or (node_ip if is_ipv4(node_ip) else None)
                 or request_host
                 or urlparse(self._external_url).hostname
                 or "localhost"

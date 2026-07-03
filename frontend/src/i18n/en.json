@@ -231,7 +231,7 @@
     "hypervisorTypesEmpty": "No hypervisor types configured.",
     "localDomain": {
       "title": "Local DNS domain",
-      "hint": "Appended to a test machine name to re-resolve its DHCP IP (e.g. home.lan). Leave empty to resolve the name alone.",
+      "hint": "Appended to a hostname to re-resolve its current DHCP IP (e.g. home.lan) — applies to test machines and to the Portal LAN address above when it holds a hostname. Leave empty to resolve the name alone.",
       "save": "Save",
       "saved": "Local domain saved"
     },
@@ -297,8 +297,8 @@
       "baseDomainHint": "E.g. dev.yoops.org. Empty → no sub-domain routing (direct IP:port URL).",
       "externalUrl": "External URL",
       "externalUrlHint": "Absolute public URL of the portal, e.g. https://dev.yoops.org.",
-      "workspaceHost": "Direct workspace host",
-      "workspaceHostHint": "Optional. IP/host reachable directly when there is no sub-domain, e.g. 192.168.10.50.",
+      "workspaceHost": "Portal LAN address",
+      "workspaceHostHint": "Optional. LAN IP of the machine hosting the portal container, used to build direct workspace URLs when there is no sub-domain routing (dev mode). All workspace tunnels terminate on the portal, so a single value covers every node. E.g. 192.168.10.50.",
       "cookieDomain": "Session cookie domain",
       "cookieDomainHint": "Root domain for the session cookie, e.g. yoops.org. Required when the portal (dev.yoops.org) and the VS Code proxy (vs-dev.yoops.org) share a common ancestor. Takes effect immediately — no restart needed.",
       "vsProxyDomain": "VS Code proxy subdomain",

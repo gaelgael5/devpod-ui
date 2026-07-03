@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAdminNetwork, useSaveNetwork, type NetworkConfig } from './useAdminNetwork'
+import LocalDomainField from './LocalDomainField'
 
 /** Formulaire monté avec les valeurs chargées (state initialisé en lazy, pas d'effet). */
 function NetworkForm({ initial }: { initial: NetworkConfig }) {
@@ -130,6 +131,9 @@ export default function AdminNetwork() {
       {isLoading && <p className="text-muted-foreground">…</p>}
       {isError && <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>}
       {data && <NetworkForm initial={data} />}
+      <div className="mt-8 border-t pt-6">
+        <LocalDomainField />
+      </div>
     </div>
   )
 }

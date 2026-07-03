@@ -58,6 +58,7 @@
 ## [exposure]
 - Proxy VS Code : `vs-dev.yoops.org` (1 niveau, couvert par le wildcard `*.yoops.org`) — 2 niveaux (`*.dev.yoops.org`) hors Cloudflare Universal SSL. `COOKIE_DOMAIN=yoops.org` obligatoire. Placeholders `{http.reverse_proxy.header.*}` non fiables dans la config JSON Caddy (routes handle_response) — les éviter.
 - Wildcard DNS tunnel (`*.dev.yoops.org`) posé une fois, manuellement, hors du portail — sans lui tous les sous-domaines `ws-*` sont NXDOMAIN.
+- `workspace_host` n'est PAS l'hôte des workspaces : tous les tunnels SSH convergent sur le conteneur portail (`node_ip = caddy.portal_host = "portal"`), c'est donc l'IP LAN du portail — une seule valeur couvre N nœuds. En DHCP, le mettre en hostname et le re-résoudre via `<host>.<local_domain>` (`net.resolve_ipv4`). Ne jamais prioriser `node_ip` (nom Docker interne) devant lui dans les fallbacks URL directe.
 
 ## [admin/config]
 - Un modèle pydantic + persistance DB ne veut pas dire qu'un réglage est configurable : vérifier qu'une route PUT existe réellement avant de supposer qu'un admin peut le changer (ex. `logs.enabled`/`loki_push_url` avaient le modèle + la DB mais aucune route d'écriture — seule la lecture existait).
