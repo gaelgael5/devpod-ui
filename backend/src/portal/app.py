@@ -160,6 +160,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 update_cookie_domain(
                     cached.server.cookie_domain or settings_obj.cookie_domain,
                     cached.server.base_domain or settings_obj.base_domain,
+                    external_url=cached.server.external_url,
+                    vs_proxy_domain=cached.server.vs_proxy_domain,
                 )
             from .secrets.system import ensure_system_user
 

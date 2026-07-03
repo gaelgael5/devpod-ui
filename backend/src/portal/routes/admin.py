@@ -394,7 +394,12 @@ async def put_network(
     # Actualise immédiatement le domaine du cookie de session (sans redémarrage).
     from ..settings import update_cookie_domain
 
-    update_cookie_domain(clean.get("cookie_domain", ""), clean.get("base_domain", ""))
+    update_cookie_domain(
+        clean.get("cookie_domain", ""),
+        clean.get("base_domain", ""),
+        external_url=clean.get("external_url", ""),
+        vs_proxy_domain=clean.get("vs_proxy_domain", ""),
+    )
     # Réexposer immédiatement les workspaces actifs avec la nouvelle config.
     await re_expose_running_workspaces()
     _log.info(

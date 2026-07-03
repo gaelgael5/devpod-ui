@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -61,14 +63,50 @@ class AppSettings(BaseSettings):
     mcp_monitor_interval_s: float = 300.0
 
 
-def resolve_cookie_domain(cookie_domain: str, base_domain: str) -> str | None:
+def _common_domain_suffix(host_a: str, host_b: str) -> str:
+    """Plus long suffixe de labels DNS commun à deux hôtes.
+
+    Retourne "" si le suffixe commun fait moins de deux labels : un cookie sur un
+    TLD nu serait rejeté par les navigateurs.
+    """
+    labels_a = host_a.lower().strip(".").split(".")
+    labels_b = host_b.lower().strip(".").split(".")
+    common: list[str] = []
+    for la, lb in zip(reversed(labels_a), reversed(labels_b), strict=False):
+        if la != lb:
+            break
+        common.append(la)
+    if len(common) < 2:
+        return ""
+    return ".".join(reversed(common))
+
+
+def resolve_cookie_domain(
+    cookie_domain: str,
+    base_domain: str,
+    external_url: str = "",
+    vs_proxy_domain: str = "",
+) -> str | None:
     """Domaine du cookie de session, pour le transmettre aux workspaces (forward_auth).
 
     `cookie_domain` explicite prime (cas où portail et workspaces n'ont qu'un ancêtre
-    commun) ; sinon on retombe sur `base_domain`. Retourne ".{domaine}" ou None si vide.
+    commun). Sinon, si `vs_proxy_domain` est configuré, l'ancêtre DNS commun entre
+    l'hôte de `external_url` et `vs_proxy_domain` est dérivé : sans cela le cookie
+    (host-only ou limité à base_domain) n'atteint jamais le proxy VS Code et chaque
+    ouverture retombe sur la page de login. En dernier recours : `base_domain`.
+    Retourne ".{domaine}" ou None si rien n'est résoluble.
     """
-    src = (cookie_domain or base_domain).strip()
-    return f".{src}" if src else None
+    explicit = cookie_domain.strip()
+    if explicit:
+        return f".{explicit}"
+    vs_host = vs_proxy_domain.strip()
+    portal_host = urlparse(external_url.strip()).hostname or ""
+    if vs_host and portal_host:
+        derived = _common_domain_suffix(portal_host, vs_host)
+        if derived:
+            return f".{derived}"
+    base = base_domain.strip()
+    return f".{base}" if base else None
 
 
 _settings: AppSettings | None = None
@@ -89,14 +127,22 @@ def get_settings() -> AppSettings:
 _effective_cookie_domain: str | None = None
 
 
-def update_cookie_domain(cookie_domain: str, base_domain: str) -> None:
+def update_cookie_domain(
+    cookie_domain: str,
+    base_domain: str,
+    external_url: str = "",
+    vs_proxy_domain: str = "",
+) -> None:
     """Met à jour le domaine effectif du cookie de session.
 
-    cookie_domain prime sur base_domain (même logique que resolve_cookie_domain).
+    Même logique de priorité que resolve_cookie_domain (cookie_domain explicite,
+    puis ancêtre commun portail/vs_proxy_domain, puis base_domain).
     Appelable depuis create_app() et PUT /admin/network sans redémarrage.
     """
     global _effective_cookie_domain
-    _effective_cookie_domain = resolve_cookie_domain(cookie_domain, base_domain)
+    _effective_cookie_domain = resolve_cookie_domain(
+        cookie_domain, base_domain, external_url, vs_proxy_domain
+    )
 
 
 def get_effective_cookie_domain() -> str | None:
