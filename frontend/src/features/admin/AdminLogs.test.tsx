@@ -77,6 +77,16 @@ describe('AdminLogs', () => {
     expect(screen.getByDisplayValue('http://192.168.10.164:3001')).toBeInTheDocument()
   })
 
+  it('pré-remplit Loki query URL avec le nom du service Docker interne quand vide', async () => {
+    server.use(
+      http.get('/admin/logs-config', () =>
+        HttpResponse.json({ ...CONFIG, loki_query_url: '' })),
+    )
+    renderWithProviders(<AdminLogs />)
+
+    expect(await screen.findByDisplayValue('http://loki:3100')).toBeInTheDocument()
+  })
+
   it('ne touche pas aux URLs déjà configurées même si workspace_host est renseigné', async () => {
     server.use(
       http.get('/admin/logs-config', () => HttpResponse.json(CONFIG)),

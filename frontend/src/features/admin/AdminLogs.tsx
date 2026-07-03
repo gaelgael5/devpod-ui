@@ -147,10 +147,14 @@ export default function AdminLogs() {
         grafana_url: `http://${network.workspace_host}:3001`,
       }
     : { loki_push_url: '', grafana_url: '' }
+  // Nom du service Docker (interne au réseau `internal`, fixe pour tout déploiement
+  // de ce dépôt) — contrairement aux URLs ci-dessus, ne dépend pas de la machine.
+  const suggestedLokiQueryUrl = 'http://loki:3100'
 
   const initial = data && {
     ...data,
     loki_push_url: data.loki_push_url || suggested.loki_push_url,
+    loki_query_url: data.loki_query_url || suggestedLokiQueryUrl,
     grafana_url: data.grafana_url || suggested.grafana_url,
   }
 
