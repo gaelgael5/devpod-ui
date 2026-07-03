@@ -1,5 +1,15 @@
 # TODO — dette et chantiers identifiés
 
+## Config / infra
+
+- [ ] **Cloudflare : Cache Rule « Bypass cache » sur `vs-dev.yoops.org`** (2026-07-03). Cloudflare
+  cache les `.js`/`.css` par extension (TTL 2 h par défaut) ; pendant l'incident du rewrite Caddy,
+  des URLs d'assets VS Code ont été mises en cache edge avec du HTML (constaté :
+  `cf-cache-status: HIT`, `content-type: text/html` sur `loader.js`) → page cassée pour tous les
+  navigateurs jusqu'à purge. Tout le trafic vs-dev est dynamique/authentifié : rien ne doit être
+  caché à l'edge. En complément côté code : envisager `Cache-Control: no-store` sur les réponses
+  du proxy `/vsproxy` pour blinder même sans la règle.
+
 ## Bugs
 
 - [ ] **Allocation des ports openvscode : collisions entre workspaces** (identifié le 2026-07-03
