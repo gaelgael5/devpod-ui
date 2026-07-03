@@ -80,6 +80,7 @@
       "failed": "Initialization failed",
       "needRunning": "Workspace must be running"
     },
+    "actionsMenu": "Actions",
     "testVm": {
       "btn": "Add VM for Test",
       "title": "Create a test VM",

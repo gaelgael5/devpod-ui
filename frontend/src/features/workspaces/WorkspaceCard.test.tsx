@@ -113,4 +113,15 @@ describe('WorkspaceCard', () => {
     await user.click(screen.getByRole('button', { name: /clé ssh|ssh key/i }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
+
+  it('regroupe Initialize et Add VM for Test dans le menu Actions quand running', async () => {
+    Element.prototype.hasPointerCapture = vi.fn()
+    Element.prototype.scrollIntoView = vi.fn()
+    const user = userEvent.setup()
+    renderWithProviders(card('running', 'https://alice-myapp.dev.yoops.org'))
+
+    expect(screen.queryByRole('button', { name: /add vm for test/i })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^actions$/i }))
+    expect(await screen.findByRole('menuitem', { name: /add vm for test/i })).toBeInTheDocument()
+  })
 })

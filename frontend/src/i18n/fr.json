@@ -80,6 +80,7 @@
       "failed": "Échec de l'initialisation",
       "needRunning": "Le workspace doit être démarré"
     },
+    "actionsMenu": "Actions",
     "testVm": {
       "btn": "Add VM for Test",
       "title": "Créer une VM de test",

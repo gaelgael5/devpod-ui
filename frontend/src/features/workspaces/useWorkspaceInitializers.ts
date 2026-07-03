@@ -1,4 +1,6 @@
 import { useQuery, useMutation } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { apiFetchJson } from '@/shared/api/client'
 
 export interface WorkspaceInitializer {
@@ -37,4 +39,23 @@ export function useRunInitializer() {
         { method: 'POST' },
       ),
   })
+}
+
+/** Lance un initializer avec le retour toast standard — partagé entre les menus qui l'exposent. */
+export function useRunInitializerWithToast(wsName: string) {
+  const { t } = useTranslation()
+  const run = useRunInitializer()
+
+  function handleRun(id: string, force: boolean) {
+    toast.promise(run.mutateAsync({ wsName, id, force }), {
+      loading: t('workspaces.initializers.running'),
+      success: (res) =>
+        res.already_applied
+          ? t('workspaces.initializers.alreadyApplied')
+          : t('workspaces.initializers.applied'),
+      error: (e) => (e instanceof Error ? e.message : t('workspaces.initializers.failed')),
+    })
+  }
+
+  return { handleRun, isPending: run.isPending }
 }

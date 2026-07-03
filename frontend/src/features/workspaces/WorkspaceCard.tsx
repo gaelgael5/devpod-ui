@@ -17,7 +17,7 @@ import type { WorkspaceSpec, WorkspaceStatus, WorkspaceStatusValue } from './typ
 import SshKeyDialog from './SshKeyDialog'
 import LogDialog from './LogDialog'
 import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
-import InitializersMenu from './InitializersMenu'
+import WorkspaceActionsMenu from './WorkspaceActionsMenu'
 import AddTestVmDialog from './AddTestVmDialog'
 import HostServicesSection from './HostServicesSection'
 import WorkspaceMessagesDialog from './WorkspaceMessagesDialog'
@@ -180,11 +180,8 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             {t('admin.sshTerminal.openBtn')}
           </Button>
         )}
-        {s === 'running' && <InitializersMenu wsName={spec.name} enabled />}
         {s === 'running' && (
-          <Button size="sm" variant="outline" onClick={() => setAddVmOpen(true)}>
-            {t('workspaces.testVm.btn')}
-          </Button>
+          <WorkspaceActionsMenu wsName={spec.name} onAddVm={() => setAddVmOpen(true)} />
         )}
         <Button
           size="sm"
