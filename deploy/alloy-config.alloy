@@ -55,6 +55,28 @@ loki.source.journal "system" {
   }
 }
 
+// ── Source 3 : logs navigateur (Grafana Faro, devpod-ui) ──────────────────────
+// Reçoit console.log/warn/error, exceptions JS et web vitals du frontend, poussés
+// depuis le navigateur via Caddy (/faro/collect → alloy:12347, cf. Caddyfile).
+// cors_allowed_origins vide : same-origin uniquement, aucune exposition cross-origin.
+
+faro.receiver "frontend" {
+  server {
+    listen_address      = "0.0.0.0"
+    listen_port         = 12347
+    cors_allowed_origins = []
+  }
+
+  extra_log_labels = {
+    job    = "faro",
+    source = "frontend",
+  }
+
+  output {
+    logs = [loki.write.central.receiver]
+  }
+}
+
 // ── Sortie Loki ──────────────────────────────────────────────────────────────
 
 loki.write "central" {
