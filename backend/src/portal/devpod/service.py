@@ -309,16 +309,22 @@ class DevPodService:
         Appelé quand l'état devpod est absent au démarrage (rebuild conteneur portail
         sans volume mount). DevPod détecte le container existant sur l'hôte distant
         et se reconnecte sans le recréer. Le port-forward est relancé en fin de up().
+
+        Délègue à start_existing_workspace : la résolution recettes/secrets/profil
+        doit être rejouée — un up() nu (recipes=None) ne régénère pas le
+        devcontainer.json et devpod échoue sur le chemin uploadé de la fois
+        précédente, supprimé après chaque up.
         """
+        # Import différé : routes → service à l'import du module, jamais l'inverse.
+        from ..routes.workspace_ops import start_existing_workspace
+
         try:
-            user_cfg = await load_user(login)
             ws_name = ws_id.removeprefix(f"{login}-")
-            ws_spec = next((w for w in user_cfg.workspaces if w.name == ws_name), None)
-            if ws_spec is None:
-                _log.warning("reconcile_ws_spec_not_found", ws_id=ws_id, login=login)
-                return
             _log.info("reconcile_triggering_devpod_up", ws_id=ws_id, login=login)
-            await self.up(login, ws_spec)
+            async with _get_engine().connect() as conn:
+                await start_existing_workspace(login, ws_name, conn)
+        except ValueError:
+            _log.warning("reconcile_ws_spec_not_found", ws_id=ws_id, login=login)
         except Exception as exc:
             _log.warning("reconcile_reconnect_failed", ws_id=ws_id, error=str(exc))
 
