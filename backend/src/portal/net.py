@@ -13,9 +13,17 @@ import socket
 
 
 def build_resolve_fqdn(name: str, local_domain: str) -> str:
-    """FQDN à résoudre : `<name>.<local_domain>` (ou `<name>` si pas de domaine)."""
+    """FQDN à résoudre.
+
+    `name` est un nom court (sans point, ex. "portal", "host-test-114-1") →
+    `<name>.<local_domain>`. `name` contient déjà un point (FQDN publique ou
+    privée déjà qualifiée, ex. "google.fr", "portal.yoops.org") → renvoyé tel
+    quel, `local_domain` ne s'applique qu'aux noms courts à re-résoudre en DHCP.
+    """
     domain = local_domain.strip().strip(".")
-    return f"{name}.{domain}" if domain else name
+    if not domain or "." in name:
+        return name
+    return f"{name}.{domain}"
 
 
 _RESOLVE_TIMEOUT = 5.0

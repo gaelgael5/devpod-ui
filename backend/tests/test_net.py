@@ -15,6 +15,12 @@ def test_build_resolve_fqdn_without_domain() -> None:
     assert build_resolve_fqdn("portal", "") == "portal"
 
 
+def test_build_resolve_fqdn_leaves_already_qualified_name_untouched() -> None:
+    """Un nom contenant déjà un point (FQDN publique/privée) n'est pas suffixé."""
+    assert build_resolve_fqdn("google.fr", "home.lan") == "google.fr"
+    assert build_resolve_fqdn("portal.yoops.org", "home.lan") == "portal.yoops.org"
+
+
 def test_is_ipv4_true_for_literal_ip() -> None:
     assert is_ipv4("192.168.10.50") is True
 
