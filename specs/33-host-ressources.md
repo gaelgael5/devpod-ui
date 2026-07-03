@@ -1,7 +1,7 @@
 # SPEC — Hosts de catégorie « ressources » & lancement de service depuis la vue Configuration Host
 
 **Composant** : `devpod-ui` (backend + frontend)
-**Statut** : Draft (backend implémenté — commit `1b1ae07` ; frontend à faire)
+**Statut** : Implémenté (backend — commit `1b1ae07` ; frontend — commit `d11202f`)
 **Dépend de** : spec 26 (galerie Docker Compose), champ `HostConfig.usage` existant, mécanisme de bootstrap SSH déjà en place pour les hosts `type=ssh`.
 
 ---
