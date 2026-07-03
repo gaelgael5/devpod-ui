@@ -18,10 +18,22 @@ def build_resolve_fqdn(name: str, local_domain: str) -> str:
     return f"{name}.{domain}" if domain else name
 
 
-async def resolve_ipv4(fqdn: str) -> str:
-    """Première IPv4 résolue pour `fqdn` via le resolver du portail (async)."""
+_RESOLVE_TIMEOUT = 5.0
+
+
+async def resolve_ipv4(fqdn: str, timeout: float = _RESOLVE_TIMEOUT) -> str:
+    """Première IPv4 résolue pour `fqdn` via le resolver du portail (async).
+
+    Bornée par `timeout` (`TimeoutError`, sous-classe d'`OSError` — les appelants
+    qui catchent déjà `OSError` n'ont rien à changer) : un resolver injoignable ou
+    un domaine sans réponse ne doit jamais bloquer la requête HTTP jusqu'à ce
+    qu'un proxy en amont (Cloudflare Tunnel, Caddy) la coupe lui-même et masque
+    l'erreur réelle derrière un 502 générique.
+    """
     loop = asyncio.get_event_loop()
-    infos = await loop.getaddrinfo(fqdn, None, family=socket.AF_INET)
+    infos = await asyncio.wait_for(
+        loop.getaddrinfo(fqdn, None, family=socket.AF_INET), timeout=timeout
+    )
     if not infos:
         raise OSError(f"no address for {fqdn}")
     return str(infos[0][4][0])
