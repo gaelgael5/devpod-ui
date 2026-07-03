@@ -10,6 +10,8 @@ systématique depuis /vsproxy). En dernier recours : base_domain.
 """
 from __future__ import annotations
 
+from fastapi import FastAPI, Request
+
 from portal.settings import resolve_cookie_domain
 
 
@@ -114,3 +116,63 @@ def test_no_external_url_no_derivation() -> None:
         resolve_cookie_domain("", "", external_url="", vs_proxy_domain="vs-dev.yoops.org")
         is None
     )
+
+
+def _session_app():  # type: ignore[no-untyped-def]
+    """Mini app FastAPI derrière _PortalSessionMiddleware, pour tester le Set-Cookie."""
+    import os
+
+    import portal.settings as settings_mod
+
+    # portal.app exécute create_app() à l'import : il faut un env minimal viable.
+    os.environ.setdefault("SESSION_SECRET_KEY", "test-secret-key-32chars-minimum!!")
+    os.environ.setdefault("PORTAL_VAULT_KEK", "0" * 64)
+    settings_mod._settings = None
+
+    from portal.app import _PortalSessionMiddleware
+
+    app = FastAPI()
+
+    @app.get("/set")
+    async def _set(request: Request) -> dict[str, bool]:
+        request.session["user"] = {"login": "x"}
+        return {"ok": True}
+
+    app.add_middleware(
+        _PortalSessionMiddleware, secret_key="test-key", session_cookie="portal_session"
+    )
+    return app
+
+
+def test_set_cookie_header_carries_effective_domain() -> None:
+    # Starlette fige security_flags à l'init : le Domain doit être injecté à
+    # l'émission du Set-Cookie, sinon le cookie reste host-only et le proxy
+    # VS Code (vs_proxy_domain) ne reçoit jamais la session.
+    from starlette.testclient import TestClient
+
+    from portal.settings import update_cookie_domain
+
+    # L'app d'abord : l'import de portal.app (via _session_app) exécute
+    # create_app(), qui réinitialise le domaine effectif depuis l'env.
+    client = TestClient(_session_app())
+    update_cookie_domain(
+        "", "", external_url="https://dev.yoops.org", vs_proxy_domain="vs-dev.yoops.org"
+    )
+    try:
+        cookie = client.get("/set").headers["set-cookie"]
+        assert "portal_session=" in cookie
+        assert "domain=.yoops.org" in cookie.lower()
+    finally:
+        update_cookie_domain("", "")
+
+
+def test_set_cookie_header_without_domain_when_unresolved() -> None:
+    from starlette.testclient import TestClient
+
+    from portal.settings import update_cookie_domain
+
+    update_cookie_domain("", "")
+    resp = TestClient(_session_app()).get("/set")
+    cookie = resp.headers["set-cookie"]
+    assert "portal_session=" in cookie
+    assert "domain=" not in cookie.lower()

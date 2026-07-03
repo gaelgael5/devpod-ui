@@ -14,6 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import Message, Receive, Scope, Send
 
 from .auth.router import router as auth_router
 from .mcp.monitor import monitor_loop
@@ -65,19 +66,40 @@ _log = structlog.get_logger(__name__)
 
 
 class _PortalSessionMiddleware(SessionMiddleware):
-    """SessionMiddleware dont le domaine de cookie est résolu dynamiquement.
+    """SessionMiddleware qui injecte l'attribut Domain au moment du Set-Cookie.
 
-    Lit get_effective_cookie_domain() à chaque Set-Cookie au lieu d'un domaine
-    figé à l'init — permet de changer cookie_domain via /admin/network sans redémarrage.
+    Starlette fige les attributs du cookie (security_flags, dont domain=) à
+    l'init du middleware : un domaine lu dynamiquement doit donc être ajouté à
+    l'émission de la réponse. get_effective_cookie_domain() est relu à chaque
+    Set-Cookie — modifiable via /admin/network sans redémarrage — et sans
+    Domain le cookie resterait host-only : jamais transmis à vs_proxy_domain
+    (proxy VS Code) ni aux sous-domaines workspaces (forward_auth).
     """
 
-    @property
-    def domain(self) -> str | None:
-        return get_effective_cookie_domain()
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        async def send_with_domain(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                self._append_cookie_domain(message)
+            await send(message)
 
-    @domain.setter
-    def domain(self, _value: str | None) -> None:
-        pass  # ignoré : on lit toujours le global via la property
+        await super().__call__(scope, receive, send_with_domain)
+
+    def _append_cookie_domain(self, message: Message) -> None:
+        domain = get_effective_cookie_domain()
+        if not domain:
+            return
+        prefix = f"{self.session_cookie}=".encode()
+        suffix = f"; domain={domain}".encode()
+        headers: list[tuple[bytes, bytes]] = []
+        for name, value in message.get("headers", []):
+            if (
+                name.lower() == b"set-cookie"
+                and value.startswith(prefix)
+                and b"domain=" not in value.lower()
+            ):
+                value = value + suffix
+            headers.append((name, value))
+        message["headers"] = headers
 
 
 # L'environnement Docker n'a pas de routage IPv6. urllib3 (requests/harpocrate)
@@ -274,7 +296,7 @@ def create_app() -> FastAPI:
         https_only=not settings.dev_mode,
         same_site="lax",
         max_age=86400,
-        # domain= ignoré par _PortalSessionMiddleware (lu via get_effective_cookie_domain).
+        # Domain injecté à l'émission par _PortalSessionMiddleware (relu à chaque réponse).
     )
     app.include_router(auth_router)
     app.include_router(me_router, prefix="/me")
