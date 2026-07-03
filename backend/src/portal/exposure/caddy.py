@@ -176,8 +176,10 @@ def _build_vs_portal_route(
                     {
                         "handle": [
                             {
+                                # {http.request.uri} : le raccourci Caddyfile {uri}
+                                # n'existe pas en config JSON (remplacé par du vide).
                                 "handler": "rewrite",
-                                "uri": "/vsproxy{uri}",
+                                "uri": "/vsproxy{http.request.uri}",
                             },
                             {
                                 "handler": "reverse_proxy",

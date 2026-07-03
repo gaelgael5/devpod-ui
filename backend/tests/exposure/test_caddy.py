@@ -200,3 +200,24 @@ async def test_upsert_route_post_500_raises() -> None:
                     match_host="ws-alice-myapp.dev.yoops.org",
                     upstream="192.168.1.50:41000",
                 )
+
+
+def test_vs_portal_route_rewrite_preserves_uri() -> None:
+    """Le rewrite de la route vs-portal doit préserver chemin + query.
+
+    En config JSON (API admin), le raccourci Caddyfile {uri} n'existe pas :
+    Caddy le remplace par du vide et TOUTES les requêtes arrivent sur /vsproxy
+    nu (les assets VS Code reçoivent l'index HTML → page blanche). Le
+    placeholder runtime correct est {http.request.uri}.
+    """
+    from portal.exposure.caddy import _build_vs_portal_route
+
+    route = _build_vs_portal_route(
+        route_id="vs-portal",
+        match_host="vs-dev.yoops.org",
+        portal_upstream="portal:8080",
+    )
+    subroute = route["handle"][0]
+    handlers = subroute["routes"][0]["handle"]
+    rewrite = next(h for h in handlers if h["handler"] == "rewrite")
+    assert rewrite["uri"] == "/vsproxy{http.request.uri}"
