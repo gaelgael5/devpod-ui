@@ -69,3 +69,15 @@
 
 ## [api]
 - Update partiel : ne jamais écraser un spec stocké avec les défauts du DTO. Fusionner via `req.model_fields_set` — seuls les champs explicitement envoyés priment.
+
+## [observability/alloy-caddy]
+- `faro.receiver` (Alloy) n'écoute QUE sur `/collect`, aucun préfixe configurable côté composant — un `reverse_proxy /faro/collect* alloy:PORT` transmet le chemin complet et prend un 404. Utiliser `handle_path /faro/* { reverse_proxy alloy:PORT }` pour retirer le préfixe public avant de proxier.
+- `docker compose` (même `exec`/`logs` sur UN service) interpole tout le YAML avant d'exécuter quoi que ce soit — une var requise manquante pour un service sans rapport bloque TOUTES les commandes compose. Contournement diagnostic : `docker exec <container>`/`docker logs <container>` (docker brut, ignore le compose file).
+- Sync des templates compose builtin (`compose_bootstrap.py`) gatée sur un simple `version` string : modifier le contenu (ex. `extra_files`) SANS bumper la version → la resynchro ne se déclenche jamais sur les déploiements existants, silencieusement, aucune erreur ni log.
+
+## [deploy/cloudflare]
+- Cloudflare (edge + navigateur) peut servir un bundle JS périmé un moment après un redeploy backend réussi sur dev.yoops.org — hard refresh (Ctrl+Shift+R) avant de conclure qu'un fix ne marche pas.
+- Un 502 Cloudflare "brandé" (Ray ID, page HTML complète) sur UN chemin précis pendant que le reste du domaine fonctionne = problème de routage du Tunnel Cloudflare, pas de l'app. Isoler via curl direct (bypass Caddy puis bypass tunnel) avant de creuser côté code — si backend+Caddy répondent proprement en direct, c'est hors périmètre du dépôt (config tunnel/cloudflare-manager).
+
+## [mcp/logs_query]
+- Les filtres structurés de `logs_query` (host/role/project/service/unit/job) doivent suivre les labels RÉELLEMENT posés par Alloy (`external_labels`/`extra_log_labels`) — une nouvelle source de logs (ex. `job=faro` pour le frontend) est invisible pour un agent si le filtre ET la description de l'outil ne la mentionnent pas explicitement. Vérifier en conditions réelles (cache réchauffé via `warm_global_cache`, pas un script isolé) avant de considérer l'outil fonctionnel.
