@@ -746,6 +746,9 @@ class DevPodService:
         # par DevPod, qui est perdue au rebuild du conteneur portail.
         if ws_id.startswith("-"):
             raise ValueError(f"Insecure ws_id: {ws_id!r}")
+        # Re-up/reconcile : tuer un éventuel tunnel précédent de ce workspace,
+        # sinon l'ancien processus garde le port et le nouveau bind échoue.
+        await self._stop_port_forward(ws_id)
         proxy_cmd = f"{shlex.join(self._devpod_bin)} ssh --stdio {shlex.quote(ws_id)}"
         cmd = [
             "ssh",
@@ -753,6 +756,9 @@ class DevPodService:
             "-o", f"ProxyCommand={proxy_cmd}",
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
+            # Bind raté (port déjà pris) → ssh doit mourir, pas continuer sans
+            # forward : le check post-spawn le détecte alors comme une erreur.
+            "-o", "ExitOnForwardFailure=yes",
             "-L", f"0.0.0.0:{host_port}:localhost:{_OPENVSCODE_SERVER_PORT}",
             "root@devpod-ws",
         ]
