@@ -37,7 +37,12 @@ export function useSaveLogs() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'logs-config'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'logs-config'] })
+      // Query distincte consommée par AppShell/WorkspaceList (GET /me/logs-config,
+      // pilote le bouton "Logs") — sans ça elle reste périmée jusqu'à son staleTime.
+      qc.invalidateQueries({ queryKey: ['logs-config'] })
+    },
     onError: (err: Error) => toast.error(err.message),
   })
 }

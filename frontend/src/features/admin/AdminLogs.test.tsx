@@ -3,7 +3,14 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
+import { useLogsConfig } from '@/features/grafana/useLogsConfig'
 import AdminLogs from './AdminLogs'
+
+/** Sonde consommant la même query que le bouton Logs (AppShell/WorkspaceList). */
+function LogsButtonProbe() {
+  const { data } = useLogsConfig()
+  return <div data-testid="probe">{data?.enabled ? 'enabled' : 'disabled'}</div>
+}
 
 const CONFIG = {
   enabled: true,
@@ -85,6 +92,39 @@ describe('AdminLogs', () => {
     renderWithProviders(<AdminLogs />)
 
     expect(await screen.findByDisplayValue('http://loki:3100')).toBeInTheDocument()
+  })
+
+  it('invalide /me/logs-config après Save (bouton Logs à jour sans reload)', async () => {
+    let saved = false
+    server.use(
+      http.get('/admin/logs-config', () => HttpResponse.json({ ...CONFIG, enabled: false })),
+      http.get('/me/logs-config', () =>
+        HttpResponse.json(
+          saved
+            ? { enabled: true, grafana_url: CONFIG.grafana_url }
+            : { enabled: false, grafana_url: null },
+        )),
+      http.put('/admin/logs-config', async ({ request }) => {
+        await request.json()
+        saved = true
+        return HttpResponse.json({ ...CONFIG, enabled: true })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(
+      <>
+        <AdminLogs />
+        <LogsButtonProbe />
+      </>,
+    )
+
+    await screen.findByDisplayValue(CONFIG.loki_push_url)
+    expect(await screen.findByTestId('probe')).toHaveTextContent('disabled')
+
+    await user.click(screen.getByRole('checkbox', { name: /centralized logs enabled/i }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByTestId('probe')).toHaveTextContent('enabled')
   })
 
   it('ne touche pas aux URLs déjà configurées même si workspace_host est renseigné', async () => {
