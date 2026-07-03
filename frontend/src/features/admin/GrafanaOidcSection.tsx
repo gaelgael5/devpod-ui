@@ -50,7 +50,7 @@ function GrafanaOidcForm({ initial }: { initial: GrafanaOidcConfig }) {
   })()
 
   return (
-    <div className="mt-8 border-t pt-8">
+    <div>
       <h2 className="mb-1 font-semibold">{t('admin.oidc.grafana.title')}</h2>
       <p className="mb-4 text-sm text-muted-foreground">{t('admin.oidc.grafana.intro')}</p>
 

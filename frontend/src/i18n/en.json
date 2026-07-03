@@ -239,6 +239,10 @@
     "oidc": {
       "navLabel": "OIDC configuration",
       "title": "OIDC configuration",
+      "tabs": {
+        "portal": "Portal",
+        "grafana": "Grafana"
+      },
       "issuer": "Issuer URL",
       "clientId": "Client ID",
       "clientSecret": "Client secret",

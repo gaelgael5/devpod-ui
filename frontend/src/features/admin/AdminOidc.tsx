@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAdminOidc, useSaveOidc, type OidcConfig } from './useAdminOidc'
 import GrafanaOidcSection from './GrafanaOidcSection'
 
@@ -142,11 +143,19 @@ export default function AdminOidc() {
       {isLoading && <p className="text-muted-foreground">…</p>}
       {isError && <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>}
       {data && (
-        <>
-          <OidcForm initial={data} />
-          <KeycloakGuide redirectUri={data.redirect_uri} />
-          <GrafanaOidcSection />
-        </>
+        <Tabs defaultValue="portal">
+          <TabsList>
+            <TabsTrigger value="portal">{t('admin.oidc.tabs.portal')}</TabsTrigger>
+            <TabsTrigger value="grafana">{t('admin.oidc.tabs.grafana')}</TabsTrigger>
+          </TabsList>
+          <TabsContent value="portal">
+            <OidcForm initial={data} />
+            <KeycloakGuide redirectUri={data.redirect_uri} />
+          </TabsContent>
+          <TabsContent value="grafana">
+            <GrafanaOidcSection />
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   )
