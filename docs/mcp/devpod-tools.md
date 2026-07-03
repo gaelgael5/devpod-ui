@@ -1265,7 +1265,7 @@ Paramètre optionnel `include` pour enrichir la réponse : - 'workload' : compte
 ## `devpod__logs_query`
 
 - **Scope** : `read`
-- **Description** : Interroge les logs centralisés de la stack (tous les hosts + workspaces + système). Filtres structurés par host/role/project/service/unit/level, ou expression LogQL brute pour les cas avancés. Retourne les lignes correspondantes et un lien Grafana pré-filtré. Préférer cet outil à workspace_logs/compose_service_logs pour une vue transverse ou historique ; les outils par-conteneur restent utiles pour du point-in-time sur une cible. Impact: read-only — aucune mutation, simple lecture de l'agrégateur Loki.
+- **Description** : Interroge les logs centralisés de la stack (tous les hosts + workspaces + système + erreurs navigateur devpod-ui). Filtres structurés par host/role/project/service/unit/job/level, ou expression LogQL brute pour les cas avancés. Pour les erreurs/logs console/web vitals du frontend devpod-ui : job='faro' (source='frontend'). Retourne les lignes correspondantes et un lien Grafana pré-filtré. Préférer cet outil à workspace_logs/compose_service_logs pour une vue transverse ou historique ; les outils par-conteneur restent utiles pour du point-in-time sur une cible. Impact: read-only — aucune mutation, simple lecture de l'agrégateur Loki.
 - **Schéma d'entrée** :
 
 ```json
@@ -1296,6 +1296,10 @@ Paramètre optionnel `include` pour enrichir la réponse : - 'workload' : compte
     "unit": {
       "type": "string",
       "description": "Filtre label 'unit' (logs journald, ex. 'docker.service')."
+    },
+    "job": {
+      "type": "string",
+      "description": "Filtre label 'job'. 'faro' = logs/erreurs console et web vitals du frontend devpod-ui (navigateur) ; 'journal' = logs système journald."
     },
     "level": {
       "type": "string",

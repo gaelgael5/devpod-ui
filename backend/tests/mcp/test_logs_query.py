@@ -59,6 +59,12 @@ def test_build_logql_raw_query_wins_over_filters() -> None:
     assert build_logql(p) == "{custom='x'}"
 
 
+def test_build_logql_job_filter_finds_faro_logs() -> None:
+    """job='faro' cible les logs/erreurs navigateur (Grafana Faro, devpod-ui)."""
+    p = LogsQueryParams(job="faro")
+    assert build_logql(p) == '{job="faro"}'
+
+
 # ---------------------------------------------------------------------------
 # _flatten_streams
 # ---------------------------------------------------------------------------
@@ -214,6 +220,39 @@ async def test_logs_query_success() -> None:
     assert result["truncated"] is False
     assert result["query"] == '{compose_project="rag"} | json | level="error"'
     assert result["lines"][0]["labels"]["compose_project"] == "rag"
+    assert result["grafana_url"] is not None
+    assert "grafana:3000" in result["grafana_url"]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_logs_query_job_faro_filter() -> None:
+    """job='faro' est un filtre structuré valide, exposé côté agent MCP."""
+    ts_ns = str(1_700_000_000 * 1_000_000_000)
+    loki_body = {
+        "data": {
+            "resultType": "streams",
+            "result": [
+                {
+                    "stream": {"job": "faro", "source": "frontend"},
+                    "values": [[ts_ns, 'kind=exception value="console.error: boom"']],
+                }
+            ],
+        }
+    }
+    respx.get("http://loki:3100/loki/api/v1/query_range").mock(
+        return_value=httpx.Response(200, json=loki_body)
+    )
+
+    with patch(
+        "portal.mcp.devpod_tools.logs_tools.load_global",
+        return_value=_make_logs_config(),
+    ):
+        result = await _logs_query(None, {"job": "faro"}, "user")
+
+    assert result["query"] == '{job="faro"}'
+    assert result["count"] == 1
+    assert result["lines"][0]["labels"]["source"] == "frontend"
     assert result["grafana_url"] is not None
     assert "grafana:3000" in result["grafana_url"]
 

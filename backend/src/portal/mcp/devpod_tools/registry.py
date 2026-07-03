@@ -930,9 +930,11 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
     "logs_query": {
         "description": (
             "Interroge les logs centralisés de la stack "
-            "(tous les hosts + workspaces + système). "
-            "Filtres structurés par host/role/project/service/unit/level, "
+            "(tous les hosts + workspaces + système + erreurs navigateur devpod-ui). "
+            "Filtres structurés par host/role/project/service/unit/job/level, "
             "ou expression LogQL brute pour les cas avancés. "
+            "Pour les erreurs/logs console/web vitals du frontend devpod-ui : job='faro' "
+            "(source='frontend'). "
             "Retourne les lignes correspondantes et un lien Grafana pré-filtré. "
             "Préférer cet outil à workspace_logs/compose_service_logs "
             "pour une vue transverse ou historique ; "
@@ -965,6 +967,13 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
                 "unit": {
                     "type": "string",
                     "description": "Filtre label 'unit' (logs journald, ex. 'docker.service').",
+                },
+                "job": {
+                    "type": "string",
+                    "description": (
+                        "Filtre label 'job'. 'faro' = logs/erreurs console et web vitals du "
+                        "frontend devpod-ui (navigateur) ; 'journal' = logs système journald."
+                    ),
                 },
                 "level": {
                     "type": "string",

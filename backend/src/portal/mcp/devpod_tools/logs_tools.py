@@ -24,6 +24,7 @@ _LABEL: dict[str, str] = {
     "project": "compose_project",
     "service": "compose_service",
     "unit": "unit",
+    "job": "job",
 }
 
 
@@ -36,6 +37,7 @@ class LogsQueryParams(BaseModel):
     project: str | None = None
     service: str | None = None
     unit: str | None = None
+    job: str | None = None
     level: str | None = None
     since: str = "1h"
     start: str | None = None
@@ -52,7 +54,7 @@ def build_logql(p: LogsQueryParams) -> str:
     if not sel:
         raise ValueError(
             "logs_query: fournir une query LogQL ou au moins un filtre de label "
-            "(host/role/project/service/unit)"
+            "(host/role/project/service/unit/job)"
         )
     expr = "{" + ",".join(sel) + "}"
     if p.level:
