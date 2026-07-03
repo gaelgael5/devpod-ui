@@ -2,10 +2,24 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from 'react-router-dom'
+import { getWebInstrumentations, initializeFaro } from '@grafana/faro-web-sdk'
 import { Toaster } from '@/components/ui/sonner'
 import { router } from './router'
 import { i18nReady } from './i18n'
 import './index.css'
+
+// Avant tout le reste : capte les erreurs/logs même si l'app plante à l'init.
+// Même chemin relatif same-origin que le reste des appels API (cf. shared/api/client.ts)
+// → Caddy route /faro/collect vers le collecteur Alloy interne (deploy/Caddyfile).
+initializeFaro({
+  url: '/faro/collect',
+  app: {
+    name: 'devpod-ui',
+    version: __APP_VERSION__,
+    environment: import.meta.env.MODE,
+  },
+  instrumentations: [...getWebInstrumentations({ captureConsole: true })],
+})
 
 const queryClient = new QueryClient({
   defaultOptions: {
