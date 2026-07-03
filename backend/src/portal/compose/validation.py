@@ -41,6 +41,22 @@ def referenced_vars(compose_content: str) -> set[str]:
     return set(_VAR_RE.findall(compose_content))
 
 
+def first_service_name(compose_content: str) -> str | None:
+    """Nom du premier service défini dans le compose (ordre du document).
+
+    `None` si le compose est invalide ou sans section `services` — best-effort,
+    utilisé pour suggérer un nom de déploiement, jamais pour valider.
+    """
+    try:
+        parsed = yaml.safe_load(compose_content)
+    except yaml.YAMLError:
+        return None
+    services = parsed.get("services") if isinstance(parsed, dict) else None
+    if not isinstance(services, dict) or not services:
+        return None
+    return str(next(iter(services)))
+
+
 def _port_mappings(parsed: dict[str, Any]) -> list[Any]:
     """Retourne les entrées brutes de la liste 'ports' de chaque service (str, int ou dict)."""
     out: list[Any] = []

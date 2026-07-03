@@ -229,6 +229,7 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
           onOpenChange={(o) => { if (!o) setLaunchOpen(false) }}
           nodeId={host.name}
           nodeLabel={host.alias}
+          wsName={wsName}
         />
       )}
 

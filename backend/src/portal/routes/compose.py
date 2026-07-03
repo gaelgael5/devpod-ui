@@ -15,7 +15,7 @@ from ..compose import service as csvc
 from ..compose.models import ComposeDeployment, ComposeTemplate, validate_slug
 from ..compose.ports import PortConflict
 from ..compose.service import ComposeServiceError
-from ..compose.validation import TemplateValidationError, validate_template
+from ..compose.validation import TemplateValidationError, first_service_name, validate_template
 from ..config.models import HostConfig
 from ..config.store import load_global, load_user
 from ..db.engine import _get_engine, get_conn
@@ -42,7 +42,11 @@ async def list_templates(
 ) -> list[dict[str, Any]]:
     auto_start = {a.template_id for a in await cdb.list_auto_start_for_user(conn, user.login)}
     return [
-        {**t.model_dump(mode="json"), "auto_start": t.id in auto_start}
+        {
+            **t.model_dump(mode="json"),
+            "auto_start": t.id in auto_start,
+            "first_service": first_service_name(t.compose_content),
+        }
         for t in await cdb.list_templates(conn, tag)
     ]
 
@@ -56,7 +60,7 @@ async def get_template(
     tpl = await cdb.get_template(conn, template_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="template inconnu")
-    return tpl.model_dump(mode="json")
+    return {**tpl.model_dump(mode="json"), "first_service": first_service_name(tpl.compose_content)}
 
 
 @router.post("/templates", status_code=201)

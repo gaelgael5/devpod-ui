@@ -26,6 +26,7 @@ export interface ComposeTemplate {
   created_at?: string | null
   updated_at?: string | null
   auto_start: boolean
+  first_service: string | null
 }
 
 export interface ComposeDeployment {

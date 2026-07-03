@@ -251,7 +251,7 @@ export const handlers = [
     HttpResponse.json([
       { id: 'browserless', name: 'Browserless', description: '', tags: ['web'],
         version: '1', compose_content: 'services: {}', parameters: [], source: 'user',
-        auto_start: false },
+        auto_start: false, first_service: null },
     ])),
   http.delete('/api/compose/templates/:id', () => new HttpResponse(null, { status: 204 })),
   http.put('/api/compose/templates/:id/auto-start', () =>

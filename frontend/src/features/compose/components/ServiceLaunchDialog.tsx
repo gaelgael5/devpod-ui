@@ -25,6 +25,8 @@ interface Props {
   nodeId: string
   /** Label affiché dans le dialog (= TestHost.alias) */
   nodeLabel: string
+  /** Nom du workspace — utilisé pour suggérer le nom du service déployé. */
+  wsName: string
 }
 
 function parsePortConflict(text: string): PortConflictDetail | null {
@@ -89,18 +91,24 @@ function DeployForm({
   template,
   nodeId,
   nodeLabel,
+  wsName,
   onBack,
   onSuccess,
 }: {
   template: ComposeTemplate
   nodeId: string
   nodeLabel: string
+  wsName: string
   onBack: () => void
   onSuccess: () => void
 }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
-  const [name, setName] = useState('')
+  // Convention : {premier service du compose}-{nom du workspace}, ex. "alloy-devpod".
+  // Laisse Start désactivé (placeholder) si le compose n'a pas de service identifiable.
+  const [name, setName] = useState(() =>
+    template.first_service ? `${template.first_service}-${wsName}` : '',
+  )
   const [envValues, setEnvValues] = useState<Record<string, string>>(
     () => Object.fromEntries(template.parameters.map((p) => [p.key, p.default ?? ''])),
   )
@@ -252,7 +260,7 @@ function DeployForm({
   )
 }
 
-export default function ServiceLaunchDialog({ open, onOpenChange, nodeId, nodeLabel }: Props) {
+export default function ServiceLaunchDialog({ open, onOpenChange, nodeId, nodeLabel, wsName }: Props) {
   const { t } = useTranslation()
   const [selected, setSelected] = useState<ComposeTemplate | null>(null)
 
@@ -284,6 +292,7 @@ export default function ServiceLaunchDialog({ open, onOpenChange, nodeId, nodeLa
             template={selected}
             nodeId={nodeId}
             nodeLabel={nodeLabel}
+            wsName={wsName}
             onBack={() => setSelected(null)}
             onSuccess={handleClose}
           />

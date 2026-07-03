@@ -196,3 +196,26 @@ volumes:
 """
     result = validation.validate_template(content, [])
     assert isinstance(result, list)
+
+
+def test_first_service_name_returns_first_defined_service() -> None:
+    content = """
+services:
+  alloy:
+    image: grafana/alloy:v1.5.1
+  sidecar:
+    image: busybox
+"""
+    assert validation.first_service_name(content) == "alloy"
+
+
+def test_first_service_name_none_without_services_key() -> None:
+    assert validation.first_service_name("volumes:\n  data:\n") is None
+
+
+def test_first_service_name_none_on_invalid_yaml() -> None:
+    assert validation.first_service_name("services:\n  bad: [unterminated") is None
+
+
+def test_first_service_name_none_on_empty_services() -> None:
+    assert validation.first_service_name("services: {}\n") is None
