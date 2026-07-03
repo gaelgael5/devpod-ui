@@ -18,14 +18,14 @@ const ALLOY_TEMPLATE = {
   first_service: 'alloy',
 }
 
-function openDeployStep() {
+function openDeployStep(namingHint?: string) {
   return renderWithProviders(
     <ServiceLaunchDialog
       open
       onOpenChange={() => {}}
       nodeId="host-test-106-1"
       nodeLabel="test1"
-      wsName="devpod"
+      namingHint={namingHint}
     />,
   )
 }
@@ -34,12 +34,24 @@ describe('ServiceLaunchDialog', () => {
   it('pré-remplit le nom avec {premier service}-{workspace} et active Start', async () => {
     server.use(http.get('/api/compose/templates', () => HttpResponse.json([ALLOY_TEMPLATE])))
     const user = userEvent.setup()
-    openDeployStep()
+    openDeployStep('devpod')
 
     await user.click(await screen.findByText('Collecteur de logs (Alloy)'))
 
     const nameInput = await screen.findByLabelText(/name|nom/i)
     expect(nameInput).toHaveValue('alloy-devpod')
+    expect(screen.getByRole('button', { name: /start|démarrer/i })).toBeEnabled()
+  })
+
+  it('pré-remplit le nom avec le seul premier service quand aucune suggestion de nommage n\'est fournie', async () => {
+    server.use(http.get('/api/compose/templates', () => HttpResponse.json([ALLOY_TEMPLATE])))
+    const user = userEvent.setup()
+    openDeployStep()
+
+    await user.click(await screen.findByText('Collecteur de logs (Alloy)'))
+
+    const nameInput = await screen.findByLabelText(/name|nom/i)
+    expect(nameInput).toHaveValue('alloy')
     expect(screen.getByRole('button', { name: /start|démarrer/i })).toBeEnabled()
   })
 

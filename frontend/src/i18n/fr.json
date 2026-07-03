@@ -459,7 +459,14 @@
       "showCert": "Voir le certificat TLS",
       "hideCert": "Masquer le certificat",
       "copyCert": "Copier",
-      "proxmoxPassword": "Mot de passe"
+      "proxmoxPassword": "Mot de passe",
+      "usage": "Destination",
+      "usageValues": {
+        "workspaces": "Workspaces",
+        "tests": "Machine de test",
+        "portail": "Portail",
+        "ressources": "Ressources partagées"
+      }
     },
     "deleteHost": "Supprimer l'hôte",
     "deleteHostTitle": "Supprimer l'hôte",
@@ -478,6 +485,10 @@
       "owner": "Appartient au workspace",
       "alias": "alias SSH",
       "noServices": "Aucun service compose actif"
+    },
+    "resourceHosts": {
+      "sectionTitle": "Hosts ressources",
+      "empty": "Aucun host ressource. Ajoutez un host de type ssh avec la destination « Ressources partagées »."
     },
     "sshTerminal": {
       "openBtn": "SSH",

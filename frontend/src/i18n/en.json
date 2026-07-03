@@ -459,7 +459,14 @@
       "showCert": "View TLS certificate",
       "hideCert": "Hide certificate",
       "copyCert": "Copy",
-      "proxmoxPassword": "Password"
+      "proxmoxPassword": "Password",
+      "usage": "Purpose",
+      "usageValues": {
+        "workspaces": "Workspaces",
+        "tests": "Test machine",
+        "portail": "Portal",
+        "ressources": "Shared resources"
+      }
     },
     "deleteHost": "Delete host",
     "deleteHostTitle": "Delete host",
@@ -478,6 +485,10 @@
       "owner": "Owned by workspace",
       "alias": "SSH alias",
       "noServices": "No running compose services"
+    },
+    "resourceHosts": {
+      "sectionTitle": "Resource hosts",
+      "empty": "No resource host yet. Add an ssh host with the \"Shared resources\" purpose."
     },
     "sshTerminal": {
       "openBtn": "SSH",

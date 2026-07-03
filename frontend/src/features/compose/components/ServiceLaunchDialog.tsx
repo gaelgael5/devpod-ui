@@ -25,8 +25,8 @@ interface Props {
   nodeId: string
   /** Label affiché dans le dialog (= TestHost.alias) */
   nodeLabel: string
-  /** Nom du workspace — utilisé pour suggérer le nom du service déployé. */
-  wsName: string
+  /** Suggestion de nommage (workspace ou host) — utilisée pour préremplir le nom du service. */
+  namingHint?: string
 }
 
 function parsePortConflict(text: string): PortConflictDetail | null {
@@ -91,23 +91,26 @@ function DeployForm({
   template,
   nodeId,
   nodeLabel,
-  wsName,
+  namingHint,
   onBack,
   onSuccess,
 }: {
   template: ComposeTemplate
   nodeId: string
   nodeLabel: string
-  wsName: string
+  namingHint?: string
   onBack: () => void
   onSuccess: () => void
 }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
-  // Convention : {premier service du compose}-{nom du workspace}, ex. "alloy-devpod".
+  // Convention : {premier service du compose}-{suggestion}, ex. "alloy-devpod" (workspace)
+  // ou "alloy-host-resources-1" (host ressource). Sans suggestion, le premier service seul.
   // Laisse Start désactivé (placeholder) si le compose n'a pas de service identifiable.
   const [name, setName] = useState(() =>
-    template.first_service ? `${template.first_service}-${wsName}` : '',
+    template.first_service
+      ? (namingHint ? `${template.first_service}-${namingHint}` : template.first_service)
+      : '',
   )
   const [envValues, setEnvValues] = useState<Record<string, string>>(
     () => Object.fromEntries(template.parameters.map((p) => [p.key, p.default ?? ''])),
@@ -260,7 +263,7 @@ function DeployForm({
   )
 }
 
-export default function ServiceLaunchDialog({ open, onOpenChange, nodeId, nodeLabel, wsName }: Props) {
+export default function ServiceLaunchDialog({ open, onOpenChange, nodeId, nodeLabel, namingHint }: Props) {
   const { t } = useTranslation()
   const [selected, setSelected] = useState<ComposeTemplate | null>(null)
 
@@ -292,7 +295,7 @@ export default function ServiceLaunchDialog({ open, onOpenChange, nodeId, nodeLa
             template={selected}
             nodeId={nodeId}
             nodeLabel={nodeLabel}
-            wsName={wsName}
+            namingHint={namingHint}
             onBack={() => setSelected(null)}
             onSuccess={handleClose}
           />
