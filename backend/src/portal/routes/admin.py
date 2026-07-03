@@ -39,7 +39,7 @@ router = APIRouter(tags=["admin"])
 _ADDRESS_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}@[a-zA-Z0-9][a-zA-Z0-9._-]{0,253}$")
 
 
-# ─── DTOs ─────────────────────────────────────────────────────────────────────
+# ─── DTOs ────────────────────────────────────────────────────────────────────
 
 
 class HostCreateRequest(BaseModel):
@@ -56,7 +56,8 @@ class HostCreateRequest(BaseModel):
     vmid: str = ""
     ci_password: str = ""  # valeur brute, stockée dans harpo au CREATE/UPDATE
     # None = défaut à la création ("workspaces"), valeur existante préservée à l'update.
-    usage: Literal["workspaces", "tests", "portail"] | None = None
+    # ressources (spec 33) : service partagé permanent, sans workspace propriétaire.
+    usage: Literal["workspaces", "tests", "portail", "ressources"] | None = None
 
 
 class BootstrapSshRequest(BaseModel):
@@ -64,7 +65,7 @@ class BootstrapSshRequest(BaseModel):
     proxmox_node: str = ""  # optionnel si host.proxmox_node est déjà connu
 
 
-# ─── Config ───────────────────────────────────────────────────────────────────
+# ─── Config ──────────────────────────────────────────────────────────────────
 
 
 @router.get("/config")
@@ -92,7 +93,7 @@ async def put_admin_config(
     return new_cfg.model_dump(mode="json")
 
 
-# ─── Configuration OIDC ───────────────────────────────────────────────────────
+# ─── Configuration OIDC ──────────────────────────────────────────────────────
 
 
 class OidcUpdateRequest(BaseModel):
@@ -155,7 +156,7 @@ async def put_admin_oidc(
     }
 
 
-# ─── Configuration de la chaîne de logs centralisés (spec 30 §2) ──────────────
+# ─── Configuration de la chaîne de logs centralisés (spec 30 §2) ────────────
 # enabled/loki_push_url/loki_query_url/grafana_url/module/push_token : le bloc
 # qui pilote à la fois le bouton "Logs" (GET /me/logs-config), la primitive MCP
 # logs_query et les variables injectées aux collecteurs Alloy déployés.
@@ -309,7 +310,7 @@ async def put_admin_grafana_oidc(
     return {"client_id": body.client_id, "has_secret": bool(new_secret)}
 
 
-# ─── Domaine local (résolution DNS des VM de test DHCP) ──────────────────────
+# ─── Domaine local (résolution DNS des VM de test DHCP) ─────────────────────
 
 
 class LocalDomainRequest(BaseModel):
@@ -448,7 +449,7 @@ async def resolve_workspace_host(
     return {"fqdn": fqdn, "ip": ip}
 
 
-# ─── Hosts CRUD ───────────────────────────────────────────────────────────────
+# ─── Hosts CRUD ──────────────────────────────────────────────────────────────
 
 
 @router.get("/hosts")
@@ -695,7 +696,7 @@ async def list_host_deployments(
     return result
 
 
-# ─── Bootstrap SSH ────────────────────────────────────────────────────────────
+# ─── Bootstrap SSH ───────────────────────────────────────────────────────────
 
 
 @router.post("/hosts/{name}/bootstrap-ssh")
@@ -855,7 +856,7 @@ async def bootstrap_host_ssh(
     return {"public_key": public_key, "address": body.address, "host_cert_slug": cert_slug}
 
 
-# ─── Cert ─────────────────────────────────────────────────────────────────────
+# ─── Cert ────────────────────────────────────────────────────────────────────
 
 
 @router.get("/hosts/{name}/cert")
@@ -918,7 +919,7 @@ async def get_host_cert(
     return result
 
 
-# ─── SSH helper (conservé pour les WebSocket SSH proxy) ──────────────────────
+# ─── SSH helper (conservé pour les WebSocket SSH proxy) ─────────────────────
 
 
 async def _run_script_on_pve(node: Hypervisor, script: str, timeout: float = 30.0) -> str:

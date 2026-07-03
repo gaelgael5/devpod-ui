@@ -14,8 +14,9 @@ export interface HostConfig {
   // Références harpo_* (lecture seule — jamais de secret brut)
   ci_password_secret_slug?: string
   host_cert_slug?: string
-  // Destination : workspaces (sélectionnable à la création) ou tests.
-  usage?: 'workspaces' | 'tests'
+  // Destination : workspaces, tests, portail (machine du portail), ou
+  // ressources (service partagé permanent, sans workspace propriétaire — spec 33).
+  usage?: 'workspaces' | 'tests' | 'portail' | 'ressources'
 }
 
 export interface HostCreatePayload {
@@ -27,6 +28,7 @@ export interface HostCreatePayload {
   proxmox_node?: string
   vmid?: string
   ci_password?: string
+  usage?: 'workspaces' | 'tests' | 'portail' | 'ressources'
 }
 
 export function useHosts() {
@@ -243,7 +245,7 @@ export function useBootstrapSsh() {
   })
 }
 
-// ─── Groupement des hosts de test par workspace ───────────────────────────────
+// ─── Groupement des hosts de test par workspace ─────────────────────────────
 
 export interface TestHostEntry {
   host: HostConfig

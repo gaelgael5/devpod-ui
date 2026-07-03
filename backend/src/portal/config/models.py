@@ -160,8 +160,9 @@ class HostConfig(BaseModel):
     # Préférences de stockage des secrets
     storage_type: Literal["local", "harpocrate"] = "local"
     vault_identifier: str = ""
-    # Destination du host : workspaces (sélectionnable à la création) ou tests.
-    usage: Literal["workspaces", "tests", "portail"] = "workspaces"
+    # Destination du host : workspaces, tests, portail (machine du portail), ou
+    # ressources (service partagé permanent, sans workspace propriétaire — spec 33).
+    usage: Literal["workspaces", "tests", "portail", "ressources"] = "workspaces"
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")

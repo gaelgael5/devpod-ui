@@ -41,10 +41,12 @@ _log = structlog.get_logger(__name__)
 
 _SECRET_REF_RE = re.compile(r"^\$\{(vault|env)://.+\}$")
 
+# Spec 33 : "ressources" = service partagé permanent, sans workspace propriétaire.
 _ROLE_MAP: dict[str, str] = {
     "portail": "portail",
     "workspaces": "workspace",
     "tests": "test",
+    "ressources": "ressource",
 }
 
 
