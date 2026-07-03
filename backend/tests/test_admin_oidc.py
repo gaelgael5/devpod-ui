@@ -47,8 +47,30 @@ async def test_get_oidc_hides_secret() -> None:
 
     with patch("portal.routes.admin.load_global", return_value=_cfg("sek")):
         res = await get_admin_oidc(user=_admin())
-    assert res == {"issuer": "https://iss", "client_id": "cid", "has_secret": True}
+    assert res["issuer"] == "https://iss"
+    assert res["client_id"] == "cid"
+    assert res["has_secret"] is True
     assert "client_secret" not in res
+
+
+@pytest.mark.asyncio
+async def test_get_oidc_exposes_allow_local_auth() -> None:
+    from portal.config.models import AuthConfig, GlobalConfig, OidcConfig, ServerConfig
+    from portal.routes.admin import get_admin_oidc
+
+    cfg = GlobalConfig(
+        version="1",
+        server=ServerConfig(base_domain="", external_url=""),
+        auth=AuthConfig(
+            oidc=OidcConfig(
+                issuer="https://iss", client_id="cid", client_secret="sek",
+                allow_local_auth=False,
+            )
+        ),
+    )
+    with patch("portal.routes.admin.load_global", return_value=cfg):
+        res = await get_admin_oidc(user=_admin())
+    assert res["allow_local_auth"] is False
 
 
 @pytest.mark.asyncio
