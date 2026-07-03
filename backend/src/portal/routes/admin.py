@@ -23,6 +23,7 @@ from ..db.global_config import save_global_db
 from ..db.tables import harpo_certificates
 from ..db.tables import workspace_status as _ws_status_table
 from ..db.tables import workspaces as _ws_table
+from ..net import build_resolve_fqdn, is_ipv4, resolve_ipv4
 from ..secrets.system import (
     delete_system_cert,
     delete_system_secret,
@@ -408,6 +409,34 @@ async def put_network(
         "vs_proxy_domain": clean.get("vs_proxy_domain", ""),
         "cookie_domain": clean.get("cookie_domain", ""),
     }
+
+
+class ResolveHostRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    host: str = ""
+
+
+@router.post("/network/resolve-workspace-host")
+async def resolve_workspace_host(
+    body: ResolveHostRequest, user: UserInfo = Depends(require_admin)
+) -> dict[str, str]:
+    """Résout l'IPv4 courante de workspace_host pour tester la config DHCP.
+
+    IP littérale → renvoyée telle quelle. Sinon `<host>.<local_domain>` est résolu
+    via le resolver du portail. 422 si vide, 502 si non résolvable.
+    """
+    host = body.host.strip()
+    if not host:
+        raise HTTPException(status_code=422, detail="host vide")
+    if is_ipv4(host):
+        return {"fqdn": host, "ip": host}
+    fqdn = build_resolve_fqdn(host, load_global().server.local_domain)
+    try:
+        ip = await resolve_ipv4(fqdn)
+    except OSError as exc:
+        raise HTTPException(status_code=502, detail=f"Non résolvable : {fqdn} ({exc})") from exc
+    return {"fqdn": fqdn, "ip": ip}
 
 
 # ─── Hosts CRUD ───────────────────────────────────────────────────────────────

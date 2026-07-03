@@ -298,6 +298,7 @@
       "externalUrl": "External URL",
       "externalUrlHint": "Absolute public URL of the portal, e.g. https://dev.yoops.org.",
       "workspaceHost": "Portal LAN address",
+      "resolve": "Resolve",
       "workspaceHostHint": "Optional. LAN IP of the machine hosting the portal container, used to build direct workspace URLs when there is no sub-domain routing (dev mode). All workspace tunnels terminate on the portal, so a single value covers every node. E.g. 192.168.10.50.",
       "cookieDomain": "Session cookie domain",
       "cookieDomainHint": "Root domain for the session cookie, e.g. yoops.org. Required when the portal (dev.yoops.org) and the VS Code proxy (vs-dev.yoops.org) share a common ancestor. Takes effect immediately — no restart needed.",
