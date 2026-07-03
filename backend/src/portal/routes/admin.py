@@ -430,12 +430,16 @@ async def resolve_workspace_host(
     if not host:
         raise HTTPException(status_code=422, detail="host vide")
     if is_ipv4(host):
+        _log.info("resolve_workspace_host_literal_ip", by=user.login, host=host)
         return {"fqdn": host, "ip": host}
     fqdn = build_resolve_fqdn(host, load_global().server.local_domain)
+    _log.info("resolve_workspace_host_start", by=user.login, host=host, fqdn=fqdn)
     try:
         ip = await resolve_ipv4(fqdn)
     except OSError as exc:
+        _log.warning("resolve_workspace_host_failed", by=user.login, fqdn=fqdn, error=str(exc))
         raise HTTPException(status_code=502, detail=f"Non résolvable : {fqdn} ({exc})") from exc
+    _log.info("resolve_workspace_host_done", by=user.login, fqdn=fqdn, ip=ip)
     return {"fqdn": fqdn, "ip": ip}
 
 
