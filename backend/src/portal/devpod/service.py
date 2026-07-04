@@ -178,6 +178,7 @@ class DevPodService:
 
         tmp_key_path = ""
         task_created = False
+        host_port: int | None = None
         try:
             if host_cfg.type == "ssh" and host_cfg.host_cert_slug:
                 tmp_key_path = await _materialize_system_cert(host_cfg.host_cert_slug, login)
@@ -193,7 +194,6 @@ class DevPodService:
                 devpod_bin=self._devpod_bin,
             )
 
-            host_port: int | None = None
             if self._exposure is not None:
                 host_port = await self._exposure.allocate_port(ws_id)
 
@@ -293,6 +293,11 @@ class DevPodService:
             if not task_created and tmp_key_path and tmp_key_path.startswith(tempfile.gettempdir()):
                 with contextlib.suppress(OSError):
                     os.unlink(tmp_key_path)
+            if not task_created and host_port is not None and self._exposure is not None:
+                # Le port a été réservé en mémoire (allocate_port) mais _run_up_task
+                # n'a jamais démarré : jamais persisté en DB, il faut le relâcher
+                # explicitement (bug 037), sinon il reste réservé jusqu'au restart.
+                await self._exposure.release_port(host_port)
 
     def _devpod_state_exists(self, ws_id: str, login: str) -> bool:
         """Vérifie si devpod connaît ce workspace (état local présent).
@@ -962,6 +967,12 @@ class DevPodService:
         except Exception as exc:
             await self._write_status(ws_id, "failed", login=login, error=type(exc).__name__)
             _log.error("workspace_up_crashed", ws_id=ws_id, error=type(exc).__name__)
+            if host_port is not None and self._exposure is not None:
+                # Ce chemin de crash n'écrit pas host_port dans workspace_status
+                # (contrairement au chemin returncode != 0 plus haut) : jamais
+                # persisté, le port reste réservé en mémoire tant qu'il n'est pas
+                # relâché explicitement (bug 037).
+                await self._exposure.release_port(host_port)
         finally:
             if dc_path is not None:
                 with contextlib.suppress(Exception):

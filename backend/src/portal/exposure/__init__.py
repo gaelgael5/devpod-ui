@@ -79,6 +79,10 @@ class ExposureService:
         """
         return await self._registry.allocate(ws_id)
 
+    async def release_port(self, port: int) -> None:
+        """Libère un port alloué mais jamais persisté en DB (échec avant `up()` — bug 037)."""
+        await self._registry.release(port)
+
     async def expose(
         self,
         ws_id: str,

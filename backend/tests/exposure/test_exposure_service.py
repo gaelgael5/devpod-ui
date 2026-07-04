@@ -131,6 +131,15 @@ async def test_allocate_port_delegates_to_registry(db_engine) -> None:
 
 
 @pytest.mark.asyncio
+async def test_release_port_delegates_to_registry() -> None:
+    """Bug 037 : release_port() délègue à registry.release()."""
+    svc, _, registry = _make_exposure_service()
+    registry.release = AsyncMock()
+    await svc.release_port(41000)
+    registry.release.assert_awaited_once_with(41000)
+
+
+@pytest.mark.asyncio
 async def test_expose_rejects_path_traversal_ws_id(db_engine) -> None:
     """expose() rejette un ws_id contenant un path traversal."""
     svc, _, _ = _make_exposure_service()

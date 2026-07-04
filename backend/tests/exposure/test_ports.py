@@ -66,3 +66,27 @@ async def test_reserved_pruned_after_db_confirmation(db_engine) -> None:
     port2 = await registry.allocate("alice-app2")
     assert port2 == 40001
     assert 40000 not in registry._reserved
+
+
+# ---------------------------------------------------------------------------
+# release() — bug 037 : libère un port réservé mais jamais persisté en DB.
+# Pas de db_engine requis : release() ne touche que _reserved en mémoire.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_release_removes_port_from_reserved() -> None:
+    from portal.exposure.ports import PortRegistry
+
+    registry = PortRegistry()
+    registry._reserved.add(42000)
+    await registry.release(42000)
+    assert 42000 not in registry._reserved
+
+
+@pytest.mark.asyncio
+async def test_release_unknown_port_is_noop() -> None:
+    from portal.exposure.ports import PortRegistry
+
+    registry = PortRegistry()
+    await registry.release(42000)  # ne lève pas, même si jamais réservé
