@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useQueries } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronRight, ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -12,8 +13,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { stoppedLast } from './sortWorkspaces'
 import { useWorkspaces } from './useWorkspaces'
-import { useWorkspaceStatus } from './useWorkspaceStatus'
+import { useWorkspaceStatus, workspaceStatusQueryOptions } from './useWorkspaceStatus'
 import { useWorkspaceOps } from './useWorkspaceOps'
 import {
   useWorkspaceGroups,
@@ -65,6 +67,17 @@ function GroupSection({
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
 
+  // Statuts (cache partagé avec les cartes) pour reléguer les arrêtés en fin de groupe.
+  const statusQueries = useQueries({
+    queries: workspaces.map((ws) => workspaceStatusQueryOptions(ws.name)),
+  })
+  const sorted = useMemo(() => {
+    const statusByName = new Map(
+      workspaces.map((w, i) => [w.name, statusQueries[i]?.data?.status]),
+    )
+    return stoppedLast(workspaces, (name) => statusByName.get(name))
+  }, [workspaces, statusQueries])
+
   return (
     <div className="flex flex-col gap-3">
       <div className="group/header flex items-center gap-2">
@@ -110,7 +123,7 @@ function GroupSection({
       </div>
       {!collapsed && workspaces.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {workspaces.map((ws) => (
+          {sorted.map((ws) => (
             <WorkspaceRow
               key={ws.name}
               spec={ws}
