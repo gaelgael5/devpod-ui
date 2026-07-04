@@ -161,3 +161,41 @@ async def test_up_reuses_persisted_port_instead_of_reallocating(
     assert exposure.allocate_calls == [], "pas de réallocation quand un port est persisté"
     assert status_store[ws_id]["host_port"] == 42123
     assert status_store[ws_id]["status"] == "running"
+
+
+async def test_up_reallocates_when_persisted_port_is_duplicated(
+    status_store: dict[str, dict[str, Any]],
+    tmp_data_root,
+    fake_devpod_bin,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Doublon hérité de l'ancienne allocation (deux workspaces persistés avec le
+    même port, cas admin-rag/admin-devpod tous deux sur 40000) : le re-up ne doit
+    PAS réutiliser le port dupliqué — il réalloue et assainit sa ligne."""
+    import portal.devpod.service as service_mod
+    from portal.config.models import WorkspaceSpec
+
+    exposure = _FakeExposure(next_port=40001)
+    svc = _setup_service(tmp_data_root, fake_devpod_bin, monkeypatch, exposure)
+    monkeypatch.setattr(service_mod, "run_subprocess", AsyncMock(return_value=0))
+
+    status_store["alice-rag"] = {
+        "ws_id": "alice-rag",
+        "status": "running",
+        "login": "alice",
+        "host_port": 40000,
+    }
+    status_store["alice-myapp"] = {
+        "ws_id": "alice-myapp",
+        "status": "stopped",
+        "login": "alice",
+        "host_port": 40000,  # doublon avec alice-rag
+    }
+
+    ws = WorkspaceSpec(name="myapp", source="git@github.com:user/repo.git")
+    ws_id = await svc.up(login="alice", ws_spec=ws)
+    await svc._up_tasks[ws_id]
+
+    assert exposure.allocate_calls == [ws_id], "le port dupliqué ne doit pas être réutilisé"
+    assert status_store[ws_id]["host_port"] == 40001
+    assert status_store["alice-rag"]["host_port"] == 40000  # l'autre ligne est intacte

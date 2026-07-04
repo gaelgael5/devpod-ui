@@ -80,3 +80,5 @@ par NULL sur un chemin de statut intermédiaire.
 ## Correction (92fc21c)
 
 host_port persisté dès le statut provisioning (plus jamais NULL pendant le up) + réutilisation du port persisté au re-up (fin de la réallocation en rafale à la réconciliation). Tests : harnais status_store + PortRegistry neuf sur ligne provisioning.
+
+**Durcissement (suite au signalement du 2026-07-04, « Open VS Code ouvre toujours rag ») :** le re-up ne réutilise jamais un port qu'un AUTRE workspace revendique aussi (`port_claimed_by_other_db`) — un doublon hérité de l'ancienne allocation (admin-rag et admin-devpod tous deux persistés à 40000) se serait sinon perpétué à chaque reconnexion. Le workspace ré-uppé réalloue et assainit sa ligne ; log `port_duplicate_detected`.

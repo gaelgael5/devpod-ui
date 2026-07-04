@@ -83,6 +83,24 @@ async def update_status_if_exists_db(
     return (result.rowcount or 0) > 0
 
 
+async def port_claimed_by_other_db(ws_id: str, port: int, conn: AsyncConnection) -> bool:
+    """True si un AUTRE workspace revendique déjà ce host_port (bug 001).
+
+    Détecte les doublons hérités de l'ancienne allocation (deux lignes
+    persistées avec le même port) : un re-up ne doit jamais réutiliser un
+    port dupliqué, sinon le doublon se perpétue à chaque reconnexion.
+    """
+    row = (
+        await conn.execute(
+            select(workspace_status.c.ws_id)
+            .where(workspace_status.c.host_port == port)
+            .where(workspace_status.c.ws_id != ws_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return row is not None
+
+
 async def get_status_db(ws_id: str, conn: AsyncConnection) -> dict[str, Any] | None:
     row = (
         await conn.execute(

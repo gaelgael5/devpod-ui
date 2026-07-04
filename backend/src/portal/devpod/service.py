@@ -23,6 +23,7 @@ from ..db.workspace_status import (
     get_status_db,
     list_by_login_db,
     list_running_db,
+    port_claimed_by_other_db,
     update_status_if_exists_db,
     upsert_status_db,
 )
@@ -219,13 +220,21 @@ class DevPodService:
                 # Réutiliser le port déjà persisté pour ce ws_id (bug 001) : au re-up
                 # (reconnexion, réconciliation au démarrage) une réallocation en rafale
                 # sans mémoire partagée (_reserved volatile) produisait des collisions.
+                # Jamais si un AUTRE workspace revendique le même port (doublon hérité
+                # de l'ancienne allocation) : le réutiliser perpétuerait la collision —
+                # on réalloue, et l'écriture provisioning ci-dessous assainit la ligne.
+                reuse_port: int | None = None
                 async with _get_engine().connect() as conn:
                     existing_row = await get_status_db(ws_id, conn)
-                persisted_port = (
-                    existing_row.get("host_port") if existing_row is not None else None
-                )
-                if persisted_port is not None:
-                    host_port = int(persisted_port)
+                    raw_port = existing_row.get("host_port") if existing_row is not None else None
+                    if raw_port is not None:
+                        candidate = int(raw_port)
+                        if await port_claimed_by_other_db(ws_id, candidate, conn):
+                            _log.warning("port_duplicate_detected", ws_id=ws_id, port=candidate)
+                        else:
+                            reuse_port = candidate
+                if reuse_port is not None:
+                    host_port = reuse_port
                     _log.info("port_reused", ws_id=ws_id, port=host_port)
                 else:
                     host_port = await self._exposure.allocate_port(ws_id)
