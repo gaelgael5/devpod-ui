@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 import structlog
 
 from ..config.models import GlobalConfig, SourceSpec, WorkspaceSpec
-from ..config.store import _data_root, load_global, load_user, safe_user_path
+from ..config.store import _data_root, load_global, load_user, safe_login_path, safe_user_path
 from ..db.engine import _get_engine
 from ..db.log_blobs import persist_log_blob_from_file
 from ..db.workspace_status import (
@@ -497,7 +497,7 @@ class DevPodService:
     # ------------------------------------------------------------------
 
     def _log_path(self, login: str, ws_id: str) -> Path:
-        return _data_root() / "logs" / login / f"{ws_id}.log"
+        return safe_login_path("logs", login, f"{ws_id}.log")
 
     async def _write_status(self, ws_id: str, status: str, login: str = "", **extra: Any) -> None:
         """Persiste le statut du workspace en DB."""

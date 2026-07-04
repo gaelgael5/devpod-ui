@@ -39,9 +39,9 @@ async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
         return
 
     # Lire le secret_ns depuis le YAML (cohérence filesystem ↔ DB)
-    from ..config.store import _data_root  # import lazy pour éviter les cycles
+    from ..config.store import safe_user_path  # import lazy pour éviter les cycles
 
-    config_path: Path = _data_root() / "users" / login / "config.yaml"
+    config_path: Path = safe_user_path(login, "config.yaml")
     try:
         with config_path.open(encoding="utf-8") as f:
             raw: dict[str, object] = yaml.safe_load(f) or {}

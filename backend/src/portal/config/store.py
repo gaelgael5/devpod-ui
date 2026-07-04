@@ -13,10 +13,17 @@ def _data_root() -> Path:
     return Path(os.environ.get("PORTAL_DATA_ROOT", "/data"))
 
 
-def safe_user_path(login: str, *parts: str) -> Path:
+def safe_login_path(root_name: str, login: str, *parts: str) -> Path:
+    """Construit un chemin sous `_data_root()/<root_name>/<login>/...`, validé.
+
+    Cœur commun de safe_user_path (root_name="users") — toute construction de
+    chemin sous /data doit passer par l'une de ces deux fonctions, jamais par une
+    concaténation de strings, même quand login provient déjà d'un appelant qui le
+    valide (bug 033 : ne jamais dépendre de la validation d'un appelant).
+    """
     if not _LOGIN_RE.fullmatch(login):
         raise ValueError(f"Invalid login: {login!r}")
-    base = _data_root() / "users" / login
+    base = _data_root() / root_name / login
     result = base
     for part in parts:
         if "/" in part or "\\" in part or ".." in part:
@@ -25,6 +32,10 @@ def safe_user_path(login: str, *parts: str) -> Path:
     if not result.is_relative_to(base):
         raise ValueError(f"Path escapes user directory: {result!r}")
     return result
+
+
+def safe_user_path(login: str, *parts: str) -> Path:
+    return safe_login_path("users", login, *parts)
 
 
 def ensure_user_dir(login: str) -> None:

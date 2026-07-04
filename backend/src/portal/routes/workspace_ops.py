@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..config.models import ProfileRef, SourceSpec, WorkspaceSpec
-from ..config.store import _data_root, load_global, safe_user_path
+from ..config.store import _data_root, load_global, safe_login_path, safe_user_path
 from ..db.engine import get_conn
 from ..db.profiles import AsyncProfileRepository
 from ..db.recipes import load_recipes_as_dict
@@ -668,10 +668,7 @@ async def get_workspace_logs(
 ) -> str:
     _validate_name(name)
     ws_id = f"{user.login}-{name}"
-    logs_root = _data_root() / "logs"
-    log_file = logs_root / user.login / f"{ws_id}.log"
-    if not log_file.is_relative_to(logs_root):
-        raise HTTPException(status_code=422, detail="Invalid log path")
+    log_file = safe_login_path("logs", user.login, f"{ws_id}.log")
     if not log_file.exists():
         raise HTTPException(status_code=404, detail="Log file not found")
     _log.info("workspace_logs_fetched", login=user.login, ws_id=ws_id)

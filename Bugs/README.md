@@ -61,7 +61,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [030](030-vault-master-keys-en-memoire-apres-expiration.md) | Vault : master keys en mémoire au-delà de l'expiration du cookie | vault | ✅ corrigé |
 | [031](031-vault-session-id-vide-non-rejete.md) | Vault : `session_id` vide non rejeté | vault | ✅ corrigé |
 | [032](032-roles-figes-dans-cookie-revocation-non-prise-en-compte.md) | Rôles figés dans le cookie — révocation Keycloak ignorée | auth | 🔴 ouvert |
-| [033](033-construction-chemin-sans-safe-user-path.md) | Construction de chemin sous `/data` sans `safe_user_path` | config/db | 🔴 ouvert |
+| [033](033-construction-chemin-sans-safe-user-path.md) | Construction de chemin sous `/data` sans `safe_user_path` | config/db | ✅ corrigé |
 | [034](034-cache-global-peuple-avant-commit.md) | Cache global peuplé avant le commit de la transaction | db/config | 🔴 ouvert |
 | [035](035-env-file-read-modify-write-sans-verrou.md) | Écriture `.env` en read-modify-write sans verrou | config | 🔴 ouvert |
 | [036](036-reconcile-create-task-non-reference-gc.md) | `reconcile` : `create_task` fire-and-forget non référencé (GC) | devpod | 🔴 ouvert |

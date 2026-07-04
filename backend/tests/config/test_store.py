@@ -10,6 +10,7 @@ from portal.config.store import (
     ensure_user_dir,
     load_user,
     load_user_config,
+    safe_login_path,
     safe_user_path,
     save_user,
 )
@@ -45,6 +46,35 @@ def test_safe_user_path_rejects_invalid_login(tmp_data_root):
 def test_safe_user_path_rejects_login_with_slash(tmp_data_root):
     with pytest.raises(ValueError, match="Invalid login"):
         safe_user_path("alice/bob", "config.yaml")
+
+
+# ─── safe_login_path (bug 033) ────────────────────────────────────────────────
+
+
+def test_safe_login_path_returns_correct_path(tmp_data_root):
+    p = safe_login_path("logs", "alice", "alice-dev.log")
+    assert p == tmp_data_root / "logs" / "alice" / "alice-dev.log"
+
+
+def test_safe_login_path_users_root_matches_safe_user_path(tmp_data_root):
+    assert safe_login_path("users", "alice", "config.yaml") == safe_user_path(
+        "alice", "config.yaml"
+    )
+
+
+def test_safe_login_path_rejects_dotdot(tmp_data_root):
+    with pytest.raises(ValueError, match="Invalid path component"):
+        safe_login_path("logs", "alice", "..", "etc", "passwd")
+
+
+def test_safe_login_path_rejects_slash_in_part(tmp_data_root):
+    with pytest.raises(ValueError, match="Invalid path component"):
+        safe_login_path("logs", "alice", "sub/dir.log")
+
+
+def test_safe_login_path_rejects_invalid_login(tmp_data_root):
+    with pytest.raises(ValueError, match="Invalid login"):
+        safe_login_path("logs", "../evil", "x.log")
 
 
 # ─── ensure_user_dir ──────────────────────────────────────────────────────────
