@@ -13,8 +13,18 @@ from .ports import PortRegistry
 
 _log = structlog.get_logger(__name__)
 
-# Regex de validation des ws_id (défense en profondeur, les ws_id sont générés en interne).
-_WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,38}[a-z0-9]$")
+# Regex canonique de ws_id — SEULE définition du projet (bug 040 : service.py et
+# ce module avaient deux regex différentes ; un ws_id validé par
+# DevPodService._ws_id() pouvait être rejeté ici, écrivant un statut "running"
+# sans URL ni route Caddy, silencieusement).
+#
+# login (jusqu'à 40 chars, autorise les points — comptes LDAP) + "-" + name
+# (jusqu'à 32 chars, sans point) = jusqu'à 73 caractères bruts. Mais le
+# sous-domaine Caddy réel est "ws-{ws_id}" : un label DNS (RFC 1035) est limité à
+# 63 caractères, donc ws_id est plafonné à 60 pour laisser la place au préfixe
+# "ws-". _ws_id() (devpod/service.py) importe cette même regex : toute
+# combinaison login+name qui la passe est garantie acceptée par expose().
+_WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,58}[a-z0-9]$")
 
 
 class ExposureService:

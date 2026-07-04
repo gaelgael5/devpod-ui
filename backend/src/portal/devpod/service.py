@@ -25,6 +25,7 @@ from ..db.workspace_status import (
     list_running_db,
     upsert_status_db,
 )
+from ..exposure import _WS_ID_RE
 from ..messages import db as _msg_db
 from ..profiles.models import Profile
 from ..recipes.models import RecipeMeta
@@ -68,9 +69,6 @@ if TYPE_CHECKING:
     from ..exposure import ExposureService
 
 _log = structlog.get_logger(__name__)
-
-# DNS-safe pour ws_id : login (max ~40 chars) + "-" + name (max 32 chars)
-_WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$")
 
 # Image de base utilisée quand aucune source git n'est fournie
 _DEFAULT_IMAGE = "mcr.microsoft.com/devcontainers/base:ubuntu"
