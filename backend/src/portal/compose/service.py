@@ -39,7 +39,10 @@ from .ports import PortConflict, allocate_ports, check_ports
 
 _log = structlog.get_logger(__name__)
 
-_SECRET_REF_RE = re.compile(r"^\$\{(vault|env)://.+\}$")
+# Côté compose, seul ${vault://...} (isolé par secret_ns) est une référence de
+# secret légitime. ${env://...} est refusé : il permettrait de lire n'importe
+# quelle variable du process portail (bug 002).
+_SECRET_REF_RE = re.compile(r"^\$\{vault://.+\}$")
 
 # Spec 33 : "ressources" = service partagé permanent, sans workspace propriétaire.
 _ROLE_MAP: dict[str, str] = {
@@ -81,6 +84,24 @@ def _host_for_node(node_id: str) -> HostConfig:
     if host.type != "ssh":
         raise ComposeServiceError(f"nœud {node_id}: type {host.type} non supporté (v1 ssh-only)")
     return host
+
+
+def foreign_env_keys(template: ComposeTemplate, env_values: dict[str, str]) -> list[str]:
+    """Clés de `env_values` non déclarées comme paramètres du template.
+
+    Toute clé étrangère est un vecteur d'injection : le contrat est que l'utilisateur
+    ne renseigne QUE les paramètres exposés par le template (bug 002).
+    """
+    declared = {p.key for p in template.parameters}
+    return sorted(k for k in env_values if k not in declared)
+
+
+def _reject_foreign_env_keys(template: ComposeTemplate, env_values: dict[str, str]) -> None:
+    foreign = foreign_env_keys(template, env_values)
+    if foreign:
+        raise ComposeServiceError(
+            f"clés env_values non déclarées par le template: {foreign}"
+        )
 
 
 def _validate_secret_refs(template: ComposeTemplate, env_values: dict[str, str]) -> None:
@@ -135,6 +156,7 @@ async def deploy(
     env_values: dict[str, str],
 ) -> ComposeDeployment:
     host = _host_for_node(node_id)
+    _reject_foreign_env_keys(template, env_values)
 
     # Détection du mode d'allocation de ports.
     # Mode alias (chromium>3000:3000) : allocation automatique côté portail.
@@ -256,6 +278,7 @@ async def prepare_deployment(
     ComposeServiceError — à appeler depuis un contexte DB avant de démarrer le streaming.
     """
     host = _host_for_node(node_id)
+    _reject_foreign_env_keys(template, env_values)
     aliases = parse_port_aliases(template.compose_content)
     if aliases:
         port_map = await allocate_ports(conn, host, node_id, aliases)
@@ -288,6 +311,7 @@ async def deploy_stream(
     Les ports ont déjà été alloués par ``prepare_deployment``.
     """
     host = _host_for_node(node_id)
+    _reject_foreign_env_keys(template, env_values)
     _validate_secret_refs(template, env_values)
     resolved = resolve_env_values(owner_login, secret_ns, env_values)
     rdir = _remote_dir(name)

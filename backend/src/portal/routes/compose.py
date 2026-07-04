@@ -213,6 +213,11 @@ async def create_deployment(
     missing = [p.key for p in tpl.parameters if p.required and p.key not in body.env_values]
     if missing:
         raise HTTPException(status_code=422, detail=f"paramètres requis manquants: {missing}")
+    foreign = csvc.foreign_env_keys(tpl, body.env_values)
+    if foreign:
+        raise HTTPException(
+            status_code=422, detail=f"clés env_values non déclarées par le template: {foreign}"
+        )
     if await cdb.get_deployment_by_name_node(conn, body.name, body.node_id) is not None:
         raise HTTPException(
             status_code=409,
@@ -266,6 +271,12 @@ async def create_deployment_stream(
         if missing:
             raise HTTPException(
                 status_code=422, detail=f"paramètres requis manquants: {missing}"
+            )
+        foreign = csvc.foreign_env_keys(tpl, body.env_values)
+        if foreign:
+            raise HTTPException(
+                status_code=422,
+                detail=f"clés env_values non déclarées par le template: {foreign}",
             )
         if await cdb.get_deployment_by_name_node(conn, body.name, body.node_id) is not None:
             raise HTTPException(

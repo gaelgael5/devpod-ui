@@ -7,7 +7,25 @@
   - `backend/src/portal/compose/service.py:42` (`_SECRET_REF_RE` autorise `env`), `~86-94` (`_validate_secret_refs`), `~155` (`resolve_env_values`)
   - `backend/src/portal/routes/compose.py` (`create_deployment`, `Depends(require_user)`)
   - `backend/src/portal/schemas/compose.py` (`env_values: dict[str, str]` non restreint)
-- **Statut** : ouvert
+- **Statut** : corrigé — défense en profondeur sur 3 couches :
+  1. `secrets/resolver.py` — la branche `env://` du résolveur **synchrone** `resolve()` (seul
+     chemin exposé aux entrées utilisateur : compose `env_builder` + recettes `workspace_ops`)
+     lève désormais `SecretAccessError` sans jamais lire `os.environ`. Le résolveur user-facing
+     n'accepte plus que `${vault://...}` (isolé par `secret_ns`). La classe **asynchrone**
+     `EnvSecretResolver` — seul consommateur légitime d'`env://`, utilisée uniquement par
+     `mcp/runtime_secrets.py` pour les clés de backend configurées par un **admin**
+     (`secret_value_vault_ref`) — est **préservée intacte** (chemin non-utilisateur).
+  2. `compose/service.py:42` — `_SECRET_REF_RE` passe de `^\$\{(vault|env)://.+\}$` à
+     `^\$\{vault://.+\}$` : un paramètre `type == "secret"` ne peut plus référencer `env://`.
+  3. `compose/service.py` + `routes/compose.py` — nouvelle fonction `foreign_env_keys()` :
+     toute clé de `env_values` non déclarée comme paramètre du template est rejetée **en 422**
+     (routes `create_deployment` + `create_deployment_stream`) et **avant toute résolution**
+     (garde-fou service `_reject_foreign_env_keys` dans `deploy` / `prepare_deployment` /
+     `deploy_stream`, ce qui couvre aussi l'auto-start).
+  - Vérifié : tests de régression rouge→vert (voir `tests/compose/test_env_leak_regression.py`,
+    `tests/secrets/test_resolver.py`, `tests/secrets/test_integration.py`,
+    `tests/compose/test_routes_deployments.py`) — 25 verts avec le fix, 9 rouges sans ;
+    `ruff` + `mypy` verts sur les fichiers touchés ; 0 régression (baseline inchangé).
 
 ## Symptôme
 
