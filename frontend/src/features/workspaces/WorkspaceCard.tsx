@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Code2, FileText, FolderOpen, Loader2, MessageSquare, Play, Square } from 'lucide-react'
+import { Code2, Loader2, Play, Square } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -159,41 +159,16 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             {t('workspaces.actions.retry')}
           </Button>
         )}
-        {(s === 'running' || spec.ssh_key) && (
-          <WorkspaceActionsMenu
-            wsName={spec.name}
-            running={s === 'running'}
-            onAddVm={() => setAddVmOpen(true)}
-            onOpenShell={() => setShellOpen(true)}
-            onShowSshKey={spec.ssh_key ? () => setSshKeyOpen(true) : undefined}
-          />
-        )}
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setMessagesOpen(true)}
-          aria-label={t('workspaces.messages.button')}
-        >
-          <MessageSquare className="h-4 w-4" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setLogsOpen(true)}
-          aria-label={t('workspaces.logs.button')}
-        >
-          <FileText className="h-4 w-4" />
-        </Button>
-        {onManageGroups && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onManageGroups}
-            aria-label={t('groups.manage')}
-          >
-            <FolderOpen className="h-4 w-4" />
-          </Button>
-        )}
+        <WorkspaceActionsMenu
+          wsName={spec.name}
+          running={s === 'running'}
+          onAddVm={() => setAddVmOpen(true)}
+          onOpenShell={() => setShellOpen(true)}
+          onShowSshKey={spec.ssh_key ? () => setSshKeyOpen(true) : undefined}
+          onOpenMessages={() => setMessagesOpen(true)}
+          onOpenLogs={() => setLogsOpen(true)}
+          onManageGroups={onManageGroups}
+        />
       </div>
 
       <HostServicesSection wsName={spec.name} enabled={s === 'running'} onOpenSsh={setSshTestHost} />

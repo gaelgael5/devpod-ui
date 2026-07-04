@@ -21,7 +21,14 @@ describe('WorkspaceActionsMenu', () => {
     const user = userEvent.setup()
     const onAddVm = vi.fn()
     renderWithProviders(
-      <WorkspaceActionsMenu wsName="ws1" running onAddVm={onAddVm} onOpenShell={vi.fn()} />
+      <WorkspaceActionsMenu
+        wsName="ws1"
+        running
+        onAddVm={onAddVm}
+        onOpenShell={vi.fn()}
+        onOpenMessages={vi.fn()}
+        onOpenLogs={vi.fn()}
+      />
     )
 
     await user.click(screen.getByRole('button', { name: /actions/i }))
@@ -35,7 +42,14 @@ describe('WorkspaceActionsMenu', () => {
     server.use(http.get('/me/workspaces/:name/initializers', () => HttpResponse.json(INITS)))
     const user = userEvent.setup()
     renderWithProviders(
-      <WorkspaceActionsMenu wsName="ws1" running onAddVm={vi.fn()} onOpenShell={vi.fn()} />
+      <WorkspaceActionsMenu
+        wsName="ws1"
+        running
+        onAddVm={vi.fn()}
+        onOpenShell={vi.fn()}
+        onOpenMessages={vi.fn()}
+        onOpenLogs={vi.fn()}
+      />
     )
 
     await user.click(screen.getByRole('button', { name: /actions/i }))
@@ -56,7 +70,14 @@ describe('WorkspaceActionsMenu', () => {
     )
     const user = userEvent.setup()
     renderWithProviders(
-      <WorkspaceActionsMenu wsName="ws1" running onAddVm={vi.fn()} onOpenShell={vi.fn()} />
+      <WorkspaceActionsMenu
+        wsName="ws1"
+        running
+        onAddVm={vi.fn()}
+        onOpenShell={vi.fn()}
+        onOpenMessages={vi.fn()}
+        onOpenLogs={vi.fn()}
+      />
     )
 
     await user.click(screen.getByRole('button', { name: /actions/i }))
@@ -72,7 +93,14 @@ describe('WorkspaceActionsMenu', () => {
     const user = userEvent.setup()
     const onOpenShell = vi.fn()
     renderWithProviders(
-      <WorkspaceActionsMenu wsName="ws1" running onAddVm={vi.fn()} onOpenShell={onOpenShell} />
+      <WorkspaceActionsMenu
+        wsName="ws1"
+        running
+        onAddVm={vi.fn()}
+        onOpenShell={onOpenShell}
+        onOpenMessages={vi.fn()}
+        onOpenLogs={vi.fn()}
+      />
     )
 
     await user.click(screen.getByRole('button', { name: /actions/i }))
@@ -91,6 +119,8 @@ describe('WorkspaceActionsMenu', () => {
         onAddVm={vi.fn()}
         onOpenShell={vi.fn()}
         onShowSshKey={onShowSshKey}
+        onOpenMessages={vi.fn()}
+        onOpenLogs={vi.fn()}
       />
     )
 
@@ -100,5 +130,38 @@ describe('WorkspaceActionsMenu', () => {
     expect(onShowSshKey).toHaveBeenCalledOnce()
     expect(screen.queryByRole('menuitem', { name: /add vm for test/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: /shell ssh|ssh shell/i })).not.toBeInTheDocument()
+  })
+
+  it('regroupe Messages, Logs et Gérer les groupes dans le menu', async () => {
+    server.use(http.get('/me/workspaces/:name/initializers', () => HttpResponse.json([])))
+    const user = userEvent.setup()
+    const onOpenMessages = vi.fn()
+    const onOpenLogs = vi.fn()
+    const onManageGroups = vi.fn()
+    renderWithProviders(
+      <WorkspaceActionsMenu
+        wsName="ws1"
+        running
+        onAddVm={vi.fn()}
+        onOpenShell={vi.fn()}
+        onOpenMessages={onOpenMessages}
+        onOpenLogs={onOpenLogs}
+        onManageGroups={onManageGroups}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /actions/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /^messages$/i }))
+    expect(onOpenMessages).toHaveBeenCalledOnce()
+
+    await user.click(screen.getByRole('button', { name: /actions/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /^logs$/i }))
+    expect(onOpenLogs).toHaveBeenCalledOnce()
+
+    await user.click(screen.getByRole('button', { name: /actions/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /gérer les groupes|manage groups/i }),
+    )
+    expect(onManageGroups).toHaveBeenCalledOnce()
   })
 })

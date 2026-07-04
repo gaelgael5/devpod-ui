@@ -1,5 +1,7 @@
 import { useTranslation } from 'react-i18next'
-import { Key, MoreVertical, PlusCircle, TerminalSquare } from 'lucide-react'
+import {
+  FileText, FolderOpen, Key, MessageSquare, MoreVertical, PlusCircle, TerminalSquare,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -19,11 +21,15 @@ interface Props {
   onOpenShell: () => void
   /** Absent si le workspace n'a pas de clé SSH générée. */
   onShowSshKey?: () => void
+  onOpenMessages: () => void
+  onOpenLogs: () => void
+  onManageGroups?: () => void
 }
 
-/** Menu "⋮" du workspace : shell SSH, clé SSH, initializers, ajout d'une VM de test. */
+/** Menu "⋮" du workspace : SSH, messages, logs, groupes, initializers, VM de test. */
 export default function WorkspaceActionsMenu({
   wsName, running, onAddVm, onOpenShell, onShowSshKey,
+  onOpenMessages, onOpenLogs, onManageGroups,
 }: Props) {
   const { t } = useTranslation()
   const { data: initializers = [] } = useWorkspaceInitializers(running ? wsName : undefined)
@@ -52,6 +58,21 @@ export default function WorkspaceActionsMenu({
           <DropdownMenuItem className="gap-2" onSelect={onShowSshKey}>
             <Key className="h-3.5 w-3.5" />
             {t('workspaces.sshKey.button')}
+          </DropdownMenuItem>
+        )}
+        {(running || onShowSshKey) && <DropdownMenuSeparator />}
+        <DropdownMenuItem className="gap-2" onSelect={onOpenMessages}>
+          <MessageSquare className="h-3.5 w-3.5" />
+          {t('workspaces.messages.button')}
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2" onSelect={onOpenLogs}>
+          <FileText className="h-3.5 w-3.5" />
+          {t('workspaces.logs.button')}
+        </DropdownMenuItem>
+        {onManageGroups && (
+          <DropdownMenuItem className="gap-2" onSelect={onManageGroups}>
+            <FolderOpen className="h-3.5 w-3.5" />
+            {t('groups.manage')}
           </DropdownMenuItem>
         )}
         {running && (
