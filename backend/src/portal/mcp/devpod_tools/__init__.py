@@ -491,7 +491,9 @@ async def _workspace_stop(conn: AsyncConnection, args: dict[str, Any], owner_log
         await get_service().stop(owner_login, f"{owner_login}-{name}")
         return {"workspace": name, "status": "stopped"}
 
-    return {"operation_id": operations.launch_operation("workspace_stop", name, owner_login, work)}
+    return {
+        "operation_id": await operations.launch_operation("workspace_stop", name, owner_login, work)
+    }
 
 
 async def _start_existing(login: str, name: str, conn: AsyncConnection) -> str:
@@ -513,7 +515,7 @@ async def _workspace_reconnect(
             await _start_existing(owner_login, name, bg_conn)
         return {"workspace": name, "status": "provisioning"}
 
-    op = operations.launch_operation("workspace_reconnect", name, owner_login, work)
+    op = await operations.launch_operation("workspace_reconnect", name, owner_login, work)
     return {"operation_id": op}
 
 
@@ -528,7 +530,7 @@ async def _workspace_restart(conn: AsyncConnection, args: dict[str, Any], owner_
             await _start_existing(owner_login, name, bg_conn)
         return {"workspace": name, "status": "provisioning"}
 
-    oid = operations.launch_operation("workspace_restart", name, owner_login, work)
+    oid = await operations.launch_operation("workspace_restart", name, owner_login, work)
     return {"operation_id": oid}
 
 
@@ -812,7 +814,7 @@ async def _node_list(conn: AsyncConnection, args: dict[str, Any], owner_login: s
 
 async def _operations_get(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     oid = _require_str(args, "operation_id")
-    op = operations.get_operation(oid)
+    op = await operations.get_operation(oid)
     if op is None or op.get("owner_login") != owner_login:
         raise DevpodToolError(f"opération inconnue: {oid}")
     return {
@@ -833,7 +835,8 @@ async def _operations_get(conn: AsyncConnection, args: dict[str, Any], owner_log
 
 async def _operations_list(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     ws = args.get("workspace")
-    rows = operations.list_operations(owner_login, workspace=ws if isinstance(ws, str) else None)
+    workspace = ws if isinstance(ws, str) else None
+    rows = await operations.list_operations(owner_login, workspace=workspace)
     _KEYS = ("operation_id", "kind", "workspace", "state", "progress", "created_at")
     return [{k: op.get(k) for k in _KEYS} for op in rows]
 
@@ -969,7 +972,7 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
         final_status = st.get("status", "unknown")
         return {"workspace": name, "ws_id": ws_id, "status": final_status}
 
-    oid = operations.launch_operation("workspace_create", name, owner_login, work)
+    oid = await operations.launch_operation("workspace_create", name, owner_login, work)
     return {"operation_id": oid}
 
 
@@ -987,7 +990,7 @@ async def _workspace_delete(conn: AsyncConnection, args: dict[str, Any], owner_l
         await save_user(owner_login, cfg)
         return {"workspace": name, "deleted": True, **result}
 
-    oid = operations.launch_operation("workspace_delete", name, owner_login, work)
+    oid = await operations.launch_operation("workspace_delete", name, owner_login, work)
     return {"operation_id": oid}
 
 
@@ -1049,7 +1052,7 @@ async def _workspace_apply_recipe(
             "status": "provisioning",
         }
 
-    oid = operations.launch_operation("workspace_apply_recipe", name, owner_login, work)
+    oid = await operations.launch_operation("workspace_apply_recipe", name, owner_login, work)
     return {"operation_id": oid}
 
 
@@ -1073,7 +1076,7 @@ async def _workspace_profile_set(
             "status": "provisioning",
         }
 
-    oid = operations.launch_operation("workspace_profile_set", name, owner_login, work)
+    oid = await operations.launch_operation("workspace_profile_set", name, owner_login, work)
     return {"operation_id": oid}
 
 

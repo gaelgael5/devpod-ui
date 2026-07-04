@@ -53,7 +53,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [022](022-ssrf-dns-rebinding-compose-sources.md) | SSRF résiduelle : DNS rebinding (TOCTOU) | compose_sources | 🔴 ouvert |
 | [023](023-proxmox-fetch-spec-sans-ssrf.md) | Fetch de spec proxmox sans contrôle SSRF | proxmox | ✅ corrigé |
 | [024](024-proxmox-substitute-non-quote-resubstitution-token.md) | Substitution shell non quotée + re-substitution du token | proxmox/test_vm | ✅ corrigé |
-| [025](025-mcp-io-bloquante-operations-yaml.md) | MCP : I/O fichier synchrone bloquant | mcp | 🔴 ouvert |
+| [025](025-mcp-io-bloquante-operations-yaml.md) | MCP : I/O fichier synchrone bloquant | mcp | ✅ corrigé |
 | [026](026-mcp-transaction-db-pendant-probe-reseau.md) | MCP : transaction DB tenue pendant l'I/O réseau du probe | mcp | 🔴 ouvert |
 | [027](027-mcp-injection-logql-non-echappee.md) | MCP : injection LogQL par interpolation non échappée | mcp | 🔴 ouvert |
 | [028](028-mcp-deserialisation-loki-non-validee.md) | MCP : désérialisation non validée de la réponse Loki | mcp | 🔴 ouvert |

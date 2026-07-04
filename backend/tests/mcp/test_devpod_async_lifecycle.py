@@ -11,7 +11,7 @@ from portal.mcp import devpod_tools
 async def test_workspace_create_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, str] = {}
 
-    def fake_launch(kind: str, workspace: str, owner_login: str, work: object) -> str:
+    async def fake_launch(kind: str, workspace: str, owner_login: str, work: object) -> str:
         captured.update(kind=kind, workspace=workspace, owner=owner_login)
         return "f" * 32
 
@@ -37,8 +37,10 @@ async def test_workspace_delete_requires_confirm() -> None:
 
 @pytest.mark.asyncio
 async def test_workspace_delete_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(devpod_tools.operations, "launch_operation",
-                        lambda kind, ws, owner, work: "a" * 32)
+    async def fake_launch(kind: str, ws: str, owner: str, work: object) -> str:
+        return "a" * 32
+
+    monkeypatch.setattr(devpod_tools.operations, "launch_operation", fake_launch)
     res = await devpod_tools._workspace_delete(None, {"workspace": "dev", "confirm": True}, "alice")
     assert res == {"operation_id": "a" * 32}
 
@@ -65,7 +67,7 @@ async def test_workspace_delete_refuses_truthy_non_true(
 async def test_apply_recipe_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, str] = {}
 
-    def fake_launch(kind: str, ws: str, owner: str, work: object) -> str:
+    async def fake_launch(kind: str, ws: str, owner: str, work: object) -> str:
         captured.update(kind=kind)
         return "b" * 32
 
@@ -85,8 +87,10 @@ async def test_apply_recipe_requires_recipe() -> None:
 
 @pytest.mark.asyncio
 async def test_profile_set_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(devpod_tools.operations, "launch_operation",
-                        lambda kind, ws, owner, work: "c" * 32)
+    async def fake_launch(kind: str, ws: str, owner: str, work: object) -> str:
+        return "c" * 32
+
+    monkeypatch.setattr(devpod_tools.operations, "launch_operation", fake_launch)
     res = await devpod_tools._workspace_profile_set(
         None, {"workspace": "dev", "profile": "fullstack"}, "alice"
     )
