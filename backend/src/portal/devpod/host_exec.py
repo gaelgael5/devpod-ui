@@ -3,6 +3,7 @@
 Seul point d'exécution des commandes compose (cadrage spec 26). Mirroir de
 ssh_exec.run_ssh_capture mais ciblant host.address (pas un workspace devpod).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -48,13 +49,21 @@ def _require_ssh_host(host: HostConfig) -> None:
 
 def _argv(key_path: str, address: str, command: str, known_hosts: Path) -> list[str]:
     return [
-        "ssh", "-i", key_path,
-        "-o", "BatchMode=yes",
-        "-o", "LogLevel=ERROR",
-        "-o", "StrictHostKeyChecking=accept-new",
-        "-o", f"UserKnownHostsFile={known_hosts}",
-        "-o", "ConnectTimeout=15",
-        address, command,
+        "ssh",
+        "-i",
+        key_path,
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "LogLevel=ERROR",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        f"UserKnownHostsFile={known_hosts}",
+        "-o",
+        "ConnectTimeout=15",
+        address,
+        command,
     ]
 
 
@@ -130,13 +139,22 @@ async def stream_host_command(
             if not raw:
                 break
             yield raw.decode("utf-8", errors="replace").rstrip("\n")
-    except HostExecError:
+    except BaseException:
+        # BaseException (pas Exception) : couvre aussi GeneratorExit, levée par
+        # asyncio quand le client HTTP se déconnecte en cours de stream. Sans ce
+        # garde-fou le process ssh (donc le `docker compose up` distant) survit à
+        # la fermeture du générateur — orphelin, sans qu'aucune ligne DB n'en garde
+        # la trace (bug 016).
         if proc.returncode is None:
             proc.kill()
-            await proc.wait()
         raise
+    finally:
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except TimeoutError:
+            if proc.returncode is None:
+                proc.kill()
 
-    await proc.wait()
     if proc.returncode != 0:
         raise HostExecError(f"commande SSH échouée (rc={proc.returncode})")
 

@@ -3,7 +3,17 @@
 - **Sévérité** : majeur (fuite de process + conteneurs sans ligne DB)
 - **Sous-système** : compose / host_exec
 - **Fichiers** : `backend/src/portal/devpod/host_exec.py:101-141` (`stream_host_command`) ; consommé par `compose/service.py:325`, `routes/compose.py:296-316`
-- **Statut** : ouvert
+- **Statut** : corrigé — `stream_host_command` capture désormais `BaseException` (donc
+  `GeneratorExit`) et tue + attend le process ssh dans un `finally`, comme `_ssh_stream` dans
+  `routes/proxmox.py`. Tests ajoutés : streaming nominal (lignes + reap du process) et
+  déconnexion précoce (`gen.aclose()` → `proc.kill()` + `proc.wait()` appelés).
+  **Non couvert par ce correctif** : le « complément » ci-dessous (persister la ligne DB de
+  déploiement avant le stream) touche `compose/service.py::deploy_stream` — un changement plus
+  large (statut « pending », mise à jour post-stream) hors périmètre du fichier cité par cette
+  fiche. Le process ssh ne fuit plus, mais un déploiement dont le client se déconnecte en cours
+  de `docker compose up` peut toujours finir sans ligne DB (le générateur `deploy_stream` reçoit
+  lui aussi `GeneratorExit` avant d'atteindre `create_deployment`). À traiter dans une fiche dédiée
+  si ce résidu doit être fermé.
 
 ## Symptôme
 

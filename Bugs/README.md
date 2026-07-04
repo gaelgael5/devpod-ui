@@ -39,7 +39,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [013](013-csr-san-trop-permissif-usurpation-noeud.md) | SAN de CSR trop permissif : cert valide pour d'autres nœuds | nodes | 🔴 ouvert |
 | [014](014-enrolement-noeud-non-atomique-token-reutilisable.md) | Enrôlement non atomique → join token réutilisable | nodes | 🔴 ouvert |
 | [015](015-course-allocation-ports-compose.md) | Course sur l'allocation de ports compose | compose | 🔴 ouvert |
-| [016](016-stream-host-command-sous-process-ssh-orphelin.md) | Sous-process ssh non tué à la déconnexion → déploiement orphelin | compose | 🔴 ouvert |
+| [016](016-stream-host-command-sous-process-ssh-orphelin.md) | Sous-process ssh non tué à la déconnexion → déploiement orphelin | compose | ✅ corrigé (partiel, voir fiche) |
 | [017](017-mcp-exceptions-non-gerees-echappent-dispatch.md) | MCP : exceptions non gérées échappent au dispatch → trou d'audit | mcp | 🔴 ouvert |
 | [018](018-frontend-delete-echec-silencieux-apifetch.md) | Frontend : échec silencieux systémique des DELETE (`apiFetch`) | frontend | 🔴 ouvert |
 | [019](019-frontend-delete-workspace-non-controle.md) | Frontend : `deleteWorkspace` — suppression finale non contrôlée | frontend | 🔴 ouvert |
