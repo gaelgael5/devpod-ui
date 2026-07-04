@@ -308,7 +308,7 @@ async def put_admin_grafana_oidc(
     }
     if body.client_secret:
         env_updates["GF_OAUTH_CLIENT_SECRET"] = body.client_secret
-    update_env_file(_data_root() / ".env", env_updates)
+    await update_env_file(_data_root() / ".env", env_updates)
 
     _log.info("grafana_oauth_config_updated", by=user.login, client_id=body.client_id)
     return {"client_id": body.client_id, "has_secret": bool(new_secret)}
