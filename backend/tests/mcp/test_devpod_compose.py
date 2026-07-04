@@ -1,4 +1,5 @@
 """Tests des outils MCP internes galerie compose (compose_tools.py)."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from portal.mcp.devpod_tools.errors import DevpodToolError
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _tpl(tpl_id: str = "chromium") -> SimpleNamespace:
     return SimpleNamespace(
@@ -46,7 +48,10 @@ def _dep(dep_id: str = "dep1", owner: str = "alice") -> SimpleNamespace:
         status="running",
         created_at=None,
         model_dump=lambda mode=None: {
-            "id": dep_id, "node_id": "node1", "status": "running", "host_ports": [3005]
+            "id": dep_id,
+            "node_id": "node1",
+            "status": "running",
+            "host_ports": [3005],
         },
     )
 
@@ -54,6 +59,7 @@ def _dep(dep_id: str = "dep1", owner: str = "alice") -> SimpleNamespace:
 # ---------------------------------------------------------------------------
 # compose_template_list
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_template_list_returns_summary(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -76,6 +82,7 @@ async def test_template_list_with_tag_passes_filter(monkeypatch: pytest.MonkeyPa
 # compose_template_get
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_template_get_found(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(compose_tools.cdb, "get_template", AsyncMock(return_value=_tpl()))
@@ -94,17 +101,19 @@ async def test_template_get_not_found_raises(monkeypatch: pytest.MonkeyPatch) ->
 # compose_template_create
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_template_create_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(compose_tools.cdb, "get_template", AsyncMock(return_value=None))
     monkeypatch.setattr(compose_tools.cdb, "create_template", AsyncMock())
-    monkeypatch.setattr(
-        compose_tools, "validate_template", lambda content, params: []
-    )
+    monkeypatch.setattr(compose_tools, "validate_template", lambda content, params: [])
     result = await compose_tools._compose_template_create(
         None,
-        {"id": "my-svc", "name": "My Service",
-         "compose_content": "services:\n  s:\n    image: x:1"},
+        {
+            "id": "my-svc",
+            "name": "My Service",
+            "compose_content": "services:\n  s:\n    image: x:1",
+        },
         "admin",
     )
     assert result["created"] is True
@@ -129,8 +138,11 @@ async def test_template_create_invalid_slug_raises(monkeypatch: pytest.MonkeyPat
     with pytest.raises(DevpodToolError):
         await compose_tools._compose_template_create(
             None,
-            {"id": "INVALID SLUG!", "name": "X",
-             "compose_content": "services:\n  s:\n    image: x:1"},
+            {
+                "id": "INVALID SLUG!",
+                "name": "X",
+                "compose_content": "services:\n  s:\n    image: x:1",
+            },
             "admin",
         )
 
@@ -138,16 +150,21 @@ async def test_template_create_invalid_slug_raises(monkeypatch: pytest.MonkeyPat
 @pytest.mark.asyncio
 async def test_template_create_validation_error_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     from portal.compose.validation import TemplateValidationError
+
     monkeypatch.setattr(compose_tools.cdb, "get_template", AsyncMock(return_value=None))
     monkeypatch.setattr(
-        compose_tools, "validate_template",
+        compose_tools,
+        "validate_template",
         lambda c, p: (_ for _ in ()).throw(TemplateValidationError("port codé en dur")),
     )
     with pytest.raises(DevpodToolError, match="port"):
         await compose_tools._compose_template_create(
             None,
-            {"id": "ok-slug", "name": "X",
-             "compose_content": "services:\n  web:\n    image: x:1\n    ports: [\"3000:80\"]\n"},
+            {
+                "id": "ok-slug",
+                "name": "X",
+                "compose_content": 'services:\n  web:\n    image: x:1\n    ports: ["3000:80"]\n',
+            },
             "admin",
         )
 
@@ -156,11 +173,13 @@ async def test_template_create_validation_error_raises(monkeypatch: pytest.Monke
 # compose_service_list
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_service_list_returns_own_deployments(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        compose_tools.cdb, "list_deployments",
-        AsyncMock(return_value=[_dep("dep1", "alice"), _dep("dep2", "alice")])
+        compose_tools.cdb,
+        "list_deployments",
+        AsyncMock(return_value=[_dep("dep1", "alice"), _dep("dep2", "alice")]),
     )
     result = await compose_tools._compose_service_list(None, {}, "alice")
     assert len(result) == 2
@@ -181,6 +200,7 @@ async def test_service_list_filters_by_node(monkeypatch: pytest.MonkeyPatch) -> 
 # ---------------------------------------------------------------------------
 # compose_service_start
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_service_start_ok(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -208,9 +228,7 @@ async def test_service_start_unknown_template_raises(monkeypatch: pytest.MonkeyP
 @pytest.mark.asyncio
 async def test_service_start_duplicate_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(compose_tools.cdb, "get_template", AsyncMock(return_value=_tpl()))
-    monkeypatch.setattr(
-        compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=_dep())
-    )
+    monkeypatch.setattr(compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=_dep()))
     with pytest.raises(DevpodToolError, match="existe déjà"):
         await compose_tools._compose_service_start(
             None, {"template_id": "chromium", "node_id": "node1", "name": "dep1"}, "alice"
@@ -221,11 +239,10 @@ async def test_service_start_duplicate_raises(monkeypatch: pytest.MonkeyPatch) -
 # compose_service_stop / restart
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_service_stop_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=_dep())
-    )
+    monkeypatch.setattr(compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=_dep()))
     monkeypatch.setattr(compose_tools.csvc, "lifecycle", AsyncMock())
     result = await compose_tools._compose_service_stop(None, {"deployment_id": "dep1"}, "alice")
     assert result["action"] == "stop"
@@ -244,9 +261,7 @@ async def test_service_stop_wrong_owner_raises(monkeypatch: pytest.MonkeyPatch) 
 
 @pytest.mark.asyncio
 async def test_service_restart_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=_dep())
-    )
+    monkeypatch.setattr(compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=_dep()))
     monkeypatch.setattr(compose_tools.csvc, "lifecycle", AsyncMock())
     result = await compose_tools._compose_service_restart(None, {"deployment_id": "dep1"}, "alice")
     assert result["action"] == "restart"
@@ -256,6 +271,7 @@ async def test_service_restart_ok(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 # compose_service_down
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_service_down_requires_confirm(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -267,9 +283,7 @@ async def test_service_down_requires_confirm(monkeypatch: pytest.MonkeyPatch) ->
 
 @pytest.mark.asyncio
 async def test_service_down_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=_dep())
-    )
+    monkeypatch.setattr(compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=_dep()))
     monkeypatch.setattr(compose_tools.csvc, "teardown", AsyncMock())
     result = await compose_tools._compose_service_down(
         None, {"deployment_id": "dep1", "confirm": True}, "alice"
@@ -279,8 +293,23 @@ async def test_service_down_ok(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# compose_service_logs — bug 017 : tail mal typé doit rester un DevpodToolError
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_service_logs_rejects_non_numeric_tail(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(compose_tools.cdb, "get_deployment_by_slug", AsyncMock(return_value=_dep()))
+    with pytest.raises(DevpodToolError, match="tail"):
+        await compose_tools._compose_service_logs(
+            None, {"deployment_id": "dep1", "tail": "abc"}, "alice"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Registre : les 11 outils sont dans COMPOSE_IMPLS et DEVPOD_PRIMITIVES
 # ---------------------------------------------------------------------------
+
 
 def test_compose_impls_all_registered() -> None:
     from portal.mcp.devpod_tools.compose_tools import COMPOSE_IMPLS

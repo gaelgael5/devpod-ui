@@ -18,6 +18,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import structlog
 from mcp import types
 from mcp.shared.exceptions import McpError
 from mcp.types import METHOD_NOT_FOUND, ErrorData
@@ -49,6 +50,8 @@ _DEFAULT_IGNORE = [".git", ".venv", "node_modules", "__pycache__"]
 
 __all__ = ["DevpodToolError", "execute_internal_tool"]
 
+_log = structlog.get_logger(__name__)
+
 
 def get_service() -> Any:
     """Singleton DevPodService (lazy import : évite le cycle mcp ↔ routes)."""
@@ -69,6 +72,16 @@ def _require_str(args: dict[str, Any], key: str) -> str:
     if not isinstance(value, str):
         raise DevpodToolError(f"paramètre requis manquant: {key}")
     return value
+
+
+def _optional_int(args: dict[str, Any], key: str, default: int) -> int:
+    """Convertit args[key] en int, ou lève DevpodToolError (jamais un ValueError brut :
+    bug 017, un argument mal typé ne doit pas échapper au dispatch sans audit)."""
+    value = args.get(key, default)
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise DevpodToolError(f"paramètre {key!r} invalide, entier attendu: {value!r}") from exc
 
 
 def _ok(payload: Any) -> types.CallToolResult:
@@ -141,7 +154,7 @@ async def _workspace_status(conn: AsyncConnection, args: dict[str, Any], owner_l
 async def _workspace_logs(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     source = str(args.get("source", "container"))
-    lines = int(args.get("lines", 200))
+    lines = _optional_int(args, "lines", 200)
     if source == "agent":
         cap = await _session_capture(conn, {"workspace": name, "lines": lines}, owner_login)
         return {"source": "agent", "output": cap["output"]}
@@ -410,7 +423,7 @@ async def _workspace_secrets_bind(
 async def _workspace_tree(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     p = safe_workspace_path(f"{owner_login}-{name}", str(args.get("path", ".")))
-    depth = int(args.get("depth", 2))
+    depth = _optional_int(args, "depth", 2)
     ignore = args.get("ignore", _DEFAULT_IGNORE)
     prune = ""
     if ignore:
@@ -459,7 +472,7 @@ async def _workspace_write_file(
 async def _workspace_exec(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     command = _require_str(args, "command")
-    timeout = int(args.get("timeout_s", 60))
+    timeout = _optional_int(args, "timeout_s", 60)
     cwd_arg = args.get("cwd")
     ws_id = f"{owner_login}-{name}"
     default_cwd = f"/workspaces/{ws_id}"
@@ -604,7 +617,7 @@ async def _session_close(conn: AsyncConnection, args: dict[str, Any], owner_logi
 async def _session_capture(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     sess = str(args.get("session", "main"))
-    lines = int(args.get("lines", 200))
+    lines = _optional_int(args, "lines", 200)
     # -e conserve les codes ANSI : buffer brut tel que l'œil le verrait (I-2/I-4).
     rc, out = await ws_exec(
         owner_login,
@@ -1114,4 +1127,11 @@ async def execute_internal_tool(
         payload = await impl(conn, arguments, owner_login)
     except DevpodToolError as exc:
         return _err(exc.message)
+    except Exception:
+        # Bug 017 : toute exception non-métier (bug d'impl, argument mal typé non
+        # encore couvert par un _require_*) doit rester dans le CallToolResult pour
+        # que execute_tool_call (handlers.py) puisse toujours écrire audit_record —
+        # la laisser remonter brute contourne l'audit et casse le dispatch MCP.
+        _log.exception("devpod_tool_unhandled_error", tool=name, owner_login=owner_login)
+        return _err("erreur interne lors de l'exécution de l'outil")
     return _ok(payload)

@@ -7,6 +7,7 @@ Outils publiés :
   exec  : compose_service_start, compose_service_stop,
           compose_service_restart, compose_service_down
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -30,6 +31,15 @@ def _require_str(args: dict[str, Any], key: str) -> str:
     return val.strip()
 
 
+def _optional_int(args: dict[str, Any], key: str, default: int) -> int:
+    """Cf. devpod_tools/__init__.py::_optional_int — jamais un ValueError brut (bug 017)."""
+    val = args.get(key, default)
+    try:
+        return int(val)
+    except (TypeError, ValueError) as exc:
+        raise DevpodToolError(f"paramètre {key!r} invalide, entier attendu: {val!r}") from exc
+
+
 def _opt_str(args: dict[str, Any], key: str, default: str = "") -> str:
     val = args.get(key, default)
     return str(val) if val is not None else default
@@ -43,6 +53,7 @@ def _opt_list(args: dict[str, Any], key: str) -> list[Any]:
 # ---------------------------------------------------------------------------
 # Templates
 # ---------------------------------------------------------------------------
+
 
 async def _compose_template_list(
     conn: AsyncConnection, args: dict[str, Any], owner_login: str
@@ -163,6 +174,7 @@ async def _compose_template_update(
 # Services (déploiements)
 # ---------------------------------------------------------------------------
 
+
 async def _compose_service_list(
     conn: AsyncConnection, args: dict[str, Any], owner_login: str
 ) -> Any:
@@ -189,9 +201,7 @@ async def _compose_service_start(
     template_id = _require_str(args, "template_id")
     node_id = _require_str(args, "node_id")
     name = _require_str(args, "name")
-    env_values: dict[str, str] = {
-        k: str(v) for k, v in (args.get("env_values") or {}).items()
-    }
+    env_values: dict[str, str] = {k: str(v) for k, v in (args.get("env_values") or {}).items()}
 
     try:
         validate_slug(name)
@@ -222,8 +232,7 @@ async def _compose_service_start(
         )
     except PortConflict as exc:
         raise DevpodToolError(
-            f"conflit de port: {sorted(exc.conflicts)} "
-            f"(port libre suggéré: {exc.suggestion})"
+            f"conflit de port: {sorted(exc.conflicts)} (port libre suggéré: {exc.suggestion})"
         ) from exc
     except ComposeServiceError as exc:
         raise DevpodToolError(str(exc)) from exc
@@ -272,10 +281,11 @@ async def _compose_service_logs(
     if dep is None or dep.owner_login != owner_login:
         raise DevpodToolError(f"déploiement inconnu: {dep_id}")
     service = args.get("service")
-    tail = int(args.get("tail", 200))
+    tail = _optional_int(args, "tail", 200)
     try:
         output = await csvc.fetch_logs(
-            conn, dep.uid,
+            conn,
+            dep.uid,
             service=str(service) if service else None,
             tail=min(max(tail, 1), 5000),
         )

@@ -3,7 +3,15 @@
 - **Sévérité** : majeur
 - **Sous-système** : mcp
 - **Fichiers** : `backend/src/portal/mcp/devpod_tools/__init__.py:1113-1117` (dispatch `execute_internal_tool`), `mcp/handlers.py:130-158` ; sources d'exceptions non gardées : `message_tools.py:18-21` (`ValueError` explicite) et les `int(args.get(...))` non validés : `__init__.py:144` (`lines`), `413` (`depth`), `462` (`timeout_s`), `607` (`lines`), `compose_tools.py:275` (`tail`)
-- **Statut** : ouvert
+- **Statut** : corrigé — `execute_internal_tool` capture désormais aussi `Exception` (log +
+  `_err`, jamais de raise brut) en plus de `DevpodToolError`, garantissant que `execute_tool_call`
+  (handlers.py) exécute toujours `audit_record`. Les conversions `int()` non gardées sont
+  remplacées par `_optional_int` (lève `DevpodToolError`) dans `devpod_tools/__init__.py`
+  (`lines`, `depth`, `timeout_s`) et `compose_tools.py` (`tail`). `_workspace_messages`
+  (`message_tools.py`) lève `DevpodToolError` au lieu de `ValueError`. Tests ajoutés :
+  exception non-métier → `isError` sans propager, `_optional_int` rejette le non-numérique,
+  `_workspace_messages` rejette workspace vide / limit invalide / limit hors bornes,
+  `_compose_service_logs` rejette un `tail` non numérique.
 
 ## Symptôme
 
