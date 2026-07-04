@@ -112,6 +112,18 @@
       "deleteFailed": "Deletion failed",
       "launchService": "Launch a service"
     },
+    "testHostLinks": {
+      "manage": "Manage links…",
+      "title": "Links for {{alias}}",
+      "description": "Key → URL shortcuts shown in the test host menu. Clicking opens the URL in a new tab.",
+      "empty": "No links saved.",
+      "keyLabel": "Key",
+      "keyPlaceholder": "e.g. grafana",
+      "urlLabel": "URL",
+      "save": "Save",
+      "delete": "Delete link {{key}}",
+      "saveFailed": "Failed to save link"
+    },
     "form": {
       "name": "Name",
       "sources": "Git sources",

@@ -11,6 +11,7 @@ import asyncio
 import re
 from collections.abc import AsyncIterator
 from typing import Any
+from urllib.parse import urlparse
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,11 +26,14 @@ from ..db.engine import _get_engine
 from ..db.global_config import save_global_db, set_cached_global
 from ..db.test_hosts import (
     assign_test_host,
+    delete_test_host_link,
     get_test_host_message_id,
+    list_test_host_links,
     list_test_hosts_detailed,
     next_test_alias,
     remove_test_host,
     set_test_host_message_id,
+    upsert_test_host_link,
 )
 from ..devpod.ssh_exec import run_ssh_capture
 from ..devpod.test_vm import (
@@ -477,3 +481,85 @@ async def resolve_test_vm_ip(
 
     _log.info("test_vm_ip_resolved", login=login, ws=ws, host=host_name, fqdn=fqdn, ip=new_ip)
     return {"ip": new_ip, "fqdn": fqdn}
+
+
+# ─── Liens (clé → URL) d'un serveur de test (menu ⋮ du host) ─────────────────
+
+_LINK_KEY_RE = re.compile(r"^[\w][\w .-]{0,49}$")
+
+
+def _validate_link_url(url: str) -> None:
+    """N'accepte que des URLs http(s) absolues — la valeur est ouverte par le navigateur."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(status_code=422, detail=f"URL http(s) absolue requise: {url!r}")
+
+
+async def _require_ws_and_host(ws: str, host_name: str, login: str) -> None:
+    if not _WS_NAME_RE.fullmatch(ws):
+        raise HTTPException(status_code=422, detail="Invalid workspace name")
+    if not _PROXMOX_NAME_RE.fullmatch(host_name):
+        raise HTTPException(status_code=422, detail="Invalid host name")
+    user_cfg = await load_user(login)
+    if not any(w.name == ws for w in user_cfg.workspaces):
+        raise HTTPException(status_code=404, detail=f"Workspace {ws!r} not found")
+
+
+class TestHostLinkBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    url: str
+
+
+@router.get("/workspaces/{ws}/test-hosts/{host_name}/links")
+async def list_test_host_links_route(
+    ws: str,
+    host_name: str,
+    user: UserInfo = Depends(require_user),
+) -> list[dict[str, str]]:
+    """Liens enregistrés pour un serveur de test du workspace."""
+    await _require_ws_and_host(ws, host_name, user.login)
+    async with _get_engine().connect() as conn:
+        links = await list_test_host_links(user.login, ws, host_name, conn)
+    if links is None:
+        raise HTTPException(status_code=404, detail=f"Test host {host_name!r} not found")
+    return links
+
+
+@router.put("/workspaces/{ws}/test-hosts/{host_name}/links")
+async def upsert_test_host_link_route(
+    ws: str,
+    host_name: str,
+    body: TestHostLinkBody,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, str]:
+    """Enregistre (ou remplace) un lien clé → URL du serveur de test."""
+    await _require_ws_and_host(ws, host_name, user.login)
+    key = body.key.strip()
+    if not _LINK_KEY_RE.fullmatch(key):
+        raise HTTPException(status_code=422, detail=f"Invalid link key: {body.key!r}")
+    url = body.url.strip()
+    _validate_link_url(url)
+    async with _get_engine().begin() as conn:
+        saved = await upsert_test_host_link(user.login, ws, host_name, key, url, conn)
+    if not saved:
+        raise HTTPException(status_code=404, detail=f"Test host {host_name!r} not found")
+    _log.info("test_host_link_saved", login=user.login, ws=ws, host=host_name, key=key)
+    return {"key": key, "url": url}
+
+
+@router.delete("/workspaces/{ws}/test-hosts/{host_name}/links/{key}", status_code=204)
+async def delete_test_host_link_route(
+    ws: str,
+    host_name: str,
+    key: str,
+    user: UserInfo = Depends(require_user),
+) -> None:
+    """Supprime un lien du serveur de test."""
+    await _require_ws_and_host(ws, host_name, user.login)
+    async with _get_engine().begin() as conn:
+        deleted = await delete_test_host_link(user.login, ws, host_name, key, conn)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Link {key!r} not found")
+    _log.info("test_host_link_deleted", login=user.login, ws=ws, host=host_name, key=key)

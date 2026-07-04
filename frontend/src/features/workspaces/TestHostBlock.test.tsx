@@ -1,9 +1,13 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { http, HttpResponse } from 'msw'
+import { server } from '@/test/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
 import TestHostBlock from './TestHostBlock'
+import { stoppedLast } from './sortWorkspaces'
 import type { TestHost } from './useTestVm'
+import type { WorkspaceSpec } from './types'
 import type { ComposeDeployment } from '@/features/compose/api/types'
 
 const HOST: TestHost = { alias: 'test1', name: 'host-test-114-1', ip: '192.168.10.160', vmid: '114' }
@@ -63,5 +67,77 @@ describe('TestHostBlock', () => {
     await user.click(screen.getByRole('button', { name: /actions/i }))
     await user.click(await screen.findByText(/^delete$|^supprimer$/i))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+})
+
+describe('TestHostBlock — liens (clé → URL) du menu ⋮', () => {
+  it('affiche les liens enregistrés et ouvre un nouvel onglet au clic', async () => {
+    server.use(
+      http.get('/me/workspaces/:ws/test-hosts/:host/links', () =>
+        HttpResponse.json([{ key: 'grafana', url: 'http://192.168.10.160:3001' }]),
+      ),
+    )
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    const user = userEvent.setup()
+    renderWithProviders(
+      <TestHostBlock wsName="ws1" host={HOST} deployments={[]} onOpenSsh={vi.fn()} />
+    )
+
+    await user.click(screen.getByRole('button', { name: /actions/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /grafana/i }))
+
+    expect(openSpy).toHaveBeenCalledWith(
+      'http://192.168.10.160:3001',
+      '_blank',
+      'noopener,noreferrer',
+    )
+    openSpy.mockRestore()
+  })
+
+  it('« Gérer les liens… » ouvre le dialog et enregistre un lien (PUT)', async () => {
+    let putBody: unknown = null
+    server.use(
+      http.get('/me/workspaces/:ws/test-hosts/:host/links', () => HttpResponse.json([])),
+      http.put('/me/workspaces/:ws/test-hosts/:host/links', async ({ request }) => {
+        putBody = await request.json()
+        return HttpResponse.json(putBody)
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(
+      <TestHostBlock wsName="ws1" host={HOST} deployments={[]} onOpenSsh={vi.fn()} />
+    )
+
+    await user.click(screen.getByRole('button', { name: /actions/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /gérer les liens|manage links/i }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/clé|key/i), 'app')
+    await user.type(screen.getByLabelText(/url/i), 'http://192.168.10.160:3000')
+    await user.click(screen.getByRole('button', { name: /enregistrer|save/i }))
+
+    await waitFor(() =>
+      expect(putBody).toEqual({ key: 'app', url: 'http://192.168.10.160:3000' }),
+    )
+  })
+})
+
+describe('stoppedLast — workspaces arrêtés en fin de groupe', () => {
+  const ws = (name: string): WorkspaceSpec => ({ name, source: '' }) as WorkspaceSpec
+  const list = [ws('a'), ws('b'), ws('c'), ws('d')]
+
+  it("relègue les arrêtés à la fin en préservant l'ordre relatif", () => {
+    const statuses: Record<string, string> = {
+      a: 'stopped', b: 'running', c: 'stopped', d: 'provisioning',
+    }
+    expect(stoppedLast(list, (n) => statuses[n]).map((w) => w.name)).toEqual(
+      ['b', 'd', 'a', 'c'],
+    )
+  })
+
+  it('ordre inchangé sans workspace arrêté (statuts inconnus inclus)', () => {
+    expect(stoppedLast(list, () => undefined).map((w) => w.name)).toEqual(
+      ['a', 'b', 'c', 'd'],
+    )
   })
 })

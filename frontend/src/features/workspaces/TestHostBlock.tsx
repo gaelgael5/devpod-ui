@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  MoreVertical, PlayCircle, RefreshCw, TerminalSquare, Trash2,
+  ExternalLink, Link2, MoreVertical, PlayCircle, RefreshCw, TerminalSquare, Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -15,7 +15,10 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { useDeleteTestHost, useResolveTestHostIp, type TestHost } from './useTestVm'
+import {
+  useDeleteTestHost, useResolveTestHostIp, useTestHostLinks, type TestHost,
+} from './useTestVm'
+import TestHostLinksDialog from './TestHostLinksDialog'
 import type { ComposeDeployment } from '@/features/compose/api/types'
 import HostServicesBlock from '@/features/compose/components/HostServicesBlock'
 
@@ -37,6 +40,8 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
   const resolve = useResolveTestHostIp(wsName)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [launchOpen, setLaunchOpen] = useState(false)
+  const [linksOpen, setLinksOpen] = useState(false)
+  const { data: links = [] } = useTestHostLinks(wsName, host.name)
 
   function handleResolve() {
     toast.promise(resolve.mutateAsync(host.name), {
@@ -89,6 +94,21 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
               {t('workspaces.testHosts.resolveIp')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            {links.map((link) => (
+              <DropdownMenuItem
+                key={link.key}
+                className="gap-2"
+                onSelect={() => window.open(link.url, '_blank', 'noopener,noreferrer')}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                <span className="truncate">{link.key}</span>
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuItem onSelect={() => setLinksOpen(true)} className="gap-2">
+              <Link2 className="h-3.5 w-3.5" />
+              {t('workspaces.testHostLinks.manage')}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               className="gap-2 text-destructive focus:text-destructive"
               onSelect={() => setConfirmDelete(true)}
@@ -110,6 +130,16 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
           onLaunchOpenChange={setLaunchOpen}
         />
       </div>
+
+      {linksOpen && (
+        <TestHostLinksDialog
+          open
+          onOpenChange={(o) => { if (!o) setLinksOpen(false) }}
+          wsName={wsName}
+          hostName={host.name}
+          hostAlias={host.alias}
+        />
+      )}
 
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent className="sm:max-w-md">

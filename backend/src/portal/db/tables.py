@@ -263,6 +263,23 @@ workspace_test_hosts = Table(
     UniqueConstraint("login", "workspace_name", "host_name", name="uq_wth_login_ws_host"),
 )
 
+# Liens (clé → URL) attachés à un serveur de test — affichés dans le menu ⋮ du host.
+test_host_links = Table(
+    "test_host_links",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "test_host_id",
+        Integer,
+        ForeignKey("workspace_test_hosts.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("key", Text, nullable=False),
+    Column("url", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("test_host_id", "key", name="uq_thl_host_key"),
+)
+
 # ─── Tour 10 : node_certificates (Groupe 4 — dépend de hosts) ───────────────
 
 node_certificates = Table(

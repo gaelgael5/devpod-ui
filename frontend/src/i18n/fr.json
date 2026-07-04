@@ -112,6 +112,18 @@
       "deleteFailed": "Échec de la suppression",
       "launchService": "Démarrer un service"
     },
+    "testHostLinks": {
+      "manage": "Gérer les liens…",
+      "title": "Liens de {{alias}}",
+      "description": "Raccourcis clé → URL affichés dans le menu du serveur de test. Un clic ouvre l'URL dans un nouvel onglet.",
+      "empty": "Aucun lien enregistré.",
+      "keyLabel": "Clé",
+      "keyPlaceholder": "ex. grafana",
+      "urlLabel": "URL",
+      "save": "Enregistrer",
+      "delete": "Supprimer le lien {{key}}",
+      "saveFailed": "Échec de l'enregistrement du lien"
+    },
     "form": {
       "name": "Nom",
       "sources": "Sources Git",

@@ -24,6 +24,7 @@ export const handlers = [
     HttpResponse.json({ ws_id: 'alice-myapp', status: 'running', url: 'https://alice-myapp.dev.yoops.org' })
   ),
   http.get('/me/workspaces/:name/initializers', () => HttpResponse.json([])),
+  http.get('/me/workspaces/:name/test-hosts/:host/links', () => HttpResponse.json([])),
   http.get('/recipes', () =>
     HttpResponse.json([
       { id: 'claude-code', key: '11111111-1111-4111-8111-111111111111', version: '1.0.0', description: 'Claude Code CLI', type: 'install', scope: 'shared', installs_after: [], requires_secrets: [{ path: 'llm/anthropic_key', env: 'ANTHROPIC_API_KEY' }] },

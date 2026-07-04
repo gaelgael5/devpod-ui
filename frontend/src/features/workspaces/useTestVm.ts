@@ -126,3 +126,56 @@ export function useCreateTestVm() {
 
   return { ...state, execute, reset }
 }
+
+export interface TestHostLink {
+  key: string
+  url: string
+}
+
+/** Liens (clé → URL) enregistrés pour un serveur de test (menu ⋮ du host). */
+export function useTestHostLinks(wsName: string, hostName: string) {
+  return useQuery<TestHostLink[]>({
+    queryKey: ['me', 'workspaces', wsName, 'test-hosts', hostName, 'links'],
+    queryFn: () =>
+      apiFetchJson<TestHostLink[]>(
+        `/me/workspaces/${encodeURIComponent(wsName)}/test-hosts/${encodeURIComponent(hostName)}/links`,
+      ),
+    staleTime: 30_000,
+  })
+}
+
+export function useSaveTestHostLink(wsName: string, hostName: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (link: TestHostLink) =>
+      apiFetchJson<TestHostLink>(
+        `/me/workspaces/${encodeURIComponent(wsName)}/test-hosts/${encodeURIComponent(hostName)}/links`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(link),
+        },
+      ),
+    onSuccess: () =>
+      qc.invalidateQueries({
+        queryKey: ['me', 'workspaces', wsName, 'test-hosts', hostName, 'links'],
+      }),
+  })
+}
+
+export function useDeleteTestHostLink(wsName: string, hostName: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (key: string) => {
+      const res = await apiFetch(
+        `/me/workspaces/${encodeURIComponent(wsName)}/test-hosts/${encodeURIComponent(hostName)}/links/${encodeURIComponent(key)}`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`)
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({
+        queryKey: ['me', 'workspaces', wsName, 'test-hosts', hostName, 'links'],
+      }),
+  })
+}
