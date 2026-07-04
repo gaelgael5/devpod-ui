@@ -27,7 +27,13 @@ from sqlalchemy import func as sqlfunc
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ...config.store import _data_root, load_global, load_user, save_user
+from ...config.store import (
+    _data_root,
+    load_global,
+    load_user,
+    save_user,
+    user_config_lock,
+)
 from ...db.tables import compose_deployment as dep_table
 from ...db.tables import workspace_test_hosts as wth_table
 from ...db.tables import workspaces as ws_table
@@ -410,13 +416,14 @@ async def _workspace_secrets_bind(
         raise DevpodToolError("reference invalide : attendu '${vault://...}' ou '${env://...}'")
     if not _ENV_TARGET_RE.fullmatch(target):
         raise DevpodToolError(f"cible env invalide: {target!r}")
-    cfg = await load_user(owner_login)
-    spec = next((s for s in cfg.workspaces if s.name == name), None)
-    if spec is None:
-        raise DevpodToolError(f"workspace inconnu: {name}")
-    updated = spec.model_copy(update={"env": {**(spec.env or {}), target: reference}})
-    cfg.workspaces = [updated if s.name == name else s for s in cfg.workspaces]
-    await save_user(owner_login, cfg)
+    async with user_config_lock(owner_login):
+        cfg = await load_user(owner_login)
+        spec = next((s for s in cfg.workspaces if s.name == name), None)
+        if spec is None:
+            raise DevpodToolError(f"workspace inconnu: {name}")
+        updated = spec.model_copy(update={"env": {**(spec.env or {}), target: reference}})
+        cfg.workspaces = [updated if s.name == name else s for s in cfg.workspaces]
+        await save_user(owner_login, cfg)
     return {"target": target, "bound": True}
 
 
@@ -926,22 +933,23 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
         from ...devpod.provision import ProvisionParams, provision_workspace
 
         # 1. Sauvegarde du spec dans la config user (le rend visible dans workspace_list).
-        cfg = await load_user(owner_login)
-        if any(ws.name == name for ws in cfg.workspaces):
-            raise DevpodToolError(f"workspace {name!r} existe déjà")
-        ws_spec = WorkspaceSpec(
-            name=name,
-            source=repo,
-            branch=branch,
-            host=node,
-            git_credential=git_credential,
-            recipes=recipes,
-            init_recipes=init_recipes,
-            ssh_key=ssh_key,
-            profile=profile_ref,
-        )
-        cfg.workspaces.append(ws_spec)
-        await save_user(owner_login, cfg)
+        async with user_config_lock(owner_login):
+            cfg = await load_user(owner_login)
+            if any(ws.name == name for ws in cfg.workspaces):
+                raise DevpodToolError(f"workspace {name!r} existe déjà")
+            ws_spec = WorkspaceSpec(
+                name=name,
+                source=repo,
+                branch=branch,
+                host=node,
+                git_credential=git_credential,
+                recipes=recipes,
+                init_recipes=init_recipes,
+                ssh_key=ssh_key,
+                profile=profile_ref,
+            )
+            cfg.workspaces.append(ws_spec)
+            await save_user(owner_login, cfg)
 
         # 2. Provisionnement (lance devpod up en tâche de fond).
         async with _get_engine().begin() as bg_conn:
@@ -985,9 +993,10 @@ async def _workspace_delete(conn: AsyncConnection, args: dict[str, Any], owner_l
     async def work() -> Any:
         result = await get_service().delete(owner_login, f"{owner_login}-{name}", shelve=True)
         # Retire le spec de la config user pour que workspace_list ne montre plus le workspace.
-        cfg = await load_user(owner_login)
-        cfg.workspaces = [ws for ws in cfg.workspaces if ws.name != name]
-        await save_user(owner_login, cfg)
+        async with user_config_lock(owner_login):
+            cfg = await load_user(owner_login)
+            cfg.workspaces = [ws for ws in cfg.workspaces if ws.name != name]
+            await save_user(owner_login, cfg)
         return {"workspace": name, "deleted": True, **result}
 
     oid = await operations.launch_operation("workspace_delete", name, owner_login, work)
@@ -1002,13 +1011,14 @@ async def _recreate_workspace(owner_login: str, name: str, mutate: Callable[[Any
     from ...db.engine import _get_engine
     from ...devpod.provision import ProvisionParams, provision_workspace
 
-    cfg = await load_user(owner_login)
-    spec = next((s for s in cfg.workspaces if s.name == name), None)
-    if spec is None:
-        raise DevpodToolError(f"workspace inconnu: {name}")
-    spec_updated = mutate(spec)
-    cfg.workspaces = [spec_updated if s.name == name else s for s in cfg.workspaces]
-    await save_user(owner_login, cfg)
+    async with user_config_lock(owner_login):
+        cfg = await load_user(owner_login)
+        spec = next((s for s in cfg.workspaces if s.name == name), None)
+        if spec is None:
+            raise DevpodToolError(f"workspace inconnu: {name}")
+        spec_updated = mutate(spec)
+        cfg.workspaces = [spec_updated if s.name == name else s for s in cfg.workspaces]
+        await save_user(owner_login, cfg)
     await get_service().delete(owner_login, f"{owner_login}-{name}", shelve=False)
     async with _get_engine().begin() as bg_conn:
         return await provision_workspace(

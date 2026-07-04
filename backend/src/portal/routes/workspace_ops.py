@@ -335,11 +335,21 @@ async def workspace_up(
             )
 
     # Synchronise le spec fusionné en DB s'il diffère du stocké (ex. reprovisioning
-    # avec un autre host demandé explicitement dans la requête).
+    # avec un autre host demandé explicitement dans la requête). Re-load sous
+    # verrou (bug 009) : le pre-flight git ci-dessus est une I/O réseau, on ne
+    # tient pas le verrou pendant — mutation appliquée sur l'état frais.
     if _stored is not None and effective != _stored:
-        _user_cfg.workspaces[_user_cfg.workspaces.index(_stored)] = effective
-        await _save_user(user.login, _user_cfg)
-        _log.info("workspace_spec_synced", login=user.login, name=name)
+        from ..config.store import user_config_lock
+
+        async with user_config_lock(user.login):
+            fresh_cfg = await load_user(user.login)
+            ws_idx = next(
+                (i for i, ws in enumerate(fresh_cfg.workspaces) if ws.name == name), None
+            )
+            if ws_idx is not None:
+                fresh_cfg.workspaces[ws_idx] = effective
+                await _save_user(user.login, fresh_cfg)
+                _log.info("workspace_spec_synced", login=user.login, name=name)
 
     request_host = request.headers.get("x-forwarded-host") or request.url.hostname or ""
     try:

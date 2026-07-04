@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from pathlib import Path
@@ -7,6 +8,28 @@ from pathlib import Path
 from .models import GlobalConfig, UserConfig
 
 _LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,38}[a-z0-9]$")
+
+_user_config_locks: dict[str, asyncio.Lock] = {}
+
+
+def user_config_lock(login: str) -> asyncio.Lock:
+    """Verrou par login pour tout cycle load_user → mutation → save_user (bug 009).
+
+    save_user_db remplace intégralement les listes (delete + réinsertion) : deux
+    cycles concurrents du même login s'écrasent mutuellement (lost update — un
+    workspace ajouté disparaît). Tout site qui sauvegarde une UserConfig mutée
+    doit détenir ce verrou du load au save. Même hypothèse single-process que
+    le verrou lifecycle par ws_id (bug 003).
+    """
+    lock = _user_config_locks.get(login)
+    if lock is None:
+        lock = _user_config_locks[login] = asyncio.Lock()
+    return lock
+
+
+def clear_user_config_locks() -> None:
+    """Tests uniquement : un asyncio.Lock se lie à la première boucle qui l'acquiert."""
+    _user_config_locks.clear()
 
 
 def _data_root() -> Path:
