@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
 export interface HypervisorConfig {
   name: string
@@ -23,7 +23,7 @@ export function useAdminProxmox() {
   })
 
   const deleteNode = useMutation({
-    mutationFn: (name: string) => apiFetch(`/admin/hypervisors/${name}`, { method: 'DELETE' }),
+    mutationFn: (name: string) => apiFetchVoid(`/admin/hypervisors/${name}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hypervisors'] }),
     onError: (err: Error) => toast.error(err.message),
   })

@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetch, apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
 export interface HostConfig {
   name: string
@@ -71,7 +71,7 @@ export function useDeleteHost() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (name: string) =>
-      apiFetch(`/admin/hosts/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+      apiFetchVoid(`/admin/hosts/${encodeURIComponent(name)}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hosts'] }),
     onError: (err: Error) => toast.error(err.message),
   })

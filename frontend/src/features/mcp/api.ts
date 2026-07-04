@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
 export type Transport = 'streamable_http' | 'sse' | 'stdio' | 'internal'
 export type StorageType = 'local' | 'harpocrate'
@@ -154,7 +154,7 @@ export function useDeleteBackend() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/me/mcp/backends/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      apiFetchVoid(`/me/mcp/backends/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.backends() }),
   })
 }
@@ -207,7 +207,7 @@ export function useDeleteKey(backendId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (keyId: string) =>
-      apiFetch(
+      apiFetchVoid(
         `/me/mcp/backends/${encodeURIComponent(backendId)}/keys/${encodeURIComponent(keyId)}`,
         { method: 'DELETE' },
       ),
@@ -268,7 +268,7 @@ export function useDeleteApikey() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/me/mcp/apikeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      apiFetchVoid(`/me/mcp/apikeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.apikeys() }),
   })
 }
@@ -324,7 +324,7 @@ export function useDeleteProfile() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/me/mcp/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      apiFetchVoid(`/me/mcp/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.profiles() }),
   })
 }
@@ -349,7 +349,7 @@ export function useDeleteEntry(profileId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (backendId: string) =>
-      apiFetch(
+      apiFetchVoid(
         `/me/mcp/profiles/${encodeURIComponent(profileId)}/entries/${encodeURIComponent(backendId)}`,
         { method: 'DELETE' },
       ),

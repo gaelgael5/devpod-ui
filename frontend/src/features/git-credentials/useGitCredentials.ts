@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
 export interface GitCredentialSummary {
   name: string
@@ -68,7 +68,7 @@ export function useDeleteGitCredential() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (name: string) =>
-      apiFetch(`/me/git-credentials/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+      apiFetchVoid(`/me/git-credentials/${encodeURIComponent(name)}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK }),
   })
 }

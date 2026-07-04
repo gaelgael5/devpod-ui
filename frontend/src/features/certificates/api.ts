@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
 export type CertType =
   | 'ssh-ed25519' | 'ssh-rsa-2048' | 'ssh-rsa-4096' | 'ssh-ecdsa-p256'
@@ -74,7 +74,7 @@ export function useDeleteCertificate() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (slug: string) =>
-      apiFetch(`/me/certificates/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
+      apiFetchVoid(`/me/certificates/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.list() }),
   })
 }
