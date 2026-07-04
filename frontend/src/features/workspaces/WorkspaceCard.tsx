@@ -92,7 +92,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {s === 'running' && status.url && (
           <Button size="sm" asChild aria-label={t('workspaces.actions.openVscode')}>
             <a href={status.url} target="_blank" rel="noopener noreferrer">
@@ -159,16 +159,19 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             {t('workspaces.actions.retry')}
           </Button>
         )}
-        <WorkspaceActionsMenu
-          wsName={spec.name}
-          running={s === 'running'}
-          onAddVm={() => setAddVmOpen(true)}
-          onOpenShell={() => setShellOpen(true)}
-          onShowSshKey={spec.ssh_key ? () => setSshKeyOpen(true) : undefined}
-          onOpenMessages={() => setMessagesOpen(true)}
-          onOpenLogs={() => setLogsOpen(true)}
-          onManageGroups={onManageGroups}
-        />
+        {/* Aligné à droite, sous le menu ⋮ des machines de test */}
+        <div className="ml-auto">
+          <WorkspaceActionsMenu
+            wsName={spec.name}
+            running={s === 'running'}
+            onAddVm={() => setAddVmOpen(true)}
+            onOpenShell={() => setShellOpen(true)}
+            onShowSshKey={spec.ssh_key ? () => setSshKeyOpen(true) : undefined}
+            onOpenMessages={() => setMessagesOpen(true)}
+            onOpenLogs={() => setLogsOpen(true)}
+            onManageGroups={onManageGroups}
+          />
+        </div>
       </div>
 
       <HostServicesSection wsName={spec.name} enabled={s === 'running'} onOpenSsh={setSshTestHost} />
