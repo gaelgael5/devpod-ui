@@ -3,7 +3,7 @@
 - **Sévérité** : majeur (perte de donnée silencieuse d'une préférence utilisateur, sans erreur)
 - **Sous-système** : config / db
 - **Fichiers** : `backend/src/portal/db/user_config.py` (écriture `save_user_db` ~104-124, lecture `_build_user_config` ~181-191) ; colonne `db/tables.py:178` ; champ `config/models.py:374` ; route `routes/me.py:96-104`
-- **Statut** : ouvert
+- **Statut** : corrigé — `culture` ajouté à `user_vals` (écriture) et `_build_user_config` (lecture) dans `db/user_config.py`, test de round-trip ajouté
 
 ## Symptôme
 

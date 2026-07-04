@@ -112,6 +112,7 @@ async def save_user_db(login: str, cfg: UserConfig, conn: AsyncConnection) -> No
         "default_ide": cfg.defaults.ide,
         "default_idle_timeout": cfg.defaults.idle_timeout,
         "harpocrate_api_key": cfg.harpocrate.api_key,
+        "culture": cfg.culture,
     }
     if existing is None:
         await conn.execute(insert(users).values(**user_vals))
@@ -181,6 +182,7 @@ def _build_user_config(
     return UserConfig(
         version=user_row["version"],
         secret_ns=str(user_row["secret_ns"]),
+        culture=user_row["culture"],
         defaults=UserDefaults(
             ide=user_row["default_ide"],
             idle_timeout=user_row["default_idle_timeout"],

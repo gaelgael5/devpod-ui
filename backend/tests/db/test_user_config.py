@@ -90,6 +90,15 @@ async def test_save_and_load_full(db_conn):
 
 
 @pytest.mark.asyncio
+async def test_save_and_load_culture_round_trip(db_conn):
+    cfg = _minimal_cfg()
+    cfg.culture = "en"
+    await save_user_db(LOGIN, cfg, db_conn)
+    loaded = await load_user_db(LOGIN, db_conn)
+    assert loaded.culture == "en"
+
+
+@pytest.mark.asyncio
 async def test_double_save_updates_in_place(db_conn):
     cfg = _minimal_cfg()
     await save_user_db(LOGIN, cfg, db_conn)
