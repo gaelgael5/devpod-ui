@@ -64,7 +64,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [033](033-construction-chemin-sans-safe-user-path.md) | Construction de chemin sous `/data` sans `safe_user_path` | config/db | ✅ corrigé |
 | [034](034-cache-global-peuple-avant-commit.md) | Cache global peuplé avant le commit de la transaction | db/config | ✅ corrigé |
 | [035](035-env-file-read-modify-write-sans-verrou.md) | Écriture `.env` en read-modify-write sans verrou | config | ✅ corrigé |
-| [036](036-reconcile-create-task-non-reference-gc.md) | `reconcile` : `create_task` fire-and-forget non référencé (GC) | devpod | 🔴 ouvert |
+| [036](036-reconcile-create-task-non-reference-gc.md) | `reconcile` : `create_task` fire-and-forget non référencé (GC) | devpod | ✅ corrigé |
 | [037](037-port-reserved-fuite-sur-echec-synchrone-up.md) | Port `_reserved` jamais libéré sur échec synchrone de `up()` | devpod/exposure | 🔴 ouvert |
 | [038](038-ssh-agent-orphelin-si-parsing-echoue.md) | Fuite de process `ssh-agent` si le parsing échoue | devpod | 🔴 ouvert |
 | [039](039-io-bloquante-generation-devcontainer.md) | I/O bloquante synchrone (génération devcontainer) | devpod | 🔴 ouvert |

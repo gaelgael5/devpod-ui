@@ -356,7 +356,9 @@ class DevPodService:
                     ws_id=ws_id,
                     msg="devpod up déclenché en arrière-plan pour reconnexion automatique",
                 )
-                asyncio.create_task(self._reconnect_workspace(ws_id, login_for_key))
+                task = asyncio.create_task(self._reconnect_workspace(ws_id, login_for_key))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
                 continue
 
             try:
