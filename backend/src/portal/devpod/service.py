@@ -523,11 +523,24 @@ class DevPodService:
         async with _get_lifecycle_lock(ws_id):
             branch: str | None = None
             if shelve:
-                # shelve_if_pending lance devpod ssh (git dans le conteneur), pas une
-                # opération lifecycle DevPod — hors du verrou subprocess de run_subprocess.
-                branch = await shelve_if_pending(
-                    self._devpod_bin, ws_id, self._minimal_env(login)
-                )
+                # Jamais de shelve sur un workspace en provisioning (bug 041) : l'up
+                # vient d'être tué, `devpod ssh` sur un conteneur à moitié provisionné
+                # échouerait en 409 et laisserait un zombie non nettoyé. Pour les autres
+                # statuts, un échec de shelve annule la suppression AVANT tout démontage
+                # (le workspace reste intact et utilisable).
+                async with _get_engine().connect() as conn:
+                    row = await get_status_db(ws_id, conn)
+                status = row["status"] if row is not None else None
+                if status in (None, "provisioning"):
+                    _log.info(
+                        "workspace_shelve_skipped", ws_id=ws_id, status=status or "absent"
+                    )
+                else:
+                    # shelve_if_pending lance devpod ssh (git dans le conteneur), pas une
+                    # opération lifecycle DevPod — hors du verrou subprocess de run_subprocess.
+                    branch = await shelve_if_pending(
+                        self._devpod_bin, ws_id, self._minimal_env(login)
+                    )
             await self._stop_port_forward(ws_id)
             if self._exposure is not None:
                 try:

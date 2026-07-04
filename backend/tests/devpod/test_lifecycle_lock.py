@@ -240,6 +240,120 @@ async def test_stop_on_existing_workspace_updates_status(
     assert status_store["eve-app"]["status"] == "stopped"
 
 
+async def test_delete_during_provisioning_skips_shelve(
+    status_store: dict[str, dict[str, Any]],
+    global_cfg: Any,
+    fake_devpod_bin: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bug 041 : delete pendant un provisioning ne tente jamais le shelve —
+    devpod ssh sur un conteneur à moitié provisionné échouait en 409 APRÈS
+    avoir tué l'up, laissant un workspace zombie avec son port-forward."""
+    import portal.devpod.service as service_mod
+
+    svc = _make_service(global_cfg, fake_devpod_bin)
+    login, ws_id = "fred", "fred-app"
+    await svc._write_status(ws_id, "provisioning", login=login)
+
+    up_in_subprocess = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fake_run_subprocess(
+        cmd: Any, env: Any, log_path: Any, ws_id: str, timeout_s: Any = None
+    ) -> int:
+        if "up" in cmd:
+            up_in_subprocess.set()
+            await release.wait()
+            return 0
+        return 0
+
+    async def fake_kill(ws_id: str) -> None:
+        release.set()
+
+    shelve_calls: list[str] = []
+
+    async def fake_shelve(devpod_bin: Any, ws_id: str, env: Any) -> str | None:
+        shelve_calls.append(ws_id)
+        return "recovery-x"
+
+    monkeypatch.setattr(service_mod, "run_subprocess", fake_run_subprocess)
+    monkeypatch.setattr(service_mod, "kill_if_running", fake_kill)
+    monkeypatch.setattr(service_mod, "shelve_if_pending", fake_shelve)
+
+    task = asyncio.create_task(svc._run_up_task(ws_id, "img", None, {}, login))
+    svc._up_tasks[ws_id] = task
+    await asyncio.wait_for(up_in_subprocess.wait(), timeout=2.0)
+
+    result = await svc.delete(login, ws_id, shelve=True)
+
+    assert shelve_calls == [], "aucun shelve sur un workspace en provisioning"
+    assert result == {"deleted": True, "recovery_branch": None}
+    assert ws_id not in status_store
+
+
+async def test_delete_running_shelves_before_teardown(
+    status_store: dict[str, dict[str, Any]],
+    global_cfg: Any,
+    fake_devpod_bin: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Chemin nominal : workspace running → shelve tenté, branche remontée."""
+    import portal.devpod.service as service_mod
+
+    svc = _make_service(global_cfg, fake_devpod_bin)
+    login, ws_id = "gina", "gina-app"
+    await svc._write_status(ws_id, "running", login=login)
+
+    async def fake_run_subprocess(
+        cmd: Any, env: Any, log_path: Any, ws_id: str, timeout_s: Any = None
+    ) -> int:
+        return 0
+
+    async def fake_shelve(devpod_bin: Any, ws_id: str, env: Any) -> str | None:
+        return "recovery-1"
+
+    monkeypatch.setattr(service_mod, "run_subprocess", fake_run_subprocess)
+    monkeypatch.setattr(service_mod, "shelve_if_pending", fake_shelve)
+
+    result = await svc.delete(login, ws_id, shelve=True)
+    assert result == {"deleted": True, "recovery_branch": "recovery-1"}
+    assert ws_id not in status_store
+
+
+async def test_delete_aborts_intact_when_shelve_fails(
+    status_store: dict[str, dict[str, Any]],
+    global_cfg: Any,
+    fake_devpod_bin: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shelve en échec (409) sur un workspace running : la suppression est
+    annulée AVANT tout démontage — la ligne et le statut restent intacts."""
+    from fastapi import HTTPException
+
+    import portal.devpod.service as service_mod
+
+    svc = _make_service(global_cfg, fake_devpod_bin)
+    login, ws_id = "hugo", "hugo-app"
+    await svc._write_status(ws_id, "running", login=login)
+
+    async def fake_shelve(devpod_bin: Any, ws_id: str, env: Any) -> str | None:
+        raise HTTPException(status_code=409, detail="push failed")
+
+    forward_stops: list[str] = []
+
+    async def fake_stop_forward(ws_id: str) -> None:
+        forward_stops.append(ws_id)
+
+    monkeypatch.setattr(service_mod, "shelve_if_pending", fake_shelve)
+    monkeypatch.setattr(svc, "_stop_port_forward", fake_stop_forward)
+
+    with pytest.raises(HTTPException):
+        await svc.delete(login, ws_id, shelve=True)
+
+    assert status_store[ws_id]["status"] == "running"
+    assert forward_stops == [], "le tunnel ne doit pas être démonté si le shelve échoue"
+
+
 async def test_delete_after_up_completed_leaves_no_row(
     status_store: dict[str, dict[str, Any]],
     global_cfg: Any,
