@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
 from ..config.store import load_global
-from ..db.engine import get_conn
+from ..db.engine import _get_engine, get_conn
+from ..db.global_config import set_cached_global
 from ..db.tokens import create_token
 from ..nodes.enroll import CsrValidationError, enroll_node
 
@@ -79,14 +80,22 @@ async def create_join_token(
 async def enroll_node_endpoint(
     req: EnrollRequest,
     authorization: str = Header(...),
-    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
-    """Enrôlement : auth Bearer join token (pas de session OIDC). §E-27, §E-28."""
+    """Enrôlement : auth Bearer join token (pas de session OIDC). §E-27, §E-28.
+
+    La transaction est ouverte ici (et non via ``get_conn``) pour que le COMMIT
+    ait lieu **dans** le handler : consommation du token, enregistrement du host
+    et ligne de certificat committent atomiquement (§014), puis — et seulement
+    après un COMMIT réussi — le cache RAM de la GlobalConfig est rafraîchi (bug
+    034). Sur exception, le bloc ``begin()`` rollback l'ensemble et le cache
+    reste inchangé.
+    """
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Bearer token required")
     token = authorization[len("Bearer ") :]
     try:
-        result = await enroll_node(token=token, csr_pem=req.csr, conn=conn)
+        async with _get_engine().begin() as conn:
+            result, new_cfg = await enroll_node(token=token, csr_pem=req.csr, conn=conn)
     except CsrValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ValueError as exc:
@@ -94,4 +103,5 @@ async def enroll_node_endpoint(
     except (FileNotFoundError, OSError) as exc:
         _log.error("enroll_ca_unavailable", error=str(exc))
         raise HTTPException(status_code=500, detail="CA not available") from exc
+    set_cached_global(new_cfg)  # après COMMIT réussi seulement (bug 034 + §014)
     return result

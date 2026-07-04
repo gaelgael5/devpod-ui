@@ -37,7 +37,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [011](011-ensure-user-db-invente-secret-ns.md) | `ensure_user_db` fabrique un `secret_ns` aléatoire → secrets orphelins | db/secrets | 🔴 ouvert |
 | [012](fixed/012-portal-api-key-comparaison-non-constant-time.md) | Comparaison non constant-time de `portal_api_key` (bearer admin) | auth | ✅ corrigé |
 | [013](fixed/013-csr-san-trop-permissif-usurpation-noeud.md) | SAN de CSR trop permissif : cert valide pour d'autres nœuds | nodes | ✅ corrigé |
-| [014](014-enrolement-noeud-non-atomique-token-reutilisable.md) | Enrôlement non atomique → join token réutilisable | nodes | 🔴 ouvert |
+| [014](fixed/014-enrolement-noeud-non-atomique-token-reutilisable.md) | Enrôlement non atomique → join token réutilisable | nodes | ✅ corrigé |
 | [015](015-course-allocation-ports-compose.md) | Course sur l'allocation de ports compose | compose | 🔴 ouvert |
 | [016](fixed/016-stream-host-command-sous-process-ssh-orphelin.md) | Sous-process ssh non tué à la déconnexion → déploiement orphelin | compose | ✅ corrigé (partiel, voir fiche) |
 | [017](fixed/017-mcp-exceptions-non-gerees-echappent-dispatch.md) | MCP : exceptions non gérées échappent au dispatch → trou d'audit | mcp | ✅ corrigé |
@@ -78,13 +78,16 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 
 Les fiches critiques et majeures ont été recoupées avec le code source réel avant rédaction. Les
 fiches [013](fixed/013-csr-san-trop-permissif-usurpation-noeud.md) et
-[014](014-enrolement-noeud-non-atomique-token-reutilisable.md) reposent sur l'analyse détaillée de
-l'agent d'audit (lignes précises fournies) et méritent une relecture directe de
-`nodes/enroll.py` avant correction.
+[014](fixed/014-enrolement-noeud-non-atomique-token-reutilisable.md) reposaient sur l'analyse détaillée
+de l'agent d'audit (lignes précises fournies) ; la relecture directe de `nodes/enroll.py` a été faite
+lors de leur correction.
 
-Les bugs 002, 003, 007, 009, 010, 011, 013, 014, 015, 022, 032, 041 sont classés Fable/Opus (hors
-périmètre d'une correction Sonnet directe) — voir la recommandation de modèle par bug donnée en
-conversation. Cette passe ne traite que les 31 bugs recommandés pour Sonnet.
+**Passe Opus-5** (sous-agents Opus, pilotés/relus par l'agent Sonnet) : 002, 003, 013, 014 corrigés ;
+032 (rôles figés cookie) en attente d'une décision de design (TTL court vs revérification IdP).
+
+Les bugs restants 007, 009, 010, 011, 015, 022, 041 (+ 001 non classé) étaient classés Fable dans la
+passe initiale — hors périmètre de la passe Opus-5. Les 31 premiers bugs corrigés étaient recommandés
+pour Sonnet.
 
 **Limite d'environnement** : ce devpod n'a pas Docker. Les tests qui nécessitent une vraie DB
 Postgres (fixture `db_conn`, testcontainers) sont écrits normalement mais **skippent** ici

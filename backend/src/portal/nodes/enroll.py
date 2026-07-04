@@ -14,8 +14,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import NameOID
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..config.models import HostConfig
-from ..config.store import _data_root, load_global, save_global
+from ..config.models import GlobalConfig, HostConfig
+from ..config.store import _data_root, load_global
 from ..db.tokens import consume_token as consume_token_db
 
 _log = structlog.get_logger(__name__)
@@ -168,11 +168,19 @@ def _save_node_cert(node_name: str, cert_pem: bytes) -> None:
         raise
 
 
-async def _register_host(node_name: str, address: str) -> None:
-    """Ajoute le nœud dans global_config en DB."""
-    cfg = load_global()
-    if any(h.name == node_name for h in cfg.hosts):
-        raise ValueError(f"Host {node_name!r} already registered — delete it first")
+async def _register_host(
+    cfg: GlobalConfig, node_name: str, address: str, conn: AsyncConnection
+) -> None:
+    """Enregistre le nœud dans ``global_config`` sur la transaction fournie. §014.
+
+    Écrit via ``save_global_db(conn)`` — **jamais** ``save_global``, qui ouvrirait
+    sa propre transaction et committerait tôt, rompant l'atomicité
+    token + host + cert (cause racine de §014). Le cache RAM n'est **pas** mis à
+    jour ici : il l'est par l'appelant HTTP (``routes/nodes.py``) après le COMMIT
+    de la transaction d'enrôlement, jamais avant (bug 034).
+    """
+    from ..db.global_config import save_global_db
+
     cfg.hosts.append(
         HostConfig(
             name=node_name,
@@ -181,12 +189,36 @@ async def _register_host(node_name: str, address: str) -> None:
             docker_host=f"tcp://{address}:2376",
         )
     )
-    await save_global(cfg)
+    await save_global_db(cfg, conn)
     _log.info("node_host_registered", node_name=node_name, address=address)
 
 
-async def enroll_node(token: str, csr_pem: str, conn: AsyncConnection) -> dict[str, str]:
-    """Consomme le token, valide + signe la CSR, enregistre le nœud."""
+async def enroll_node(
+    token: str, csr_pem: str, conn: AsyncConnection
+) -> tuple[dict[str, str], GlobalConfig]:
+    """Enrôle un nœud de façon **atomique** sur ``conn``. §014, §E-27, §E-28.
+
+    Consommation du token, enregistrement du host et persistance de la ligne de
+    certificat s'exécutent toutes sur la **même** transaction ``conn`` : elles
+    committent ou rollbackent **ensemble**. Aucune écriture n'ouvre de
+    transaction séparée. L'appelant (``routes/nodes.py``) COMMIT ``conn`` puis
+    met à jour le cache RAM avec la ``GlobalConfig`` retournée (bug 034).
+
+    Le point critique de §014 — le token ne redevient **jamais** réutilisable
+    pendant qu'un host reste enregistré — est garanti par cette atomicité DB :
+    sur rollback, le flag ``used`` du token, la ligne host et la ligne cert
+    disparaissent ensemble ; un rejeu du token porte alors sur un état où rien
+    n'a eu lieu, ce qui est cohérent.
+
+    Compromis écriture disque (§014) : le fichier certificat n'est pas
+    transactionnel. Il est écrit en **dernier**, après les écritures DB en
+    transaction, via un ``os.replace`` atomique et idempotent. Si le COMMIT
+    final (hors de cette fonction) échoue, un fichier cert orphelin peut
+    subsister ; il est inoffensif — aucune ligne host committée ne le référence,
+    il est inutilisable seul — et il est écrasé à l'identique lors d'une nouvelle
+    tentative légitime. On priorise ainsi l'atomicité DB token+host+cert-row : un
+    cert orphelin nettoyable est un moindre mal qu'un token rejouable.
+    """
     from ..db.node_certs import save_node_cert_db
 
     node_name, address = await consume_token_db(token, conn)
@@ -197,6 +229,13 @@ async def enroll_node(token: str, csr_pem: str, conn: AsyncConnection) -> dict[s
     if any(h.name == node_name for h in cfg.hosts):
         raise ValueError(f"Host {node_name!r} already registered — delete it first")
 
+    # Copie profonde AVANT toute mutation : `load_global()` renvoie l'objet caché
+    # vivant (get_cached_global). Muter `cfg.hosts` en place polluerait le cache RAM
+    # dès maintenant — donc AVANT le COMMIT, et le laisserait pollué sur rollback
+    # (host fantôme absent de la DB). On travaille sur une copie ; le cache n'est
+    # rafraîchi que par l'appelant, après COMMIT réussi, via set_cached_global (§014, bug 034).
+    cfg = cfg.model_copy(deep=True)
+
     ca_cert_path = _data_root() / "certs" / "ca" / "ca.pem"
     ca_key_path = _data_root() / "certs" / "ca" / "ca-key.pem"
     cert_pem, ca_pem = sign_csr(
@@ -206,26 +245,33 @@ async def enroll_node(token: str, csr_pem: str, conn: AsyncConnection) -> dict[s
         ca_cert_path=ca_cert_path,
         ca_key_path=ca_key_path,
     )
-    _save_node_cert(node_name, cert_pem)
-    await _register_host(node_name, address)
 
-    # Persistance en DB : extraction des métadonnées depuis le certificat signé
+    # Enregistrement du host sur la MÊME transaction que le token (§014)
+    await _register_host(cfg, node_name, address, conn)
+
+    # Ligne de certificat sur la MÊME transaction (§014) : métadonnées extraites
+    # du certificat signé
     cert_obj = x509.load_pem_x509_certificate(cert_pem)
-    serial_hex = format(cert_obj.serial_number, "x")
-    signed_at = cert_obj.not_valid_before_utc
-    expires_at = cert_obj.not_valid_after_utc
     await save_node_cert_db(
         node_name=node_name,
         address=address,
         cert_pem=cert_pem.decode(),
-        serial_number=serial_hex,
-        signed_at=signed_at,
-        expires_at=expires_at,
+        serial_number=format(cert_obj.serial_number, "x"),
+        signed_at=cert_obj.not_valid_before_utc,
+        expires_at=cert_obj.not_valid_after_utc,
         conn=conn,
     )
 
-    return {
-        "cert_pem": cert_pem.decode(),
-        "ca_pem": ca_pem.decode(),
-        "node_name": node_name,
-    }
+    # Écriture disque en dernier : atomique/idempotente et hors transaction (§014).
+    # Placée après les écritures DB pour qu'un échec d'une opération DB ne laisse
+    # aucun fichier orphelin ; seul un échec du COMMIT final pourrait en laisser un.
+    _save_node_cert(node_name, cert_pem)
+
+    return (
+        {
+            "cert_pem": cert_pem.decode(),
+            "ca_pem": ca_pem.decode(),
+            "node_name": node_name,
+        },
+        cfg,
+    )

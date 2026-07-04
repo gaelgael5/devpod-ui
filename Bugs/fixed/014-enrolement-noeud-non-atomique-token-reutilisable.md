@@ -3,7 +3,20 @@
 - **Sévérité** : majeur
 - **Sous-système** : nodes
 - **Fichiers** : `backend/src/portal/nodes/enroll.py:153-207` (`enroll_node`), couplé à `config/store.py:98-103` (`save_global` ouvre sa propre transaction)
-- **Statut** : ouvert
+- **Statut** : corrigé — `enroll_node` écrit désormais consommation du token, enregistrement du
+  host (via `save_global_db(conn)` au lieu de `save_global`, qui ouvrait sa propre transaction) et
+  ligne de certificat sur **une seule** `conn` : elles committent/rollbackent ensemble. La route
+  `/nodes/enroll` ouvre elle-même la transaction (au lieu de `Depends(get_conn)`) et ne rafraîchit
+  le cache RAM qu'après un COMMIT réussi (bug 034). Sur rollback, le token n'est jamais réutilisable
+  pendant qu'un host reste enregistré. Compromis écriture disque du cert : le fichier est écrit en
+  **dernier** (après les écritures DB), via `os.replace` atomique et idempotent ; seul un échec du
+  COMMIT final peut laisser un cert orphelin, inoffensif (aucune ligne host committée ne le référence,
+  inutilisable seul) et écrasé à l'identique au prochain essai — moindre mal qu'un token rejouable.
+  Renfort ajouté à la relecture : `enroll_node` fait un `cfg.model_copy(deep=True)` avant d'ajouter
+  le host, car `load_global()` renvoie l'objet caché **vivant** (`get_cached_global`) — muter
+  `cfg.hosts` en place polluerait le cache RAM avant le COMMIT et le laisserait pollué sur rollback
+  (host fantôme). Le cache n'est donc rafraîchi que par la route, après COMMIT, via `set_cached_global`
+  (cohérent bug 034). Test `test_enroll_node_does_not_mutate_live_cache_before_commit` (rouge→vert).
 
 ## Symptôme
 

@@ -10,7 +10,6 @@ import ipaddress
 from collections.abc import AsyncGenerator, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from cryptography import x509
@@ -19,10 +18,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.middleware.sessions import SessionMiddleware
-
-from portal.config.models import GlobalConfig
 
 NODE = "pve2-docker"
 ADDR = "192.168.1.50"
@@ -98,37 +95,23 @@ def _make_valid_csr(node_name: str, address: str) -> str:
     return csr.public_bytes(serialization.Encoding.PEM).decode()
 
 
-@pytest.fixture
-def patched_save_global(db_conn: AsyncConnection) -> Iterator[None]:
-    """Redirige save_global vers save_global_db sur la connexion de test.
-
-    save_global ouvre sa propre connexion via le moteur global ; en test le
-    pool (pool_size=1) est déjà occupé par db_conn. On réutilise donc la même
-    connexion : les écritures restent dans la transaction rollbackée et le
-    cache RAM est mis à jour comme en production.
-    """
-    from portal.db.global_config import save_global_db
-
-    async def _save(cfg: GlobalConfig) -> None:
-        await save_global_db(cfg, db_conn)
-
-    with patch("portal.nodes.enroll.save_global", _save):
-        yield
-
-
-def _build_app(db_conn: AsyncConnection, *, admin: bool) -> FastAPI:
+def _build_app(*, admin: bool) -> FastAPI:
     """App minimale avec le seul routeur nodes — évite le lifespan complet.
 
     SessionMiddleware est requis : require_admin lit request.session (401 si vide).
+
+    Aucune surcharge de ``get_conn`` : les routes utilisent le moteur de test réel
+    (``db_engine`` fixe ``_engine``). La route ``/nodes/enroll`` ouvre sa propre
+    transaction (§014, comme admin.py/test_vm.py) et COMMIT — on ne peut donc pas
+    l'isoler par un SAVEPOINT partagé ; l'isolation vient du db_engine
+    fonction-scopé (tables créées/détruites par test).
     """
     from portal.auth.rbac import UserInfo, require_admin
-    from portal.db.engine import get_conn
     from portal.routes.nodes import router as nodes_router
 
     app = FastAPI()
     app.include_router(nodes_router, prefix="/admin")
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key-32chars-minimum!!")
-    app.dependency_overrides[get_conn] = lambda: db_conn
     if admin:
         app.dependency_overrides[require_admin] = lambda: UserInfo(
             login="admin", roles=["admin"]
@@ -137,15 +120,15 @@ def _build_app(db_conn: AsyncConnection, *, admin: bool) -> FastAPI:
 
 
 @pytest.fixture
-async def admin_client(db_conn: AsyncConnection) -> AsyncGenerator[AsyncClient, None]:
-    app = _build_app(db_conn, admin=True)
+async def admin_client(db_engine: AsyncEngine) -> AsyncGenerator[AsyncClient, None]:
+    app = _build_app(admin=True)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
 
 
 @pytest.fixture
-async def anon_client(db_conn: AsyncConnection) -> AsyncGenerator[AsyncClient, None]:
-    app = _build_app(db_conn, admin=False)
+async def anon_client(db_engine: AsyncEngine) -> AsyncGenerator[AsyncClient, None]:
+    app = _build_app(admin=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
 
@@ -169,7 +152,7 @@ async def test_create_token_invalid_name_rejected(admin_client: AsyncClient) -> 
 
 
 async def test_create_token_returns_token_and_install_cmd(
-    admin_client: AsyncClient, db_conn: AsyncConnection
+    admin_client: AsyncClient, db_engine: AsyncEngine
 ) -> None:
     resp = await admin_client.post(
         "/admin/nodes/token", json={"node_name": NODE, "address": ADDR}
@@ -180,10 +163,12 @@ async def test_create_token_returns_token_and_install_cmd(
     assert NODE in data["install_cmd"]
     assert ADDR in data["install_cmd"]
 
-    # le token est bien persisté (hashé) en DB : consommable une fois
+    # le token est bien persisté (hashé) et committé en DB : consommable une fois
     from portal.db.tokens import consume_token
 
-    assert await consume_token(data["token"], db_conn) == (NODE, ADDR)
+    async with db_engine.connect() as conn:
+        assert await consume_token(data["token"], conn) == (NODE, ADDR)
+        await conn.rollback()
 
 
 # ─── POST /admin/nodes/enroll ─────────────────────────────────────────────────
@@ -207,10 +192,9 @@ async def test_enroll_invalid_token_returns_401(admin_client: AsyncClient) -> No
 
 async def test_enroll_valid_flow_returns_certs_and_updates_config(
     admin_client: AsyncClient,
-    db_conn: AsyncConnection,
+    db_engine: AsyncEngine,
     tmp_data_root: Path,
     ca_fixture: tuple[Path, Path],
-    patched_save_global: None,
 ) -> None:
     csr = _make_valid_csr(NODE, ADDR)
     resp_token = await admin_client.post(
@@ -229,10 +213,12 @@ async def test_enroll_valid_flow_returns_certs_and_updates_config(
     assert "BEGIN CERTIFICATE" in data["cert_pem"]
     assert "BEGIN CERTIFICATE" in data["ca_pem"]
 
-    # le nœud est enregistré dans la GlobalConfig en DB (remplace config.yaml)
+    # le nœud est enregistré (committé) dans la GlobalConfig en DB (remplace config.yaml)
     from portal.db.global_config import load_global_db
 
-    cfg = await load_global_db(db_conn)
+    async with db_engine.connect() as conn:
+        cfg = await load_global_db(conn)
+        await conn.rollback()
     assert cfg is not None
     assert NODE in [h.name for h in cfg.hosts]
 
@@ -243,10 +229,8 @@ async def test_enroll_valid_flow_returns_certs_and_updates_config(
 
 async def test_enroll_token_reuse_returns_401(
     admin_client: AsyncClient,
-    db_conn: AsyncConnection,
     tmp_data_root: Path,
     ca_fixture: tuple[Path, Path],
-    patched_save_global: None,
 ) -> None:
     csr = _make_valid_csr(NODE, ADDR)
     resp_token = await admin_client.post(
