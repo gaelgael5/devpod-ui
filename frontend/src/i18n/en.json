@@ -126,6 +126,9 @@
       "close": "Close",
       "delete": "Delete link {{key}}",
       "edit": "Edit link {{key}}",
+      "copy": "Copy {{key}} URL",
+      "copied": "URL copied",
+      "copyFailed": "Failed to copy URL",
       "saveFailed": "Failed to save link"
     },
     "form": {

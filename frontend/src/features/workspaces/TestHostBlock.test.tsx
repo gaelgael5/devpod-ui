@@ -121,6 +121,34 @@ describe('TestHostBlock — liens (clé → URL) du menu ⋮', () => {
     )
   })
 
+  it("le bouton copier met l'URL au presse-papiers sans ouvrir d'onglet", async () => {
+    server.use(
+      http.get('/me/workspaces/:ws/test-hosts/:host/links', () =>
+        HttpResponse.json([{ key: 'grafana', url: 'http://192.168.10.160:3001' }]),
+      ),
+    )
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    const user = userEvent.setup()
+    // Après userEvent.setup() : il installe son propre stub navigator.clipboard.
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
+    renderWithProviders(
+      <TestHostBlock wsName="ws1" host={HOST} deployments={[]} onOpenSsh={vi.fn()} />
+    )
+
+    await user.click(screen.getByRole('button', { name: /actions/i }))
+    await user.click(
+      await screen.findByRole('button', { name: /copier l'url de grafana|copy grafana url/i }),
+    )
+
+    expect(writeText).toHaveBeenCalledWith('http://192.168.10.160:3001')
+    expect(openSpy).not.toHaveBeenCalled()
+    openSpy.mockRestore()
+  })
+
   it("le crayon pré-remplit le formulaire ; renommer la clé supprime l'ancienne entrée", async () => {
     let putBody: unknown = null
     const deleted: string[] = []

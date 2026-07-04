@@ -126,6 +126,9 @@
       "close": "Fermer",
       "delete": "Supprimer le lien {{key}}",
       "edit": "Modifier le lien {{key}}",
+      "copy": "Copier l'URL de {{key}}",
+      "copied": "URL copiée",
+      "copyFailed": "Impossible de copier l'URL",
       "saveFailed": "Échec de l'enregistrement du lien"
     },
     "form": {

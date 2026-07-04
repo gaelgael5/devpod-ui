@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ExternalLink, Link2, MoreVertical, PlayCircle, RefreshCw, TerminalSquare, Trash2,
+  Copy, ExternalLink, Link2, MoreVertical, PlayCircle, RefreshCw, TerminalSquare, Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -100,8 +100,26 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
                 className="gap-2"
                 onSelect={() => window.open(link.url, '_blank', 'noopener,noreferrer')}
               >
-                <ExternalLink className="h-3.5 w-3.5" />
-                <span className="truncate">{link.key}</span>
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{link.key}</span>
+                {/* stopPropagation : copier ne doit ni ouvrir l'URL ni fermer le menu */}
+                <button
+                  type="button"
+                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  aria-label={t('workspaces.testHostLinks.copy', { key: link.key })}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    e.preventDefault()
+                    void navigator.clipboard.writeText(link.url).then(
+                      () => toast.success(t('workspaces.testHostLinks.copied')),
+                      () => toast.error(t('workspaces.testHostLinks.copyFailed')),
+                    )
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onPointerUp={(e) => e.stopPropagation()}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
               </DropdownMenuItem>
             ))}
             <DropdownMenuItem onSelect={() => setLinksOpen(true)} className="gap-2">
