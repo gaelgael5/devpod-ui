@@ -130,7 +130,10 @@ class ExposureService:
                     match_host=self._vs_proxy_domain,
                     portal_upstream=portal_upstream,
                 )
-            url = f"{self._url_scheme}://{self._vs_proxy_domain}/?folder={folder}"
+            # &ws= : identifie explicitement le workspace cible pour le vsproxy —
+            # folder ne suffit pas (les workspaces multi-sources ouvrent /workspaces
+            # tout court, sans ws_id dedans). OpenVSCode ignore ce paramètre inconnu.
+            url = f"{self._url_scheme}://{self._vs_proxy_domain}/?folder={folder}&ws={ws_id}"
             await self._write_exposure(ws_id, hostname=self._vs_proxy_domain, url=url)
             _log.info("workspace_exposed_vs_portal", ws_id=ws_id, url=url)
             return url

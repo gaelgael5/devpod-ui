@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from urllib.parse import parse_qs
 
 import httpx
 import structlog
@@ -48,21 +49,40 @@ _HOP_BY_HOP = frozenset(
 )
 
 
-async def _resolve_host_port(login: str, ws_id_hint: str | None = None) -> int | None:
-    """Retourne le host_port du workspace running de l'utilisateur.
+# Cookie de liaison onglet ↔ workspace : posé à l'entrée (requête porteuse d'un
+# hint explicite), relu par les sous-requêtes sans hint (assets, WebSockets).
+_WS_COOKIE = "vsproxy_ws"
 
-    Préfère le workspace identifié par ws_id_hint si plusieurs sont running.
+
+async def _resolve_workspace(
+    login: str, ws_id_hint: str | None, cookie_ws_id: str | None
+) -> tuple[str, int] | None:
+    """Résout (ws_id, host_port) parmi les workspaces running de l'utilisateur.
+
+    Priorité : hint explicite (?ws= / ?folder=) > cookie de liaison > unique
+    workspace running. JAMAIS de repli arbitraire sur « le premier running » :
+    les sous-requêtes sans hint (assets et surtout WebSockets — la vraie session
+    VS Code) atterrissaient toutes sur le même workspace, quel que soit celui
+    demandé. De même, un hint qui ne correspond à aucun workspace running
+    échoue — on ne sert jamais un autre workspace à la place de celui demandé.
     """
     async with _get_engine().begin() as conn:
         all_ws = await list_by_login_db(login, conn)
-    running = [w for w in all_ws if w.get("status") == "running" and w.get("host_port")]
+    running = {
+        str(w["ws_id"]): int(w["host_port"])
+        for w in all_ws
+        if w.get("status") == "running" and w.get("host_port")
+    }
     if not running:
         return None
     if ws_id_hint:
-        ws = next((w for w in running if w.get("ws_id") == ws_id_hint), running[0])
-    else:
-        ws = running[0]
-    return int(ws["host_port"])
+        port = running.get(ws_id_hint)
+        return (ws_id_hint, port) if port is not None else None
+    if cookie_ws_id and cookie_ws_id in running:
+        return cookie_ws_id, running[cookie_ws_id]
+    if len(running) == 1:
+        return next(iter(running.items()))
+    return None
 
 
 def _session_login(request: Request) -> str | None:
@@ -82,13 +102,22 @@ def _session_login(request: Request) -> str | None:
 
 
 def _ws_id_hint_from_query(query_string: str) -> str | None:
-    """Extrait un ws_id depuis ?folder=/workspaces/{ws_id}."""
-    for part in query_string.split("&"):
-        if part.startswith("folder="):
-            folder = part[len("folder="):]
-            segments = folder.strip("/").split("/")
-            if len(segments) >= 2 and segments[0] == "workspaces":
-                return segments[1]
+    """Extrait le ws_id ciblé depuis la query string.
+
+    ``?ws=<ws_id>`` (explicite, posé par exposure dans l'URL d'entrée) prime ;
+    à défaut, dérivé de ``?folder=/workspaces/{ws_id}`` — indisponible pour les
+    workspaces multi-sources dont le folder est ``/workspaces`` tout court.
+    parse_qs décode les valeurs URL-encodées (``%2F``), contrairement à
+    l'ancien découpage manuel.
+    """
+    params = parse_qs(query_string)
+    ws_vals = params.get("ws")
+    if ws_vals and ws_vals[0]:
+        return ws_vals[0]
+    for folder in params.get("folder", []):
+        segments = folder.strip("/").split("/")
+        if len(segments) >= 2 and segments[0] == "workspaces":
+            return segments[1]
     return None
 
 
@@ -119,9 +148,14 @@ async def vscode_http_proxy(request: Request, path: str = "") -> Response:
 
     qs = request.url.query
     ws_id_hint = _ws_id_hint_from_query(qs) if qs else None
-    host_port = await _resolve_host_port(login, ws_id_hint)
-    if host_port is None:
-        return Response(status_code=503, content="No active workspace")
+    cookie_ws_id = request.cookies.get(_WS_COOKIE)
+    resolved = await _resolve_workspace(login, ws_id_hint, cookie_ws_id)
+    if resolved is None:
+        return Response(
+            status_code=503,
+            content="No active workspace — ouvrez VS Code depuis le portail",
+        )
+    ws_id, host_port = resolved
 
     upstream_path = f"/{path}" if path else "/"
     upstream_url = f"http://localhost:{host_port}{upstream_path}"
@@ -156,11 +190,18 @@ async def vscode_http_proxy(request: Request, path: str = "") -> Response:
         path=upstream_path,
         status=upstream.status_code,
     )
-    return Response(
+    response = Response(
         content=upstream.content,
         status_code=upstream.status_code,
         headers=resp_headers,
     )
+    if ws_id_hint and cookie_ws_id != ws_id:
+        # Lie les sous-requêtes sans hint de cet onglet (assets, WebSockets) au
+        # workspace d'entrée. Un onglet ouvert ensuite sur un autre workspace
+        # re-lie le cookie — un seul workspace actif à la fois par navigateur
+        # sur le domaine partagé vs_proxy_domain.
+        response.set_cookie(_WS_COOKIE, ws_id, httponly=True, samesite="lax", path="/")
+    return response
 
 
 @router.websocket("/vsproxy/{path:path}")
@@ -213,10 +254,11 @@ async def vscode_ws_proxy(websocket: WebSocket, path: str) -> None:
     qs = qs_bytes.decode() if qs_bytes else ""
     ws_id_hint = _ws_id_hint_from_query(qs) if qs else None
 
-    host_port = await _resolve_host_port(login, ws_id_hint)
-    if host_port is None:
+    resolved = await _resolve_workspace(login, ws_id_hint, websocket.cookies.get(_WS_COOKIE))
+    if resolved is None:
         await websocket.close(code=4503, reason="No active workspace")
         return
+    _ws_id, host_port = resolved
 
     upstream_path = f"/{path}"
     if qs:
