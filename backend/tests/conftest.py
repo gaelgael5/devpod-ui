@@ -75,6 +75,21 @@ async def db_conn(db_engine: AsyncEngine) -> AsyncConnection:
 
 
 @pytest.fixture
+async def db_engine_concurrent(db_engine: AsyncEngine, postgres_url: str) -> AsyncEngine:
+    """Moteur secondaire (pool de 2) pour les tests de concurrence (bug 010).
+
+    `db_engine` est limité à une seule connexion (pool_size=1, max_overflow=0) :
+    impossible d'y ouvrir deux transactions concurrentes. Ce moteur partage le
+    même schéma (créé/détruit par `db_engine`) mais autorise deux connexions.
+    Les écritures sont committées (pas de SAVEPOINT) — les tables sont de toute
+    façon droppées en fin de test par le teardown de `db_engine`.
+    """
+    engine = create_async_engine(postgres_url, pool_size=2, max_overflow=0)
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture
 def tmp_data_root(tmp_path, monkeypatch):
     """Redirige PORTAL_DATA_ROOT vers un répertoire temporaire."""
     monkeypatch.setenv("PORTAL_DATA_ROOT", str(tmp_path))

@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import structlog
-from sqlalchemy import delete, insert, select, update
+from sqlalchemy import delete, insert, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from portal.config.models import GlobalConfig, HostConfig, Hypervisor, HypervisorType
@@ -223,15 +224,16 @@ def _host_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
 async def _write_to_db(cfg: GlobalConfig, conn: AsyncConnection) -> None:
     scalars = _cfg_to_scalars(cfg)
 
-    existing = await conn.execute(
-        select(global_config.c.id).where(global_config.c.id == 1)
-    )
-    if existing.one_or_none() is None:
-        await conn.execute(insert(global_config).values(**scalars))
-    else:
-        await conn.execute(
-            update(global_config).where(global_config.c.id == 1).values(**scalars)
+    # Upsert atomique du singleton id=1 (bug 010) : le check-then-insert laissait
+    # deux transactions concurrentes tenter chacune l'INSERT → UniqueViolation.
+    await conn.execute(
+        pg_insert(global_config)
+        .values(**scalars)
+        .on_conflict_do_update(
+            index_elements=[global_config.c.id],
+            set_={k: v for k, v in scalars.items() if k != "id"},
         )
+    )
 
     # Remplacement complet des listes (delete + insert)
     await conn.execute(delete(hypervisor_types))

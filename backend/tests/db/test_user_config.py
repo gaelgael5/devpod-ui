@@ -1,6 +1,7 @@
 """Tests de la couche persistance UserConfig (Tour 4)."""
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
@@ -14,7 +15,7 @@ from portal.config.models import (
     WorkspaceExpose,
     WorkspaceSpec,
 )
-from portal.db.user_config import load_user_db, save_user_db
+from portal.db.user_config import ensure_user_db, load_user_db, save_user_db
 
 LOGIN = "testuser"
 
@@ -133,6 +134,82 @@ async def test_save_replaces_workspaces(db_conn):
 async def test_load_raises_if_no_user(db_conn):
     with pytest.raises(FileNotFoundError):
         await load_user_db("ghost", db_conn)
+
+
+# ─── ensure_user_db ───────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ensure_user_creates_row_when_absent(db_conn, tmp_data_root):
+    await ensure_user_db("lazyuser", db_conn)
+    loaded = await load_user_db("lazyuser", db_conn)
+    assert loaded.version == "1"
+    assert loaded.secret_ns  # UUID généré (pas de config.yaml sous tmp_data_root)
+
+
+@pytest.mark.asyncio
+async def test_ensure_user_does_not_overwrite_existing(db_conn, tmp_data_root):
+    cfg = _minimal_cfg()
+    await save_user_db(LOGIN, cfg, db_conn)
+    await ensure_user_db(LOGIN, db_conn)
+    loaded = await load_user_db(LOGIN, db_conn)
+    assert loaded.secret_ns == cfg.secret_ns
+
+
+@pytest.mark.asyncio
+async def test_ensure_user_concurrent_meme_login_sans_unique_violation(
+    db_engine_concurrent, tmp_data_root
+):
+    """Bug 010 : deux provisions concurrentes du même login. La 2e transaction ne
+    voit pas l'INSERT non commité de la 1re (READ COMMITTED) — elle ne doit ni
+    lever UniqueViolation ni écraser la ligne de la 1re (do_nothing)."""
+    async with (
+        db_engine_concurrent.connect() as c1,
+        db_engine_concurrent.connect() as c2,
+    ):
+        await ensure_user_db("raceuser", c1)
+
+        async def _concurrent_ensure() -> None:
+            await ensure_user_db("raceuser", c2)
+            await c2.commit()
+
+        task = asyncio.create_task(_concurrent_ensure())
+        await asyncio.sleep(0.3)
+        await c1.commit()
+        await asyncio.wait_for(task, timeout=10)
+
+    async with db_engine_concurrent.connect() as c3:
+        loaded = await load_user_db("raceuser", c3)
+    assert loaded.version == "1"
+
+
+# ─── Concurrence save_user_db (bug 010) ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_save_user_concurrent_meme_login_sans_unique_violation(db_engine_concurrent):
+    """Bug 010 : deux save_user_db concurrents du même login ne doivent jamais
+    lever UniqueViolation ; le dernier committé gagne."""
+    cfg1 = _minimal_cfg()
+    cfg2 = _minimal_cfg()
+    async with (
+        db_engine_concurrent.connect() as c1,
+        db_engine_concurrent.connect() as c2,
+    ):
+        await save_user_db(LOGIN, cfg1, c1)
+
+        async def _concurrent_save() -> None:
+            await save_user_db(LOGIN, cfg2, c2)
+            await c2.commit()
+
+        task = asyncio.create_task(_concurrent_save())
+        await asyncio.sleep(0.3)
+        await c1.commit()
+        await asyncio.wait_for(task, timeout=10)
+
+    async with db_engine_concurrent.connect() as c3:
+        loaded = await load_user_db(LOGIN, c3)
+    assert loaded.secret_ns == cfg2.secret_ns
 
 
 @pytest.mark.asyncio

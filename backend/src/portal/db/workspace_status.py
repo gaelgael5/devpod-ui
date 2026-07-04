@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .tables import workspace_status
@@ -16,12 +17,13 @@ async def upsert_status_db(
     login: str = "",
     **extra: Any,
 ) -> None:
-    existing = (
-        await conn.execute(
-            select(workspace_status.c.ws_id).where(workspace_status.c.ws_id == ws_id)
-        )
-    ).scalar_one_or_none()
+    """Upsert atomique via INSERT … ON CONFLICT (bug 010).
 
+    Le pattern « SELECT pour décider INSERT ou UPDATE » n'est pas atomique :
+    deux transactions concurrentes en READ COMMITTED voient chacune l'absence
+    de ligne → double INSERT → UniqueViolation. L'upsert natif Postgres rend
+    l'opération idempotente sous concurrence.
+    """
     vals: dict[str, Any] = {
         "ws_id": ws_id,
         "status": status,
@@ -34,16 +36,16 @@ async def upsert_status_db(
         "returncode": extra.get("returncode"),
         "error": extra.get("error"),
     }
-    if existing is None:
-        await conn.execute(insert(workspace_status).values(**vals))
-    else:
-        update_vals = {k: v for k, v in vals.items() if k != "ws_id"}
-        update_vals["updated_at"] = func.now()
-        await conn.execute(
-            update(workspace_status)
-            .where(workspace_status.c.ws_id == ws_id)
-            .values(**update_vals)
+    set_vals: dict[str, Any] = {k: v for k, v in vals.items() if k != "ws_id"}
+    set_vals["updated_at"] = func.now()
+    await conn.execute(
+        pg_insert(workspace_status)
+        .values(**vals)
+        .on_conflict_do_update(
+            index_elements=[workspace_status.c.ws_id],
+            set_=set_vals,
         )
+    )
 
 
 async def update_status_if_exists_db(

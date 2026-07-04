@@ -5,6 +5,8 @@ hosts + hypervisors + hypervisor_types persistés et récupérés.
 """
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from portal.config.models import GlobalConfig
@@ -242,6 +244,36 @@ async def test_double_save_updates_in_place(db_conn, minimal_cfg, full_cfg):
     result = await load_global_db(db_conn)
     assert result.version == "2"
     assert len(result.hosts) == 1
+
+
+@pytest.mark.asyncio
+async def test_save_concurrent_singleton_sans_unique_violation(db_engine_concurrent, minimal_cfg):
+    """Bug 010 : deux écritures concurrentes du singleton id=1 (premier démarrage
+    ou deux PUT /admin/config simultanés). La 2e transaction ne voit pas l'INSERT
+    non commité de la 1re (READ COMMITTED) — elle ne doit pas lever UniqueViolation.
+    Listes (hosts/hypervisors) vides : le remplacement delete+insert est hors
+    périmètre ici, seul le singleton est exercé."""
+    cfg2 = minimal_cfg.model_copy(deep=True)
+    cfg2.version = "2"
+    async with (
+        db_engine_concurrent.connect() as c1,
+        db_engine_concurrent.connect() as c2,
+    ):
+        await save_global_db(minimal_cfg, c1)
+
+        async def _concurrent_save() -> None:
+            await save_global_db(cfg2, c2)
+            await c2.commit()
+
+        task = asyncio.create_task(_concurrent_save())
+        await asyncio.sleep(0.3)
+        await c1.commit()
+        await asyncio.wait_for(task, timeout=10)
+
+    async with db_engine_concurrent.connect() as c3:
+        result = await load_global_db(c3)
+    assert result is not None
+    assert result.version == "2"
 
 
 # ─── Remplacement complet des listes (delete + insert) ───────────────────────

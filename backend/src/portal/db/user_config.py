@@ -7,7 +7,8 @@ from typing import Any
 
 import structlog
 import yaml
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, insert, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..config.models import (
@@ -31,6 +32,11 @@ async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
     Appelé comme garde-FK avant toute opération qui dépend de users.login
     (pin setup, workspaces…). Couvre le cas où la session cookie survit à un
     restart/wipe DB sans que l'utilisateur soit repassé par le login.
+
+    Atomicité (bug 010) : l'INSERT porte un ON CONFLICT DO NOTHING — deux
+    provisions concurrentes du même login n'échouent jamais en UniqueViolation
+    et n'écrasent jamais une ligne existante. Le SELECT préalable n'est qu'un
+    fast path (évite la lecture YAML), pas une garde de correction.
     """
     existing = (
         await conn.execute(select(users.c.login).where(users.c.login == login))
@@ -49,10 +55,13 @@ async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
     except OSError:
         secret_ns_str = str(uuid.uuid4())
 
-    await conn.execute(
-        insert(users).values(login=login, version="1", secret_ns=secret_ns_str)
+    result = await conn.execute(
+        pg_insert(users)
+        .values(login=login, version="1", secret_ns=secret_ns_str)
+        .on_conflict_do_nothing(index_elements=[users.c.login])
     )
-    _log.info("user_db_row_lazy_created", login=login)
+    if (result.rowcount or 0) > 0:
+        _log.info("user_db_row_lazy_created", login=login)
 
 
 async def load_user_db(login: str, conn: AsyncConnection) -> UserConfig:
@@ -100,12 +109,9 @@ async def load_user_db(login: str, conn: AsyncConnection) -> UserConfig:
 
 
 async def save_user_db(login: str, cfg: UserConfig, conn: AsyncConnection) -> None:
-    # Upsert user row
-    existing = (
-        await conn.execute(select(users.c.login).where(users.c.login == login))
-    ).scalar_one_or_none()
-
-    user_vals = {
+    # Upsert atomique de la ligne users (bug 010) : INSERT … ON CONFLICT remplace
+    # le check-then-insert qui levait UniqueViolation sous concurrence.
+    user_vals: dict[str, Any] = {
         "login": login,
         "version": cfg.version,
         "secret_ns": str(cfg.secret_ns),
@@ -114,15 +120,13 @@ async def save_user_db(login: str, cfg: UserConfig, conn: AsyncConnection) -> No
         "harpocrate_api_key": cfg.harpocrate.api_key,
         "culture": cfg.culture,
     }
-    if existing is None:
-        await conn.execute(insert(users).values(**user_vals))
-    else:
-        await conn.execute(
-            update(users).where(users.c.login == login).values(
-                **{k: v for k, v in user_vals.items() if k != "login"},
-                updated_at=func.now(),
-            )
-        )
+    set_vals: dict[str, Any] = {k: v for k, v in user_vals.items() if k != "login"}
+    set_vals["updated_at"] = func.now()
+    await conn.execute(
+        pg_insert(users)
+        .values(**user_vals)
+        .on_conflict_do_update(index_elements=[users.c.login], set_=set_vals)
+    )
 
     # Replace git credentials
     await conn.execute(delete(git_credentials).where(git_credentials.c.login == login))
