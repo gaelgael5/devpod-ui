@@ -67,7 +67,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [036](036-reconcile-create-task-non-reference-gc.md) | `reconcile` : `create_task` fire-and-forget non référencé (GC) | devpod | ✅ corrigé |
 | [037](037-port-reserved-fuite-sur-echec-synchrone-up.md) | Port `_reserved` jamais libéré sur échec synchrone de `up()` | devpod/exposure | ✅ corrigé |
 | [038](038-ssh-agent-orphelin-si-parsing-echoue.md) | Fuite de process `ssh-agent` si le parsing échoue | devpod | ✅ corrigé |
-| [039](039-io-bloquante-generation-devcontainer.md) | I/O bloquante synchrone (génération devcontainer) | devpod | 🔴 ouvert |
+| [039](039-io-bloquante-generation-devcontainer.md) | I/O bloquante synchrone (génération devcontainer) | devpod | ✅ corrigé |
 | [040](040-regex-ws-id-incoherente-service-exposure.md) | Regex `ws_id` incohérentes service vs exposure | devpod/exposure | 🔴 ouvert |
 | [041](041-delete-shelve-ordre-incoherent.md) | `delete` propage le 409 de shelve après avoir tué l'`up` | devpod | 🔴 ouvert |
 | [042](042-frontend-workspacecreate-erreurs-par-index-key.md) | Frontend : erreurs de source indexées par position + `key={i}` | frontend | 🔴 ouvert |

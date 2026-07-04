@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import shlex
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -536,6 +537,12 @@ async def workspace_status(
     return await svc.status(login=user.login, ws_id=ws_id)
 
 
+def _read_ssh_public_key(pub_path: Path) -> str | None:
+    if not pub_path.exists():
+        return None
+    return pub_path.read_text(encoding="utf-8").strip()
+
+
 @router.get("/workspaces/{name}/ssh-key")
 async def get_workspace_ssh_key(
     name: str,
@@ -543,12 +550,14 @@ async def get_workspace_ssh_key(
 ) -> dict[str, str]:
     _validate_name(name)
     pub_path = safe_user_path(user.login, "keys", "workspaces", name) / "id_ed25519.pub"
-    if not pub_path.exists():
+    # exists()/read_text() sont bloquants — déportés hors de l'event loop (bug 039).
+    public_key = await asyncio.to_thread(_read_ssh_public_key, pub_path)
+    if public_key is None:
         raise HTTPException(
             status_code=404,
             detail="SSH key not generated for this workspace",
         )
-    return {"public_key": pub_path.read_text(encoding="utf-8").strip()}
+    return {"public_key": public_key}
 
 
 @router.get("/workspaces/{name}/start-recipes")

@@ -205,7 +205,10 @@ class DevPodService:
                 recipes or feature_env or ws_spec.extra_sources or profile or ws_spec.recipe_volumes
             )
             if needs_devcontainer:
-                dc_path = self._write_devcontainer(
+                # mkdtemp/copytree/write_text sont bloquants (plusieurs répertoires de
+                # recettes à copier) : déportés hors de l'event loop (bug 039).
+                dc_path = await asyncio.to_thread(
+                    self._write_devcontainer,
                     login,
                     ws_id,
                     recipes=recipes,
