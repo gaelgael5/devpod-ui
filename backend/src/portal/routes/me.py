@@ -21,6 +21,12 @@ from ..secrets import service as secret_svc
 
 _CRED_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}[a-z0-9]$")
 
+# Champs de UserConfig modifiables par l'utilisateur via PUT /me/config (bug 008).
+# secret_ns/version/workspaces/git_credentials/harpocrate sont exclus : ils ont leurs
+# propres invariants (isolation, cohérence FK, endpoints CRUD dédiés) et ne doivent
+# jamais transiter par ce merge générique.
+_ALLOWED_CONFIG_UPDATE_FIELDS = {"defaults", "culture"}
+
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["me"])
 
@@ -94,6 +100,15 @@ async def get_config(user: UserInfo = Depends(require_user)) -> dict[str, object
 async def put_config(
     updates: dict[str, object], user: UserInfo = Depends(require_user)
 ) -> dict[str, object]:
+    # Allowlist stricte : secret_ns/version/workspaces/git_credentials/harpocrate ont
+    # leurs propres invariants (isolation, cohérence, endpoints CRUD dédiés) — jamais
+    # via ce merge générique, sous peine de laisser un client réécrire son secret_ns.
+    disallowed = set(updates) - _ALLOWED_CONFIG_UPDATE_FIELDS
+    if disallowed:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Champs non modifiables via cet endpoint : {sorted(disallowed)}",
+        )
     cfg = await load_user(user.login)
     merged = cfg.model_dump(mode="json")
     merged.update(updates)

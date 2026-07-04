@@ -3,7 +3,9 @@
 - **Sévérité** : majeur (isolation `secret_ns` / cohérence de version)
 - **Sous-système** : config / routes
 - **Fichier** : `backend/src/portal/routes/me.py:93-106` (`put_config`)
-- **Statut** : ouvert
+- **Statut** : corrigé — `_ALLOWED_CONFIG_UPDATE_FIELDS = {"defaults", "culture"}`, rejet 422 explicite avant tout accès à `load_user`/DB. Test de régression réel (sans DB requise, la validation précède `load_user`) : `test_put_me_config_rejects_secret_ns_rewrite`.
+
+**Note** : les tests `test_get_me_config_returns_user_config` / `test_put_me_config_updates_defaults` / `test_put_me_config_rejects_unknown_field` déjà présents échouent dans ce devpod faute de `DATABASE_URL` (dette pré-existante, sans rapport avec ce bug — confirmé par git stash sur le fichier avant correction, même échec).
 
 ## Symptôme
 

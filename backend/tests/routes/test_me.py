@@ -83,6 +83,45 @@ def test_put_me_config_rejects_unknown_field(tmp_path: Path) -> None:
     assert resp.status_code == 422
 
 
+def test_put_me_config_rejects_secret_ns_rewrite(tmp_path: Path) -> None:
+    """Bug 008 : secret_ns est un champ valide de UserConfig — sans allowlist,
+    pydantic le laisserait passer et un client pourrait réécrire son namespace
+    de secrets. Doit être rejeté avant même de toucher load_user/save_user."""
+    import uuid
+
+    import portal.settings as mod
+
+    os.environ["DEV_MODE"] = "true"
+    mod._settings = None
+    try:
+        _provision_alice(tmp_path)
+        app = _make_app(tmp_path)
+        with TestClient(app) as client:
+            resp = client.put("/me/config", json={"secret_ns": str(uuid.uuid4())})
+        assert resp.status_code == 422
+        assert "secret_ns" in resp.json()["detail"]
+    finally:
+        os.environ.pop("DEV_MODE", None)
+        mod._settings = None
+
+
+def test_put_me_config_allows_culture_field(tmp_path: Path) -> None:
+    import portal.settings as mod
+
+    os.environ["DEV_MODE"] = "true"
+    mod._settings = None
+    try:
+        _provision_alice(tmp_path)
+        app = _make_app(tmp_path)
+        with TestClient(app) as client:
+            resp = client.put("/me/config", json={"culture": "en"})
+        assert resp.status_code == 200
+        assert resp.json()["culture"] == "en"
+    finally:
+        os.environ.pop("DEV_MODE", None)
+        mod._settings = None
+
+
 def test_get_me_workspaces_returns_empty_list(tmp_path: Path) -> None:
     _provision_alice(tmp_path)
     app = _make_app(tmp_path)

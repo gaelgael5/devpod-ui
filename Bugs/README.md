@@ -31,7 +31,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [005](005-ws-proxy-websocket-ignore-ws-id-hint.md) | Proxy WebSocket VS Code ignore le `ws_id_hint` → mauvais workspace | exposure | ✅ corrigé |
 | [006](006-stop-ignore-returncode-devpod.md) | `stop()` écrit « stopped » même si `devpod stop` a échoué | devpod | ✅ corrigé |
 | [007](007-write-status-ressuscite-ligne-supprimee.md) | `_write_status` (upsert) ressuscite une ligne supprimée | devpod/db | 🔴 ouvert |
-| [008](008-put-me-config-sans-allowlist-secret-ns.md) | `PUT /me/config` sans allowlist : `secret_ns`/`version` réécrivables | config/routes | 🔴 ouvert |
+| [008](008-put-me-config-sans-allowlist-secret-ns.md) | `PUT /me/config` sans allowlist : `secret_ns`/`version` réécrivables | config/routes | ✅ corrigé |
 | [009](009-lost-update-userconfig-sans-verrou.md) | Lost update : pas de verrou sur load→modify→save de `UserConfig` | config/db | 🔴 ouvert |
 | [010](010-upserts-check-then-insert-non-atomiques.md) | Upserts check-then-insert non atomiques (UniqueViolation) | db | 🔴 ouvert |
 | [011](011-ensure-user-db-invente-secret-ns.md) | `ensure_user_db` fabrique un `secret_ns` aléatoire → secrets orphelins | db/secrets | 🔴 ouvert |
