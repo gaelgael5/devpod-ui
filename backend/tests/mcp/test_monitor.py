@@ -5,9 +5,11 @@ from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.types import ServerCapabilities
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+import portal.mcp.monitor as monitor_mod
 from portal.db.tables import mcp_backend, users
 from portal.mcp.connections import BackendUnavailable
 from portal.mcp.monitor import (
@@ -201,3 +203,75 @@ async def test_run_monitor_pass_tolerates_non_unavailable_error(
 
     # La santé de b1 conserve sa dernière valeur ("up"), pas de faux "down"
     assert get_health("b1").status == "up"
+
+
+# ---------------------------------------------------------------------------
+# Bug 026 : aucune connexion DB tenue ouverte pendant l'I/O réseau du probe.
+# Tests purement mockés (pas de db_conn/db_engine) : pas besoin de Docker.
+# ---------------------------------------------------------------------------
+
+
+class _FakeConnCM:
+    """Async context manager qui journalise entrée/sortie dans `events`."""
+
+    def __init__(self, events: list[str], label: str) -> None:
+        self._events = events
+        self._label = label
+
+    async def __aenter__(self) -> object:
+        self._events.append(f"{self._label}_enter")
+        return object()
+
+    async def __aexit__(self, *exc: object) -> None:
+        self._events.append(f"{self._label}_exit")
+
+
+class _FakeEngine:
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+
+    def connect(self) -> _FakeConnCM:
+        return _FakeConnCM(self._events, "connect")
+
+    def begin(self) -> _FakeConnCM:
+        return _FakeConnCM(self._events, "begin")
+
+
+class _FakeSession:
+    def get_server_capabilities(self) -> ServerCapabilities:
+        # Aucune capability annoncée → fetch_primitives ne fait aucun appel réseau
+        # supplémentaire (list_tools/list_resources/list_prompts), suffisant pour
+        # vérifier l'ordre des acquisitions de connexion autour du round-trip.
+        return ServerCapabilities()
+
+
+async def test_monitor_backend_once_no_conn_never_holds_db_during_network(
+    monkeypatch,
+) -> None:
+    """conn=None (run_monitor_pass) : la connexion du bearer est relâchée avant le
+    round-trip réseau, et la transaction d'écriture n'ouvre qu'après (bug 026)."""
+    events: list[str] = []
+    engine = _FakeEngine(events)
+    monkeypatch.setattr(monitor_mod, "_get_engine", lambda: engine)
+
+    async def fake_resolve_bearer(conn: object, backend_id: str) -> str | None:
+        return None
+
+    monkeypatch.setattr(monitor_mod, "_resolve_monitor_bearer", fake_resolve_bearer)
+
+    @asynccontextmanager
+    async def fake_open_session(url: str, *, transport: str, bearer: str | None = None):
+        events.append("network_enter")
+        yield _FakeSession()
+        events.append("network_exit")
+
+    reset_health()
+    backend = {
+        "id": "b1", "owner_login": "alice", "namespace": "rag", "name": "RAG",
+        "url": "https://rag/mcp", "transport": "streamable_http", "enabled": True,
+    }
+    health = await monitor_backend_once(None, backend, open_session_fn=fake_open_session)
+
+    assert health.status == "up"
+    assert events == ["connect_enter", "connect_exit", "network_enter", "network_exit",
+                       "begin_enter", "begin_exit"]

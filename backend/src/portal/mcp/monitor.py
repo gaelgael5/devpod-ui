@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 import structlog
@@ -9,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from portal.db.engine import _get_engine
 from portal.db.mcp import get_backend_key_secret, list_all_enabled_backends, list_backend_keys
-from portal.mcp.catalog import sync_backend
+from portal.mcp.catalog import fetch_backend_catalog, write_backend_catalog
 from portal.mcp.connections import BackendUnavailable, open_session
 from portal.mcp.runtime_secrets import UnresolvableSecret, resolve_grant_key
 
@@ -65,8 +67,24 @@ async def _resolve_monitor_bearer(conn: AsyncConnection, backend_id: str) -> str
     return None
 
 
+@asynccontextmanager
+async def _conn_or_begin(conn: AsyncConnection | None) -> AsyncIterator[AsyncConnection]:
+    """Réutilise `conn` s'il est fourni, sinon ouvre une transaction courte dédiée.
+
+    Permet à monitor_backend_once(None, ...) (run_monitor_pass) d'acquérir des
+    connexions au fil de l'eau — jamais pendant l'I/O réseau — tout en laissant
+    les appelants qui fournissent déjà une connexion (route /probe, tests) la
+    réutiliser telle quelle, sans changement de comportement (bug 026).
+    """
+    if conn is not None:
+        yield conn
+        return
+    async with _get_engine().begin() as new_conn:
+        yield new_conn
+
+
 async def monitor_backend_once(
-    conn: AsyncConnection,
+    conn: AsyncConnection | None,
     backend_row: dict[str, Any],
     *,
     open_session_fn: Any | None = None,
@@ -78,11 +96,16 @@ async def monitor_backend_once(
     n'est resynchronisé qu'à la création d'un user ou au redémarrage du portail —
     ce passage de moniteur (périodique ou déclenché à la main via /probe) est
     l'occasion de le rafraîchir aussi, ex. après un changement de logs.enabled.
+
+    `conn` est optionnel : si fourni (route /probe, tests), il est réutilisé pour
+    toute la durée de l'appel. Si `None` (run_monitor_pass), les connexions sont
+    acquises à la demande — jamais tenues pendant l'I/O réseau du probe (bug 026).
     """
     if backend_row.get("transport") == "internal":
         from .devpod_bootstrap import ensure_devpod_backend
 
-        await ensure_devpod_backend(conn, backend_row["owner_login"])
+        async with _conn_or_begin(conn) as c:
+            await ensure_devpod_backend(c, backend_row["owner_login"])
         health = BackendHealth(status="up")
         set_health(backend_row["id"], health)
         return health
@@ -97,14 +120,23 @@ async def monitor_backend_once(
         url=url,
         transport=transport,
     )
-    bearer = await _resolve_monitor_bearer(conn, backend_id)
+    if conn is not None:
+        bearer = await _resolve_monitor_bearer(conn, backend_id)
+    else:
+        async with _get_engine().connect() as read_conn:
+            bearer = await _resolve_monitor_bearer(read_conn, backend_id)
     # Seul BackendUnavailable (injoignable) => down. Une autre erreur (ex. DB pendant
     # le sync) n'est pas imputable au backend : elle remonte à run_monitor_pass (loggée),
     # la santé conserve sa dernière valeur connue plutôt que d'afficher un faux "down".
     try:
         async with asyncio.timeout(_PROBE_TIMEOUT_S):
             async with session_fn(url, transport=transport, bearer=bearer) as session:
-                await sync_backend(conn, backend_id=backend_id, session=session)
+                # I/O réseau seule ici — aucune connexion DB tenue ouverte (bug 026).
+                primitives, kinds = await fetch_backend_catalog(session)
+        async with _conn_or_begin(conn) as c:
+            await write_backend_catalog(
+                c, backend_id=backend_id, primitives=primitives, kinds=kinds
+            )
         health = BackendHealth(status="up")
     except TimeoutError:
         _log.warning(
@@ -130,13 +162,16 @@ async def monitor_backend_once(
 
 
 async def run_monitor_pass(*, open_session_fn: Any | None = None) -> None:
-    """Une passe de monitoring sur tous les backends enabled (chacun en transaction isolée)."""
+    """Une passe de monitoring sur tous les backends enabled.
+
+    Connexions DB acquises au fil de l'eau par backend (bearer, puis écriture du
+    catalogue) — jamais tenues pendant l'I/O réseau du probe (bug 026).
+    """
     async with _get_engine().connect() as conn:
         backends = await list_all_enabled_backends(conn)
     for backend in backends:
         try:
-            async with _get_engine().begin() as conn:
-                await monitor_backend_once(conn, backend, open_session_fn=open_session_fn)
+            await monitor_backend_once(None, backend, open_session_fn=open_session_fn)
         except Exception as exc:  # noqa: BLE001 — une erreur backend n'interrompt pas la passe
             _log.warning("mcp_monitor_backend_failed", backend_id=backend["id"], error=str(exc))
 
