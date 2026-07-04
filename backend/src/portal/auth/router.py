@@ -202,31 +202,27 @@ async def provision_user(login: str, sub: str, data_root: Path, email: str = "")
     # Upsert dans la table users (nécessaire pour les FK vault, workspaces, etc.)
     settings = get_settings()
     if settings.database_url:
-        from sqlalchemy import insert, select
+        from sqlalchemy import update
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
 
         from ..db.engine import _get_engine
         from ..db.tables import users
 
         async with _get_engine().begin() as conn:
-            existing = (
-                await conn.execute(select(users.c.login).where(users.c.login == login))
-            ).scalar_one_or_none()
-            if existing is None:
-                await conn.execute(
-                    insert(users).values(
-                        login=login,
-                        version="1",
-                        secret_ns=secret_ns_str,
-                        email=email,
-                    )
-                )
+            # INSERT atomique (même famille que bug 010) : deux callbacks de
+            # login concurrents du même user ne doivent pas lever UniqueViolation.
+            # DO NOTHING préserve la ligne existante (et son secret_ns).
+            result = await conn.execute(
+                pg_insert(users)
+                .values(login=login, version="1", secret_ns=secret_ns_str, email=email)
+                .on_conflict_do_nothing(index_elements=[users.c.login])
+            )
+            if (result.rowcount or 0) > 0:
                 _log.info("user_db_row_created", login=login)
                 from ..mcp.devpod_bootstrap import ensure_devpod_backend
 
                 await ensure_devpod_backend(conn, login)
             elif email:
-                from sqlalchemy import update
-
                 await conn.execute(
                     update(users).where(users.c.login == login).values(email=email)
                 )
