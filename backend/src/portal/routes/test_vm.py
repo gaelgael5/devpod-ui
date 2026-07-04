@@ -22,7 +22,7 @@ from ..compose import service as csvc
 from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor
 from ..config.store import load_global, load_user
 from ..db.engine import _get_engine
-from ..db.global_config import save_global_db
+from ..db.global_config import save_global_db, set_cached_global
 from ..db.test_hosts import (
     assign_test_host,
     get_test_host_message_id,
@@ -218,6 +218,7 @@ async def _init_vm_ssh(
                 h.host_cert_slug = slug
                 break
         await save_global_db(new_cfg, conn)
+    set_cached_global(new_cfg)  # après commit réussi seulement (bug 034)
 
     yield "==> SSH portail actif — services compose disponibles sur cette machine\n".encode()
 
@@ -322,6 +323,7 @@ async def create_test_vm(
         async with _get_engine().begin() as conn:
             await save_global_db(new_cfg, conn)
             await assign_test_host(login, ws, host.name, alias, conn)
+        set_cached_global(new_cfg)  # après commit réussi seulement (bug 034)
 
         # Message contextuel pour les agents (non-bloquant).
         try:
@@ -417,6 +419,8 @@ async def delete_test_vm(
             cfg.hosts = [h for h in cfg.hosts if h.name != host_name]
             await save_global_db(cfg, conn)
         await msg_delete(conn, message_id)
+    if host_cfg is not None:
+        set_cached_global(cfg)  # après commit réussi seulement (bug 034)
 
     _log.info("test_vm_deleted", login=login, ws=ws, host=host_name, alias=alias)
 
@@ -463,6 +467,7 @@ async def resolve_test_vm_ip(
     ]
     async with _get_engine().begin() as conn:
         await save_global_db(cfg, conn)
+    set_cached_global(cfg)  # après commit réussi seulement (bug 034)
 
     # Réécrit le bloc ~/.ssh/config du container avec la nouvelle IP (best-effort).
     try:

@@ -10,9 +10,11 @@ import pytest
 from portal.config.models import GlobalConfig
 from portal.db.global_config import (
     get_cached_global,
+    get_optional_cached_global,
     invalidate_cache,
     load_global_db,
     save_global_db,
+    set_cached_global,
     warm_global_cache,
 )
 
@@ -275,9 +277,20 @@ async def test_get_cached_raises_before_warm(db_conn):
 
 
 @pytest.mark.asyncio
-async def test_save_global_db_updates_cache(db_conn, minimal_cfg):
+async def test_save_global_db_does_not_touch_cache(db_conn, minimal_cfg):
+    """Bug 034 : save_global_db (couche DB, encore dans la transaction de
+    l'appelant) ne doit jamais peupler le cache lui-même — sinon un COMMIT qui
+    échoue à la sortie du bloc `begin()` laisse un cache fantôme non commité.
+    Seul config.store.save_global le fait, après un commit réussi."""
     invalidate_cache()
     await save_global_db(minimal_cfg, db_conn)
+
+    assert get_optional_cached_global() is None
+
+
+def test_set_cached_global_populates_cache(minimal_cfg):
+    invalidate_cache()
+    set_cached_global(minimal_cfg)
 
     cached = get_cached_global()
     assert cached.version == "1"

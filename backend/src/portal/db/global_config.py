@@ -52,16 +52,32 @@ def invalidate_cache() -> None:
     _cache = None
 
 
+def set_cached_global(cfg: GlobalConfig) -> None:
+    """Peuple le cache RAM sans toucher la DB.
+
+    À appeler seulement après un COMMIT réussi (config/store.py::save_global) —
+    jamais depuis l'intérieur d'une transaction : si le COMMIT échoue à la sortie
+    du bloc `begin()`, la DB rollback mais un cache déjà peuplé continuerait de
+    servir un état fantôme jusqu'au prochain redémarrage (bug 034).
+    """
+    global _cache
+    _cache = cfg
+
+
 async def load_global_db(conn: AsyncConnection) -> GlobalConfig | None:
     """Lecture depuis la DB (sans cache). Utilisé par warm_global_cache et les tests."""
     return await _load_from_db(conn)
 
 
 async def save_global_db(cfg: GlobalConfig, conn: AsyncConnection) -> None:
-    """Écrit la GlobalConfig en DB et met à jour le cache."""
-    global _cache
+    """Écrit la GlobalConfig en DB.
+
+    Ne touche PAS le cache : `conn` est encore dans la transaction de l'appelant
+    à ce stade, le COMMIT n'a pas encore eu lieu. Le cache est peuplé par
+    l'appelant (config/store.py::save_global) après la sortie réussie du bloc
+    `begin()` — voir set_cached_global (bug 034).
+    """
     await _write_to_db(cfg, conn)
-    _cache = cfg
     _log.info("global_config_saved")
 
 

@@ -19,7 +19,7 @@ from ..config.env_file import update_env_file
 from ..config.models import GlobalConfig, HostConfig, Hypervisor, validate_network
 from ..config.store import _data_root, load_global
 from ..db.engine import get_conn
-from ..db.global_config import save_global_db
+from ..db.global_config import save_global_db, set_cached_global
 from ..db.tables import harpo_certificates
 from ..db.tables import workspace_status as _ws_status_table
 from ..db.tables import workspaces as _ws_table
@@ -89,6 +89,7 @@ async def put_admin_config(
 
     async with _get_engine().begin() as conn:
         await save_global_db(new_cfg, conn)
+    set_cached_global(new_cfg)  # après commit réussi seulement (bug 034)
     _log.info("global_config_updated", by=user.login)
     return new_cfg.model_dump(mode="json")
 
@@ -147,6 +148,7 @@ async def put_admin_oidc(
 
     async with _get_engine().begin() as conn:
         await save_global_db(cfg, conn)
+    set_cached_global(cfg)  # après commit réussi seulement (bug 034)
     _log.info("oidc_config_updated", by=user.login, issuer=body.issuer)
     return {
         "issuer": new_oidc.issuer,
@@ -219,6 +221,7 @@ async def put_admin_logs_config(
         }
     )
     await save_global_db(cfg, conn)
+    set_cached_global(cfg)
     _log.info("logs_config_updated", by=user.login, enabled=body.enabled)
     return _logs_config_out(cfg)
 
@@ -294,6 +297,7 @@ async def put_admin_grafana_oidc(
         }
     )
     await save_global_db(cfg, conn)
+    set_cached_global(cfg)
 
     auth_url, token_url, userinfo_url = _keycloak_endpoints(cfg.auth.oidc.issuer)
     env_updates = {
@@ -335,6 +339,7 @@ async def put_local_domain(
 
     async with _get_engine().begin() as conn:
         await save_global_db(cfg, conn)
+    set_cached_global(cfg)  # après commit réussi seulement (bug 034)
     _log.info("local_domain_updated", by=user.login, local_domain=cfg.server.local_domain)
     return {"local_domain": cfg.server.local_domain}
 
@@ -389,6 +394,7 @@ async def put_network(
 
     async with _get_engine().begin() as conn:
         await save_global_db(cfg, conn)
+    set_cached_global(cfg)  # après commit réussi seulement (bug 034)
     # Invalider le singleton DevPodService (embarque ExposureService avec dev_mode/base_domain
     # baked-in). Le prochain _get_service() le recrée depuis la DB.
     _reset_service()
@@ -496,6 +502,7 @@ async def add_host(
     )
     cfg.hosts.append(host)
     await save_global_db(cfg, conn)
+    set_cached_global(cfg)
     _log.info("host_added", name=body.name, by=user.login)
     return host.model_dump(mode="json")
 
@@ -545,6 +552,7 @@ async def update_host(
     )
     cfg.hosts[idx] = host
     await save_global_db(cfg, conn)
+    set_cached_global(cfg)
     _log.info("host_updated", name=name, by=user.login)
     return host.model_dump(mode="json")
 
@@ -608,6 +616,7 @@ async def delete_host(
     # 4. Retirer le host de la config
     cfg.hosts = [h for h in cfg.hosts if h.name != name]
     await save_global_db(cfg, conn)
+    set_cached_global(cfg)
     _log.info("host_deleted", name=name, by=user.login, workspaces_deleted=len(rows))
 
 
@@ -851,6 +860,7 @@ async def bootstrap_host_ssh(
     except Exception:
         log.exception("bootstrap_ssh_save_failed")
         raise
+    set_cached_global(cfg)
 
     log.info("bootstrap_ssh_done")
     return {"public_key": public_key, "address": body.address, "host_cert_slug": cert_slug}

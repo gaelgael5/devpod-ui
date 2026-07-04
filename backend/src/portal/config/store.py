@@ -108,7 +108,11 @@ async def save_user(login: str, cfg: UserConfig) -> None:
 
 async def save_global(cfg: GlobalConfig) -> None:
     from portal.db.engine import _get_engine
-    from portal.db.global_config import save_global_db
+    from portal.db.global_config import save_global_db, set_cached_global
 
     async with _get_engine().begin() as conn:
         await save_global_db(cfg, conn)
+    # Cache peuplé seulement après un COMMIT réussi (bug 034) — si le commit
+    # échoue, l'exception se propage avant cette ligne et le cache garde son
+    # ancien état, cohérent avec la DB rollback.
+    set_cached_global(cfg)
