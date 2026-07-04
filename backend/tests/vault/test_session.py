@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import portal.vault.session as session_mod
 from portal.vault.session import clear_session, get_master_key, is_unlocked, set_master_key
 
@@ -12,6 +14,26 @@ def test_set_and_get():
 
 def test_unknown_returns_none():
     assert get_master_key("ghost") is None
+
+
+# ---------------------------------------------------------------------------
+# Bug 031 : un session_id vide ne doit jamais indexer _sessions[""] — sinon
+# toute requête ayant oublié de poser session_id partagerait la même clé.
+# ---------------------------------------------------------------------------
+
+
+def test_set_master_key_rejects_empty_session_id():
+    with pytest.raises(ValueError, match="session_id"):
+        set_master_key("", b"x" * 32)
+    assert "" not in session_mod._sessions
+
+
+def test_get_master_key_empty_session_id_returns_none():
+    assert get_master_key("") is None
+
+
+def test_is_unlocked_empty_session_id_is_false():
+    assert is_unlocked("") is False
 
 
 def test_is_unlocked():

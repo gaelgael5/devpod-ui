@@ -40,7 +40,17 @@ _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}$")
 
 
 def _sid(request: Request) -> str:
-    return str(request.session.get("session_id", ""))
+    """session_id de la session cookie — jamais vide (bug 031).
+
+    L'invariant (session_id posé par local_login/callback avant session["user"])
+    tient aujourd'hui, mais rien ne fail-closed si un futur chemin d'auth
+    l'oubliait : sans ce garde, toutes ces requêtes indexeraient sur
+    _sessions[""] et partageraient la même master key.
+    """
+    sid = str(request.session.get("session_id", ""))
+    if not sid:
+        raise HTTPException(status_code=401, detail="session_id manquant")
+    return sid
 
 
 class PinBody(BaseModel):

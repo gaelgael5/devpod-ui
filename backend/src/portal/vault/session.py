@@ -18,12 +18,20 @@ def _sweep_expired(now: float) -> None:
 
 
 def set_master_key(session_id: str, master_key: bytes) -> None:
+    if not session_id:
+        # Défense en profondeur (bug 031) : indexer sur "" ferait partager la même
+        # master key à toute requête dont l'appelant aurait oublié de poser
+        # session_id — l'appelant (routes/vault.py::_sid) doit déjà fail-closed
+        # avant d'arriver ici, mais le module ne doit jamais l'accepter non plus.
+        raise ValueError("session_id ne peut pas être vide")
     now = time.monotonic()
     _sweep_expired(now)  # borne la mémoire : purge les sessions abandonnées à chaque unlock
     _sessions[session_id] = (master_key, now + _SESSION_TTL_S)
 
 
 def get_master_key(session_id: str) -> bytes | None:
+    if not session_id:
+        return None
     entry = _sessions.get(session_id)
     if entry is None:
         return None

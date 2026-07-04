@@ -59,7 +59,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [028](028-mcp-deserialisation-loki-non-validee.md) | MCP : désérialisation non validée de la réponse Loki | mcp | ✅ corrigé |
 | [029](029-mcp-bearergate-filtre-seulement-http.md) | MCP : `BearerGate` ne filtre que les scopes `http` | mcp | ✅ corrigé |
 | [030](030-vault-master-keys-en-memoire-apres-expiration.md) | Vault : master keys en mémoire au-delà de l'expiration du cookie | vault | ✅ corrigé |
-| [031](031-vault-session-id-vide-non-rejete.md) | Vault : `session_id` vide non rejeté | vault | 🔴 ouvert |
+| [031](031-vault-session-id-vide-non-rejete.md) | Vault : `session_id` vide non rejeté | vault | ✅ corrigé |
 | [032](032-roles-figes-dans-cookie-revocation-non-prise-en-compte.md) | Rôles figés dans le cookie — révocation Keycloak ignorée | auth | 🔴 ouvert |
 | [033](033-construction-chemin-sans-safe-user-path.md) | Construction de chemin sous `/data` sans `safe_user_path` | config/db | 🔴 ouvert |
 | [034](034-cache-global-peuple-avant-commit.md) | Cache global peuplé avant le commit de la transaction | db/config | 🔴 ouvert |
