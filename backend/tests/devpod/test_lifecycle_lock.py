@@ -18,69 +18,10 @@ from typing import Any
 
 import pytest
 
+# NB : la fixture status_store (couche statut mockée en mémoire) vit dans
+# conftest.py — partagée avec les tests de persistance de port (bug 001).
+
 pytestmark = pytest.mark.asyncio
-
-
-class _FakeConn:
-    async def __aenter__(self) -> _FakeConn:
-        return self
-
-    async def __aexit__(self, *exc: object) -> bool:
-        return False
-
-
-class _FakeEngine:
-    """Moteur factice : begin()/connect() rendent un contexte async sans DB réelle."""
-
-    def begin(self) -> _FakeConn:
-        return _FakeConn()
-
-    def connect(self) -> _FakeConn:
-        return _FakeConn()
-
-
-@pytest.fixture
-def status_store(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str, Any]]:
-    """Remplace la couche DB statut par un dict en mémoire (conn ignoré)."""
-    import portal.devpod.service as service_mod
-
-    store: dict[str, dict[str, Any]] = {}
-
-    async def fake_upsert(
-        ws_id: str, status: str, conn: Any, login: str = "", **extra: Any
-    ) -> None:
-        store[ws_id] = {"ws_id": ws_id, "status": status, "login": login, **extra}
-
-    async def fake_update_if_exists(
-        ws_id: str, status: str, conn: Any, login: str = "", **extra: Any
-    ) -> bool:
-        if ws_id not in store:
-            return False
-        store[ws_id].update({"status": status, "login": login, **extra})
-        return True
-
-    async def fake_delete(ws_id: str, conn: Any) -> None:
-        store.pop(ws_id, None)
-
-    async def fake_get(ws_id: str, conn: Any) -> dict[str, Any] | None:
-        return store.get(ws_id)
-
-    async def fake_persist_log(*args: Any, **kwargs: Any) -> None:
-        return None
-
-    class _FakeMsgDb:
-        @staticmethod
-        async def purge_workspace_messages(*args: Any, **kwargs: Any) -> None:
-            return None
-
-    monkeypatch.setattr(service_mod, "_get_engine", lambda: _FakeEngine())
-    monkeypatch.setattr(service_mod, "upsert_status_db", fake_upsert)
-    monkeypatch.setattr(service_mod, "update_status_if_exists_db", fake_update_if_exists)
-    monkeypatch.setattr(service_mod, "delete_status_db", fake_delete)
-    monkeypatch.setattr(service_mod, "get_status_db", fake_get)
-    monkeypatch.setattr(service_mod, "persist_log_blob_from_file", fake_persist_log)
-    monkeypatch.setattr(service_mod, "_msg_db", _FakeMsgDb())
-    return store
 
 
 def _make_service(global_cfg: Any, fake_devpod_bin: list[str]):

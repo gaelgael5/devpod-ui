@@ -216,7 +216,19 @@ class DevPodService:
             )
 
             if self._exposure is not None:
-                host_port = await self._exposure.allocate_port(ws_id)
+                # Réutiliser le port déjà persisté pour ce ws_id (bug 001) : au re-up
+                # (reconnexion, réconciliation au démarrage) une réallocation en rafale
+                # sans mémoire partagée (_reserved volatile) produisait des collisions.
+                async with _get_engine().connect() as conn:
+                    existing_row = await get_status_db(ws_id, conn)
+                persisted_port = (
+                    existing_row.get("host_port") if existing_row is not None else None
+                )
+                if persisted_port is not None:
+                    host_port = int(persisted_port)
+                    _log.info("port_reused", ws_id=ws_id, port=host_port)
+                else:
+                    host_port = await self._exposure.allocate_port(ws_id)
 
             # Pour docker-tls : devcontainer.json généré localement, chemin absolu local valide.
             # Pour SSH : le fichier est généré localement puis uploadé sur la VM distante via
@@ -286,7 +298,11 @@ class DevPodService:
             # Source unique ou image seule → ouvrir directement /workspaces/{ws_id}.
             workspace_folder = "/workspaces" if ws_spec.extra_sources else f"/workspaces/{ws_id}"
 
-            await self._write_status(ws_id, "provisioning", login=login)
+            # Le host_port est persisté DÈS le provisioning (bug 001) : la colonne ne
+            # repasse jamais à NULL pendant le devpod up (jusqu'à 30 min), donc
+            # _used_ports() protège le port même après la perte de _reserved
+            # (restart du portail, _reset_service).
+            await self._write_status(ws_id, "provisioning", login=login, host_port=host_port)
 
             task = asyncio.create_task(
                 self._run_up_task(

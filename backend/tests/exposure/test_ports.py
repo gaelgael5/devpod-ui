@@ -68,6 +68,25 @@ async def test_reserved_pruned_after_db_confirmation(db_engine) -> None:
     assert 40000 not in registry._reserved
 
 
+@pytest.mark.asyncio
+async def test_provisioning_row_protects_port_across_registry_restart(db_engine) -> None:
+    """Bug 001 : le port persisté dès l'allocation (statut provisioning inclus)
+    est vu par une NOUVELLE instance de PortRegistry — _reserved (mémoire) est
+    perdu à chaque restart/_reset_service, seule la DB protège durablement."""
+    from portal.db.engine import _get_engine
+    from portal.db.workspace_status import upsert_status_db
+    from portal.exposure.ports import PortRegistry
+
+    async with _get_engine().begin() as conn:
+        await upsert_status_db(
+            "alice-app1", "provisioning", conn, login="alice", host_port=40000
+        )
+
+    fresh_registry = PortRegistry()  # simulate restart : _reserved vide
+    port = await fresh_registry.allocate("alice-app2")
+    assert port == 40001
+
+
 # ---------------------------------------------------------------------------
 # release() — bug 037 : libère un port réservé mais jamais persisté en DB.
 # Pas de db_engine requis : release() ne touche que _reserved en mémoire.

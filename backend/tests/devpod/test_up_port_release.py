@@ -55,8 +55,10 @@ def _make_global_cfg(tmp_data_root):
 
 @pytest.mark.asyncio
 async def test_up_releases_port_when_write_devcontainer_fails(
-    tmp_data_root, fake_devpod_bin, monkeypatch
+    status_store, tmp_data_root, fake_devpod_bin, monkeypatch
 ) -> None:
+    # status_store : depuis le bug 001, up() lit la ligne workspace_status
+    # (réutilisation de port) avant l'allocation — la couche DB doit être mockée.
     import portal.devpod.service as service_mod
     from portal.config.models import WorkspaceSpec
     from portal.db.global_config import set_cached_global
