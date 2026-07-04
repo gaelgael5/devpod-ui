@@ -23,6 +23,7 @@ from ..db.workspace_status import (
     get_status_db,
     list_by_login_db,
     list_running_db,
+    update_status_if_exists_db,
     upsert_status_db,
 )
 from ..exposure import _WS_ID_RE
@@ -69,6 +70,25 @@ if TYPE_CHECKING:
     from ..exposure import ExposureService
 
 _log = structlog.get_logger(__name__)
+
+# Verrous de lifecycle par ws_id (bug 003). Sérialisent TOUTE opération lifecycle
+# (up/stop/delete + _run_up_task) sur un même workspace, contrairement au verrou de
+# runner.py qui n'entoure que l'exécution du subprocess devpod. Ordre d'acquisition
+# global : lifecycle → subprocess (jamais l'inverse), donc pas de cycle/deadlock.
+# Registre module-level (comme runner._locks) : en prod la boucle est unique ; sous
+# pytest-asyncio (une boucle par test) le registre est vidé entre tests via
+# clear_lifecycle_locks (fixture autouse, cf. runner.clear_locks).
+_lifecycle_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_lifecycle_lock(ws_id: str) -> asyncio.Lock:
+    return _lifecycle_locks.setdefault(ws_id, asyncio.Lock())
+
+
+def clear_lifecycle_locks() -> None:
+    """Vide le registre de verrous de lifecycle. Usage tests uniquement."""
+    _lifecycle_locks.clear()
+
 
 # Image de base utilisée quand aucune source git n'est fournie
 _DEFAULT_IMAGE = "mcr.microsoft.com/devcontainers/base:ubuntu"
@@ -118,6 +138,9 @@ class DevPodService:
         )
         self._exposure = exposure
         self._background_tasks: set[asyncio.Task[None]] = set()
+        # Tâches _run_up_task actives, indexées par ws_id : permettent à stop/delete
+        # d'annuler un `up` en cours (politique delete-vs-up, bug 003).
+        self._up_tasks: dict[str, asyncio.Task[None]] = {}
         # Processus devpod port-forward actifs, indexés par ws_id
         self._port_forward_procs: dict[str, asyncio.subprocess.Process] = {}
 
@@ -286,7 +309,14 @@ class DevPodService:
                 )
             )
             self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+            self._up_tasks[ws_id] = task
+
+            def _on_up_done(t: asyncio.Task[None]) -> None:
+                self._background_tasks.discard(t)
+                if self._up_tasks.get(ws_id) is t:
+                    del self._up_tasks[ws_id]
+
+            task.add_done_callback(_on_up_done)
             task_created = True
             _log.info("workspace_up_started", ws_id=ws_id, login=login)
             return ws_id
@@ -423,59 +453,101 @@ class DevPodService:
         """
         asyncio.create_task(self._reconnect_workspace(ws_id, login))  # noqa: RUF006
 
+    async def _cancel_up_task(self, ws_id: str) -> None:
+        """Annule un `up` en cours pour ws_id et attend sa terminaison (bug 003).
+
+        Politique delete/stop-vs-up : on ANNULE le provisioning en cours plutôt que
+        d'attendre (jusqu'à 30 min) une provision qu'on va détruire/arrêter. On tue
+        aussi le subprocess devpod (kill_if_running) pour débloquer `run_subprocess`,
+        puis on attend la fin de la tâche : cela garantit que le verrou lifecycle est
+        relâché AVANT que l'appelant tente de l'acquérir.
+        """
+        await kill_if_running(ws_id)
+        task = self._up_tasks.get(ws_id)
+        if task is None or task.done():
+            return
+        task.cancel()
+        # CancelledError est une BaseException : le `except Exception` de _run_up_impl
+        # ne l'intercepte pas, la tâche remonte l'annulation, exécute ses finally
+        # (nettoyage) et relâche le verrou lifecycle. On avale l'annulation ici : c'est
+        # NOUS qui l'avons déclenchée, elle ne doit pas annuler stop/delete.
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            _log.warning("up_task_ended_with_error_during_cancel", ws_id=ws_id)
+        _log.info("up_task_cancelled", ws_id=ws_id)
+
     async def stop(self, login: str, ws_id: str) -> None:
         """Arrête un workspace en cours d'exécution."""
-        await self._stop_port_forward(ws_id)
-        if self._exposure is not None:
-            try:
-                await self._exposure.unexpose(ws_id)
-            except Exception as exc:
-                _log.warning("workspace_unexpose_failed", ws_id=ws_id, error=type(exc).__name__)
-        env = self._minimal_env(login)
-        cmd = [*self._devpod_bin, "stop", ws_id]
-        log_path = self._log_path(login, f"{ws_id}-stop")
-        rc = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120)
-        async with _get_engine().begin() as _conn:
-            await persist_log_blob_from_file(ws_id, login, "stop", log_path, _conn)
-        if rc != 0:
-            # L'exposition est déjà retirée (tunnel + route Caddy) ; si `devpod stop`
-            # échoue, le conteneur peut encore tourner — ne jamais mentir en écrivant
-            # "stopped" : l'état réel est indéterminé tant qu'on n'a pas reconfirmé.
-            _log.warning("workspace_stop_failed", ws_id=ws_id, returncode=rc)
-            await self._write_status(ws_id, "unknown", login=login)
-            return
-        await self._write_status(ws_id, "stopped", login=login)
-        _log.info("workspace_stopped", ws_id=ws_id, login=login)
+        # Annule un `up` en cours (le subprocess est tué) puis sérialise via le verrou
+        # lifecycle : stop ne peut pas s'entrelacer avec un provisioning (bug 003).
+        await self._cancel_up_task(ws_id)
+        async with _get_lifecycle_lock(ws_id):
+            await self._stop_port_forward(ws_id)
+            if self._exposure is not None:
+                try:
+                    await self._exposure.unexpose(ws_id)
+                except Exception as exc:
+                    _log.warning(
+                        "workspace_unexpose_failed", ws_id=ws_id, error=type(exc).__name__
+                    )
+            env = self._minimal_env(login)
+            cmd = [*self._devpod_bin, "stop", ws_id]
+            log_path = self._log_path(login, f"{ws_id}-stop")
+            rc = await run_subprocess(
+                cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120
+            )
+            async with _get_engine().begin() as _conn:
+                await persist_log_blob_from_file(ws_id, login, "stop", log_path, _conn)
+            if rc != 0:
+                # L'exposition est déjà retirée (tunnel + route Caddy) ; si `devpod stop`
+                # échoue, le conteneur peut encore tourner — ne jamais mentir en écrivant
+                # "stopped" : l'état réel est indéterminé tant qu'on n'a pas reconfirmé.
+                _log.warning("workspace_stop_failed", ws_id=ws_id, returncode=rc)
+                await self._write_status(ws_id, "unknown", login=login)
+                return
+            await self._write_status(ws_id, "stopped", login=login)
+            _log.info("workspace_stopped", ws_id=ws_id, login=login)
 
     async def delete(self, login: str, ws_id: str, *, shelve: bool = True) -> dict[str, Any]:
         """Supprime un workspace (force). Shelve le travail en attente si shelve=True."""
-        # Tuer le subprocess en cours (ex. devpod up en provisioning) pour libérer le verrou
-        # avant d'appeler shelve ou run_subprocess(delete).
-        await kill_if_running(ws_id)
-        branch: str | None = None
-        if shelve:
-            # shelve_if_pending lance devpod ssh (git dans le conteneur), pas une opération
-            # lifecycle DevPod — intentionnellement en dehors du verrou workspace de run_subprocess.
-            branch = await shelve_if_pending(self._devpod_bin, ws_id, self._minimal_env(login))
-        await self._stop_port_forward(ws_id)
-        if self._exposure is not None:
-            try:
-                await self._exposure.unexpose(ws_id)
-            except Exception as exc:
-                _log.warning("workspace_unexpose_failed", ws_id=ws_id, error=type(exc).__name__)
-        env = self._minimal_env(login)
-        cmd = [*self._devpod_bin, "delete", ws_id, "--force"]
-        log_path = self._log_path(login, f"{ws_id}-delete")
-        rc = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120)
-        if rc != 0:
-            _log.warning("workspace_delete_failed", ws_id=ws_id, returncode=rc)
-        ws_name = ws_id.removeprefix(f"{login}-")
-        async with _get_engine().begin() as conn:
-            await persist_log_blob_from_file(ws_id, login, "delete", log_path, conn)
-            await delete_status_db(ws_id, conn)
-            await _msg_db.purge_workspace_messages(conn, login, ws_name)
-        _log.info("workspace_deleted", ws_id=ws_id, login=login, recovery_branch=branch)
-        return {"deleted": True, "recovery_branch": branch}
+        # Annule un `up` en cours (provisioning) et tue son subprocess, puis prend le
+        # verrou lifecycle pour toute la suppression : aucune écriture de statut tardive
+        # de _run_up_task ne peut s'entrelacer avec delete_status_db (bug 003).
+        await self._cancel_up_task(ws_id)
+        async with _get_lifecycle_lock(ws_id):
+            branch: str | None = None
+            if shelve:
+                # shelve_if_pending lance devpod ssh (git dans le conteneur), pas une
+                # opération lifecycle DevPod — hors du verrou subprocess de run_subprocess.
+                branch = await shelve_if_pending(
+                    self._devpod_bin, ws_id, self._minimal_env(login)
+                )
+            await self._stop_port_forward(ws_id)
+            if self._exposure is not None:
+                try:
+                    await self._exposure.unexpose(ws_id)
+                except Exception as exc:
+                    _log.warning(
+                        "workspace_unexpose_failed", ws_id=ws_id, error=type(exc).__name__
+                    )
+            env = self._minimal_env(login)
+            cmd = [*self._devpod_bin, "delete", ws_id, "--force"]
+            log_path = self._log_path(login, f"{ws_id}-delete")
+            rc = await run_subprocess(
+                cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120
+            )
+            if rc != 0:
+                _log.warning("workspace_delete_failed", ws_id=ws_id, returncode=rc)
+            ws_name = ws_id.removeprefix(f"{login}-")
+            async with _get_engine().begin() as conn:
+                await persist_log_blob_from_file(ws_id, login, "delete", log_path, conn)
+                await delete_status_db(ws_id, conn)
+                await _msg_db.purge_workspace_messages(conn, login, ws_name)
+            _log.info("workspace_deleted", ws_id=ws_id, login=login, recovery_branch=branch)
+            return {"deleted": True, "recovery_branch": branch}
 
     async def status(self, login: str, ws_id: str) -> dict[str, Any]:
         """Retourne l'état courant depuis la DB."""
@@ -508,9 +580,27 @@ class DevPodService:
         return safe_login_path("logs", login, f"{ws_id}.log")
 
     async def _write_status(self, ws_id: str, status: str, login: str = "", **extra: Any) -> None:
-        """Persiste le statut du workspace en DB."""
+        """Persiste le statut du workspace en DB (upsert : crée la ligne si absente)."""
         async with _get_engine().begin() as conn:
             await upsert_status_db(ws_id, status, conn, login=login, **extra)
+
+    async def _write_status_if_exists(
+        self, ws_id: str, status: str, login: str = "", **extra: Any
+    ) -> bool:
+        """Écrit le statut UNIQUEMENT si la ligne existe encore (épitaphe, bug 003).
+
+        Utilisé pour les écritures FINALES de _run_up_task : si un delete concurrent a
+        supprimé la ligne, l'UPDATE atomique WHERE ws_id ne touche rien et ne ressuscite
+        pas le workspace — même si upsert_status_db reste un upsert inconditionnel.
+        Retourne True si la ligne a été mise à jour.
+        """
+        async with _get_engine().begin() as conn:
+            written = await update_status_if_exists_db(
+                ws_id, status, conn, login=login, **extra
+            )
+        if not written:
+            _log.warning("workspace_status_write_skipped_deleted", ws_id=ws_id, status=status)
+        return written
 
     def _write_devcontainer(
         self,
@@ -822,7 +912,18 @@ class DevPodService:
                 await asyncio.wait_for(proc.wait(), timeout=5.0)
         _log.info("port_forward_stopped", ws_id=ws_id)
 
-    async def _run_up_task(
+    async def _run_up_task(self, ws_id: str, *args: Any, **kwargs: Any) -> None:
+        """Tâche de fond `up`, sérialisée par le verrou lifecycle par ws_id (bug 003).
+
+        Le verrou est détenu pour TOUTE la durée de l'orchestration (subprocess devpod +
+        allocation port-forward + expose + écriture de statut), pas seulement le
+        subprocess. Un stop/delete concurrent annule cette tâche (kill + task.cancel),
+        la libération du verrou intervient alors dans les finally de _run_up_impl.
+        """
+        async with _get_lifecycle_lock(ws_id):
+            await self._run_up_impl(ws_id, *args, **kwargs)
+
+    async def _run_up_impl(
         self,
         ws_id: str,
         source: str,
@@ -841,7 +942,7 @@ class DevPodService:
         host_name: str = "",
         git_ssh_key_path: str = "",
     ) -> None:
-        """Tâche de fond : exécute devpod up, expose le workspace si running."""
+        """Exécute devpod up, expose le workspace si running. Détient déjà le verrou."""
         # Copie de l'env pour y injecter SSH_AUTH_SOCK sans muter le dict partagé
         subprocess_env = dict(env)
         agent_proc: asyncio.subprocess.Process | None = None
@@ -973,13 +1074,17 @@ class DevPodService:
                     )
             elif host_port is not None:
                 extra["host_port"] = host_port
-            await self._write_status(ws_id, status, login=login, **extra)
+            # Écriture FINALE gardée (épitaphe) : ne ressuscite pas une ligne qu'un
+            # delete concurrent aurait supprimée (bug 003).
+            await self._write_status_if_exists(ws_id, status, login=login, **extra)
             if returncode != 0:
                 _log.warning("workspace_up_failed", ws_id=ws_id, returncode=returncode)
             else:
                 _log.info("workspace_up_done", ws_id=ws_id, login=login)
         except Exception as exc:
-            await self._write_status(ws_id, "failed", login=login, error=type(exc).__name__)
+            await self._write_status_if_exists(
+                ws_id, "failed", login=login, error=type(exc).__name__
+            )
             _log.error("workspace_up_crashed", ws_id=ws_id, error=type(exc).__name__)
             if host_port is not None and self._exposure is not None:
                 # Ce chemin de crash n'écrit pas host_port dans workspace_status

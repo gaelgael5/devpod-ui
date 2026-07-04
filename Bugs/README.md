@@ -20,7 +20,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | # | Sujet | Sous-système | Statut |
 |---|-------|--------------|--------|
 | [002](fixed/002-fuite-secrets-env-resolver-compose.md) | Fuite de secrets du portail (KEK/session/OIDC) via le résolveur `env://` en compose | secrets/compose | ✅ corrigé |
-| [003](003-absence-verrou-lifecycle-workspace.md) | Absence de verrou lifecycle : `up`/`stop`/`delete` concurrents corrompent l'état | devpod | 🔴 ouvert |
+| [003](fixed/003-absence-verrou-lifecycle-workspace.md) | Absence de verrou lifecycle : `up`/`stop`/`delete` concurrents corrompent l'état | devpod | ✅ corrigé |
 
 ### Majeurs
 

@@ -10,10 +10,15 @@ FAKE_DEVPOD = Path(__file__).parent / "fake_devpod.py"
 
 @pytest.fixture(autouse=True)
 def _reset_runner_locks() -> None:
-    """Vide le registre de verrous du runner avant chaque test."""
-    from portal.devpod import runner
+    """Vide les registres de verrous (runner + lifecycle) avant chaque test.
+
+    Un asyncio.Lock module-level se lie à la première boucle qui l'acquiert ; sous
+    pytest-asyncio (une boucle par test) il faut repartir d'un registre vide.
+    """
+    from portal.devpod import runner, service
 
     runner.clear_locks()
+    service.clear_lifecycle_locks()
 
 
 @pytest.fixture

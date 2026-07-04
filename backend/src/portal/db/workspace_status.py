@@ -46,6 +46,41 @@ async def upsert_status_db(
         )
 
 
+async def update_status_if_exists_db(
+    ws_id: str,
+    status: str,
+    conn: AsyncConnection,
+    login: str = "",
+    **extra: Any,
+) -> bool:
+    """Met à jour le statut UNIQUEMENT si la ligne existe déjà — jamais d'INSERT.
+
+    Épitaphe anti-résurrection (bug 003/004) : un `up` tardif ne doit pas recréer
+    une ligne qu'un `delete` concurrent vient de supprimer. Le WHERE ws_id rend la
+    garde atomique côté DB (pas de fenêtre TOCTOU comme un get-puis-upsert).
+
+    Retourne True si une ligne a été mise à jour, False si la ligne est absente.
+    """
+    update_vals: dict[str, Any] = {
+        "status": status,
+        "login": login,
+        "host_port": extra.get("host_port"),
+        "host_type": extra.get("host_type"),
+        "host_name": extra.get("host_name"),
+        "url": extra.get("url"),
+        "hostname": extra.get("hostname"),
+        "returncode": extra.get("returncode"),
+        "error": extra.get("error"),
+        "updated_at": func.now(),
+    }
+    result = await conn.execute(
+        update(workspace_status)
+        .where(workspace_status.c.ws_id == ws_id)
+        .values(**update_vals)
+    )
+    return (result.rowcount or 0) > 0
+
+
 async def get_status_db(ws_id: str, conn: AsyncConnection) -> dict[str, Any] | None:
     row = (
         await conn.execute(
