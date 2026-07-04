@@ -3,7 +3,7 @@
 - **Sévérité** : majeur
 - **Sous-système** : devpod
 - **Fichier** : `backend/src/portal/devpod/service.py` — `stop()` (~418-427)
-- **Statut** : ouvert
+- **Statut** : corrigé — `stop()` capture désormais le `returncode`, écrit `unknown` (pas `stopped`) en cas d'échec. Tests ajoutés (`tests/devpod/test_stop.py`, round-trip DB : succès + échec).
 
 ## Symptôme
 

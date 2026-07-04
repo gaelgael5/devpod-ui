@@ -426,9 +426,16 @@ class DevPodService:
         env = self._minimal_env(login)
         cmd = [*self._devpod_bin, "stop", ws_id]
         log_path = self._log_path(login, f"{ws_id}-stop")
-        await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120)
+        rc = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120)
         async with _get_engine().begin() as _conn:
             await persist_log_blob_from_file(ws_id, login, "stop", log_path, _conn)
+        if rc != 0:
+            # L'exposition est déjà retirée (tunnel + route Caddy) ; si `devpod stop`
+            # échoue, le conteneur peut encore tourner — ne jamais mentir en écrivant
+            # "stopped" : l'état réel est indéterminé tant qu'on n'a pas reconfirmé.
+            _log.warning("workspace_stop_failed", ws_id=ws_id, returncode=rc)
+            await self._write_status(ws_id, "unknown", login=login)
+            return
         await self._write_status(ws_id, "stopped", login=login)
         _log.info("workspace_stopped", ws_id=ws_id, login=login)
 
