@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
@@ -49,6 +49,14 @@ function emptySource(): SourceEntry {
   return { url: '', branch: '', credential: '' }
 }
 
+/** Une ligne de source avec un identifiant stable (bug 042) : indexer les erreurs
+ * et la clé React par position de tableau casse dès qu'une source du milieu est
+ * supprimée (l'erreur/état d'une ligne "glisse" sur la ligne suivante). */
+interface SourceRowState {
+  id: string
+  entry: SourceEntry
+}
+
 // ─── Composant principal ──────────────────────────────────────────────────────
 
 export default function WorkspaceCreate() {
@@ -65,7 +73,9 @@ export default function WorkspaceCreate() {
   const { data: startRecipes = [] } = useStartRecipes()
 
   const [name, setName] = useState('')
-  const [sources, setSources] = useState<SourceEntry[]>([])
+  const [sourceRows, setSourceRows] = useState<SourceRowState[]>([])
+  const nextSourceIdRef = useRef(0)
+  const sources = useMemo(() => sourceRows.map(r => r.entry), [sourceRows])
   const [host, setHost] = useState('')
   const [selectedRecipes, setSelectedRecipes] = useState<string[]>([])
   const [selectedStartRecipes, setSelectedStartRecipes] = useState<string[]>([])
@@ -94,25 +104,30 @@ export default function WorkspaceCreate() {
   const [generateSshKey, setGenerateSshKey] = useState(false)
   const [profile, setProfile] = useState('')
   const [nameError, setNameError] = useState('')
-  const [sourceErrors, setSourceErrors] = useState<Record<number, string>>({})
+  const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({})
   const [serverError, setServerError] = useState('')
 
-  function updateSource(index: number, updated: SourceEntry) {
-    setSources(prev => prev.map((s, i) => (i === index ? updated : s)))
-    if (sourceErrors[index]) {
-      setSourceErrors(e => ({ ...e, [index]: '' }))
+  function newSourceId(): string {
+    nextSourceIdRef.current += 1
+    return `src-${nextSourceIdRef.current}`
+  }
+
+  function updateSource(id: string, updated: SourceEntry) {
+    setSourceRows(prev => prev.map(r => (r.id === id ? { ...r, entry: updated } : r)))
+    if (sourceErrors[id]) {
+      setSourceErrors(e => ({ ...e, [id]: '' }))
     }
   }
 
   function addSource() {
-    setSources(prev => [...prev, emptySource()])
+    setSourceRows(prev => [...prev, { id: newSourceId(), entry: emptySource() }])
   }
 
-  function removeSource(index: number) {
-    setSources(prev => prev.filter((_, i) => i !== index))
+  function removeSource(id: string) {
+    setSourceRows(prev => prev.filter(r => r.id !== id))
     setSourceErrors(e => {
       const next = { ...e }
-      delete next[index]
+      delete next[id]
       return next
     })
   }
@@ -175,10 +190,10 @@ export default function WorkspaceCreate() {
       setNameError('')
     }
 
-    const errors: Record<number, string> = {}
-    sources.forEach((s, i) => {
-      if (!s.url.trim()) {
-        errors[i] = t('workspaces.form.sourceUrlRequired')
+    const errors: Record<string, string> = {}
+    sourceRows.forEach((row) => {
+      if (!row.entry.url.trim()) {
+        errors[row.id] = t('workspaces.form.sourceUrlRequired')
         valid = false
       }
     })
@@ -274,19 +289,19 @@ export default function WorkspaceCreate() {
             </Button>
           </div>
           <div className="flex flex-col gap-2">
-            {sources.map((src, i) => (
+            {sourceRows.map((row, i) => (
               <SourceRow
-                key={i}
+                key={row.id}
                 index={i}
-                entry={src}
-                onChange={updated => updateSource(i, updated)}
-                onRemove={() => removeSource(i)}
+                entry={row.entry}
+                onChange={updated => updateSource(row.id, updated)}
+                onRemove={() => removeSource(row.id)}
                 credentials={credentials}
-                urlError={sourceErrors[i]}
+                urlError={sourceErrors[row.id]}
               />
             ))}
           </div>
-          {sources.length > 0 && (
+          {sourceRows.length > 0 && (
             <p className="mt-1.5 text-xs text-muted-foreground">
               {t('workspaces.form.sourcesHint')}
             </p>

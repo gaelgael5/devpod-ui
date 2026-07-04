@@ -70,7 +70,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [039](039-io-bloquante-generation-devcontainer.md) | I/O bloquante synchrone (génération devcontainer) | devpod | ✅ corrigé |
 | [040](040-regex-ws-id-incoherente-service-exposure.md) | Regex `ws_id` incohérentes service vs exposure | devpod/exposure | ✅ corrigé |
 | [041](041-delete-shelve-ordre-incoherent.md) | `delete` propage le 409 de shelve après avoir tué l'`up` | devpod | 🔴 ouvert |
-| [042](042-frontend-workspacecreate-erreurs-par-index-key.md) | Frontend : erreurs de source indexées par position + `key={i}` | frontend | 🔴 ouvert |
+| [042](042-frontend-workspacecreate-erreurs-par-index-key.md) | Frontend : erreurs de source indexées par position + `key={i}` | frontend | ✅ corrigé |
 | [043](043-frontend-terminal-reconstruit-au-changement-langue.md) | Frontend : terminal reconstruit au changement de langue | frontend | 🔴 ouvert |
 | [044](044-frontend-noms-session-non-encodes-url.md) | Frontend : noms de session non encodés dans l'URL | frontend | 🔴 ouvert |
 
