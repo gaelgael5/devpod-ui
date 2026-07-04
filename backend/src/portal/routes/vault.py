@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..db.engine import get_conn
+from ..db.user_config import UserNotProvisionedError
 from ..vault.keys import (
     KeyAlreadyExists,
     KeyNotFound,
@@ -121,6 +122,10 @@ async def pin_setup(
         result: PinSetupResult = await setup_pin(user.login, body.pin, _sid(request), conn)
     except VaultDisabledError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except UserNotProvisionedError as exc:
+        # Bug 011 : ancre config.yaml illisible — on force un re-login qui
+        # re-provisionne proprement, plutôt que d'inventer un secret_ns.
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"recovery_code": result.recovery_code}

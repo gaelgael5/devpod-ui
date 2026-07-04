@@ -15,7 +15,12 @@ from portal.config.models import (
     WorkspaceExpose,
     WorkspaceSpec,
 )
-from portal.db.user_config import ensure_user_db, load_user_db, save_user_db
+from portal.db.user_config import (
+    UserNotProvisionedError,
+    ensure_user_db,
+    load_user_db,
+    save_user_db,
+)
 
 LOGIN = "testuser"
 
@@ -139,12 +144,44 @@ async def test_load_raises_if_no_user(db_conn):
 # ─── ensure_user_db ───────────────────────────────────────────────────────────
 
 
+def _write_user_yaml(data_root, login: str, secret_ns: str) -> None:
+    user_dir = data_root / "users" / login
+    user_dir.mkdir(parents=True)
+    (user_dir / "config.yaml").write_text(
+        f'version: "1"\nsecret_ns: {secret_ns}\n', encoding="utf-8"
+    )
+
+
 @pytest.mark.asyncio
-async def test_ensure_user_creates_row_when_absent(db_conn, tmp_data_root):
+async def test_ensure_user_reads_secret_ns_from_yaml(db_conn, tmp_data_root):
+    """Le secret_ns provient de l'ancre config.yaml, jamais d'un GUID inventé."""
+    ns = str(uuid.uuid4())
+    _write_user_yaml(tmp_data_root, "lazyuser", ns)
     await ensure_user_db("lazyuser", db_conn)
     loaded = await load_user_db("lazyuser", db_conn)
     assert loaded.version == "1"
-    assert loaded.secret_ns  # UUID généré (pas de config.yaml sous tmp_data_root)
+    assert loaded.secret_ns == ns
+
+
+@pytest.mark.asyncio
+async def test_ensure_user_fails_without_config_yaml(db_conn, tmp_data_root):
+    """Bug 011 : config.yaml absent → échec explicite (re-login), pas de
+    secret_ns fabriqué qui orphelinerait les secrets Harpocrate existants."""
+    with pytest.raises(UserNotProvisionedError):
+        await ensure_user_db("lazyuser", db_conn)
+    with pytest.raises(FileNotFoundError):
+        await load_user_db("lazyuser", db_conn)  # aucune ligne créée
+
+
+@pytest.mark.asyncio
+async def test_ensure_user_fails_if_yaml_lacks_secret_ns(db_conn, tmp_data_root):
+    """Bug 011 : config.yaml présent mais sans secret_ns (corrompu) → échec
+    explicite, pas de namespace de secours."""
+    user_dir = tmp_data_root / "users" / "lazyuser"
+    user_dir.mkdir(parents=True)
+    (user_dir / "config.yaml").write_text('version: "1"\n', encoding="utf-8")
+    with pytest.raises(UserNotProvisionedError):
+        await ensure_user_db("lazyuser", db_conn)
 
 
 @pytest.mark.asyncio
@@ -163,6 +200,8 @@ async def test_ensure_user_concurrent_meme_login_sans_unique_violation(
     """Bug 010 : deux provisions concurrentes du même login. La 2e transaction ne
     voit pas l'INSERT non commité de la 1re (READ COMMITTED) — elle ne doit ni
     lever UniqueViolation ni écraser la ligne de la 1re (do_nothing)."""
+    ns = str(uuid.uuid4())
+    _write_user_yaml(tmp_data_root, "raceuser", ns)
     async with (
         db_engine_concurrent.connect() as c1,
         db_engine_concurrent.connect() as c2,
@@ -181,6 +220,7 @@ async def test_ensure_user_concurrent_meme_login_sans_unique_violation(
     async with db_engine_concurrent.connect() as c3:
         loaded = await load_user_db("raceuser", c3)
     assert loaded.version == "1"
+    assert loaded.secret_ns == ns
 
 
 # ─── Concurrence save_user_db (bug 010) ──────────────────────────────────────

@@ -1,7 +1,6 @@
 """Persistance UserConfig (users, git_credentials, workspaces, workspace_extra_sources)."""
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +25,21 @@ from .tables import git_credentials, users, workspace_extra_sources, workspaces
 _log = structlog.get_logger(__name__)
 
 
+class UserNotProvisionedError(Exception):
+    """Ligne users absente et ancre config.yaml illisible — re-login requis.
+
+    Ne JAMAIS fabriquer un secret_ns de secours (bug 011) : le namespace
+    Harpocrate est externe — un GUID inventé rendrait les secrets existants
+    inaccessibles et divergerait du YAML recréé au prochain login.
+    """
+
+    def __init__(self, login: str) -> None:
+        super().__init__(
+            f"User {login!r} has no users row and no readable config.yaml — re-login required"
+        )
+        self.login = login
+
+
 async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
     """Garantit l'existence de la row users — idempotent.
 
@@ -44,16 +58,24 @@ async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
     if existing is not None:
         return
 
-    # Lire le secret_ns depuis le YAML (cohérence filesystem ↔ DB)
+    # Lire le secret_ns depuis le YAML, seule ancre durable (cohérence
+    # filesystem ↔ DB). S'il est illisible, échouer explicitement (bug 011).
     from ..config.store import safe_user_path  # import lazy pour éviter les cycles
 
     config_path: Path = safe_user_path(login, "config.yaml")
     try:
         with config_path.open(encoding="utf-8") as f:
             raw: dict[str, object] = yaml.safe_load(f) or {}
-        secret_ns_str = str(raw.get("secret_ns", uuid.uuid4()))
-    except OSError:
-        secret_ns_str = str(uuid.uuid4())
+    except (OSError, yaml.YAMLError) as exc:
+        _log.warning("user_not_provisioned", login=login, reason=str(exc))
+        raise UserNotProvisionedError(login) from exc
+    secret_ns_raw = raw.get("secret_ns")
+    if not secret_ns_raw:
+        _log.warning(
+            "user_not_provisioned", login=login, reason="secret_ns missing in config.yaml"
+        )
+        raise UserNotProvisionedError(login)
+    secret_ns_str = str(secret_ns_raw)
 
     result = await conn.execute(
         pg_insert(users)
