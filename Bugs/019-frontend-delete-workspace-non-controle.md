@@ -3,7 +3,11 @@
 - **Sévérité** : majeur
 - **Sous-système** : frontend
 - **Fichier** : `frontend/src/features/workspaces/useWorkspaceOps.ts:104-111`
-- **Statut** : ouvert
+- **Statut** : corrigé — le second appel (`DELETE /me/workspaces/${name}`) passe désormais par
+  `apiFetchVoid` (au lieu de `apiFetch` sans contrôle de `res.ok`), donc une erreur y propage
+  correctement vers `onError` de la mutation au lieu de se résoudre en succès. Tests ajoutés
+  (`useWorkspaceOps.test.tsx`) : séquence complète réussie (204 sur les deux appels), et second
+  appel en échec (500) → `isError`.
 
 ## Symptôme
 

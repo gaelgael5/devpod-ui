@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetch, apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 import type { SourceSpec, WorkspaceSpec, WorkspaceStatus } from './types'
 
 export interface SourceEntry {
@@ -107,7 +107,7 @@ export function useWorkspaceOps() {
         deleted: boolean
         recovery_branch: string | null
       }>(url, { method: 'POST' })
-      await apiFetch(`/me/workspaces/${name}`, { method: 'DELETE' })
+      await apiFetchVoid(`/me/workspaces/${name}`, { method: 'DELETE' })
       return result
     },
     onSuccess: (data) => {
