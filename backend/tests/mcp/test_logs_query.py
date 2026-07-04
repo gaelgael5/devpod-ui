@@ -65,6 +65,28 @@ def test_build_logql_job_filter_finds_faro_logs() -> None:
     assert build_logql(p) == '{job="faro"}'
 
 
+def test_build_logql_escapes_double_quote_in_label_value() -> None:
+    """Bug 027 : un `"` dans une valeur de filtre ne doit jamais casser le matcher
+    ni injecter du LogQL arbitraire dans la requête."""
+    p = LogsQueryParams(host='x"} | line_format "{{.__line__}}')
+    logql = build_logql(p)
+    assert logql == '{host="x\\"} | line_format \\"{{.__line__}}"}'
+
+
+def test_build_logql_escapes_backslash_before_quote() -> None:
+    """L'ordre d'échappement compte : backslash d'abord, sinon un `\\"` en entrée
+    se ferait ré-échapper et produirait un guillemet non protégé."""
+    p = LogsQueryParams(host='a\\"b')
+    logql = build_logql(p)
+    assert logql == '{host="a\\\\\\"b"}'
+
+
+def test_build_logql_escapes_quote_in_level_filter() -> None:
+    p = LogsQueryParams(project="rag", level='error" | line_format "boom')
+    logql = build_logql(p)
+    assert logql == '{compose_project="rag"} | json | level="error\\" | line_format \\"boom"'
+
+
 # ---------------------------------------------------------------------------
 # _flatten_streams
 # ---------------------------------------------------------------------------

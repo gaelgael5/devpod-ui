@@ -46,11 +46,24 @@ class LogsQueryParams(BaseModel):
     direction: Literal["forward", "backward"] = "backward"
 
 
+def _escape_logql_string(value: str) -> str:
+    """Échappe un littéral de chaîne LogQL (backslash puis guillemet, dans cet ordre —
+    sinon un `"` initial se ferait ré-échapper par la substitution du backslash).
+
+    Sans cet échappement, une valeur de filtre contenant un `"` casse le matcher et
+    injecte du LogQL arbitraire dans la requête (bug 027)."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def build_logql(p: LogsQueryParams) -> str:
     """Construit l'expression LogQL à partir des filtres structurés."""
     if p.query:
         return p.query
-    sel = [f'{lbl}="{getattr(p, key)}"' for key, lbl in _LABEL.items() if getattr(p, key)]
+    sel = [
+        f'{lbl}="{_escape_logql_string(getattr(p, key))}"'
+        for key, lbl in _LABEL.items()
+        if getattr(p, key)
+    ]
     if not sel:
         raise ValueError(
             "logs_query: fournir une query LogQL ou au moins un filtre de label "
@@ -58,7 +71,7 @@ def build_logql(p: LogsQueryParams) -> str:
         )
     expr = "{" + ",".join(sel) + "}"
     if p.level:
-        expr += f' | json | level="{p.level}"'
+        expr += f' | json | level="{_escape_logql_string(p.level)}"'
     return expr
 
 
