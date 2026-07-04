@@ -1,11 +1,16 @@
 """Tests de sign_csr (validation CSR) et enroll_node (tokens + certs en DB)."""
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from portal.config.models import GlobalConfig
@@ -14,6 +19,25 @@ from portal.nodes.enroll import CsrValidationError, enroll_node, sign_csr
 
 NODE = "test-node"
 ADDR = "192.168.1.100"
+
+
+def _san_of(cert_pem: bytes) -> x509.SubjectAlternativeName:
+    cert = x509.load_pem_x509_certificate(cert_pem)
+    return cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+
+
+def _csr_with_san(
+    cn: str, san: list[x509.GeneralName]
+) -> bytes:
+    """CSR arbitraire avec un SAN choisi (pour tester la non-recopie du SAN)."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return (
+        x509.CertificateSigningRequestBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)]))
+        .add_extension(x509.SubjectAlternativeName(san), critical=False)
+        .sign(key, hashes.SHA256())
+        .public_bytes(serialization.Encoding.PEM)
+    )
 
 
 # ─── sign_csr ─────────────────────────────────────────────────────────────────
@@ -74,6 +98,96 @@ def test_csr_missing_san_rejected(
             ca_cert_path=ca_cert_path,
             ca_key_path=ca_key_path,
         )
+
+
+# ─── §013 : SAN autoritatif, jamais recopié de la CSR ─────────────────────────
+
+
+def test_foreign_ip_in_csr_san_is_stripped(
+    tmp_data_root: Path, ca_fixture: tuple[Path, Path]
+) -> None:
+    """Une CSR dont le SAN contient l'adresse attendue + une IP étrangère produit
+    un cert dont le SAN ne contient QUE l'adresse attendue (§013, usurpation)."""
+    ca_cert_path, ca_key_path = ca_fixture
+    foreign = ipaddress.ip_address("10.0.0.20")
+    csr = _csr_with_san(
+        NODE,
+        [
+            x509.IPAddress(ipaddress.ip_address(ADDR)),
+            x509.IPAddress(foreign),
+            x509.DNSName("evil.example.com"),
+        ],
+    )
+    cert_pem, _ = sign_csr(
+        csr_pem=csr,
+        expected_cn=NODE,
+        expected_address=ADDR,
+        ca_cert_path=ca_cert_path,
+        ca_key_path=ca_key_path,
+    )
+    san = _san_of(cert_pem)
+    ips = san.get_values_for_type(x509.IPAddress)
+    dns = san.get_values_for_type(x509.DNSName)
+    assert ips == [ipaddress.ip_address(ADDR)]
+    assert foreign not in ips
+    assert dns == []
+
+
+def test_signed_san_is_ip_type_for_ip_address(
+    tmp_data_root: Path, ca_fixture: tuple[Path, Path], valid_csr: bytes
+) -> None:
+    """Adresse = IP ⇒ SAN reconstruit en IPAddress, exactement l'adresse."""
+    ca_cert_path, ca_key_path = ca_fixture
+    cert_pem, _ = sign_csr(
+        csr_pem=valid_csr,
+        expected_cn=NODE,
+        expected_address=ADDR,
+        ca_cert_path=ca_cert_path,
+        ca_key_path=ca_key_path,
+    )
+    san = _san_of(cert_pem)
+    assert san.get_values_for_type(x509.IPAddress) == [ipaddress.ip_address(ADDR)]
+    assert san.get_values_for_type(x509.DNSName) == []
+
+
+def test_signed_san_dns_for_hostname(
+    tmp_data_root: Path, ca_fixture: tuple[Path, Path]
+) -> None:
+    """Adresse = hostname ⇒ SAN reconstruit en DNSName, exactement le hostname."""
+    ca_cert_path, ca_key_path = ca_fixture
+    hostname = "node-a.dev.yoops.org"
+    csr = _csr_with_san(
+        NODE,
+        [x509.DNSName(hostname), x509.DNSName("evil.example.com")],
+    )
+    cert_pem, _ = sign_csr(
+        csr_pem=csr,
+        expected_cn=NODE,
+        expected_address=hostname,
+        ca_cert_path=ca_cert_path,
+        ca_key_path=ca_key_path,
+    )
+    san = _san_of(cert_pem)
+    assert san.get_values_for_type(x509.DNSName) == [hostname]
+    assert san.get_values_for_type(x509.IPAddress) == []
+
+
+def test_nominal_san_matches_expected_address(
+    tmp_data_root: Path, ca_fixture: tuple[Path, Path]
+) -> None:
+    """Cas nominal : SAN de la CSR = juste l'adresse attendue ⇒ signé tel quel."""
+    ca_cert_path, ca_key_path = ca_fixture
+    csr = _csr_with_san(NODE, [x509.IPAddress(ipaddress.ip_address(ADDR))])
+    cert_pem, _ = sign_csr(
+        csr_pem=csr,
+        expected_cn=NODE,
+        expected_address=ADDR,
+        ca_cert_path=ca_cert_path,
+        ca_key_path=ca_key_path,
+    )
+    assert _san_of(cert_pem).get_values_for_type(x509.IPAddress) == [
+        ipaddress.ip_address(ADDR)
+    ]
 
 
 # ─── enroll_node ──────────────────────────────────────────────────────────────

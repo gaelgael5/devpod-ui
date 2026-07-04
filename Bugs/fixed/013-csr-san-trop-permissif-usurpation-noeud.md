@@ -3,7 +3,7 @@
 - **Sévérité** : majeur (usurpation de daemon Docker inter-nœuds, MITM mTLS)
 - **Sous-système** : nodes (enrôlement mTLS)
 - **Fichier** : `backend/src/portal/nodes/enroll.py` — `_validate_csr` / `_address_in_san` (~62-69), `sign_csr` (~92, 101)
-- **Statut** : ouvert
+- **Statut** : corrigé — `sign_csr` ne recopie plus le SAN de la CSR ; il signe un SAN autoritatif reconstruit par `_authoritative_san(expected_address)` contenant l'unique adresse scellée dans le join token (`x509.IPAddress` si elle parse en IP, sinon `x509.DNSName`), jamais le `node_name` (label logique, jamais cible réseau). `_validate_csr` n'exige plus que la *présence* d'un SAN (garde de bonne formation) ; `_address_in_san` supprimé. Une CSR listant une IP étrangère produit désormais un cert ne couvrant que l'adresse attendue.
 
 ## Symptôme
 

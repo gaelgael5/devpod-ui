@@ -31,20 +31,41 @@ class CsrValidationError(ValueError):
     """CSR invalide ou non conforme. §E-28."""
 
 
-def _address_in_san(san: x509.SubjectAlternativeName, address: str) -> bool:
+def _authoritative_san(expected_address: str) -> x509.SubjectAlternativeName:
+    """Construit le SAN **autoritatif** du certificat nœud à partir de la seule
+    identité réseau que le portail juge légitime pour ce nœud. §E-28, §013.
+
+    Le portail ne joint jamais un nœud autrement que par
+    ``docker_host = tcp://{address}:2376`` (cf. ``_register_host``) : l'``address``
+    scellée dans le join token est donc la *seule* identité que la vérification
+    mTLS d'hostname contrôlera. Le SAN ne contient qu'elle :
+
+    - jamais le SAN déclaré par la CSR (le recopier verbatim permet à un nœud
+      d'ajouter l'IP d'un autre nœud et d'usurper son daemon — §013) ;
+    - jamais le ``node_name``, qui est un label logique jamais utilisé comme
+      cible réseau et n'a donc pas à figurer comme identité du certificat.
+
+    L'``address`` est une IP *ou* un hostname (cf. validation ``/nodes/token``) :
+    on émet un ``IPAddress`` si elle parse en IP, sinon un ``DNSName``.
+    """
     try:
-        ip = ipaddress.ip_address(address)
-        return any(isinstance(n, x509.IPAddress) and n.value == ip for n in san)
+        ip = ipaddress.ip_address(expected_address)
+        name: x509.GeneralName = x509.IPAddress(ip)
     except ValueError:
-        return any(isinstance(n, x509.DNSName) and n.value == address for n in san)
+        name = x509.DNSName(expected_address)
+    return x509.SubjectAlternativeName([name])
 
 
 def _validate_csr(
     csr: x509.CertificateSigningRequest,
     expected_cn: str,
-    expected_address: str,
 ) -> None:
-    """Valide CN, SAN et l'absence de CA:TRUE. §E-28."""
+    """Valide signature, CN, présence d'un SAN et l'absence de CA:TRUE. §E-28.
+
+    Le SAN de la CSR n'est **pas** recopié dans le certificat signé (§013) : sa
+    présence n'est exigée que comme garde de bonne formation. L'identité réseau
+    effective du certificat est reconstruite par ``_authoritative_san``.
+    """
     if not csr.is_signature_valid:
         raise CsrValidationError("CSR has an invalid signature")
     cn_attrs = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
@@ -60,13 +81,9 @@ def _validate_csr(
         pass
 
     try:
-        san_ext = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
-        if not _address_in_san(san_ext.value, expected_address):
-            raise CsrValidationError(f"CSR SAN must contain {expected_address!r}")
+        csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
     except x509.ExtensionNotFound:
-        raise CsrValidationError(
-            "CSR must have a SAN extension containing the expected address"
-        ) from None
+        raise CsrValidationError("CSR must have a SAN extension") from None
 
 
 # §E-29 : validité 5 ans (1825 j). Renouvellement à prévoir avant expiration.
@@ -82,14 +99,15 @@ def sign_csr(
 ) -> tuple[bytes, bytes]:
     """Valide et signe la CSR. Retourne (cert_pem, ca_cert_pem). §E-28, §E-29."""
     csr = x509.load_pem_x509_csr(csr_pem)
-    _validate_csr(csr, expected_cn, expected_address)
+    _validate_csr(csr, expected_cn)
 
     ca_cert_pem = ca_cert_path.read_bytes()
     ca_cert = x509.load_pem_x509_certificate(ca_cert_pem)
     ca_key = serialization.load_pem_private_key(ca_key_path.read_bytes(), password=None)
 
     now = datetime.now(UTC)
-    san_ext = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+    # §013 : on ne recopie JAMAIS le SAN de la CSR. On signe un SAN autoritatif
+    # reconstruit à partir de la seule adresse scellée dans le join token.
     cert = (
         x509.CertificateBuilder()
         .subject_name(csr.subject)
@@ -98,7 +116,7 @@ def sign_csr(
         .serial_number(x509.random_serial_number())
         .not_valid_before(now)
         .not_valid_after(now + timedelta(days=_CERT_VALIDITY_DAYS))
-        .add_extension(san_ext.value, critical=False)
+        .add_extension(_authoritative_san(expected_address), critical=False)
         .add_extension(
             x509.KeyUsage(
                 digital_signature=True,

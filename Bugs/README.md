@@ -36,7 +36,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [010](010-upserts-check-then-insert-non-atomiques.md) | Upserts check-then-insert non atomiques (UniqueViolation) | db | 🔴 ouvert |
 | [011](011-ensure-user-db-invente-secret-ns.md) | `ensure_user_db` fabrique un `secret_ns` aléatoire → secrets orphelins | db/secrets | 🔴 ouvert |
 | [012](fixed/012-portal-api-key-comparaison-non-constant-time.md) | Comparaison non constant-time de `portal_api_key` (bearer admin) | auth | ✅ corrigé |
-| [013](013-csr-san-trop-permissif-usurpation-noeud.md) | SAN de CSR trop permissif : cert valide pour d'autres nœuds | nodes | 🔴 ouvert |
+| [013](fixed/013-csr-san-trop-permissif-usurpation-noeud.md) | SAN de CSR trop permissif : cert valide pour d'autres nœuds | nodes | ✅ corrigé |
 | [014](014-enrolement-noeud-non-atomique-token-reutilisable.md) | Enrôlement non atomique → join token réutilisable | nodes | 🔴 ouvert |
 | [015](015-course-allocation-ports-compose.md) | Course sur l'allocation de ports compose | compose | 🔴 ouvert |
 | [016](fixed/016-stream-host-command-sous-process-ssh-orphelin.md) | Sous-process ssh non tué à la déconnexion → déploiement orphelin | compose | ✅ corrigé (partiel, voir fiche) |
@@ -77,7 +77,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 ## Note de méthode
 
 Les fiches critiques et majeures ont été recoupées avec le code source réel avant rédaction. Les
-fiches [013](013-csr-san-trop-permissif-usurpation-noeud.md) et
+fiches [013](fixed/013-csr-san-trop-permissif-usurpation-noeud.md) et
 [014](014-enrolement-noeud-non-atomique-token-reutilisable.md) reposent sur l'analyse détaillée de
 l'agent d'audit (lignes précises fournies) et méritent une relecture directe de
 `nodes/enroll.py` avant correction.
