@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import re
 from dataclasses import dataclass, field
 
@@ -99,7 +100,9 @@ async def require_admin_or_api_key(
     """Accepte soit une session admin (cookie), soit un Bearer token == portal_api_key."""
     settings = get_settings()
     if credentials is not None:
-        if settings.portal_api_key and credentials.credentials == settings.portal_api_key:
+        if settings.portal_api_key and hmac.compare_digest(
+            credentials.credentials, settings.portal_api_key
+        ):
             return UserInfo(login="__api__", roles=[settings.oidc_admin_role])
         raise HTTPException(status_code=401, detail="Invalid API key")
     return await require_admin(request)

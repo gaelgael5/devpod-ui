@@ -3,7 +3,7 @@
 - **Sévérité** : majeur
 - **Sous-système** : auth
 - **Fichier** : `backend/src/portal/auth/rbac.py:102`
-- **Statut** : ouvert
+- **Statut** : corrigé — `hmac.compare_digest` remplace `==`. Tests ajoutés (accept/reject).
 
 ## Symptôme
 

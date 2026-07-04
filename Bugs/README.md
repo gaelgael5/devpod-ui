@@ -35,7 +35,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [009](009-lost-update-userconfig-sans-verrou.md) | Lost update : pas de verrou sur load→modify→save de `UserConfig` | config/db | 🔴 ouvert |
 | [010](010-upserts-check-then-insert-non-atomiques.md) | Upserts check-then-insert non atomiques (UniqueViolation) | db | 🔴 ouvert |
 | [011](011-ensure-user-db-invente-secret-ns.md) | `ensure_user_db` fabrique un `secret_ns` aléatoire → secrets orphelins | db/secrets | 🔴 ouvert |
-| [012](012-portal-api-key-comparaison-non-constant-time.md) | Comparaison non constant-time de `portal_api_key` (bearer admin) | auth | 🔴 ouvert |
+| [012](012-portal-api-key-comparaison-non-constant-time.md) | Comparaison non constant-time de `portal_api_key` (bearer admin) | auth | ✅ corrigé |
 | [013](013-csr-san-trop-permissif-usurpation-noeud.md) | SAN de CSR trop permissif : cert valide pour d'autres nœuds | nodes | 🔴 ouvert |
 | [014](014-enrolement-noeud-non-atomique-token-reutilisable.md) | Enrôlement non atomique → join token réutilisable | nodes | 🔴 ouvert |
 | [015](015-course-allocation-ports-compose.md) | Course sur l'allocation de ports compose | compose | 🔴 ouvert |

@@ -67,6 +67,47 @@ async def test_require_admin_passes_for_admin_role() -> None:
     assert isinstance(user, UserInfo)
 
 
+@pytest.mark.asyncio
+async def test_require_admin_or_api_key_accepts_matching_bearer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    import portal.auth.rbac as rbac_mod
+    from portal.auth.rbac import UserInfo, require_admin_or_api_key
+
+    monkeypatch.setattr(
+        rbac_mod,
+        "get_settings",
+        lambda: type("S", (), {"portal_api_key": "secret-key", "oidc_admin_role": "admin"})(),
+    )
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="secret-key")
+    user = await require_admin_or_api_key(_make_request({}), creds)
+    assert isinstance(user, UserInfo)
+    assert user.login == "__api__"
+    assert "admin" in user.roles
+
+
+@pytest.mark.asyncio
+async def test_require_admin_or_api_key_rejects_wrong_bearer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    import portal.auth.rbac as rbac_mod
+    from portal.auth.rbac import require_admin_or_api_key
+
+    monkeypatch.setattr(
+        rbac_mod,
+        "get_settings",
+        lambda: type("S", (), {"portal_api_key": "secret-key", "oidc_admin_role": "admin"})(),
+    )
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="wrong-key")
+    with pytest.raises(HTTPException) as exc_info:
+        await require_admin_or_api_key(_make_request({}), creds)
+    assert exc_info.value.status_code == 401
+
+
 def test_extract_roles_from_nested_claim() -> None:
     from portal.auth.rbac import extract_roles
 
