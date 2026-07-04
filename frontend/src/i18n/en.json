@@ -61,6 +61,7 @@
       "createTitle": "New session",
       "nameLabel": "Name",
       "namePlaceholder": "session1",
+      "nameHint": "Lowercase letters, numbers, hyphens — 1 to 30 chars, must start with a letter or digit",
       "startRecipeLabel": "Startup script",
       "startRecipeNone": "— none —",
       "create": "Create",

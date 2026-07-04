@@ -72,7 +72,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [041](041-delete-shelve-ordre-incoherent.md) | `delete` propage le 409 de shelve après avoir tué l'`up` | devpod | 🔴 ouvert |
 | [042](042-frontend-workspacecreate-erreurs-par-index-key.md) | Frontend : erreurs de source indexées par position + `key={i}` | frontend | ✅ corrigé |
 | [043](043-frontend-terminal-reconstruit-au-changement-langue.md) | Frontend : terminal reconstruit au changement de langue | frontend | ✅ corrigé |
-| [044](044-frontend-noms-session-non-encodes-url.md) | Frontend : noms de session non encodés dans l'URL | frontend | 🔴 ouvert |
+| [044](044-frontend-noms-session-non-encodes-url.md) | Frontend : noms de session non encodés dans l'URL | frontend | ✅ corrigé |
 
 ## Note de méthode
 

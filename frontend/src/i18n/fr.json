@@ -61,6 +61,7 @@
       "createTitle": "Nouvelle session",
       "nameLabel": "Nom",
       "namePlaceholder": "session1",
+      "nameHint": "Lettres minuscules, chiffres, tirets — 1 à 30 caractères, doit commencer par une lettre ou un chiffre",
       "startRecipeLabel": "Script de démarrage",
       "startRecipeNone": "— aucun —",
       "create": "Créer",
