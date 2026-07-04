@@ -3,7 +3,14 @@
 - **Sévérité** : mineur
 - **Sous-système** : mcp / logs
 - **Fichier** : `mcp/devpod_tools/logs_tools.py:72-74`
-- **Statut** : ouvert
+- **Statut** : corrigé — `_flatten_streams` valide désormais la forme de la réponse (`data` non-dict
+  → liste vide, `data.result` non-liste, `stream` non-dict, entrée qui n'est pas une paire
+  `[ts, line]`, timestamp non numérique) et lève `DevpodToolError` au lieu d'un
+  IndexError/ValueError/AttributeError brut. `_logs_query` enveloppe aussi `r.json()` pour
+  transformer un corps non-JSON (`json.JSONDecodeError`) en `DevpodToolError`. Tests ajoutés (7,
+  rouge→vert vérifié par `git stash`) : arité d'entrée invalide, timestamp non numérique, stream
+  non-dict, `result` non-liste, `data` absent/non-dict (liste vide, pas de crash), corps non-JSON,
+  et le chemin complet `_logs_query` avec une réponse Loki 200 mais structurellement invalide.
 
 **Symptôme** :
 ```python

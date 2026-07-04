@@ -56,7 +56,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [025](025-mcp-io-bloquante-operations-yaml.md) | MCP : I/O fichier synchrone bloquant | mcp | ✅ corrigé |
 | [026](026-mcp-transaction-db-pendant-probe-reseau.md) | MCP : transaction DB tenue pendant l'I/O réseau du probe | mcp | ✅ corrigé |
 | [027](027-mcp-injection-logql-non-echappee.md) | MCP : injection LogQL par interpolation non échappée | mcp | ✅ corrigé |
-| [028](028-mcp-deserialisation-loki-non-validee.md) | MCP : désérialisation non validée de la réponse Loki | mcp | 🔴 ouvert |
+| [028](028-mcp-deserialisation-loki-non-validee.md) | MCP : désérialisation non validée de la réponse Loki | mcp | ✅ corrigé |
 | [029](029-mcp-bearergate-filtre-seulement-http.md) | MCP : `BearerGate` ne filtre que les scopes `http` | mcp | 🔴 ouvert |
 | [030](030-vault-master-keys-en-memoire-apres-expiration.md) | Vault : master keys en mémoire au-delà de l'expiration du cookie | vault | 🔴 ouvert |
 | [031](031-vault-session-id-vide-non-rejete.md) | Vault : `session_id` vide non rejeté | vault | 🔴 ouvert |
