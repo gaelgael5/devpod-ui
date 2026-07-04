@@ -20,7 +20,9 @@ describe('WorkspaceActionsMenu', () => {
     server.use(http.get('/me/workspaces/:name/initializers', () => HttpResponse.json([])))
     const user = userEvent.setup()
     const onAddVm = vi.fn()
-    renderWithProviders(<WorkspaceActionsMenu wsName="ws1" onAddVm={onAddVm} />)
+    renderWithProviders(
+      <WorkspaceActionsMenu wsName="ws1" running onAddVm={onAddVm} onOpenShell={vi.fn()} />
+    )
 
     await user.click(screen.getByRole('button', { name: /actions/i }))
     const addVmItem = await screen.findByRole('menuitem', { name: /add vm for test/i })
@@ -32,7 +34,9 @@ describe('WorkspaceActionsMenu', () => {
   it('regroupe les actions Initialize et Add VM for Test dans le même menu', async () => {
     server.use(http.get('/me/workspaces/:name/initializers', () => HttpResponse.json(INITS)))
     const user = userEvent.setup()
-    renderWithProviders(<WorkspaceActionsMenu wsName="ws1" onAddVm={vi.fn()} />)
+    renderWithProviders(
+      <WorkspaceActionsMenu wsName="ws1" running onAddVm={vi.fn()} onOpenShell={vi.fn()} />
+    )
 
     await user.click(screen.getByRole('button', { name: /actions/i }))
 
@@ -51,7 +55,9 @@ describe('WorkspaceActionsMenu', () => {
       }),
     )
     const user = userEvent.setup()
-    renderWithProviders(<WorkspaceActionsMenu wsName="ws1" onAddVm={vi.fn()} />)
+    renderWithProviders(
+      <WorkspaceActionsMenu wsName="ws1" running onAddVm={vi.fn()} onOpenShell={vi.fn()} />
+    )
 
     await user.click(screen.getByRole('button', { name: /actions/i }))
     const runItem = await screen.findByRole('menuitem', { name: /^(run|lancer)$/i })
@@ -59,5 +65,40 @@ describe('WorkspaceActionsMenu', () => {
 
     await waitFor(() => expect(runUrl).toContain('/initializers/claude-bypass-permissions/run'))
     expect(runUrl).not.toContain('force=true')
+  })
+
+  it('propose le shell SSH dans le menu quand le workspace tourne', async () => {
+    server.use(http.get('/me/workspaces/:name/initializers', () => HttpResponse.json([])))
+    const user = userEvent.setup()
+    const onOpenShell = vi.fn()
+    renderWithProviders(
+      <WorkspaceActionsMenu wsName="ws1" running onAddVm={vi.fn()} onOpenShell={onOpenShell} />
+    )
+
+    await user.click(screen.getByRole('button', { name: /actions/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /shell ssh|ssh shell/i }))
+
+    expect(onOpenShell).toHaveBeenCalledOnce()
+  })
+
+  it('propose la clé SSH même workspace arrêté, sans les actions running', async () => {
+    const user = userEvent.setup()
+    const onShowSshKey = vi.fn()
+    renderWithProviders(
+      <WorkspaceActionsMenu
+        wsName="ws1"
+        running={false}
+        onAddVm={vi.fn()}
+        onOpenShell={vi.fn()}
+        onShowSshKey={onShowSshKey}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /actions/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /clé ssh|ssh key/i }))
+
+    expect(onShowSshKey).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('menuitem', { name: /add vm for test/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /shell ssh|ssh shell/i })).not.toBeInTheDocument()
   })
 })

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Code2, FileText, FolderOpen, Key, Loader2, MessageSquare, Play, Square } from 'lucide-react'
+import { Code2, FileText, FolderOpen, Loader2, MessageSquare, Play, Square } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -159,29 +159,14 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             {t('workspaces.actions.retry')}
           </Button>
         )}
-        {spec.ssh_key && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setSshKeyOpen(true)}
-            aria-label={t('workspaces.sshKey.button')}
-          >
-            <Key className="h-4 w-4" />
-          </Button>
-        )}
-        {s === 'running' && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
-            onClick={() => setShellOpen(true)}
-            aria-label={t('workspaces.ssh.shellButton')}
-          >
-            {t('admin.sshTerminal.openBtn')}
-          </Button>
-        )}
-        {s === 'running' && (
-          <WorkspaceActionsMenu wsName={spec.name} onAddVm={() => setAddVmOpen(true)} />
+        {(s === 'running' || spec.ssh_key) && (
+          <WorkspaceActionsMenu
+            wsName={spec.name}
+            running={s === 'running'}
+            onAddVm={() => setAddVmOpen(true)}
+            onOpenShell={() => setShellOpen(true)}
+            onShowSshKey={spec.ssh_key ? () => setSshKeyOpen(true) : undefined}
+          />
         )}
         <Button
           size="sm"
