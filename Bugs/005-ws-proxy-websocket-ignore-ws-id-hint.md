@@ -3,7 +3,7 @@
 - **Sévérité** : majeur (dès qu'un utilisateur a ≥ 2 workspaces `running`)
 - **Sous-système** : exposure / vscode_proxy
 - **Fichiers** : `backend/src/portal/routes/vscode_proxy.py` — handler WS `vscode_ws_proxy` (~200 : `host_port = await _resolve_host_port(login)`), à comparer au handler HTTP (~112-114 qui extrait `ws_id_hint`) ; `_resolve_host_port` (~50-64) ; `_ws_id_hint_from_query` (~76-84)
-- **Statut** : ouvert
+- **Statut** : corrigé — `vscode_ws_proxy` extrait désormais `ws_id_hint` via `_ws_id_hint_from_query` avant de résoudre `host_port`, comme le proxy HTTP. Tests ajoutés (`tests/routes/test_vscode_proxy.py`).
 
 ## Symptôme
 

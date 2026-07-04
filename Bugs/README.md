@@ -28,7 +28,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 |---|-------|--------------|--------|
 | [001](001-collision-allocation-ports-openvscode.md) | Collision d'allocation de ports openvscode entre workspaces | devpod/exposure | 🔴 ouvert |
 | [004](004-culture-non-persistee-userconfig.md) | Champ `culture` de `UserConfig` ni écrit ni relu (perte silencieuse) | config/db | ✅ corrigé |
-| [005](005-ws-proxy-websocket-ignore-ws-id-hint.md) | Proxy WebSocket VS Code ignore le `ws_id_hint` → mauvais workspace | exposure | 🔴 ouvert |
+| [005](005-ws-proxy-websocket-ignore-ws-id-hint.md) | Proxy WebSocket VS Code ignore le `ws_id_hint` → mauvais workspace | exposure | ✅ corrigé |
 | [006](006-stop-ignore-returncode-devpod.md) | `stop()` écrit « stopped » même si `devpod stop` a échoué | devpod | 🔴 ouvert |
 | [007](007-write-status-ressuscite-ligne-supprimee.md) | `_write_status` (upsert) ressuscite une ligne supprimée | devpod/db | 🔴 ouvert |
 | [008](008-put-me-config-sans-allowlist-secret-ns.md) | `PUT /me/config` sans allowlist : `secret_ns`/`version` réécrivables | config/routes | 🔴 ouvert |

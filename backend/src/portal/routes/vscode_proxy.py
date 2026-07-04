@@ -197,15 +197,18 @@ async def vscode_ws_proxy(websocket: WebSocket, path: str) -> None:
         await websocket.close(code=4001, reason="Invalid session")
         return
 
-    host_port = await _resolve_host_port(login)
+    qs_bytes: bytes = websocket.scope.get("query_string", b"")
+    qs = qs_bytes.decode() if qs_bytes else ""
+    ws_id_hint = _ws_id_hint_from_query(qs) if qs else None
+
+    host_port = await _resolve_host_port(login, ws_id_hint)
     if host_port is None:
         await websocket.close(code=4503, reason="No active workspace")
         return
 
-    qs_bytes: bytes = websocket.scope.get("query_string", b"")
     upstream_path = f"/{path}"
-    if qs_bytes:
-        upstream_path += f"?{qs_bytes.decode()}"
+    if qs:
+        upstream_path += f"?{qs}"
 
     upstream_uri = f"ws://localhost:{host_port}{upstream_path}"
 
