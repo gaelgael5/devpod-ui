@@ -43,7 +43,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [017](017-mcp-exceptions-non-gerees-echappent-dispatch.md) | MCP : exceptions non gérées échappent au dispatch → trou d'audit | mcp | ✅ corrigé |
 | [018](018-frontend-delete-echec-silencieux-apifetch.md) | Frontend : échec silencieux systémique des DELETE (`apiFetch`) | frontend | ✅ corrigé |
 | [019](019-frontend-delete-workspace-non-controle.md) | Frontend : `deleteWorkspace` — suppression finale non contrôlée | frontend | ✅ corrigé |
-| [020](020-frontend-streams-reader-non-annule.md) | Frontend : streams fetch dont le reader n'est jamais annulé | frontend | 🔴 ouvert |
+| [020](020-frontend-streams-reader-non-annule.md) | Frontend : streams fetch dont le reader n'est jamais annulé | frontend | ✅ corrigé |
 
 ### Mineurs
 

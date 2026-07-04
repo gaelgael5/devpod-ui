@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/server'
@@ -69,4 +69,37 @@ describe('ServiceLaunchDialog', () => {
     expect(nameInput).toHaveValue('')
     expect(screen.getByRole('button', { name: /start|démarrer/i })).toBeDisabled()
   })
+
+  it(
+    'bug 020 : annule le fetch de streaming (AbortSignal) quand le composant se démonte en ' +
+      'cours de déploiement, au lieu de laisser le backend streamer dans le vide',
+    async () => {
+      let capturedSignal: AbortSignal | undefined
+      server.use(
+        http.get('/api/compose/templates', () => HttpResponse.json([ALLOY_TEMPLATE])),
+        http.post('/api/compose/deployments/stream', ({ request }) => {
+          capturedSignal = request.signal
+          // Stream qui ne se termine jamais dans la fenêtre du test — simule un
+          // déploiement encore en cours au moment où l'utilisateur ferme le dialog.
+          const stream = new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('==> starting\n'))
+            },
+          })
+          return new HttpResponse(stream, { headers: { 'Content-Type': 'text/plain' } })
+        }),
+      )
+      const user = userEvent.setup()
+      const { unmount } = openDeployStep()
+
+      await user.click(await screen.findByText('Collecteur de logs (Alloy)'))
+      await user.click(screen.getByRole('button', { name: /start|démarrer/i }))
+      await screen.findByText(/starting/)
+
+      expect(capturedSignal?.aborted).toBe(false)
+      unmount()
+
+      await waitFor(() => expect(capturedSignal?.aborted).toBe(true))
+    },
+  )
 })

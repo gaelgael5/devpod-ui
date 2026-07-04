@@ -6,7 +6,14 @@
   - `features/admin/GenerateHostDialog.tsx:398-403` + `useProxmoxScript.ts:96-123` (`useExecuteScript`)
   - `features/compose/components/ServiceLaunchDialog.tsx:172-186` (`DeployForm`), fermeture non gardée `270-273`
   - `features/admin/useHosts.ts:124-151` (`useDestroyVm`)
-- **Statut** : ouvert
+- **Statut** : corrigé — les 3 sites créent désormais un `AbortController`, le passent en
+  `signal` à `apiFetch`, et annulent (`controller.abort()` + `reader.cancel()`) dans le cleanup
+  de l'effet du composant/hook (`useEffect` de démontage) — approche retenue plutôt que le garde
+  de fermeture de dialog, car elle couvre aussi la navigation/le démontage hors interaction
+  utilisateur directe. `useExecuteScript` et `useDestroyVm` annulent aussi tout stream précédent
+  en cas d'appel concurrent à `execute()`. Tests ajoutés (rouge→vert vérifié par `git stash`) :
+  `ServiceLaunchDialog.test.tsx` (signal abandonné au démontage pendant le streaming),
+  `useProxmoxScript.test.tsx`, `useDestroyVm.test.tsx` (idem, au niveau hook).
 
 ## Symptôme
 
