@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, ChevronRight, ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -16,6 +16,7 @@ import {
 import { stoppedLast } from './sortWorkspaces'
 import { useWorkspaces } from './useWorkspaces'
 import { useWorkspaceStatus, workspaceStatusQueryOptions } from './useWorkspaceStatus'
+
 import { useWorkspaceOps } from './useWorkspaceOps'
 import {
   useWorkspaceGroups,
@@ -26,7 +27,6 @@ import {
 import WorkspaceCard from './WorkspaceCard'
 import WorkspaceGroupsDialog from './WorkspaceGroupsDialog'
 import type { WorkspaceSpec } from './types'
-import { useLogsConfig } from '@/features/grafana/useLogsConfig'
 
 function WorkspaceRow({ spec, onManageGroups }: { spec: WorkspaceSpec; onManageGroups: () => void }) {
   const { data: status } = useWorkspaceStatus(spec.name)
@@ -140,7 +140,6 @@ export default function WorkspaceList() {
   const { t } = useTranslation()
   const { data: workspaces, isLoading, isError } = useWorkspaces()
   const { data: groups = [] } = useWorkspaceGroups()
-  const { data: logsConfig } = useLogsConfig()
   const createGroup = useCreateGroup()
   const renameGroup = useRenameGroup()
   const deleteGroup = useDeleteGroup()
@@ -203,14 +202,6 @@ export default function WorkspaceList() {
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="mb-6 flex items-center gap-3 flex-wrap">
         <h1 className="text-2xl font-semibold flex-1">{t('workspaces.title')}</h1>
-        {logsConfig?.enabled && logsConfig.grafana_url && (
-          <Button size="sm" variant="outline" asChild>
-            <a href={logsConfig.grafana_url} target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="mr-1 h-4 w-4" />
-              {t('nav.logs')}
-            </a>
-          </Button>
-        )}
         <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
           <Plus className="mr-1 h-4 w-4" />
           {t('groups.new')}
