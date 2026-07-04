@@ -3,7 +3,12 @@
 - **Sévérité** : mineur (non exploitable en l'état : sous-app HTTP uniquement) — durcissement
 - **Sous-système** : mcp / asgi_auth
 - **Fichier** : `mcp/asgi_auth.py:22-24`
-- **Statut** : ouvert
+- **Statut** : corrigé — `BearerGate` distingue désormais explicitement 3 cas : `lifespan` passe
+  sans auth (nécessaire au démarrage de l'app), `http` suit le chemin existant (vérification
+  Bearer), et tout le reste (websocket compris) est fail-closed via `_reject_non_http` (ferme la
+  websocket avec le code `4401` après avoir consommé `websocket.connect`, plutôt que de laisser
+  passer). Tests ajoutés : scope websocket rejeté sans jamais atteindre l'app protégée (même avec
+  un tenant valide), scope lifespan toujours laissé passer — rouge→vert vérifié par `git stash`.
 
 **Symptôme** :
 ```python

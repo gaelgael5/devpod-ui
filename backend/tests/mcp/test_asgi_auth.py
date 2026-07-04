@@ -66,3 +66,50 @@ async def test_valid_token_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     scope = {"type": "http", "headers": [(b"authorization", b"Bearer mcpk_x")]}
     await gate(scope, None, send)
     assert inner_called == [True]
+
+
+@pytest.mark.asyncio
+async def test_websocket_scope_rejected_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bug 029 : un scope websocket ne doit jamais traverser la garde sans
+    vérification — il est fermé explicitement (fail-closed), pas laissé passer."""
+    asgi_auth = _patch(monkeypatch, {"id": "a1"})  # tenant valide : même avec ça, rejeté
+    inner_called: list = []
+
+    async def inner(s: object, r: object, sd: object) -> None:
+        inner_called.append(True)
+
+    receive_called: list = []
+
+    async def receive() -> dict:
+        receive_called.append(True)
+        return {"type": "websocket.connect"}
+
+    sent: list = []
+
+    async def send(m: dict) -> None:
+        sent.append(m)
+
+    gate = asgi_auth.BearerGate(inner)
+    await gate({"type": "websocket", "headers": []}, receive, send)
+
+    assert not inner_called
+    assert receive_called
+    assert sent == [{"type": "websocket.close", "code": 4401}]
+
+
+@pytest.mark.asyncio
+async def test_lifespan_scope_passes_without_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    """lifespan (démarrage/arrêt ASGI) doit passer sans vérification Bearer —
+    sinon l'application ne démarre jamais."""
+    asgi_auth = _patch(monkeypatch, None)  # aucun tenant résolu : ne doit pas bloquer lifespan
+    inner_called: list = []
+
+    async def inner(s: object, r: object, sd: object) -> None:
+        inner_called.append(True)
+
+    async def send(m: dict) -> None:
+        pass
+
+    gate = asgi_auth.BearerGate(inner)
+    await gate({"type": "lifespan"}, None, send)
+    assert inner_called == [True]
