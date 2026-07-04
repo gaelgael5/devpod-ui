@@ -105,7 +105,6 @@ hypervisors = Table(
     Column("ssh_key_path", Text, nullable=False),
     Column("pve_node", Text, nullable=False, server_default="pve"),
     Column("hypervisor_type", Text, nullable=False, server_default=""),
-    Column("password", Text, nullable=False, server_default=""),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 

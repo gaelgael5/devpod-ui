@@ -10,7 +10,6 @@ export interface HypervisorConfig {
   ssh_key_path: string
   pve_node: string
   hypervisor_type: string
-  password: string
 }
 
 export function useAdminProxmox() {

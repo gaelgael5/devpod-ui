@@ -196,7 +196,6 @@ class Hypervisor(BaseModel):
     ssh_key_path: str
     pve_node: str = "pve"
     hypervisor_type: str = ""
-    password: str = ""
 
     @field_validator("name")
     @classmethod

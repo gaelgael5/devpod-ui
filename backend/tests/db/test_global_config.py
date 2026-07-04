@@ -105,7 +105,6 @@ def full_cfg() -> GlobalConfig:
                     "ssh_key_path": "/data/keys/pve01",
                     "pve_node": "pve",
                     "hypervisor_type": "proxmox",
-                    "password": "",
                 }
             ],
             "hosts": [

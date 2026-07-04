@@ -49,7 +49,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 
 | # | Sujet | Sous-système | Statut |
 |---|-------|--------------|--------|
-| [021](021-proxmox-password-clair-renvoye-api.md) | Mot de passe Proxmox stocké/renvoyé en clair | proxmox | 🔴 ouvert |
+| [021](021-proxmox-password-clair-renvoye-api.md) | Mot de passe Proxmox stocké/renvoyé en clair | proxmox | ✅ corrigé |
 | [022](022-ssrf-dns-rebinding-compose-sources.md) | SSRF résiduelle : DNS rebinding (TOCTOU) | compose_sources | 🔴 ouvert |
 | [023](023-proxmox-fetch-spec-sans-ssrf.md) | Fetch de spec proxmox sans contrôle SSRF | proxmox | 🔴 ouvert |
 | [024](024-proxmox-substitute-non-quote-resubstitution-token.md) | Substitution shell non quotée + re-substitution du token | proxmox/test_vm | 🔴 ouvert |

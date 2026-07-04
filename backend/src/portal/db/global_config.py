@@ -184,7 +184,6 @@ def _hyp_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "ssh_key_path": row["ssh_key_path"],
         "pve_node": row["pve_node"],
         "hypervisor_type": row["hypervisor_type"],
-        "password": row["password"],
     }
 
 
@@ -308,7 +307,6 @@ def _hyp_to_row(h: Hypervisor) -> dict[str, Any]:
         "ssh_key_path": h.ssh_key_path,
         "pve_node": h.pve_node,
         "hypervisor_type": h.hypervisor_type,
-        "password": h.password,
     }
 
 

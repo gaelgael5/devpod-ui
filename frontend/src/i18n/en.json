@@ -459,7 +459,6 @@
       "showCert": "View TLS certificate",
       "hideCert": "Hide certificate",
       "copyCert": "Copy",
-      "proxmoxPassword": "Password",
       "usage": "Purpose",
       "usageValues": {
         "workspaces": "Workspaces",
