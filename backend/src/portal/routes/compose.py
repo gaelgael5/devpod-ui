@@ -263,6 +263,11 @@ async def create_deployment_stream(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    user_cfg = await load_user(user.login)
+
+    # La transaction commite dès la sortie du bloc : la ligne de réservation
+    # « created » insérée par prepare_deployment (bug 015) devient visible des
+    # déploiements concurrents AVANT le docker compose up streamé ci-dessous.
     async with _get_engine().begin() as conn:
         tpl = await cdb.get_template(conn, body.template_id)
         if tpl is None:
@@ -284,10 +289,12 @@ async def create_deployment_stream(
                 detail=f"déploiement {body.name!r} existe déjà sur ce nœud",
             )
         try:
-            port_map, host_ports, compose_to_write = await csvc.prepare_deployment(
+            uid, port_map, host_ports, compose_to_write = await csvc.prepare_deployment(
                 conn,
+                name=body.name,
                 template=tpl,
                 node_id=body.node_id,
+                owner_login=user.login,
                 env_values=body.env_values,
             )
         except PortConflict as exc:
@@ -302,11 +309,10 @@ async def create_deployment_stream(
         except ComposeServiceError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    user_cfg = await load_user(user.login)
-
     async def _gen() -> AsyncIterator[bytes]:
         try:
             async for chunk in csvc.deploy_stream(
+                uid=uid,
                 name=body.name,
                 template=tpl,
                 node_id=body.node_id,
@@ -319,9 +325,16 @@ async def create_deployment_stream(
             ):
                 yield chunk.encode()
         except ComposeServiceError as exc:
+            # deploy_stream a déjà retiré la réservation sur ce chemin.
             yield f"__ERROR__:{exc}\n".encode()
         except Exception as exc:
             _log.exception("deploy_stream_unexpected", exc=repr(exc))
+            # Ne jamais laisser la réservation « created » orpheline (bug 015).
+            try:
+                async with _get_engine().begin() as err_conn:
+                    await cdb.update_deployment_status(err_conn, uid, "error", str(exc)[:2000])
+            except Exception:
+                _log.warning("deploy_stream_mark_error_failed", uid=uid)
             yield f"__ERROR__:Erreur interne : {exc}\n".encode()
 
     return StreamingResponse(_gen(), media_type="text/plain; charset=utf-8")

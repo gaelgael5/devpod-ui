@@ -21,6 +21,7 @@ from ..messages.renderer import build_deploy_context
 from ..messages.service import delete_message as msg_delete
 from ..messages.service import render_and_create
 from .db import (
+    acquire_node_ports_lock,
     create_deployment,
     delete_deployment,
     get_deployment,
@@ -157,22 +158,48 @@ async def deploy(
 ) -> ComposeDeployment:
     host = _host_for_node(node_id)
     _reject_foreign_env_keys(template, env_values)
+    _validate_secret_refs(template, env_values)
 
+    # Réservation précoce (bug 015) : l'allocation et l'INSERT de la ligne
+    # « created » (porteuse des host_ports) se font dans une transaction courte
+    # dédiée, sérialisée par nœud via le verrou advisory — un déploiement
+    # concurrent ne lit used_ports_on_node qu'après le COMMIT de cette
+    # réservation. Sans cela, la ligne n'apparaissait qu'après docker compose up
+    # (jusqu'à 600 s) et deux déploiements recevaient le même port.
+    #
     # Détection du mode d'allocation de ports.
     # Mode alias (chromium>3000:3000) : allocation automatique côté portail.
     # Mode classique (param type=port) : port fourni par l'utilisateur.
     aliases = parse_port_aliases(template.compose_content)
-    if aliases:
-        port_map = await allocate_ports(conn, host, node_id, aliases)
-        host_ports = list(port_map.values())
-        compose_to_write = rewrite_compose_ports(template.compose_content, port_map)
-    else:
-        port_map = {}
-        host_ports = _ports_from_env(template, env_values)
-        await check_ports(conn, host, node_id, host_ports)
-        compose_to_write = template.compose_content
-
-    _validate_secret_refs(template, env_values)
+    uid = str(uuid.uuid4())
+    async with _get_engine().begin() as res_conn:
+        await acquire_node_ports_lock(res_conn, node_id)
+        if await get_deployment_by_name_node(res_conn, name, node_id) is not None:
+            raise ComposeServiceError(f"déploiement {name!r} existe déjà sur ce nœud")
+        if aliases:
+            port_map = await allocate_ports(res_conn, host, node_id, aliases)
+            host_ports = list(port_map.values())
+            compose_to_write = rewrite_compose_ports(template.compose_content, port_map)
+        else:
+            port_map = {}
+            host_ports = _ports_from_env(template, env_values)
+            await check_ports(res_conn, host, node_id, host_ports)
+            compose_to_write = template.compose_content
+        await create_deployment(
+            res_conn,
+            ComposeDeployment(
+                uid=uid,
+                id=name,
+                template_id=template.id,
+                template_version=template.version,
+                node_id=node_id,
+                owner_login=owner_login,
+                env_values=env_values,  # références brutes, jamais les valeurs résolues
+                host_ports=host_ports,
+                status="created",
+                last_error=None,
+            ),
+        )
 
     resolved = resolve_env_values(owner_login, secret_ns, env_values)
     rdir = _remote_dir(name)
@@ -199,10 +226,13 @@ async def deploy(
         )
         rc, out, err = await run_host_command(host, cmd, timeout=600.0)
     except HostExecError as exc:
+        # Rien n'a pu être exécuté : la réservation est retirée — même état
+        # final qu'avant (aucune ligne), l'auto-start peut retenter plus tard.
+        async with _get_engine().begin() as err_conn:
+            await delete_deployment(err_conn, uid)
         raise ComposeServiceError(str(exc)) from exc
     status: DeploymentStatus = "running" if rc == 0 else "error"
 
-    uid = str(uuid.uuid4())
     dep = ComposeDeployment(
         uid=uid,
         id=name,
@@ -210,12 +240,12 @@ async def deploy(
         template_version=template.version,
         node_id=node_id,
         owner_login=owner_login,
-        env_values=env_values,  # références brutes, jamais les valeurs résolues
+        env_values=env_values,
         host_ports=host_ports,
         status=status,
         last_error=None if rc == 0 else (err or out)[:2000],
     )
-    await create_deployment(conn, dep)
+    await update_deployment_status(conn, uid, status, dep.last_error)
     await persist_op_log(conn, uid, "up", out + ("\n" + err if err else ""))
 
     # Message contextuel pour les agents (non-bloquant, uniquement si déployé avec succès).
@@ -268,17 +298,29 @@ async def deploy(
 async def prepare_deployment(
     conn: AsyncConnection,
     *,
+    name: str,
     template: ComposeTemplate,
     node_id: str,
+    owner_login: str,
     env_values: dict[str, str],
-) -> tuple[dict[str, int], list[int], str]:
-    """Alloue les ports et prépare le compose_content final.
+) -> tuple[str, dict[str, int], list[int], str]:
+    """Alloue les ports et RÉSERVE le déploiement (ligne « created », bug 015).
 
-    Retourne (port_map, host_ports, compose_to_write). Peut lever PortConflict ou
-    ComposeServiceError — à appeler depuis un contexte DB avant de démarrer le streaming.
+    L'allocation lit used_ports_on_node sous verrou advisory par nœud, et la
+    ligne de réservation (porteuse des host_ports) est insérée dans la même
+    transaction : dès le COMMIT du caller, un déploiement concurrent voit les
+    ports pris. Sans cela, la ligne n'apparaissait qu'à la fin de deploy_stream,
+    jusqu'à 600 s plus tard — deux déploiements recevaient le même port.
+
+    Retourne (uid, port_map, host_ports, compose_to_write). Peut lever
+    PortConflict ou ComposeServiceError — à appeler depuis un contexte DB
+    avant de démarrer le streaming.
     """
     host = _host_for_node(node_id)
     _reject_foreign_env_keys(template, env_values)
+    await acquire_node_ports_lock(conn, node_id)
+    if await get_deployment_by_name_node(conn, name, node_id) is not None:
+        raise ComposeServiceError(f"déploiement {name!r} existe déjà sur ce nœud")
     aliases = parse_port_aliases(template.compose_content)
     if aliases:
         port_map = await allocate_ports(conn, host, node_id, aliases)
@@ -289,11 +331,28 @@ async def prepare_deployment(
         host_ports = _ports_from_env(template, env_values)
         await check_ports(conn, host, node_id, host_ports)
         compose_to_write = template.compose_content
-    return port_map, host_ports, compose_to_write
+    uid = str(uuid.uuid4())
+    await create_deployment(
+        conn,
+        ComposeDeployment(
+            uid=uid,
+            id=name,
+            template_id=template.id,
+            template_version=template.version,
+            node_id=node_id,
+            owner_login=owner_login,
+            env_values=env_values,
+            host_ports=host_ports,
+            status="created",
+            last_error=None,
+        ),
+    )
+    return uid, port_map, host_ports, compose_to_write
 
 
 async def deploy_stream(
     *,
+    uid: str,
     name: str,
     template: ComposeTemplate,
     node_id: str,
@@ -308,7 +367,8 @@ async def deploy_stream(
 
     Chaque ligne yieldée est une ligne de log texte. La dernière ligne est soit
     ``__RESULT__:{json}`` (succès) soit ``__ERROR__:{message}`` (échec).
-    Les ports ont déjà été alloués par ``prepare_deployment``.
+    Les ports ont déjà été alloués et réservés par ``prepare_deployment``
+    (ligne « created » d'uid ``uid``, bug 015) — ici on finalise cette ligne.
     """
     host = _host_for_node(node_id)
     _reject_foreign_env_keys(template, env_values)
@@ -332,6 +392,10 @@ async def deploy_stream(
         if override_content:
             await write_host_file(host, f"{rdir}/docker-compose.override.yml", override_content)
     except HostExecError as exc:
+        # Rien n'a pu être exécuté : la réservation est retirée — même état
+        # final qu'avant (aucune ligne), le nom et les ports redeviennent libres.
+        async with _get_engine().begin() as err_conn:
+            await delete_deployment(err_conn, uid)
         raise ComposeServiceError(str(exc)) from exc
 
     yield "==> Fichiers docker-compose écrits\n"
@@ -355,7 +419,6 @@ async def deploy_stream(
         status = "error"
         yield f"==> ERREUR : {last_err}\n"
 
-    uid = str(uuid.uuid4())
     dep = ComposeDeployment(
         uid=uid,
         id=name,
@@ -369,7 +432,8 @@ async def deploy_stream(
         last_error=None if status == "running" else (last_err or compose_out)[:2000],
     )
     async with _get_engine().begin() as conn:
-        await create_deployment(conn, dep)
+        # Finalise la ligne de réservation insérée par prepare_deployment (bug 015).
+        await update_deployment_status(conn, uid, status, dep.last_error)
         await persist_op_log(conn, uid, "up", compose_out)
 
     if status == "running" and template.message_key:

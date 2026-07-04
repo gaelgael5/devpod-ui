@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import RowMapping
@@ -223,6 +225,22 @@ async def update_deployment_message_id(
 
 async def delete_deployment(conn: AsyncConnection, uid: str) -> None:
     await conn.execute(delete(compose_deployment).where(compose_deployment.c.uid == uid))
+
+
+def _node_lock_key(node_id: str) -> int:
+    """Clé advisory 64 bits signée, stable, dérivée du node_id."""
+    digest = hashlib.blake2b(node_id.encode(), digest_size=8).digest()
+    return int.from_bytes(digest, "big", signed=True)
+
+
+async def acquire_node_ports_lock(conn: AsyncConnection, node_id: str) -> None:
+    """Sérialise lecture → allocation → réservation des ports d'un nœud (bug 015).
+
+    pg_advisory_xact_lock est détenu jusqu'au COMMIT/ROLLBACK de la transaction
+    de `conn` : un déploiement concurrent ne lit used_ports_on_node qu'une fois
+    la ligne de réservation du premier visible — jamais le même port.
+    """
+    await conn.execute(select(func.pg_advisory_xact_lock(_node_lock_key(node_id))))
 
 
 async def used_ports_on_node(conn: AsyncConnection, node_id: str) -> set[int]:
