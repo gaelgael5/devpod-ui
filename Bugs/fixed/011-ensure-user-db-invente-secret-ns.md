@@ -3,7 +3,7 @@
 - **Sévérité** : majeur
 - **Sous-système** : db / secrets
 - **Fichier** : `backend/src/portal/db/user_config.py:44-54`
-- **Statut** : ouvert
+- **Statut** : ✅ corrigé
 
 ## Symptôme
 
@@ -29,3 +29,7 @@ alors que le reste du sous-système est passé sur la DB.
 Si le `secret_ns` d'origine est introuvable, **échouer explicitement** (forcer un re-login /
 re-provisioning complet) plutôt que d'inventer un namespace. Ou dériver `secret_ns` d'une source
 unique et fiable (la DB, pas le YAML).
+
+## Correction (e928c02)
+
+UserNotProvisionedError levée si config.yaml absent/illisible/sans secret_ns — plus jamais de GUID inventé. /vault/pin/setup traduit en 401 → re-login → re-provisioning propre par provision_user (seul chemin légitime de création du namespace).

@@ -3,7 +3,7 @@
 - **Sévérité** : majeur
 - **Sous-système** : config / db
 - **Fichiers** : `backend/src/portal/config/store.py:90-95` (`save_user`) ; `db/user_config.py:147-169` (`save_user_db` : `delete` + réinsertion complète des workspaces) ; déclencheurs : `routes/me.py` (add_workspace, put_config, …), `mcp/devpod_tools/__init__.py` (~406, 928, 974, 995)
-- **Statut** : ouvert
+- **Statut** : ✅ corrigé
 
 ## Symptôme
 
@@ -26,3 +26,7 @@ applicatif, pas de `with_for_update`, pas de version optimiste.
 Verrou `asyncio.Lock` par login autour du cycle load/modify/save, ou `SELECT ... FOR UPDATE` sur
 `users` en tête de transaction, ou colonne `version` en compare-and-swap. Le pattern correct existe
 déjà dans le repo : `db/tokens.py` utilise `with_for_update()`.
+
+## Correction (ab8fafe)
+
+user_config_lock(login) dans config/store.py, détenu du load au save par tous les sites de mutation (routes /me, workspace_ops, MCP devpod_tools). Les cycles avec I/O réseau au milieu (reveal vault, pre-flight git) re-chargent l'état frais SOUS le verrou.

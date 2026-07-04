@@ -26,19 +26,19 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 
 | # | Sujet | Sous-système | Statut |
 |---|-------|--------------|--------|
-| [001](001-collision-allocation-ports-openvscode.md) | Collision d'allocation de ports openvscode entre workspaces | devpod/exposure | 🔴 ouvert |
+| [001](fixed/001-collision-allocation-ports-openvscode.md) | Collision d'allocation de ports openvscode entre workspaces | devpod/exposure | ✅ corrigé |
 | [004](fixed/004-culture-non-persistee-userconfig.md) | Champ `culture` de `UserConfig` ni écrit ni relu (perte silencieuse) | config/db | ✅ corrigé |
 | [005](fixed/005-ws-proxy-websocket-ignore-ws-id-hint.md) | Proxy WebSocket VS Code ignore le `ws_id_hint` → mauvais workspace | exposure | ✅ corrigé |
 | [006](fixed/006-stop-ignore-returncode-devpod.md) | `stop()` écrit « stopped » même si `devpod stop` a échoué | devpod | ✅ corrigé |
-| [007](007-write-status-ressuscite-ligne-supprimee.md) | `_write_status` (upsert) ressuscite une ligne supprimée | devpod/db | 🔴 ouvert |
+| [007](fixed/007-write-status-ressuscite-ligne-supprimee.md) | `_write_status` (upsert) ressuscite une ligne supprimée | devpod/db | ✅ corrigé |
 | [008](fixed/008-put-me-config-sans-allowlist-secret-ns.md) | `PUT /me/config` sans allowlist : `secret_ns`/`version` réécrivables | config/routes | ✅ corrigé |
-| [009](009-lost-update-userconfig-sans-verrou.md) | Lost update : pas de verrou sur load→modify→save de `UserConfig` | config/db | 🔴 ouvert |
-| [010](010-upserts-check-then-insert-non-atomiques.md) | Upserts check-then-insert non atomiques (UniqueViolation) | db | 🔴 ouvert |
-| [011](011-ensure-user-db-invente-secret-ns.md) | `ensure_user_db` fabrique un `secret_ns` aléatoire → secrets orphelins | db/secrets | 🔴 ouvert |
+| [009](fixed/009-lost-update-userconfig-sans-verrou.md) | Lost update : pas de verrou sur load→modify→save de `UserConfig` | config/db | ✅ corrigé |
+| [010](fixed/010-upserts-check-then-insert-non-atomiques.md) | Upserts check-then-insert non atomiques (UniqueViolation) | db | ✅ corrigé |
+| [011](fixed/011-ensure-user-db-invente-secret-ns.md) | `ensure_user_db` fabrique un `secret_ns` aléatoire → secrets orphelins | db/secrets | ✅ corrigé |
 | [012](fixed/012-portal-api-key-comparaison-non-constant-time.md) | Comparaison non constant-time de `portal_api_key` (bearer admin) | auth | ✅ corrigé |
 | [013](fixed/013-csr-san-trop-permissif-usurpation-noeud.md) | SAN de CSR trop permissif : cert valide pour d'autres nœuds | nodes | ✅ corrigé |
 | [014](fixed/014-enrolement-noeud-non-atomique-token-reutilisable.md) | Enrôlement non atomique → join token réutilisable | nodes | ✅ corrigé |
-| [015](015-course-allocation-ports-compose.md) | Course sur l'allocation de ports compose | compose | 🔴 ouvert |
+| [015](fixed/015-course-allocation-ports-compose.md) | Course sur l'allocation de ports compose | compose | ✅ corrigé |
 | [016](fixed/016-stream-host-command-sous-process-ssh-orphelin.md) | Sous-process ssh non tué à la déconnexion → déploiement orphelin | compose | ✅ corrigé (partiel, voir fiche) |
 | [017](fixed/017-mcp-exceptions-non-gerees-echappent-dispatch.md) | MCP : exceptions non gérées échappent au dispatch → trou d'audit | mcp | ✅ corrigé |
 | [018](fixed/018-frontend-delete-echec-silencieux-apifetch.md) | Frontend : échec silencieux systémique des DELETE (`apiFetch`) | frontend | ✅ corrigé |
@@ -50,7 +50,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | # | Sujet | Sous-système | Statut |
 |---|-------|--------------|--------|
 | [021](fixed/021-proxmox-password-clair-renvoye-api.md) | Mot de passe Proxmox stocké/renvoyé en clair | proxmox | ✅ corrigé |
-| [022](022-ssrf-dns-rebinding-compose-sources.md) | SSRF résiduelle : DNS rebinding (TOCTOU) | compose_sources | 🔴 ouvert |
+| [022](fixed/022-ssrf-dns-rebinding-compose-sources.md) | SSRF résiduelle : DNS rebinding (TOCTOU) | compose_sources | ✅ corrigé |
 | [023](fixed/023-proxmox-fetch-spec-sans-ssrf.md) | Fetch de spec proxmox sans contrôle SSRF | proxmox | ✅ corrigé |
 | [024](fixed/024-proxmox-substitute-non-quote-resubstitution-token.md) | Substitution shell non quotée + re-substitution du token | proxmox/test_vm | ✅ corrigé |
 | [025](fixed/025-mcp-io-bloquante-operations-yaml.md) | MCP : I/O fichier synchrone bloquant | mcp | ✅ corrigé |
@@ -69,7 +69,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [038](fixed/038-ssh-agent-orphelin-si-parsing-echoue.md) | Fuite de process `ssh-agent` si le parsing échoue | devpod | ✅ corrigé |
 | [039](fixed/039-io-bloquante-generation-devcontainer.md) | I/O bloquante synchrone (génération devcontainer) | devpod | ✅ corrigé |
 | [040](fixed/040-regex-ws-id-incoherente-service-exposure.md) | Regex `ws_id` incohérentes service vs exposure | devpod/exposure | ✅ corrigé |
-| [041](041-delete-shelve-ordre-incoherent.md) | `delete` propage le 409 de shelve après avoir tué l'`up` | devpod | 🔴 ouvert |
+| [041](fixed/041-delete-shelve-ordre-incoherent.md) | `delete` propage le 409 de shelve après avoir tué l'`up` | devpod | ✅ corrigé |
 | [042](fixed/042-frontend-workspacecreate-erreurs-par-index-key.md) | Frontend : erreurs de source indexées par position + `key={i}` | frontend | ✅ corrigé |
 | [043](fixed/043-frontend-terminal-reconstruit-au-changement-langue.md) | Frontend : terminal reconstruit au changement de langue | frontend | ✅ corrigé |
 | [044](fixed/044-frontend-noms-session-non-encodes-url.md) | Frontend : noms de session non encodés dans l'URL | frontend | ✅ corrigé |
@@ -88,6 +88,12 @@ lors de leur correction.
 Les bugs restants 007, 009, 010, 011, 015, 022, 041 (+ 001 non classé) étaient classés Fable dans la
 passe initiale — hors périmètre de la passe Opus-5. Les 31 premiers bugs corrigés étaient recommandés
 pour Sonnet.
+
+**Passe Fable (2026-07-04)** : les 8 derniers bugs (001, 007, 009, 010, 011, 015, 022, 041) sont
+corrigés — le registre est soldé (44/44). Un commit par bug, TDD quand l'environnement le permettait
+(harnais en mémoire pour devpod/compose ; les tests de concurrence Postgres réels skippent sans
+Docker et s'exécuteront en CI). Suite complète après la passe : 173 échecs contre 178 avant (dette
+de tests préexistante, aucune régression ; 6 tests deploy() obsolètes réécrits au passage).
 
 **Limite d'environnement** : ce devpod n'a pas Docker. Les tests qui nécessitent une vraie DB
 Postgres (fixture `db_conn`, testcontainers) sont écrits normalement mais **skippent** ici

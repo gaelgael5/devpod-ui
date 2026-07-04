@@ -5,7 +5,7 @@
 - **Fichiers** :
   - `backend/src/portal/exposure/ports.py` (`PortRegistry.allocate`, `_used_ports`)
   - `backend/src/portal/devpod/service.py` (`_write_status(ws_id, "provisioning")`, `reconcile_port_forwards`)
-- **Statut** : ouvert (déjà mentionné dans `TODO.md` ; fiche détaillée ici)
+- **Statut** : ✅ corrigé
 
 ## Symptôme
 
@@ -76,3 +76,7 @@ par NULL sur un chemin de statut intermédiaire.
 - Depuis le commit `4c7dfdc` (`ExitOnForwardFailure=yes` + kill du tunnel précédent), un conflit
   de bind est au moins **bruyant** (`port_forward_died` dans les logs) au lieu d'un proxy silencieux
   qui sert le mauvais workspace. Mais la cause structurelle de l'allocation dupliquée reste entière.
+
+## Correction (92fc21c)
+
+host_port persisté dès le statut provisioning (plus jamais NULL pendant le up) + réutilisation du port persisté au re-up (fin de la réallocation en rafale à la réconciliation). Tests : harnais status_store + PortRegistry neuf sur ligne provisioning.

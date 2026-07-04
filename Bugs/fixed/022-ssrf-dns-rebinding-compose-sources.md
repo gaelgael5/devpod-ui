@@ -3,7 +3,7 @@
 - **Sévérité** : mineur (admin-only ; nécessite DNS contrôlé par l'attaquant)
 - **Sous-système** : compose_sources
 - **Fichier** : `routes/compose_sources.py:37-76` (`_check_ssrf` puis `client.get(url)`)
-- **Statut** : ouvert
+- **Statut** : ✅ corrigé
 
 **Symptôme** : `_check_ssrf` résout le hostname et rejette les IP internes, puis `client.get(url)`
 **re-résout** le DNS indépendamment. Un attaquant contrôlant le DNS (TTL 0) fait pointer le premier
@@ -12,3 +12,7 @@ ferme la voie des redirections, pas le rebinding.
 
 **Correction** : résoudre une fois, valider l'IP, puis forcer httpx à se connecter **à cette IP validée**
 (transport/resolver pinné, ou connexion par IP + header `Host`).
+
+## Correction (e2f5715)
+
+routes/_ssrf.py partagé : resolve_pinned (une résolution, validation) + pinned_get (connexion à l'IP validée, Host + SNI d'origine, cert vérifié contre le nom). Migré sur les cinq routes porteuses du motif (compose/recipe/jinja/profile sources, proxmox).

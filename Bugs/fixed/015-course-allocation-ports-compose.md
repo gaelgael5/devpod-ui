@@ -3,7 +3,7 @@
 - **Sévérité** : majeur
 - **Sous-système** : compose
 - **Fichiers** : `backend/src/portal/compose/ports.py:42-65` (`allocate_ports`), `compose/service.py:246-349`, `routes/compose.py:261-316`
-- **Statut** : ouvert
+- **Statut** : ✅ corrigé
 
 ## Symptôme
 
@@ -30,3 +30,7 @@ lancer `compose up`.
 
 Même famille de défaut que [001](001-collision-allocation-ports-openvscode.md) (allocation de ports
 openvscode) : la réservation n'est pas durable pendant la fenêtre de provisioning.
+
+## Correction (bd5d1fa)
+
+Les deux pistes combinées : pg_advisory_xact_lock par node_id (sérialise lecture → allocation → réservation) ET ligne « created » insérée/commitée avec les host_ports AVANT docker compose up. Retirée si rien n'a pu être exécuté, finalisée running/error sinon.
