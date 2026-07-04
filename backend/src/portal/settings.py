@@ -27,6 +27,17 @@ class AppSettings(BaseSettings):
     # Session (cookie signé)
     session_secret_key: str = ""
 
+    # Durée de vie de la session (secondes). Sert à la FOIS de :
+    #  - idle timeout : max_age du cookie Starlette, glissant (réémis à chaque réponse) ;
+    #  - plafond d'âge ABSOLU depuis le login (rbac.get_current_user compare
+    #    now - session["auth_time"]).
+    # Le plafond absolu est indispensable car le cookie glissant ne déconnecte que les
+    # sessions inactives : sans lui, un utilisateur actif conserverait indéfiniment des
+    # rôles figés au login, même après révocation Keycloak (bug 032). À l'expiration,
+    # un re-login OIDC est forcé, ce qui rafraîchit les rôles depuis l'IdP.
+    # Défaut : 3600 s (1 h). Env : SESSION_MAX_AGE.
+    session_max_age: int = 3600
+
     # OIDC
     oidc_issuer: str = ""
     oidc_client_id: str = ""

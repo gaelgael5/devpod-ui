@@ -23,6 +23,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from ..auth.rbac import session_within_max_age
 from ..config.store import load_global
 from ..db.engine import _get_engine
 from ..db.workspace_status import list_by_login_db
@@ -65,9 +66,16 @@ async def _resolve_host_port(login: str, ws_id_hint: str | None = None) -> int |
 
 
 def _session_login(request: Request) -> str | None:
-    """Extrait le login depuis la session, ou None si non authentifié."""
+    """Extrait le login depuis la session, ou None si non authentifié/expiré.
+
+    Applique le plafond d'âge absolu de session (bug 032) : ce proxy authentifie
+    lui-même (Caddy ne fait plus que rewrite+reverse_proxy), il ne passe donc pas
+    par le dep RBAC — sans ce contrôle, l'accès VS Code survivrait à l'expiration.
+    """
     user_data = request.session.get("user")
     if not user_data or not isinstance(user_data, dict):
+        return None
+    if not session_within_max_age(request.session):
         return None
     login = user_data.get("login")
     return str(login) if login else None
@@ -191,6 +199,10 @@ async def vscode_ws_proxy(websocket: WebSocket, path: str) -> None:
     user_data = websocket.session.get("user")
     if not user_data or not isinstance(user_data, dict):
         await websocket.close(code=4001, reason="Not authenticated")
+        return
+    if not session_within_max_age(websocket.session):
+        # Plafond d'âge absolu (bug 032) : session expirée → re-login requis.
+        await websocket.close(code=4001, reason="Session expired")
         return
     login = str(user_data.get("login", ""))
     if not login:

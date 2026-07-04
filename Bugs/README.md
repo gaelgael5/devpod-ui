@@ -60,7 +60,7 @@ Statut : 🔴 ouvert / ✅ corrigé / ⏸️ reporté (voir la fiche pour le dé
 | [029](fixed/029-mcp-bearergate-filtre-seulement-http.md) | MCP : `BearerGate` ne filtre que les scopes `http` | mcp | ✅ corrigé |
 | [030](fixed/030-vault-master-keys-en-memoire-apres-expiration.md) | Vault : master keys en mémoire au-delà de l'expiration du cookie | vault | ✅ corrigé |
 | [031](fixed/031-vault-session-id-vide-non-rejete.md) | Vault : `session_id` vide non rejeté | vault | ✅ corrigé |
-| [032](032-roles-figes-dans-cookie-revocation-non-prise-en-compte.md) | Rôles figés dans le cookie — révocation Keycloak ignorée | auth | 🔴 ouvert |
+| [032](fixed/032-roles-figes-dans-cookie-revocation-non-prise-en-compte.md) | Rôles figés dans le cookie — révocation Keycloak ignorée | auth | ✅ corrigé |
 | [033](fixed/033-construction-chemin-sans-safe-user-path.md) | Construction de chemin sous `/data` sans `safe_user_path` | config/db | ✅ corrigé |
 | [034](fixed/034-cache-global-peuple-avant-commit.md) | Cache global peuplé avant le commit de la transaction | db/config | ✅ corrigé |
 | [035](fixed/035-env-file-read-modify-write-sans-verrou.md) | Écriture `.env` en read-modify-write sans verrou | config | ✅ corrigé |
@@ -83,7 +83,7 @@ de l'agent d'audit (lignes précises fournies) ; la relecture directe de `nodes/
 lors de leur correction.
 
 **Passe Opus-5** (sous-agents Opus, pilotés/relus par l'agent Sonnet) : 002, 003, 013, 014 corrigés ;
-032 (rôles figés cookie) en attente d'une décision de design (TTL court vs revérification IdP).
+032 (rôles figés cookie) corrigé (TTL court configurable + plafond d'âge absolu).
 
 Les bugs restants 007, 009, 010, 011, 015, 022, 041 (+ 001 non classé) étaient classés Fable dans la
 passe initiale — hors périmètre de la passe Opus-5. Les 31 premiers bugs corrigés étaient recommandés

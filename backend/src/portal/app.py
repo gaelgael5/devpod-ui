@@ -295,7 +295,9 @@ def create_app() -> FastAPI:
         session_cookie="portal_session",
         https_only=not settings.dev_mode,
         same_site="lax",
-        max_age=86400,
+        # Idle timeout (glissant) ; le plafond d'âge absolu est appliqué en plus dans
+        # rbac.get_current_user via session["auth_time"] (bug 032).
+        max_age=settings.session_max_age,
         # Domain injecté à l'émission par _PortalSessionMiddleware (relu à chaque réponse).
     )
     app.include_router(auth_router)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import os
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -92,6 +93,9 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
         raise HTTPException(status_code=401, detail="Invalid credentials")
     await provision_user(login=settings.local_user, sub="local", data_root=_data_root())
     request.session.setdefault("session_id", str(uuid.uuid4()))
+    # Horodatage de login absolu : borne l'âge maximal de la session indépendamment
+    # du max_age glissant du cookie (bug 032).
+    request.session["auth_time"] = int(time.time())
     request.session["user"] = {
         "login": settings.local_user,
         "roles": [load_global().auth.oidc.admin_role],
@@ -137,6 +141,9 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     await provision_user(login=login_name, sub=sub, data_root=_data_root(), email=email)
 
     request.session.setdefault("session_id", str(uuid.uuid4()))
+    # Horodatage de login absolu : borne l'âge maximal de la session indépendamment
+    # du max_age glissant du cookie (bug 032).
+    request.session["auth_time"] = int(time.time())
     request.session["user"] = {"login": login_name, "roles": roles, "sub": sub}
     _log.info("user_logged_in", login=login_name, roles=roles)
     return RedirectResponse("/", status_code=302)

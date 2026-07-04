@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hmac
 import re
+import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 import structlog
@@ -70,9 +72,41 @@ def extract_roles(claims: dict[str, object], role_claim_path: str) -> list[str]:
     return []
 
 
+def session_within_max_age(session: Mapping[str, object]) -> bool:
+    """True si la session respecte le plafond d'âge ABSOLU depuis le login (bug 032).
+
+    Les rôles étant figés dans le cookie au login, une session ne peut vivre au-delà
+    de `session_max_age` secondes depuis son `auth_time`. Le max_age du cookie
+    Starlette est glissant (réémis à chaque réponse) et ne borne que l'inactivité ;
+    sans ce plafond, un utilisateur actif garderait indéfiniment des rôles révoqués
+    côté Keycloak. Fail-closed : `auth_time` absent (cookie legacy) = expiré.
+
+    Partagé entre `get_current_user` (deps RBAC) et les proxies openvscode/SSH qui
+    lisent la session hors du dep RBAC : ces derniers DOIVENT aussi appliquer le
+    plafond, sinon l'accès VS Code/SSH survivrait à l'expiration (fail-closed).
+    """
+    auth_time = session.get("auth_time")
+    if not isinstance(auth_time, int):
+        return False
+    return int(time.time()) - auth_time <= get_settings().session_max_age
+
+
 def get_current_user(request: Request) -> UserInfo | None:
+    """Utilisateur courant depuis la session, ou None si absent/expiré.
+
+    À l'expiration du plafond d'âge absolu (bug 032) on renvoie None → 401/403 →
+    re-login OIDC → rôles rafraîchis depuis l'IdP.
+    """
     user_data = request.session.get("user")
     if not user_data:
+        return None
+    if not session_within_max_age(request.session):
+        _log.info(
+            "session_expired_absolute",
+            login=user_data.get("login"),
+            auth_time=request.session.get("auth_time"),
+            max_age_s=get_settings().session_max_age,
+        )
         return None
     return UserInfo(
         login=user_data["login"],

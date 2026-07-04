@@ -17,6 +17,7 @@ import structlog
 from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
+from ..auth.rbac import session_within_max_age
 from ..config.store import load_global
 from ..db.engine import _get_engine
 from ..db.recipes import load_recipes_as_dict
@@ -70,6 +71,10 @@ async def workspace_ssh_terminal(
             session_keys=list(websocket.session.keys()),
         )
         await websocket.close(code=4001, reason="Not authenticated")
+        return
+    if not session_within_max_age(websocket.session):
+        # Plafond d'âge absolu (bug 032) : session expirée → re-login requis.
+        await websocket.close(code=4001, reason="Session expired")
         return
     login: str = user_data.get("login", "")
     if not login:

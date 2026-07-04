@@ -10,6 +10,7 @@ import structlog
 from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
+from ..auth.rbac import session_within_max_age
 from ..config.store import _data_root, load_global
 from ..devpod.service import _materialize_system_cert
 from ..devpod.ssh_exec import host_key_changed
@@ -48,6 +49,10 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
             session_keys=list(websocket.session.keys()),
         )
         await websocket.close(code=4001, reason="Not authenticated")
+        return
+    if not session_within_max_age(websocket.session):
+        # Plafond d'âge absolu (bug 032) : session expirée → re-login requis.
+        await websocket.close(code=4001, reason="Session expired")
         return
     if settings.oidc_admin_role not in user_data.get("roles", []):
         _log.warning("ws_ssh_admin_denied", login=user_data.get("login"))
