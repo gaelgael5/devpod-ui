@@ -60,6 +60,12 @@ export default function WorkspaceActionsMenu({
             {t('workspaces.sshKey.button')}
           </DropdownMenuItem>
         )}
+        {running && (
+          <DropdownMenuItem className="gap-2" onSelect={onAddVm}>
+            <PlusCircle className="h-3.5 w-3.5" />
+            {t('workspaces.testVm.btn')}
+          </DropdownMenuItem>
+        )}
         {(running || onShowSshKey) && <DropdownMenuSeparator />}
         <DropdownMenuItem className="gap-2" onSelect={onOpenMessages}>
           <MessageSquare className="h-3.5 w-3.5" />
@@ -75,15 +81,10 @@ export default function WorkspaceActionsMenu({
             {t('groups.manage')}
           </DropdownMenuItem>
         )}
-        {running && (
+        {running && initializers.length > 0 && (
           <>
             <DropdownMenuSeparator />
             <InitializerMenuItems initializers={initializers} onRun={handleRun} />
-            {initializers.length > 0 && <DropdownMenuSeparator />}
-            <DropdownMenuItem className="gap-2" onSelect={onAddVm}>
-              <PlusCircle className="h-3.5 w-3.5" />
-              {t('workspaces.testVm.btn')}
-            </DropdownMenuItem>
           </>
         )}
       </DropdownMenuContent>
