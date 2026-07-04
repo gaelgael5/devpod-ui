@@ -1,12 +1,18 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, Copy, KeyRound, Pencil, Trash2 } from 'lucide-react'
+import { ChevronRight, Copy, KeyRound, MoreVertical, Pencil, PlayCircle, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -375,6 +381,8 @@ function ResourceHostsSection({
 }) {
   const { t } = useTranslation()
   const { data: deployments = [] } = useDeployments()
+  // Host dont le dialog « Démarrer un service » est ouvert (item du menu ⋮).
+  const [launchFor, setLaunchFor] = useState<string | null>(null)
 
   return (
     <div className="mt-4 flex flex-col gap-3">
@@ -414,6 +422,24 @@ function ResourceHostsSection({
                   {t('admin.sshTerminal.openBtn')}
                 </Button>
               )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    aria-label={t('workspaces.testHosts.actionsMenu')}
+                  >
+                    <MoreVertical className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onSelect={() => setLaunchFor(host.name)} className="gap-2">
+                    <PlayCircle className="h-3.5 w-3.5" />
+                    {t('workspaces.testHosts.launchService')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
           <div className="p-2">
@@ -422,6 +448,8 @@ function ResourceHostsSection({
               nodeLabel={host.name}
               namingHint={host.name}
               deployments={deployments.filter((d) => d.node_id === host.name)}
+              launchOpen={launchFor === host.name}
+              onLaunchOpenChange={(o) => setLaunchFor(o ? host.name : null)}
             />
           </div>
         </div>

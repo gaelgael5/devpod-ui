@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  MoreVertical, RefreshCw, TerminalSquare, Trash2,
+  MoreVertical, PlayCircle, RefreshCw, TerminalSquare, Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -36,6 +36,7 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
   const del = useDeleteTestHost(wsName)
   const resolve = useResolveTestHostIp(wsName)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [launchOpen, setLaunchOpen] = useState(false)
 
   function handleResolve() {
     toast.promise(resolve.mutateAsync(host.name), {
@@ -75,6 +76,10 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onSelect={() => setLaunchOpen(true)} className="gap-2">
+              <PlayCircle className="h-3.5 w-3.5" />
+              {t('workspaces.testHosts.launchService')}
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onOpenSsh(host)} className="gap-2">
               <TerminalSquare className="h-3.5 w-3.5" />
               {t('workspaces.testHosts.openSsh')}
@@ -101,6 +106,8 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
           nodeLabel={host.alias}
           namingHint={wsName}
           deployments={deployments}
+          launchOpen={launchOpen}
+          onLaunchOpenChange={setLaunchOpen}
         />
       </div>
 
