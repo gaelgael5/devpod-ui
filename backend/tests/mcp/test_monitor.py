@@ -275,3 +275,92 @@ async def test_monitor_backend_once_no_conn_never_holds_db_during_network(
     assert health.status == "up"
     assert events == ["connect_enter", "connect_exit", "network_enter", "network_exit",
                        "begin_enter", "begin_exit"]
+
+
+# ---------------------------------------------------------------------------
+# probe_backend_key — test d'une clé de service précise
+# ---------------------------------------------------------------------------
+
+
+class _FakeSecret:
+    def reveal(self) -> str:
+        return "tok"
+
+
+_KEY_BACKEND = {"id": "b1", "url": "https://rag/mcp", "transport": "streamable_http"}
+
+
+_KEY_ROW_DEFAULT = object()
+
+
+def _patch_key_resolution(
+    monkeypatch, *, secret=None, resolve_error=None, key_row=_KEY_ROW_DEFAULT
+):
+    row = {"id": "k1"} if key_row is _KEY_ROW_DEFAULT else key_row
+
+    async def fake_get_secret(conn, backend_id, key_id):
+        return row
+
+    async def fake_resolve(row):
+        if resolve_error is not None:
+            raise resolve_error
+        return secret
+
+    monkeypatch.setattr(monitor_mod, "get_backend_key_secret", fake_get_secret)
+    monkeypatch.setattr(monitor_mod, "resolve_grant_key", fake_resolve)
+
+
+async def test_probe_backend_key_ok(monkeypatch) -> None:
+    _patch_key_resolution(monkeypatch, secret=_FakeSecret())
+    result = await monitor_mod.probe_backend_key(
+        None, _KEY_BACKEND, "k1", open_session_fn=_patched_open_session(_fake_backend())
+    )
+    assert result.status == "ok"
+    assert result.error is None
+
+
+async def test_probe_backend_key_uses_the_requested_key_bearer(monkeypatch) -> None:
+    """Le handshake est fait avec LA clé demandée, pas la première résoluble."""
+    _patch_key_resolution(monkeypatch, secret=_FakeSecret())
+    seen: list[str | None] = []
+
+    @asynccontextmanager
+    async def _spy(url: str, *, bearer: str | None = None, **kw):
+        seen.append(bearer)
+        async with create_connected_server_and_client_session(_fake_backend()) as session:
+            yield session
+
+    await monitor_mod.probe_backend_key(None, _KEY_BACKEND, "k1", open_session_fn=_spy)
+    assert seen == ["tok"]
+
+
+async def test_probe_backend_key_connection_refused(monkeypatch) -> None:
+    _patch_key_resolution(monkeypatch, secret=_FakeSecret())
+
+    @asynccontextmanager
+    async def _refuse(url: str, *, bearer: str | None = None, **kw):
+        raise BackendUnavailable("HTTP 401 Unauthorized")
+        yield  # pragma: no cover
+
+    result = await monitor_mod.probe_backend_key(
+        None, _KEY_BACKEND, "k1", open_session_fn=_refuse
+    )
+    assert result.status == "failed"
+    assert "401" in (result.error or "")
+
+
+async def test_probe_backend_key_unresolvable_secret(monkeypatch) -> None:
+    _patch_key_resolution(
+        monkeypatch, resolve_error=monitor_mod.UnresolvableSecret("vault verrouillé")
+    )
+    result = await monitor_mod.probe_backend_key(None, _KEY_BACKEND, "k1")
+    assert result.status == "failed"
+    assert "vault" in (result.error or "")
+
+
+async def test_probe_backend_key_unknown_key(monkeypatch) -> None:
+    _patch_key_resolution(monkeypatch, key_row=None)
+    import pytest
+
+    with pytest.raises(KeyError):
+        await monitor_mod.probe_backend_key(None, _KEY_BACKEND, "ghost")

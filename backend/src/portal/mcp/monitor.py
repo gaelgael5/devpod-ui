@@ -161,6 +161,64 @@ async def monitor_backend_once(
     return health
 
 
+class KeyProbeResult(BaseModel):
+    """Verdict du test d'une clé de service (handshake authentifié avec CETTE clé)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    status: Literal["ok", "failed"]
+    error: str | None = None
+
+
+async def probe_backend_key(
+    conn: AsyncConnection,
+    backend_row: dict[str, Any],
+    key_id: str,
+    *,
+    open_session_fn: Any | None = None,
+) -> KeyProbeResult:
+    """Teste une clé de service : handshake MCP authentifié avec cette clé précise.
+
+    Contrairement au probe santé (_resolve_monitor_bearer prend la première clé
+    résoluble), la clé est ici imposée — un secret irrésoluble ou une connexion
+    refusée est un verdict sur la clé, pas sur le backend.
+
+    Lève KeyError si la clé n'existe pas pour ce backend.
+    """
+    backend_id = backend_row["id"]
+    key_row = await get_backend_key_secret(conn, backend_id, key_id)
+    if key_row is None:
+        raise KeyError(key_id)
+    try:
+        secret = await resolve_grant_key(key_row)
+    except UnresolvableSecret as exc:
+        return KeyProbeResult(status="failed", error=f"secret irrésoluble : {exc}")
+    if secret is None:
+        return KeyProbeResult(status="failed", error="secret introuvable")
+
+    session_fn = open_session_fn if open_session_fn is not None else open_session
+    url = backend_row["url"]
+    transport = backend_row.get("transport", "streamable_http")
+    _log.info("mcp_key_probe_start", backend_id=backend_id, key_id=key_id, url=url)
+    try:
+        async with asyncio.timeout(_PROBE_TIMEOUT_S):
+            async with session_fn(url, transport=transport, bearer=secret.reveal()) as session:
+                await fetch_backend_catalog(session)
+        result = KeyProbeResult(status="ok")
+    except TimeoutError:
+        result = KeyProbeResult(status="failed", error=f"timeout après {_PROBE_TIMEOUT_S}s")
+    except BackendUnavailable as exc:
+        result = KeyProbeResult(status="failed", error=str(exc))
+    _log.info(
+        "mcp_key_probe_done",
+        backend_id=backend_id,
+        key_id=key_id,
+        status=result.status,
+        error=result.error,
+    )
+    return result
+
+
 async def run_monitor_pass(*, open_session_fn: Any | None = None) -> None:
     """Une passe de monitoring sur tous les backends enabled.
 

@@ -31,6 +31,7 @@ import {
   useBackendKeys,
   useCreateKey,
   useDeleteKey,
+  useProbeKey,
   useBackendCatalog,
   type MCPBackend,
   type MCPBackendKey,
@@ -313,7 +314,23 @@ function AddKeyDialog({ backendId, open, onClose }: { backendId: string; open: b
 function KeyRow({ backendId, keyItem }: { backendId: string; keyItem: MCPBackendKey }) {
   const { t } = useTranslation()
   const del = useDeleteKey(backendId)
+  const probe = useProbeKey(backendId)
   const [confirmDel, setConfirmDel] = useState(false)
+
+  function handleProbe() {
+    toast.promise(
+      probe.mutateAsync(keyItem.id).then((r) => {
+        if (r.status !== 'ok') {
+          throw new Error(r.error || t('mcp.backends.keyProbeFailed'))
+        }
+      }),
+      {
+        loading: t('mcp.backends.keyProbing'),
+        success: t('mcp.backends.keyProbeOk'),
+        error: (e) => (e instanceof Error ? e.message : t('mcp.backends.keyProbeFailed')),
+      },
+    )
+  }
 
   return (
     <div className="flex items-center gap-2 text-sm">
@@ -321,6 +338,16 @@ function KeyRow({ backendId, keyItem }: { backendId: string; keyItem: MCPBackend
       <code className="font-mono">{keyItem.slug}</code>
       <Badge variant="outline" className="text-xs">{keyItem.storage_type}</Badge>
       <span className="text-muted-foreground">{keyItem.description}</span>
+      <Button
+        size="icon"
+        variant="ghost"
+        className="h-6 w-6"
+        aria-label={t('mcp.backends.keyProbe', { slug: keyItem.slug })}
+        disabled={probe.isPending}
+        onClick={handleProbe}
+      >
+        <RefreshCw className={`h-3.5 w-3.5 ${probe.isPending ? 'animate-spin' : ''}`} />
+      </Button>
       <div className="ml-auto flex gap-1">
         {confirmDel ? (
           <>

@@ -13,7 +13,7 @@ from ..db.engine import get_conn
 from ..db.mcp_audit import list_for_owner as audit_list
 from ..db.mcp_catalog import list_primitives as list_catalog_primitives
 from ..mcp import models, service
-from ..mcp.monitor import get_health, monitor_backend_once
+from ..mcp.monitor import get_health, monitor_backend_once, probe_backend_key
 
 _log = structlog.get_logger(__name__)
 
@@ -141,6 +141,28 @@ async def create_key_route(
         _map_error(exc)
         raise
     return {"id": kid}
+
+
+@router.post("/mcp/backends/{backend_id}/keys/{key_id}/probe")
+async def probe_key_route(
+    backend_id: _BackendId,
+    key_id: _UuidId,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str | None]:
+    """Teste une clé de service : handshake MCP authentifié avec cette clé."""
+    backend = await db.get_backend(conn, user.login, backend_id)
+    if backend is None:
+        raise HTTPException(status_code=404, detail="backend introuvable")
+    if backend.get("transport") == "internal":
+        raise HTTPException(
+            status_code=422, detail="backend interne : aucune clé réseau à tester"
+        )
+    try:
+        result = await probe_backend_key(conn, backend, key_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="clé introuvable") from None
+    return {"id": key_id, "status": result.status, "error": result.error}
 
 
 @router.delete("/mcp/backends/{backend_id}/keys/{key_id}", status_code=204)

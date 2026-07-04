@@ -215,6 +215,23 @@ export function useDeleteKey(backendId: string) {
   })
 }
 
+export interface KeyProbeResult {
+  id: string
+  status: 'ok' | 'failed'
+  error: string | null
+}
+
+/** Teste une clé de service : handshake MCP authentifié avec cette clé précise. */
+export function useProbeKey(backendId: string) {
+  return useMutation({
+    mutationFn: (keyId: string) =>
+      apiFetchJson<KeyProbeResult>(
+        `/me/mcp/backends/${encodeURIComponent(backendId)}/keys/${encodeURIComponent(keyId)}/probe`,
+        { method: 'POST' },
+      ),
+  })
+}
+
 // ── Apikeys clients ─────────────────────────────────────────────────────────────
 
 export function useApikeys() {
