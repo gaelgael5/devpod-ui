@@ -17,7 +17,7 @@ from ..db.profiles import AsyncProfileRepository
 from ..db.sources import load_profile_sources, save_profile_sources
 from ..profiles.models import ProfileBody
 from ..profiles.repository import slugify
-from .recipe_sources import _check_ssrf
+from ._ssrf import check_ssrf, pinned_get
 
 _log = structlog.get_logger(__name__)
 
@@ -60,7 +60,9 @@ def _parse_toc_line(line: str) -> dict[str, Any] | None:
 
 
 async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
-    resp = await client.get(url, timeout=5.0, follow_redirects=False)
+    # pinned_get re-valide ET épingle la connexion sur l'IP validée : un check
+    # préalable seul laissait la fenêtre de rebinding DNS (TOCTOU, bug 022).
+    resp = await pinned_get(client, url, timeout=5.0)
     resp.raise_for_status()
     return resp.text
 
@@ -124,7 +126,7 @@ async def put_profile_sources(
     for url in body.sources:
         if not url.startswith("https://"):
             raise HTTPException(status_code=422, detail=f"URL must be HTTPS: {url!r}")
-        await asyncio.to_thread(_check_ssrf, url)
+        await asyncio.to_thread(check_ssrf, url)
     await save_profile_sources(body.sources, conn)
     _log.info("profile_sources_updated", count=len(body.sources), by=user.login)
     return {"sources": body.sources}
@@ -140,7 +142,7 @@ async def preview_profile_sources(
     async with httpx.AsyncClient() as http:
         for src_url in sources:
             try:
-                await asyncio.to_thread(_check_ssrf, src_url)
+                await asyncio.to_thread(check_ssrf, src_url)
             except HTTPException as exc:
                 _log.warning(
                     "profile_source_ssrf_blocked",
@@ -158,7 +160,7 @@ async def import_profile_from_source(
     body: ProfileImportRequest,
     user: UserInfo = Depends(require_admin),
 ) -> dict[str, Any]:
-    await asyncio.to_thread(_check_ssrf, body.source_url)
+    await asyncio.to_thread(check_ssrf, body.source_url)
 
     async with httpx.AsyncClient() as http:
         try:

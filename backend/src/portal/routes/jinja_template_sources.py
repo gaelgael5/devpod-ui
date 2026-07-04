@@ -17,7 +17,7 @@ from ..db.sources import load_jinja_template_sources, save_jinja_template_source
 from ..messages import db as mdb
 from ..messages.models import Jinja2Template
 from ._sources_util import split_toc_url
-from .recipe_sources import _check_ssrf
+from ._ssrf import check_ssrf, pinned_get
 
 _log = structlog.get_logger(__name__)
 
@@ -60,8 +60,9 @@ def _parse_toc_line(line: str) -> dict[str, Any] | None:
 
 
 async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
-    # NB: callers must _check_ssrf the host first — fetched URLs share that validated host
-    resp = await client.get(url, timeout=5.0, follow_redirects=False)
+    # pinned_get re-valide ET épingle la connexion sur l'IP validée : un check
+    # préalable seul laissait la fenêtre de rebinding DNS (TOCTOU, bug 022).
+    resp = await pinned_get(client, url, timeout=5.0)
     resp.raise_for_status()
     return resp.text
 
@@ -110,7 +111,7 @@ async def put_jinja_template_sources(
     for url in body.sources:
         if not url.startswith("https://"):
             raise HTTPException(status_code=422, detail=f"URL must be HTTPS: {url!r}")
-        await asyncio.to_thread(_check_ssrf, url)
+        await asyncio.to_thread(check_ssrf, url)
     await save_jinja_template_sources(body.sources, conn)
     _log.info("jinja_sources_updated", count=len(body.sources), by=user.login)
     return {"sources": body.sources}
@@ -126,7 +127,7 @@ async def preview_jinja_template_sources(
     async with httpx.AsyncClient() as http:
         for src_url in sources:
             try:
-                await asyncio.to_thread(_check_ssrf, src_url)
+                await asyncio.to_thread(check_ssrf, src_url)
             except HTTPException as exc:
                 _log.warning("jinja_source_ssrf_blocked", url=src_url, detail=exc.detail)
                 continue
@@ -150,7 +151,7 @@ async def import_jinja_template(
     if not body.source_url.startswith("https://"):
         raise HTTPException(status_code=422, detail=f"URL must be HTTPS: {body.source_url!r}")
 
-    await asyncio.to_thread(_check_ssrf, body.source_url)
+    await asyncio.to_thread(check_ssrf, body.source_url)
     async with httpx.AsyncClient() as http:
         try:
             content = await _fetch_text(http, body.source_url)

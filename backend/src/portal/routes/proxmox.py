@@ -18,7 +18,7 @@ from ..auth.rbac import UserInfo, require_admin
 from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor, HypervisorType
 from ..config.store import load_global, save_global
 from ..settings import get_settings
-from .recipe_sources import _check_ssrf
+from ._ssrf import pinned_get, resolve_pinned
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["admin"])
@@ -255,14 +255,17 @@ async def _run_destroy_script(cfg: GlobalConfig, host_cfg: HostConfig) -> None:
         return
 
     try:
-        await asyncio.to_thread(_check_ssrf, hyp_type.destroy_script)
+        pinned_ip = await asyncio.to_thread(resolve_pinned, hyp_type.destroy_script)
     except HTTPException as exc:
         _log.error("host_destroy_script_fetch_failed", host=host_cfg.name, error=str(exc.detail))
         return
 
     async with httpx.AsyncClient() as client:
         try:
-            resp = await client.get(hyp_type.destroy_script, timeout=15.0, follow_redirects=False)
+            # Connexion épinglée sur l'IP validée (anti-rebinding, bug 022)
+            resp = await pinned_get(
+                client, hyp_type.destroy_script, timeout=15.0, pinned_ip=pinned_ip
+            )
             resp.raise_for_status()
             spec = dict(resp.json())
         except httpx.HTTPError as exc:
@@ -595,10 +598,11 @@ async def _fetch_spec_for_type(hyp_type: HypervisorType) -> dict[str, object]:
             status_code=404,
             detail=f"Hypervisor type {hyp_type.name!r} has no add_script configured",
         )
-    await asyncio.to_thread(_check_ssrf, hyp_type.add_script)
+    pinned_ip = await asyncio.to_thread(resolve_pinned, hyp_type.add_script)
     async with httpx.AsyncClient() as client:
         try:
-            resp = await client.get(hyp_type.add_script, timeout=15.0, follow_redirects=False)
+            # Connexion épinglée sur l'IP validée (anti-rebinding, bug 022)
+            resp = await pinned_get(client, hyp_type.add_script, timeout=15.0, pinned_ip=pinned_ip)
             resp.raise_for_status()
             return dict(resp.json())
         except httpx.HTTPError as exc:
@@ -736,10 +740,13 @@ async def execute_hypervisor_destroy_script(
             detail=f"Hypervisor type {node.hypervisor_type!r} has no destroy_script configured",
         )
 
-    await asyncio.to_thread(_check_ssrf, hyp_type.destroy_script)
+    pinned_ip = await asyncio.to_thread(resolve_pinned, hyp_type.destroy_script)
     async with httpx.AsyncClient() as client:
         try:
-            resp = await client.get(hyp_type.destroy_script, timeout=15.0, follow_redirects=False)
+            # Connexion épinglée sur l'IP validée (anti-rebinding, bug 022)
+            resp = await pinned_get(
+                client, hyp_type.destroy_script, timeout=15.0, pinned_ip=pinned_ip
+            )
             resp.raise_for_status()
             spec = dict(resp.json())
         except httpx.HTTPError as exc:

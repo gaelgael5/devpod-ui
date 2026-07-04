@@ -15,9 +15,18 @@ class _RecordingClient:
     def __init__(self, toc_text: str) -> None:
         self.toc_text = toc_text
         self.requested: list[str] = []
+        self.host_headers: list[str] = []
 
-    async def get(self, url: str, timeout: float = 5.0, follow_redirects: bool = False):
+    async def get(
+        self,
+        url: str,
+        timeout: float = 5.0,
+        follow_redirects: bool = False,
+        headers: dict | None = None,
+        extensions: dict | None = None,
+    ):
         self.requested.append(url)
+        self.host_headers.append((headers or {}).get("Host", ""))
         resp = MagicMock()
         resp.raise_for_status = MagicMock()
         resp.text = self.toc_text
@@ -37,9 +46,16 @@ async def test_preview_one_source_accepts_dir_and_tocurl(source: str) -> None:
     from portal.routes.profile_sources import _preview_one_source
 
     client = _RecordingClient("python-dev.yaml | Python Dev | Profil Python | 8\n")
-    results = await _preview_one_source(client, source)
+    # pinned_get (bug 022) : la connexion part vers l'IP validée, le hostname
+    # d'origine passe en header Host — la résolution DNS est mockée.
+    with patch(
+        "portal.routes._ssrf._socket.getaddrinfo",
+        return_value=[(2, 1, 6, "", ("1.2.3.4", 0))],
+    ):
+        results = await _preview_one_source(client, source)
 
-    assert client.requested == ["https://example.com/profiles/toc.txt"]
+    assert client.requested == ["https://1.2.3.4/profiles/toc.txt"]
+    assert client.host_headers == ["example.com"]
     assert len(results) == 1
     assert results[0]["source_url"] == "https://example.com/profiles/python-dev.yaml"
     assert results[0]["source_base"] == "https://example.com/profiles"
