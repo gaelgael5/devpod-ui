@@ -501,14 +501,17 @@ class DevPodService:
             )
             async with _get_engine().begin() as _conn:
                 await persist_log_blob_from_file(ws_id, login, "stop", log_path, _conn)
+            # Écritures gardées (épitaphe, bug 007) : stop() sur un workspace dont la
+            # ligne a été supprimée (delete concurrent ou antérieur) ne doit jamais
+            # recréer une ligne fantôme — seul up() crée la ligne (provisioning).
             if rc != 0:
                 # L'exposition est déjà retirée (tunnel + route Caddy) ; si `devpod stop`
                 # échoue, le conteneur peut encore tourner — ne jamais mentir en écrivant
                 # "stopped" : l'état réel est indéterminé tant qu'on n'a pas reconfirmé.
                 _log.warning("workspace_stop_failed", ws_id=ws_id, returncode=rc)
-                await self._write_status(ws_id, "unknown", login=login)
+                await self._write_status_if_exists(ws_id, "unknown", login=login)
                 return
-            await self._write_status(ws_id, "stopped", login=login)
+            await self._write_status_if_exists(ws_id, "stopped", login=login)
             _log.info("workspace_stopped", ws_id=ws_id, login=login)
 
     async def delete(self, login: str, ws_id: str, *, shelve: bool = True) -> dict[str, Any]:

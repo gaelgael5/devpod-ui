@@ -186,6 +186,60 @@ async def test_delete_cancels_inflight_up_no_zombie(
     assert task.cancelled() or task.exception() is None
 
 
+async def test_stop_on_deleted_workspace_does_not_resurrect(
+    status_store: dict[str, dict[str, Any]],
+    global_cfg: Any,
+    fake_devpod_bin: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bug 007 : stop() sur un workspace déjà supprimé (ligne absente) ne doit
+    recréer aucune ligne — ni « unknown » (échec devpod stop) ni « stopped »."""
+    import portal.devpod.service as service_mod
+
+    svc = _make_service(global_cfg, fake_devpod_bin)
+
+    rc_holder = {"rc": 1}
+
+    async def fake_run_subprocess(
+        cmd: Any, env: Any, log_path: Any, ws_id: str, timeout_s: Any = None
+    ) -> int:
+        return rc_holder["rc"]
+
+    monkeypatch.setattr(service_mod, "run_subprocess", fake_run_subprocess)
+
+    # devpod stop échoue (workspace inexistant) → pas de ligne « unknown »
+    await svc.stop("eve", "eve-app")
+    assert "eve-app" not in status_store
+
+    # devpod stop « réussit » → pas non plus de ligne « stopped » fantôme
+    rc_holder["rc"] = 0
+    await svc.stop("eve", "eve-app")
+    assert "eve-app" not in status_store
+
+
+async def test_stop_on_existing_workspace_updates_status(
+    status_store: dict[str, dict[str, Any]],
+    global_cfg: Any,
+    fake_devpod_bin: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """stop() sur un workspace existant écrit bien « stopped » (chemin nominal)."""
+    import portal.devpod.service as service_mod
+
+    svc = _make_service(global_cfg, fake_devpod_bin)
+    await svc._write_status("eve-app", "running", login="eve")
+
+    async def fake_run_subprocess(
+        cmd: Any, env: Any, log_path: Any, ws_id: str, timeout_s: Any = None
+    ) -> int:
+        return 0
+
+    monkeypatch.setattr(service_mod, "run_subprocess", fake_run_subprocess)
+
+    await svc.stop("eve", "eve-app")
+    assert status_store["eve-app"]["status"] == "stopped"
+
+
 async def test_delete_after_up_completed_leaves_no_row(
     status_store: dict[str, dict[str, Any]],
     global_cfg: Any,
