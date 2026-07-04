@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Terminal } from '@xterm/xterm'
@@ -19,6 +19,15 @@ export default function SshTerminalWindow({ host, onClose }: Props) {
   const dragging = useRef(false)
   const dragOrigin = useRef({ mx: 0, my: 0, wx: 0, wy: 0 })
   const wsRef = useRef<WebSocket | null>(null)
+
+  // t change d'identité à chaque changement de langue ; le lire via une ref (au
+  // lieu de le mettre en dépendance de l'effet) évite de reconstruire le
+  // terminal + WebSocket — et donc de couper la connexion en cours — quand
+  // l'utilisateur change juste la langue de l'UI (bug 043).
+  const tRef = useRef(t)
+  useLayoutEffect(() => {
+    tRef.current = t
+  })
 
   // ── Terminal + WebSocket ───────────────────────────────────────────────────
   useEffect(() => {
@@ -60,8 +69,8 @@ export default function SshTerminalWindow({ host, onClose }: Props) {
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
       terminal.write(data)
     }
-    ws.onclose = () => terminal.write(t('admin.sshTerminal.connClosed'))
-    ws.onerror = () => terminal.write(t('admin.sshTerminal.connError'))
+    ws.onclose = () => terminal.write(tRef.current('admin.sshTerminal.connClosed'))
+    ws.onerror = () => terminal.write(tRef.current('admin.sshTerminal.connError'))
 
     return () => {
       window.removeEventListener('resize', onResize)
@@ -71,7 +80,7 @@ export default function SshTerminalWindow({ host, onClose }: Props) {
       terminal.dispose()
       wsRef.current = null
     }
-  }, [host.name, t])
+  }, [host.name])
 
   // ── Drag ──────────────────────────────────────────────────────────────────
   useEffect(() => {
