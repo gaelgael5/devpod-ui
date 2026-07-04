@@ -121,8 +121,11 @@
       "keyPlaceholder": "ex. grafana",
       "urlLabel": "URL",
       "add": "Ajouter",
+      "update": "Mettre à jour",
+      "cancelEdit": "Annuler la modification",
       "close": "Fermer",
       "delete": "Supprimer le lien {{key}}",
+      "edit": "Modifier le lien {{key}}",
       "saveFailed": "Échec de l'enregistrement du lien"
     },
     "form": {

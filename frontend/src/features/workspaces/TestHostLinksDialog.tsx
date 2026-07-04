@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ExternalLink, Trash2 } from 'lucide-react'
+import { ExternalLink, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -8,7 +8,9 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useDeleteTestHostLink, useSaveTestHostLink, useTestHostLinks } from './useTestVm'
+import {
+  useDeleteTestHostLink, useSaveTestHostLink, useTestHostLinks, type TestHostLink,
+} from './useTestVm'
 
 interface Props {
   open: boolean
@@ -28,16 +30,34 @@ export default function TestHostLinksDialog({
   const del = useDeleteTestHostLink(wsName, hostName)
   const [key, setKey] = useState('')
   const [url, setUrl] = useState('')
+  // Clé d'origine du lien en cours d'édition (null = ajout). Si la clé est
+  // renommée, l'ancienne entrée est supprimée après l'enregistrement.
+  const [editing, setEditing] = useState<string | null>(null)
 
-  function handleSave(e: React.FormEvent) {
+  function resetForm() {
+    setKey('')
+    setUrl('')
+    setEditing(null)
+  }
+
+  function startEdit(link: TestHostLink) {
+    setKey(link.key)
+    setUrl(link.url)
+    setEditing(link.key)
+  }
+
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!key.trim() || !url.trim()) return
+    const newKey = key.trim()
+    const newUrl = url.trim()
+    if (!newKey || !newUrl) return
+    const renamedFrom = editing !== null && editing !== newKey ? editing : null
     save.mutate(
-      { key: key.trim(), url: url.trim() },
+      { key: newKey, url: newUrl },
       {
         onSuccess: () => {
-          setKey('')
-          setUrl('')
+          if (renamedFrom) del.mutate(renamedFrom)
+          resetForm()
         },
         onError: (err) =>
           toast.error(err instanceof Error ? err.message : t('workspaces.testHostLinks.saveFailed')),
@@ -58,7 +78,9 @@ export default function TestHostLinksDialog({
             {links.map((link) => (
               <li
                 key={link.key}
-                className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm"
+                className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm ${
+                  editing === link.key ? 'border-primary' : ''
+                }`}
               >
                 <span className="font-medium shrink-0">{link.key}</span>
                 <a
@@ -73,9 +95,21 @@ export default function TestHostLinksDialog({
                 <Button
                   size="icon"
                   variant="ghost"
+                  className="h-6 w-6 shrink-0"
+                  aria-label={t('workspaces.testHostLinks.edit', { key: link.key })}
+                  onClick={() => startEdit(link)}
+                >
+                  <Pencil className="h-3 w-3" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
                   className="h-6 w-6 shrink-0 text-destructive hover:text-destructive"
                   aria-label={t('workspaces.testHostLinks.delete', { key: link.key })}
-                  onClick={() => del.mutate(link.key)}
+                  onClick={() => {
+                    if (editing === link.key) resetForm()
+                    del.mutate(link.key)
+                  }}
                 >
                   <Trash2 className="h-3 w-3" />
                 </Button>
@@ -86,7 +120,7 @@ export default function TestHostLinksDialog({
           <p className="text-xs text-muted-foreground">{t('workspaces.testHostLinks.empty')}</p>
         )}
 
-        <form onSubmit={handleSave} className="flex flex-col gap-3 border-t pt-3">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3 border-t pt-3">
           <div className="grid grid-cols-[1fr_2fr] gap-2">
             <div className="flex flex-col gap-1">
               <Label htmlFor="thl-key">{t('workspaces.testHostLinks.keyLabel')}</Label>
@@ -110,6 +144,11 @@ export default function TestHostLinksDialog({
             </div>
           </div>
           <div className="flex justify-end gap-2">
+            {editing !== null && (
+              <Button type="button" size="sm" variant="ghost" onClick={resetForm}>
+                {t('workspaces.testHostLinks.cancelEdit')}
+              </Button>
+            )}
             <Button type="button" size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
               {t('workspaces.testHostLinks.close')}
             </Button>
@@ -118,7 +157,9 @@ export default function TestHostLinksDialog({
               size="sm"
               disabled={!key.trim() || !url.trim() || save.isPending}
             >
-              {t('workspaces.testHostLinks.add')}
+              {editing !== null
+                ? t('workspaces.testHostLinks.update')
+                : t('workspaces.testHostLinks.add')}
             </Button>
           </div>
         </form>

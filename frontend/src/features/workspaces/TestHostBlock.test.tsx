@@ -120,6 +120,48 @@ describe('TestHostBlock — liens (clé → URL) du menu ⋮', () => {
       expect(putBody).toEqual({ key: 'app', url: 'http://192.168.10.160:3000' }),
     )
   })
+
+  it("le crayon pré-remplit le formulaire ; renommer la clé supprime l'ancienne entrée", async () => {
+    let putBody: unknown = null
+    const deleted: string[] = []
+    server.use(
+      http.get('/me/workspaces/:ws/test-hosts/:host/links', () =>
+        HttpResponse.json([{ key: 'front', url: 'http://192.168.10.160:8080' }]),
+      ),
+      http.put('/me/workspaces/:ws/test-hosts/:host/links', async ({ request }) => {
+        putBody = await request.json()
+        return HttpResponse.json(putBody)
+      }),
+      http.delete('/me/workspaces/:ws/test-hosts/:host/links/:key', ({ params }) => {
+        deleted.push(String(params.key))
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(
+      <TestHostBlock wsName="ws1" host={HOST} deployments={[]} onOpenSsh={vi.fn()} />
+    )
+
+    await user.click(screen.getByRole('button', { name: /actions/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /gérer les liens|manage links/i }))
+    await user.click(
+      await screen.findByRole('button', { name: /modifier le lien front|edit link front/i }),
+    )
+
+    const keyInput = screen.getByLabelText(/clé|key/i) as HTMLInputElement
+    const urlInput = screen.getByLabelText(/url/i) as HTMLInputElement
+    expect(keyInput.value).toBe('front')
+    expect(urlInput.value).toBe('http://192.168.10.160:8080')
+
+    await user.clear(keyInput)
+    await user.type(keyInput, 'frontend')
+    await user.click(screen.getByRole('button', { name: /mettre à jour|update/i }))
+
+    await waitFor(() =>
+      expect(putBody).toEqual({ key: 'frontend', url: 'http://192.168.10.160:8080' }),
+    )
+    await waitFor(() => expect(deleted).toEqual(['front']))
+  })
 })
 
 describe('stoppedLast — workspaces arrêtés en fin de groupe', () => {
