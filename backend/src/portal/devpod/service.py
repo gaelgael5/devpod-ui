@@ -843,27 +843,34 @@ class DevPodService:
         """Tâche de fond : exécute devpod up, expose le workspace si running."""
         # Copie de l'env pour y injecter SSH_AUTH_SOCK sans muter le dict partagé
         subprocess_env = dict(env)
-        agent_pid: str | None = None
+        agent_proc: asyncio.subprocess.Process | None = None
 
         # Pour les providers SSH avec credential git SSH : démarrer un ssh-agent
         # temporaire, y charger la clé deploy, et exposer SSH_AUTH_SOCK au subprocess
         # devpod. Le provider est configuré avec -A (ForwardAgent) dans EXTRA_FLAGS,
         # ce qui transmet l'agent à la VM distante pour que git clone puisse s'authentifier.
+        #
+        # -D (foreground) au lieu de -s seul : sans -D, `ssh-agent -s` daemonise —
+        # le process lancé imprime les variables d'env PUIS SORT IMMÉDIATEMENT (vérifié
+        # empiriquement), le vrai agent tournant en arrière-plan sous un PID différent,
+        # jamais capturé. Avec -D, agent_proc reste le process réel de l'agent tout du
+        # long : agent_proc.pid est le vrai PID (pas de fork), et on peut le tuer dans le
+        # finally indépendamment du succès du parsing de sa sortie (bug 038).
         if git_ssh_key_path and host_type == "ssh":
             try:
                 agent_proc = await asyncio.create_subprocess_exec(
-                    "ssh-agent", "-s",
+                    "ssh-agent", "-s", "-D",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                agent_stdout, _ = await agent_proc.communicate()
-                agent_output = agent_stdout.decode(errors="replace")
-                sock_match = re.search(r"SSH_AUTH_SOCK=([^;]+);", agent_output)
-                pid_match = re.search(r"SSH_AGENT_PID=(\d+);", agent_output)
-                if sock_match and pid_match:
+                assert agent_proc.stdout is not None
+                first_line = await agent_proc.stdout.readline()
+                sock_match = re.search(
+                    r"SSH_AUTH_SOCK=([^;]+);", first_line.decode(errors="replace")
+                )
+                if sock_match:
                     subprocess_env["SSH_AUTH_SOCK"] = sock_match.group(1)
-                    subprocess_env["SSH_AGENT_PID"] = pid_match.group(1)
-                    agent_pid = pid_match.group(1)
+                    subprocess_env["SSH_AGENT_PID"] = str(agent_proc.pid)
                     add_proc = await asyncio.create_subprocess_exec(
                         "ssh-add", git_ssh_key_path,
                         env=subprocess_env,
@@ -879,6 +886,12 @@ class DevPodService:
                         )
                     else:
                         _log.info("git_ssh_agent_started", ws_id=ws_id)
+                else:
+                    _log.warning(
+                        "git_ssh_agent_output_unparsable",
+                        ws_id=ws_id,
+                        output=first_line.decode(errors="replace"),
+                    )
             except Exception:
                 _log.warning("git_ssh_agent_setup_failed", ws_id=ws_id, exc_info=True)
 
@@ -980,16 +993,15 @@ class DevPodService:
             if remote_dc_dir and ssh_host and ssh_key_path:
                 with contextlib.suppress(Exception):
                     await self._cleanup_ssh_dir(remote_dc_dir, ssh_user, ssh_host, ssh_key_path)
-            if agent_pid:
+            if agent_proc is not None and agent_proc.returncode is None:
+                # Tue le process ssh-agent -D directement — indépendamment du succès
+                # du parsing de sa sortie (bug 038) : agent_proc est le process réel
+                # (foreground), pas un lanceur déjà sorti après avoir daemonisé.
+                with contextlib.suppress(ProcessLookupError):
+                    agent_proc.kill()
                 with contextlib.suppress(Exception):
-                    kill_proc = await asyncio.create_subprocess_exec(
-                        "ssh-agent", "-k",
-                        env=subprocess_env,
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.DEVNULL,
-                    )
-                    await kill_proc.communicate()
-                    _log.info("git_ssh_agent_stopped", ws_id=ws_id)
+                    await agent_proc.wait()
+                _log.info("git_ssh_agent_stopped", ws_id=ws_id)
             if ssh_key_path and ssh_key_path.startswith(tempfile.gettempdir()):
                 with contextlib.suppress(OSError):
                     os.unlink(ssh_key_path)
