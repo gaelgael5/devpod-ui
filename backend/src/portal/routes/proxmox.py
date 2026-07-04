@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
+import shlex
 import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -204,10 +206,27 @@ async def _ssh_stream(node: Hypervisor, commands: list[str]) -> AsyncIterator[by
         yield f"\n[ERROR] Script terminé avec le code {proc.returncode}\n".encode()
 
 
+_SUBST_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
 def _substitute(template: str, args: dict[str, str]) -> str:
-    for k, v in args.items():
-        template = template.replace(f"{{{k}}}", v)
-    return template
+    """Remplace les placeholders {KEY} par shlex.quote(value), en une seule passe.
+
+    re.sub scanne le template original une seule fois : le texte produit par une
+    substitution n'est jamais réexaminé pour un futur remplacement — contrairement
+    à un enchaînement de str.replace, où la valeur d'un arg contenant littéralement
+    "{PORTAL_TOKEN}" se ferait re-substituer par le vrai token à l'itération
+    suivante (bug 024, exfiltration). shlex.quote protège aussi l'injection shell
+    dans les commandes exécutées via `bash -s`.
+    """
+
+    def _repl(m: re.Match[str]) -> str:
+        key = m.group(1)
+        if key not in args:
+            return m.group(0)
+        return shlex.quote(args[key])
+
+    return _SUBST_PLACEHOLDER_RE.sub(_repl, template)
 
 
 async def _run_destroy_script(cfg: GlobalConfig, host_cfg: HostConfig) -> None:

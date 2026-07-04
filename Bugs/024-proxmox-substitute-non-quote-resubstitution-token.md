@@ -3,7 +3,13 @@
 - **Sévérité** : mineur (pas d'injection exploitable aujourd'hui ; risque latent + exfil token)
 - **Sous-système** : proxmox / test_vm
 - **Fichier** : `routes/proxmox.py:206-209` (`_substitute`), usages `667, 735`, `test_vm.py:295`
-- **Statut** : ouvert
+- **Statut** : corrigé — `_substitute` remplace désormais les placeholders `{KEY}` en une seule
+  passe via `re.sub` (le texte produit par une substitution n'est jamais réexaminé, contrairement
+  à l'enchaînement de `str.replace` précédent) et quote chaque valeur avec `shlex.quote` avant
+  injection dans les commandes `bash -s`. Tests ajoutés (`tests/routes/test_proxmox_substitute.py`,
+  rouge→vert vérifié par `git stash`) : substitution basique, placeholder inconnu laissé intact,
+  valeur avec métacaractères shell quotée, et le cas d'exfiltration (une valeur d'arg contenant
+  littéralement `{PORTAL_TOKEN}` ne se fait plus remplacer par le vrai token).
 
 **Symptôme** : `_substitute` fait un `str.replace("{k}", v)` brut des `args` dans des templates de
 commandes exécutés par `bash -s`, sans `shlex.quote`. Côté `create_test_vm` (`require_user`),
