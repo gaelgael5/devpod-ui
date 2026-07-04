@@ -109,14 +109,18 @@ export default function TestHostLinksDialog({
               />
             </div>
           </div>
-          <Button
-            type="submit"
-            size="sm"
-            className="self-end"
-            disabled={!key.trim() || !url.trim() || save.isPending}
-          >
-            {t('workspaces.testHostLinks.save')}
-          </Button>
+          <div className="flex justify-end gap-2">
+            <Button type="button" size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
+              {t('workspaces.testHostLinks.close')}
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!key.trim() || !url.trim() || save.isPending}
+            >
+              {t('workspaces.testHostLinks.add')}
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

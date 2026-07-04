@@ -114,7 +114,7 @@ describe('TestHostBlock — liens (clé → URL) du menu ⋮', () => {
 
     await user.type(screen.getByLabelText(/clé|key/i), 'app')
     await user.type(screen.getByLabelText(/url/i), 'http://192.168.10.160:3000')
-    await user.click(screen.getByRole('button', { name: /enregistrer|save/i }))
+    await user.click(screen.getByRole('button', { name: /ajouter|add/i }))
 
     await waitFor(() =>
       expect(putBody).toEqual({ key: 'app', url: 'http://192.168.10.160:3000' }),

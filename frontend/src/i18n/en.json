@@ -120,7 +120,8 @@
       "keyLabel": "Key",
       "keyPlaceholder": "e.g. grafana",
       "urlLabel": "URL",
-      "save": "Save",
+      "add": "Add",
+      "close": "Close",
       "delete": "Delete link {{key}}",
       "saveFailed": "Failed to save link"
     },
