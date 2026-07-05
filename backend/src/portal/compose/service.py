@@ -17,6 +17,7 @@ from ..config.store import load_global, load_user
 from ..db.engine import _get_engine
 from ..db.test_hosts import host_full_info
 from ..devpod.host_exec import HostExecError, run_host_command, stream_host_command, write_host_file
+from ..events.bus import emit_event
 from ..messages.renderer import build_deploy_context
 from ..messages.service import delete_message as msg_delete
 from ..messages.service import render_and_create
@@ -247,6 +248,12 @@ async def deploy(
     )
     await update_deployment_status(conn, uid, status, dep.last_error)
     await persist_op_log(conn, uid, "up", out + ("\n" + err if err else ""))
+    if status == "running":
+        await emit_event(
+            "compose_service.started",
+            actor=owner_login,
+            subject=_event_subject(uid, name, template.id, node_id, "up"),
+        )
 
     # Message contextuel pour les agents (non-bloquant, uniquement si déployé avec succès).
     if status == "running" and template.message_key:
@@ -435,6 +442,12 @@ async def deploy_stream(
         # Finalise la ligne de réservation insérée par prepare_deployment (bug 015).
         await update_deployment_status(conn, uid, status, dep.last_error)
         await persist_op_log(conn, uid, "up", compose_out)
+    if status == "running":
+        await emit_event(
+            "compose_service.started",
+            actor=owner_login,
+            subject=_event_subject(uid, name, template.id, node_id, "up"),
+        )
 
     if status == "running" and template.message_key:
         try:
@@ -486,6 +499,18 @@ async def deploy_stream(
         yield f"__RESULT__:{dep.model_dump_json()}\n"
 
 
+def _event_subject(
+    uid: str, deployment_id: str, template_id: str, node_id: str, action: str
+) -> dict[str, str]:
+    return {
+        "deployment_uid": uid,
+        "deployment_id": deployment_id,
+        "template_id": template_id,
+        "node_id": node_id,
+        "action": action,
+    }
+
+
 async def lifecycle(
     conn: AsyncConnection,
     uid: str,
@@ -510,6 +535,11 @@ async def lifecycle(
         await msg_delete(conn, dep.message_id)
         await update_deployment_message_id(conn, uid, None)
     await refresh_status(conn, uid)
+    await emit_event(
+        "compose_service.stopped" if action == "stop" else "compose_service.started",
+        actor=dep.owner_login,
+        subject=_event_subject(uid, dep.id, dep.template_id, dep.node_id, action),
+    )
 
 
 async def teardown(conn: AsyncConnection, uid: str) -> None:
@@ -531,6 +561,11 @@ async def teardown(conn: AsyncConnection, uid: str) -> None:
         _log.warning("compose_teardown_failed", uid=uid, name=dep.id, rc=rc)
     await msg_delete(conn, dep.message_id)
     await delete_deployment(conn, uid)
+    await emit_event(
+        "compose_service.stopped",
+        actor=dep.owner_login,
+        subject=_event_subject(uid, dep.id, dep.template_id, dep.node_id, "down"),
+    )
 
 
 async def fetch_logs(

@@ -54,6 +54,7 @@ from ..devpod.vm_init import (
     generate_ed25519_keypair,
     generate_root_password,
 )
+from ..events.bus import emit_event
 from ..messages.renderer import build_host_context
 from ..messages.service import delete_message as msg_delete
 from ..messages.service import render_and_create
@@ -329,6 +330,18 @@ async def create_test_vm(
             await assign_test_host(login, ws, host.name, alias, conn)
         set_cached_global(new_cfg)  # après commit réussi seulement (bug 034)
 
+        await emit_event(
+            "test_server.created",
+            actor=login,
+            workspace=ws,
+            subject={
+                "host_name": host.name,
+                "alias": alias,
+                "address": host.address,
+                "hypervisor": node.name,
+            },
+        )
+
         # Message contextuel pour les agents (non-bloquant).
         try:
             user_cfg = await load_user(login)
@@ -427,6 +440,12 @@ async def delete_test_vm(
         set_cached_global(cfg)  # après commit réussi seulement (bug 034)
 
     _log.info("test_vm_deleted", login=login, ws=ws, host=host_name, alias=alias)
+    await emit_event(
+        "test_server.deleted",
+        actor=login,
+        workspace=ws,
+        subject={"host_name": host_name, "alias": alias},
+    )
 
 
 @router.post("/workspaces/{ws}/test-vm/{host_name}/resolve-ip")

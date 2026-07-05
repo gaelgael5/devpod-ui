@@ -27,6 +27,7 @@ from ..db.workspace_status import (
     update_status_if_exists_db,
     upsert_status_db,
 )
+from ..events.bus import emit_event
 from ..exposure import _WS_ID_RE
 from ..messages import db as _msg_db
 from ..profiles.models import Profile
@@ -165,8 +166,14 @@ class DevPodService:
         generate_ssh_key: bool = False,
         request_host: str = "",
         profile: Profile | None = None,
+        lifecycle_event: str = "workspace.created",
     ) -> str:
-        """Lance un workspace en tâche de fond. Retourne ws_id immédiatement."""
+        """Lance un workspace en tâche de fond. Retourne ws_id immédiatement.
+
+        lifecycle_event : événement émis si le up aboutit — "workspace.created"
+        par défaut, "workspace.restarted" quand l'appelant relance un workspace
+        existant (restart/reconnect).
+        """
         ws_id = self._ws_id(login, ws_spec.name)
 
         if generate_ssh_key:
@@ -331,6 +338,7 @@ class DevPodService:
                     workspace_folder=workspace_folder,
                     host_name=host_cfg.name,
                     git_ssh_key_path=git_ssh_key_path,
+                    lifecycle_event=lifecycle_event,
                 )
             )
             self._background_tasks.add(task)
@@ -538,6 +546,12 @@ class DevPodService:
                 return
             await self._write_status_if_exists(ws_id, "stopped", login=login)
             _log.info("workspace_stopped", ws_id=ws_id, login=login)
+            await emit_event(
+                "workspace.stopped",
+                actor=login,
+                workspace=ws_id.removeprefix(f"{login}-"),
+                subject={"ws_id": ws_id},
+            )
 
     async def delete(self, login: str, ws_id: str, *, shelve: bool = True) -> dict[str, Any]:
         """Supprime un workspace (force). Shelve le travail en attente si shelve=True."""
@@ -588,6 +602,12 @@ class DevPodService:
                 await delete_status_db(ws_id, conn)
                 await _msg_db.purge_workspace_messages(conn, login, ws_name)
             _log.info("workspace_deleted", ws_id=ws_id, login=login, recovery_branch=branch)
+            await emit_event(
+                "workspace.deleted",
+                actor=login,
+                workspace=ws_name,
+                subject={"ws_id": ws_id, "recovery_branch": branch},
+            )
             return {"deleted": True, "recovery_branch": branch}
 
     async def status(self, login: str, ws_id: str) -> dict[str, Any]:
@@ -985,6 +1005,7 @@ class DevPodService:
         workspace_folder: str = "",
         host_name: str = "",
         git_ssh_key_path: str = "",
+        lifecycle_event: str = "workspace.created",
     ) -> None:
         """Exécute devpod up, expose le workspace si running. Détient déjà le verrou."""
         # Copie de l'env pour y injecter SSH_AUTH_SOCK sans muter le dict partagé
@@ -1125,6 +1146,12 @@ class DevPodService:
                 _log.warning("workspace_up_failed", ws_id=ws_id, returncode=returncode)
             else:
                 _log.info("workspace_up_done", ws_id=ws_id, login=login)
+                await emit_event(
+                    lifecycle_event,
+                    actor=login,
+                    workspace=ws_id.removeprefix(f"{login}-"),
+                    subject={"ws_id": ws_id, "node": host_name},
+                )
         except Exception as exc:
             await self._write_status_if_exists(
                 ws_id, "failed", login=login, error=type(exc).__name__

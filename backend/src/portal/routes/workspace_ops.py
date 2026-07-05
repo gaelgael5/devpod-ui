@@ -428,6 +428,8 @@ async def start_existing_workspace(login: str, name: str, conn: AsyncConnection)
         generate_ssh_key=spec.ssh_key,
         request_host="",
         profile=profile_obj,
+        # Relance d'un workspace déjà déclaré (restart/reconnect), pas une création.
+        lifecycle_event="workspace.restarted",
     )
 
 

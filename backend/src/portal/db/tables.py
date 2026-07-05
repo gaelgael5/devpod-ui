@@ -776,6 +776,36 @@ agent_message = Table(
 )
 
 
+# ─── Événements applicatifs (bus interne — journal + livraisons) ─────────────
+#
+# `actor` = login émetteur ou "system" — volontairement sans FK vers users :
+# le journal survit à la purge d'un utilisateur (audit).
+app_event = Table(
+    "app_event",
+    metadata,
+    Column("id", Text, primary_key=True),  # uuid4 hex généré côté Python
+    Column("type", Text, nullable=False),
+    Column("actor", Text, nullable=False),
+    Column("workspace", Text, nullable=True),
+    Column("subject", JSONB, nullable=False, server_default="{}"),
+    Column("correlation_id", Text, nullable=True),
+    Column("occurred_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index("idx_app_event_actor_time", "actor", "occurred_at"),
+)
+
+app_event_delivery = Table(
+    "app_event_delivery",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("event_id", Text, ForeignKey("app_event.id", ondelete="CASCADE"), nullable=False),
+    Column("listener", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("error", Text, nullable=True),
+    Column("finished_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("status IN ('ok', 'error')", name="ck_app_event_delivery_status"),
+    Index("idx_app_event_delivery_event", "event_id"),
+)
+
 # ─── Registre de services (hub Services & Security) ──────────────────────────
 #
 # Adresses de services externes utiles au travail de l'utilisateur, avec le

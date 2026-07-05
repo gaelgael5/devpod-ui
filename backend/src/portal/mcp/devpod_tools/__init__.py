@@ -39,6 +39,7 @@ from ...db.tables import workspace_test_hosts as wth_table
 from ...db.tables import workspaces as ws_table
 from ...db.user_config import load_user_db
 from ...devpod.exec import TMUX_SOCK_DETECT, tmux, ws_exec
+from ...events.bus import emit_event
 from . import operations
 from .agent_message_tools import AGENT_MESSAGE_IMPLS
 from .compose_tools import COMPOSE_IMPLS
@@ -546,6 +547,11 @@ def _session_id(workspace: str, session: str) -> str:
     return f"{workspace}:{session}"
 
 
+# Marqueur imprimé UNIQUEMENT par la branche new-session du open idempotent :
+# session.created n'est émis que si la session a réellement été créée.
+_SESSION_CREATED_MARKER = "__portal_session_created__"
+
+
 async def _session_open(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     sess = str(args.get("name", "main"))
@@ -558,11 +564,19 @@ async def _session_open(conn: AsyncConnection, args: dict[str, Any], owner_login
     cmd = (
         f"{TMUX_SOCK_DETECT}; "
         f"tmux {_TMUX_SOCK} has-session -t {shlex.quote(sess)} 2>/dev/null || "
-        f"tmux {_TMUX_SOCK} new-session -d -s {shlex.quote(sess)} {shlex.quote(inner)}"
+        f"{{ tmux {_TMUX_SOCK} new-session -d -s {shlex.quote(sess)} {shlex.quote(inner)} "
+        f"&& echo {_SESSION_CREATED_MARKER}; }}"
     )
     rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", cmd)
     if rc != 0:
         raise DevpodToolError(out)
+    if _SESSION_CREATED_MARKER in out:
+        await emit_event(
+            "session.created",
+            actor=owner_login,
+            workspace=name,
+            subject={"session": sess, "command": command},
+        )
     return {
         "session_id": _session_id(name, sess),
         "workspace": name,
@@ -621,6 +635,9 @@ async def _session_close(conn: AsyncConnection, args: dict[str, Any], owner_logi
     )
     if rc != 0:
         raise DevpodToolError(out)
+    await emit_event(
+        "session.closed", actor=owner_login, workspace=name, subject={"session": sess}
+    )
     return {"closed": True}
 
 
