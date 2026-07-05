@@ -21,6 +21,7 @@ from .mcp.monitor import monitor_loop
 from .mcp.server import build_server as _build_mcp_server
 from .routes import compose as compose_routes
 from .routes.admin import router as admin_router
+from .routes.agent_messages import router as agent_messages_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
@@ -305,6 +306,7 @@ def create_app() -> FastAPI:
     app.include_router(workspace_ops_router, prefix="/me")
     app.include_router(workspace_groups_router, prefix="/me")
     app.include_router(workspace_sessions_router, prefix="/me")
+    app.include_router(agent_messages_router, prefix="/me")
     app.include_router(test_vm_router, prefix="/me")
     app.include_router(plugins_router)
     app.include_router(recipes_public_router)
