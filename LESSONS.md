@@ -83,3 +83,8 @@
 
 ## [mcp/logs_query]
 - Les filtres structurés de `logs_query` (host/role/project/service/unit/job) doivent suivre les labels RÉELLEMENT posés par Alloy (`external_labels`/`extra_log_labels`) — une nouvelle source de logs (ex. `job=faro` pour le frontend) est invisible pour un agent si le filtre ET la description de l'outil ne la mentionnent pas explicitement. Vérifier en conditions réelles (cache réchauffé via `warm_global_cache`, pas un script isolé) avant de considérer l'outil fonctionnel.
+
+## [tests/test1]
+- Sur test1, `uv sync` SANS `--extra dev` → testcontainers/docker absents → les tests DB skippent SILENCIEUSEMENT (affichent « Docker non disponible » alors que Docker est là). Toujours `uv sync --extra dev`, et exiger des PASSED explicites (`-v | grep PASSED`) plutôt qu'un exit code — piégé deux fois dans la même session.
+- `await coro["k"]` subscripte la coroutine (précédence), pas le résultat : écrire `(await coro)["k"]`. Invisible tant que le test skip localement — encore une raison de valider les tests DB sur test1 avant de conclure.
+- Tables avec FK vers `users.login` (profiles, mcp_profile, user_services…) : tout test DB doit seeder la ligne `users` d'abord (pattern `_seed_user` de test_profiles.py).
