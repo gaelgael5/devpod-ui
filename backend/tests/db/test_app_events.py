@@ -41,6 +41,32 @@ async def test_list_filtre_par_acteur(db_conn) -> None:
     assert len(await evdb.list_events(db_conn)) == 2
 
 
+async def test_purge_a_24h(db_conn) -> None:
+    """Les événements plus vieux que la rétention partent, livraisons en cascade."""
+    from datetime import timedelta
+
+    old_id, recent_id = "a" * 32, "b" * 32
+    await evdb.insert_event(
+        db_conn,
+        event_id=old_id,
+        event_type="workspace.created",
+        actor="alice",
+        workspace=None,
+        subject={},
+        correlation_id=None,
+        occurred_at=datetime.now(UTC) - timedelta(hours=25),
+    )
+    await evdb.insert_delivery(
+        db_conn, event_id=old_id, listener="user-rules", status="ok", error=None
+    )
+    await _insert(db_conn, event_id=recent_id)
+
+    assert await evdb.purge_old_events(db_conn) == 1
+    ids = [r["id"] for r in await evdb.list_events(db_conn)]
+    assert ids == [recent_id]
+    assert await evdb.list_deliveries(db_conn, event_id=old_id) == []
+
+
 async def test_livraisons(db_conn) -> None:
     eid = await _insert(db_conn)
     await evdb.insert_delivery(

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import insert, select
+from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .tables import app_event, app_event_delivery
+
+# Rétention du journal d'événements — volontairement EN DUR (choix produit) :
+# l'historique sert au diagnostic immédiat, pas à l'audit long terme.
+EVENT_RETENTION_HOURS = 24
 
 
 async def insert_event(
@@ -81,6 +85,15 @@ async def list_deliveries(conn: AsyncConnection, *, event_id: str) -> list[dict[
     )
     rows = (await conn.execute(stmt)).mappings().all()
     return [dict(r) for r in rows]
+
+
+async def purge_old_events(
+    conn: AsyncConnection, *, max_age_hours: int = EVENT_RETENTION_HOURS
+) -> int:
+    """Supprime les événements plus vieux que la rétention (livraisons en CASCADE)."""
+    cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
+    result = await conn.execute(delete(app_event).where(app_event.c.occurred_at < cutoff))
+    return int(result.rowcount or 0)
 
 
 async def list_deliveries_for_events(

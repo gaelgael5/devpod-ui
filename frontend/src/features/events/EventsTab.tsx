@@ -125,7 +125,12 @@ export default function EventsTab() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h2 className="font-medium">{t('appEvents.sectionTitle')}</h2>
+        <h2 className="font-medium">
+          {t('appEvents.sectionTitle')}
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            {t('appEvents.retentionHint')}
+          </span>
+        </h2>
         <Button size="sm" variant="outline" disabled={isFetching} onClick={() => refetch()}>
           <RefreshCw className="mr-1 h-4 w-4" />{t('appEvents.refresh')}
         </Button>

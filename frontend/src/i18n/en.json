@@ -1269,6 +1269,7 @@
     "workspaceLabel": "workspace",
     "ruleMatched": "{{count}} action(s) executed",
     "ruleNotMatched": "conditions false — no action",
-    "ruleChainStopped": "chain stopped:"
+    "ruleChainStopped": "chain stopped:",
+    "retentionHint": "(history kept for 24 h)"
   }
 }

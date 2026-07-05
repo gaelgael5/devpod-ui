@@ -149,8 +149,13 @@ class SPAMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-async def _message_sweep_loop(interval_s: float = 3600.0) -> None:
-    """Tâche de fond : purge les messages orphelins toutes les `interval_s` secondes."""
+async def _maintenance_sweep_loop(interval_s: float = 3600.0) -> None:
+    """Tâche de fond horaire : messages orphelins + purge du journal d'événements.
+
+    Chaque entretien a son propre try/except : l'échec de l'un ne prive pas
+    l'autre de son passage.
+    """
+    from .db.app_events import purge_old_events
     from .db.engine import _get_engine
     from .messages.service import sweep_orphans
 
@@ -161,6 +166,13 @@ async def _message_sweep_loop(interval_s: float = 3600.0) -> None:
                 await sweep_orphans(conn)
         except Exception:
             _log.warning("message_sweep_failed", exc_info=True)
+        try:
+            async with _get_engine().begin() as conn:
+                purged = await purge_old_events(conn)
+            if purged:
+                _log.info("app_events_purged", count=purged)
+        except Exception:
+            _log.warning("app_event_purge_failed", exc_info=True)
         await asyncio.sleep(interval_s)
 
 
@@ -228,7 +240,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 _monitor_task = asyncio.create_task(
                     monitor_loop(settings_obj.mcp_monitor_interval_s)
                 )
-                _sweep_task = asyncio.create_task(_message_sweep_loop())
+                _sweep_task = asyncio.create_task(_maintenance_sweep_loop())
             try:
                 yield
             finally:
