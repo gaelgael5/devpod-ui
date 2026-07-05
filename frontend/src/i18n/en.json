@@ -1150,5 +1150,26 @@
     "save": "Save",
     "saved": "Changes saved.",
     "saveError": "Failed to save changes."
+  },
+  "agentMessages": {
+    "title": "Inter-agent requests",
+    "description": "Pending messages between your agent workspaces. You decide to deliver them to a session or reject them.",
+    "empty": "No pending request.",
+    "transmit": "Deliver",
+    "reject": "Reject",
+    "rejected": "Message rejected",
+    "rejectFailed": "Reject failed",
+    "cancel": "Cancel",
+    "thread": "Linked replies",
+    "badgeLabel": "{{count}} pending inter-agent message(s)",
+    "deliver": {
+      "title": "Deliver to {{ws}}",
+      "description": "Pick the target session. A message is never injected into a session that is currently working.",
+      "pickSession": "Session…",
+      "noSession": "No active session — open a session to deliver.",
+      "submit": "Deliver",
+      "done": "Message delivered",
+      "failed": "Delivery failed"
+    }
   }
 }

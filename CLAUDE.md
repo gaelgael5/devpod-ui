@@ -169,6 +169,23 @@ Résumé du cycle obligatoire : lint + mypy → push `dev` → `dev-deploy.sh` s
 ### /commit
 **Quand** : quand l'utilisateur demande explicitement de committer. Format français conventionnel.
 
+## Messagerie inter-agents (spec 34)
+
+Les outils MCP `devpod__message_send` / `message_status` / `message_list` permettent de
+solliciter un autre workspace agent. La délivrance est **pilotée par l'utilisateur** : un
+message envoyé reste en attente jusqu'à ce que l'utilisateur le transmette depuis le portail.
+
+Contrat côté agent, à respecter :
+- **Fire-and-forget** : après un `message_send`, **consigne dans ton journal de travail**
+  l'id du message, le destinataire, ce que tu attends en retour, et l'impact (bloquant / non
+  bloquant). Puis poursuis tes autres tâches ou rends la main.
+- **Ne fais JAMAIS de polling** sur `message_status` et n'attends pas la réponse : elle
+  t'arrivera comme un message entrant injecté par l'utilisateur (pas d'auto-délivrance).
+- Si une tâche est **bloquée** par l'attente d'une réponse, signale-le explicitement en fin
+  de tour pour que le pilote puisse séquencer.
+- `message_send` exige `from_workspace` (le workspace où tu tournes) et `to_workspace` ; on ne
+  répond (`reply_to`) qu'à un message qu'on a **reçu**.
+
 ## Auto-amélioration
 
 Quand tu fais une erreur ou que l'utilisateur te corrige :

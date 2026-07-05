@@ -1150,5 +1150,26 @@
     "save": "Enregistrer",
     "saved": "Modifications enregistrées.",
     "saveError": "Erreur lors de la sauvegarde."
+  },
+  "agentMessages": {
+    "title": "Demandes inter-agents",
+    "description": "Messages en attente entre vos workspaces agents. Vous décidez de les transmettre à une session ou de les rejeter.",
+    "empty": "Aucune demande en attente.",
+    "transmit": "Transmettre",
+    "reject": "Rejeter",
+    "rejected": "Message rejeté",
+    "rejectFailed": "Échec du rejet",
+    "cancel": "Annuler",
+    "thread": "Réponses liées",
+    "badgeLabel": "{{count}} message(s) inter-agent en attente",
+    "deliver": {
+      "title": "Transmettre à {{ws}}",
+      "description": "Choisissez la session cible. Le message n'est jamais injecté dans une session en train de travailler.",
+      "pickSession": "Session…",
+      "noSession": "Aucune session active — ouvrir une session pour transmettre.",
+      "submit": "Transmettre",
+      "done": "Message transmis",
+      "failed": "Échec de la transmission"
+    }
   }
 }

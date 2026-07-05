@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Code2, Loader2, Play, Square } from 'lucide-react'
+import { Code2, Loader2, Mail, Play, Square } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,6 +21,8 @@ import WorkspaceActionsMenu from './WorkspaceActionsMenu'
 import AddTestVmDialog from './AddTestVmDialog'
 import HostServicesSection from './HostServicesSection'
 import WorkspaceMessagesDialog from './WorkspaceMessagesDialog'
+import AgentMessagesPanel from './AgentMessagesPanel'
+import { usePendingCounts } from './useAgentMessages'
 import { STATUS_TONE_CLASS } from './statusTone'
 import type { TestHost } from './useTestVm'
 
@@ -53,6 +55,9 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const [shellOpen, setShellOpen] = useState(false)
   const [addVmOpen, setAddVmOpen] = useState(false)
   const [sshTestHost, setSshTestHost] = useState<TestHost | null>(null)
+  const [agentMsgOpen, setAgentMsgOpen] = useState(false)
+  const { data: pendingCounts } = usePendingCounts()
+  const pendingCount = pendingCounts?.[spec.name] ?? 0
   const s = status.status
 
   return (
@@ -65,13 +70,30 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             <div className="text-xs text-muted-foreground/70 font-mono">{spec.host}</div>
           )}
         </div>
-        <Badge
-          variant="outline"
-          className={cn('shrink-0 text-xs', STATUS_CLASS[s])}
-        >
-          {s === 'provisioning' && '⟳ '}{t(`workspaces.status.${s}`)}
-        </Badge>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {pendingCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setAgentMsgOpen(true)}
+              aria-label={t('agentMessages.badgeLabel', { count: pendingCount })}
+              className="flex items-center gap-1 rounded-full border border-amber-500/50 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-100"
+            >
+              <Mail className="h-3.5 w-3.5" />
+              {pendingCount}
+            </button>
+          )}
+          <Badge
+            variant="outline"
+            className={cn('text-xs', STATUS_CLASS[s])}
+          >
+            {s === 'provisioning' && '⟳ '}{t(`workspaces.status.${s}`)}
+          </Badge>
+        </div>
       </div>
+
+      {agentMsgOpen && (
+        <AgentMessagesPanel open onOpenChange={(o) => { if (!o) setAgentMsgOpen(false) }} />
+      )}
 
       {spec.recipes.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-1">
