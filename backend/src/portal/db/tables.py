@@ -4,10 +4,12 @@ from sqlalchemy import (
     ARRAY,
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     LargeBinary,
     MetaData,
@@ -15,6 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
@@ -722,4 +725,52 @@ workspace_message = Table(
     Column("type", Text, nullable=False),
     Column("message", Text, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+
+# ─── Spec 34 : messagerie inter-agents (délivrance pilotée par l'utilisateur) ──
+#
+# Référence de workspace par ws_id texte ("{login}-{name}"), comme workspace_status :
+# workspaces.id est un entier réattribué à chaque save de config (delete+réinsertion),
+# donc inutilisable en FK stable. owner_login scope les deux workspaces (v1 intra-user).
+agent_message = Table(
+    "agent_messages",
+    metadata,
+    Column("id", Text, primary_key=True),  # uuid4 généré côté Python (cf. compose_deployment)
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("owner_login", Text, nullable=False),
+    Column("from_ws_id", Text, nullable=False),
+    Column("from_session", Text, nullable=True),
+    Column("to_ws_id", Text, nullable=False),
+    Column("subject", Text, nullable=False),
+    Column("body", Text, nullable=False),
+    # Fil de réponses : agent_messages est une table stable (lignes immuables une fois
+    # créées), la self-FK est donc saine — SET NULL si le message parent disparaît.
+    Column("reply_to", Text, ForeignKey("agent_messages.id", ondelete="SET NULL"), nullable=True),
+    Column(
+        "status",
+        Text,
+        nullable=False,
+        server_default="pending",
+    ),
+    Column("delivered_at", DateTime(timezone=True), nullable=True),
+    Column("delivered_to_session", Text, nullable=True),
+    Column("cancelled_at", DateTime(timezone=True), nullable=True),
+    CheckConstraint("from_ws_id <> to_ws_id", name="ck_agent_messages_no_self"),
+    CheckConstraint("char_length(subject) <= 200", name="ck_agent_messages_subject_len"),
+    CheckConstraint("char_length(body) <= 20000", name="ck_agent_messages_body_len"),
+    CheckConstraint(
+        "status IN ('pending', 'delivered', 'cancelled')", name="ck_agent_messages_status"
+    ),
+    Index(
+        "idx_agent_messages_to_pending",
+        "to_ws_id",
+        postgresql_where=text("status = 'pending'"),
+    ),
+    Index("idx_agent_messages_from", "from_ws_id", "created_at"),
+    Index(
+        "idx_agent_messages_reply_to",
+        "reply_to",
+        postgresql_where=text("reply_to IS NOT NULL"),
+    ),
 )
