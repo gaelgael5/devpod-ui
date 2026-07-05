@@ -50,6 +50,7 @@ from .routes.services import router as services_router
 from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
 from .routes.test_vm import router as test_vm_router
+from .routes.user_rules import router as user_rules_router
 from .routes.vault import router as vault_router
 from .routes.vscode_proxy import router as vscode_proxy_router
 from .routes.workspace_groups import router as workspace_groups_router
@@ -207,7 +208,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         # Bus d'événements applicatifs : écouteurs d'automatisation (règles
         # déterministes sonde → condition → action). DB requise (journal).
-        from .automation.registry import register_automation
+        from .automation.runtime import register_automation
         from .events.bus import get_bus
 
         register_automation(get_bus())
@@ -325,6 +326,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_messages_router, prefix="/me")
     app.include_router(services_router, prefix="/me")
     app.include_router(app_events_router, prefix="/me")
+    app.include_router(user_rules_router, prefix="/me")
     app.include_router(test_vm_router, prefix="/me")
     app.include_router(plugins_router)
     app.include_router(recipes_public_router)

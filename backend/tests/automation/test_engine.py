@@ -11,6 +11,7 @@ from portal.automation.engine import (
     check,
     extract,
     render_args,
+    run_rule,
     run_rules,
 )
 from portal.automation.models import Condition, PrimitiveCall, Rule
@@ -112,15 +113,20 @@ def test_check_value_est_un_gabarit() -> None:
 # ─── Exécution des règles ─────────────────────────────────────────────────────
 
 
-def _rule(name: str = "r1", events: tuple[str, ...] = ("workspace.created",)) -> Rule:
+def _rule(
+    name: str = "r1",
+    events: tuple[str, ...] = ("workspace.created",),
+    probe_service: str | None = "svc-1",
+    action_service: str | None = "svc-1",
+) -> Rule:
     return Rule(
         name=name,
         events=events,
-        probe=PrimitiveCall(namespace="docflow", tool="list_workspaces", args={}),
+        probe=PrimitiveCall(service_id=probe_service, tool="docflow__list_workspaces", args={}),
         condition=Condition(path="slug", operator="not_contains", value="{workspace}"),
         action=PrimitiveCall(
-            namespace="docflow",
-            tool="create_workspace",
+            service_id=action_service,
+            tool="docflow__create_workspace",
             args={"slug": "{workspace}", "label": "{workspace}"},
         ),
     )
@@ -133,8 +139,8 @@ class _StubCaller:
         self.responses = responses
         self.calls: list[tuple[str, str, str, dict[str, Any]]] = []
 
-    async def __call__(self, owner: str, namespace: str, tool: str, args: dict[str, Any]) -> Any:
-        self.calls.append((owner, namespace, tool, args))
+    async def __call__(self, owner: str, service_id: str, tool: str, args: dict[str, Any]) -> Any:
+        self.calls.append((owner, service_id, tool, args))
         response = self.responses[tool]
         if isinstance(response, Exception):
             raise response
@@ -142,20 +148,27 @@ class _StubCaller:
 
 
 async def test_condition_vraie_declenche_l_action() -> None:
-    caller = _StubCaller({"list_workspaces": [], "create_workspace": {"slug": "mon-projet"}})
+    caller = _StubCaller(
+        {"docflow__list_workspaces": [], "docflow__create_workspace": {"slug": "mon-projet"}}
+    )
     outcomes = await run_rules([_rule()], _event(), caller)
     assert outcomes == [{"rule": "r1", "matched": True}]
     assert caller.calls == [
-        ("alice", "docflow", "list_workspaces", {}),
-        ("alice", "docflow", "create_workspace", {"slug": "mon-projet", "label": "mon-projet"}),
+        ("alice", "svc-1", "docflow__list_workspaces", {}),
+        (
+            "alice",
+            "svc-1",
+            "docflow__create_workspace",
+            {"slug": "mon-projet", "label": "mon-projet"},
+        ),
     ]
 
 
 async def test_condition_fausse_pas_d_action() -> None:
-    caller = _StubCaller({"list_workspaces": [{"slug": "mon-projet"}]})
+    caller = _StubCaller({"docflow__list_workspaces": [{"slug": "mon-projet"}]})
     outcomes = await run_rules([_rule()], _event(), caller)
     assert outcomes == [{"rule": "r1", "matched": False}]
-    assert [c[2] for c in caller.calls] == ["list_workspaces"]
+    assert [c[2] for c in caller.calls] == ["docflow__list_workspaces"]
 
 
 async def test_regle_hors_evenement_ignoree() -> None:
@@ -166,7 +179,40 @@ async def test_regle_hors_evenement_ignoree() -> None:
 
 
 async def test_echec_de_sonde_arrete_la_sequence() -> None:
-    caller = _StubCaller({"list_workspaces": AutomationError("backend indisponible")})
+    caller = _StubCaller({"docflow__list_workspaces": AutomationError("backend indisponible")})
     with pytest.raises(AutomationError):
         await run_rules([_rule("r1"), _rule("r2")], _event(), caller)
     assert len(caller.calls) == 1
+
+
+async def test_run_rule_retourne_la_trace_complete() -> None:
+    caller = _StubCaller(
+        {"docflow__list_workspaces": [], "docflow__create_workspace": {"slug": "mon-projet"}}
+    )
+    trace = await run_rule(_rule(), _event(), caller)
+    assert trace["matched"] is True
+    assert trace["probe"]["tool"] == "docflow__list_workspaces"
+    assert trace["probe"]["result"] == []
+    assert trace["action"]["args"] == {"slug": "mon-projet", "label": "mon-projet"}
+    assert trace["action"]["result"] == {"slug": "mon-projet"}
+
+
+async def test_run_rule_sans_action_si_non_matche() -> None:
+    caller = _StubCaller({"docflow__list_workspaces": [{"slug": "mon-projet"}]})
+    trace = await run_rule(_rule(), _event(), caller)
+    assert trace["matched"] is False
+    assert trace["action"] is None
+
+
+async def test_service_sonde_manquant_est_une_erreur() -> None:
+    """Service supprimé (SET NULL) : la règle est inopérante et le dit."""
+    caller = _StubCaller({})
+    with pytest.raises(AutomationError, match="sonde"):
+        await run_rule(_rule(probe_service=None), _event(), caller)
+    assert caller.calls == []
+
+
+async def test_service_action_manquant_est_une_erreur() -> None:
+    caller = _StubCaller({"docflow__list_workspaces": []})
+    with pytest.raises(AutomationError, match="action"):
+        await run_rule(_rule(action_service=None), _event(), caller)

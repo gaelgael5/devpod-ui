@@ -18,7 +18,11 @@ Operator = Literal["eq", "neq", "contains", "not_contains"]
 
 
 class PrimitiveCall(BaseModel):
-    """Appel d'une primitive (outil) d'un backend MCP de l'utilisateur acteur.
+    """Appel d'un outil MCP résolu via le profil d'un service enregistré.
+
+    `service_id` référence une ligne user_services de l'acteur ; `tool` est le
+    nom namespacé exposé par le profil du service (ex. "docflow__create_block").
+    None = service supprimé depuis (SET NULL) : la règle est inopérante.
 
     Les valeurs string de `args` sont des gabarits : `{workspace}`, `{actor}`,
     `{event}` et `{subject[clé]}` sont substitués depuis l'événement.
@@ -26,8 +30,8 @@ class PrimitiveCall(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    namespace: str  # namespace du backend MCP de l'utilisateur (ex. "docflow")
-    tool: str  # nom original de l'outil sur le backend
+    service_id: str | None
+    tool: str
     args: dict[str, Any] = Field(default_factory=dict)
 
 

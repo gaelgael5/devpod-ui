@@ -9,7 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from portal.db.mcp import get_backend
 from portal.db.mcp_catalog import list_primitives
-from portal.db.mcp_profiles import find_first_backend_key, list_entries_for_apikey
+from portal.db.mcp_profiles import (
+    find_first_backend_key,
+    list_entries_for_apikey,
+    list_profile_entries,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -93,8 +97,30 @@ async def aggregate_primitives(
 
     profile_entries → backends enabled → catalogue → filtrage tools → namespacing.
     """
-    out: list[AggregatedPrimitive] = []
     entries = await list_entries_for_apikey(conn, apikey_id=apikey_id, owner_login=owner_login)
+    return await _aggregate_for_entries(conn, entries, owner_login=owner_login, kind=kind)
+
+
+async def aggregate_primitives_for_profile(
+    conn: AsyncConnection, *, profile_id: str, owner_login: str, kind: str
+) -> list[AggregatedPrimitive]:
+    """Vue agrégée des primitives `kind` autorisées par un profil MCP directement.
+
+    Même sémantique que la voie apikey (moteur de règles : le profil vient du
+    service enregistré, pas d'une apikey).
+    """
+    entries = await list_profile_entries(conn, profile_id)
+    return await _aggregate_for_entries(conn, entries, owner_login=owner_login, kind=kind)
+
+
+async def _aggregate_for_entries(
+    conn: AsyncConnection,
+    entries: list[dict[str, Any]],
+    *,
+    owner_login: str,
+    kind: str,
+) -> list[AggregatedPrimitive]:
+    out: list[AggregatedPrimitive] = []
     for entry in entries:
         backend = await get_backend(conn, owner_login, entry["backend_id"])
         if backend is None or not backend["enabled"]:
@@ -133,6 +159,39 @@ async def _resolve_target(
     Ne révèle jamais l'existence d'un backend : tout cas non autorisé renvoie `None`.
     """
     entries = await list_entries_for_apikey(conn, apikey_id=apikey_id, owner_login=owner_login)
+    return await _resolve_target_entries(
+        conn, entries, owner_login=owner_login, namespace=namespace, original=original, kind=kind
+    )
+
+
+async def resolve_call_for_profile(
+    conn: AsyncConnection,
+    *,
+    profile_id: str,
+    owner_login: str,
+    namespaced_name: str,
+    kind: str,
+) -> CallTarget | None:
+    """Résout un appel namespacé via un profil MCP directement (moteur de règles)."""
+    parsed = split_namespaced(namespaced_name)
+    if parsed is None:
+        return None
+    namespace, original = parsed
+    entries = await list_profile_entries(conn, profile_id)
+    return await _resolve_target_entries(
+        conn, entries, owner_login=owner_login, namespace=namespace, original=original, kind=kind
+    )
+
+
+async def _resolve_target_entries(
+    conn: AsyncConnection,
+    entries: list[dict[str, Any]],
+    *,
+    owner_login: str,
+    namespace: str,
+    original: str,
+    kind: str,
+) -> CallTarget | None:
     log.debug(
         "resolve_target",
         namespace=namespace,
