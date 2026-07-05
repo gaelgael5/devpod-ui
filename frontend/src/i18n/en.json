@@ -241,6 +241,7 @@
   },
   "admin": {
     "hosts": "Docker hosts",
+    "galleries": "Galleries",
     "sharedRecipes": "Script Gallery",
     "proxmox": "Proxmox nodes",
     "hypervisors": "Hypervisors",

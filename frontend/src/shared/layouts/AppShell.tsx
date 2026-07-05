@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle } from 'lucide-react'
+import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   DropdownMenu,
@@ -7,6 +7,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useUserStore } from '@/store/user'
@@ -136,18 +139,26 @@ export default function AppShell() {
                   <DropdownMenuItem onClick={() => navigate('/admin/hosts')}>
                     {t('admin.hosts')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/recipes')}>
-                    {t('admin.sharedRecipes')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/profile-sources')}>
-                    {t('admin.profileSources.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/compose')}>
-                    {t('compose.admin.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/jinja-templates')}>
-                    {t('jinjaTemplates.title')}
-                  </DropdownMenuItem>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Images size={14} className="mr-2" />
+                      {t('admin.galleries')}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onClick={() => navigate('/admin/recipes')}>
+                        {t('admin.sharedRecipes')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/profile-sources')}>
+                        {t('admin.profileSources.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/compose')}>
+                        {t('compose.admin.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/jinja-templates')}>
+                        {t('jinjaTemplates.title')}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                 </>
               )}
 
