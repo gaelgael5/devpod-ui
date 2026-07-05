@@ -65,7 +65,7 @@ async def test_delivery_transition_optimistic(db_conn) -> None:
 async def test_cancel_then_no_deliver(db_conn) -> None:
     mid = await _mk(db_conn)
     assert await am.mark_cancelled(db_conn, mid, OWNER) is True
-    assert await am.get_message(db_conn, mid)["status"] == "cancelled"
+    assert (await am.get_message(db_conn, mid))["status"] == "cancelled"
     assert await am.mark_delivered(db_conn, mid, OWNER, "main") is False
 
 
@@ -74,7 +74,7 @@ async def test_owner_scoping_blocks_foreign(db_conn) -> None:
     mid = await _mk(db_conn)
     assert await am.mark_delivered(db_conn, mid, "mallory", "main") is False
     assert await am.mark_cancelled(db_conn, mid, "mallory") is False
-    assert await am.get_message(db_conn, mid)["status"] == "pending"
+    assert (await am.get_message(db_conn, mid))["status"] == "pending"
 
 
 async def test_pending_list_and_count(db_conn) -> None:
