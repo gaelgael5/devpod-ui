@@ -73,6 +73,15 @@ class AppSettings(BaseSettings):
     # MCP : intervalle de la boucle de monitoring des backends (secondes).
     mcp_monitor_interval_s: float = 300.0
 
+    # MCP transport SSE : délai de stabilisation entre `initialize` et le premier
+    # message applicatif. Certains serveurs SSE (ex. docflow) n'ont pas encore
+    # démarré leur boucle de dispatch de messages quand le handshake se termine :
+    # le premier appel envoyé trop tôt est perdu et la session meurt (le writer
+    # tombe sur une connexion fermée). Le seul point d'action est un court settle
+    # in-session — même logique que le settle du port-forward SSH. Observé : 0,2 s
+    # suffit ; 0,5 s laisse une marge. Ne concerne que le transport `sse`.
+    mcp_sse_init_settle_s: float = 0.5
+
 
 def _common_domain_suffix(host_a: str, host_b: str) -> str:
     """Plus long suffixe de labels DNS commun à deux hôtes.
