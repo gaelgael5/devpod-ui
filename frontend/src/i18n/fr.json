@@ -1236,7 +1236,10 @@
     },
     "chain": "Puis enchaîner avec",
     "chainNone": "— aucune —",
-    "chainHint": "Règle jouée à la suite, uniquement si les actions ont couru. Profondeur maximale 5, boucles détectées.",
+    "chainHint": "Ordre de lancement : la règle suivante est jouée dans tous les cas, même si les conditions étaient fausses. Profondeur maximale 5, boucles détectées.",
+    "clone": "Cloner",
+    "copySuffix": " (copie)",
+    "cloned": "Règle clonée.",
     "chainedTo": "puis « {{name}} »",
     "chainStopped": "Enchaînement arrêté :",
     "summary": "{{conditions}} condition(s) · {{actions}} action(s)",
@@ -1263,6 +1266,9 @@
     "replay": "Rejouer",
     "replayRequested": "Rejeu demandé — les écouteurs vont être réexécutés.",
     "noListener": "Aucun écouteur",
-    "workspaceLabel": "workspace"
+    "workspaceLabel": "workspace",
+    "ruleMatched": "{{count}} action(s) exécutée(s)",
+    "ruleNotMatched": "conditions fausses — pas d'action",
+    "ruleChainStopped": "enchaînement arrêté :"
   }
 }

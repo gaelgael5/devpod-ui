@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FlaskConical, Link2, Pencil, Play, Plus, Trash2, Workflow, X } from 'lucide-react'
+import {
+  ChevronDown, ChevronRight, Copy, FlaskConical, Link2, Pencil, Play, Plus, Trash2,
+  Workflow, X,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -27,6 +30,7 @@ interface CallDraft {
   service_id: string
   tool: string
   args: string
+  collapsed: boolean
 }
 interface ConditionDraft extends CallDraft {
   path: string
@@ -34,7 +38,7 @@ interface ConditionDraft extends CallDraft {
   value: string
 }
 
-const emptyCall = (): CallDraft => ({ service_id: '', tool: '', args: '{}' })
+const emptyCall = (): CallDraft => ({ service_id: '', tool: '', args: '{}', collapsed: false })
 const emptyCondition = (): ConditionDraft => ({
   ...emptyCall(), path: '', operator: 'not_contains', value: '',
 })
@@ -54,6 +58,8 @@ const draftFromCall = (c: { service_id: string | null; tool: string; args: Recor
   service_id: c.service_id ?? '',
   tool: c.tool,
   args: JSON.stringify(c.args),
+  // Règle existante : blocs repliés par défaut, on déplie ce qu'on édite.
+  collapsed: true,
 })
 
 /** Squelette de paramètres généré depuis l'inputSchema de l'outil choisi. */
@@ -333,9 +339,26 @@ function RuleFormDialog({
             {conditions.map((cond, i) => (
               <div key={i} className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium">
-                    {t('rules.conditionN', { n: i + 1 })}
-                  </span>
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                    aria-expanded={!cond.collapsed}
+                    onClick={() => patchCondition(i, { collapsed: !cond.collapsed })}
+                  >
+                    {cond.collapsed ? (
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                    <span className="text-xs font-medium">
+                      {t('rules.conditionN', { n: i + 1 })}
+                    </span>
+                    {cond.collapsed && (
+                      <span className="truncate font-mono text-xs text-muted-foreground">
+                        {cond.tool || '—'}
+                      </span>
+                    )}
+                  </button>
                   <Button
                     size="sm"
                     variant="ghost"
@@ -345,6 +368,8 @@ function RuleFormDialog({
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 </div>
+                {!cond.collapsed && (
+                <>
                 <CallFields
                   idPrefix={`rule-cond-${i}`}
                   draft={cond}
@@ -387,6 +412,8 @@ function RuleFormDialog({
                     />
                   </div>
                 </div>
+                </>
+                )}
               </div>
             ))}
             <Button
@@ -405,7 +432,26 @@ function RuleFormDialog({
             {actions.map((action, i) => (
               <div key={i} className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium">{t('rules.actionN', { n: i + 1 })}</span>
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                    aria-expanded={!action.collapsed}
+                    onClick={() => patchAction(i, { collapsed: !action.collapsed })}
+                  >
+                    {action.collapsed ? (
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                    <span className="text-xs font-medium">
+                      {t('rules.actionN', { n: i + 1 })}
+                    </span>
+                    {action.collapsed && (
+                      <span className="truncate font-mono text-xs text-muted-foreground">
+                        {action.tool || '—'}
+                      </span>
+                    )}
+                  </button>
                   {actions.length > 1 && (
                     <Button
                       size="sm"
@@ -417,12 +463,14 @@ function RuleFormDialog({
                     </Button>
                   )}
                 </div>
-                <CallFields
-                  idPrefix={`rule-action-${i}`}
-                  draft={action}
-                  onChange={(patch) => patchAction(i, patch)}
-                  testWorkspace={testWorkspace}
-                />
+                {!action.collapsed && (
+                  <CallFields
+                    idPrefix={`rule-action-${i}`}
+                    draft={action}
+                    onChange={(patch) => patchAction(i, patch)}
+                    testWorkspace={testWorkspace}
+                  />
+                )}
               </div>
             ))}
             <Button
@@ -590,11 +638,29 @@ function TestRuleDialog({
 function RuleCard({ rule, ruleNames }: { rule: UserRule; ruleNames: Map<string, string> }) {
   const { t } = useTranslation()
   const del = useDeleteRule()
+  const clone = useCreateRule()
   const [editOpen, setEditOpen] = useState(false)
   const [testOpen, setTestOpen] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const broken =
     rule.conditions.some((c) => !c.service_id) || rule.actions.some((a) => !a.service_id)
+
+  function cloneRule() {
+    clone.mutate(
+      {
+        name: `${rule.name}${t('rules.copySuffix')}`,
+        enabled: rule.enabled,
+        event_type: rule.event_type,
+        conditions: rule.conditions.map((c) => ({ ...c, service_id: c.service_id ?? '' })),
+        actions: rule.actions.map((a) => ({ ...a, service_id: a.service_id ?? '' })),
+        next_rule_id: rule.next_rule_id,
+      },
+      {
+        onSuccess: () => toast.success(t('rules.cloned')),
+        onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
+      },
+    )
+  }
 
   return (
     <div className="flex items-start gap-3 rounded-lg border bg-card p-4">
@@ -630,8 +696,24 @@ function RuleCard({ rule, ruleNames }: { rule: UserRule; ruleNames: Map<string, 
           <Play className="h-3.5 w-3.5" />
           <span className="ml-1">{t('rules.play')}</span>
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => setEditOpen(true)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          title={t('common.edit')}
+          aria-label={t('common.edit')}
+          onClick={() => setEditOpen(true)}
+        >
           <Pencil className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          title={t('rules.clone')}
+          aria-label={t('rules.clone')}
+          disabled={broken || clone.isPending}
+          onClick={cloneRule}
+        >
+          <Copy className="h-3.5 w-3.5" />
         </Button>
         {confirmDel ? (
           <>

@@ -1,12 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetchJson } from '@/shared/api/client'
 
+export interface RuleDeliveryDetail {
+  rule: string
+  rule_id?: string
+  matched?: boolean
+  actions_ran?: number
+  chain_stopped?: string
+  error?: string
+}
+
 export interface AppEventDelivery {
   id: number
   event_id: string
   listener: string
   status: 'ok' | 'error'
   error: string | null
+  detail: RuleDeliveryDetail[] | null
   finished_at: string
 }
 

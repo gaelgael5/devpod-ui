@@ -74,6 +74,35 @@ describe('EventsTab', () => {
     expect(screen.queryByText('docflow-bootstrap: error')).not.toBeInTheDocument()
   })
 
+  it('affiche le détail des règles déclenchées et leurs erreurs', async () => {
+    const withDetail = {
+      ...EVENT_ERROR,
+      id: 'c'.repeat(32),
+      deliveries: [
+        {
+          id: 4,
+          event_id: 'c'.repeat(32),
+          listener: 'user-rules',
+          status: 'error',
+          error: 'AutomationError: règle(s) en échec: cassée',
+          detail: [
+            { rule: 'docflow bootstrap', matched: true, actions_ran: 3 },
+            { rule: 'sans effet', matched: false, actions_ran: 0 },
+            { rule: 'cassée', rule_id: 'r9', error: 'AutomationError: service manquant' },
+          ],
+          finished_at: '2026-07-05T12:02:00Z',
+        },
+      ],
+    }
+    server.use(http.get('/me/events', () => HttpResponse.json([withDetail])))
+    renderWithProviders(<EventsTab />)
+
+    expect(await screen.findByText('docflow bootstrap')).toBeInTheDocument()
+    expect(screen.getByText(/3 action\(s\)/)).toBeInTheDocument()
+    expect(screen.getByText(/conditions fausses|conditions false/)).toBeInTheDocument()
+    expect(screen.getByText(/service manquant/)).toBeInTheDocument()
+  })
+
   it('rejoue un événement (POST /replay)', async () => {
     let replayedId: string | null = null
     server.use(

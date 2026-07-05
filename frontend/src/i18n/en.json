@@ -1236,7 +1236,10 @@
     },
     "chain": "Then chain with",
     "chainNone": "— none —",
-    "chainHint": "Rule played next, only when the actions ran. Max depth 5, cycles detected.",
+    "chainHint": "Launch order: the next rule always runs, even when the conditions were false. Max depth 5, cycles detected.",
+    "clone": "Clone",
+    "copySuffix": " (copy)",
+    "cloned": "Rule cloned.",
     "chainedTo": "then \"{{name}}\"",
     "chainStopped": "Chain stopped:",
     "summary": "{{conditions}} condition(s) · {{actions}} action(s)",
@@ -1263,6 +1266,9 @@
     "replay": "Replay",
     "replayRequested": "Replay requested — listeners will run again.",
     "noListener": "No listener",
-    "workspaceLabel": "workspace"
+    "workspaceLabel": "workspace",
+    "ruleMatched": "{{count}} action(s) executed",
+    "ruleNotMatched": "conditions false — no action",
+    "ruleChainStopped": "chain stopped:"
   }
 }

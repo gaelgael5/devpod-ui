@@ -268,6 +268,51 @@ describe('RulesTab', () => {
     expect(screen.queryByText(/valeur vide|empty value/i)).not.toBeInTheDocument()
   })
 
+  it('clone une règle (POST avec les mêmes champs)', async () => {
+    let posted: unknown = null
+    server.use(
+      http.get('/me/rules', () => HttpResponse.json([RULE])),
+      http.get('/me/rules/events', () => HttpResponse.json(['workspace.created'])),
+      http.get('/me/services', () => HttpResponse.json([SERVICE])),
+      http.post('/me/rules', async ({ request }) => {
+        posted = await request.json()
+        return HttpResponse.json({ id: 'clone' }, { status: 201 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<RulesTab />)
+
+    await user.click(await screen.findByRole('button', { name: /cloner|clone/i }))
+    await waitFor(() =>
+      expect(posted).toMatchObject({
+        name: expect.stringMatching(/copie|copy/) as string,
+        event_type: 'workspace.created',
+        conditions: RULE.conditions,
+        actions: RULE.actions,
+      }),
+    )
+  })
+
+  it("replie les blocs d'une règle existante et les déplie au clic", async () => {
+    server.use(
+      http.get('/me/rules', () => HttpResponse.json([RULE])),
+      http.get('/me/rules/events', () => HttpResponse.json(['workspace.created'])),
+      http.get('/me/services', () => HttpResponse.json([SERVICE])),
+      http.get('/me/services/s1/tools', () => HttpResponse.json(TOOLS)),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<RulesTab />)
+
+    // Ouvre l'édition : blocs repliés → pas de champ Paramètres visible
+    await user.click(await screen.findByRole('button', { name: /modifier|^edit$/i }))
+    expect(screen.queryByLabelText(/paramètres|parameters/i)).not.toBeInTheDocument()
+    expect(screen.getAllByText('docflow__list_workspaces').length).toBeGreaterThan(0)
+
+    // Déplie la condition 1
+    await user.click(screen.getByRole('button', { name: /condition 1/i }))
+    expect(screen.getAllByLabelText(/paramètres|parameters/i).length).toBe(1)
+  })
+
   it('joue une règle et affiche les traces de la chaîne', async () => {
     let testedBody: unknown = null
     server.use(

@@ -66,6 +66,37 @@ function EventCard({ event }: { event: AppEventEntry }) {
             </Badge>
           ))}
         </div>
+        {deliveries.map(
+          (d) =>
+            Array.isArray(d.detail) &&
+            d.detail.length > 0 && (
+              <ul key={`detail-${d.listener}`} className="mt-1.5 flex flex-col gap-0.5">
+                {d.detail.map((r, i) => (
+                  <li key={i} className="text-xs">
+                    <span className="font-medium">{r.rule}</span>
+                    {' — '}
+                    {r.error ? (
+                      <span className="text-destructive">{r.error}</span>
+                    ) : r.matched ? (
+                      <span className="text-muted-foreground">
+                        {t('appEvents.ruleMatched', { count: r.actions_ran ?? 0 })}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        {t('appEvents.ruleNotMatched')}
+                      </span>
+                    )}
+                    {r.chain_stopped && (
+                      <span className="text-destructive">
+                        {' '}
+                        · {t('appEvents.ruleChainStopped')} {r.chain_stopped}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ),
+        )}
       </div>
       <Button
         size="sm"
