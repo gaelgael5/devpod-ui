@@ -226,6 +226,48 @@ describe('RulesTab', () => {
     })
   })
 
+  it('liste les variables disponibles et avertit si {workspace} est utilisé sans workspace de test', async () => {
+    const toolsWithSchema = [
+      {
+        name: 'docflow__workspace_exists',
+        description: 'teste',
+        input_schema: {
+          type: 'object',
+          properties: { workspace_slug: { type: 'string' } },
+          required: ['workspace_slug'],
+        },
+      },
+    ]
+    server.use(
+      http.get('/me/rules', () => HttpResponse.json([])),
+      http.get('/me/rules/events', () => HttpResponse.json(['workspace.created'])),
+      http.get('/me/services', () => HttpResponse.json([SERVICE])),
+      http.get('/me/services/s1/tools', () => HttpResponse.json(toolsWithSchema)),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<RulesTab />)
+
+    await user.click(await screen.findByRole('button', { name: /ajouter une règle|add a rule/i }))
+    // La liste des variables est visible sous chaque champ Paramètres
+    expect(screen.getAllByText(/\{workspace\} · \{actor\} · \{event\}/).length).toBeGreaterThan(0)
+
+    // Pas d'avertissement tant que {workspace} n'est pas dans les paramètres
+    expect(screen.queryByText(/valeur vide|empty value/i)).not.toBeInTheDocument()
+
+    // {workspace} dans les args + workspace de test vide → avertissement
+    const textarea = screen.getAllByLabelText(/paramètres|parameters/i)[0]
+    await user.clear(textarea)
+    await user.type(textarea, '{{"workspace_slug": "{{workspace}"}')
+    expect(await screen.findByText(/valeur vide|empty value/i)).toBeInTheDocument()
+
+    // Renseigner le workspace de test fait disparaître l'avertissement
+    await user.type(
+      screen.getByLabelText(/workspace de test|test workspace/i),
+      'mon-projet',
+    )
+    expect(screen.queryByText(/valeur vide|empty value/i)).not.toBeInTheDocument()
+  })
+
   it('joue une règle et affiche les traces de la chaîne', async () => {
     let testedBody: unknown = null
     server.use(

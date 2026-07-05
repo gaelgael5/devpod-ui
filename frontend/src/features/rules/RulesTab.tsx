@@ -148,8 +148,16 @@ function CallFields({
           className="rounded-md border bg-transparent px-3 py-2 font-mono text-xs"
         />
         {argsInvalid && <p className="text-xs text-destructive">{t('rules.argsInvalid')}</p>}
+        <p className="font-mono text-xs text-muted-foreground" title={t('rules.variablesTitle')}>
+          {t('rules.variablesHint')}
+        </p>
       </div>
       <div className="flex flex-col gap-2">
+        {draft.args.includes('{workspace}') && !testWorkspace.trim() && (
+          <p className="text-xs text-amber-600 dark:text-amber-500">
+            {t('rules.testWorkspaceEmptyWarning')}
+          </p>
+        )}
         <Button
           size="sm"
           variant="outline"
