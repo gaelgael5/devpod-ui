@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Pencil, Play, Plus, Trash2, Workflow } from 'lucide-react'
+import { Link2, Pencil, Play, Plus, Trash2, Workflow, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -16,10 +16,27 @@ import { useServices } from '@/features/services/api'
 import {
   useCreateRule, useDeleteRule, useRuleEvents, useRules, useServiceTools,
   useTestRule, useUpdateRule,
-  type RuleOperator, type RuleTrace, type UserRule,
+  type RuleOperator, type RuleTestResult, type RuleTraceEntry, type UserRule,
 } from './api'
 
 const OPERATORS: RuleOperator[] = ['eq', 'neq', 'contains', 'not_contains']
+
+// État d'édition : les args restent du texte tant que le dialog est ouvert.
+interface CallDraft {
+  service_id: string
+  tool: string
+  args: string
+}
+interface ConditionDraft extends CallDraft {
+  path: string
+  operator: RuleOperator
+  value: string
+}
+
+const emptyCall = (): CallDraft => ({ service_id: '', tool: '', args: '{}' })
+const emptyCondition = (): ConditionDraft => ({
+  ...emptyCall(), path: '', operator: 'not_contains', value: '',
+})
 
 function parseArgs(raw: string): Record<string, unknown> | null {
   const text = raw.trim() || '{}'
@@ -32,87 +49,81 @@ function parseArgs(raw: string): Record<string, unknown> | null {
   }
 }
 
-// ── Sélecteur service + outil + args (sonde et action ont la même forme) ──────
+const draftFromCall = (c: { service_id: string | null; tool: string; args: Record<string, unknown> }): CallDraft => ({
+  service_id: c.service_id ?? '',
+  tool: c.tool,
+  args: JSON.stringify(c.args),
+})
 
-function PrimitiveFields({
+// ── Champs service + méthode + args (partagés conditions/actions) ─────────────
+
+function CallFields({
   idPrefix,
-  legend,
-  serviceId,
-  setServiceId,
-  tool,
-  setTool,
-  args,
-  setArgs,
+  draft,
+  onChange,
 }: {
   idPrefix: string
-  legend: string
-  serviceId: string
-  setServiceId: (v: string) => void
-  tool: string
-  setTool: (v: string) => void
-  args: string
-  setArgs: (v: string) => void
+  draft: CallDraft
+  onChange: (patch: Partial<CallDraft>) => void
 }) {
   const { t } = useTranslation()
   const { data: services = [] } = useServices()
-  const { data: tools = [] } = useServiceTools(serviceId)
-  const argsInvalid = parseArgs(args) === null
+  const { data: tools = [] } = useServiceTools(draft.service_id)
+  const argsInvalid = parseArgs(draft.args) === null
 
   return (
-    <fieldset className="flex flex-col gap-3 rounded-md border p-3">
-      <legend className="px-1 text-sm font-medium">{legend}</legend>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${idPrefix}-service`}>{t('rules.service')}</Label>
-        <Select
-          value={serviceId}
-          onValueChange={(v) => {
-            setServiceId(v)
-            setTool('')
-          }}
-        >
-          <SelectTrigger id={`${idPrefix}-service`}>
-            <SelectValue placeholder={t('rules.servicePlaceholder')} />
-          </SelectTrigger>
-          <SelectContent>
-            {services.map((s) => (
-              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${idPrefix}-tool`}>{t('rules.tool')}</Label>
-        <Select value={tool} onValueChange={setTool} disabled={!serviceId}>
-          <SelectTrigger id={`${idPrefix}-tool`}>
-            <SelectValue placeholder={t('rules.toolPlaceholder')} />
-          </SelectTrigger>
-          <SelectContent>
-            {tools.map((tl) => (
-              <SelectItem key={tl.name} value={tl.name} title={tl.description}>
-                {tl.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {!!serviceId && tools.length === 0 && (
-          <p className="text-xs text-muted-foreground">{t('rules.noTools')}</p>
-        )}
+    <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={`${idPrefix}-service`}>{t('rules.service')}</Label>
+          <Select
+            value={draft.service_id}
+            onValueChange={(v) => onChange({ service_id: v, tool: '' })}
+          >
+            <SelectTrigger id={`${idPrefix}-service`}>
+              <SelectValue placeholder={t('rules.servicePlaceholder')} />
+            </SelectTrigger>
+            <SelectContent>
+              {services.map((s) => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={`${idPrefix}-tool`}>{t('rules.tool')}</Label>
+          <Select
+            value={draft.tool}
+            onValueChange={(v) => onChange({ tool: v })}
+            disabled={!draft.service_id}
+          >
+            <SelectTrigger id={`${idPrefix}-tool`}>
+              <SelectValue placeholder={t('rules.toolPlaceholder')} />
+            </SelectTrigger>
+            <SelectContent>
+              {tools.map((tl) => (
+                <SelectItem key={tl.name} value={tl.name} title={tl.description}>
+                  {tl.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={`${idPrefix}-args`}>{t('rules.args')}</Label>
         <textarea
           id={`${idPrefix}-args`}
-          value={args}
-          onChange={(e) => setArgs(e.target.value)}
-          rows={3}
+          value={draft.args}
+          onChange={(e) => onChange({ args: e.target.value })}
+          rows={2}
           spellCheck={false}
           placeholder='{"workspace_slug": "{workspace}"}'
           className="rounded-md border bg-transparent px-3 py-2 font-mono text-xs"
         />
         {argsInvalid && <p className="text-xs text-destructive">{t('rules.argsInvalid')}</p>}
-        <p className="text-xs text-muted-foreground">{t('rules.argsHint')}</p>
       </div>
-    </fieldset>
+    </div>
   )
 }
 
@@ -129,24 +140,26 @@ function RuleFormDialog({
 }) {
   const { t } = useTranslation()
   const { data: events = [] } = useRuleEvents()
+  const { data: rules = [] } = useRules()
   const create = useCreateRule()
   const update = useUpdateRule()
 
   const [name, setName] = useState(rule?.name ?? '')
   const [eventType, setEventType] = useState(rule?.event_type ?? '')
-  const [probeService, setProbeService] = useState(rule?.probe_service_id ?? '')
-  const [probeTool, setProbeTool] = useState(rule?.probe_tool ?? '')
-  const [probeArgs, setProbeArgs] = useState(JSON.stringify(rule?.probe_args ?? {}, null, 0))
-  const [condPath, setCondPath] = useState(rule?.condition_path ?? '')
-  const [condOperator, setCondOperator] = useState<RuleOperator>(
-    rule?.condition_operator ?? 'not_contains',
+  const [conditions, setConditions] = useState<ConditionDraft[]>(
+    rule
+      ? rule.conditions.map((c) => ({
+          ...draftFromCall(c), path: c.path, operator: c.operator, value: c.value,
+        }))
+      : [emptyCondition()],
   )
-  const [condValue, setCondValue] = useState(rule?.condition_value ?? '')
-  const [actionService, setActionService] = useState(rule?.action_service_id ?? '')
-  const [actionTool, setActionTool] = useState(rule?.action_tool ?? '')
-  const [actionArgs, setActionArgs] = useState(JSON.stringify(rule?.action_args ?? {}, null, 0))
+  const [actions, setActions] = useState<CallDraft[]>(
+    rule ? rule.actions.map(draftFromCall) : [emptyCall()],
+  )
+  const [nextRuleId, setNextRuleId] = useState(rule?.next_rule_id ?? '')
 
   const isPending = create.isPending || update.isPending
+  const chainCandidates = rules.filter((r) => r.id !== rule?.id)
 
   function close() {
     create.reset()
@@ -154,21 +167,37 @@ function RuleFormDialog({
     onClose()
   }
 
-  const parsedProbeArgs = parseArgs(probeArgs)
-  const parsedActionArgs = parseArgs(actionArgs)
+  function patchCondition(i: number, patch: Partial<ConditionDraft>) {
+    setConditions((prev) => prev.map((c, j) => (j === i ? { ...c, ...patch } : c)))
+  }
+  function patchAction(i: number, patch: Partial<CallDraft>) {
+    setActions((prev) => prev.map((a, j) => (j === i ? { ...a, ...patch } : a)))
+  }
+
+  const callOk = (c: CallDraft) => !!c.service_id && !!c.tool && parseArgs(c.args) !== null
   const canSubmit =
-    !!name.trim() && !!eventType && !!probeService && !!probeTool &&
-    !!actionService && !!actionTool && parsedProbeArgs !== null && parsedActionArgs !== null
+    !!name.trim() && !!eventType && actions.length > 0 &&
+    actions.every(callOk) && conditions.every(callOk)
 
   function submit() {
-    if (parsedProbeArgs === null || parsedActionArgs === null) return
     const body = {
       name: name.trim(),
       enabled: rule?.enabled ?? true,
       event_type: eventType,
-      probe: { service_id: probeService, tool: probeTool, args: parsedProbeArgs },
-      condition: { path: condPath.trim(), operator: condOperator, value: condValue },
-      action: { service_id: actionService, tool: actionTool, args: parsedActionArgs },
+      conditions: conditions.map((c) => ({
+        service_id: c.service_id,
+        tool: c.tool,
+        args: parseArgs(c.args) ?? {},
+        path: c.path.trim(),
+        operator: c.operator,
+        value: c.value,
+      })),
+      actions: actions.map((a) => ({
+        service_id: a.service_id,
+        tool: a.tool,
+        args: parseArgs(a.args) ?? {},
+      })),
+      next_rule_id: nextRuleId || null,
     }
     const onError = (e: unknown) =>
       toast.error(e instanceof Error ? e.message : t('errors.generic'))
@@ -181,92 +210,160 @@ function RuleFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) close() }}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{rule ? t('rules.editTitle') : t('rules.createTitle')}</DialogTitle>
         </DialogHeader>
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="rule-name">{t('rules.name')}</Label>
-            <Input
-              id="rule-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t('rules.namePlaceholder')}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="rule-event">{t('rules.event')}</Label>
-            <Select value={eventType} onValueChange={setEventType}>
-              <SelectTrigger id="rule-event">
-                <SelectValue placeholder={t('rules.eventPlaceholder')} />
-              </SelectTrigger>
-              <SelectContent>
-                {events.map((ev) => (
-                  <SelectItem key={ev} value={ev}>{ev}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <PrimitiveFields
-            idPrefix="rule-probe"
-            legend={t('rules.probeLegend')}
-            serviceId={probeService}
-            setServiceId={setProbeService}
-            tool={probeTool}
-            setTool={setProbeTool}
-            args={probeArgs}
-            setArgs={setProbeArgs}
-          />
-
-          <fieldset className="flex flex-col gap-3 rounded-md border p-3">
-            <legend className="px-1 text-sm font-medium">{t('rules.conditionLegend')}</legend>
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-2">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="rule-cond-path">{t('rules.conditionPath')}</Label>
+              <Label htmlFor="rule-name">{t('rules.name')}</Label>
               <Input
-                id="rule-cond-path"
-                value={condPath}
-                onChange={(e) => setCondPath(e.target.value)}
-                placeholder="slug"
+                id="rule-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('rules.namePlaceholder')}
               />
-              <p className="text-xs text-muted-foreground">{t('rules.conditionPathHint')}</p>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="rule-cond-op">{t('rules.conditionOperator')}</Label>
-              <Select value={condOperator} onValueChange={(v) => setCondOperator(v as RuleOperator)}>
-                <SelectTrigger id="rule-cond-op">
-                  <SelectValue />
+              <Label htmlFor="rule-event">{t('rules.event')}</Label>
+              <Select value={eventType} onValueChange={setEventType}>
+                <SelectTrigger id="rule-event">
+                  <SelectValue placeholder={t('rules.eventPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
-                  {OPERATORS.map((op) => (
-                    <SelectItem key={op} value={op}>{t(`rules.op.${op}`)}</SelectItem>
+                  {events.map((ev) => (
+                    <SelectItem key={ev} value={ev}>{ev}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="rule-cond-value">{t('rules.conditionValue')}</Label>
-              <Input
-                id="rule-cond-value"
-                value={condValue}
-                onChange={(e) => setCondValue(e.target.value)}
-                placeholder="{workspace}"
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">{t('rules.conditionHint')}</p>
+          </div>
+
+          <fieldset className="flex flex-col gap-3 rounded-md border p-3">
+            <legend className="px-1 text-sm font-medium">{t('rules.conditionsLegend')}</legend>
+            <p className="text-xs text-muted-foreground">{t('rules.conditionsHint')}</p>
+            {conditions.map((cond, i) => (
+              <div key={i} className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">
+                    {t('rules.conditionN', { n: i + 1 })}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={t('rules.removeCondition')}
+                    onClick={() => setConditions((prev) => prev.filter((_, j) => j !== i))}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <CallFields
+                  idPrefix={`rule-cond-${i}`}
+                  draft={cond}
+                  onChange={(patch) => patchCondition(i, patch)}
+                />
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor={`rule-cond-${i}-path`}>{t('rules.conditionPath')}</Label>
+                    <Input
+                      id={`rule-cond-${i}-path`}
+                      value={cond.path}
+                      onChange={(e) => patchCondition(i, { path: e.target.value })}
+                      placeholder="slug"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor={`rule-cond-${i}-op`}>{t('rules.conditionOperator')}</Label>
+                    <Select
+                      value={cond.operator}
+                      onValueChange={(v) => patchCondition(i, { operator: v as RuleOperator })}
+                    >
+                      <SelectTrigger id={`rule-cond-${i}-op`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {OPERATORS.map((op) => (
+                          <SelectItem key={op} value={op}>{t(`rules.op.${op}`)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor={`rule-cond-${i}-value`}>{t('rules.conditionValue')}</Label>
+                    <Input
+                      id={`rule-cond-${i}-value`}
+                      value={cond.value}
+                      onChange={(e) => patchCondition(i, { value: e.target.value })}
+                      placeholder="{workspace}"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            <Button
+              size="sm"
+              variant="outline"
+              className="self-start"
+              onClick={() => setConditions((prev) => [...prev, emptyCondition()])}
+            >
+              <Plus className="mr-1 h-3.5 w-3.5" />{t('rules.addCondition')}
+            </Button>
           </fieldset>
 
-          <PrimitiveFields
-            idPrefix="rule-action"
-            legend={t('rules.actionLegend')}
-            serviceId={actionService}
-            setServiceId={setActionService}
-            tool={actionTool}
-            setTool={setActionTool}
-            args={actionArgs}
-            setArgs={setActionArgs}
-          />
+          <fieldset className="flex flex-col gap-3 rounded-md border p-3">
+            <legend className="px-1 text-sm font-medium">{t('rules.actionsLegend')}</legend>
+            <p className="text-xs text-muted-foreground">{t('rules.actionsHint')}</p>
+            {actions.map((action, i) => (
+              <div key={i} className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">{t('rules.actionN', { n: i + 1 })}</span>
+                  {actions.length > 1 && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={t('rules.removeAction')}
+                      onClick={() => setActions((prev) => prev.filter((_, j) => j !== i))}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+                <CallFields
+                  idPrefix={`rule-action-${i}`}
+                  draft={action}
+                  onChange={(patch) => patchAction(i, patch)}
+                />
+              </div>
+            ))}
+            <Button
+              size="sm"
+              variant="outline"
+              className="self-start"
+              onClick={() => setActions((prev) => [...prev, emptyCall()])}
+            >
+              <Plus className="mr-1 h-3.5 w-3.5" />{t('rules.addAction')}
+            </Button>
+          </fieldset>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="rule-next">{t('rules.chain')}</Label>
+            <Select
+              value={nextRuleId || 'none'}
+              onValueChange={(v) => setNextRuleId(v === 'none' ? '' : v)}
+            >
+              <SelectTrigger id="rule-next">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t('rules.chainNone')}</SelectItem>
+                {chainCandidates.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t('rules.chainHint')}</p>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={close}>{t('common.cancel')}</Button>
@@ -285,6 +382,51 @@ function pretty(value: unknown): string {
   return JSON.stringify(value, null, 2) ?? ''
 }
 
+function TraceBlock({ trace }: { trace: RuleTraceEntry }) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex flex-col gap-2 rounded-md border p-3">
+      <p className="text-sm font-medium">{trace.rule}</p>
+      {trace.conditions.map((c, i) => (
+        <div key={i} className="rounded-md border p-2">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs">{c.tool}</span>
+            <Badge variant={c.ok ? 'secondary' : 'outline'} className="text-xs">
+              {c.ok ? t('rules.conditionOk') : t('rules.conditionKo')}
+            </Badge>
+          </div>
+          <pre className="mt-1 max-h-40 overflow-auto rounded bg-muted p-2 font-mono text-xs">
+            {pretty(c.result)}
+          </pre>
+        </div>
+      ))}
+      <div className="flex items-center gap-2">
+        <span className="text-sm">{t('rules.traceVerdict')}</span>
+        {trace.matched ? (
+          <Badge className="text-xs">{t('rules.traceMatched')}</Badge>
+        ) : (
+          <Badge variant="secondary" className="text-xs">{t('rules.traceNotMatched')}</Badge>
+        )}
+      </div>
+      {trace.actions.map((a, i) => (
+        <div key={i} className="rounded-md border p-2">
+          <p className="font-mono text-xs text-muted-foreground">
+            {a.tool} {pretty(a.args)}
+          </p>
+          <pre className="mt-1 max-h-40 overflow-auto rounded bg-muted p-2 font-mono text-xs">
+            {pretty(a.result)}
+          </pre>
+        </div>
+      ))}
+      {trace.chain_stopped && (
+        <p className="text-xs text-destructive">
+          {t('rules.chainStopped')} {trace.chain_stopped}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function TestRuleDialog({
   rule,
   open,
@@ -297,7 +439,7 @@ function TestRuleDialog({
   const { t } = useTranslation()
   const test = useTestRule()
   const [workspace, setWorkspace] = useState('')
-  const trace: RuleTrace | undefined = test.data
+  const result: RuleTestResult | undefined = test.data
 
   function close() {
     test.reset()
@@ -337,46 +479,14 @@ function TestRuleDialog({
             {test.isPending ? t('common.loading') : t('rules.play')}
           </Button>
 
-          {trace && !trace.ok && (
+          {result && !result.ok && (
             <div className="rounded-md border border-destructive p-3">
               <Badge variant="destructive" className="text-xs">{t('rules.traceError')}</Badge>
-              <p className="mt-1.5 font-mono text-xs">{trace.error}</p>
+              <p className="mt-1.5 font-mono text-xs">{result.error}</p>
             </div>
           )}
-          {trace?.ok && (
-            <div className="flex flex-col gap-3">
-              <div className="rounded-md border p-3">
-                <p className="text-sm font-medium">{t('rules.traceProbe')}</p>
-                <p className="mt-1 font-mono text-xs text-muted-foreground">
-                  {trace.probe?.tool} {pretty(trace.probe?.args)}
-                </p>
-                <pre className="mt-1.5 max-h-48 overflow-auto rounded bg-muted p-2 font-mono text-xs">
-                  {pretty(trace.probe?.result)}
-                </pre>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{t('rules.traceVerdict')}</span>
-                {trace.matched ? (
-                  <Badge className="text-xs">{t('rules.traceMatched')}</Badge>
-                ) : (
-                  <Badge variant="secondary" className="text-xs">
-                    {t('rules.traceNotMatched')}
-                  </Badge>
-                )}
-              </div>
-              {trace.matched && trace.action && (
-                <div className="rounded-md border p-3">
-                  <p className="text-sm font-medium">{t('rules.traceAction')}</p>
-                  <p className="mt-1 font-mono text-xs text-muted-foreground">
-                    {trace.action.tool} {pretty(trace.action.args)}
-                  </p>
-                  <pre className="mt-1.5 max-h-48 overflow-auto rounded bg-muted p-2 font-mono text-xs">
-                    {pretty(trace.action.result)}
-                  </pre>
-                </div>
-              )}
-            </div>
-          )}
+          {result?.ok &&
+            (result.traces ?? []).map((trace, i) => <TraceBlock key={i} trace={trace} />)}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={close}>{t('common.close')}</Button>
@@ -388,13 +498,14 @@ function TestRuleDialog({
 
 // ── Card règle ────────────────────────────────────────────────────────────────
 
-function RuleCard({ rule }: { rule: UserRule }) {
+function RuleCard({ rule, ruleNames }: { rule: UserRule; ruleNames: Map<string, string> }) {
   const { t } = useTranslation()
   const del = useDeleteRule()
   const [editOpen, setEditOpen] = useState(false)
   const [testOpen, setTestOpen] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
-  const broken = !rule.probe_service_id || !rule.action_service_id
+  const broken =
+    rule.conditions.some((c) => !c.service_id) || rule.actions.some((a) => !a.service_id)
 
   return (
     <div className="flex items-start gap-3 rounded-lg border bg-card p-4">
@@ -410,9 +521,19 @@ function RuleCard({ rule }: { rule: UserRule }) {
             <Badge variant="destructive" className="text-xs">{t('rules.serviceMissing')}</Badge>
           )}
         </div>
-        <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
-          {rule.probe_tool} → {t(`rules.op.${rule.condition_operator}`)}
-          {rule.condition_value ? ` "${rule.condition_value}"` : ''} → {rule.action_tool}
+        <p className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+          {t('rules.summary', {
+            conditions: rule.conditions.length,
+            actions: rule.actions.length,
+          })}
+          {rule.next_rule_id && (
+            <span className="flex items-center gap-1">
+              <Link2 className="h-3 w-3" />
+              {t('rules.chainedTo', {
+                name: ruleNames.get(rule.next_rule_id) ?? rule.next_rule_id,
+              })}
+            </span>
+          )}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1">
@@ -471,6 +592,7 @@ export default function RulesTab() {
   const { t } = useTranslation()
   const { data: rules = [], isLoading } = useRules()
   const [createOpen, setCreateOpen] = useState(false)
+  const ruleNames = new Map(rules.map((r) => [r.id, r.name]))
 
   return (
     <div className="flex flex-col gap-4">
@@ -487,7 +609,7 @@ export default function RulesTab() {
       )}
       <div className="flex flex-col gap-2">
         {rules.map((r) => (
-          <RuleCard key={r.id} rule={r} />
+          <RuleCard key={r.id} rule={r} ruleNames={ruleNames} />
         ))}
       </div>
       {createOpen && <RuleFormDialog open={createOpen} onClose={() => setCreateOpen(false)} />}

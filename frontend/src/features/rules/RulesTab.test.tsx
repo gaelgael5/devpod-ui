@@ -27,18 +27,29 @@ const RULE = {
   name: 'Créer le workspace docflow',
   enabled: true,
   event_type: 'workspace.created',
-  probe_service_id: 's1',
-  probe_tool: 'docflow__list_workspaces',
-  probe_args: {},
-  condition_path: 'slug',
-  condition_operator: 'not_contains' as const,
-  condition_value: '{workspace}',
-  action_service_id: 's1',
-  action_tool: 'docflow__create_workspace',
-  action_args: { slug: '{workspace}', label: '{workspace}' },
+  conditions: [
+    {
+      service_id: 's1',
+      tool: 'docflow__list_workspaces',
+      args: {},
+      path: 'slug',
+      operator: 'not_contains' as const,
+      value: '{workspace}',
+    },
+  ],
+  actions: [
+    {
+      service_id: 's1',
+      tool: 'docflow__create_workspace',
+      args: { slug: '{workspace}', label: '{workspace}' },
+    },
+  ],
+  next_rule_id: null,
   created_at: '2026-07-05T00:00:00Z',
   updated_at: null,
 }
+
+const RULE2 = { ...RULE, id: 'r2', name: 'Règle chaînée', next_rule_id: 'r1' }
 
 beforeAll(() => {
   Element.prototype.hasPointerCapture = vi.fn()
@@ -46,16 +57,19 @@ beforeAll(() => {
 })
 
 describe('RulesTab', () => {
-  it('affiche les règles avec leur événement déclencheur', async () => {
+  it('affiche les règles : événement, résumé, enchaînement', async () => {
     server.use(
-      http.get('/me/rules', () => HttpResponse.json([RULE])),
+      http.get('/me/rules', () => HttpResponse.json([RULE, RULE2])),
       http.get('/me/rules/events', () => HttpResponse.json(['workspace.created'])),
       http.get('/me/services', () => HttpResponse.json([SERVICE])),
     )
     renderWithProviders(<RulesTab />)
     expect(await screen.findByText('Créer le workspace docflow')).toBeInTheDocument()
-    expect(screen.getByText('workspace.created')).toBeInTheDocument()
-    expect(screen.getByText(/docflow__list_workspaces/)).toBeInTheDocument()
+    expect(screen.getAllByText('workspace.created').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/1 condition\(s\) · 1 action\(s\)/).length).toBe(2)
+    expect(
+      screen.getByText(/puis « Créer le workspace docflow »|then "Créer le workspace docflow"/),
+    ).toBeInTheDocument()
   })
 
   it("affiche l'état vide", async () => {
@@ -68,7 +82,7 @@ describe('RulesTab', () => {
     expect(await screen.findByText(/aucune règle|no rule yet/i)).toBeInTheDocument()
   })
 
-  it('crée une règle complète (POST)', async () => {
+  it('crée une règle avec deux actions (POST)', async () => {
     let posted: unknown = null
     server.use(
       http.get('/me/rules', () => HttpResponse.json([])),
@@ -88,30 +102,33 @@ describe('RulesTab', () => {
     await user.click(await screen.findByRole('button', { name: /ajouter une règle|add a rule/i }))
     await user.type(screen.getByLabelText(/^nom$|^name$/i), 'Ma règle')
 
-    // Événement déclencheur
     await user.click(screen.getByLabelText(/événement déclencheur|trigger event/i))
     await user.click(await screen.findByRole('option', { name: 'workspace.created' }))
 
-    // Sonde : service puis méthode
-    const serviceSelects = screen.getAllByLabelText(/^service$/i)
+    // Condition 1
+    let serviceSelects = screen.getAllByLabelText(/^service$/i)
     await user.click(serviceSelects[0])
     await user.click(await screen.findByRole('option', { name: 'Docflow' }))
-    const toolSelects = screen.getAllByLabelText(/méthode mcp|mcp method/i)
+    let toolSelects = screen.getAllByLabelText(/méthode mcp|mcp method/i)
     await user.click(toolSelects[0])
     await user.click(await screen.findByRole('option', { name: 'docflow__list_workspaces' }))
-
-    // Condition
     await user.type(screen.getByLabelText(/chemin d'extraction|extraction path/i), 'slug')
-    await user.type(
-      screen.getByLabelText(/valeur comparée|compared value/i),
-      '{{workspace}',
-    )
+    await user.type(screen.getByLabelText(/valeur comparée|compared value/i), '{{workspace}')
 
-    // Action : service puis méthode
+    // Action 1
     await user.click(serviceSelects[1])
     await user.click(await screen.findByRole('option', { name: 'Docflow' }))
     await user.click(toolSelects[1])
     await user.click(await screen.findByRole('option', { name: 'docflow__create_workspace' }))
+
+    // Action 2 (ajoutée)
+    await user.click(screen.getByRole('button', { name: /ajouter une action|add an action/i }))
+    serviceSelects = screen.getAllByLabelText(/^service$/i)
+    toolSelects = screen.getAllByLabelText(/méthode mcp|mcp method/i)
+    await user.click(serviceSelects[2])
+    await user.click(await screen.findByRole('option', { name: 'Docflow' }))
+    await user.click(toolSelects[2])
+    await user.click(await screen.findByRole('option', { name: 'docflow__list_workspaces' }))
 
     await user.click(screen.getByRole('button', { name: /enregistrer|save/i }))
 
@@ -120,14 +137,26 @@ describe('RulesTab', () => {
         name: 'Ma règle',
         enabled: true,
         event_type: 'workspace.created',
-        probe: { service_id: 's1', tool: 'docflow__list_workspaces', args: {} },
-        condition: { path: 'slug', operator: 'not_contains', value: '{workspace}' },
-        action: { service_id: 's1', tool: 'docflow__create_workspace', args: {} },
+        conditions: [
+          {
+            service_id: 's1',
+            tool: 'docflow__list_workspaces',
+            args: {},
+            path: 'slug',
+            operator: 'not_contains',
+            value: '{workspace}',
+          },
+        ],
+        actions: [
+          { service_id: 's1', tool: 'docflow__create_workspace', args: {} },
+          { service_id: 's1', tool: 'docflow__list_workspaces', args: {} },
+        ],
+        next_rule_id: null,
       }),
     )
   })
 
-  it('joue une règle et affiche la trace', async () => {
+  it('joue une règle et affiche les traces de la chaîne', async () => {
     let testedBody: unknown = null
     server.use(
       http.get('/me/rules', () => HttpResponse.json([RULE])),
@@ -137,14 +166,28 @@ describe('RulesTab', () => {
         testedBody = await request.json()
         return HttpResponse.json({
           ok: true,
-          rule: RULE.name,
-          matched: true,
-          probe: { tool: RULE.probe_tool, args: {}, result: [] },
-          action: {
-            tool: RULE.action_tool,
-            args: { slug: 'mon-projet', label: 'mon-projet' },
-            result: { slug: 'mon-projet' },
-          },
+          traces: [
+            {
+              rule: RULE.name,
+              conditions: [
+                { tool: 'docflow__list_workspaces', args: {}, result: [], ok: true },
+              ],
+              matched: true,
+              actions: [
+                {
+                  tool: 'docflow__create_workspace',
+                  args: { slug: 'mon-projet' },
+                  result: { slug: 'mon-projet' },
+                },
+              ],
+            },
+            {
+              rule: 'Règle chaînée',
+              conditions: [],
+              matched: true,
+              actions: [],
+            },
+          ],
         })
       }),
     )
@@ -157,11 +200,12 @@ describe('RulesTab', () => {
       within(dialog).getByLabelText(/workspace de test|test workspace/i),
       'mon-projet',
     )
-    await user.click(within(dialog).getByRole('button', { name: /jouer|play/i }))
+    await user.click(within(dialog).getByRole('button', { name: /^(jouer|play)$/i }))
 
     expect(
-      await within(dialog).findByText(/action exécutée|action executed/i),
-    ).toBeInTheDocument()
+      (await within(dialog).findAllByText(/actions exécutées|actions executed/i)).length,
+    ).toBe(2)
+    expect(within(dialog).getByText('Règle chaînée')).toBeInTheDocument()
     expect(testedBody).toEqual({ workspace: 'mon-projet' })
   })
 })
