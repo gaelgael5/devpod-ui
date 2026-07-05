@@ -90,4 +90,33 @@ describe('MCPBackends', () => {
     await user.click(button)
     expect(probeCalled).toBe(true)
   })
+
+  it('affiche le refresh sur un backend externe ONLINE (resync des primitives)', async () => {
+    const { server } = await import('@/test/server')
+    let probeCalled = false
+    server.use(
+      http.get('/me/mcp/backends', () =>
+        HttpResponse.json([
+          {
+            id: 'docflow-1', owner_login: 'admin', namespace: 'docflow',
+            name: 'Docflow', url: 'http://x/api/mcp/sse', transport: 'sse', enabled: true,
+            created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
+            health: 'up',
+          },
+        ])),
+      http.get('/me/mcp/backends/:id/keys', () => HttpResponse.json([])),
+      http.post('/me/mcp/backends/:id/probe', () => {
+        probeCalled = true
+        return HttpResponse.json({ id: 'docflow-1', health: 'up' })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<MCPBackends />)
+
+    // Régression : le bouton était caché dès que health === 'up' (introuvable
+    // sur un service en ligne).
+    const button = await screen.findByTitle('Re-check connection and refresh tools')
+    await user.click(button)
+    expect(probeCalled).toBe(true)
+  })
 })

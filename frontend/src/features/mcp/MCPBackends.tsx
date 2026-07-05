@@ -465,26 +465,28 @@ function BackendCard({ backend }: { backend: MCPBackend }) {
         {(!backend.health || backend.health === 'unknown') && (
           <Badge variant="secondary">{t('mcp.backends.healthUnknown')}</Badge>
         )}
-        {(backend.health !== 'up' || backend.transport === 'internal') && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 px-1.5"
-            disabled={probe.isPending}
-            onClick={() =>
-              probe.mutate(backend.id, {
-                onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
-              })
-            }
-            title={
-              backend.transport === 'internal'
-                ? t('mcp.backends.refreshTools')
-                : t('mcp.backends.probe')
-            }
-          >
-            <RefreshCw className={`h-3.5 w-3.5${probe.isPending ? ' animate-spin' : ''}`} />
-          </Button>
-        )}
+        {/* Toujours visible : re-probe la santé ET resynchronise les primitives
+            (utile même quand le backend est up — le serveur distant peut avoir
+            changé ses outils). Auparavant caché une fois « up », donc introuvable
+            dès qu'un backend passait Online. */}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-1.5"
+          disabled={probe.isPending}
+          onClick={() =>
+            probe.mutate(backend.id, {
+              onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
+            })
+          }
+          title={
+            backend.transport === 'internal'
+              ? t('mcp.backends.refreshTools')
+              : t('mcp.backends.probe')
+          }
+        >
+          <RefreshCw className={`h-3.5 w-3.5${probe.isPending ? ' animate-spin' : ''}`} />
+        </Button>
         {!backend.enabled && <Badge variant="secondary">{t('mcp.backends.statusDisabled')}</Badge>}
         <span className="ml-2 text-xs text-muted-foreground">{backend.url}</span>
         {backend.app_url && (

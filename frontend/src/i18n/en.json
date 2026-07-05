@@ -955,7 +955,7 @@
       "healthUp": "Online",
       "healthDown": "Offline",
       "healthUnknown": "Checking…",
-      "probe": "Retry connection",
+      "probe": "Re-check connection and refresh tools",
       "refreshTools": "Refresh tools",
       "appUrl": "Application URL (optional)",
       "appUrlHint": "Optional web link shown in the list to open the application.",
