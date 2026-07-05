@@ -5,6 +5,7 @@ import VaultTab from '@/features/vault/VaultTab'
 import CertificatesTab from '@/features/certificates/CertificatesTab'
 import SecretsTab from '@/features/secrets/SecretsTab'
 import MCPTab from '@/features/mcp/MCPTab'
+import ServicesTab from '@/features/services/ServicesTab'
 
 export default function CredentialsPage() {
   const { t } = useTranslation()
@@ -16,12 +17,14 @@ export default function CredentialsPage() {
         <TabsTrigger value="secrets">{t('secrets.tabLabel')}</TabsTrigger>
         <TabsTrigger value="git">{t('gitCredentials.title')}</TabsTrigger>
         <TabsTrigger value="mcp">{t('mcp.tabLabel')}</TabsTrigger>
+        <TabsTrigger value="services">{t('services.tabLabel')}</TabsTrigger>
       </TabsList>
       <TabsContent value="vault" className="mt-0"><VaultTab /></TabsContent>
       <TabsContent value="certificates" className="mt-0"><CertificatesTab /></TabsContent>
       <TabsContent value="secrets" className="mt-0"><SecretsTab /></TabsContent>
       <TabsContent value="git" className="mt-0"><GitCredentialManager /></TabsContent>
       <TabsContent value="mcp" className="mt-0"><MCPTab /></TabsContent>
+      <TabsContent value="services" className="mt-0"><ServicesTab /></TabsContent>
     </Tabs>
   )
 }

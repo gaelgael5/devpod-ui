@@ -774,3 +774,27 @@ agent_message = Table(
         postgresql_where=text("reply_to IS NOT NULL"),
     ),
 )
+
+
+# ─── Registre de services (hub Services & Security) ──────────────────────────
+#
+# Adresses de services externes utiles au travail de l'utilisateur, avec le
+# profil MCP permettant d'y accéder. mcp_profile_id nullable + SET NULL : la
+# suppression du profil ne doit jamais faire disparaître le service enregistré,
+# seulement son association (l'UI signale « aucun profil »).
+user_services = Table(
+    "user_services",
+    metadata,
+    Column("id", Text, primary_key=True),  # uuid4 généré côté Python
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("name", Text, nullable=False),
+    Column("url", Text, nullable=False),
+    Column(
+        "mcp_profile_id",
+        Text,
+        ForeignKey("mcp_profile.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=True),
+)

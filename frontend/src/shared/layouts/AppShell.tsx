@@ -67,7 +67,7 @@ export default function AppShell() {
         <NavLink
           to="/git-credentials"
           className={({ isActive }) => cn(RAIL_LINK, isActive && RAIL_ACTIVE)}
-          title={t('gitCredentials.title')}
+          title={t('servicesSecurity.navLabel')}
         >
           <KeyRound size={18} />
         </NavLink>

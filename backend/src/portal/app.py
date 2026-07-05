@@ -45,6 +45,7 @@ from .routes.recipes import router_me as recipes_me_router
 from .routes.recipes import router_public as recipes_public_router
 from .routes.secrets import router_admin as secrets_admin_router
 from .routes.secrets import router_me as secrets_me_router
+from .routes.services import router as services_router
 from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
 from .routes.test_vm import router as test_vm_router
@@ -307,6 +308,7 @@ def create_app() -> FastAPI:
     app.include_router(workspace_groups_router, prefix="/me")
     app.include_router(workspace_sessions_router, prefix="/me")
     app.include_router(agent_messages_router, prefix="/me")
+    app.include_router(services_router, prefix="/me")
     app.include_router(test_vm_router, prefix="/me")
     app.include_router(plugins_router)
     app.include_router(recipes_public_router)

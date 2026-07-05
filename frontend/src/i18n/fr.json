@@ -1171,5 +1171,24 @@
       "done": "Message transmis",
       "failed": "Échec de la transmission"
     }
+  },
+  "servicesSecurity": {
+    "navLabel": "Services & sécurité"
+  },
+  "services": {
+    "tabLabel": "Services",
+    "sectionTitle": "Services enregistrés",
+    "create": "Ajouter un service",
+    "createTitle": "Nouveau service",
+    "editTitle": "Modifier le service",
+    "name": "Nom",
+    "namePlaceholder": "ex. Grafana",
+    "url": "URL",
+    "mcpProfile": "Profil MCP",
+    "mcpProfilePlaceholder": "Choisir un profil…",
+    "noProfileHint": "Aucun profil MCP disponible — créez-en un dans l'onglet MCP.",
+    "noProfile": "Aucun profil",
+    "empty": "Aucun service enregistré.",
+    "confirmDelete": "Confirmer la suppression"
   }
 }
