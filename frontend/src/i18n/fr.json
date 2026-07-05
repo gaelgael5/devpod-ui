@@ -562,7 +562,9 @@
     "preview": "Aperçu devcontainer.json",
     "fields": {
       "name": "Nom",
-      "description": "Description"
+      "description": "Description",
+      "image": "Image de base",
+      "imageHint": "Image du devcontainer (vide = image par défaut du portail). Choisir une image outillée évite d'installer par recette ce qu'elle contient déjà."
     },
     "sections": {
       "mine": "Mes profils",

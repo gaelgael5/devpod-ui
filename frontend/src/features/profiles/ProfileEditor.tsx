@@ -25,6 +25,7 @@ export default function ProfileEditor() {
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [image, setImage] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [settingsJson, setSettingsJson] = useState('{}')
   const [settingsError, setSettingsError] = useState(false)
@@ -33,6 +34,7 @@ export default function ProfileEditor() {
     if (!existing) return
     setName(existing.name)
     setDescription(existing.description)
+    setImage(existing.image ?? '')
     setSelected(new Set(existing.extensions))
     setSettingsJson(JSON.stringify(existing.settings ?? {}, null, 2))
   }, [existing])
@@ -48,11 +50,14 @@ export default function ProfileEditor() {
     let settings: Record<string, unknown> = {}
     try { settings = JSON.parse(settingsJson || '{}') } catch { /* aperçu dégradé */ }
     return JSON.stringify(
-      { customizations: { vscode: { extensions: [...selected], settings } } },
+      {
+        ...(image.trim() ? { image: image.trim() } : {}),
+        customizations: { vscode: { extensions: [...selected], settings } },
+      },
       null,
       2,
     )
-  }, [selected, settingsJson])
+  }, [image, selected, settingsJson])
 
   function onSave() {
     let settings: Record<string, unknown> = {}
@@ -64,7 +69,16 @@ export default function ProfileEditor() {
       return
     }
     save.mutate(
-      { slug, body: { name, description, extensions: [...selected], settings } },
+      {
+        slug,
+        body: {
+          name,
+          description,
+          image: image.trim(),
+          extensions: [...selected],
+          settings,
+        },
+      },
       { onSuccess: () => navigate('/profiles') },
     )
   }
@@ -86,6 +100,14 @@ export default function ProfileEditor() {
           onChange={(e) => setDescription(e.target.value)}
           placeholder={t('profiles.fields.description')}
         />
+        <Label htmlFor="profile-image">{t('profiles.fields.image')}</Label>
+        <Input
+          id="profile-image"
+          value={image}
+          onChange={(e) => setImage(e.target.value)}
+          placeholder="mcr.microsoft.com/devcontainers/python:3.12"
+        />
+        <p className="text-xs text-muted-foreground">{t('profiles.fields.imageHint')}</p>
       </div>
 
       <Tabs defaultValue="extensions">

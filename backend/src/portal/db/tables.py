@@ -381,6 +381,8 @@ profiles = Table(
     Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=True),
     Column("name", Text, nullable=False),
     Column("description", Text, nullable=False, server_default=""),
+    # Image de base du devcontainer (vide = défaut du portail)
+    Column("image", Text, nullable=False, server_default=""),
     Column("extensions", ARRAY(Text), nullable=False, server_default="{}"),
     Column("settings", JSONB, nullable=False, server_default="{}"),
     Column("gallery_source", Text, nullable=True),

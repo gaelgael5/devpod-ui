@@ -562,7 +562,9 @@
     "preview": "devcontainer.json preview",
     "fields": {
       "name": "Name",
-      "description": "Description"
+      "description": "Description",
+      "image": "Base image",
+      "imageHint": "Devcontainer image (empty = portal default). Picking a tooled image avoids installing via recipes what it already ships."
     },
     "sections": {
       "mine": "My profiles",

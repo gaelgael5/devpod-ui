@@ -135,6 +135,11 @@ function ProfileCard({ profile, onDelete, onFork, forking }: CardProps) {
       {profile.description && (
         <p className="line-clamp-2 text-sm text-muted-foreground">{profile.description}</p>
       )}
+      {profile.image && (
+        <p className="truncate font-mono text-xs text-muted-foreground" title={profile.image}>
+          {profile.image}
+        </p>
+      )}
       <div className="mt-auto flex gap-2 pt-2">
         {profile.scope === 'user' && profile.editable && (
           <Button size="sm" variant="outline" asChild>

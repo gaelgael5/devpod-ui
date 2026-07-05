@@ -90,3 +90,40 @@ def test_write_devcontainer_empty_profile_no_customizations_block(
     dc_path = svc._write_devcontainer("alice", "alice-myapp", profile=profile)
     content = json.loads(dc_path.read_text(encoding="utf-8"))
     assert "customizations" not in content
+
+
+# ---------------------------------------------------------------------------
+# Image de base portée par le profil
+# ---------------------------------------------------------------------------
+
+
+def test_write_devcontainer_uses_profile_image(tmp_data_root: Path, global_cfg) -> None:
+    from portal.devpod.service import DevPodService
+    from portal.profiles.models import Profile
+
+    svc = DevPodService(global_cfg=global_cfg)
+    profile = Profile(
+        slug="py",
+        scope="shared",
+        name="Python Dev",
+        image="mcr.microsoft.com/devcontainers/python:3.12",
+    )
+    dc_path = svc._write_devcontainer("alice", "alice-myapp", profile=profile)
+    content = json.loads(dc_path.read_text(encoding="utf-8"))
+    assert content["image"] == "mcr.microsoft.com/devcontainers/python:3.12"
+
+
+def test_write_devcontainer_default_image_without_profile_image(
+    tmp_data_root: Path, global_cfg
+) -> None:
+    """Profil sans image (ou pas de profil) → image par défaut du portail."""
+    from portal.devpod.service import _DEFAULT_IMAGE, DevPodService
+    from portal.profiles.models import Profile
+
+    svc = DevPodService(global_cfg=global_cfg)
+    dc_path = svc._write_devcontainer("alice", "alice-myapp")
+    assert json.loads(dc_path.read_text(encoding="utf-8"))["image"] == _DEFAULT_IMAGE
+
+    profile = Profile(slug="py", scope="user", name="Sans image")
+    dc_path = svc._write_devcontainer("alice", "alice-myapp", profile=profile)
+    assert json.loads(dc_path.read_text(encoding="utf-8"))["image"] == _DEFAULT_IMAGE

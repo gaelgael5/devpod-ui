@@ -659,9 +659,12 @@ class DevPodService:
 
         tmp_dir = Path(tempfile.mkdtemp(dir=user_dir, prefix=f"{ws_id}-dc-"))
         try:
-            content: dict[str, Any] = {
-                "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-            }
+            # Image de base : celle du profil si définie (image outillée — les
+            # recettes ne couvrent alors que les manques), sinon le défaut portail.
+            base_image = (
+                profile.image if profile is not None and profile.image else _DEFAULT_IMAGE
+            )
+            content: dict[str, Any] = {"image": base_image}
 
             if recipes:
                 key_to_id: dict[str, str] = {r.key: r.id for r in recipes}

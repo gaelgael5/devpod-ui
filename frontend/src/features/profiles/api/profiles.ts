@@ -5,6 +5,8 @@ export type Scope = 'shared' | 'user'
 export interface ProfileBody {
   name: string
   description: string
+  /** Image de base du devcontainer — vide = image par défaut du portail. */
+  image?: string
   extensions: string[]
   settings: Record<string, unknown>
 }
@@ -14,6 +16,7 @@ export interface ProfileSummary {
   scope: Scope
   name: string
   description: string
+  image?: string
   extension_count: number
   editable: boolean
   gallery_source?: string | null
