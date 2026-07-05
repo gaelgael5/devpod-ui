@@ -20,9 +20,9 @@ def journal(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
         calls["events"].append(event)
 
     async def fake_persist_delivery(
-        event_id: str, listener: str, status: str, error: str | None
+        event_id: str, listener: str, status: str, error: str | None, detail: Any = None
     ) -> None:
-        calls["deliveries"].append((event_id, listener, status, error))
+        calls["deliveries"].append((event_id, listener, status, error, detail))
 
     monkeypatch.setattr(bus_mod, "_persist_event", fake_persist_event)
     monkeypatch.setattr(bus_mod, "_persist_delivery", fake_persist_delivery)
@@ -51,7 +51,9 @@ async def test_dispatch_cible_par_type(journal: dict[str, list[Any]]) -> None:
 
     assert received == ["created:ws1"]
     assert len(journal["events"]) == 1
-    assert journal["deliveries"] == [(journal["events"][0].event_id, "l-created", "ok", None)]
+    assert journal["deliveries"] == [
+        (journal["events"][0].event_id, "l-created", "ok", None, None)
+    ]
 
 
 async def test_echec_ecouteur_isole(journal: dict[str, list[Any]]) -> None:
@@ -72,10 +74,42 @@ async def test_echec_ecouteur_isole(journal: dict[str, list[Any]]) -> None:
     await bus.drain()
 
     assert received == ["ok"]
-    statuses = {(listener, status) for _, listener, status, _ in journal["deliveries"]}
+    statuses = {(listener, status) for _, listener, status, _, _ in journal["deliveries"]}
     assert statuses == {("l-boom", "error"), ("l-ok", "ok")}
-    error = next(err for _, listener, _, err in journal["deliveries"] if listener == "l-boom")
+    error = next(err for _, listener, _, err, _ in journal["deliveries"] if listener == "l-boom")
     assert error is not None and "kaputt" in error
+
+
+async def test_detail_retourne_par_le_handler_journalise(journal: dict[str, list[Any]]) -> None:
+    bus = EventBus()
+
+    async def handler(event: AppEvent) -> list[dict[str, Any]]:
+        return [{"rule": "r1", "matched": True, "actions_ran": 2}]
+
+    bus.subscribe("l", ["workspace.created"], handler)
+    await bus.emit(_event())
+    await bus.drain()
+    _, _, status, _, detail = journal["deliveries"][0]
+    assert status == "ok"
+    assert detail == [{"rule": "r1", "matched": True, "actions_ran": 2}]
+
+
+async def test_detail_porte_par_l_exception_journalise(journal: dict[str, list[Any]]) -> None:
+    """Même en échec, le détail par règle attaché à l'exception est journalisé."""
+    bus = EventBus()
+
+    async def handler(event: AppEvent) -> None:
+        exc = RuntimeError("une règle a échoué")
+        exc.delivery_detail = [{"rule": "r1", "error": "boom"}]  # type: ignore[attr-defined]
+        raise exc
+
+    bus.subscribe("l", ["workspace.created"], handler)
+    await bus.emit(_event())
+    await bus.drain()
+    _, _, status, error, detail = journal["deliveries"][0]
+    assert status == "error"
+    assert error is not None and "une règle a échoué" in error
+    assert detail == [{"rule": "r1", "error": "boom"}]
 
 
 async def test_echec_journal_n_empeche_pas_le_dispatch(

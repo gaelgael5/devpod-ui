@@ -801,6 +801,9 @@ app_event_delivery = Table(
     Column("listener", Text, nullable=False),
     Column("status", Text, nullable=False),
     Column("error", Text, nullable=True),
+    # Détail structuré retourné par l'écouteur (ex. user-rules : verdict et
+    # erreurs par règle déclenchée) — null si l'écouteur n'en fournit pas.
+    Column("detail", JSONB, nullable=True),
     Column("finished_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint("status IN ('ok', 'error')", name="ck_app_event_delivery_status"),
     Index("idx_app_event_delivery_event", "event_id"),

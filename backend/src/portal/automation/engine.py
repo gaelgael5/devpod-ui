@@ -22,7 +22,13 @@ PrimitiveCaller = Callable[[str, str, str, dict[str, Any]], Awaitable[Any]]
 
 
 class AutomationError(Exception):
-    """Échec déterministe d'une règle (gabarit, sonde, extraction ou action)."""
+    """Échec déterministe d'une règle (gabarit, sonde, extraction ou action).
+
+    delivery_detail : détail structuré (par règle) attaché par l'appelant pour
+    que le bus le journalise dans app_event_delivery même en cas d'échec.
+    """
+
+    delivery_detail: Any = None
 
 
 def _context(event: AppEvent) -> dict[str, Any]:

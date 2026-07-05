@@ -42,10 +42,11 @@ async def insert_delivery(
     listener: str,
     status: str,
     error: str | None,
+    detail: Any = None,
 ) -> None:
     await conn.execute(
         insert(app_event_delivery).values(
-            event_id=event_id, listener=listener, status=status, error=error
+            event_id=event_id, listener=listener, status=status, error=error, detail=detail
         )
     )
 

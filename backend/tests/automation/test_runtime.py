@@ -114,14 +114,17 @@ async def test_chaine_deux_regles(caller: list[str], rules_db: AsyncMock) -> Non
     assert "docflow__create_block" in caller
 
 
-async def test_pas_de_chaine_si_non_matche(caller: list[str], rules_db: AsyncMock) -> None:
+async def test_chaine_meme_si_non_matche(caller: list[str], rules_db: AsyncMock) -> None:
+    """L'enchaînement est un ordre de lancement : il suit même conditions fausses."""
+    rules_db.return_value = _row(id="r2", name="règle 2")
     row = _row(
         next_rule_id="r2",
         conditions=[{**_COND, "operator": "contains"}],  # [] contains → faux
     )
     traces = await run_rule_chain(row, _event(), "alice")
-    assert len(traces) == 1
-    rules_db.assert_not_awaited()
+    assert len(traces) == 2
+    assert traces[0]["matched"] is False
+    assert traces[1]["rule"] == "règle 2"
 
 
 async def test_cycle_detecte(caller: list[str], rules_db: AsyncMock) -> None:
@@ -138,3 +141,50 @@ async def test_chaine_desactivee_arretee(caller: list[str], rules_db: AsyncMock)
     traces = await run_rule_chain(_row(next_rule_id="r2"), _event(), "alice")
     assert len(traces) == 1
     assert "désactivée" in traces[0]["chain_stopped"]
+
+
+# ─── run_user_rules : détail journalisé + indépendance des règles racines ─────
+
+
+@pytest.fixture
+def rules_for_event(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    m = AsyncMock()
+    monkeypatch.setattr(runtime, "list_enabled_rules_for_event", m)
+
+    class _Conn:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *a: Any) -> None:
+            return None
+
+    monkeypatch.setattr(runtime, "_get_engine", lambda: type("E", (), {"connect": _Conn})())
+    return m
+
+
+async def test_run_user_rules_retourne_le_detail(
+    caller: list[str], rules_for_event: AsyncMock
+) -> None:
+    rules_for_event.return_value = [_row()]
+    detail = await runtime.run_user_rules(_event())
+    assert detail == [{"rule": "docflow workspace", "matched": True, "actions_ran": 1}]
+
+
+async def test_run_user_rules_continue_apres_une_erreur(
+    rules_for_event: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Les règles racines sont indépendantes ; l'exception finale porte le détail."""
+    r_ko = _row(id="r-ko", name="cassée", conditions=[{**_COND, "service_id": None}])
+    r_ok = _row(id="r-ok", name="saine")
+    rules_for_event.return_value = [r_ko, r_ok]
+
+    async def fake_caller(owner: str, service_id: str, tool: str, args: dict[str, Any]) -> Any:
+        return [] if "list" in tool else {"ok": True}
+
+    monkeypatch.setattr(runtime, "call_service_primitive", fake_caller)
+    with pytest.raises(runtime.AutomationError) as e:
+        await runtime.run_user_rules(_event())
+    detail = e.value.delivery_detail
+    assert detail is not None
+    assert detail[0]["rule"] == "cassée" and "error" in detail[0]
+    assert detail[1] == {"rule": "saine", "matched": True, "actions_ran": 1}

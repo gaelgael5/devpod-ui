@@ -19,7 +19,10 @@ from .models import EVENT_TYPES, AppEvent
 
 _log = structlog.get_logger(__name__)
 
-Handler = Callable[[AppEvent], Awaitable[None]]
+# Un handler peut retourner un détail structuré (JSON-sérialisable) : il est
+# journalisé avec la livraison. En cas d'exception, l'attribut delivery_detail
+# de l'exception (s'il existe) est journalisé de la même façon.
+Handler = Callable[[AppEvent], Awaitable[Any]]
 
 
 async def _persist_event(event: AppEvent) -> None:
@@ -39,13 +42,15 @@ async def _persist_event(event: AppEvent) -> None:
         )
 
 
-async def _persist_delivery(event_id: str, listener: str, status: str, error: str | None) -> None:
+async def _persist_delivery(
+    event_id: str, listener: str, status: str, error: str | None, detail: Any = None
+) -> None:
     from ..db.app_events import insert_delivery
     from ..db.engine import _get_engine
 
     async with _get_engine().begin() as conn:
         await insert_delivery(
-            conn, event_id=event_id, listener=listener, status=status, error=error
+            conn, event_id=event_id, listener=listener, status=status, error=error, detail=detail
         )
 
 
@@ -87,11 +92,12 @@ class EventBus:
 
     async def _dispatch(self, event: AppEvent) -> None:
         for sub in [s for s in self._subs if event.type in s.event_types]:
-            status, error = "ok", None
+            status, error, detail = "ok", None, None
             try:
-                await sub.handler(event)
+                detail = await sub.handler(event)
             except Exception as exc:
                 status, error = "error", f"{type(exc).__name__}: {exc}"
+                detail = getattr(exc, "delivery_detail", None)
                 _log.error(
                     "event_listener_failed",
                     listener=sub.name,
@@ -100,7 +106,7 @@ class EventBus:
                     error=error,
                 )
             try:
-                await _persist_delivery(event.event_id, sub.name, status, error)
+                await _persist_delivery(event.event_id, sub.name, status, error, detail)
             except Exception:
                 _log.error(
                     "event_delivery_journal_failed",
