@@ -1337,3 +1337,109 @@ Paramètre optionnel `include` pour enrichir la réponse : - 'workload' : compte
   }
 }
 ```
+
+## `devpod__message_send`
+
+- **Scope** : `write`
+- **Description** : Envoie un message asynchrone à un autre workspace agent. La délivrance est pilotée par l'utilisateur (fire-and-forget) : ne PAS attendre ni poller la réponse, poursuivre ses tâches. Consigner l'envoi dans le journal de travail. Impact: crée un message en attente de validation.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "from_workspace",
+    "to_workspace",
+    "subject",
+    "body"
+  ],
+  "properties": {
+    "from_workspace": {
+      "type": "string",
+      "description": "Nom du workspace émetteur (celui où tourne l'agent appelant)."
+    },
+    "to_workspace": {
+      "type": "string",
+      "description": "Nom du workspace destinataire."
+    },
+    "subject": {
+      "type": "string",
+      "description": "Sujet (≤ 200 caractères)."
+    },
+    "body": {
+      "type": "string",
+      "description": "Corps markdown (≤ 20000 caractères)."
+    },
+    "reply_to": {
+      "type": "string",
+      "description": "message_id d'un message reçu auquel on répond (optionnel)."
+    },
+    "from_session": {
+      "type": "string",
+      "description": "Nom de la session émettrice si connu (optionnel)."
+    }
+  }
+}
+```
+
+## `devpod__message_status`
+
+- **Scope** : `read`
+- **Description** : Statut et horodatages d'un message envoyé (+ réponses liées). Ne PAS poller : la réponse éventuelle arrivera comme un message entrant. Impact: read-only.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "message_id"
+  ],
+  "properties": {
+    "message_id": {
+      "type": "string",
+      "description": "Id du message."
+    }
+  }
+}
+```
+
+## `devpod__message_list`
+
+- **Scope** : `read`
+- **Description** : Liste les messages d'un workspace. 'received' ne retourne que les messages DÉLIVRÉS (les messages en attente appartiennent à l'utilisateur, invisibles à l'agent). Impact: read-only.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string",
+      "description": "Nom du workspace."
+    },
+    "direction": {
+      "type": "string",
+      "enum": [
+        "received",
+        "sent",
+        "all"
+      ],
+      "default": "received",
+      "description": "received (délivrés reçus), sent (envoyés), all."
+    },
+    "limit": {
+      "type": "integer",
+      "default": 20,
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Nombre max de messages."
+    }
+  }
+}
+```

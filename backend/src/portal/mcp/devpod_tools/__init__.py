@@ -40,6 +40,7 @@ from ...db.tables import workspaces as ws_table
 from ...db.user_config import load_user_db
 from ...devpod.exec import TMUX_SOCK_DETECT, tmux, ws_exec
 from . import operations
+from .agent_message_tools import AGENT_MESSAGE_IMPLS
 from .compose_tools import COMPOSE_IMPLS
 from .errors import DevpodToolError
 from .logs_tools import LOGS_IMPLS
@@ -1125,6 +1126,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_profile_set": _workspace_profile_set,
     **COMPOSE_IMPLS,
     **MESSAGE_IMPLS,
+    **AGENT_MESSAGE_IMPLS,
     **LOGS_IMPLS,
 }
 
