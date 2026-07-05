@@ -7,11 +7,31 @@ import pytest
 from sqlalchemy import insert
 
 from portal.db import user_services as svc
-from portal.db.tables import mcp_profile
+from portal.db.tables import mcp_profile, users
 
 pytestmark = pytest.mark.asyncio
 
 OWNER = "admin"
+
+
+async def _seed_user(conn, login: str = OWNER) -> None:
+    """Insère un utilisateur minimal — user_services.owner_login ET
+    mcp_profile.owner_login référencent users.login par FK."""
+    await conn.execute(
+        insert(users).values(
+            login=login,
+            version="1",
+            secret_ns=str(uuid.uuid4()),
+            default_ide="openvscode",
+            default_idle_timeout="2h",
+            harpocrate_api_key="",
+        )
+    )
+
+
+@pytest.fixture(autouse=True)
+async def _user(db_conn):
+    await _seed_user(db_conn)
 
 
 async def _mk_profile(db_conn, name: str = "Ops") -> str:
