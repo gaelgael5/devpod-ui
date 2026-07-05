@@ -14,15 +14,9 @@ _FIELDS = (
     "name",
     "enabled",
     "event_type",
-    "probe_service_id",
-    "probe_tool",
-    "probe_args",
-    "condition_path",
-    "condition_operator",
-    "condition_value",
-    "action_service_id",
-    "action_tool",
-    "action_args",
+    "conditions",
+    "actions",
+    "next_rule_id",
 )
 
 

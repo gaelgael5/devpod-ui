@@ -119,42 +119,55 @@ async def run_rules(
 
 
 async def run_rule(rule: Rule, event: AppEvent, call_primitive: PrimitiveCaller) -> dict[str, Any]:
-    """Exécute une règle et retourne sa trace complète (sonde, verdict, action).
+    """Exécute une règle et retourne sa trace complète.
 
-    La trace alimente le bouton « Jouer » de l'UI : args rendus, résultat de la
-    sonde, verdict de la condition, résultat de l'action si elle a couru.
+    Conditions en ET : évaluées dans l'ordre, arrêt au premier faux (les sondes
+    suivantes ne sont pas appelées). Aucune condition = vrai. Si la règle
+    matche, les actions courent dans l'ordre — la première erreur arrête tout.
+    La trace alimente le bouton « Jouer » de l'UI.
     """
     context = _context(event)
-    if rule.probe.service_id is None:
-        raise AutomationError(f"règle {rule.name!r}: service de sonde manquant (supprimé ?)")
-    probe_args = render_args(rule.probe.args, context)
-    probe_result = await call_primitive(
-        event.actor, rule.probe.service_id, rule.probe.tool, probe_args
-    )
-    matched = check(rule.condition, probe_result, context)
+    conditions_trace: list[dict[str, Any]] = []
+    matched = True
+    for idx, cond in enumerate(rule.conditions):
+        if cond.service_id is None:
+            raise AutomationError(
+                f"règle {rule.name!r}: service manquant sur la condition {idx + 1} (supprimé ?)"
+            )
+        probe_args = render_args(cond.args, context)
+        probe_result = await call_primitive(event.actor, cond.service_id, cond.tool, probe_args)
+        ok = check(cond, probe_result, context)
+        conditions_trace.append(
+            {"tool": cond.tool, "args": probe_args, "result": probe_result, "ok": ok}
+        )
+        if not ok:
+            matched = False
+            break
     trace: dict[str, Any] = {
         "rule": rule.name,
-        "probe": {"tool": rule.probe.tool, "args": probe_args, "result": probe_result},
+        "conditions": conditions_trace,
         "matched": matched,
-        "action": None,
+        "actions": [],
     }
     if matched:
-        if rule.action.service_id is None:
-            raise AutomationError(f"règle {rule.name!r}: service d'action manquant (supprimé ?)")
-        action_args = render_args(rule.action.args, context)
-        action_result = await call_primitive(
-            event.actor, rule.action.service_id, rule.action.tool, action_args
-        )
-        trace["action"] = {
-            "tool": rule.action.tool,
-            "args": action_args,
-            "result": action_result,
-        }
+        for idx, action in enumerate(rule.actions):
+            if action.service_id is None:
+                raise AutomationError(
+                    f"règle {rule.name!r}: service manquant sur l'action {idx + 1} (supprimé ?)"
+                )
+            action_args = render_args(action.args, context)
+            action_result = await call_primitive(
+                event.actor, action.service_id, action.tool, action_args
+            )
+            trace["actions"].append(
+                {"tool": action.tool, "args": action_args, "result": action_result}
+            )
     _log.info(
         "automation_rule_evaluated",
         rule=rule.name,
         event_type=event.type,
         actor=event.actor,
         matched=matched,
+        actions_ran=len(trace["actions"]),
     )
     return trace

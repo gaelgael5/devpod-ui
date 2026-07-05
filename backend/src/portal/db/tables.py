@@ -809,9 +809,11 @@ app_event_delivery = Table(
 # ─── Règles utilisateur (moteur sonde → condition → action) ───────────────────
 #
 # Écrites par l'utilisateur dans l'UI (bloc Rules). Une règle réagit à UN type
-# d'événement ; la sonde et l'action sont des outils MCP résolus via le profil
-# du service référencé (user_services). FK services en SET NULL : la suppression
-# du service ne supprime pas la règle, elle devient inopérante et signalée.
+# d'événement ; conditions (ET, chacune = sonde MCP + test) et actions
+# (ordonnées) sont des listes JSONB — les service_id qu'elles contiennent
+# référencent user_services SANS FK (JSONB) : un service supprimé rend la
+# règle inopérante, signalée à l'exécution et dans l'UI, jamais silencieuse.
+# next_rule_id : règle jouée à la suite quand les actions ont couru.
 user_rules = Table(
     "user_rules",
     metadata,
@@ -820,31 +822,18 @@ user_rules = Table(
     Column("name", Text, nullable=False),
     Column("enabled", Boolean, nullable=False, server_default="true"),
     Column("event_type", Text, nullable=False),
+    # [{service_id, tool, args, path, operator, value}] — ET logique, ordre préservé
+    Column("conditions", JSONB, nullable=False, server_default="[]"),
+    # [{service_id, tool, args}] — exécutées dans l'ordre, arrêt à la 1re erreur
+    Column("actions", JSONB, nullable=False, server_default="[]"),
     Column(
-        "probe_service_id",
+        "next_rule_id",
         Text,
-        ForeignKey("user_services.id", ondelete="SET NULL"),
+        ForeignKey("user_rules.id", ondelete="SET NULL"),
         nullable=True,
     ),
-    Column("probe_tool", Text, nullable=False),  # nom namespacé (ns__tool)
-    Column("probe_args", JSONB, nullable=False, server_default="{}"),
-    Column("condition_path", Text, nullable=False, server_default=""),
-    Column("condition_operator", Text, nullable=False),
-    Column("condition_value", Text, nullable=False, server_default=""),
-    Column(
-        "action_service_id",
-        Text,
-        ForeignKey("user_services.id", ondelete="SET NULL"),
-        nullable=True,
-    ),
-    Column("action_tool", Text, nullable=False),
-    Column("action_args", JSONB, nullable=False, server_default="{}"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=True),
-    CheckConstraint(
-        "condition_operator IN ('eq', 'neq', 'contains', 'not_contains')",
-        name="ck_user_rules_operator",
-    ),
     Index("idx_user_rules_owner_event", "owner_login", "event_type"),
 )
 

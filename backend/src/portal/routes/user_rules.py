@@ -1,10 +1,10 @@
 """Endpoints REST du bloc Rules : CRUD des règles + outils d'un service + test.
 
-La règle est écrite par l'utilisateur : événement déclencheur, sonde (service +
-outil MCP + args), condition (path/opérateur/valeur), action (service + outil +
-args). POST /rules/{id}/test la joue immédiatement sur un événement synthétique
-et retourne la trace complète (sonde, verdict, action) — l'action s'exécute
-réellement si la condition est vraie.
+Règle v2 : événement déclencheur, conditions en ET (chacune = sonde MCP + test
+sur le retour), actions ordonnées (service + méthode + args), enchaînement
+optionnel vers une autre règle. POST /rules/{id}/test joue la règle (et sa
+chaîne) immédiatement sur un événement synthétique et retourne les traces —
+les actions s'exécutent réellement quand les conditions sont vraies.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
-from ..automation.engine import AutomationError, run_rule
-from ..automation.runtime import rule_row_to_engine
-from ..automation.service_exec import call_service_primitive, list_service_tools
+from ..automation.engine import AutomationError
+from ..automation.runtime import run_rule_chain
+from ..automation.service_exec import list_service_tools
 from ..db import user_rules as db
 from ..db import user_services as services_db
 from ..db.engine import get_conn
@@ -29,7 +29,7 @@ _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["rules"])
 
 
-class RulePrimitive(BaseModel):
+class RuleAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     service_id: str
@@ -45,8 +45,8 @@ class RulePrimitive(BaseModel):
         return v
 
 
-class RuleCondition(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class RuleConditionBody(RuleAction):
+    """Une sonde + son test — mêmes champs que l'action, plus la comparaison."""
 
     path: str = ""
     operator: Literal["eq", "neq", "contains", "not_contains"]
@@ -59,9 +59,9 @@ class RuleBody(BaseModel):
     name: str
     enabled: bool = True
     event_type: str
-    probe: RulePrimitive
-    condition: RuleCondition
-    action: RulePrimitive
+    conditions: list[RuleConditionBody] = Field(default_factory=list)
+    actions: list[RuleAction] = Field(min_length=1)
+    next_rule_id: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -93,22 +93,28 @@ def _db_fields(body: RuleBody) -> dict[str, Any]:
         "name": body.name,
         "enabled": body.enabled,
         "event_type": body.event_type,
-        "probe_service_id": body.probe.service_id,
-        "probe_tool": body.probe.tool,
-        "probe_args": body.probe.args,
-        "condition_path": body.condition.path,
-        "condition_operator": body.condition.operator,
-        "condition_value": body.condition.value,
-        "action_service_id": body.action.service_id,
-        "action_tool": body.action.tool,
-        "action_args": body.action.args,
+        "conditions": [c.model_dump() for c in body.conditions],
+        "actions": [a.model_dump() for a in body.actions],
+        "next_rule_id": body.next_rule_id,
     }
 
 
-async def _require_owned_services(conn: AsyncConnection, login: str, body: RuleBody) -> None:
-    for service_id in {body.probe.service_id, body.action.service_id}:
+async def _require_valid_refs(
+    conn: AsyncConnection, login: str, body: RuleBody, *, rule_id: str | None
+) -> None:
+    service_ids = {c.service_id for c in body.conditions} | {a.service_id for a in body.actions}
+    for service_id in service_ids:
         if await services_db.get_service(conn, login, service_id) is None:
             raise HTTPException(status_code=422, detail=f"service introuvable: {service_id!r}")
+    if body.next_rule_id is not None:
+        if rule_id is not None and body.next_rule_id == rule_id:
+            raise HTTPException(
+                status_code=422, detail="une règle ne peut pas s'enchaîner sur elle-même"
+            )
+        if await db.get_rule(conn, login, body.next_rule_id) is None:
+            raise HTTPException(
+                status_code=422, detail=f"règle chaînée introuvable: {body.next_rule_id!r}"
+            )
 
 
 @router.get("/rules/events")
@@ -131,7 +137,7 @@ async def create_rule_route(
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
-    await _require_owned_services(conn, user.login, body)
+    await _require_valid_refs(conn, user.login, body, rule_id=None)
     rule_id = await db.create_rule(conn, owner_login=user.login, **_db_fields(body))
     _log.info("rule_created", id=rule_id, name=body.name, login=user.login)
     return {"id": rule_id}
@@ -144,7 +150,7 @@ async def update_rule_route(
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
-    await _require_owned_services(conn, user.login, body)
+    await _require_valid_refs(conn, user.login, body, rule_id=rule_id)
     if not await db.update_rule(conn, user.login, rule_id, **_db_fields(body)):
         raise HTTPException(status_code=404, detail="règle introuvable")
     return {"id": rule_id}
@@ -189,10 +195,10 @@ async def test_rule_route(
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
-    """Joue la règle immédiatement et retourne la trace complète.
+    """Joue la règle (et sa chaîne) immédiatement et retourne les traces.
 
-    L'action est RÉELLEMENT exécutée si la condition est vraie (les règles sont
-    des « ensure » idempotents : rejouer est sans danger).
+    Les actions sont RÉELLEMENT exécutées quand les conditions sont vraies (les
+    règles sont des « ensure » idempotents : rejouer est sans danger).
     """
     row = await db.get_rule(conn, user.login, rule_id)
     if row is None:
@@ -204,7 +210,7 @@ async def test_rule_route(
         subject=body.subject,
     )
     try:
-        trace = await run_rule(rule_row_to_engine(row), event, call_service_primitive)
+        traces = await run_rule_chain(row, event, user.login)
     except AutomationError as exc:
         return {"ok": False, "error": str(exc)}
-    return {"ok": True, **trace}
+    return {"ok": True, "traces": traces}

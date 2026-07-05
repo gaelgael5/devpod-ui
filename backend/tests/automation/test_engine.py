@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from portal.automation.engine import (
     AutomationError,
@@ -99,12 +100,14 @@ def test_extract_cle_absente_dict() -> None:
 def test_check_operateurs(
     operator: str, path: str, value: str, result: Any, expected: bool
 ) -> None:
-    cond = Condition(path=path, operator=operator, value=value)  # type: ignore[arg-type]
+    cond = Condition(service_id="svc-1", tool="t", path=path, operator=operator, value=value)  # type: ignore[arg-type]
     assert check(cond, result, {"workspace": "w"}) is expected
 
 
 def test_check_value_est_un_gabarit() -> None:
-    cond = Condition(path="slug", operator="not_contains", value="{workspace}")
+    cond = Condition(
+        service_id="svc-1", tool="t", path="slug", operator="not_contains", value="{workspace}"
+    )
     ctx = {"workspace": "mon-projet"}
     assert check(cond, [{"slug": "autre"}], ctx) is True
     assert check(cond, [{"slug": "mon-projet"}], ctx) is False
@@ -113,22 +116,37 @@ def test_check_value_est_un_gabarit() -> None:
 # ─── Exécution des règles ─────────────────────────────────────────────────────
 
 
+def _cond(
+    tool: str = "docflow__list_workspaces",
+    service: str | None = "svc-1",
+    path: str = "slug",
+    operator: str = "not_contains",
+    value: str = "{workspace}",
+) -> Condition:
+    return Condition(
+        service_id=service, tool=tool, args={}, path=path, operator=operator, value=value
+    )  # type: ignore[arg-type]
+
+
+def _action(
+    tool: str = "docflow__create_workspace", service: str | None = "svc-1"
+) -> PrimitiveCall:
+    return PrimitiveCall(
+        service_id=service, tool=tool, args={"slug": "{workspace}", "label": "{workspace}"}
+    )
+
+
 def _rule(
     name: str = "r1",
     events: tuple[str, ...] = ("workspace.created",),
-    probe_service: str | None = "svc-1",
-    action_service: str | None = "svc-1",
+    conditions: tuple[Condition, ...] | None = None,
+    actions: tuple[PrimitiveCall, ...] | None = None,
 ) -> Rule:
     return Rule(
         name=name,
         events=events,
-        probe=PrimitiveCall(service_id=probe_service, tool="docflow__list_workspaces", args={}),
-        condition=Condition(path="slug", operator="not_contains", value="{workspace}"),
-        action=PrimitiveCall(
-            service_id=action_service,
-            tool="docflow__create_workspace",
-            args={"slug": "{workspace}", "label": "{workspace}"},
-        ),
+        conditions=(_cond(),) if conditions is None else conditions,
+        actions=(_action(),) if actions is None else actions,
     )
 
 
@@ -191,28 +209,100 @@ async def test_run_rule_retourne_la_trace_complete() -> None:
     )
     trace = await run_rule(_rule(), _event(), caller)
     assert trace["matched"] is True
-    assert trace["probe"]["tool"] == "docflow__list_workspaces"
-    assert trace["probe"]["result"] == []
-    assert trace["action"]["args"] == {"slug": "mon-projet", "label": "mon-projet"}
-    assert trace["action"]["result"] == {"slug": "mon-projet"}
+    assert trace["conditions"][0]["tool"] == "docflow__list_workspaces"
+    assert trace["conditions"][0]["result"] == []
+    assert trace["conditions"][0]["ok"] is True
+    assert trace["actions"][0]["args"] == {"slug": "mon-projet", "label": "mon-projet"}
+    assert trace["actions"][0]["result"] == {"slug": "mon-projet"}
 
 
 async def test_run_rule_sans_action_si_non_matche() -> None:
     caller = _StubCaller({"docflow__list_workspaces": [{"slug": "mon-projet"}]})
     trace = await run_rule(_rule(), _event(), caller)
     assert trace["matched"] is False
-    assert trace["action"] is None
+    assert trace["actions"] == []
 
 
-async def test_service_sonde_manquant_est_une_erreur() -> None:
-    """Service supprimé (SET NULL) : la règle est inopérante et le dit."""
+async def test_et_logique_arret_au_premier_faux() -> None:
+    """Deux conditions : la première fausse court-circuite la seconde."""
+    caller = _StubCaller({"docflow__list_workspaces": [{"slug": "mon-projet"}]})
+    rule = _rule(
+        conditions=(
+            _cond(),  # not_contains "mon-projet" → faux
+            _cond(tool="docflow__list_documents"),  # ne doit jamais être appelée
+        )
+    )
+    trace = await run_rule(rule, _event(), caller)
+    assert trace["matched"] is False
+    assert len(trace["conditions"]) == 1
+    assert [c[2] for c in caller.calls] == ["docflow__list_workspaces"]
+
+
+async def test_et_logique_toutes_vraies() -> None:
+    caller = _StubCaller(
+        {
+            "docflow__list_workspaces": [],
+            "docflow__list_documents": [],
+            "docflow__create_workspace": {"slug": "ok"},
+        }
+    )
+    rule = _rule(conditions=(_cond(), _cond(tool="docflow__list_documents")))
+    trace = await run_rule(rule, _event(), caller)
+    assert trace["matched"] is True
+    assert [c["ok"] for c in trace["conditions"]] == [True, True]
+
+
+async def test_sans_condition_les_actions_courent_toujours() -> None:
+    caller = _StubCaller({"docflow__create_workspace": {"slug": "ok"}})
+    trace = await run_rule(_rule(conditions=()), _event(), caller)
+    assert trace["matched"] is True
+    assert len(trace["actions"]) == 1
+
+
+async def test_actions_multiples_dans_l_ordre() -> None:
+    caller = _StubCaller(
+        {
+            "docflow__list_workspaces": [],
+            "docflow__create_workspace": {"slug": "ok"},
+            "docflow__create_block": {"slug": "planner"},
+        }
+    )
+    rule = _rule(actions=(_action(), _action(tool="docflow__create_block")))
+    trace = await run_rule(rule, _event(), caller)
+    assert [a["tool"] for a in trace["actions"]] == [
+        "docflow__create_workspace",
+        "docflow__create_block",
+    ]
+
+
+async def test_erreur_d_action_arrete_les_suivantes() -> None:
+    caller = _StubCaller(
+        {
+            "docflow__list_workspaces": [],
+            "docflow__create_workspace": AutomationError("409"),
+            "docflow__create_block": {"slug": "planner"},
+        }
+    )
+    rule = _rule(actions=(_action(), _action(tool="docflow__create_block")))
+    with pytest.raises(AutomationError):
+        await run_rule(rule, _event(), caller)
+    assert "docflow__create_block" not in [c[2] for c in caller.calls]
+
+
+async def test_service_condition_manquant_est_une_erreur() -> None:
+    """Service supprimé : la règle est inopérante et le dit."""
     caller = _StubCaller({})
-    with pytest.raises(AutomationError, match="sonde"):
-        await run_rule(_rule(probe_service=None), _event(), caller)
+    with pytest.raises(AutomationError, match="condition 1"):
+        await run_rule(_rule(conditions=(_cond(service=None),)), _event(), caller)
     assert caller.calls == []
 
 
 async def test_service_action_manquant_est_une_erreur() -> None:
     caller = _StubCaller({"docflow__list_workspaces": []})
-    with pytest.raises(AutomationError, match="action"):
-        await run_rule(_rule(action_service=None), _event(), caller)
+    with pytest.raises(AutomationError, match="action 1"):
+        await run_rule(_rule(actions=(_action(service=None),)), _event(), caller)
+
+
+def test_au_moins_une_action_requise() -> None:
+    with pytest.raises(ValidationError):
+        _rule(actions=())
