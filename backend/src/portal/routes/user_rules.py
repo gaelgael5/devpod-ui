@@ -17,9 +17,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
-from ..automation.engine import AutomationError
+from ..automation.engine import AutomationError, render_args
 from ..automation.runtime import run_rule_chain
-from ..automation.service_exec import list_service_tools
+from ..automation.service_exec import call_service_primitive, list_service_tools
 from ..db import user_rules as db
 from ..db import user_services as services_db
 from ..db.engine import get_conn
@@ -186,6 +186,59 @@ async def list_service_tools_route(
         }
         for p in prims
     ]
+
+
+class ServiceCallBody(BaseModel):
+    """Essai direct d'un outil MCP (bouton « Tester » de l'éditeur de règles)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tool: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    # Valeur injectée dans {workspace} pour cet essai.
+    workspace: str | None = None
+
+    @field_validator("tool")
+    @classmethod
+    def _tool_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("outil requis")
+        return v
+
+
+@router.post("/services/{service_id}/tools/call")
+async def test_service_call_route(
+    service_id: str,
+    body: ServiceCallBody,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Appelle l'outil avec les args rendus et retourne le résultat brut.
+
+    Endpoint de diagnostic : TOUTE erreur (gabarit, résolution, backend
+    injoignable, outil en erreur) est retournée en clair, jamais avalée.
+    """
+    context = {
+        "workspace": body.workspace or "",
+        "actor": user.login,
+        "event": "",
+        "subject": {},
+    }
+    try:
+        rendered = render_args(body.args, context)
+        result = await call_service_primitive(user.login, service_id, body.tool, rendered)
+    except Exception as exc:
+        # Bouton d'essai : montrer l'échec est la fonction — pas un 500 opaque.
+        _log.info(
+            "service_tool_test_failed",
+            service_id=service_id,
+            tool=body.tool,
+            login=user.login,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return {"ok": True, "args": rendered, "result": result}
 
 
 @router.post("/rules/{rule_id}/test")

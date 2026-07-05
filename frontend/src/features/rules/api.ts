@@ -134,6 +134,37 @@ export function useDeleteRule() {
   })
 }
 
+export interface ServiceCallResult {
+  ok: boolean
+  error?: string
+  args?: Record<string, unknown>
+  result?: unknown
+}
+
+export function useTestServiceCall() {
+  return useMutation({
+    mutationFn: ({
+      serviceId,
+      tool,
+      args,
+      workspace,
+    }: {
+      serviceId: string
+      tool: string
+      args: Record<string, unknown>
+      workspace: string | null
+    }) =>
+      apiFetchJson<ServiceCallResult>(
+        `/me/services/${encodeURIComponent(serviceId)}/tools/call`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tool, args, workspace }),
+        },
+      ),
+  })
+}
+
 export function useTestRule() {
   return useMutation({
     mutationFn: ({ id, workspace }: { id: string; workspace: string | null }) =>

@@ -156,6 +156,76 @@ describe('RulesTab', () => {
     )
   })
 
+  it('pré-remplit les paramètres depuis le schéma de la méthode choisie', async () => {
+    const toolsWithSchema = [
+      {
+        name: 'docflow__workspace_exists',
+        description: 'teste',
+        input_schema: {
+          type: 'object',
+          properties: { workspace_slug: { type: 'string' } },
+          required: ['workspace_slug'],
+        },
+      },
+    ]
+    server.use(
+      http.get('/me/rules', () => HttpResponse.json([])),
+      http.get('/me/rules/events', () => HttpResponse.json(['workspace.created'])),
+      http.get('/me/services', () => HttpResponse.json([SERVICE])),
+      http.get('/me/services/s1/tools', () => HttpResponse.json(toolsWithSchema)),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<RulesTab />)
+
+    await user.click(await screen.findByRole('button', { name: /ajouter une règle|add a rule/i }))
+    await user.click(screen.getAllByLabelText(/^service$/i)[0])
+    await user.click(await screen.findByRole('option', { name: 'Docflow' }))
+    await user.click(screen.getAllByLabelText(/méthode mcp|mcp method/i)[0])
+    await user.click(await screen.findByRole('option', { name: 'docflow__workspace_exists' }))
+
+    const textarea = screen.getAllByLabelText(/paramètres|parameters/i)[0] as HTMLTextAreaElement
+    expect(JSON.parse(textarea.value)).toEqual({ workspace_slug: '' })
+  })
+
+  it("teste un appel MCP et affiche le retour brut", async () => {
+    let posted: unknown = null
+    server.use(
+      http.get('/me/rules', () => HttpResponse.json([])),
+      http.get('/me/rules/events', () => HttpResponse.json(['workspace.created'])),
+      http.get('/me/services', () => HttpResponse.json([SERVICE])),
+      http.get('/me/services/s1/tools', () => HttpResponse.json(TOOLS)),
+      http.post('/me/services/s1/tools/call', async ({ request }) => {
+        posted = await request.json()
+        return HttpResponse.json({
+          ok: true,
+          args: { status: 'all' },
+          result: [{ slug: 'demo' }],
+        })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<RulesTab />)
+
+    await user.click(await screen.findByRole('button', { name: /ajouter une règle|add a rule/i }))
+    await user.type(
+      screen.getByLabelText(/workspace de test|test workspace/i),
+      'mon-projet',
+    )
+    await user.click(screen.getAllByLabelText(/^service$/i)[0])
+    await user.click(await screen.findByRole('option', { name: 'Docflow' }))
+    await user.click(screen.getAllByLabelText(/méthode mcp|mcp method/i)[0])
+    await user.click(await screen.findByRole('option', { name: 'docflow__list_workspaces' }))
+
+    await user.click(screen.getAllByRole('button', { name: /^(tester|test)$/i })[0])
+
+    expect(await screen.findByText(/"slug": "demo"/)).toBeInTheDocument()
+    expect(posted).toEqual({
+      tool: 'docflow__list_workspaces',
+      args: {},
+      workspace: 'mon-projet',
+    })
+  })
+
   it('joue une règle et affiche les traces de la chaîne', async () => {
     let testedBody: unknown = null
     server.use(

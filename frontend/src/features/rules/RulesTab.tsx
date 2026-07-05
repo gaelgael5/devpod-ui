@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link2, Pencil, Play, Plus, Trash2, Workflow, X } from 'lucide-react'
+import { FlaskConical, Link2, Pencil, Play, Plus, Trash2, Workflow, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,8 +15,9 @@ import {
 import { useServices } from '@/features/services/api'
 import {
   useCreateRule, useDeleteRule, useRuleEvents, useRules, useServiceTools,
-  useTestRule, useUpdateRule,
-  type RuleOperator, type RuleTestResult, type RuleTraceEntry, type UserRule,
+  useTestRule, useTestServiceCall, useUpdateRule,
+  type RuleOperator, type RuleTestResult, type RuleTraceEntry, type ServiceTool,
+  type UserRule,
 } from './api'
 
 const OPERATORS: RuleOperator[] = ['eq', 'neq', 'contains', 'not_contains']
@@ -55,21 +56,43 @@ const draftFromCall = (c: { service_id: string | null; tool: string; args: Recor
   args: JSON.stringify(c.args),
 })
 
+/** Squelette de paramètres généré depuis l'inputSchema de l'outil choisi. */
+function argsSkeleton(tool: ServiceTool | undefined): string {
+  const props = (tool?.input_schema?.properties ?? {}) as Record<
+    string,
+    { type?: string; default?: unknown }
+  >
+  const out: Record<string, unknown> = {}
+  for (const [key, p] of Object.entries(props)) {
+    if (p?.default !== undefined) out[key] = p.default
+    else if (p?.type === 'number' || p?.type === 'integer') out[key] = 0
+    else if (p?.type === 'boolean') out[key] = false
+    else if (p?.type === 'array') out[key] = []
+    else if (p?.type === 'object') out[key] = {}
+    else out[key] = ''
+  }
+  return JSON.stringify(out, null, 2)
+}
+
 // ── Champs service + méthode + args (partagés conditions/actions) ─────────────
 
 function CallFields({
   idPrefix,
   draft,
   onChange,
+  testWorkspace,
 }: {
   idPrefix: string
   draft: CallDraft
   onChange: (patch: Partial<CallDraft>) => void
+  testWorkspace: string
 }) {
   const { t } = useTranslation()
   const { data: services = [] } = useServices()
   const { data: tools = [] } = useServiceTools(draft.service_id)
-  const argsInvalid = parseArgs(draft.args) === null
+  const testCall = useTestServiceCall()
+  const parsedArgs = parseArgs(draft.args)
+  const argsInvalid = parsedArgs === null
 
   return (
     <div className="flex flex-col gap-2">
@@ -94,7 +117,10 @@ function CallFields({
           <Label htmlFor={`${idPrefix}-tool`}>{t('rules.tool')}</Label>
           <Select
             value={draft.tool}
-            onValueChange={(v) => onChange({ tool: v })}
+            onValueChange={(v) =>
+              // Le squelette des paramètres suit la méthode choisie.
+              onChange({ tool: v, args: argsSkeleton(tools.find((tl) => tl.name === v)) })
+            }
             disabled={!draft.service_id}
           >
             <SelectTrigger id={`${idPrefix}-tool`}>
@@ -116,12 +142,52 @@ function CallFields({
           id={`${idPrefix}-args`}
           value={draft.args}
           onChange={(e) => onChange({ args: e.target.value })}
-          rows={2}
+          rows={3}
           spellCheck={false}
           placeholder='{"workspace_slug": "{workspace}"}'
           className="rounded-md border bg-transparent px-3 py-2 font-mono text-xs"
         />
         {argsInvalid && <p className="text-xs text-destructive">{t('rules.argsInvalid')}</p>}
+      </div>
+      <div className="flex flex-col gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="self-start"
+          disabled={!draft.service_id || !draft.tool || argsInvalid || testCall.isPending}
+          onClick={() =>
+            testCall.mutate(
+              {
+                serviceId: draft.service_id,
+                tool: draft.tool,
+                args: parsedArgs ?? {},
+                workspace: testWorkspace.trim() || null,
+              },
+              {
+                onError: (e) =>
+                  toast.error(e instanceof Error ? e.message : t('errors.generic')),
+              },
+            )
+          }
+        >
+          <FlaskConical className="mr-1 h-3.5 w-3.5" />
+          {testCall.isPending ? t('common.loading') : t('rules.testCall')}
+        </Button>
+        {testCall.data && !testCall.data.ok && (
+          <p className="rounded-md border border-destructive p-2 font-mono text-xs">
+            {testCall.data.error}
+          </p>
+        )}
+        {testCall.data?.ok && (
+          <div className="rounded-md border p-2">
+            <p className="font-mono text-xs text-muted-foreground">
+              {t('rules.testCallSent')} {JSON.stringify(testCall.data.args)}
+            </p>
+            <pre className="mt-1 max-h-40 overflow-auto rounded bg-muted p-2 font-mono text-xs">
+              {JSON.stringify(testCall.data.result, null, 2)}
+            </pre>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -157,6 +223,8 @@ function RuleFormDialog({
     rule ? rule.actions.map(draftFromCall) : [emptyCall()],
   )
   const [nextRuleId, setNextRuleId] = useState(rule?.next_rule_id ?? '')
+  // Valeur injectée dans {workspace} par les boutons « Tester » des appels MCP.
+  const [testWorkspace, setTestWorkspace] = useState('')
 
   const isPending = create.isPending || update.isPending
   const chainCandidates = rules.filter((r) => r.id !== rule?.id)
@@ -240,6 +308,17 @@ function RuleFormDialog({
             </div>
           </div>
 
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="rule-form-test-ws">{t('rules.formTestWorkspace')}</Label>
+            <Input
+              id="rule-form-test-ws"
+              value={testWorkspace}
+              onChange={(e) => setTestWorkspace(e.target.value)}
+              placeholder="mon-projet"
+            />
+            <p className="text-xs text-muted-foreground">{t('rules.formTestWorkspaceHint')}</p>
+          </div>
+
           <fieldset className="flex flex-col gap-3 rounded-md border p-3">
             <legend className="px-1 text-sm font-medium">{t('rules.conditionsLegend')}</legend>
             <p className="text-xs text-muted-foreground">{t('rules.conditionsHint')}</p>
@@ -262,6 +341,7 @@ function RuleFormDialog({
                   idPrefix={`rule-cond-${i}`}
                   draft={cond}
                   onChange={(patch) => patchCondition(i, patch)}
+                  testWorkspace={testWorkspace}
                 />
                 <div className="grid grid-cols-3 gap-2">
                   <div className="flex flex-col gap-1.5">
@@ -333,6 +413,7 @@ function RuleFormDialog({
                   idPrefix={`rule-action-${i}`}
                   draft={action}
                   onChange={(patch) => patchAction(i, patch)}
+                  testWorkspace={testWorkspace}
                 />
               </div>
             ))}
