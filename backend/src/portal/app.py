@@ -22,6 +22,7 @@ from .mcp.server import build_server as _build_mcp_server
 from .routes import compose as compose_routes
 from .routes.admin import router as admin_router
 from .routes.agent_messages import router as agent_messages_router
+from .routes.app_events import router as app_events_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
@@ -204,6 +205,13 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Pas de synchro automatique des recettes : c'est l'admin qui choisit quoi
         # synchroniser, via POST /admin/recipes/sync.
 
+        # Bus d'événements applicatifs : écouteurs d'automatisation (règles
+        # déterministes sonde → condition → action). DB requise (journal).
+        from .automation.registry import register_automation
+        from .events.bus import get_bus
+
+        register_automation(get_bus())
+
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()
 
@@ -228,6 +236,13 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         _task.cancel()
                         with contextlib.suppress(asyncio.CancelledError):
                             await _task
+                # Bus d'événements : annule les livraisons en attente et oublie le
+                # singleton — deux apps successives (tests TestClient) ne doivent
+                # pas cumuler leurs abonnements.
+                from .events.bus import get_bus, reset_bus
+
+                await get_bus().aclose()
+                reset_bus()
                 # Ferme le pool DB : indispensable pour que deux apps successives
                 # (tests TestClient) ne partagent pas un engine lié à un ancien loop.
                 from .db.engine import dispose_engine
@@ -309,6 +324,7 @@ def create_app() -> FastAPI:
     app.include_router(workspace_sessions_router, prefix="/me")
     app.include_router(agent_messages_router, prefix="/me")
     app.include_router(services_router, prefix="/me")
+    app.include_router(app_events_router, prefix="/me")
     app.include_router(test_vm_router, prefix="/me")
     app.include_router(plugins_router)
     app.include_router(recipes_public_router)

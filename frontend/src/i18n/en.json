@@ -1190,5 +1190,15 @@
     "noProfile": "No profile",
     "empty": "No registered service.",
     "confirmDelete": "Confirm deletion"
+  },
+  "appEvents": {
+    "tabLabel": "Events",
+    "sectionTitle": "Event log",
+    "empty": "No event recorded.",
+    "refresh": "Refresh",
+    "replay": "Replay",
+    "replayRequested": "Replay requested — listeners will run again.",
+    "noListener": "No listener",
+    "workspaceLabel": "workspace"
   }
 }

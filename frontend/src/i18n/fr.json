@@ -1190,5 +1190,15 @@
     "noProfile": "Aucun profil",
     "empty": "Aucun service enregistré.",
     "confirmDelete": "Confirmer la suppression"
+  },
+  "appEvents": {
+    "tabLabel": "Événements",
+    "sectionTitle": "Journal des événements",
+    "empty": "Aucun événement enregistré.",
+    "refresh": "Actualiser",
+    "replay": "Rejouer",
+    "replayRequested": "Rejeu demandé — les écouteurs vont être réexécutés.",
+    "noListener": "Aucun écouteur",
+    "workspaceLabel": "workspace"
   }
 }
