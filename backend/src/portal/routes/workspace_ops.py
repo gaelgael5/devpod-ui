@@ -56,6 +56,8 @@ class UpRequest(BaseModel):
     generate_ssh_key: bool = False
     profile: ProfileRef | None = None
     recipe_volumes: list[str] = Field(default_factory=list)
+    # Spec 35 : types d'agents à configurer (accès MCP direct).
+    agents: list[str] = Field(default_factory=list)
 
 
 _service: DevPodService | None = None
@@ -279,6 +281,7 @@ async def workspace_up(
         "extra_sources",
         "profile",
         "recipe_volumes",
+        "agents",
     )
     _user_cfg = await load_user(user.login)
     _stored = next((ws for ws in _user_cfg.workspaces if ws.name == name), None)
@@ -289,9 +292,7 @@ async def workspace_up(
                 {**_stored.model_dump(), **{k: v for k, v in _overrides.items()}}
             )
         else:
-            effective = WorkspaceSpec(
-                name=name, **{k: getattr(req, k) for k in _spec_fields}
-            )
+            effective = WorkspaceSpec(name=name, **{k: getattr(req, k) for k in _spec_fields})
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -343,9 +344,7 @@ async def workspace_up(
 
         async with user_config_lock(user.login):
             fresh_cfg = await load_user(user.login)
-            ws_idx = next(
-                (i for i, ws in enumerate(fresh_cfg.workspaces) if ws.name == name), None
-            )
+            ws_idx = next((i for i, ws in enumerate(fresh_cfg.workspaces) if ws.name == name), None)
             if ws_idx is not None:
                 fresh_cfg.workspaces[ws_idx] = effective
                 await _save_user(user.login, fresh_cfg)
@@ -366,6 +365,7 @@ async def workspace_up(
                 profile=effective.profile,
                 recipe_volumes=effective.recipe_volumes,
                 init_recipes=effective.init_recipes,
+                agents=effective.agents,
                 generate_ssh_key=req.generate_ssh_key,
                 request_host=request_host,
             ),

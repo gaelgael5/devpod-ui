@@ -51,19 +51,23 @@ async def insert_backend(
 async def list_all_enabled_backends(conn: AsyncConnection) -> list[dict[str, Any]]:
     """Tous les backends enabled (tous owners) — usage monitoring système."""
     rows = (
-        await conn.execute(
-            select(
-                mcp_backend.c.id,
-                mcp_backend.c.owner_login,
-                mcp_backend.c.namespace,
-                mcp_backend.c.name,
-                mcp_backend.c.url,
-                mcp_backend.c.transport,
-                mcp_backend.c.enabled,
-                mcp_backend.c.quarantine_disabled,
-            ).where(mcp_backend.c.enabled.is_(True))
+        (
+            await conn.execute(
+                select(
+                    mcp_backend.c.id,
+                    mcp_backend.c.owner_login,
+                    mcp_backend.c.namespace,
+                    mcp_backend.c.name,
+                    mcp_backend.c.url,
+                    mcp_backend.c.transport,
+                    mcp_backend.c.enabled,
+                    mcp_backend.c.quarantine_disabled,
+                ).where(mcp_backend.c.enabled.is_(True))
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     return [dict(r) for r in rows]
 
 
@@ -109,8 +113,13 @@ async def update_backend(
         update(mcp_backend)
         .where(mcp_backend.c.id == backend_id, mcp_backend.c.owner_login == owner_login)
         .values(
-            name=name, url=url, transport=transport, enabled=enabled,
-            app_url=app_url, quarantine_disabled=quarantine_disabled, updated_at=func.now(),
+            name=name,
+            url=url,
+            transport=transport,
+            enabled=enabled,
+            app_url=app_url,
+            quarantine_disabled=quarantine_disabled,
+            updated_at=func.now(),
         )
         .returning(mcp_backend.c.id)
     )
@@ -199,17 +208,21 @@ async def get_backend_key_secret(
     sortant au runtime ; ne JAMAIS l'exposer dans un listing/registre.
     """
     row = (
-        await conn.execute(
-            select(
-                mcp_backend_key.c.storage_type,
-                mcp_backend_key.c.secret_value_local,
-                mcp_backend_key.c.secret_value_vault_ref,
-            ).where(
-                mcp_backend_key.c.id == key_id,
-                mcp_backend_key.c.backend_id == backend_id,
+        (
+            await conn.execute(
+                select(
+                    mcp_backend_key.c.storage_type,
+                    mcp_backend_key.c.secret_value_local,
+                    mcp_backend_key.c.secret_value_vault_ref,
+                ).where(
+                    mcp_backend_key.c.id == key_id,
+                    mcp_backend_key.c.backend_id == backend_id,
+                )
             )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     return dict(row) if row else None
 
 
@@ -322,6 +335,43 @@ async def revoke_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str)
     return (await conn.execute(q)).first() is not None
 
 
+async def revoke_workspace_apikeys(
+    conn: AsyncConnection, owner_login: str, workspace_ref: str
+) -> int:
+    """Spec 35 : révoque toutes les clefs actives d'un workspace. Retourne le nombre."""
+    q = (
+        update(mcp_apikey)
+        .where(
+            mcp_apikey.c.owner_login == owner_login,
+            mcp_apikey.c.workspace_ref == workspace_ref,
+            mcp_apikey.c.revoked.is_(False),
+        )
+        .values(revoked=True)
+        .returning(mcp_apikey.c.id)
+    )
+    return len((await conn.execute(q)).all())
+
+
+async def revoke_profile_workspace_apikeys(
+    conn: AsyncConnection, owner_login: str, profile_id: str
+) -> list[str]:
+    """Spec 35 : révoque les clefs workspace dérivées d'un profil (fail closed au
+    décochage). Retourne les ws_id affectés (pour régénérer leurs fichiers).
+    Ne touche pas aux clefs personnelles (workspace_ref IS NULL)."""
+    q = (
+        update(mcp_apikey)
+        .where(
+            mcp_apikey.c.owner_login == owner_login,
+            mcp_apikey.c.profile_id == profile_id,
+            mcp_apikey.c.workspace_ref.isnot(None),
+            mcp_apikey.c.revoked.is_(False),
+        )
+        .values(revoked=True)
+        .returning(mcp_apikey.c.workspace_ref)
+    )
+    return sorted({row[0] for row in (await conn.execute(q)).all()})
+
+
 async def delete_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str) -> bool:
     q = (
         delete(mcp_apikey)
@@ -329,4 +379,3 @@ async def delete_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str)
         .returning(mcp_apikey.c.id)
     )
     return (await conn.execute(q)).first() is not None
-

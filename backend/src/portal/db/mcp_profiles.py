@@ -84,6 +84,19 @@ async def update_profile(
     return (await conn.execute(q)).first() is not None
 
 
+async def list_exposed_profiles(conn: AsyncConnection, owner_login: str) -> list[dict[str, Any]]:
+    """Spec 35 : profils de l'owner cochés « exposé aux workspaces »."""
+    q = (
+        select(*_PROFILE_COLS)
+        .where(
+            mcp_profile.c.owner_login == owner_login,
+            mcp_profile.c.exposed_in_workspaces.is_(True),
+        )
+        .order_by(mcp_profile.c.created_at)
+    )
+    return [dict(r) for r in (await conn.execute(q)).mappings().all()]
+
+
 async def set_profile_exposed(
     conn: AsyncConnection, owner_login: str, profile_id: str, *, exposed: bool
 ) -> bool:
@@ -100,9 +113,7 @@ async def set_profile_exposed(
     return (await conn.execute(q)).first() is not None
 
 
-async def delete_profile(
-    conn: AsyncConnection, owner_login: str, profile_id: str
-) -> bool:
+async def delete_profile(conn: AsyncConnection, owner_login: str, profile_id: str) -> bool:
     q = (
         delete(mcp_profile)
         .where(
@@ -119,9 +130,7 @@ async def delete_profile(
 # ---------------------------------------------------------------------------
 
 
-async def list_profile_entries(
-    conn: AsyncConnection, profile_id: str
-) -> list[dict[str, Any]]:
+async def list_profile_entries(conn: AsyncConnection, profile_id: str) -> list[dict[str, Any]]:
     q = select(*_ENTRY_COLS).where(mcp_profile_entry.c.profile_id == profile_id)
     return [dict(r) for r in (await conn.execute(q)).mappings().all()]
 
@@ -147,9 +156,7 @@ async def upsert_profile_entry(
     await conn.execute(stmt)
 
 
-async def delete_profile_entry(
-    conn: AsyncConnection, profile_id: str, backend_id: str
-) -> bool:
+async def delete_profile_entry(conn: AsyncConnection, profile_id: str, backend_id: str) -> bool:
     q = (
         delete(mcp_profile_entry)
         .where(
@@ -180,9 +187,7 @@ async def list_entries_for_apikey(
     return [dict(r) for r in (await conn.execute(q)).mappings().all()]
 
 
-async def find_first_backend_key(
-    conn: AsyncConnection, backend_id: str
-) -> dict[str, Any] | None:
+async def find_first_backend_key(conn: AsyncConnection, backend_id: str) -> dict[str, Any] | None:
     """Première clé enabled pour ce backend — fallback si backend_key_id est null."""
     q = (
         select(

@@ -127,3 +127,46 @@ def test_write_devcontainer_default_image_without_profile_image(
     profile = Profile(slug="py", scope="user", name="Sans image")
     dc_path = svc._write_devcontainer("alice", "alice-myapp", profile=profile)
     assert json.loads(dc_path.read_text(encoding="utf-8"))["image"] == _DEFAULT_IMAGE
+
+
+# ---------------------------------------------------------------------------
+# Spec 35 — fragments agents (mount ro + postCreate)
+# ---------------------------------------------------------------------------
+
+
+def test_write_devcontainer_agent_mounts_and_post_create(tmp_data_root: Path, global_cfg) -> None:
+    from portal.devpod.service import DevPodService
+
+    mount = (
+        "source=/home/u/.devpod-portal/agent-config/alice-myapp,"
+        "target=/opt/agent-config,type=bind,readonly"
+    )
+    link = 'ln -sfn "/opt/agent-config/claude/.mcp.json" "/workspaces/alice-myapp/.mcp.json"'
+    svc = DevPodService(global_cfg=global_cfg)
+    dc_path = svc._write_devcontainer(
+        "alice",
+        "alice-myapp",
+        extra_mounts=[mount],
+        extra_post_create=[link],
+    )
+    content = json.loads(dc_path.read_text(encoding="utf-8"))
+    assert content["mounts"] == [mount]
+    assert content["postCreateCommand"].startswith("ln -sfn")
+
+
+def test_write_devcontainer_agent_post_create_appended_after_clones(
+    tmp_data_root: Path, global_cfg
+) -> None:
+    from portal.config.models import SourceSpec
+    from portal.devpod.service import DevPodService
+
+    svc = DevPodService(global_cfg=global_cfg)
+    dc_path = svc._write_devcontainer(
+        "alice",
+        "alice-myapp",
+        extra_sources=[SourceSpec(url="https://github.com/org/lib.git")],
+        extra_post_create=["ln -sfn a b"],
+    )
+    content = json.loads(dc_path.read_text(encoding="utf-8"))
+    pc = content["postCreateCommand"]
+    assert pc.index("git clone") < pc.index("ln -sfn a b")

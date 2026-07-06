@@ -97,6 +97,7 @@ class OidcConfig(BaseModel):
     @classmethod
     def _strip(cls, v: object) -> object:
         return v.strip() if isinstance(v, str) else v
+
     scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email", "roles"])
     role_claim: str = "realm_access.roles"
     admin_role: str = "admin"
@@ -337,6 +338,20 @@ class WorkspaceSpec(BaseModel):
     recipe_volumes: list[str] = Field(default_factory=list)
     init_recipes: list[str] = Field(default_factory=list)
     groups: list[str] = Field(default_factory=list)
+    # Spec 35 : types d'agents à configurer dans le workspace (accès direct MCP).
+    agents: list[str] = Field(default_factory=list)
+
+    @field_validator("agents")
+    @classmethod
+    def validate_agent_ids(cls, v: list[str]) -> list[str]:
+        from portal.agents.models import AGENT_ID_RE
+
+        for aid in v:
+            if not AGENT_ID_RE.fullmatch(aid):
+                raise ValueError(
+                    f"agent id {aid!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$"
+                )
+        return v
 
     @field_validator("start_recipes", "init_recipes")
     @classmethod

@@ -77,9 +77,7 @@ def status_store(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str, Any]]:
         return store.get(ws_id)
 
     async def fake_port_claimed_by_other(ws_id: str, port: int, conn: Any) -> bool:
-        return any(
-            r.get("host_port") == port and r["ws_id"] != ws_id for r in store.values()
-        )
+        return any(r.get("host_port") == port and r["ws_id"] != ws_id for r in store.values())
 
     async def fake_persist_log(*args: Any, **kwargs: Any) -> None:
         return None
@@ -89,7 +87,11 @@ def status_store(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str, Any]]:
         async def purge_workspace_messages(*args: Any, **kwargs: Any) -> None:
             return None
 
+    async def fake_revoke_workspace_keys(*args: Any, **kwargs: Any) -> int:
+        return 0
+
     monkeypatch.setattr(service_mod, "_get_engine", lambda: _FakeEngine())
+    monkeypatch.setattr(service_mod, "revoke_workspace_keys", fake_revoke_workspace_keys)
     monkeypatch.setattr(service_mod, "upsert_status_db", fake_upsert)
     monkeypatch.setattr(service_mod, "update_status_if_exists_db", fake_update_if_exists)
     monkeypatch.setattr(service_mod, "delete_status_db", fake_delete)

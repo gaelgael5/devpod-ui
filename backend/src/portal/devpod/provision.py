@@ -1,4 +1,5 @@
 """Orchestration de provisioning réutilisable (route REST + MCP workspace_create)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -40,6 +41,7 @@ class ProvisionParams:
     profile: Any = None
     recipe_volumes: list[str] = field(default_factory=list)
     init_recipes: list[str] = field(default_factory=list)
+    agents: list[str] = field(default_factory=list)
     generate_ssh_key: bool = False
     request_host: str = ""
 
@@ -93,9 +95,7 @@ async def _load_profile(login: str, profile_ref: Any) -> Profile | None:
         return None
 
 
-async def provision_workspace(
-    login: str, params: ProvisionParams, conn: AsyncConnection
-) -> str:
+async def provision_workspace(login: str, params: ProvisionParams, conn: AsyncConnection) -> str:
     """Provisionne un workspace : résolution recettes/secrets/profil + svc.up.
 
     Retourne le ws_id produit par DevPodService.up.
@@ -113,6 +113,7 @@ async def provision_workspace(
         profile=params.profile,
         recipe_volumes=params.recipe_volumes,
         init_recipes=params.init_recipes,
+        agents=params.agents,
         ssh_key=params.generate_ssh_key,
     )
     return await _get_service().up(
