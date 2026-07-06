@@ -91,3 +91,21 @@ def test_post_create_broken_target_template() -> None:
     row["target_path"] = "{{ nope }}/x.json"
     with pytest.raises(AgentProvisionError):
         build_agent_post_create([row], project_root="/workspaces/x")
+
+
+async def test_sync_rejects_relative_mcp_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """external_url absente → URL relative → fail explicite, pas de config morte."""
+    from portal.agents.provisioning import sync_agent_config
+
+    with pytest.raises(AgentProvisionError, match="external_url"):
+        await sync_agent_config(
+            login="alice",
+            ws_id="alice-api",
+            ws_name="api",
+            agent_rows=[_claude_row()],
+            ssh_user="root",
+            ssh_host="h",
+            ssh_key_path="/k",
+            mcp_url="/mcp/",
+            project_root="/workspaces/alice-api",
+        )

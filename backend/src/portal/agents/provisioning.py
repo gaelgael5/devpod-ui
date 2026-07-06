@@ -199,6 +199,14 @@ async def sync_agent_config(
     d'agent) : les tokens ne sont stockés que hashés, toute régénération de
     fichier passe donc par une rotation complète des clefs du workspace.
     """
+    if not mcp_url.startswith(("https://", "http://")):
+        # Sans external_url configurée on écrirait une URL relative inutilisable
+        # dans les fichiers des agents — fail explicite plutôt que config morte.
+        raise AgentProvisionError(
+            "server.external_url doit être configurée pour exposer la gateway MCP "
+            f"aux agents workspace (url calculée : {mcp_url!r})"
+        )
+
     from ..db.engine import _get_engine
 
     async with _get_engine().begin() as conn:
