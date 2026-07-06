@@ -56,9 +56,7 @@ def _preview_context() -> dict[str, Any]:
 
 
 async def _workspaces_using(conn: AsyncConnection, agent_id: str) -> list[str]:
-    q = select(workspaces.c.login, workspaces.c.name).where(
-        workspaces.c.agents.contains([agent_id])
-    )
+    q = select(workspaces.c.login, workspaces.c.name).where(workspaces.c.agents.any(agent_id))
     return [f"{r.login}-{r.name}" for r in (await conn.execute(q)).all()]
 
 
@@ -80,15 +78,18 @@ async def create_agent_type_route(
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
     try:
-        await db.insert_agent_type(
-            conn,
-            id=body.id,
-            label=body.label,
-            filename=body.filename,
-            template=body.template,
-            target_path=body.target_path,
-            enabled=body.enabled,
-        )
+        # SAVEPOINT : un doublon ne doit pas avorter la transaction de la requête
+        # (la réponse 409 partirait d'une transaction empoisonnée).
+        async with conn.begin_nested():
+            await db.insert_agent_type(
+                conn,
+                id=body.id,
+                label=body.label,
+                filename=body.filename,
+                template=body.template,
+                target_path=body.target_path,
+                enabled=body.enabled,
+            )
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail=f"type '{body.id}' déjà défini") from exc
     _log.info("agent_type_created", agent_id=body.id, login=user.login)

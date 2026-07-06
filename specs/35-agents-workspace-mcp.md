@@ -1,7 +1,14 @@
 # Spec 35 — Accès MCP direct des agents workspace
 
-> Statut : à implémenter (migration 056)
+> Statut : backend implémenté (migration 056), UI en cours — 2026-07-06
 > Repo : devpod-ui
+>
+> Écart d'implémentation notable : les hosts **docker-tls** n'exposent aucun accès
+> filesystem (seul le daemon mTLS :2376 est joignable) — la dépose des fichiers
+> agent-config est donc **SSH uniquement en v1**. Un workspace demandant des agents
+> sur un host docker-tls est rejeté en 422 au provisioning ; le resync à chaud les
+> saute (skipped) avec log. Canal envisagé pour la v2 : conteneur éphémère via
+> l'API Docker (put_archive) — cf. §10.
 >
 > Décisions de design (session 2026-07-06) : clef API **par workspace × profil exposé**
 > (jamais de clef partagée) ; fichiers de paramétrage générés **sur le host** de chaque nœud
