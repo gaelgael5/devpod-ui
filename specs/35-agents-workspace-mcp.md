@@ -1,6 +1,11 @@
 # Spec 35 — Accès MCP direct des agents workspace
 
-> Statut : backend implémenté (migration 056), UI en cours — 2026-07-06
+> Statut : implémentée et vérifiée bout en bout sur test1 (migration 056) — 2026-07-06.
+> Chaîne validée en réel : up avec agents=[claude] sur host SSH, fichier monté ro,
+> symlink + .git/info/exclude, initialize/tools/list/tools-call depuis le conteneur,
+> décochage du profil → fichier régénéré à chaud (mcpServers vide) + ancien token 401.
+> Correctifs issus du bout en bout : external_url requise (fail explicite), commit
+> explicite avant resync (BackgroundTasks ne garantit pas l'ordre commit/tâche).
 > Repo : devpod-ui
 >
 > Écart d'implémentation notable : les hosts **docker-tls** n'exposent aucun accès
