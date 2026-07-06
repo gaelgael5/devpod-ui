@@ -82,6 +82,11 @@
       "needRunning": "Le workspace doit être démarré"
     },
     "actionsMenu": "Actions",
+    "agentsMenu": {
+      "label": "Agents MCP à mapper",
+      "hint": "Redémarrez le workspace pour appliquer le mapping.",
+      "saved": "Sélection enregistrée — redémarrez le workspace pour l'appliquer."
+    },
     "testVm": {
       "btn": "Add VM for Test",
       "title": "Créer une VM de test",

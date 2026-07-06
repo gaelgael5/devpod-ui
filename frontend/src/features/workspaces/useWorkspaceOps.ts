@@ -178,5 +178,27 @@ export function useWorkspaceOps() {
     onError: (err: Error) => toast.error(err.message),
   })
 
-  return { createWorkspace, startWorkspace, stopWorkspace, deleteWorkspace, recreateWorkspace }
+  // Spec 35 : persiste la sélection d'agent_types à mapper, sans redémarrer le
+  // workspace — le mapping effectif n'a lieu qu'au prochain `up` (startWorkspace).
+  const updateWorkspaceAgents = useMutation({
+    mutationFn: ({ name, agents }: { name: string; agents: string[] }) =>
+      apiFetchJson<WorkspaceSpec>(`/me/workspaces/${name}/agents`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agents }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['workspaces'] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  return {
+    createWorkspace,
+    startWorkspace,
+    stopWorkspace,
+    deleteWorkspace,
+    recreateWorkspace,
+    updateWorkspaceAgents,
+  }
 }

@@ -186,6 +186,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
           <WorkspaceActionsMenu
             wsName={spec.name}
             running={s === 'running'}
+            agents={spec.agents ?? []}
             onAddVm={() => setAddVmOpen(true)}
             onOpenShell={() => setShellOpen(true)}
             onShowSshKey={spec.ssh_key ? () => setSshKeyOpen(true) : undefined}

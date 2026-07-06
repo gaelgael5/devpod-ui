@@ -82,6 +82,11 @@
       "needRunning": "Workspace must be running"
     },
     "actionsMenu": "Actions",
+    "agentsMenu": {
+      "label": "MCP agents to map",
+      "hint": "Restart the workspace to apply the mapping.",
+      "saved": "Selection saved — restart the workspace to apply it."
+    },
     "testVm": {
       "btn": "Add VM for Test",
       "title": "Create a test VM",

@@ -150,6 +150,41 @@ async def add_workspace(
     return workspace.model_dump(mode="json")
 
 
+class _WorkspaceAgentsPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agents: list[str]
+
+
+@router.patch("/workspaces/{name}/agents")
+async def patch_workspace_agents(
+    name: str,
+    body: _WorkspaceAgentsPatch,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, object]:
+    """Choix des agent_types à mapper (spec 35) — persiste sans redémarrer.
+
+    Le mapping effectif (génération des fichiers host, bind mount) n'a lieu
+    qu'au prochain `up` du workspace ; cet endpoint ne fait que sauvegarder
+    la sélection pour ce `up` à venir.
+    """
+    async with user_config_lock(user.login):
+        cfg = await load_user(user.login)
+        idx = next((i for i, ws in enumerate(cfg.workspaces) if ws.name == name), None)
+        if idx is None:
+            raise HTTPException(status_code=404, detail=f"Workspace {name!r} introuvable")
+        try:
+            updated = WorkspaceSpec.model_validate(
+                {**cfg.workspaces[idx].model_dump(), "agents": body.agents}
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        cfg.workspaces[idx] = updated
+        await save_user(user.login, cfg)
+    _log.info("workspace_agents_updated", login=user.login, name=name, agents=body.agents)
+    return updated.model_dump(mode="json")
+
+
 @router.get("/git/branches")
 async def list_git_branches(
     url: str,

@@ -156,6 +156,61 @@ def test_delete_me_workspace_removes_workspace(tmp_path: Path) -> None:
     assert not any(w["name"] == "todelete" for w in resp2.json())
 
 
+def test_patch_workspace_agents_updates_agents(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    ws = {"name": "myapp", "source": "git@github.com:user/repo.git"}
+    with TestClient(app) as client:
+        client.post("/me/workspaces", json=ws)
+        resp = client.patch("/me/workspaces/myapp/agents", json={"agents": ["claude"]})
+    assert resp.status_code == 200
+    assert resp.json()["agents"] == ["claude"]
+    with TestClient(app) as client:
+        resp2 = client.get("/me/workspaces")
+    stored = next(w for w in resp2.json() if w["name"] == "myapp")
+    assert stored["agents"] == ["claude"]
+
+
+def test_patch_workspace_agents_preserves_other_fields(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    ws = {"name": "myapp", "source": "git@github.com:user/repo.git", "branch": "main"}
+    with TestClient(app) as client:
+        client.post("/me/workspaces", json=ws)
+        resp = client.patch("/me/workspaces/myapp/agents", json={"agents": []})
+    assert resp.status_code == 200
+    assert resp.json()["source"] == "git@github.com:user/repo.git"
+    assert resp.json()["branch"] == "main"
+
+
+def test_patch_workspace_agents_unknown_workspace_404(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.patch("/me/workspaces/ghost/agents", json={"agents": ["claude"]})
+    assert resp.status_code == 404
+
+
+def test_patch_workspace_agents_rejects_invalid_id(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    ws = {"name": "myapp", "source": "git@github.com:user/repo.git"}
+    with TestClient(app) as client:
+        client.post("/me/workspaces", json=ws)
+        resp = client.patch("/me/workspaces/myapp/agents", json={"agents": ["Bad Id!"]})
+    assert resp.status_code == 422
+
+
+def test_patch_workspace_agents_rejects_unknown_field(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    ws = {"name": "myapp", "source": "git@github.com:user/repo.git"}
+    with TestClient(app) as client:
+        client.post("/me/workspaces", json=ws)
+        resp = client.patch("/me/workspaces/myapp/agents", json={"agents": ["claude"], "host": "x"})
+    assert resp.status_code == 422
+
+
 def test_get_git_credentials_includes_username(tmp_path: Path) -> None:
     _provision_alice(tmp_path)
     app = _make_app(tmp_path)
@@ -375,9 +430,11 @@ def test_patch_git_credential_invalid_new_name_returns_422(tmp_path: Path) -> No
 
 # ── SSH key management tests ────────────────────────────────────────────────
 
+
 def _real_ssh_pem() -> str:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
+
     key = Ed25519PrivateKey.generate()
     return key.private_bytes(Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption()).decode("utf-8")
 
@@ -396,10 +453,12 @@ def test_post_git_credential_generate_key_creates_credential(tmp_path: Path) -> 
     assert "public_key" in data
     assert data["public_key"].startswith("ssh-ed25519 ")
     from portal.config.store import load_user
+
     cfg = load_user("alice")
     cred = next(c for c in cfg.git_credentials if c.name == "my-key")
     assert cred.key_path != ""
     from pathlib import Path as P
+
     priv = P(cred.key_path)
     assert priv.exists()
     assert (priv.parent / "id_ed25519.pub").exists()
@@ -429,6 +488,7 @@ def test_post_git_credential_ssh_upload_derives_pub_for_valid_key(tmp_path: Path
     from pathlib import Path as P
 
     from portal.config.store import load_user
+
     cfg = load_user("alice")
     cred = next(c for c in cfg.git_credentials if c.name == "gl-ssh")
     assert (P(cred.key_path).parent / "id_ed25519.pub").exists()
@@ -459,6 +519,7 @@ def test_get_git_credential_public_key_derives_on_the_fly(tmp_path: Path) -> Non
         from pathlib import Path as P
 
         from portal.config.store import load_user as _lu
+
         cfg = _lu("alice")
         cred = next(c for c in cfg.git_credentials if c.name == "my-key")
         pub = P(cred.key_path).parent / "id_ed25519.pub"
@@ -500,6 +561,7 @@ def test_patch_git_credential_updates_pub_on_new_key(tmp_path: Path) -> None:
     from pathlib import Path as P
 
     from portal.config.store import load_user
+
     cfg = load_user("alice")
     cred = next(c for c in cfg.git_credentials if c.name == "my-key")
     assert (P(cred.key_path).parent / "id_ed25519.pub").exists()

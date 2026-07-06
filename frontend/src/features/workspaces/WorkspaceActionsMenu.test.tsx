@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/server'
@@ -163,5 +163,48 @@ describe('WorkspaceActionsMenu', () => {
       await screen.findByRole('menuitem', { name: /gérer les groupes|manage groups/i }),
     )
     expect(onManageGroups).toHaveBeenCalledOnce()
+  })
+
+  it("propose un sous-menu d'agents MCP à cocher, pré-coché selon les agents actuels", async () => {
+    server.use(
+      http.get('/me/workspaces/:name/initializers', () => HttpResponse.json([])),
+      http.get('/me/agent-types', () =>
+        HttpResponse.json([
+          { id: 'claude', label: 'Claude Code' },
+          { id: 'codex', label: 'Codex' },
+        ]),
+      ),
+    )
+    let patched: unknown = null
+    server.use(
+      http.patch('/me/workspaces/:name/agents', async ({ request }) => {
+        patched = await request.json()
+        return HttpResponse.json({ name: 'ws1', agents: (patched as { agents: string[] }).agents })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(
+      <WorkspaceActionsMenu
+        wsName="ws1"
+        running
+        agents={['claude']}
+        onAddVm={vi.fn()}
+        onOpenShell={vi.fn()}
+        onOpenMessages={vi.fn()}
+        onOpenLogs={vi.fn()}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /actions/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /mcp agents/i }))
+
+    const claudeItem = await screen.findByRole('menuitemcheckbox', { name: /claude code/i })
+    expect(claudeItem).toHaveAttribute('aria-checked', 'true')
+    const codexItem = screen.getByRole('menuitemcheckbox', { name: /codex/i })
+    expect(codexItem).toHaveAttribute('aria-checked', 'false')
+
+    fireEvent.click(codexItem)
+
+    await waitFor(() => expect(patched).toEqual({ agents: ['claude', 'codex'] }))
   })
 })
