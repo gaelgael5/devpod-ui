@@ -580,6 +580,9 @@ agent_type = Table(
     Column("filename", Text, nullable=False),
     Column("template", Text, nullable=False),
     Column("target_path", Text, nullable=False),
+    # Stratégie de matérialisation : 'replace' (fichier dédié, symlink vers mount
+    # ro) ou 'merge' (fichier partagé, fusion du connecteur). Cf. migration 058.
+    Column("mode", Text, nullable=False, server_default="replace"),
     Column("enabled", Boolean, nullable=False, server_default="true"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=True),

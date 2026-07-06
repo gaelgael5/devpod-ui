@@ -15,6 +15,7 @@ _COLS = [
     agent_type.c.filename,
     agent_type.c.template,
     agent_type.c.target_path,
+    agent_type.c.mode,
     agent_type.c.enabled,
     agent_type.c.created_at,
     agent_type.c.updated_at,
@@ -44,6 +45,7 @@ async def insert_agent_type(
     filename: str,
     template: str,
     target_path: str,
+    mode: str = "replace",
     enabled: bool = True,
 ) -> None:
     await conn.execute(
@@ -53,6 +55,7 @@ async def insert_agent_type(
             filename=filename,
             template=template,
             target_path=target_path,
+            mode=mode,
             enabled=enabled,
         )
     )
@@ -67,18 +70,24 @@ async def update_agent_type(
     template: str,
     target_path: str,
     enabled: bool,
+    mode: str | None = None,
 ) -> bool:
+    values: dict[str, Any] = {
+        "label": label,
+        "filename": filename,
+        "template": template,
+        "target_path": target_path,
+        "enabled": enabled,
+        "updated_at": func.now(),
+    }
+    # mode omis (None) = inchangé — les appelants qui ne le gèrent pas encore
+    # (avant le câblage du DTO) ne doivent pas écraser la valeur existante.
+    if mode is not None:
+        values["mode"] = mode
     q = (
         update(agent_type)
         .where(agent_type.c.id == agent_id)
-        .values(
-            label=label,
-            filename=filename,
-            template=template,
-            target_path=target_path,
-            enabled=enabled,
-            updated_at=func.now(),
-        )
+        .values(**values)
         .returning(agent_type.c.id)
     )
     return (await conn.execute(q)).first() is not None
