@@ -19,6 +19,7 @@ from ..db.mcp import get_backend_key_secret
 from ..db.user_services import get_service
 from ..mcp.aggregator import (
     AggregatedPrimitive,
+    PrimitiveQuarantined,
     aggregate_primitives_for_profile,
     resolve_call_for_profile,
 )
@@ -67,13 +68,18 @@ async def call_service_primitive(
         profile_id = service["mcp_profile_id"]
         if not profile_id:
             raise AutomationError(f"service {service['name']!r}: aucun profil MCP associé")
-        target = await resolve_call_for_profile(
-            conn,
-            profile_id=profile_id,
-            owner_login=owner_login,
-            namespaced_name=tool,
-            kind="tool",
-        )
+        try:
+            target = await resolve_call_for_profile(
+                conn,
+                profile_id=profile_id,
+                owner_login=owner_login,
+                namespaced_name=tool,
+                kind="tool",
+            )
+        except PrimitiveQuarantined as exc:
+            raise AutomationError(
+                f"outil {tool!r} indisponible (en attente d'approbation)"
+            ) from exc
         if target is None:
             raise AutomationError(
                 f"outil {tool!r} non autorisé par le profil du service {service['name']!r}"

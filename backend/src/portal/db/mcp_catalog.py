@@ -28,13 +28,18 @@ async def upsert_primitive(
     original_name: str,
     definition: dict[str, Any],
     definition_hash: str,
+    protect: bool = True,
 ) -> bool:
     """Insère/met à jour une primitive dans le catalogue.
 
     Retourne True si une redéfinition (hash différent d'une entrée existante)
     est détectée → mise en quarantaine collante.
     Une fois quarantinée, la primitive reste quarantinée jusqu'à un appel
-    explicite à set_quarantine(False).
+    explicite à set_quarantine(False) / clear_quarantine.
+
+    `protect=False` (backend avec quarantine_disabled) : aucune quarantaine
+    n'est posée ET une quarantaine héritée est levée — le catalogue converge
+    exactement vers ce que publie le backend.
     """
     existing = (
         await conn.execute(
@@ -46,7 +51,7 @@ async def upsert_primitive(
         )
     ).first()
 
-    quarantine = existing is not None and existing[0] != definition_hash
+    quarantine = protect and existing is not None and existing[0] != definition_hash
 
     stmt = pg_insert(cat).values(
         backend_id=backend_id,
@@ -64,7 +69,8 @@ async def upsert_primitive(
             "last_seen": func.now(),
             # Quarantaine collante : OR bit-à-bit entre l'état existant et le nouveau flag.
             # Une primitive quarantinée reste quarantinée même si le hash revient au nominal.
-            "quarantined": cat.c.quarantined | quarantine,
+            # Protection désactivée : remise à False inconditionnelle (auto-guérison).
+            "quarantined": (cat.c.quarantined | quarantine) if protect else False,
         },
     )
     await conn.execute(stmt)
@@ -88,16 +94,59 @@ async def set_quarantine(
     kind: str,
     original_name: str,
     value: bool,
-) -> None:
-    await conn.execute(
+) -> bool:
+    """Positionne le flag de quarantaine d'une primitive.
+
+    Retourne True si une ligne a effectivement changé d'état (existait avec
+    l'état opposé) — False si la primitive est inconnue ou déjà dans cet état.
+    """
+    result = await conn.execute(
         update(cat)
         .where(
             cat.c.backend_id == backend_id,
             cat.c.kind == kind,
             cat.c.original_name == original_name,
+            cat.c.quarantined != value,
         )
         .values(quarantined=value)
+        .returning(cat.c.original_name)
     )
+    return result.first() is not None
+
+
+async def list_catalog_names(conn: AsyncConnection, backend_id: str) -> list[dict[str, Any]]:
+    """(kind, original_name, quarantined) de toutes les primitives d'un backend.
+
+    Version allégée de list_primitives (sans les définitions), tous kinds
+    confondus — utilisée pour calculer le delta nominatif d'un resync.
+    """
+    q = (
+        select(cat.c.kind, cat.c.original_name, cat.c.quarantined)
+        .where(cat.c.backend_id == backend_id)
+        .order_by(cat.c.kind, cat.c.original_name)
+    )
+    return [dict(r) for r in (await conn.execute(q)).mappings().all()]
+
+
+async def list_quarantined(conn: AsyncConnection, backend_id: str) -> list[dict[str, Any]]:
+    """Primitives quarantinées d'un backend (tous kinds), pour l'écran d'approbation."""
+    q = (
+        select(*_COLS)
+        .where(cat.c.backend_id == backend_id, cat.c.quarantined.is_(True))
+        .order_by(cat.c.kind, cat.c.original_name)
+    )
+    return [dict(r) for r in (await conn.execute(q)).mappings().all()]
+
+
+async def clear_quarantine(conn: AsyncConnection, backend_id: str) -> int:
+    """Lève toutes les quarantaines d'un backend. Retourne le nombre de levées."""
+    result = await conn.execute(
+        update(cat)
+        .where(cat.c.backend_id == backend_id, cat.c.quarantined.is_(True))
+        .values(quarantined=False)
+        .returning(cat.c.original_name)
+    )
+    return len(result.all())
 
 
 async def prune_absent(

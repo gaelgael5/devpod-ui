@@ -969,7 +969,14 @@
       "urlPlaceholder": "https://rag.yoops.org/mcp",
       "slugPlaceholder": "read",
       "viewTools": "View tools",
-      "noTools": "No catalogued tools."
+      "noTools": "No catalogued tools.",
+      "quarantineTitle": "Quarantined primitives",
+      "quarantineHint": "Redefinition detected (rug-pull protection). The primitive is hidden and denied until approved.",
+      "quarantineApprove": "Approve",
+      "quarantineApproved": "{{name}} approved — the primitive is exposed again",
+      "quarantinedBadge": "Quarantined",
+      "quarantineDisabledLabel": "Do not apply the quarantine protection to primitives",
+      "quarantineDisabledHint": "Trusted backend: tool redefinitions are accepted without approval. Existing quarantines are lifted on save."
     },
     "apikeys": {
       "sectionTitle": "Client apikeys",

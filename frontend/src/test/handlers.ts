@@ -235,6 +235,7 @@ export const handlers = [
   http.post('/me/mcp/backends', () => HttpResponse.json({ id: 'b-new' }, { status: 201 })),
   http.delete('/me/mcp/backends/:id', () => new HttpResponse(null, { status: 204 })),
   http.get('/me/mcp/backends/:id/keys', () => HttpResponse.json([])),
+  http.get('/me/mcp/backends/:id/quarantined', () => HttpResponse.json([])),
   http.post('/me/mcp/backends/:id/keys', () => HttpResponse.json({ id: 'k-new' }, { status: 201 })),
   http.delete('/me/mcp/backends/:id/keys/:keyId', () => new HttpResponse(null, { status: 204 })),
   http.get('/me/mcp/apikeys', () => HttpResponse.json([])),

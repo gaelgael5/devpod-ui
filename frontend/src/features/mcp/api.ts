@@ -16,6 +16,9 @@ export interface MCPBackend {
   enabled: boolean
   // URL web optionnelle de l'application (lien « ouvrir » dans la liste). '' = aucun.
   app_url: string
+  // Opt-out de la protection anti rug-pull : true = les redéfinitions d'outils
+  // ne sont plus quarantinées (backend de confiance). false par défaut.
+  quarantine_disabled: boolean
   created_at: string
   updated_at: string
   // Statut de santé renvoyé par le monitor (absent des réponses sans monitoring).
@@ -89,6 +92,7 @@ export interface BackendUpdateBody {
   transport: Transport
   enabled: boolean
   app_url: string
+  quarantine_disabled: boolean
 }
 
 export interface KeyCreateBody {
@@ -111,6 +115,7 @@ const QK = {
   profiles: () => ['mcp', 'profiles'] as const,
   profile: (id: string | null) => ['mcp', 'profile', id] as const,
   catalog: (backendId: string | null) => ['mcp', 'catalog', backendId] as const,
+  quarantined: (backendId: string) => ['mcp', 'quarantined', backendId] as const,
 }
 
 // ── Backends ──────────────────────────────────────────────────────────────────
@@ -146,7 +151,12 @@ export function useUpdateBackend() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: QK.backends() }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: QK.backends() })
+      // Activer quarantine_disabled lève les quarantaines côté serveur.
+      qc.invalidateQueries({ queryKey: QK.quarantined(vars.id) })
+      qc.invalidateQueries({ queryKey: QK.catalog(vars.id) })
+    },
   })
 }
 
@@ -172,6 +182,7 @@ export function useProbeBackend() {
       // Le probe resynchronise aussi le catalogue (ex. backend internal devpod) —
       // rafraîchit la liste "View tools" affichée si elle est déjà ouverte.
       qc.invalidateQueries({ queryKey: QK.catalog(id) })
+      qc.invalidateQueries({ queryKey: QK.quarantined(id) })
     },
   })
 }
@@ -382,6 +393,7 @@ export interface CatalogTool {
   name: string
   description: string
   scope: CatalogToolScope
+  quarantined: boolean
 }
 
 export function useBackendCatalog(backendId: string | null) {
@@ -393,5 +405,49 @@ export function useBackendCatalog(backendId: string | null) {
       ),
     enabled: backendId !== null,
     staleTime: 60_000,
+  })
+}
+
+// ── Quarantaine (anti rug-pull, spec 23) ───────────────────────────────────────
+
+export type PrimitiveKind = 'tool' | 'resource' | 'prompt'
+
+export interface QuarantinedPrimitive {
+  kind: PrimitiveKind
+  name: string
+  description: string
+  first_seen: string
+  last_seen: string
+}
+
+export function useQuarantined(backendId: string) {
+  return useQuery({
+    queryKey: QK.quarantined(backendId),
+    queryFn: () =>
+      apiFetchJson<QuarantinedPrimitive[]>(
+        `/me/mcp/backends/${encodeURIComponent(backendId)}/quarantined`,
+      ),
+    // Aligné sur le polling santé : une quarantaine posée par le monitor
+    // (~6 min) doit apparaître sans recharger la page.
+    refetchInterval: 30_000,
+  })
+}
+
+export function useApproveQuarantined(backendId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { kind: PrimitiveKind; name: string }) =>
+      apiFetchJson<{ id: string }>(
+        `/me/mcp/backends/${encodeURIComponent(backendId)}/quarantined/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QK.quarantined(backendId) })
+      qc.invalidateQueries({ queryKey: QK.catalog(backendId) })
+    },
   })
 }

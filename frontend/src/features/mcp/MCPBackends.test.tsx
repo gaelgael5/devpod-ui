@@ -91,6 +91,64 @@ describe('MCPBackends', () => {
     expect(probeCalled).toBe(true)
   })
 
+  it('affiche les primitives en quarantaine et permet de les approuver', async () => {
+    const { server } = await import('@/test/server')
+    let approveBody: unknown = null
+    let quarantined = [
+      {
+        kind: 'tool', name: 'create_document', description: 'Crée un document.',
+        first_seen: '2026-07-05T08:36:00Z', last_seen: '2026-07-06T06:20:00Z',
+      },
+    ]
+    server.use(
+      http.get('/me/mcp/backends', () =>
+        HttpResponse.json([
+          {
+            id: 'docflow-1', owner_login: 'admin', namespace: 'docflow',
+            name: 'Docflow', url: 'http://x/api/mcp/sse', transport: 'sse', enabled: true,
+            app_url: '', quarantine_disabled: false,
+            created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
+            health: 'up',
+          },
+        ])),
+      http.get('/me/mcp/backends/:id/keys', () => HttpResponse.json([])),
+      http.get('/me/mcp/backends/:id/quarantined', () => HttpResponse.json(quarantined)),
+      http.post('/me/mcp/backends/:id/quarantined/approve', async ({ request }) => {
+        approveBody = await request.json()
+        quarantined = []
+        return HttpResponse.json({ id: 'docflow-1', kind: 'tool', name: 'create_document' })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<MCPBackends />)
+
+    expect(await screen.findByText(/Quarantined primitives/i)).toBeInTheDocument()
+    expect(screen.getByText('create_document')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Approve$/i }))
+    expect(approveBody).toEqual({ kind: 'tool', name: 'create_document' })
+  })
+
+  it("n'affiche pas la section quarantaine quand il n'y a rien à approuver", async () => {
+    const { server } = await import('@/test/server')
+    server.use(
+      http.get('/me/mcp/backends', () =>
+        HttpResponse.json([
+          {
+            id: 'docflow-1', owner_login: 'admin', namespace: 'docflow',
+            name: 'Docflow', url: 'http://x/api/mcp/sse', transport: 'sse', enabled: true,
+            app_url: '', quarantine_disabled: false,
+            created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
+          },
+        ])),
+      http.get('/me/mcp/backends/:id/keys', () => HttpResponse.json([])),
+    )
+    renderWithProviders(<MCPBackends />)
+
+    expect(await screen.findByText('Docflow')).toBeInTheDocument()
+    expect(screen.queryByText(/Quarantined primitives/i)).not.toBeInTheDocument()
+  })
+
   it('affiche le refresh sur un backend externe ONLINE (resync des primitives)', async () => {
     const { server } = await import('@/test/server')
     let probeCalled = false

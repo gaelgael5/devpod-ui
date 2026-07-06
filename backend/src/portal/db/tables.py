@@ -480,6 +480,10 @@ mcp_backend = Table(
     Column("enabled", Boolean, nullable=False, server_default="true"),
     # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
     Column("app_url", Text, nullable=False, server_default=""),
+    # Opt-out de la protection anti rug-pull (quarantaine sur redéfinition, spec 23).
+    # false par défaut : protection active. true = backend de confiance (service
+    # exposé par l'utilisateur lui-même) → jamais de quarantaine, levée au resync.
+    Column("quarantine_disabled", Boolean, nullable=False, server_default="false"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("owner_login", "namespace", name="uq_mcp_backend_owner_namespace"),

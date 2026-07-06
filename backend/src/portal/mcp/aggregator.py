@@ -21,6 +21,21 @@ NS_SEP = "__"
 _URI_PREFIX = "gw+"
 
 
+class PrimitiveQuarantined(Exception):
+    """La primitive existe et est autorisée, mais quarantinée (redéfinition non approuvée).
+
+    Distincte du deny-by-default (`None`) : l'appelant doit servir le message
+    « en attente d'approbation » (spec 23 §13), pas « unknown tool » — c'est ce
+    message trompeur qui a rendu le bug create_document indiagnosticable.
+    """
+
+    def __init__(self, backend_id: str, kind: str, original_name: str) -> None:
+        super().__init__(f"{kind} '{original_name}' quarantiné (backend {backend_id})")
+        self.backend_id = backend_id
+        self.kind = kind
+        self.original_name = original_name
+
+
 class AggregatedPrimitive(BaseModel):
     """Primitive d'un backend, préfixée et prête à exposer côté frontal."""
 
@@ -242,7 +257,7 @@ async def _resolve_target_entries(
                 backend_id=entry["backend_id"],
                 original=original,
             )
-            return None
+            raise PrimitiveQuarantined(entry["backend_id"], kind, original)
         backend_key_id = await _resolve_backend_key_id(conn, entry)
         return CallTarget(
             backend_id=entry["backend_id"],

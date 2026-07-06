@@ -44,6 +44,8 @@
 - `FastMCP` annonce toujours les 3 capabilities (tools/resources/prompts) même avec un seul `@srv.tool()` — inutilisable pour tester une logique capability-aware ; construire une session stub à la main.
 - `mcp_apikey_grant.backend_key_id` doit être nullable (backend public sans clé) — vérifier après toute migration touchant cette contrainte (symptôme : 500 muet au premier grant public).
 
+- Un mécanisme de sécurité à moitié implémenté = bug invisible : la quarantaine anti rug-pull (spec 23) posait un flag collant SANS route d'approbation ni erreur dédiée → « unknown tool » trompeur pendant 24 h (create_document). Toujours livrer détection + chemin de sortie + message distinct EN MÊME TEMPS ; un état bloquant silencieux doit se re-logger à chaque passe, pas seulement à la pose.
+
 ## [spa]
 - Toute route backend visitée directement par le navigateur (OAuth redirects, `/.well-known/*`, `/mcp`) doit être dans `_BACKEND_NAV_PATHS` (spa.py), sinon le fallback SPA (`Accept: text/html`) la masque → faux 404 React Router. NE PAS y mettre les vraies pages React.
 - Corollaire diagnostic : ne jamais tester une route API en la tapant dans la barre d'adresse du navigateur — `Accept: text/html` déclenche ce même fallback et donne un faux négatif. Utiliser DevTools Network (vraie requête `fetch`) ou `curl`.

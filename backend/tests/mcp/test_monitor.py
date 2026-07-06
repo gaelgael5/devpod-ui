@@ -211,6 +211,23 @@ async def test_run_monitor_pass_tolerates_non_unavailable_error(
 # ---------------------------------------------------------------------------
 
 
+class _FakeResult:
+    """Résultat SQLAlchemy minimal : aucune ligne (catalogue vide)."""
+
+    def mappings(self) -> _FakeResult:
+        return self
+
+    def all(self) -> list[object]:
+        return []
+
+
+class _FakeConn:
+    """Connexion minimale : write_backend_catalog lit le catalogue (delta de resync)."""
+
+    async def execute(self, *args: object, **kw: object) -> _FakeResult:
+        return _FakeResult()
+
+
 class _FakeConnCM:
     """Async context manager qui journalise entrée/sortie dans `events`."""
 
@@ -220,7 +237,7 @@ class _FakeConnCM:
 
     async def __aenter__(self) -> object:
         self._events.append(f"{self._label}_enter")
-        return object()
+        return _FakeConn()
 
     async def __aexit__(self, *exc: object) -> None:
         self._events.append(f"{self._label}_exit")

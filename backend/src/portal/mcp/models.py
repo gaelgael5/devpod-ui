@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 NAMESPACE_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
@@ -34,6 +34,9 @@ class BackendCreate(BaseModel):
     transport: Transport = "streamable_http"
     # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
     app_url: str = ""
+    # « Ne pas appliquer la protection des primitives par quarantaine » —
+    # opt-out anti rug-pull pour les backends de confiance. Protégé par défaut.
+    quarantine_disabled: bool = False
 
     @field_validator("namespace")
     @classmethod
@@ -76,6 +79,8 @@ class BackendUpdate(BaseModel):
     transport: Transport
     enabled: bool
     app_url: str = ""
+    # cf. BackendCreate — l'activer lève immédiatement les quarantaines du backend.
+    quarantine_disabled: bool = False
 
     @field_validator("url")
     @classmethod
@@ -88,6 +93,14 @@ class BackendUpdate(BaseModel):
     @classmethod
     def _app_url(cls, v: str) -> str:
         return _validate_app_url(v)
+
+
+class QuarantineApprove(BaseModel):
+    """Approbation d'une primitive quarantinée : ré-épingle la définition courante."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["tool", "resource", "prompt"]
+    name: str = Field(min_length=1, max_length=512)
 
 
 class ApikeyCreate(BaseModel):

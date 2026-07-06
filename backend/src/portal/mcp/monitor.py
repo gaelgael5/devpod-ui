@@ -88,6 +88,7 @@ async def monitor_backend_once(
     backend_row: dict[str, Any],
     *,
     open_session_fn: Any | None = None,
+    trigger: str = "monitor",
 ) -> BackendHealth:
     """Synchronise le catalogue d'un backend et en déduit sa santé (up/down).
 
@@ -135,7 +136,12 @@ async def monitor_backend_once(
                 primitives, kinds = await fetch_backend_catalog(session)
         async with _conn_or_begin(conn) as c:
             await write_backend_catalog(
-                c, backend_id=backend_id, primitives=primitives, kinds=kinds
+                c,
+                backend_id=backend_id,
+                primitives=primitives,
+                kinds=kinds,
+                protect_quarantine=not bool(backend_row.get("quarantine_disabled", False)),
+                trigger=trigger,
             )
         health = BackendHealth(status="up")
     except TimeoutError:

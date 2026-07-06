@@ -13,6 +13,7 @@ from portal.db.tables import mcp_backend, users
 from portal.mcp.aggregator import (
     AggregatedPrimitive,
     CallTarget,
+    PrimitiveQuarantined,
     _tools_allow,
     aggregate_primitives,
     make_namespaced_uri,
@@ -247,7 +248,9 @@ async def test_resolve_call_tools_filter_denied_returns_none(db_conn: AsyncConne
     ) is None
 
 
-async def test_resolve_call_quarantined_returns_none(db_conn: AsyncConnection) -> None:
+async def test_resolve_call_quarantined_raises(db_conn: AsyncConnection) -> None:
+    """Quarantiné ≠ inconnu : le résolveur lève PrimitiveQuarantined pour que
+    l'appelant serve le message dédié « en attente d'approbation » (spec 23)."""
     await _seed(db_conn)
     await _grant_backend(db_conn)
     await upsert_primitive(
@@ -258,10 +261,11 @@ async def test_resolve_call_quarantined_returns_none(db_conn: AsyncConnection) -
         db_conn, backend_id="b1", kind="tool", original_name="search",
         definition={"name": "v2"}, definition_hash="h1b",
     )
-    assert await resolve_call(
-        db_conn, apikey_id="ak1", owner_login="alice",
-        namespaced_name="rag__search", kind="tool",
-    ) is None
+    with pytest.raises(PrimitiveQuarantined):
+        await resolve_call(
+            db_conn, apikey_id="ak1", owner_login="alice",
+            namespaced_name="rag__search", kind="tool",
+        )
 
 
 async def test_resolve_call_public_backend_has_no_key(db_conn: AsyncConnection) -> None:

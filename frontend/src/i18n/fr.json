@@ -969,7 +969,14 @@
       "urlPlaceholder": "https://rag.yoops.org/mcp",
       "slugPlaceholder": "read",
       "viewTools": "Voir les outils",
-      "noTools": "Aucun outil catalogué."
+      "noTools": "Aucun outil catalogué.",
+      "quarantineTitle": "Primitives en quarantaine",
+      "quarantineHint": "Redéfinition détectée (protection anti rug pull). La primitive est masquée et refusée jusqu'à approbation.",
+      "quarantineApprove": "Approuver",
+      "quarantineApproved": "{{name}} approuvé — la primitive est de nouveau exposée",
+      "quarantinedBadge": "Quarantaine",
+      "quarantineDisabledLabel": "Ne pas appliquer la protection des primitives par quarantaine",
+      "quarantineDisabledHint": "Backend de confiance : les redéfinitions d'outils sont acceptées sans approbation. Les quarantaines existantes sont levées à l'enregistrement."
     },
     "apikeys": {
       "sectionTitle": "Apikeys clients",
