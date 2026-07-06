@@ -13,6 +13,7 @@ _PROFILE_COLS = [
     mcp_profile.c.owner_login,
     mcp_profile.c.name,
     mcp_profile.c.description,
+    mcp_profile.c.exposed_in_workspaces,
     mcp_profile.c.created_at,
     mcp_profile.c.updated_at,
 ]
@@ -78,6 +79,22 @@ async def update_profile(
             mcp_profile.c.owner_login == owner_login,
         )
         .values(name=name, description=description, updated_at=func.now())
+        .returning(mcp_profile.c.id)
+    )
+    return (await conn.execute(q)).first() is not None
+
+
+async def set_profile_exposed(
+    conn: AsyncConnection, owner_login: str, profile_id: str, *, exposed: bool
+) -> bool:
+    """Spec 35 : (dé)coche « exposé aux workspaces ». Scopé par owner."""
+    q = (
+        update(mcp_profile)
+        .where(
+            mcp_profile.c.id == profile_id,
+            mcp_profile.c.owner_login == owner_login,
+        )
+        .values(exposed_in_workspaces=exposed, updated_at=func.now())
         .returning(mcp_profile.c.id)
     )
     return (await conn.execute(q)).first() is not None

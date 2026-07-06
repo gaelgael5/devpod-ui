@@ -234,6 +234,7 @@ _APIKEY_COLS = [
     mcp_apikey.c.revoked,
     mcp_apikey.c.created_at,
     mcp_apikey.c.profile_id,
+    mcp_apikey.c.workspace_ref,
 ]
 
 
@@ -245,6 +246,7 @@ async def insert_apikey(
     token_hash: str,
     label: str,
     profile_id: str | None = None,
+    workspace_ref: str | None = None,
 ) -> None:
     await conn.execute(
         insert(mcp_apikey).values(
@@ -253,6 +255,7 @@ async def insert_apikey(
             token_hash=token_hash,
             label=label,
             profile_id=profile_id,
+            workspace_ref=workspace_ref,
         )
     )
 

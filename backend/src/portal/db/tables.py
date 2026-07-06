@@ -512,6 +512,8 @@ mcp_profile = Table(
     Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
     Column("name", Text, nullable=False),
     Column("description", Text, nullable=False, server_default=""),
+    # Spec 35 : profil injecté dans les fichiers MCP des workspaces de son owner.
+    Column("exposed_in_workspaces", Boolean, nullable=False, server_default="false"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=True),
 )
@@ -554,6 +556,33 @@ mcp_apikey = Table(
         ForeignKey("mcp_profile.id", ondelete="SET NULL"),
         nullable=True,
     ),
+    # Spec 35 : clef générée pour un workspace (ws_id "{login}-{name}", convention
+    # spec 34 — pas de FK dure). NULL = clef utilisateur classique.
+    Column("workspace_ref", Text, nullable=True),
+    Index(
+        "idx_mcp_apikey_workspace_ref",
+        "workspace_ref",
+        postgresql_where=text("workspace_ref IS NOT NULL"),
+    ),
+)
+
+# ─── Types d'agents workspace (spec 35) ──────────────────────────────────────
+
+# Un type d'agent = un fichier de configuration MCP généré dans chaque workspace
+# qui le demande : template Jinja (rendu sandboxé) + nom de fichier + chemin cible
+# dans le conteneur. Les contraintes de format (slug, filename sans '/', target_path
+# sans '..') sont validées côté pydantic (portal.agents.models).
+agent_type = Table(
+    "agent_type",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("label", Text, nullable=False),
+    Column("filename", Text, nullable=False),
+    Column("template", Text, nullable=False),
+    Column("target_path", Text, nullable=False),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=True),
 )
 
 # ─── MCP Gateway (lot 2 — runtime) ───────────────────────────────────────────
