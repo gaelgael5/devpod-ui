@@ -27,6 +27,8 @@ export const handlers = [
   http.get('/me/workspaces/:name/test-hosts/:host/links', () => HttpResponse.json([])),
   http.get('/me/agent-messages/pending-counts', () => HttpResponse.json({})),
   http.get('/me/agent-messages', () => HttpResponse.json([])),
+  http.get('/me/agent-types', () => HttpResponse.json([])),
+  http.get('/admin/agent-types', () => HttpResponse.json([])),
   http.get('/me/services', () => HttpResponse.json([])),
   http.get('/recipes', () =>
     HttpResponse.json([

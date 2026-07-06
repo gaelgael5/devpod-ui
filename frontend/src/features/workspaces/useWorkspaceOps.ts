@@ -21,6 +21,7 @@ interface CreateInput {
   defaultStart?: string
   volumeRecipes?: string[]
   initRecipes?: string[]
+  agents?: string[]
 }
 
 function toSourceSpec(entry: SourceEntry): SourceSpec {
@@ -32,7 +33,7 @@ export function useWorkspaceOps() {
   const { t } = useTranslation()
 
   const createWorkspace = useMutation({
-    mutationFn: async ({ name, sources, host, recipes, generateSshKey, profile, startRecipes, defaultStart, volumeRecipes, initRecipes }: CreateInput) => {
+    mutationFn: async ({ name, sources, host, recipes, generateSshKey, profile, startRecipes, defaultStart, volumeRecipes, initRecipes, agents }: CreateInput) => {
       const primary = sources[0] ?? { url: '', branch: '', credential: '' }
       const extra = sources.slice(1).map(toSourceSpec)
 
@@ -51,6 +52,7 @@ export function useWorkspaceOps() {
         default_start: defaultStart ?? '',
         recipe_volumes: volumeRecipes ?? [],
         init_recipes: initRecipes ?? [],
+        agents: agents ?? [],
       }
       // Add to config (ignore 409 — already exists)
       const addRes = await apiFetch('/me/workspaces', {
@@ -76,6 +78,7 @@ export function useWorkspaceOps() {
           generate_ssh_key: generateSshKey ?? false,
           profile: profile ?? null,
           recipe_volumes: volumeRecipes ?? [],
+          agents: agents ?? [],
         }),
       })
     },
@@ -164,6 +167,7 @@ export function useWorkspaceOps() {
           generate_ssh_key: spec.ssh_key,
           profile: spec.profile,
           recipe_volumes: spec.recipe_volumes ?? [],
+          agents: spec.agents ?? [],
         }),
       })
     },

@@ -46,6 +46,9 @@ export interface MCPApikey {
   revoked: boolean
   created_at: string
   last_used_at: string | null
+  // Non-null = clef générée par le portail pour un workspace (spec 35) :
+  // profil non éditable à la main, seule la révocation est permise.
+  workspace_ref: string | null
 }
 
 export interface MCPProfile {
@@ -55,6 +58,8 @@ export interface MCPProfile {
   description: string
   created_at: string
   updated_at: string | null
+  // Profil injecté dans les fichiers de config des agents workspace (spec 35).
+  exposed_in_workspaces: boolean
 }
 
 export interface MCPProfileEntry {
@@ -108,6 +113,11 @@ export interface CreatedApikey {
   token: string
 }
 
+export interface AgentType {
+  id: string
+  label: string
+}
+
 const QK = {
   backends: () => ['mcp', 'backends'] as const,
   keys: (backendId: string | null) => ['mcp', 'keys', backendId] as const,
@@ -116,6 +126,7 @@ const QK = {
   profile: (id: string | null) => ['mcp', 'profile', id] as const,
   catalog: (backendId: string | null) => ['mcp', 'catalog', backendId] as const,
   quarantined: (backendId: string) => ['mcp', 'quarantined', backendId] as const,
+  agentTypes: () => ['agent-types'] as const,
 }
 
 // ── Backends ──────────────────────────────────────────────────────────────────
@@ -348,6 +359,37 @@ export function useUpdateProfile() {
   })
 }
 
+export interface ProfileExposedResult {
+  id: string
+  exposed: boolean
+  affected_workspaces: string[]
+}
+
+/**
+ * Expose (ou retire) un profil aux workspaces (spec 35). Décocher révoque
+ * immédiatement les clefs workspace dérivées du profil (fail closed) et
+ * régénère les fichiers de config des agents à chaud.
+ */
+export function useSetProfileExposed() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, exposed }: { id: string; exposed: boolean }) =>
+      apiFetchJson<ProfileExposedResult>(
+        `/me/mcp/profiles/${encodeURIComponent(id)}/exposed`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ exposed }),
+        },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QK.profiles() })
+      // La révocation touche les clefs workspace dérivées — la liste des apikeys change.
+      qc.invalidateQueries({ queryKey: QK.apikeys() })
+    },
+  })
+}
+
 export function useDeleteProfile() {
   const qc = useQueryClient()
   return useMutation({
@@ -382,6 +424,17 @@ export function useDeleteEntry(profileId: string) {
         { method: 'DELETE' },
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.profile(profileId) }),
+  })
+}
+
+// ── Types d'agents (spec 35, côté user) ───────────────────────────────────────
+
+/** Types d'agents IA activés (id, label) — alimente le formulaire workspace. */
+export function useAgentTypes() {
+  return useQuery({
+    queryKey: QK.agentTypes(),
+    queryFn: () => apiFetchJson<AgentType[]>('/me/agent-types'),
+    staleTime: 60_000,
   })
 }
 

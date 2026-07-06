@@ -168,7 +168,9 @@
       "startRecipeScriptDefault": "#!/usr/bin/env bash\nset -euo pipefail\n",
       "startRecipeCreated": "Recette start «{{id}}» créée.",
       "memoryVolumes": "Volumes persistants",
-      "memoryVolumeLabel": "Activer le volume persistant pour {{recipe}}"
+      "memoryVolumeLabel": "Activer le volume persistant pour {{recipe}}",
+      "agents": "Agents IA",
+      "agentsHint": "Agents installés avec un accès MCP direct : leur fichier de configuration est généré par le portail et monté dans le workspace."
     },
     "confirm": {
       "deleteTitle": "Supprimer le workspace ?",
@@ -251,6 +253,25 @@
     "proxmoxEmpty": "Aucun nœud Proxmox enrôlé.",
     "hypervisorsEmpty": "Aucun hyperviseur enrôlé.",
     "hypervisorTypesEmpty": "Aucun type d'hyperviseur configuré.",
+    "agentTypes": {
+      "navLabel": "Types d'agents",
+      "title": "Types d'agents IA",
+      "empty": "Aucun type d'agent configuré.",
+      "add": "Ajouter un type d'agent",
+      "createTitle": "Nouveau type d'agent",
+      "editTitle": "Modifier le type d'agent",
+      "id": "Identifiant",
+      "idHint": "Minuscules, chiffres, tirets — non modifiable après création.",
+      "label": "Libellé",
+      "filename": "Nom de fichier",
+      "targetPath": "Chemin cible",
+      "template": "Template (Jinja2)",
+      "enabled": "Activé",
+      "disabled": "Désactivé",
+      "previewBtn": "Prévisualiser",
+      "deleteTitle": "Supprimer le type « {{id}} » ?",
+      "deleteWarning": "Le type d'agent sera supprimé. La suppression est refusée si un workspace le référence."
+    },
     "localDomain": {
       "title": "Domaine local (DNS)",
       "hint": "Ajouté à un hostname pour re-résoudre son IP DHCP courante (ex. home.lan) — s'applique aux machines de test et à l'Adresse LAN du portail ci-dessus lorsqu'elle contient un hostname. Laisser vide pour résoudre le nom seul.",
@@ -834,7 +855,12 @@
       "allowAllTools": "Tout autoriser",
       "allowNoneTools": "Tout interdire",
       "allowReadOnlyTools": "Lecture seule",
-      "noToolsCatalog": "Aucun tool indexé (backend non synchronisé)."
+      "noToolsCatalog": "Aucun tool indexé (backend non synchronisé).",
+      "exposedToWorkspaces": "Exposé aux workspaces",
+      "unexposeTitle": "Ne plus exposer « {{name}} » ?",
+      "unexposeWarning": "Le décochage révoque immédiatement les clefs MCP des workspaces dérivées de ce profil et régénère à chaud les fichiers de configuration des agents.",
+      "unexposeConfirm": "Révoquer et retirer",
+      "unexposeDone": "Profil retiré des workspaces — {{count}} workspace(s) affecté(s)."
     },
     "oauth": {
       "openSettings": "Ouvrir →",
@@ -996,7 +1022,9 @@
       "delete": "Supprimer",
       "confirmDelete": "Confirmer",
       "connectedAt": "Connecté :",
-      "lastCall": "Dernier appel :"
+      "lastCall": "Dernier appel :",
+      "workspaceBadge": "workspace",
+      "workspaceHint": "Clef générée par le portail pour ce workspace — profil géré automatiquement, révocation seule."
     },
     "saving": "Enregistrement…",
     "save": "Enregistrer"

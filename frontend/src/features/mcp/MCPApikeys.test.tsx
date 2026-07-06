@@ -57,4 +57,39 @@ describe('MCPApikeys', () => {
     // Le nom du profil apparaît deux fois : badge de la ligne + valeur du sélecteur.
     expect(await screen.findAllByText('Perso')).toHaveLength(2)
   })
+
+  it('une clef workspace affiche le badge et pas le sélecteur de profil (spec 35)', async () => {
+    const { server } = await import('@/test/server')
+    server.use(
+      http.get('/me/mcp/apikeys', () =>
+        HttpResponse.json([
+          {
+            id: 'wk1', owner_login: 'alice', label: 'ws claude', profile_id: 'p1',
+            revoked: false, created_at: '', last_used_at: null,
+            workspace_ref: 'alice-myapp',
+          },
+        ]),
+      ),
+      http.get('/me/mcp/profiles', () =>
+        HttpResponse.json([
+          {
+            id: 'p1', owner_login: 'alice', name: 'Perso',
+            description: '', created_at: '', updated_at: null,
+            exposed_in_workspaces: true,
+          },
+        ]),
+      ),
+    )
+
+    renderWithProviders(<MCPApikeys />)
+
+    // Badge « workspace » + ws_id visibles.
+    expect(await screen.findByText(/workspace/i)).toBeInTheDocument()
+    expect(screen.getByText('alice-myapp')).toBeInTheDocument()
+    // Pas de sélecteur de profil (géré par le portail) — profil affiché en lecture seule.
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.getByText('Perso')).toBeInTheDocument()
+    // La révocation reste disponible.
+    expect(screen.getByRole('button', { name: /revoke/i })).toBeInTheDocument()
+  })
 })

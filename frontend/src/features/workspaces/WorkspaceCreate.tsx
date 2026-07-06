@@ -24,6 +24,7 @@ import ProfileSelector from './ProfileSelector'
 import SourceRow from './SourceRow'
 import { useUserStore } from '@/store/user'
 import { useHosts, type HostConfig } from '@/features/admin/useHosts'
+import { useAgentTypes } from '@/features/mcp/api'
 import { apiFetchJson } from '@/shared/api/client'
 
 /** Valeur sentinelle Radix Select pour "pas de nœud choisi" (Radix refuse les strings vides). */
@@ -71,6 +72,7 @@ export default function WorkspaceCreate() {
   const { data: credentials = [] } = useGitCredentials()
   const { data: profiles = [] } = useProfiles()
   const { data: startRecipes = [] } = useStartRecipes()
+  const { data: agentTypes = [] } = useAgentTypes()
 
   const [name, setName] = useState('')
   const [sourceRows, setSourceRows] = useState<SourceRowState[]>([])
@@ -81,6 +83,7 @@ export default function WorkspaceCreate() {
   const [selectedStartRecipes, setSelectedStartRecipes] = useState<string[]>([])
   const [selectedInitRecipes, setSelectedInitRecipes] = useState<string[]>([])
   const [volumeRecipes, setVolumeRecipes] = useState<string[]>([])
+  const [selectedAgents, setSelectedAgents] = useState<string[]>([])
 
   const recipesWithOptionalVolume = useMemo(
     () => recipes.filter(r => selectedRecipes.includes(r.id) && r.memory_volume?.optional),
@@ -223,6 +226,7 @@ export default function WorkspaceCreate() {
         startRecipes: selectedStartRecipes,
         volumeRecipes,
         initRecipes: selectedInitRecipes,
+        agents: selectedAgents,
       })
       navigate('/workspaces')
     } catch (err) {
@@ -458,6 +462,40 @@ export default function WorkspaceCreate() {
                     }`}
                   >
                     {r.id}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ─── Agents IA (spec 35) ────────────────────────────────────────── */}
+        {agentTypes.length > 0 && (
+          <div>
+            <Label>{t('workspaces.form.agents')}</Label>
+            <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+              {t('workspaces.form.agentsHint')}
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {agentTypes.map((a) => {
+                const selected = selectedAgents.includes(a.id)
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    title={a.id}
+                    onClick={() =>
+                      setSelectedAgents((prev) =>
+                        selected ? prev.filter((x) => x !== a.id) : [...prev, a.id],
+                      )
+                    }
+                    className={`rounded-sm px-2 py-0.5 text-xs border transition-colors ${
+                      selected
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-muted text-muted-foreground border-border hover:border-primary'
+                    }`}
+                  >
+                    {a.label}
                   </button>
                 )
               })}

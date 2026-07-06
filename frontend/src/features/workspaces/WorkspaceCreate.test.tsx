@@ -131,6 +131,41 @@ describe('WorkspaceCreate', () => {
     },
   )
 
+  it('sélectionner un agent IA envoie agents:["claude"] dans les deux requêtes (spec 35)', async () => {
+    const capturedBodies: unknown[] = []
+    server.use(
+      http.get('/me/agent-types', () =>
+        HttpResponse.json([{ id: 'claude', label: 'Claude Code' }])),
+      http.post('/me/workspaces', async ({ request }) => {
+        capturedBodies.push(await request.json())
+        return HttpResponse.json({}, { status: 201 })
+      }),
+      http.post('/me/workspaces/:name/up', async ({ request }) => {
+        capturedBodies.push(await request.json())
+        return HttpResponse.json({ ws_id: 'alice-my-project', status: 'provisioning' }, { status: 202 })
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<WorkspaceCreate />, { route: '/workspaces/new' })
+
+    await user.type(screen.getByLabelText(/name|nom/i), 'my-project')
+    await user.click(await screen.findByRole('button', { name: 'Claude Code' }))
+    await user.click(screen.getByRole('button', { name: /create|créer/i }))
+
+    await waitFor(() => expect(capturedBodies).toHaveLength(2))
+    const [specBody, upBody] = capturedBodies as Array<{ agents?: string[] }>
+    expect(specBody.agents).toEqual(['claude'])
+    expect(upBody.agents).toEqual(['claude'])
+  })
+
+  it('masque la section Agents IA quand la liste des types est vide', async () => {
+    renderWithProviders(<WorkspaceCreate />)
+    // Handler par défaut : GET /me/agent-types → []
+    await screen.findByLabelText(/name|nom/i)
+    expect(screen.queryByText(/AI agents|Agents IA/i)).not.toBeInTheDocument()
+  })
+
   it('affiche le toggle Générer une clé SSH', () => {
     renderWithProviders(<WorkspaceCreate />)
     expect(

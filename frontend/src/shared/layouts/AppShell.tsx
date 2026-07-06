@@ -133,6 +133,9 @@ export default function AppShell() {
                   <DropdownMenuItem onClick={() => navigate('/admin/hypervisor-types')}>
                     {t('admin.hypervisorTypes')}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/agent-types')}>
+                    {t('admin.agentTypes.navLabel')}
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/hypervisors')}>
                     {t('admin.hypervisors')}
                   </DropdownMenuItem>
