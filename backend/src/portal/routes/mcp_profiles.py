@@ -2,15 +2,19 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+import structlog
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from ..agents.resync import resync_owner_workspaces
 from ..auth.rbac import UserInfo, require_user
 from ..db import mcp as mcp_db
 from ..db import mcp_profiles as db
 from ..db.engine import get_conn
 from ..mcp.service import new_id
+
+_log = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["mcp-profiles"])
 
@@ -89,6 +93,45 @@ async def update_profile_route(
     if not updated:
         raise HTTPException(status_code=404, detail="profil introuvable")
     return {"id": profile_id}
+
+
+class ExposedUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    exposed: bool
+
+
+@router.put("/mcp/profiles/{profile_id}/exposed")
+async def set_profile_exposed_route(
+    body: ExposedUpdate,
+    profile_id: _ProfileId,
+    background: BackgroundTasks,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """(Dé)coche « exposé aux workspaces » (spec 35 §3).
+
+    Décochage = fail closed immédiat : les clefs workspace dérivées du profil sont
+    révoquées dans la même transaction ; la régénération des fichiers sur les hosts
+    part en tâche de fond APRÈS commit (les tokens révoqués deviennent inertes même
+    si un push échoue). Cochage : resync de tous les workspaces à agents (nouvelles
+    entrées + clefs)."""
+    if not await db.set_profile_exposed(conn, user.login, profile_id, exposed=body.exposed):
+        raise HTTPException(status_code=404, detail="profil introuvable")
+    affected: list[str] = []
+    if body.exposed:
+        background.add_task(resync_owner_workspaces, user.login, None)
+    else:
+        affected = await mcp_db.revoke_profile_workspace_apikeys(conn, user.login, profile_id)
+        if affected:
+            background.add_task(resync_owner_workspaces, user.login, set(affected))
+    _log.info(
+        "mcp_profile_exposed_set",
+        login=user.login,
+        profile_id=profile_id,
+        exposed=body.exposed,
+        revoked_workspaces=affected,
+    )
+    return {"id": profile_id, "exposed": body.exposed, "affected_workspaces": affected}
 
 
 @router.delete("/mcp/profiles/{profile_id}", status_code=204)

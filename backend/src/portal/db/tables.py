@@ -51,9 +51,7 @@ global_config = Table(
     Column("logs_grafana_url", Text, nullable=False, server_default=""),
     Column("logs_module", Text, nullable=False, server_default="devpod"),
     Column("logs_push_token", Text, nullable=False, server_default=""),
-    Column(
-        "logs_grafana_oauth_client_id", Text, nullable=False, server_default="agflow-grafana"
-    ),
+    Column("logs_grafana_oauth_client_id", Text, nullable=False, server_default="agflow-grafana"),
     Column("logs_grafana_oauth_client_secret", Text, nullable=False, server_default=""),
     # OidcConfig
     Column("oidc_issuer", Text, nullable=False),
@@ -223,6 +221,8 @@ workspaces = Table(
     Column("recipe_volumes", ARRAY(Text), nullable=False, server_default="{}"),
     Column("init_recipes", ARRAY(Text), nullable=False, server_default="{}"),
     Column("groups", ARRAY(Text), nullable=False, server_default="{}"),
+    # Spec 35 : types d'agents à configurer (accès MCP direct).
+    Column("agents", ARRAY(Text), nullable=False, server_default="{}"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("login", "name", name="uq_workspaces_login_name"),

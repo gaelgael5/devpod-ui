@@ -153,7 +153,52 @@ async def prepare_workspace_agents(
         raise AgentProvisionError("host SSH incomplet (adresse ou clé manquante)")
 
     agent_rows = await _load_requested_agent_types(agents)
+    remote_home = await sync_agent_config(
+        login=login,
+        ws_id=ws_id,
+        ws_name=ws_name,
+        agent_rows=agent_rows,
+        ssh_user=ssh_user,
+        ssh_host=ssh_host,
+        ssh_key_path=ssh_key_path,
+        mcp_url=mcp_url,
+        project_root=project_root,
+    )
 
+    workspace_meta = {"id": ws_id, "name": ws_name, "owner": login}
+    setup = AgentSetup(
+        mounts=[build_agent_mount(remote_home, ws_id)],
+        post_create=build_agent_post_create(
+            agent_rows, project_root=project_root, workspace=workspace_meta
+        ),
+    )
+    _log.info(
+        "workspace_agents_prepared",
+        ws_id=ws_id,
+        agents=[row["id"] for row in agent_rows],
+    )
+    return setup
+
+
+async def sync_agent_config(
+    *,
+    login: str,
+    ws_id: str,
+    ws_name: str,
+    agent_rows: list[dict[str, Any]],
+    ssh_user: str,
+    ssh_host: str,
+    ssh_key_path: str,
+    mcp_url: str,
+    project_root: str,
+) -> str:
+    """Rotation des clefs + génération + push de l'arborescence agent-config.
+
+    Retourne le home distant (base de la source du bind mount). Réutilisé par le
+    up et par le resync à chaud (changement de profil exposé, édition d'un type
+    d'agent) : les tokens ne sont stockés que hashés, toute régénération de
+    fichier passe donc par une rotation complète des clefs du workspace.
+    """
     from ..db.engine import _get_engine
 
     async with _get_engine().begin() as conn:
@@ -187,18 +232,4 @@ async def prepare_workspace_agents(
         )
     finally:
         shutil.rmtree(staging, ignore_errors=True)
-
-    workspace_meta = {"id": ws_id, "name": ws_name, "owner": login}
-    setup = AgentSetup(
-        mounts=[build_agent_mount(remote_home, ws_id)],
-        post_create=build_agent_post_create(
-            agent_rows, project_root=project_root, workspace=workspace_meta
-        ),
-    )
-    _log.info(
-        "workspace_agents_prepared",
-        ws_id=ws_id,
-        agents=[row["id"] for row in agent_rows],
-        profiles=[k.profile_id for k in keys],
-    )
-    return setup
+    return remote_home

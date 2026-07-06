@@ -22,6 +22,8 @@ from .mcp.server import build_server as _build_mcp_server
 from .routes import compose as compose_routes
 from .routes.admin import router as admin_router
 from .routes.agent_messages import router as agent_messages_router
+from .routes.agent_types import admin_router as agent_types_admin_router
+from .routes.agent_types import me_router as agent_types_me_router
 from .routes.app_events import router as app_events_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
@@ -360,6 +362,8 @@ def create_app() -> FastAPI:
     app.include_router(secrets_admin_router, prefix="/admin")
     app.include_router(mcp_router, prefix="/me")
     app.include_router(mcp_profiles_router, prefix="/me")
+    app.include_router(agent_types_admin_router, prefix="/admin")
+    app.include_router(agent_types_me_router, prefix="/me")
     app.include_router(compose_routes.router)
     app.include_router(compose_sources_admin_router, prefix="/admin")
     app.include_router(jinja_templates_router, prefix="/admin")

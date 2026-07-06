@@ -6,6 +6,7 @@
   seed 'claude' (Claude Code, .mcp.json à la racine du projet).
 - mcp_apikey.workspace_ref : clefs générées par workspace (ws_id texte
   "{login}-{name}", convention spec 34 — pas de FK dure) + index partiel.
+- workspaces.agents : types d'agents demandés par le spec du workspace.
 
 Revision ID: 056
 Revises: 055
@@ -18,6 +19,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "056"
 down_revision: str | None = "055"
@@ -44,6 +46,16 @@ def upgrade() -> None:
     op.add_column(
         "mcp_profile",
         sa.Column("exposed_in_workspaces", sa.Boolean(), nullable=False, server_default="false"),
+    )
+
+    op.add_column(
+        "workspaces",
+        sa.Column(
+            "agents",
+            postgresql.ARRAY(sa.Text()),
+            nullable=False,
+            server_default="{}",
+        ),
     )
 
     op.add_column("mcp_apikey", sa.Column("workspace_ref", sa.Text(), nullable=True))
@@ -88,4 +100,5 @@ def downgrade() -> None:
     op.drop_table("agent_type")
     op.drop_index("idx_mcp_apikey_workspace_ref", table_name="mcp_apikey")
     op.drop_column("mcp_apikey", "workspace_ref")
+    op.drop_column("workspaces", "agents")
     op.drop_column("mcp_profile", "exposed_in_workspaces")

@@ -69,6 +69,17 @@ async def test_migration_056_full_chain(fresh_postgres_url: str) -> None:
             }
             assert "workspace_ref" in cols
 
+            cols = {
+                r[0]
+                for r in await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns"
+                        " WHERE table_name = 'workspaces'"
+                    )
+                )
+            }
+            assert "agents" in cols
+
             idx = (
                 await conn.execute(
                     text(

@@ -1,4 +1,5 @@
 """Persistance UserConfig (users, git_credentials, workspaces, workspace_extra_sources)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -71,9 +72,7 @@ async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
         raise UserNotProvisionedError(login) from exc
     secret_ns_raw = raw.get("secret_ns")
     if not secret_ns_raw:
-        _log.warning(
-            "user_not_provisioned", login=login, reason="secret_ns missing in config.yaml"
-        )
+        _log.warning("user_not_provisioned", login=login, reason="secret_ns missing in config.yaml")
         raise UserNotProvisionedError(login)
     secret_ns_str = str(secret_ns_raw)
 
@@ -88,26 +87,32 @@ async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
 
 async def load_user_db(login: str, conn: AsyncConnection) -> UserConfig:
     user_row = (
-        await conn.execute(select(users).where(users.c.login == login))
-    ).mappings().one_or_none()
+        (await conn.execute(select(users).where(users.c.login == login))).mappings().one_or_none()
+    )
     if user_row is None:
         raise FileNotFoundError(f"User {login!r} not found in DB")
 
     cred_rows = (
-        await conn.execute(
-            select(git_credentials)
-            .where(git_credentials.c.login == login)
-            .order_by(git_credentials.c.id)
+        (
+            await conn.execute(
+                select(git_credentials)
+                .where(git_credentials.c.login == login)
+                .order_by(git_credentials.c.id)
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     ws_rows = (
-        await conn.execute(
-            select(workspaces)
-            .where(workspaces.c.login == login)
-            .order_by(workspaces.c.id)
+        (
+            await conn.execute(
+                select(workspaces).where(workspaces.c.login == login).order_by(workspaces.c.id)
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     ws_ids = [r["id"] for r in ws_rows]
     if ws_ids:
@@ -254,6 +259,7 @@ def _ws_row_to_model(row: dict[str, Any], extra_rows: list[Any]) -> WorkspaceSpe
         recipe_volumes=list(row["recipe_volumes"] or []),
         init_recipes=list(row["init_recipes"] or []),
         groups=list(row["groups"] or []),
+        agents=list(row["agents"] or []),
         extra_sources=[
             SourceSpec(
                 url=e["url"],
@@ -288,4 +294,5 @@ def _ws_to_row(login: str, ws: WorkspaceSpec) -> dict[str, Any]:
         "recipe_volumes": list(ws.recipe_volumes),
         "init_recipes": list(ws.init_recipes),
         "groups": list(ws.groups),
+        "agents": list(ws.agents),
     }
