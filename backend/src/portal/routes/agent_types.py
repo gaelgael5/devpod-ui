@@ -7,10 +7,11 @@ de création de workspace, prévisualisation du template avec un contexte factic
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -100,25 +101,43 @@ async def create_agent_type_route(
 async def update_agent_type_route(
     body: AgentTypeUpdate,
     agent_id: _AgentId,
-    background: BackgroundTasks,
     user: UserInfo = Depends(require_admin),
-    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
-    if not await db.update_agent_type(
-        conn,
-        agent_id,
-        label=body.label,
-        filename=body.filename,
-        template=body.template,
-        target_path=body.target_path,
-        enabled=body.enabled,
-    ):
-        raise HTTPException(status_code=404, detail="type d'agent introuvable")
-    # Régénération à chaud des fichiers de tous les workspaces concernés,
-    # après commit de la transaction courante.
-    background.add_task(resync_agent_type_workspaces, agent_id)
+    # Transaction dédiée committée AVANT le resync — cf. set_profile_exposed_route :
+    # l'ordre commit/BackgroundTasks n'est pas garanti, le resync doit lire le
+    # template à jour.
+    from ..db.engine import _get_engine
+
+    async with _get_engine().begin() as conn:
+        if not await db.update_agent_type(
+            conn,
+            agent_id,
+            label=body.label,
+            filename=body.filename,
+            template=body.template,
+            target_path=body.target_path,
+            enabled=body.enabled,
+        ):
+            raise HTTPException(status_code=404, detail="type d'agent introuvable")
+    _spawn_agent_type_resync(agent_id)
     _log.info("agent_type_updated", agent_id=agent_id, login=user.login)
     return {"id": agent_id}
+
+
+# Références fortes sur les resyncs fire-and-forget (sinon GC possible mi-course).
+_resync_tasks: set[asyncio.Task[Any]] = set()
+
+
+def _spawn_agent_type_resync(agent_id: str) -> None:
+    task = asyncio.create_task(resync_agent_type_workspaces(agent_id))
+    _resync_tasks.add(task)
+
+    def _done(t: asyncio.Task[Any]) -> None:
+        _resync_tasks.discard(t)
+        if not t.cancelled() and t.exception() is not None:
+            _log.error("agent_resync_task_failed", agent_id=agent_id, exc_info=t.exception())
+
+    task.add_done_callback(_done)
 
 
 @admin_router.delete("/agent-types/{agent_id}", status_code=204)

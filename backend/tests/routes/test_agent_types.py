@@ -1,28 +1,41 @@
-"""Spec 35 §8.6 — routes agent-types (CRUD admin, preview, liste user, RBAC)."""
+"""Spec 35 §8.6 — routes agent-types (CRUD admin, preview, liste user, RBAC).
+
+Le PATCH écrit dans une transaction dédiée (resync post-commit garanti) : les
+tests n'utilisent pas db_conn (sa connexion poolée unique bloquerait celle de la
+route) — le vrai get_conn travaille sur le moteur de test, données committées,
+nettoyées par le drop_all du teardown de db_engine.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncGenerator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import insert
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from portal.db.tables import users, workspaces
 
 
 @pytest.fixture(autouse=True)
 def _no_resync(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Neutralise le resync en tâche de fond : il ouvrirait une seconde connexion
-    sur le pool de test (pool_size=1 tenu par db_conn) → deadlock."""
+    """Neutralise le resync fire-and-forget (le vrai pousserait du SSH)."""
     import portal.routes.agent_types as mod
 
     async def fake_resync(agent_id: str) -> dict[str, list[str]]:
         return {"synced": [], "skipped": [], "failed": []}
 
     monkeypatch.setattr(mod, "resync_agent_type_workspaces", fake_resync)
+
+
+async def _drain_resync_tasks() -> None:
+    import portal.routes.agent_types as mod
+
+    if mod._resync_tasks:
+        await asyncio.gather(*mod._resync_tasks, return_exceptions=True)
 
 
 _CLAUDE = {
@@ -34,17 +47,15 @@ _CLAUDE = {
 }
 
 
-def _make_app(db_conn: AsyncConnection, *, admin: bool):
+def _make_app(*, admin: bool):
     from fastapi import FastAPI, HTTPException
 
     from portal.auth.rbac import UserInfo, require_admin, require_user
-    from portal.db.engine import get_conn
     from portal.routes.agent_types import admin_router, me_router
 
     app = FastAPI()
     app.include_router(admin_router, prefix="/admin")
     app.include_router(me_router, prefix="/me")
-    app.dependency_overrides[get_conn] = lambda: db_conn
     app.dependency_overrides[require_user] = lambda: UserInfo(login="alice", roles=["dev"])
     if admin:
         app.dependency_overrides[require_admin] = lambda: UserInfo(login="root", roles=["admin"])
@@ -57,22 +68,25 @@ def _make_app(db_conn: AsyncConnection, *, admin: bool):
     return app
 
 
+async def _seed_user(db_engine: AsyncEngine) -> None:
+    async with db_engine.begin() as conn:
+        await conn.execute(
+            insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
+        )
+
+
 @pytest.fixture
-async def admin_client(db_conn: AsyncConnection) -> AsyncGenerator[AsyncClient, None]:
-    await db_conn.execute(
-        insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
-    )
-    app = _make_app(db_conn, admin=True)
+async def admin_client(db_engine: AsyncEngine) -> AsyncGenerator[AsyncClient, None]:
+    await _seed_user(db_engine)
+    app = _make_app(admin=True)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         yield c
 
 
 @pytest.fixture
-async def dev_client(db_conn: AsyncConnection) -> AsyncGenerator[AsyncClient, None]:
-    await db_conn.execute(
-        insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
-    )
-    app = _make_app(db_conn, admin=False)
+async def dev_client(db_engine: AsyncEngine) -> AsyncGenerator[AsyncClient, None]:
+    await _seed_user(db_engine)
+    app = _make_app(admin=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         yield c
 
@@ -100,6 +114,11 @@ async def test_crud_agent_type(admin_client: AsyncClient) -> None:
         },
     )
     assert r.status_code == 200
+    await _drain_resync_tasks()
+
+    r = await admin_client.get("/admin/agent-types")
+    assert r.json()[0]["label"] == "Claude"
+    assert r.json()[0]["enabled"] is False
 
     r = await admin_client.delete("/admin/agent-types/claude")
     assert r.status_code == 204
@@ -113,12 +132,13 @@ async def test_create_invalid_filename_rejected(admin_client: AsyncClient) -> No
 
 
 async def test_delete_refused_when_referenced(
-    admin_client: AsyncClient, db_conn: AsyncConnection
+    admin_client: AsyncClient, db_engine: AsyncEngine
 ) -> None:
     await admin_client.post("/admin/agent-types", json=_CLAUDE)
-    await db_conn.execute(
-        insert(workspaces).values(login="alice", name="api", source="", agents=["claude"])
-    )
+    async with db_engine.begin() as conn:
+        await conn.execute(
+            insert(workspaces).values(login="alice", name="api", source="", agents=["claude"])
+        )
     r = await admin_client.delete("/admin/agent-types/claude")
     assert r.status_code == 409
     assert "alice-api" in r.json()["detail"]

@@ -65,6 +65,7 @@
 - `workspace_host` n'est PAS l'hôte des workspaces : tous les tunnels SSH convergent sur le conteneur portail (`node_ip = caddy.portal_host = "portal"`), c'est donc l'IP LAN du portail — une seule valeur couvre N nœuds. En DHCP, le mettre en hostname et le re-résoudre via `<host>.<local_domain>` (`net.resolve_ipv4`). Ne jamais prioriser `node_ip` (nom Docker interne) devant lui dans les fallbacks URL directe.
 
 ## [admin/config]
+- JAMAIS `save_global()` depuis un process externe (`docker exec python`) : `load_global()` y retombe sur la config bootstrap VIDE (cache jamais réchauffé) → le save écrase toute la config réelle (hosts effacés sur test1, 2026-07-06). Toute mutation de config passe par l'API admin du portail qui tourne ; à défaut, UPDATE SQL ciblé + restart.
 - Un modèle pydantic + persistance DB ne veut pas dire qu'un réglage est configurable : vérifier qu'une route PUT existe réellement avant de supposer qu'un admin peut le changer (ex. `logs.enabled`/`loki_push_url` avaient le modèle + la DB mais aucune route d'écriture — seule la lecture existait).
 - Avant d'ajouter un nouveau champ de config, vérifier qu'un champ existant ne porte pas déjà la même valeur sous un autre nom (`workspace_host` couvrait déjà "IP directe du host").
 
