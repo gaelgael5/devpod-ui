@@ -45,7 +45,10 @@ async def test_migration_056_full_chain(fresh_postgres_url: str) -> None:
             head = (
                 await conn.execute(text("SELECT version_num FROM alembic_version"))
             ).scalar_one()
-            assert head == "056"
+            # Chemin de production = migre jusqu'à head : on vérifie que la chaîne
+            # passe AU MOINS 056 (l'égalité stricte casserait à chaque nouvelle
+            # migration — les artefacts 056 sont vérifiés ci-dessous).
+            assert head >= "056"
 
             cols = {
                 r[0]

@@ -3,6 +3,7 @@ Cline, Devin Desktop) : seed correct et templates rendus valides."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import tomllib
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from portal.agents.keys import WorkspaceKey
 from portal.agents.renderer import build_render_context, render_agent_file
-from portal.db.migration import run_migrations
+from portal.db.migration import _ALEMBIC_INI
 
 _EXPECTED = {
     "codex": ("config.toml", "{{ home }}/.codex/config.toml"),
@@ -44,8 +45,19 @@ def fresh_postgres_url() -> str:
         )
 
 
+def _upgrade_to_057_sync(database_url: str) -> None:
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config(str(_ALEMBIC_INI))
+    cfg.set_main_option("sqlalchemy.url", database_url)
+    # Révision épinglée (pas `head`) : ce test décrit l'état APRÈS 057 — une
+    # migration ultérieure (058 : disable codex/gemini) ne doit pas le casser.
+    command.upgrade(cfg, "057")
+
+
 async def test_migration_057_full_chain(fresh_postgres_url: str) -> None:
-    await run_migrations(fresh_postgres_url)
+    await asyncio.to_thread(_upgrade_to_057_sync, fresh_postgres_url)
 
     engine = create_async_engine(fresh_postgres_url)
     try:
@@ -108,7 +120,7 @@ async def test_new_agent_template_renders_to_valid_syntax(
 ) -> None:
     """Chaque template doit produire un JSON/TOML syntaxiquement valide — le
     render passe par le sandbox Jinja réel, pas une reconstruction manuelle."""
-    await run_migrations(fresh_postgres_url)
+    await asyncio.to_thread(_upgrade_to_057_sync, fresh_postgres_url)
 
     engine = create_async_engine(fresh_postgres_url)
     try:

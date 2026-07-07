@@ -49,7 +49,9 @@ def _run_migrations_sync(database_url: str) -> None:
 
     cfg = Config(str(_ALEMBIC_INI))
     cfg.set_main_option("sqlalchemy.url", database_url)
-    command.upgrade(cfg, "head")
+    # Révision épinglée (pas `head`) : ce test décrit l'état APRÈS 058 — une
+    # migration ultérieure ne doit pas le casser.
+    command.upgrade(cfg, "058")
 
 
 def _downgrade_sync(database_url: str, revision: str) -> None:
