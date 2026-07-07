@@ -275,7 +275,12 @@
       "disabled": "Désactivé",
       "previewBtn": "Prévisualiser",
       "deleteTitle": "Supprimer le type « {{id}} » ?",
-      "deleteWarning": "Le type d'agent sera supprimé. La suppression est refusée si un workspace le référence."
+      "deleteWarning": "Le type d'agent sera supprimé. La suppression est refusée si un workspace le référence.",
+      "mode": "Mode",
+      "modeReplace": "Remplacement",
+      "modeMerge": "Fusion",
+      "modeReplaceHint": "Fichier dédié au MCP : le portail rend et possède le fichier entier.",
+      "modeMergeHint": "Fichier partagé avec les réglages de l'utilisateur : le template rend un fragment (serveurs préfixés « portal- ») fusionné sans écraser l'existant."
     },
     "localDomain": {
       "title": "Domaine local (DNS)",

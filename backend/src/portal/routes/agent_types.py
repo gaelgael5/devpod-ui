@@ -89,6 +89,7 @@ async def create_agent_type_route(
                 filename=body.filename,
                 template=body.template,
                 target_path=body.target_path,
+                mode=body.mode,
                 enabled=body.enabled,
             )
     except IntegrityError as exc:
@@ -117,6 +118,7 @@ async def update_agent_type_route(
             template=body.template,
             target_path=body.target_path,
             enabled=body.enabled,
+            mode=body.mode,
         ):
             raise HTTPException(status_code=404, detail="type d'agent introuvable")
     _spawn_agent_type_resync(agent_id)

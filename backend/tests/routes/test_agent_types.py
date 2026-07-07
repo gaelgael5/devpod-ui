@@ -119,6 +119,38 @@ async def test_crud_agent_type(admin_client: AsyncClient) -> None:
     r = await admin_client.get("/admin/agent-types")
     assert r.json()[0]["label"] == "Claude"
     assert r.json()[0]["enabled"] is False
+    # mode omis dans le PATCH → inchangé (spec 35b T7)
+    assert r.json()[0]["mode"] == "replace"
+
+    r = await admin_client.patch(
+        "/admin/agent-types/claude",
+        json={
+            "label": "Claude",
+            "filename": ".mcp.json",
+            "template": "{}",
+            "target_path": "{{ project_root }}/.mcp.json",
+            "enabled": False,
+            "mode": "merge",
+        },
+    )
+    assert r.status_code == 200
+    await _drain_resync_tasks()
+    r = await admin_client.get("/admin/agent-types")
+    assert r.json()[0]["mode"] == "merge"
+
+    # mode invalide → 422
+    r = await admin_client.patch(
+        "/admin/agent-types/claude",
+        json={
+            "label": "Claude",
+            "filename": ".mcp.json",
+            "template": "{}",
+            "target_path": "{{ project_root }}/.mcp.json",
+            "enabled": False,
+            "mode": "hybrid",
+        },
+    )
+    assert r.status_code == 422
 
     r = await admin_client.delete("/admin/agent-types/claude")
     assert r.status_code == 204

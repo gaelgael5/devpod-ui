@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
+/** Stratégie de matérialisation (spec 35b) : `replace` = fichier dédié MCP rendu
+ * en entier ; `merge` = fragment `portal-*` fusionné dans le fichier partagé. */
+export type AgentMode = 'replace' | 'merge'
+
 /** Type d'agent IA (spec 35) : fichier de config MCP rendu par template Jinja2. */
 export interface AgentTypeAdmin {
   id: string
@@ -8,6 +12,7 @@ export interface AgentTypeAdmin {
   filename: string
   template: string
   target_path: string
+  mode: AgentMode
   enabled: boolean
   created_at: string
   updated_at: string | null
@@ -19,6 +24,7 @@ export interface AgentTypeBody {
   filename: string
   template: string
   target_path: string
+  mode: AgentMode
   enabled: boolean
 }
 

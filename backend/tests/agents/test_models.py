@@ -82,3 +82,42 @@ def test_update_model() -> None:
             target_path="{{ home }}/.gemini/settings.json",
             enabled=True,
         )
+
+
+# ── mode (spec 35b T7) ──────────────────────────────────────────────────────
+
+
+def test_create_mode_defaults_to_replace() -> None:
+    assert _create().mode == "replace"
+
+
+def test_create_mode_merge_accepted() -> None:
+    assert _create(mode="merge").mode == "merge"
+
+
+def test_create_mode_invalid_rejected() -> None:
+    with pytest.raises(ValidationError):
+        _create(mode="hybrid")
+
+
+def test_update_mode_optional_none_means_unchanged() -> None:
+    m = AgentTypeUpdate(
+        label="Codex",
+        filename="config.toml",
+        template="{}",
+        target_path="{{ home }}/.codex/config.toml",
+        enabled=True,
+    )
+    assert m.mode is None
+
+
+def test_update_mode_invalid_rejected() -> None:
+    with pytest.raises(ValidationError):
+        AgentTypeUpdate(
+            label="Codex",
+            filename="config.toml",
+            template="{}",
+            target_path="{{ home }}/.codex/config.toml",
+            enabled=True,
+            mode="hybrid",
+        )

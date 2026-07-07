@@ -8,8 +8,13 @@ généré sur le host, chemin cible dans le conteneur (templatable).
 from __future__ import annotations
 
 import re
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
+
+# replace : fichier dédié MCP, rendu complet. merge : fichier partagé avec les
+# réglages utilisateur, le template rend un fragment `portal-*` fusionné (35b).
+AgentMode = Literal["replace", "merge"]
 
 AGENT_ID_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
 # Nom de fichier simple : dotfile accepté, jamais de séparateur de chemin.
@@ -69,6 +74,7 @@ class _AgentTypeFields(BaseModel):
 class AgentTypeCreate(_AgentTypeFields):
     id: str
     enabled: bool = True
+    mode: AgentMode = "replace"
 
     @field_validator("id")
     @classmethod
@@ -80,3 +86,6 @@ class AgentTypeCreate(_AgentTypeFields):
 
 class AgentTypeUpdate(_AgentTypeFields):
     enabled: bool
+    # None = inchangé : un client qui ne connaît pas encore le champ ne doit
+    # jamais écraser la valeur existante (contrat db.update_agent_type).
+    mode: AgentMode | None = None

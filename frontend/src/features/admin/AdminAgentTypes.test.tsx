@@ -13,9 +13,20 @@ const CLAUDE = {
   filename: '.mcp.json',
   template: '{"mcpServers": {}}',
   target_path: '{project_root}',
+  mode: 'replace',
   enabled: true,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: null,
+}
+
+const CODEX = {
+  ...CLAUDE,
+  id: 'codex',
+  label: 'Codex CLI',
+  filename: 'config.toml',
+  target_path: '{home}/.codex/config.toml',
+  mode: 'merge',
+  enabled: false,
 }
 
 describe('AdminAgentTypes', () => {
@@ -63,8 +74,40 @@ describe('AdminAgentTypes', () => {
       filename: '.mcp.json',
       template: 'x',
       target_path: '{project_root}',
+      mode: 'replace',
       enabled: true,
     })
+  })
+
+  it('affiche la pastille de mode (replace/merge) dans la table', async () => {
+    server.use(http.get('/admin/agent-types', () => HttpResponse.json([CLAUDE, CODEX])))
+
+    renderWithProviders(<AdminAgentTypes />)
+
+    expect(await screen.findByText('codex')).toBeInTheDocument()
+    expect(screen.getByText(/^Replace$/i)).toBeInTheDocument()
+    expect(screen.getByText(/^Merge$/i)).toBeInTheDocument()
+  })
+
+  it('le PATCH porte le mode sélectionné dans le dialog', async () => {
+    let patchBody: unknown = null
+    server.use(
+      http.get('/admin/agent-types', () => HttpResponse.json([CODEX])),
+      http.patch('/admin/agent-types/codex', async ({ request }) => {
+        patchBody = await request.json()
+        return HttpResponse.json({ ...CODEX })
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<AdminAgentTypes />)
+
+    await user.click(await screen.findByRole('button', { name: /^Edit$/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /^Save$/i }))
+
+    await waitFor(() => expect(patchBody).not.toBeNull())
+    expect(patchBody).toMatchObject({ mode: 'merge' })
   })
 
   it('prévisualise le template et affiche le rendu', async () => {

@@ -13,9 +13,21 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { useAdminAgentTypes, type AgentTypeAdmin, type AgentTypeBody } from './useAdminAgentTypes'
+import {
+  useAdminAgentTypes,
+  type AgentMode,
+  type AgentTypeAdmin,
+  type AgentTypeBody,
+} from './useAdminAgentTypes'
 
 const EMPTY_FORM: AgentTypeBody = {
   id: '',
@@ -23,6 +35,7 @@ const EMPTY_FORM: AgentTypeBody = {
   filename: '',
   template: '',
   target_path: '',
+  mode: 'replace',
   enabled: true,
 }
 
@@ -48,6 +61,7 @@ function AgentTypeFormDialog({
           filename: agentType.filename,
           template: agentType.template,
           target_path: agentType.target_path,
+          mode: agentType.mode,
           enabled: agentType.enabled,
         }
       : EMPTY_FORM,
@@ -146,6 +160,23 @@ function AgentTypeFormDialog({
               className="font-mono"
               required
             />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="at-mode">{t('admin.agentTypes.mode')}</Label>
+            <Select value={form.mode} onValueChange={(v) => set('mode', v as AgentMode)}>
+              <SelectTrigger id="at-mode" className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="replace">{t('admin.agentTypes.modeReplace')}</SelectItem>
+                <SelectItem value="merge">{t('admin.agentTypes.modeMerge')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {form.mode === 'merge'
+                ? t('admin.agentTypes.modeMergeHint')
+                : t('admin.agentTypes.modeReplaceHint')}
+            </p>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="at-template">{t('admin.agentTypes.template')}</Label>
@@ -289,6 +320,7 @@ export default function AdminAgentTypes() {
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.agentTypes.label')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.agentTypes.filename')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.agentTypes.targetPath')}</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.agentTypes.mode')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.agentTypes.enabled')}</th>
                 <th className="px-4 py-2" />
               </tr>
@@ -300,6 +332,13 @@ export default function AdminAgentTypes() {
                   <td className="px-4 py-2 font-medium">{at.label}</td>
                   <td className="max-w-xs truncate px-4 py-2 font-mono text-xs text-muted-foreground">{at.filename}</td>
                   <td className="max-w-xs truncate px-4 py-2 font-mono text-xs text-muted-foreground">{at.target_path}</td>
+                  <td className="px-4 py-2">
+                    <Badge variant={at.mode === 'merge' ? 'outline' : 'secondary'}>
+                      {at.mode === 'merge'
+                        ? t('admin.agentTypes.modeMerge')
+                        : t('admin.agentTypes.modeReplace')}
+                    </Badge>
+                  </td>
                   <td className="px-4 py-2">
                     <Badge variant={at.enabled ? 'default' : 'secondary'}>
                       {at.enabled ? t('admin.agentTypes.enabled') : t('admin.agentTypes.disabled')}

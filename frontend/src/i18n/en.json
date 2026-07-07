@@ -275,7 +275,12 @@
       "disabled": "Disabled",
       "previewBtn": "Preview",
       "deleteTitle": "Delete agent type “{{id}}”?",
-      "deleteWarning": "The agent type will be deleted. Deletion is refused if a workspace references it."
+      "deleteWarning": "The agent type will be deleted. Deletion is refused if a workspace references it.",
+      "mode": "Mode",
+      "modeReplace": "Replace",
+      "modeMerge": "Merge",
+      "modeReplaceHint": "MCP-dedicated file: the portal renders and owns the whole file.",
+      "modeMergeHint": "File shared with user settings: the template renders a fragment (servers prefixed \"portal-\") merged without overwriting existing content."
     },
     "localDomain": {
       "title": "Local DNS domain",
