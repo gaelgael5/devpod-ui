@@ -1,5 +1,24 @@
 # Spec 35b — Mode `merge` : agents à fichier de config partagé
 
+> **Révision 2026-07-07 — livraison par écriture conteneur (T4′/T5′).**
+> Constat en réel : le vecteur v1 (bind mount + symlink posé au `postCreateCommand`)
+> ne s'applique qu'à la **construction** du conteneur — or `devpod up` par défaut
+> réutilise le conteneur existant (`--recreate` requis sinon). Mapper un agent sur
+> un workspace existant exigeait donc un delete+recreate, contrainte produit
+> inacceptable (« restart maximum »). Décision : la livraison des DEUX modes passe
+> par **écriture directe dans le conteneur** via le canal T3 (`ws_exec`/`devpod ssh`),
+> en hook post-readiness du `up` — le bind mount `/opt/agent-config` et le symlink
+> sont retirés du `devcontainer.json` généré. Conséquences :
+> - `replace` = fichier rendu complet, écrit tel quel ; `merge` = read→merge→write.
+>   Un seul orchestrateur (`agents/push.py::push_agent_files`).
+> - Un simple **restart** (re)installe la config ; le resync à chaud écrit aussi
+>   directement (plus de dépose host). Best-effort au `up` (workspace reste
+>   running, échec logué) ; la révocation DB reste le fail-closed.
+> - `home` du conteneur résolu à chaud (`printf %s "$HOME"` via ws_exec), qui sert
+>   aussi de sonde de readiness.
+> - L'arborescence host `~/.devpod-portal/agent-config` et sa purge au delete sont
+>   conservées pour les workspaces créés sous l'ancien mécanisme (legacy).
+
 Addendum à [`35-agents-workspace-mcp.md`](35-agents-workspace-mcp.md). Traite le cas
 des clients dont la config MCP **partage un fichier** avec d'autres réglages
 (Codex `~/.codex/config.toml`, Gemini `~/.gemini/settings.json`), pour lesquels
@@ -60,13 +79,19 @@ Cycle **read-merge-write** :
 - **T1** — colonne `mode` (migration 058, backfill codex/gemini → `merge` +
   `enabled=false`), couche DB. ✅
 - **T2** — cœur de merge pur (`agents/merge.py`, `tomlkit`). ✅
-- **T3** — canal fichier conteneur (`read`/`write` atomique via `devpod ssh`).
-- **T4** — orchestration `push_merged_agents` (rotation → render → read → merge → write).
-- **T5** — partition provisioning par mode ; hook post-readiness dans `service.up`.
-- **T6** — déclencheurs rotation (resync) + réconciliation au boot (lifespan).
-- **T7** — DTO + `PATCH /admin/agent-types/{id}` portent `mode` ; UI (sélecteur, pastille).
-- **T8** — templates Codex/Gemini en fragment (clé de tête + préfixe `portal-`).
-- **T9** — vérif bout-en-bout test1 + réactivation codex/gemini.
+- **T3** — canal fichier conteneur (`agents/container_files.py`, base64 +
+  écriture atomique via `ws_exec`). ✅
+- **T4′** — orchestrateur unifié `agents/push.py::push_agent_files` (rotation →
+  render → [replace: write | merge: read→merge→write] → exclude git). ✅ (révision)
+- **T5′** — validation agents au `up` (422) + hook post-readiness dans
+  `_run_up_impl` ; retrait du mount/postCreate agents du devcontainer. ✅ (révision)
+- **T6** — resync à chaud réécrit par écriture conteneur (running only, stopped
+  = skipped) + réconciliation au boot (lifespan, throttlée, best-effort). ✅
+- **T7** — DTO + `PATCH /admin/agent-types/{id}` portent `mode` (None = inchangé) ;
+  UI sélecteur + pastille, i18n fr/en, Vitest. ✅
+- **T8** — migration 059 : templates Codex/Gemini en fragment possédé (clé de
+  tête + préfixe `portal-`), codex/gemini toujours désactivés. ✅
+- **T9** — vérif bout-en-bout test1 + réactivation codex/gemini. ← **reste**
 
 ## Points signalés
 

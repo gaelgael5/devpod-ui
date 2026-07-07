@@ -31,6 +31,7 @@
 - Profil/recettes : seulement pour `docker-tls` (sur SSH, `--devcontainer-path` est inexploitable — limitation connue, pas de contournement via `postCreateCommand`).
 - Tout `devpod ssh --stdio` exige `DEVPOD_HOME` + `DOCKER_*` — utiliser `workspace_env()`, jamais un env minimal.
 - devcontainer.json : le champ est `appPort`, pas `appPorts` — un champ inconnu est ignoré en silence par DevPod, vérifier contre la spec avant usage.
+- Un bind mount / `postCreateCommand` ne s'applique qu'à la CONSTRUCTION du conteneur : `devpod up` par défaut réutilise le conteneur existant (`--recreate` requis pour reconstruire). Toute config qui doit s'appliquer sur un simple `restart` doit être ÉCRITE dans le conteneur (`ws_exec`/`devpod ssh`), pas livrée par mount. Ne jamais proposer delete+recreate quand la contrainte utilisateur est « restart maximum » (spec 35b : livraison par écriture conteneur).
 
 ## [mcp]
 - Backends `transport=internal` (devpod) : leur catalogue n'était resync qu'au bootstrap/nouveau user, jamais par le monitor périodique ni le bouton probe — un no-op déguisé en "toujours up". `monitor_backend_once` doit aussi resync les internes (`ensure_devpod_backend`), pas juste renvoyer `up`.
