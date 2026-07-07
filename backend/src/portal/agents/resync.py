@@ -1,35 +1,52 @@
-"""Resync à chaud des fichiers agent-config (spec 35 §3).
+"""Resync à chaud des fichiers agents par écriture conteneur (spec 35b T6).
 
 Déclenché après commit par les routes ((dé)cochage « exposé aux workspaces »,
-édition d'un type d'agent) : pour chaque workspace concerné, rotation des clefs
-+ régénération + push. Le bind mount rend la mise à jour visible dans les
-conteneurs sans reprovisionner.
+édition d'un type d'agent) et au boot du portail (réconciliation) : pour chaque
+workspace RUNNING concerné, `push_agent_files` rotationne les clefs et réécrit
+les fichiers directement dans le conteneur (canal `devpod ssh`).
 
-Best-effort par workspace : un échec (host injoignable, agent stale) est loggé
-et n'empêche pas les autres — les clefs révoquées côté DB restent le fail-closed.
+Un workspace arrêté est sauté, jamais en échec : le hook post-readiness du
+prochain `up` le rattrape. Best-effort par workspace : un échec (conteneur
+injoignable, agent stale) est loggé et n'empêche pas les autres — les clefs
+révoquées côté DB restent le fail-closed.
 """
 
 from __future__ import annotations
+
+import asyncio
+from typing import Any
 
 import structlog
 
 from ..config.models import GlobalConfig, WorkspaceSpec
 from ..config.store import load_global, load_user
+from .push import push_agent_files
 
 _log = structlog.get_logger(__name__)
 
 
-def _ssh_params(spec: WorkspaceSpec, global_cfg: GlobalConfig) -> tuple[str, str, str] | None:
-    """(ssh_user, ssh_host, host_cert_slug) si le host du spec est un SSH prêt."""
+def _host_supported(spec: WorkspaceSpec, global_cfg: GlobalConfig) -> bool:
+    """v1 : dépose via `devpod ssh` validée sur hosts SSH uniquement (spec 35 §10)."""
     from ..devpod.env import _find_host
 
-    host_cfg = _find_host(spec.host, global_cfg)
-    if host_cfg.type != "ssh" or not (host_cfg.address and host_cfg.host_cert_slug):
-        return None
-    ssh_user, ssh_host = "root", host_cfg.address
-    if "@" in host_cfg.address:
-        ssh_user, ssh_host = host_cfg.address.split("@", 1)
-    return ssh_user, ssh_host, host_cfg.host_cert_slug
+    return _find_host(spec.host, global_cfg).type == "ssh"
+
+
+async def _ws_running(ws_id: str) -> bool:
+    from ..db.engine import _get_engine
+    from ..db.workspace_status import get_status_db
+
+    async with _get_engine().connect() as conn:
+        row = await get_status_db(ws_id, conn)
+    return bool(row and row.get("status") == "running")
+
+
+async def _list_running() -> list[dict[str, Any]]:
+    from ..db.engine import _get_engine
+    from ..db.workspace_status import list_running_db
+
+    async with _get_engine().connect() as conn:
+        return await list_running_db(conn)
 
 
 async def resync_owner_workspaces(
@@ -40,9 +57,6 @@ async def resync_owner_workspaces(
     only_ws_ids : restreint aux ws_id donnés (ex. ceux affectés par un décochage) ;
     None = tous les workspaces du spec qui déclarent des agents.
     """
-    from ..devpod.service import _materialize_system_cert
-    from .provisioning import _load_requested_agent_types, sync_agent_config
-
     results: dict[str, list[str]] = {"synced": [], "skipped": [], "failed": []}
     user_cfg = await load_user(login)
     global_cfg = load_global()
@@ -53,22 +67,19 @@ async def resync_owner_workspaces(
         if not spec.agents or (only_ws_ids is not None and ws_id not in only_ws_ids):
             continue
         try:
-            ssh = _ssh_params(spec, global_cfg)
-            if ssh is None:
+            if not _host_supported(spec, global_cfg):
                 results["skipped"].append(ws_id)
                 _log.warning("agent_resync_skipped_host", ws_id=ws_id, host=spec.host)
                 continue
-            ssh_user, ssh_host, cert_slug = ssh
-            key_path = await _materialize_system_cert(cert_slug, login)
-            agent_rows = await _load_requested_agent_types(spec.agents)
-            await sync_agent_config(
+            if not await _ws_running(ws_id):
+                results["skipped"].append(ws_id)
+                _log.info("agent_resync_skipped_stopped", ws_id=ws_id)
+                continue
+            await push_agent_files(
                 login=login,
                 ws_id=ws_id,
                 ws_name=spec.name,
-                agent_rows=agent_rows,
-                ssh_user=ssh_user,
-                ssh_host=ssh_host,
-                ssh_key_path=key_path,
+                agents=list(spec.agents),
                 mcp_url=mcp_url,
                 project_root=f"/workspaces/{ws_id}",
             )
@@ -105,3 +116,41 @@ async def resync_agent_type_workspaces(agent_id: str) -> dict[str, list[str]]:
         for key, values in results.items():
             merged[key].extend(values)
     return merged
+
+
+async def reconcile_agents_on_boot(throttle_s: float = 5.0) -> None:
+    """Réconciliation au démarrage du portail (spec 35b, déclencheur 4).
+
+    Les conteneurs restés running pendant une indisponibilité du portail peuvent
+    porter une config agents périmée (profil décoché, template édité). Best-effort
+    et throttlée : ne lève jamais, n'empêche pas le boot.
+    """
+    try:
+        running = await _list_running()
+    except Exception:
+        _log.warning("agent_boot_reconcile_list_failed", exc_info=True)
+        return
+
+    by_login: dict[str, set[str]] = {}
+    for row in running:
+        by_login.setdefault(str(row["login"]), set()).add(str(row["ws_id"]))
+
+    for login, ws_ids in by_login.items():
+        try:
+            user_cfg = await load_user(login)
+        except Exception:
+            _log.warning("agent_boot_reconcile_user_failed", login=login, exc_info=True)
+            continue
+        targets = {
+            f"{login}-{spec.name}"
+            for spec in user_cfg.workspaces
+            if spec.agents and f"{login}-{spec.name}" in ws_ids
+        }
+        if not targets:
+            continue
+        try:
+            await resync_owner_workspaces(login, only_ws_ids=targets)
+        except Exception:
+            _log.warning("agent_boot_reconcile_failed", login=login, exc_info=True)
+        if throttle_s:
+            await asyncio.sleep(throttle_s)

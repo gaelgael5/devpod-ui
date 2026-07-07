@@ -238,15 +238,22 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         async with app.state.mcp_session_manager.run():
             _monitor_task: asyncio.Task[None] | None = None
             _sweep_task: asyncio.Task[None] | None = None
+            _agent_reconcile_task: asyncio.Task[None] | None = None
             if settings_obj.database_url:
                 _monitor_task = asyncio.create_task(
                     monitor_loop(settings_obj.mcp_monitor_interval_s)
                 )
                 _sweep_task = asyncio.create_task(_maintenance_sweep_loop())
+                # Spec 35b T6 : les conteneurs restés running pendant une
+                # indisponibilité du portail peuvent porter une config agents
+                # périmée — réconciliation best-effort, throttlée, en fond.
+                from .agents.resync import reconcile_agents_on_boot
+
+                _agent_reconcile_task = asyncio.create_task(reconcile_agents_on_boot())
             try:
                 yield
             finally:
-                for _task in (_monitor_task, _sweep_task):
+                for _task in (_monitor_task, _sweep_task, _agent_reconcile_task):
                     if _task is not None:
                         _task.cancel()
                         with contextlib.suppress(asyncio.CancelledError):
