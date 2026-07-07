@@ -246,36 +246,39 @@ class DevPodService:
                 else:
                     host_port = await self._exposure.allocate_port(ws_id)
 
-            # Spec 35 : clefs MCP par profil exposé + fichiers agent-config poussés
-            # sur le host AVANT le up (le devcontainer référence le bind mount).
-            agent_setup = None
+            # Spec 35b : validation des agents demandés (échec 422 si inconnu/
+            # désactivé, host incompatible, ou external_url manquante). La LIVRAISON
+            # des fichiers a lieu APRÈS readiness, par écriture directe dans le
+            # conteneur (post-readiness dans _run_up_impl) : plus de bind mount, un
+            # simple restart suffit à (ré)installer la config des agents.
+            agent_ids: list[str] = []
+            agents_mcp_url = ""
             if ws_spec.agents:
-                from ..agents.provisioning import prepare_workspace_agents
-
-                agent_setup = await prepare_workspace_agents(
-                    login=login,
-                    ws_id=ws_id,
-                    ws_name=ws_spec.name,
-                    agents=ws_spec.agents,
-                    host_type=host_cfg.type,
-                    ssh_user=ssh_user,
-                    ssh_host=ssh_host,
-                    ssh_key_path=tmp_key_path,
-                    mcp_url=global_cfg.server.external_url.rstrip("/") + "/mcp/",
-                    project_root=f"/workspaces/{ws_id}",
+                from ..agents.provisioning import (
+                    AgentProvisionError,
+                    _load_requested_agent_types,
                 )
+
+                if host_cfg.type != "ssh":
+                    raise AgentProvisionError(
+                        f"agents non disponibles sur un host '{host_cfg.type}' "
+                        "(dépose via devpod ssh, v1 SSH — spec 35 §10)"
+                    )
+                await _load_requested_agent_types(ws_spec.agents)  # 422 si invalide
+                agents_mcp_url = global_cfg.server.external_url.rstrip("/") + "/mcp/"
+                if not agents_mcp_url.startswith(("https://", "http://")):
+                    raise AgentProvisionError(
+                        "server.external_url doit être configurée pour exposer la "
+                        "gateway MCP aux agents workspace"
+                    )
+                agent_ids = list(ws_spec.agents)
 
             # Pour docker-tls : devcontainer.json généré localement, chemin absolu local valide.
             # Pour SSH : le fichier est généré localement puis uploadé sur la VM distante via
             #   tar|ssh avant devpod up ; le chemin absolu distant est passé à --devcontainer-path.
             dc_path: Path | None = None
             needs_devcontainer = bool(
-                recipes
-                or feature_env
-                or ws_spec.extra_sources
-                or profile
-                or ws_spec.recipe_volumes
-                or agent_setup
+                recipes or feature_env or ws_spec.extra_sources or profile or ws_spec.recipe_volumes
             )
             if needs_devcontainer:
                 # mkdtemp/copytree/write_text sont bloquants (plusieurs répertoires de
@@ -289,8 +292,6 @@ class DevPodService:
                     extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
                     profile=profile,
                     recipe_volumes=ws_spec.recipe_volumes or None,
-                    extra_mounts=agent_setup.mounts if agent_setup else None,
-                    extra_post_create=agent_setup.post_create if agent_setup else None,
                 )
 
             # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
@@ -365,6 +366,9 @@ class DevPodService:
                     host_name=host_cfg.name,
                     git_ssh_key_path=git_ssh_key_path,
                     lifecycle_event=lifecycle_event,
+                    agents=agent_ids,
+                    mcp_url=agents_mcp_url,
+                    project_root=f"/workspaces/{ws_id}",
                 )
             )
             self._background_tasks.add(task)
@@ -1044,6 +1048,29 @@ class DevPodService:
                 await asyncio.wait_for(proc.wait(), timeout=5.0)
         _log.info("port_forward_stopped", ws_id=ws_id)
 
+    async def _push_agent_files_safe(
+        self, login: str, ws_id: str, agents: list[str], mcp_url: str, project_root: str
+    ) -> None:
+        """Écrit la config des agents dans le conteneur (post-readiness, best-effort).
+
+        Un échec (canal, home introuvable, rendu) n'invalide pas le workspace, qui
+        reste `running` : il est logué. La révocation au décochage d'un profil reste
+        gérée séparément (fail-closed)."""
+        from ..agents.push import push_agent_files
+
+        try:
+            pushed = await push_agent_files(
+                login=login,
+                ws_id=ws_id,
+                ws_name=ws_id.removeprefix(f"{login}-"),
+                agents=agents,
+                mcp_url=mcp_url,
+                project_root=project_root,
+            )
+            _log.info("agent_files_pushed_on_up", ws_id=ws_id, agents=pushed)
+        except Exception:
+            _log.warning("agent_files_push_failed", ws_id=ws_id, exc_info=True)
+
     async def _run_up_task(self, ws_id: str, *args: Any, **kwargs: Any) -> None:
         """Tâche de fond `up`, sérialisée par le verrou lifecycle par ws_id (bug 003).
 
@@ -1074,6 +1101,9 @@ class DevPodService:
         host_name: str = "",
         git_ssh_key_path: str = "",
         lifecycle_event: str = "workspace.created",
+        agents: list[str] | None = None,
+        mcp_url: str = "",
+        project_root: str = "",
     ) -> None:
         """Exécute devpod up, expose le workspace si running. Détient déjà le verrou."""
         # Copie de l'env pour y injecter SSH_AUTH_SOCK sans muter le dict partagé
@@ -1217,6 +1247,11 @@ class DevPodService:
                 _log.warning("workspace_up_failed", ws_id=ws_id, returncode=returncode)
             else:
                 _log.info("workspace_up_done", ws_id=ws_id, login=login)
+                # Spec 35b : livraison des fichiers agents PAR ÉCRITURE conteneur,
+                # une fois le conteneur prêt (ws_exec joignable). Aucun bind mount,
+                # aucun recreate — rejoué à chaque up, donc un restart suffit.
+                if agents:
+                    await self._push_agent_files_safe(login, ws_id, agents, mcp_url, project_root)
                 await emit_event(
                     lifecycle_event,
                     actor=login,
