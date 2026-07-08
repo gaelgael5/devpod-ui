@@ -236,6 +236,28 @@ class LogsConfig(BaseModel):
     grafana_oauth_client_secret: str | None = None
 
 
+class EventsProducerConfig(BaseModel):
+    """Producteur d'events vers le module workflow (contrat producteur d'events).
+
+    Le portail émet déjà des events applicatifs en interne (bus `portal.events`) ;
+    ce bloc active leur relais signé HMAC vers le module workflow. `source_id` est
+    l'UUID attribué par le workflow à l'enregistrement de la source ; `secret_slug`
+    référence le secret HMAC partagé, stocké comme secret système (jamais inline ici).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    # URL de base du module workflow (endpoint d'ingestion : `{url}/events/{source_id}`).
+    workflow_base_url: str = ""
+    # UUID de la source, attribué côté workflow à l'enregistrement.
+    source_id: str = ""
+    # Slug du secret système portant la clé HMAC partagée.
+    secret_slug: str = "workflow_events_hmac"
+    # Valeur du champ système `_source` (identifie l'application émettrice).
+    source_uri: str = "urn:yoops:devpod"
+
+
 class GlobalConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -250,6 +272,7 @@ class GlobalConfig(BaseModel):
     caddy: CaddyConfig = Field(default_factory=CaddyConfig)
     cloudflare_manager: CloudflareManagerConfig = Field(default_factory=CloudflareManagerConfig)
     logs: LogsConfig = Field(default_factory=LogsConfig)
+    events_producer: EventsProducerConfig = Field(default_factory=EventsProducerConfig)
 
     @model_validator(mode="before")
     @classmethod

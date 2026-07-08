@@ -51,9 +51,7 @@ async def test_dispatch_cible_par_type(journal: dict[str, list[Any]]) -> None:
 
     assert received == ["created:ws1"]
     assert len(journal["events"]) == 1
-    assert journal["deliveries"] == [
-        (journal["events"][0].event_id, "l-created", "ok", None, None)
-    ]
+    assert journal["deliveries"] == [(journal["events"][0].event_id, "l-created", "ok", None, None)]
 
 
 async def test_echec_ecouteur_isole(journal: dict[str, list[Any]]) -> None:

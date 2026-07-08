@@ -28,6 +28,7 @@ from .routes.app_events import router as app_events_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
+from .routes.event_schemas import router as event_schemas_router
 from .routes.jinja_template_sources import router_admin as jinja_sources_admin_router
 from .routes.jinja_templates import router as jinja_templates_router
 from .routes.mcp import router as mcp_router
@@ -227,6 +228,16 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         register_automation(get_bus())
 
+        # Producteur d'events workflow (feature d'adoption) : relais egress signé
+        # HMAC des events applicatifs vers le module workflow, uniquement si activé
+        # en config. Best-effort — le bus isole et journalise chaque livraison.
+        from .config.store import load_global
+        from .events.egress import forward_to_workflow
+        from .events.models import EVENT_TYPES
+
+        if load_global().events_producer.enabled:
+            get_bus().subscribe("workflow-producer", sorted(EVENT_TYPES), forward_to_workflow)
+
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()
 
@@ -351,6 +362,7 @@ def create_app() -> FastAPI:
     app.include_router(test_vm_router, prefix="/me")
     app.include_router(plugins_router)
     app.include_router(recipes_public_router)
+    app.include_router(event_schemas_router)
     app.include_router(recipes_me_router, prefix="/me")
     app.include_router(admin_router, prefix="/admin")
     app.include_router(nodes_router, prefix="/admin")
