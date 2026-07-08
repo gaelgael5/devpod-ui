@@ -1,5 +1,18 @@
 # workspace-portal — Instructions Claude Code
 
+## mcp 
+Tu es connecté au mcp du protail devpod via le serveur claude-code
+
+## Backloag
+La gatway mcp propose une api pour se connecter à docflow
+docflow contient des workspace qui contiennent des blocs qui contiennent des documents.
+Allant sur le workspace=devpod et bloc=planner tu as un backlog de tache à executer.
+
+Quand on te demande de traiter le backlog tu te connectes 
+Tu identifies les taches qui ne sont pas en status 'en review'
+Quand tu prends une tache tu passe le statusd 'en cours'
+Quand tu as finis tu passes le status de la tache 'en review'.
+
 ## Projet
 
 Portail web self-hosted de workspaces de développement : l'utilisateur s'authentifie (OIDC Keycloak), paramètre des environnements devcontainer, et obtient un VS Code dans le navigateur, sans rien installer sur son poste. Orchestration via DevPod CLI, workspaces = conteneurs Docker sur des nœuds distants pilotés en mTLS. Spec complète : `00_README.md` → `16_M7_recipes.md` (lire `01`, `02`, `03` avant tout code ; `03_PITFALLS.md` contient des **exigences**, pas des conseils).
