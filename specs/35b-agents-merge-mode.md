@@ -91,7 +91,15 @@ Cycle **read-merge-write** :
   UI sélecteur + pastille, i18n fr/en, Vitest. ✅
 - **T8** — migration 059 : templates Codex/Gemini en fragment possédé (clé de
   tête + préfixe `portal-`), codex/gemini toujours désactivés. ✅
-- **T9** — vérif bout-en-bout test1 + réactivation codex/gemini. ← **reste**
+- **T9** — vérif bout-en-bout. ✅ **replace/Claude vérifié EN RÉEL sur dev.yoops.org**
+  (2026-07-07) : réconciliation au boot `agent_resync_done synced=4 skipped=1`
+  (admin-roles arrêté sauté), `agent_files_pushed` sur devpod/rag/workflow/doc,
+  `agent_files_pushed_on_up` au restart de workflow, **aucun push_failed** ;
+  `.mcp.json` réel + `initialize` gateway OK ; canal T3 prouvé sur conteneur réel
+  (écriture atomique 600, réglage user préservé, sentinelle NOFILE). Merge : canal
+  + `merge_config` + migration 059 (render→merge→préserve) verts.
+  **Reste (action admin utilisateur)** : activer codex/gemini (`enabled=true`) et
+  vérifier le e2e merge sur un workspace à `config.toml` préexistant.
 
 ## Points signalés
 
