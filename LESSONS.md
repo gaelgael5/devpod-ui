@@ -39,6 +39,7 @@
 - `streamablehttp_client` est `@deprecated` en mcp 1.28 → utiliser `streamable_http_client` + `create_mcp_http_client(headers=, timeout=Timeout(read=300.0))` (read timeout long sinon les call_tool streamés SSE sont coupés).
 - `app.mount("/mcp", asgi)` redirige `/mcp`→`/mcp/` (307) — cibler le slash final ou `follow_redirects=True`.
 - Push serveur→client (`list_changed`) hors d'atteinte en mcp 1.28 (pas d'API publique pour les `ServerSession` internes) — polling/TTL côté frontend à la place.
+- `fetch_primitives` DOIT suivre `nextCursor` (`list_tools/resources/prompts` sont paginés) : ne lire que la page 1 + `prune_absent` = queue du catalogue effacée à chaque probe (bug registre fédéré partiel docflow `create_document`/`set_document_parent`). Tout stub de session en test doit porter la vraie signature `list_tools(cursor, *, params)`.
 - `call_tool` qui lève → `CallToolResult(isError=True)`, PAS d'exception client ; `read_resource`/`get_prompt`/`list_*` propagent en `McpError`. Adapter les assertions de test en conséquence.
 - Paramètre par défaut `open_session_fn: Any = open_session` fige l'objet à la définition → `monkeypatch.setattr` inopérant. Défaut `None` + résolution call-time.
 - `_ID = Path(...)` partagé entre params de noms différents (`key_id`/`apikey_id`) fige l'alias sur le premier → 422 sur les suivants. Utiliser `Annotated[str, Path(...)]` par paramètre, jamais un objet `Path()` partagé.

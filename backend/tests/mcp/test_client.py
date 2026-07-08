@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import cast
 
+from mcp import ClientSession
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
-from mcp.types import ServerCapabilities
+from mcp.types import (
+    ListPromptsResult,
+    ListResourcesResult,
+    ListToolsResult,
+    Prompt,
+    Resource,
+    ServerCapabilities,
+    Tool,
+)
 from pydantic import AnyUrl
 
 from portal.mcp.client import (
@@ -62,6 +72,88 @@ async def test_fetch_primitives_normalizes_all_kinds() -> None:
     assert prompt["original_name"] == "hi"
 
 
+class _PagedSession:
+    """Backend qui pagine ses trois familles via `nextCursor`.
+
+    Reproduit le contrat MCP : `list_*` renvoie une page + un curseur ; un client
+    conforme doit suivre le curseur jusqu'à épuisement. Enregistre les curseurs
+    reçus pour vérifier qu'ils ont bien été suivis.
+    """
+
+    def __init__(self) -> None:
+        self.tool_cursors: list[str | None] = []
+        self.resource_cursors: list[str | None] = []
+        self.prompt_cursors: list[str | None] = []
+
+    def get_server_capabilities(self) -> ServerCapabilities:
+        return ServerCapabilities(tools={}, resources={}, prompts={})
+
+    async def list_tools(
+        self, cursor: str | None = None, *, params: object | None = None
+    ) -> ListToolsResult:
+        self.tool_cursors.append(cursor)
+        if cursor is None:
+            return ListToolsResult(
+                tools=[
+                    Tool(name="a", inputSchema={"type": "object"}),
+                    Tool(name="b", inputSchema={"type": "object"}),
+                ],
+                nextCursor="tools-p2",
+            )
+        if cursor == "tools-p2":
+            return ListToolsResult(
+                tools=[Tool(name="c", inputSchema={"type": "object"})], nextCursor=None
+            )
+        raise AssertionError(f"curseur tools inattendu: {cursor}")
+
+    async def list_resources(
+        self, cursor: str | None = None, *, params: object | None = None
+    ) -> ListResourcesResult:
+        self.resource_cursors.append(cursor)
+        if cursor is None:
+            return ListResourcesResult(
+                resources=[Resource(uri=AnyUrl("res://one"), name="one")],
+                nextCursor="res-p2",
+            )
+        if cursor == "res-p2":
+            return ListResourcesResult(
+                resources=[Resource(uri=AnyUrl("res://two"), name="two")], nextCursor=None
+            )
+        raise AssertionError(f"curseur resources inattendu: {cursor}")
+
+    async def list_prompts(
+        self, cursor: str | None = None, *, params: object | None = None
+    ) -> ListPromptsResult:
+        self.prompt_cursors.append(cursor)
+        if cursor is None:
+            return ListPromptsResult(prompts=[Prompt(name="p1")], nextCursor="prompts-p2")
+        if cursor == "prompts-p2":
+            return ListPromptsResult(prompts=[Prompt(name="p2")], nextCursor=None)
+        raise AssertionError(f"curseur prompts inattendu: {cursor}")
+
+
+async def test_fetch_primitives_follows_pagination() -> None:
+    """fetch_primitives suit `nextCursor` : aucune primitive de page 2+ n'est perdue.
+
+    Régression du bug registre fédéré partiel (docflow create_document /
+    set_document_parent) : sans pagination, seule la page 1 était capturée et le
+    prune effaçait la queue du catalogue.
+    """
+    session = _PagedSession()
+    prims = await fetch_primitives(cast(ClientSession, session))
+
+    tools = {p["original_name"] for p in prims if p["kind"] == "tool"}
+    resources = {p["original_name"] for p in prims if p["kind"] == "resource"}
+    prompts = {p["original_name"] for p in prims if p["kind"] == "prompt"}
+    assert tools == {"a", "b", "c"}
+    assert resources == {"res://one", "res://two"}
+    assert prompts == {"p1", "p2"}
+    # Le curseur a bien été suivi (page 1 puis page 2) pour chaque famille.
+    assert session.tool_cursors == [None, "tools-p2"]
+    assert session.resource_cursors == [None, "res-p2"]
+    assert session.prompt_cursors == [None, "prompts-p2"]
+
+
 async def test_call_backend_tool() -> None:
     async with create_connected_server_and_client_session(_demo_server()) as session:
         result = await call_backend_tool(session, "echo", {"text": "ping"})
@@ -91,9 +183,11 @@ def test_advertised_kinds_maps_only_present_families() -> None:
     assert advertised_kinds(ServerCapabilities(tools={})) == ("tool",)
     assert advertised_kinds(ServerCapabilities(prompts={})) == ("prompt",)
     assert advertised_kinds(ServerCapabilities()) == ()
-    assert advertised_kinds(
-        ServerCapabilities(tools={}, resources={}, prompts={})
-    ) == ("tool", "resource", "prompt")
+    assert advertised_kinds(ServerCapabilities(tools={}, resources={}, prompts={})) == (
+        "tool",
+        "resource",
+        "prompt",
+    )
 
 
 def _server_with_resource_and_prompt() -> FastMCP:

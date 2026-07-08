@@ -36,7 +36,9 @@ class _StubSession:
     def get_server_capabilities(self) -> ServerCapabilities:
         return ServerCapabilities(tools={})
 
-    async def list_tools(self) -> ListToolsResult:
+    async def list_tools(
+        self, cursor: str | None = None, *, params: object | None = None
+    ) -> ListToolsResult:
         return ListToolsResult(
             tools=[
                 Tool(name=name, description=desc, inputSchema={"type": "object"})

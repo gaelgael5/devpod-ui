@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import Any
 
@@ -41,11 +42,40 @@ def _entry(kind: str, original_name: str, definition: dict[str, Any]) -> dict[st
     }
 
 
+async def _paginate(
+    list_page: Callable[[str | None], Awaitable[Any]],
+    items_attr: str,
+) -> list[Any]:
+    """Suit `nextCursor` jusqu'à épuisement et concatène les éléments de chaque page.
+
+    Un backend MCP conforme pagine `list_tools`/`list_resources`/`list_prompts` :
+    ne lire que la première page (le comportement historique) perd toute la queue
+    du catalogue, que `prune_absent` efface ensuite — c'est le bug du registre
+    fédéré partiel (docflow create_document / set_document_parent).
+
+    Garde-fou anti-boucle : un curseur déjà vu (serveur qui ne progresse pas)
+    arrête l'itération plutôt que de boucler indéfiniment.
+    """
+    items: list[Any] = []
+    cursor: str | None = None
+    seen: set[str] = set()
+    while True:
+        result = await list_page(cursor)
+        items.extend(getattr(result, items_attr))
+        cursor = result.nextCursor
+        if cursor is None or cursor in seen:
+            break
+        seen.add(cursor)
+    return items
+
+
 async def fetch_primitives(session: ClientSession) -> list[dict[str, Any]]:
     """Énumère les primitives d'un backend MCP, normalisées pour le catalogue.
 
     N'interroge que les familles annoncées dans les capabilities du serveur
-    (un backend tools-only ne supporte pas resources/prompts).
+    (un backend tools-only ne supporte pas resources/prompts). Chaque famille est
+    paginée (`nextCursor`) : aucune primitive au-delà de la première page n'est
+    perdue.
     """
     caps = session.get_server_capabilities()
     kinds = advertised_kinds(caps)
@@ -53,27 +83,27 @@ async def fetch_primitives(session: ClientSession) -> list[dict[str, Any]]:
 
     if "tool" in kinds:
         logger.debug("mcp.client.fetch_primitives.tools.start")
-        tools_result = await session.list_tools()
-        for tool in tools_result.tools:
+        tools = await _paginate(lambda c: session.list_tools(c), "tools")
+        for tool in tools:
             d = tool.model_dump(mode="json", exclude_none=True)
             out.append(_entry("tool", tool.name, d))
-        logger.debug("mcp.client.fetch_primitives.tools", count=len(tools_result.tools))
+        logger.debug("mcp.client.fetch_primitives.tools", count=len(tools))
 
     if "resource" in kinds:
         logger.debug("mcp.client.fetch_primitives.resources.start")
-        resources_result = await session.list_resources()
-        for resource in resources_result.resources:
+        resources = await _paginate(lambda c: session.list_resources(c), "resources")
+        for resource in resources:
             d = resource.model_dump(mode="json", exclude_none=True)
             out.append(_entry("resource", str(resource.uri), d))
-        logger.debug("mcp.client.fetch_primitives.resources", count=len(resources_result.resources))
+        logger.debug("mcp.client.fetch_primitives.resources", count=len(resources))
 
     if "prompt" in kinds:
         logger.debug("mcp.client.fetch_primitives.prompts.start")
-        prompts_result = await session.list_prompts()
-        for prompt in prompts_result.prompts:
+        prompts = await _paginate(lambda c: session.list_prompts(c), "prompts")
+        for prompt in prompts:
             d = prompt.model_dump(mode="json", exclude_none=True)
             out.append(_entry("prompt", prompt.name, d))
-        logger.debug("mcp.client.fetch_primitives.prompts", count=len(prompts_result.prompts))
+        logger.debug("mcp.client.fetch_primitives.prompts", count=len(prompts))
 
     return out
 
