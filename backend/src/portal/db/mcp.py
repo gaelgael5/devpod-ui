@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .tables import mcp_apikey, mcp_audit_log, mcp_backend, mcp_backend_key
+
+# Rétention des clés API révoquées : supprimées ce délai après leur révocation.
+REVOKED_APIKEY_RETENTION_HOURS = 24
 
 _BACKEND_COLS = [
     mcp_backend.c.id,
@@ -329,7 +333,7 @@ async def revoke_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str)
     q = (
         update(mcp_apikey)
         .where(mcp_apikey.c.id == apikey_id, mcp_apikey.c.owner_login == owner_login)
-        .values(revoked=True)
+        .values(revoked=True, revoked_at=func.coalesce(mcp_apikey.c.revoked_at, func.now()))
         .returning(mcp_apikey.c.id)
     )
     return (await conn.execute(q)).first() is not None
@@ -346,7 +350,7 @@ async def revoke_workspace_apikeys(
             mcp_apikey.c.workspace_ref == workspace_ref,
             mcp_apikey.c.revoked.is_(False),
         )
-        .values(revoked=True)
+        .values(revoked=True, revoked_at=func.coalesce(mcp_apikey.c.revoked_at, func.now()))
         .returning(mcp_apikey.c.id)
     )
     return len((await conn.execute(q)).all())
@@ -366,7 +370,7 @@ async def revoke_profile_workspace_apikeys(
             mcp_apikey.c.workspace_ref.isnot(None),
             mcp_apikey.c.revoked.is_(False),
         )
-        .values(revoked=True)
+        .values(revoked=True, revoked_at=func.coalesce(mcp_apikey.c.revoked_at, func.now()))
         .returning(mcp_apikey.c.workspace_ref)
     )
     return sorted({row[0] for row in (await conn.execute(q)).all()})
@@ -379,3 +383,24 @@ async def delete_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str)
         .returning(mcp_apikey.c.id)
     )
     return (await conn.execute(q)).first() is not None
+
+
+async def purge_revoked_apikeys(
+    conn: AsyncConnection, *, max_age_hours: int = REVOKED_APIKEY_RETENTION_HOURS
+) -> int:
+    """Supprime définitivement les clés révoquées depuis plus de `max_age_hours`.
+
+    L'ancienneté se mesure à l'instant de révocation (`revoked_at`). Les clés
+    révoquées avant l'ajout de la colonne ont `revoked_at` NULL : on retombe sur
+    `created_at` (COALESCE) — elles sont alors éligibles selon leur âge de création.
+    Ne touche jamais une clé active (`revoked=false`), tous kinds confondus
+    (apikey comme oauth). Retourne le nombre de lignes supprimées.
+    """
+    cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
+    result = await conn.execute(
+        delete(mcp_apikey).where(
+            mcp_apikey.c.revoked.is_(True),
+            func.coalesce(mcp_apikey.c.revoked_at, mcp_apikey.c.created_at) < cutoff,
+        )
+    )
+    return int(result.rowcount or 0)

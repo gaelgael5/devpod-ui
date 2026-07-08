@@ -543,6 +543,10 @@ mcp_apikey = Table(
     Column("token_hash", Text, nullable=False),  # sha256 hex du token clair
     Column("label", Text, nullable=False, server_default=""),
     Column("revoked", Boolean, nullable=False, server_default="false"),
+    # Instant de révocation (NULL tant que non révoquée) — base de la purge à 24h.
+    # Les lignes révoquées avant l'ajout de la colonne l'ont NULL : la purge retombe
+    # alors sur created_at.
+    Column("revoked_at", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     # OAuth : un token émis par le flow OAuth est une apikey kind='oauth'.
     Column("kind", Text, nullable=False, server_default="apikey"),  # apikey | oauth

@@ -153,13 +153,15 @@ class SPAMiddleware(BaseHTTPMiddleware):
 
 
 async def _maintenance_sweep_loop(interval_s: float = 3600.0) -> None:
-    """Tâche de fond horaire : messages orphelins + purge du journal d'événements.
+    """Tâche de fond horaire : messages orphelins + purge du journal d'événements
+    + purge des clés API révoquées depuis plus de 24h.
 
     Chaque entretien a son propre try/except : l'échec de l'un ne prive pas
-    l'autre de son passage.
+    les autres de leur passage.
     """
     from .db.app_events import purge_old_events
     from .db.engine import _get_engine
+    from .db.mcp import purge_revoked_apikeys
     from .messages.service import sweep_orphans
 
     await asyncio.sleep(60)  # délai initial — laisse le portail démarrer
@@ -176,6 +178,13 @@ async def _maintenance_sweep_loop(interval_s: float = 3600.0) -> None:
                 _log.info("app_events_purged", count=purged)
         except Exception:
             _log.warning("app_event_purge_failed", exc_info=True)
+        try:
+            async with _get_engine().begin() as conn:
+                purged_keys = await purge_revoked_apikeys(conn)
+            if purged_keys:
+                _log.info("revoked_apikeys_purged", count=purged_keys)
+        except Exception:
+            _log.warning("revoked_apikey_purge_failed", exc_info=True)
         await asyncio.sleep(interval_s)
 
 
