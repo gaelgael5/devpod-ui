@@ -111,6 +111,28 @@ async def monitor_backend_once(
         set_health(backend_row["id"], health)
         return health
 
+    if backend_row.get("transport") == "rest":
+        # Backend REST (adaptateur) : catalogue déclaré par l'admin, pas de handshake
+        # MCP à sonder. Santé = joignabilité HTTP de l'URL de base (une 4xx compte
+        # comme joignable). On ne touche pas au catalogue.
+        from .rest_adapter import probe_rest_health
+
+        reachable = await probe_rest_health(backend_row["url"])
+        health = BackendHealth(
+            status="up" if reachable else "down",
+            error=None if reachable else "URL de base injoignable",
+        )
+        set_health(backend_row["id"], health)
+        _log.info(
+            "mcp_monitor_probe_done",
+            backend_id=backend_row["id"],
+            url=backend_row["url"],
+            transport="rest",
+            status=health.status,
+            error=health.error,
+        )
+        return health
+
     session_fn = open_session_fn if open_session_fn is not None else open_session
     backend_id = backend_row["id"]
     transport = backend_row.get("transport", "streamable_http")

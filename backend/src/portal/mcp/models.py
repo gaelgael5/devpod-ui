@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 NAMESPACE_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 
-Transport = Literal["streamable_http", "sse", "stdio"]
+Transport = Literal["streamable_http", "sse", "stdio", "rest"]
 
 
 def _validate_namespace(v: str) -> str:

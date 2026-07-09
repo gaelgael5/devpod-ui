@@ -14,11 +14,14 @@ import json
 import httpx
 import pytest
 
+import portal.mcp.rest_adapter as rest_adapter
 from portal.mcp.connections import BackendUnavailable
 from portal.mcp.rest_adapter import (
     RestToolSpec,
     build_call,
+    dispatch_rest_tool,
     execute_rest_tool,
+    probe_rest_health,
     translate_response,
 )
 
@@ -143,3 +146,70 @@ class TestExecuteRestTool:
                     secret="S",
                     client=client,
                 )
+
+
+class TestProbeRestHealth:
+    @pytest.mark.asyncio
+    async def test_any_http_response_is_reachable(self) -> None:
+        client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+        async with client:
+            assert await probe_rest_health("http://h", client=client) is True
+
+    @pytest.mark.asyncio
+    async def test_connection_error_is_down(self) -> None:
+        def boom(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("refused")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(boom)) as client:
+            assert await probe_rest_health("http://h", client=client) is False
+
+
+class TestDispatchRestTool:
+    @pytest.mark.asyncio
+    async def test_loads_mapping_from_catalog_and_calls(self, monkeypatch) -> None:
+        definition = {
+            "description": "recherche",
+            "inputSchema": {"type": "object"},
+            "rest": {
+                "method": "POST",
+                "path": "/mcp",
+                "body_args": ["query"],
+                "secret_field": "api_key",
+                "secret_in": "body",
+            },
+        }
+
+        async def fake_get(conn, backend_id, kind, original_name):
+            return definition
+
+        monkeypatch.setattr(rest_adapter, "get_primitive_definition", fake_get)
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"hits": []}))
+        )
+        async with client:
+            res = await dispatch_rest_tool(
+                None,
+                backend_id="b",
+                original_name="search",
+                base_url="http://h",
+                arguments={"query": "q"},
+                secret="S",
+                client=client,
+            )
+        assert res.isError is False
+
+    @pytest.mark.asyncio
+    async def test_missing_mapping_is_backend_unavailable(self, monkeypatch) -> None:
+        async def fake_get(conn, backend_id, kind, original_name):
+            return {"description": "x", "inputSchema": {}}  # pas de clé "rest"
+
+        monkeypatch.setattr(rest_adapter, "get_primitive_definition", fake_get)
+        with pytest.raises(BackendUnavailable):
+            await dispatch_rest_tool(
+                None,
+                backend_id="b",
+                original_name="search",
+                base_url="http://h",
+                arguments={},
+                secret=None,
+            )

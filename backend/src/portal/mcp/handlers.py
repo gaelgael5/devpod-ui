@@ -26,6 +26,7 @@ from portal.mcp.connections import BackendUnavailable, open_session
 from portal.mcp.devpod_tools import execute_internal_tool
 from portal.mcp.dispatch_common import resolve_bearer
 from portal.mcp.monitor import get_health
+from portal.mcp.rest_adapter import dispatch_rest_tool
 
 log = structlog.get_logger(__name__)
 
@@ -182,6 +183,17 @@ async def execute_tool_call(
             # Backend interne (devpod) : implémentation Python locale, pas d'appel HTTP.
             result = await execute_internal_tool(
                 conn, target.original_name, arguments, owner_login=owner_login
+            )
+        elif target.transport == "rest":
+            # Adaptateur REST→MCP : mapping déclaratif du catalogue → requête HTTP.
+            # `bearer` porte le secret de la clé backend (injecté en corps/query/header).
+            result = await dispatch_rest_tool(
+                conn,
+                backend_id=target.backend_id,
+                original_name=target.original_name,
+                base_url=target.url,
+                arguments=arguments,
+                secret=bearer,
             )
         else:
             async with session_fn(target.url, transport=target.transport, bearer=bearer) as session:

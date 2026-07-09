@@ -20,8 +20,10 @@ from urllib.parse import quote
 import httpx
 import structlog
 from mcp import types
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from sqlalchemy.ext.asyncio import AsyncConnection
 
+from ..db.mcp_catalog import get_primitive_definition
 from .connections import BackendUnavailable
 
 _log = structlog.get_logger(__name__)
@@ -173,3 +175,58 @@ async def execute_rest_tool(
     except ValueError:
         json_obj, text = None, resp.text
     return translate_response(spec, resp.status_code, text, json_obj, secret=secret)
+
+
+def _load_spec(definition: dict[str, Any] | None) -> RestToolSpec:
+    if not definition or "rest" not in definition:
+        raise BackendUnavailable("outil rest sans mapping REST dans le catalogue")
+    try:
+        return RestToolSpec.model_validate(definition["rest"])
+    except ValidationError as exc:
+        raise BackendUnavailable(f"mapping REST invalide: {exc.error_count()} erreur(s)") from exc
+
+
+async def dispatch_rest_tool(
+    conn: AsyncConnection,
+    *,
+    backend_id: str,
+    original_name: str,
+    base_url: str,
+    arguments: dict[str, Any],
+    secret: str | None,
+    client: httpx.AsyncClient | None = None,
+    timeout_s: float = 30.0,
+) -> types.CallToolResult:
+    """Charge le mapping REST du catalogue et exécute l'appel (dispatch transport `rest`).
+
+    Un mapping absent ou invalide rend l'outil inutilisable → BackendUnavailable
+    (mappé en McpError uniforme par le dispatch, comme un backend injoignable).
+    """
+    spec = _load_spec(await get_primitive_definition(conn, backend_id, "tool", original_name))
+    if client is not None:
+        return await execute_rest_tool(base_url, spec, arguments, secret=secret, client=client)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as owned:
+        return await execute_rest_tool(base_url, spec, arguments, secret=secret, client=owned)
+
+
+async def probe_rest_health(
+    base_url: str,
+    *,
+    client: httpx.AsyncClient | None = None,
+    timeout_s: float = 10.0,
+) -> bool:
+    """Santé d'un backend `rest` = joignabilité HTTP de l'URL de base.
+
+    Toute réponse HTTP (même 4xx) prouve la joignabilité → up. Une erreur de
+    transport (connexion refusée, timeout) → down. On ne récupère PAS de
+    catalogue MCP : celui d'un backend REST est déclaré par l'admin, pas découvert.
+    """
+    try:
+        if client is not None:
+            await client.get(base_url)
+        else:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as owned:
+                await owned.get(base_url)
+        return True
+    except httpx.HTTPError:
+        return False

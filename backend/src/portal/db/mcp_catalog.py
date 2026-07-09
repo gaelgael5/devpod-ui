@@ -77,6 +77,26 @@ async def upsert_primitive(
     return quarantine
 
 
+async def get_primitive_definition(
+    conn: AsyncConnection, backend_id: str, kind: str, original_name: str
+) -> dict[str, Any] | None:
+    """Définition JSON d'une primitive, ou None si absente.
+
+    Utilisé au dispatch du transport `rest` pour récupérer le mapping REST
+    embarqué dans la définition (clé `rest`).
+    """
+    row = (
+        await conn.execute(
+            select(cat.c.definition).where(
+                cat.c.backend_id == backend_id,
+                cat.c.kind == kind,
+                cat.c.original_name == original_name,
+            )
+        )
+    ).first()
+    return dict(row[0]) if row is not None else None
+
+
 async def list_primitives(
     conn: AsyncConnection, backend_id: str, kind: str
 ) -> list[dict[str, Any]]:
