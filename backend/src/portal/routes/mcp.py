@@ -19,6 +19,7 @@ from ..db.mcp_catalog import (
 from ..db.mcp_catalog import list_primitives as list_catalog_primitives
 from ..mcp import models, service
 from ..mcp.monitor import get_health, monitor_backend_once, probe_backend_key
+from ..mcp.rest_config import set_rest_tools
 
 _log = structlog.get_logger(__name__)
 
@@ -71,6 +72,22 @@ async def create_backend_route(
         _map_error(exc)
         raise
     return {"id": bid}
+
+
+@router.put("/mcp/backends/{backend_id}/rest-tools")
+async def set_rest_tools_route(
+    body: models.RestToolsSet,
+    backend_id: _BackendId,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, int]:
+    """Déclare (remplace) le jeu d'outils d'un backend `rest`."""
+    try:
+        count = await set_rest_tools(conn, user.login, backend_id, body.tools)
+    except Exception as exc:
+        _map_error(exc)
+        raise
+    return {"tools": count}
 
 
 @router.patch("/mcp/backends/{backend_id}")

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from .rest_adapter import RestToolSpec
 
 NAMESPACE_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
@@ -112,3 +114,33 @@ class ApikeyCreate(BaseModel):
 class ApikeySetProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
     profile_id: str | None = None
+
+
+class RestToolDeclaration(BaseModel):
+    """Déclaration d'un outil d'un backend `rest` : contrat MCP + mapping REST.
+
+    `input_schema` est reçu sous la clé `inputSchema` (convention MCP). Le `spec`
+    porte le mapping vers l'appel HTTP (cf. RestToolSpec).
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    name: str
+    description: str = ""
+    input_schema: dict[str, Any] = Field(
+        default_factory=lambda: {"type": "object"}, alias="inputSchema"
+    )
+    spec: RestToolSpec
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, v: str) -> str:
+        if not SLUG_RE.fullmatch(v) or "__" in v:
+            raise ValueError("name: [a-z0-9_-], initiale alphanumérique, sans '__', 1 à 63 car.")
+        return v
+
+
+class RestToolsSet(BaseModel):
+    """Jeu complet d'outils d'un backend `rest` (remplace le catalogue déclaré)."""
+
+    model_config = ConfigDict(extra="forbid")
+    tools: list[RestToolDeclaration]
