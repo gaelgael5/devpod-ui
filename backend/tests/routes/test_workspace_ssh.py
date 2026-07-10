@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json as _json
+import time
 from pathlib import Path
 
 import pytest
@@ -49,12 +50,16 @@ BASE_CONFIG = {
 }
 
 
-def _make_client(tmp_path: Path, monkeypatch, login: str = "alice") -> TestClient:
+def _make_client(
+    tmp_path: Path, monkeypatch, login: str = "alice", roles: list[str] | None = None
+) -> TestClient:
     monkeypatch.setenv("PORTAL_DATA_ROOT", str(tmp_path))
     monkeypatch.setenv("DEV_MODE", "true")
     import portal.settings as mod
     mod._settings = None
     (tmp_path / "config.yaml").write_text(yaml.dump(BASE_CONFIG), encoding="utf-8")
+
+    session_roles = roles if roles is not None else ["dev"]
 
     from portal.app import create_app
     app = create_app()
@@ -62,7 +67,8 @@ def _make_client(tmp_path: Path, monkeypatch, login: str = "alice") -> TestClien
 
     @test_router.post("/_test/login")
     async def _login(request: Request):
-        request.session["user"] = {"login": login, "roles": ["dev"]}
+        request.session["user"] = {"login": login, "roles": session_roles}
+        request.session["auth_time"] = int(time.time())
         return {"ok": True}
 
     app.include_router(test_router)
@@ -144,6 +150,7 @@ def test_ws_workspace_ssh_rejects_start_recipe_wrong_type(tmp_path: Path, monkey
     @test_router.post("/_test/login")
     async def _login(request: Request):
         request.session["user"] = {"login": "alice", "roles": ["dev"]}
+        request.session["auth_time"] = int(time.time())
         return {"ok": True}
 
     app.include_router(test_router)
@@ -221,7 +228,8 @@ def test_ws_workspace_ssh_no_start_uses_tmux_main(
     assert "ssh" in cmd
     assert any("alice-my-ws" in s for s in cmd)
     command_str = cmd[-1]
-    assert "tmux new -A -s main" in command_str
+    # Le socket tmux est détecté dynamiquement (TMUX_SOCK) puis `new -A -s main`.
+    assert "new -A -s main" in command_str
     assert "base64" not in command_str
 
 
@@ -255,6 +263,60 @@ def test_ws_workspace_ssh_with_start_encodes_script(
     assert "exec claude-rc" in decoded
 
 
+def test_ws_workspace_ssh_admin_can_target_other_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un admin qui passe ?owner=bob cible le conteneur bob-my-ws, pas le sien."""
+    captured: list[list[str]] = []
+
+    async def _fake_exec(*args: object, **kwargs: object) -> _FakeProcess:
+        captured.append(list(args))
+        return _FakeProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+    client = _make_client(tmp_path, monkeypatch, login="root", roles=["dev", "admin"])
+
+    with client.websocket_connect("/me/workspaces/my-ws/ssh?owner=bob"):
+        pass
+
+    assert captured
+    cmd = captured[0]
+    assert any("bob-my-ws" in s for s in cmd)
+    assert not any("root-my-ws" in s for s in cmd)
+
+
+def test_ws_workspace_ssh_non_admin_owner_denied(tmp_path: Path, monkeypatch) -> None:
+    """Un non-admin qui passe ?owner=bob est refusé (4001)."""
+    client = _make_client(tmp_path, monkeypatch, login="alice", roles=["dev"])
+    _assert_ws_closes_with(client, "/me/workspaces/my-ws/ssh?owner=bob", 4001)
+
+
+def test_ws_workspace_ssh_owner_equals_login_allowed_for_non_admin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """?owner=<soi-même> reste autorisé sans privilège (cas nominal)."""
+    captured: list[list[str]] = []
+
+    async def _fake_exec(*args: object, **kwargs: object) -> _FakeProcess:
+        captured.append(list(args))
+        return _FakeProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+    client = _make_client(tmp_path, monkeypatch, login="alice", roles=["dev"])
+
+    with client.websocket_connect("/me/workspaces/my-ws/ssh?owner=alice"):
+        pass
+
+    assert captured
+    assert any("alice-my-ws" in s for s in captured[0])
+
+
+def test_ws_workspace_ssh_admin_invalid_owner_rejected(tmp_path: Path, monkeypatch) -> None:
+    """Un owner non conforme (login invalide) est rejeté (4022) même pour un admin."""
+    client = _make_client(tmp_path, monkeypatch, login="root", roles=["dev", "admin"])
+    _assert_ws_closes_with(client, "/me/workspaces/my-ws/ssh?owner=bad!name", 4022)
+
+
 def test_ws_workspace_ssh_origin_rejected_non_dev(tmp_path: Path, monkeypatch) -> None:
     """En mode non-dev, un mauvais Origin est rejeté (4003)."""
     monkeypatch.setenv("PORTAL_DATA_ROOT", str(tmp_path))
@@ -274,6 +336,7 @@ def test_ws_workspace_ssh_origin_rejected_non_dev(tmp_path: Path, monkeypatch) -
     @test_router.post("/_test/login")
     async def _login(request: Request):
         request.session["user"] = {"login": "alice", "roles": ["dev"]}
+        request.session["auth_time"] = int(time.time())
         return {"ok": True}
 
     app.include_router(test_router)

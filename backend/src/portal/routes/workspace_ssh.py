@@ -17,7 +17,7 @@ import structlog
 from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
-from ..auth.rbac import session_within_max_age
+from ..auth.rbac import UsernameError, session_within_max_age
 from ..config.store import load_global
 from ..db.engine import _get_engine
 from ..db.recipes import load_recipes_as_dict
@@ -26,6 +26,7 @@ from ..devpod.ssh_exec import control_ssh_args
 from ..devpod.ssh_exec import devpod_ssh_key as _devpod_ssh_key
 from ..devpod.test_vm import build_testhost_ssh_command
 from ..sessions import registry
+from ..sessions.ownership import OwnershipDenied, resolve_owner
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -44,6 +45,7 @@ async def workspace_ssh_terminal(
     start: str | None = None,
     shell: bool = False,
     ssh_test: str | None = None,
+    owner: str | None = None,
 ) -> None:
     await websocket.accept()
     settings = get_settings()
@@ -83,12 +85,26 @@ async def workspace_ssh_terminal(
         await websocket.close(code=4001, reason="Invalid session")
         return
 
+    # ── Owner effectif (admin peut cibler le conteneur d'un autre user) ───────
+    roles = user_data.get("roles", [])
+    try:
+        effective_owner = resolve_owner(
+            login=login, roles=roles if isinstance(roles, list) else [], owner=owner
+        )
+    except OwnershipDenied:
+        _log.warning("ws_workspace_ssh_owner_denied", login=login, owner=owner)
+        await websocket.close(code=4001, reason="Admin role required")
+        return
+    except UsernameError:
+        await websocket.close(code=4022, reason="Invalid owner")
+        return
+
     # ── Validation du nom de workspace ────────────────────────────────────────
     if not _WS_NAME_RE.fullmatch(name):
         await websocket.close(code=4022, reason="Invalid workspace name")
         return
 
-    ws_id = f"{login}-{name}"
+    ws_id = f"{effective_owner}-{name}"
 
     # ── Résolution de la commande tmux ───────────────────────────────────────
     # Le serveur tmux tourne en uid 1000 (vscode) ; root peut accéder à son
@@ -110,7 +126,7 @@ async def workspace_ssh_terminal(
         # clé du container. L'IP est résolue côté serveur ; accès refusé si le host
         # n'appartient pas aux test-hosts de ce workspace.
         async with _get_engine().connect() as _conn:
-            allowed = await list_test_hosts_for_workspace(login, name, _conn)
+            allowed = await list_test_hosts_for_workspace(effective_owner, name, _conn)
         testhost_cmd = build_testhost_ssh_command(ssh_test, allowed, cfg.hosts)
         if testhost_cmd is None:
             await websocket.close(code=4022, reason="Test host not available")
@@ -136,7 +152,7 @@ async def workspace_ssh_terminal(
             return
 
         async with _get_engine().connect() as _conn:
-            available = await load_recipes_as_dict(login, _conn, type_filter="start")
+            available = await load_recipes_as_dict(effective_owner, _conn, type_filter="start")
         if start not in available:
             await websocket.close(code=4022, reason=f"Start recipe {start!r} not found")
             return
@@ -144,7 +160,7 @@ async def workspace_ssh_terminal(
         # Fallback bundlé inclus (start validé par _RECIPE_ID_RE → pas de traversal).
         from .workspace_sessions import locate_start_sh
 
-        start_sh_path = locate_start_sh(login, start)
+        start_sh_path = locate_start_sh(effective_owner, start)
         if start_sh_path is None:
             await websocket.close(code=4022, reason=f"start.sh missing for {start!r}")
             return
@@ -169,7 +185,7 @@ async def workspace_ssh_terminal(
         return
     devpod_bin = cfg.devpod.binary
     proxy_cmd = f"{shlex.quote(devpod_bin)} ssh --stdio {shlex.quote(ws_id)}"
-    key_path = _devpod_ssh_key(login)
+    key_path = _devpod_ssh_key(effective_owner)
     identity_args = ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
     cmd = [
         "ssh",
@@ -193,13 +209,21 @@ async def workspace_ssh_terminal(
     from ..devpod.ssh_exec import workspace_env
 
     devpod_env = {
-        **(await workspace_env(login, ws_id)),
+        **(await workspace_env(effective_owner, ws_id)),
         # SSH propage TERM local vers le PTY remote avec -t -t.
         # Le processus portal n'a pas de vrai terminal → forcer xterm-256color.
         "TERM": "xterm-256color",
     }
 
-    _log.info("ws_workspace_ssh_open", ws_id=ws_id, login=login, start=start, ssh_test=ssh_test)
+    _log.info(
+        "ws_workspace_ssh_open",
+        ws_id=ws_id,
+        actor=login,
+        owner=effective_owner,
+        cross_user=effective_owner != login,
+        start=start,
+        ssh_test=ssh_test,
+    )
 
     # PTY local : SSH reçoit un vrai terminal → SIGWINCH propagé correctement.
     # Avec stdin=PIPE, SSH ne peut pas détecter les changements de taille et
@@ -218,9 +242,8 @@ async def workspace_ssh_terminal(
 
     # Enregistrement du terminal vivant (vue centralisée des sessions).
     live_term = registry.new_terminal(
-        family=term_family, target=term_target, owner=login, session=session_name
+        family=term_family, target=term_target, owner=effective_owner, session=session_name
     )
-    registry.register(live_term)
 
     def _pty_resize(cols: int, rows: int) -> None:
         with contextlib.suppress(OSError):
@@ -285,6 +308,15 @@ async def workspace_ssh_terminal(
         asyncio.create_task(_ws_to_ssh()),
         asyncio.create_task(_ssh_to_ws()),
     ]
+
+    # Closer : `POST /sessions/close` annule le pont ; le `finally` ci-dessous
+    # tue alors le process et ferme le websocket (téardown identique à une
+    # déconnexion navigateur).
+    def _closer() -> None:
+        for t in tasks:
+            t.cancel()
+
+    registry.register(live_term, closer=_closer)
     try:
         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:

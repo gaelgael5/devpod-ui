@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -42,6 +43,9 @@ class LiveTerminal:
 AttachKey = tuple[Family, str, str | None]
 
 _terminals: dict[str, LiveTerminal] = {}
+# Callback de fermeture par id : annule le pont websocket↔ssh du terminal.
+# Séparé de LiveTerminal (qui reste un DTO pur, sérialisable) volontairement.
+_closers: dict[str, Callable[[], None]] = {}
 
 
 def _now() -> float:
@@ -67,14 +71,44 @@ def new_terminal(
     )
 
 
-def register(term: LiveTerminal) -> None:
-    """Enregistre (ou remplace) un terminal vivant. Idempotent par id."""
+def register(term: LiveTerminal, closer: Callable[[], None] | None = None) -> None:
+    """Enregistre (ou remplace) un terminal vivant. Idempotent par id.
+
+    `closer` (optionnel) est le callback invoqué par `close_matching` pour
+    fermer le pont à distance ; absent → le terminal n'est pas fermable via API
+    (il ne se ferme qu'en coupant le websocket côté client).
+    """
     _terminals[term.id] = term
+    if closer is not None:
+        _closers[term.id] = closer
 
 
 def unregister(id: str) -> None:
-    """Retire un terminal. Silencieux si l'id est inconnu (idempotent)."""
+    """Retire un terminal et son closer. Silencieux si l'id est inconnu."""
     _terminals.pop(id, None)
+    _closers.pop(id, None)
+
+
+def close_matching(*, family: Family, target: str, session: str | None, owner: str | None) -> int:
+    """Ferme les terminaux vivants correspondant à (family, target, session).
+
+    `owner=None` → toutes les instances (vue admin) ; sinon restreint au login
+    donné (garde-fou : un user ne ferme que ses propres terminaux). Invoque le
+    closer de chaque terminal correspondant (le téardown effectif — kill process,
+    fermeture websocket, `unregister` — a lieu dans le handler du websocket).
+    Renvoie le nombre de closers invoqués.
+    """
+    count = 0
+    for term in list(_terminals.values()):
+        if term.family != family or term.target != target or term.session != session:
+            continue
+        if owner is not None and term.owner != owner:
+            continue
+        closer = _closers.pop(term.id, None)
+        if closer is not None:
+            closer()
+            count += 1
+    return count
 
 
 def list_all() -> list[LiveTerminal]:
@@ -98,3 +132,4 @@ def attached_index(*, owner: str | None) -> set[AttachKey]:
 def clear() -> None:
     """Tests uniquement : vide le registre entre deux cas."""
     _terminals.clear()
+    _closers.clear()

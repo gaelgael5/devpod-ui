@@ -152,7 +152,6 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
     live_term = registry.new_terminal(
         family="host", target=name, owner=user_data.get("login") or "admin"
     )
-    registry.register(live_term)
 
     async def _ws_to_ssh() -> None:
         try:
@@ -189,6 +188,13 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         asyncio.create_task(_ws_to_ssh()),
         asyncio.create_task(_ssh_to_ws()),
     ]
+
+    # Closer : `POST /sessions/close` annule le pont (téardown dans le `finally`).
+    def _closer() -> None:
+        for t in tasks:
+            t.cancel()
+
+    registry.register(live_term, closer=_closer)
     try:
         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:

@@ -76,3 +76,48 @@ def test_live_terminal_is_frozen() -> None:
     t = _term("a", "alice", "workspace", "alice-ws")
     with pytest.raises(FrozenInstanceError):
         t.owner = "mallory"  # type: ignore[misc]
+
+
+# ── close_matching ──────────────────────────────────────────────────────────
+
+
+def test_close_matching_invokes_closer_and_counts() -> None:
+    called: list[str] = []
+    registry.register(
+        _term("a", "alice", "test", "node-vm"), closer=lambda: called.append("a")
+    )
+    n = registry.close_matching(family="test", target="node-vm", session=None, owner="alice")
+    assert n == 1
+    assert called == ["a"]
+
+
+def test_close_matching_scoped_to_owner_ignores_others() -> None:
+    called: list[str] = []
+    registry.register(_term("a", "alice", "test", "node-vm"), closer=lambda: called.append("a"))
+    registry.register(_term("b", "bob", "test", "node-vm"), closer=lambda: called.append("b"))
+    n = registry.close_matching(family="test", target="node-vm", session=None, owner="alice")
+    assert n == 1
+    assert called == ["a"]
+
+
+def test_close_matching_admin_owner_none_closes_all_matching() -> None:
+    called: list[str] = []
+    registry.register(_term("a", "alice", "host", "node1"), closer=lambda: called.append("a"))
+    registry.register(_term("b", "bob", "host", "node1"), closer=lambda: called.append("b"))
+    n = registry.close_matching(family="host", target="node1", session=None, owner=None)
+    assert n == 2
+    assert sorted(called) == ["a", "b"]
+
+
+def test_close_matching_no_match_returns_zero() -> None:
+    registry.register(_term("a", "alice", "workspace", "alice-ws", "main"), closer=lambda: None)
+    n = registry.close_matching(
+        family="workspace", target="alice-ws", session="other", owner="alice"
+    )
+    assert n == 0
+
+
+def test_close_matching_terminal_without_closer_not_counted() -> None:
+    registry.register(_term("a", "alice", "host", "node1"))  # pas de closer
+    n = registry.close_matching(family="host", target="node1", session=None, owner=None)
+    assert n == 0
