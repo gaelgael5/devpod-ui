@@ -10,8 +10,12 @@ import asyncio
 import os
 import shlex
 
+import structlog
+
 from ..config.store import load_global, safe_user_path
 from .ssh_exec import control_ssh_args, devpod_ssh_key
+
+_log = structlog.get_logger(__name__)
 
 # Détection du socket tmux (le devcontainer peut exposer un socket non standard).
 TMUX_SOCK_DETECT = (
@@ -71,3 +75,22 @@ async def ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0) -
         return 1, "SSH command timed out"
     output = (stdout.decode(errors="replace") + stderr.decode(errors="replace")).strip()
     return proc.returncode or 0, output
+
+
+async def warm_tunnel(login: str, ws_id: str, *, timeout: float = 20.0) -> bool:
+    """Pré-chauffe le tunnel SSH d'un workspace : monte le ControlMaster en fond.
+
+    Lance un `true` via `ws_exec` — le premier appel établit le master partagé
+    (handshake mTLS via devpod), les ouvertures de terminal suivantes s'y rattachent
+    instantanément. Idempotent et bon marché si déjà chaud (simple rattachement).
+    Best-effort : ne lève jamais, n'émet aucun secret. Retourne True si le tunnel
+    est chaud (rc 0).
+    """
+    try:
+        rc, _out = await ws_exec(login, ws_id, "true", timeout=timeout)
+    except Exception:
+        _log.warning("ssh_warm_tunnel_failed", ws_id=ws_id, exc_info=True)
+        return False
+    if rc != 0:
+        _log.info("ssh_warm_tunnel_cold", ws_id=ws_id, rc=rc)
+    return rc == 0
