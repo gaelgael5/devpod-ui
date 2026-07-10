@@ -10,6 +10,7 @@ export interface EventsProducerConfig {
   events: string[]
   available_events: string[]
   has_secret: boolean
+  discovery_url: string
 }
 
 export interface EventsProducerUpdate {

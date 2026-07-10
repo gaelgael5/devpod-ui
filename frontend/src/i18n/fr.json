@@ -390,6 +390,10 @@
     },
     "workflow": {
       "navLabel": "Workflow",
+      "discoveryLabel": "URL à enregistrer dans Workflow",
+      "discoveryHint": "Crée d'abord une source « Discovery » côté Workflow avec cette URL. Workflow te renvoie alors le Source ID (et le secret) à coller ci-dessous.",
+      "copy": "Copier",
+      "copied": "Copié",
       "title": "Relais d'events vers Workflow",
       "intro": "Relaie les events applicatifs (devpod.*) vers le module Workflow, signés HMAC. Désactivé par défaut. Le toggle et la liste blanche prennent effet immédiatement, sans redémarrage.",
       "enabled": "Relais activé",

@@ -258,6 +258,7 @@ async def _system_secret_exists(slug: str, conn: AsyncConnection) -> bool:
 
 def _events_producer_out(cfg: GlobalConfig, *, has_secret: bool) -> dict[str, object]:
     ep = cfg.events_producer
+    base = cfg.server.external_url.rstrip("/") if cfg.server.external_url else ""
     return {
         "enabled": ep.enabled,
         "workflow_base_url": ep.workflow_base_url,
@@ -266,6 +267,9 @@ def _events_producer_out(cfg: GlobalConfig, *, has_secret: bool) -> dict[str, ob
         "events": ep.events,
         "available_events": sorted(EVENT_TYPES),
         "has_secret": has_secret,
+        # URL publique du catalogue d'events à enregistrer côté Workflow (source
+        # « Discovery ») — c'est de cet enregistrement que Workflow renvoie le source_id.
+        "discovery_url": f"{base}/schemas",
     }
 
 

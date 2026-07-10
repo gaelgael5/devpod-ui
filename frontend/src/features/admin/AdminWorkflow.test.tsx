@@ -13,6 +13,7 @@ const CONFIG = {
   events: ['workspace.created'],
   available_events: ['workspace.created', 'workspace.deleted', 'session.created'],
   has_secret: true,
+  discovery_url: 'https://dev.yoops.org/schemas',
 }
 
 describe('AdminWorkflow', () => {
@@ -21,6 +22,7 @@ describe('AdminWorkflow', () => {
     renderWithProviders(<AdminWorkflow />)
 
     expect(await screen.findByDisplayValue(CONFIG.workflow_base_url)).toBeInTheDocument()
+    expect(screen.getByText(CONFIG.discovery_url)).toBeInTheDocument()
     expect(screen.getByDisplayValue(CONFIG.source_id)).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: /workspace\.created/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /workspace\.deleted/ })).not.toBeChecked()

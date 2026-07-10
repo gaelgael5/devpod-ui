@@ -10,6 +10,34 @@ import {
   type EventsProducerConfig,
 } from './useAdminWorkflow'
 
+/** URL de découverte à enregistrer dans Workflow (source « Discovery »). Lecture seule. */
+function DiscoveryUrl({ url }: { url: string }) {
+  const { t } = useTranslation()
+  const [copied, setCopied] = useState(false)
+
+  function copy() {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    })
+  }
+
+  return (
+    <div className="mb-5 flex flex-col gap-1.5 rounded-md border bg-muted/40 p-3">
+      <Label>{t('admin.workflow.discoveryLabel')}</Label>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 truncate rounded bg-background px-2 py-1.5 font-mono text-sm">
+          {url}
+        </code>
+        <Button variant="outline" size="sm" onClick={copy}>
+          {copied ? t('admin.workflow.copied') : t('admin.workflow.copy')}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">{t('admin.workflow.discoveryHint')}</p>
+    </div>
+  )
+}
+
 /** Formulaire monté avec les valeurs chargées (state initialisé en lazy, pas d'effet). */
 function WorkflowForm({ initial }: { initial: EventsProducerConfig }) {
   const { t } = useTranslation()
@@ -175,7 +203,12 @@ export default function AdminWorkflow() {
       <p className="mb-6 text-sm text-muted-foreground">{t('admin.workflow.intro')}</p>
       {isLoading && <p className="text-muted-foreground">…</p>}
       {isError && <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>}
-      {data && <WorkflowForm initial={data} />}
+      {data && (
+        <>
+          <DiscoveryUrl url={data.discovery_url} />
+          <WorkflowForm initial={data} />
+        </>
+      )}
     </div>
   )
 }

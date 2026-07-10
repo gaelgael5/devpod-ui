@@ -390,6 +390,10 @@
     },
     "workflow": {
       "navLabel": "Workflow",
+      "discoveryLabel": "URL to register in Workflow",
+      "discoveryHint": "First create a “Discovery” source in Workflow with this URL. Workflow then gives you the Source ID (and secret) to paste below.",
+      "copy": "Copy",
+      "copied": "Copied",
       "title": "Event relay to Workflow",
       "intro": "Relays application events (devpod.*) to the Workflow module, HMAC-signed. Off by default. The toggle and allowlist take effect immediately, without a restart.",
       "enabled": "Relay enabled",
