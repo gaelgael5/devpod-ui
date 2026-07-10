@@ -7,6 +7,8 @@ import { Label } from '@/components/ui/label'
 import {
   useAdminWorkflow,
   useSaveWorkflow,
+  useSendTestEvent,
+  useTestConnection,
   type EventsProducerConfig,
 } from './useAdminWorkflow'
 
@@ -42,6 +44,8 @@ function DiscoveryUrl({ url }: { url: string }) {
 function WorkflowForm({ initial }: { initial: EventsProducerConfig }) {
   const { t } = useTranslation()
   const save = useSaveWorkflow()
+  const testConn = useTestConnection()
+  const sendTest = useSendTestEvent()
   const [enabled, setEnabled] = useState(initial.enabled)
   const [baseUrl, setBaseUrl] = useState(initial.workflow_base_url)
   const [sourceId, setSourceId] = useState(initial.source_id)
@@ -56,6 +60,24 @@ function WorkflowForm({ initial }: { initial: EventsProducerConfig }) {
 
   function toggleEvent(code: string) {
     setEvents((cur) => (cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code]))
+  }
+
+  function handleTestConnection() {
+    testConn.mutate(undefined, {
+      onSuccess: (r) => {
+        if (r.ok) {
+          toast.success(t('admin.workflow.testOk', { code: r.event_code, status: r.status_code }))
+        } else {
+          toast.error(t('admin.workflow.testFail', { detail: r.error ?? r.status_code }))
+        }
+      },
+    })
+  }
+
+  function handleSendTest() {
+    sendTest.mutate(undefined, {
+      onSuccess: (r) => toast.success(t('admin.workflow.testEventQueued', { code: r.event_code })),
+    })
   }
 
   function handleSave() {
@@ -188,6 +210,28 @@ function WorkflowForm({ initial }: { initial: EventsProducerConfig }) {
         <Button onClick={handleSave} disabled={save.isPending || missing}>
           {save.isPending ? '…' : t('admin.workflow.save')}
         </Button>
+      </div>
+
+      <div className="flex flex-col gap-1.5 border-t pt-4">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={handleTestConnection}
+            disabled={!initial.has_secret || testConn.isPending}
+          >
+            {testConn.isPending ? '…' : t('admin.workflow.testConnection')}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleSendTest}
+            disabled={!initial.has_secret || sendTest.isPending}
+          >
+            {sendTest.isPending ? '…' : t('admin.workflow.sendTestEvent')}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {initial.has_secret ? t('admin.workflow.testHint') : t('admin.workflow.testNeedsSave')}
+        </p>
       </div>
     </div>
   )

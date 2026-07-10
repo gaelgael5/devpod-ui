@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/server'
@@ -61,5 +61,23 @@ describe('AdminWorkflow', () => {
       source_uri: CONFIG.source_uri,
       events: ['workspace.created'],
     })
+  })
+
+  it('appelle test-connection au clic du bouton Test connection', async () => {
+    let called = false
+    server.use(
+      http.get('/admin/events-producer', () => HttpResponse.json(CONFIG)),
+      http.post('/admin/events-producer/test-connection', () => {
+        called = true
+        return HttpResponse.json({ ok: true, status_code: 202, event_code: 'devpod.testevent.v1' })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<AdminWorkflow />)
+
+    await screen.findByDisplayValue(CONFIG.workflow_base_url)
+    await user.click(screen.getByRole('button', { name: 'Test connection' }))
+
+    await waitFor(() => expect(called).toBe(true))
   })
 })

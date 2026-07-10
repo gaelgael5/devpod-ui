@@ -9,6 +9,7 @@ contexte de destination (dérivé serveur-side côté workflow), aucun pointeur 
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from .models import AppEvent
@@ -42,3 +43,22 @@ def to_envelope(event: AppEvent, *, source_uri: str) -> dict[str, Any]:
     if event.workspace is not None:
         envelope["workspace"] = event.workspace
     return envelope
+
+
+def build_test_envelope(source_uri: str) -> dict[str, Any]:
+    """Enveloppe d'un event de **test** normalisé `{appli}.testevent.v1`.
+
+    `{appli}` est dérivée du dernier segment de `source_uri` (ex. `urn:yoops:devpod`
+    → `devpod`). Cet `_eventCode` n'est pas au catalogue `/schemas` : le workflow
+    l'accepte comme event non validé (Norme §2.4) — suffisant pour tester la
+    connectivité et l'ingestion signée sans polluer les schémas réels.
+    """
+    app = source_uri.rsplit(":", 1)[-1] or "app"
+    return {
+        "_eventId": str(uuid.uuid4()),
+        "_eventCode": f"{app}.testevent.v1",
+        "_occurredAt": datetime.now(UTC).isoformat(),
+        "_source": source_uri,
+        "_specVersion": SPEC_VERSION,
+        "test": True,
+    }

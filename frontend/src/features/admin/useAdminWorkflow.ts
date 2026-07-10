@@ -43,3 +43,34 @@ export function useSaveWorkflow() {
     onError: (err: Error) => toast.error(err.message),
   })
 }
+
+export interface TestConnectionResult {
+  ok: boolean
+  status_code?: number
+  event_code: string
+  error?: string
+}
+
+export function useTestConnection() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetchJson<TestConnectionResult>('/admin/events-producer/test-connection', {
+        method: 'POST',
+      }),
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
+
+export interface TestEventResult {
+  queued: boolean
+  event_id: string
+  event_code: string
+}
+
+export function useSendTestEvent() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetchJson<TestEventResult>('/admin/events-producer/send-test-event', { method: 'POST' }),
+    onError: (err: Error) => toast.error(err.message),
+  })
+}

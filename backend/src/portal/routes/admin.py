@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import re
 import shlex
-from typing import Literal
+from typing import Any, Literal
 
+import httpx
 import structlog
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -23,8 +24,15 @@ from ..db.global_config import save_global_db, set_cached_global
 from ..db.tables import harpo_certificates
 from ..db.tables import workspace_status as _ws_status_table
 from ..db.tables import workspaces as _ws_table
-from ..events.egress import reconcile_workflow_producer
+from ..db.workflow_outbox import enqueue as outbox_enqueue
+from ..events.egress import (
+    compute_signature,
+    post_event,
+    reconcile_workflow_producer,
+    serialize_envelope,
+)
 from ..events.models import EVENT_TYPES
+from ..events.producer import build_test_envelope
 from ..net import build_resolve_fqdn, is_ipv4, resolve_ipv4
 from ..secrets.system import (
     delete_system_cert,
@@ -339,6 +347,67 @@ async def put_admin_events_producer(
         events=len(body.events),
     )
     return _events_producer_out(cfg, has_secret=has_secret)
+
+
+def _require_producer_target(cfg_ep: Any) -> None:
+    if not cfg_ep.workflow_base_url.strip() or not cfg_ep.source_id.strip():
+        raise HTTPException(status_code=422, detail="URL Workflow et Source ID requis")
+
+
+@router.post("/events-producer/test-connection")
+async def test_events_producer_connection(
+    user: UserInfo = Depends(require_admin), conn: AsyncConnection = Depends(get_conn)
+) -> dict[str, object]:
+    """Envoie un event de test **synchrone** et retourne le verdict de connexion.
+
+    Valide en un geste : config complète, joignabilité du workflow, et signature
+    HMAC (202). Ne passe pas par l'outbox — feedback immédiat. Utilise la config
+    enregistrée (le secret vient du store) : enregistrer d'abord.
+    """
+    cfg = load_global().events_producer
+    _require_producer_target(cfg)
+    try:
+        secret = await reveal_system_secret(cfg.secret_slug, conn)
+    except KeyError:
+        raise HTTPException(
+            status_code=422, detail="secret HMAC absent — enregistrez-le d'abord"
+        ) from None
+    envelope = build_test_envelope(cfg.source_uri)
+    raw = serialize_envelope(envelope)
+    signature = compute_signature(secret.encode(), raw)
+    try:
+        status = await post_event(cfg.workflow_base_url, cfg.source_id, raw, signature)
+    except httpx.HTTPError as exc:
+        _log.warning("events_producer_test_failed", by=user.login, exc_type=type(exc).__name__)
+        return {"ok": False, "event_code": envelope["_eventCode"], "error": type(exc).__name__}
+    return {"ok": status == 202, "status_code": status, "event_code": envelope["_eventCode"]}
+
+
+@router.post("/events-producer/send-test-event")
+async def send_events_producer_test_event(
+    user: UserInfo = Depends(require_admin), conn: AsyncConnection = Depends(get_conn)
+) -> dict[str, object]:
+    """Met en file (outbox) un event de test normalisé `{appli}.testevent.v1`.
+
+    Emprunte le **vrai chemin asynchrone** : le worker le livrera si le relais est
+    activé. Sert à valider le pipeline de bout en bout (et le déclenchement de règles).
+    """
+    cfg = load_global().events_producer
+    _require_producer_target(cfg)
+    envelope = build_test_envelope(cfg.source_uri)
+    raw = serialize_envelope(envelope)
+    await outbox_enqueue(
+        conn,
+        event_id=envelope["_eventId"],
+        event_code=envelope["_eventCode"],
+        raw_body=raw.decode(),
+    )
+    _log.info("events_producer_test_event_queued", by=user.login, event_code=envelope["_eventCode"])
+    return {
+        "queued": True,
+        "event_id": envelope["_eventId"],
+        "event_code": envelope["_eventCode"],
+    }
 
 
 # ─── Configuration OIDC de Grafana (SSO Keycloak du login Grafana lui-même) ───
