@@ -82,6 +82,33 @@ async def list_test_hosts_detailed(
     return sorted(pairs, key=lambda p: _alias_num(p[1]))
 
 
+async def list_all_test_hosts(
+    conn: AsyncConnection,
+) -> list[tuple[str, str, str, str]]:
+    """(login, workspace_name, host_name, alias) de toutes les associations de test.
+
+    Vue admin de l'agrégation des sessions : toutes les VM de test, tous users.
+    """
+    rows = (
+        await conn.execute(select(_t.c.login, _t.c.workspace_name, _t.c.host_name, _t.c.alias))
+    ).all()
+    return [(r[0], r[1], r[2], r[3] or "") for r in rows]
+
+
+async def list_test_hosts_for_login(
+    login: str, conn: AsyncConnection
+) -> list[tuple[str, str, str, str]]:
+    """(login, workspace_name, host_name, alias) des VM de test d'un login."""
+    rows = (
+        await conn.execute(
+            select(_t.c.login, _t.c.workspace_name, _t.c.host_name, _t.c.alias).where(
+                _t.c.login == login
+            )
+        )
+    ).all()
+    return [(r[0], r[1], r[2], r[3] or "") for r in rows]
+
+
 async def workspace_for_host(
     host_name: str, conn: AsyncConnection
 ) -> tuple[str, str] | None:

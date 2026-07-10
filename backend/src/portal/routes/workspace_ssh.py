@@ -25,6 +25,7 @@ from ..db.test_hosts import list_test_hosts_for_workspace
 from ..devpod.ssh_exec import control_ssh_args
 from ..devpod.ssh_exec import devpod_ssh_key as _devpod_ssh_key
 from ..devpod.test_vm import build_testhost_ssh_command
+from ..sessions import registry
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -94,12 +95,16 @@ async def workspace_ssh_terminal(
     # socket Unix car root bypasse les DAC.  On détecte le socket actif dans
     # /tmp/tmux-*/ et on passe -S $SOCK à tmux — pas besoin de su.
     _sock = (
-        "TMUX_SOCK=$(find /tmp -maxdepth 2 -name default"
-        " -path '*/tmux-*/*' 2>/dev/null | head -1)"
+        "TMUX_SOCK=$(find /tmp -maxdepth 2 -name default -path '*/tmux-*/*' 2>/dev/null | head -1)"
     )
     _tmux = 'TERM=xterm-256color tmux ${TMUX_SOCK:+-S "$TMUX_SOCK"}'
 
     tmux_cmd: str
+    # Nom de session tmux attaché (pour le registre des terminaux vivants) : None
+    # quand aucun tmux n'est en jeu (rebond test, shell brut).
+    session_name: str | None = None
+    term_family: registry.Family = "workspace"
+    term_target = ws_id
     if ssh_test is not None:
         # Rebond vers une machine de test : depuis le container, `ssh root@<ip>` par la
         # clé du container. L'IP est résolue côté serveur ; accès refusé si le host
@@ -111,6 +116,8 @@ async def workspace_ssh_terminal(
             await websocket.close(code=4022, reason="Test host not available")
             return
         tmux_cmd = testhost_cmd
+        term_family = "test"
+        term_target = ssh_test
     elif shell:
         # Mode shell brut : bash interactif sans tmux — utile pour le debug.
         tmux_cmd = "exec bash -l"
@@ -120,6 +127,7 @@ async def workspace_ssh_terminal(
             return
         # new-session -A : attache si la session existe, crée sinon.
         tmux_cmd = f"{_sock}; {_tmux} new-session -A -s {shlex.quote(session)}"
+        session_name = session
     elif start is not None:
         from ..recipes.models import _RECIPE_ID_RE
 
@@ -146,11 +154,12 @@ async def workspace_ssh_terminal(
         run_script = f'bash -lc "$(echo {b64} | base64 -d)"'
         has_tmux = "command -v tmux >/dev/null 2>&1"
         tmux_cmd = (
-            f"{has_tmux} && {_sock}; {_tmux} new -A -s {start} -- {run_script}"
-            f" || {run_script}"
+            f"{has_tmux} && {_sock}; {_tmux} new -A -s {start} -- {run_script} || {run_script}"
         )
+        session_name = start
     else:
         tmux_cmd = f"{_sock}; {_tmux} new -A -s main || bash -l"
+        session_name = "main"
 
     # ── Build commande SSH ────────────────────────────────────────────────────
     # ProxyCommand explicite : n'utilise plus ~/.ssh/config (perdu au rebuild).
@@ -161,17 +170,21 @@ async def workspace_ssh_terminal(
     devpod_bin = cfg.devpod.binary
     proxy_cmd = f"{shlex.quote(devpod_bin)} ssh --stdio {shlex.quote(ws_id)}"
     key_path = _devpod_ssh_key(login)
-    identity_args = (
-        ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
-    )
+    identity_args = ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
     cmd = [
-        "ssh", "-t", "-t",
+        "ssh",
+        "-t",
+        "-t",
         *identity_args,
         *control_ssh_args(ws_id),
-        "-o", f"ProxyCommand={proxy_cmd}",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "--", "vscode@devpod-ws",
+        "-o",
+        f"ProxyCommand={proxy_cmd}",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "--",
+        "vscode@devpod-ws",
         tmux_cmd,
     ]
 
@@ -202,6 +215,12 @@ async def workspace_ssh_terminal(
         )
     finally:
         os.close(slave_fd)  # le parent n'a besoin que du master
+
+    # Enregistrement du terminal vivant (vue centralisée des sessions).
+    live_term = registry.new_terminal(
+        family=term_family, target=term_target, owner=login, session=session_name
+    )
+    registry.register(live_term)
 
     def _pty_resize(cols: int, rows: int) -> None:
         with contextlib.suppress(OSError):
@@ -269,6 +288,7 @@ async def workspace_ssh_terminal(
     try:
         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:
+        registry.unregister(live_term.id)
         for t in tasks:
             t.cancel()
         if proc.returncode is None:

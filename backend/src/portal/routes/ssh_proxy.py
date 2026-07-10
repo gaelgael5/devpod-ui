@@ -14,6 +14,7 @@ from ..auth.rbac import session_within_max_age
 from ..config.store import _data_root, load_global
 from ..devpod.service import _materialize_system_cert
 from ..devpod.ssh_exec import host_key_changed
+from ..sessions import registry
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -147,6 +148,12 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         stderr=asyncio.subprocess.STDOUT,
     )
 
+    # Enregistrement du terminal vivant (vue centralisée des sessions).
+    live_term = registry.new_terminal(
+        family="host", target=name, owner=user_data.get("login") or "admin"
+    )
+    registry.register(live_term)
+
     async def _ws_to_ssh() -> None:
         try:
             while True:
@@ -185,6 +192,7 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
     try:
         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:
+        registry.unregister(live_term.id)
         for t in tasks:
             t.cancel()
         if proc.returncode is None:
