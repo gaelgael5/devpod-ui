@@ -258,11 +258,17 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             _monitor_task: asyncio.Task[None] | None = None
             _sweep_task: asyncio.Task[None] | None = None
             _agent_reconcile_task: asyncio.Task[None] | None = None
+            _outbox_task: asyncio.Task[None] | None = None
             if settings_obj.database_url:
                 _monitor_task = asyncio.create_task(
                     monitor_loop(settings_obj.mcp_monitor_interval_s)
                 )
                 _sweep_task = asyncio.create_task(_maintenance_sweep_loop())
+                # Worker de fond de l'outbox workflow : livre les events mis en file
+                # par l'écouteur du bus (POST signé HMAC + retry/backoff).
+                from .events.egress import outbox_worker_loop
+
+                _outbox_task = asyncio.create_task(outbox_worker_loop())
                 # Spec 35b T6 : les conteneurs restés running pendant une
                 # indisponibilité du portail peuvent porter une config agents
                 # périmée — réconciliation best-effort, throttlée, en fond.
@@ -272,7 +278,12 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             try:
                 yield
             finally:
-                for _task in (_monitor_task, _sweep_task, _agent_reconcile_task):
+                for _task in (
+                    _monitor_task,
+                    _sweep_task,
+                    _agent_reconcile_task,
+                    _outbox_task,
+                ):
                     if _task is not None:
                         _task.cancel()
                         with contextlib.suppress(asyncio.CancelledError):

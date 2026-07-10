@@ -902,3 +902,25 @@ user_services = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=True),
 )
+
+# ─── Outbox transactionnel du relais d'events workflow ───────────────────────
+#
+# Tampon durable entre l'écouteur du bus (qui n'y fait qu'insérer l'enveloppe,
+# dans la même txn) et le worker de fond (qui signe HMAC + POST, hors txn DB —
+# bug 026). `raw_body` = octets exacts sérialisés à signer ET poster. `status`
+# ∈ {pending, delivered, failed} ; retry/backoff porté par next_attempt_at.
+workflow_event_outbox = Table(
+    "workflow_event_outbox",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("event_id", Text, nullable=False),
+    Column("event_code", Text, nullable=False),
+    Column("raw_body", Text, nullable=False),
+    Column("status", Text, nullable=False, server_default="pending"),
+    Column("attempts", Integer, nullable=False, server_default="0"),
+    Column("last_error", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("next_attempt_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("delivered_at", DateTime(timezone=True), nullable=True),
+    Index("idx_workflow_event_outbox_due", "status", "next_attempt_at"),
+)

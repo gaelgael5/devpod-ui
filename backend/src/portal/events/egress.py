@@ -1,19 +1,23 @@
-"""Relais egress des events vers le module workflow : signature HMAC + POST ingestion.
+"""Relais egress des events vers le module workflow : outbox transactionnel.
 
-Contrat (source de vérité : code du workflow) :
+Contrat de livraison (source de vérité : code du workflow) :
 - `POST {workflow_base_url}/events/{source_id}`, corps = enveloppe JSON brute ;
 - en-tête `x-signature` = **HMAC-SHA256 hex** des **octets bruts** du corps ;
 - succès = **202** (neuf ou dédupliqué). Tout autre code est une erreur de livraison.
 
-Livraison **best-effort** : branché comme écouteur du bus, qui isole et journalise
-déjà chaque livraison (app_event_delivery). L'écouteur lève sur échec → le bus trace
-l'erreur ; aucune file d'attente ni retry différé (choix assumé, aligné sur le bus).
+Architecture (remplace le best-effort d'origine) : l'écouteur du bus `enqueue_event`
+n'INSÈRE que l'enveloppe (mêmes octets à signer et à poster) dans `workflow_event_outbox`,
+dans sa transaction — aucun réseau ici. Un worker de fond `outbox_worker_loop` lit les
+entrées dues, signe et poste chacune (POST **hors** transaction DB, bug 026), puis
+applique retry/backoff. Rien n'est perdu si le workflow est momentanément indisponible.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Any
 
@@ -30,13 +34,11 @@ _TIMEOUT_S = 10.0
 #: Nom stable de l'écouteur de bus qui relaie vers le workflow (clé d'abonnement).
 WORKFLOW_PRODUCER = "workflow-producer"
 
+#: Nombre maximal de tentatives de livraison avant abandon définitif (status 'failed').
+MAX_ATTEMPTS = 8
 
-class EgressError(Exception):
-    """Échec de livraison vers le workflow. `delivery_detail` est journalisé par le bus."""
-
-    def __init__(self, message: str, *, delivery_detail: dict[str, Any] | None = None) -> None:
-        super().__init__(message)
-        self.delivery_detail = delivery_detail
+#: Rétention des lignes livrées avant purge (heures).
+_DELIVERED_RETENTION_HOURS = 24
 
 
 def compute_signature(secret: bytes, raw_body: bytes) -> str:
@@ -69,46 +71,169 @@ async def post_event(
         return resp.status_code
 
 
-async def forward_to_workflow(event: AppEvent) -> dict[str, Any]:
-    """Écouteur du bus : mappe → signe → poste. Lève `EgressError` sur échec (best-effort).
+async def enqueue_event(event: AppEvent) -> dict[str, Any]:
+    """Écouteur du bus : mappe → sérialise → **insère** dans l'outbox (aucun réseau).
 
-    À n'abonner que si `events_producer.enabled` : la fonction suppose la config valide.
+    À n'abonner que si `events_producer.enabled` (la fonction suppose la config
+    présente). La livraison effective est prise en charge par `outbox_worker_loop`.
     """
     from ..config.store import load_global
     from ..db.engine import _get_engine
-    from ..secrets.system import reveal_system_secret
+    from ..db.workflow_outbox import enqueue
 
     cfg = load_global().events_producer
     envelope = to_envelope(event, source_uri=cfg.source_uri)
     raw = serialize_envelope(envelope)
 
-    async with _get_engine().connect() as conn:
-        secret = await reveal_system_secret(cfg.secret_slug, conn)
-    signature = compute_signature(secret.encode(), raw)
-
-    status = await post_event(cfg.workflow_base_url, cfg.source_id, raw, signature)
-    detail = {"status_code": status, "event_code": envelope["_eventCode"]}
-    if status != httpx.codes.ACCEPTED:
-        _log.warning(
-            "workflow_egress_rejected",
-            event_code=envelope["_eventCode"],
+    async with _get_engine().begin() as conn:
+        await enqueue(
+            conn,
             event_id=envelope["_eventId"],
-            status_code=status,
+            event_code=envelope["_eventCode"],
+            raw_body=raw.decode(),
         )
-        raise EgressError(f"workflow ingestion HTTP {status}", delivery_detail=detail)
     _log.info(
-        "workflow_egress_delivered",
+        "workflow_egress_queued",
         event_code=envelope["_eventCode"],
         event_id=envelope["_eventId"],
     )
-    return detail
+    return {"event_code": envelope["_eventCode"], "outbox": "queued"}
+
+
+def _backoff_seconds(attempts: int) -> float:
+    """Backoff exponentiel plafonné à 1h : 30·2^attempts, borné à 3600s."""
+    delay: float = 30.0 * 2**attempts
+    return delay if delay < 3600.0 else 3600.0
+
+
+async def deliver_one(
+    row: dict[str, Any],
+    *,
+    base_url: str,
+    source_id: str,
+    secret: str,
+    client: httpx.AsyncClient,
+) -> tuple[str, str | None]:
+    """Signe + poste UNE ligne d'outbox. Ne touche PAS la DB (pur, testable).
+
+    Retourne :
+    - ("delivered", None) si HTTP 202 ;
+    - ("failed", message) sinon (l'appelant décide retry vs abandon selon attempts).
+    Toute exception réseau est capturée et rendue comme échec (jamais propagée).
+    """
+    raw = row["raw_body"].encode()
+    signature = compute_signature(secret.encode(), raw)
+    try:
+        status = await post_event(base_url, source_id, raw, signature, client=client)
+    except httpx.HTTPError as exc:
+        # Message volontairement sans secret ni corps : juste le type et l'URL cible.
+        return "failed", f"{type(exc).__name__}: {exc}"
+    if status == httpx.codes.ACCEPTED:
+        return "delivered", None
+    return "failed", f"workflow ingestion HTTP {status}"
+
+
+async def deliver_due(
+    *,
+    now: datetime,
+    limit: int = 50,
+    client: httpx.AsyncClient | None = None,
+) -> dict[str, int]:
+    """Un passage du worker : charge les lignes dues, poste chacune, applique mark_*.
+
+    - No-op si la feature est désactivée ou la config incomplète.
+    - Le secret HMAC est lu via `reveal_system_secret` (connexion courte) ; absent → skip.
+    - **Aucun POST dans une transaction DB** (bug 026) : réseau d'abord, mark_* ensuite.
+    Retourne un compteur {delivered, retry, failed}.
+    """
+    from ..config.store import load_global
+    from ..db.engine import _get_engine
+    from ..db.workflow_outbox import claim_due, mark_delivered, mark_failed, mark_retry
+    from ..secrets.system import reveal_system_secret
+
+    counts = {"delivered": 0, "retry": 0, "failed": 0}
+    cfg = load_global().events_producer
+    if not cfg.enabled or not cfg.workflow_base_url or not cfg.source_id:
+        return counts
+
+    async with _get_engine().connect() as conn:
+        try:
+            secret = await reveal_system_secret(cfg.secret_slug, conn)
+        except KeyError:
+            _log.warning("workflow_egress_secret_missing", slug=cfg.secret_slug)
+            return counts
+
+    async with _get_engine().begin() as conn:
+        due = await claim_due(conn, now=now, limit=limit)
+    if not due:
+        return counts
+
+    async def _run(owned: httpx.AsyncClient) -> None:
+        for row in due:
+            outcome, error = await deliver_one(
+                row,
+                base_url=cfg.workflow_base_url,
+                source_id=cfg.source_id,
+                secret=secret,
+                client=owned,
+            )
+            attempts = int(row["attempts"]) + 1
+            async with _get_engine().begin() as txn:
+                if outcome == "delivered":
+                    await mark_delivered(txn, row["id"])
+                    counts["delivered"] += 1
+                elif attempts >= MAX_ATTEMPTS:
+                    await mark_failed(txn, row["id"], error=error or "unknown", attempts=attempts)
+                    counts["failed"] += 1
+                else:
+                    await mark_retry(
+                        txn,
+                        row["id"],
+                        error=error or "unknown",
+                        attempts=attempts,
+                        next_attempt_at=now + timedelta(seconds=_backoff_seconds(attempts)),
+                    )
+                    counts["retry"] += 1
+
+    if client is not None:
+        await _run(client)
+    else:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_S) as owned:
+            await _run(owned)
+    return counts
+
+
+async def outbox_worker_loop(interval_s: float = 10.0) -> None:
+    """Boucle de fond : livre les entrées dues et purge périodiquement les livrées."""
+    from ..db.engine import _get_engine
+    from ..db.workflow_outbox import purge_delivered
+
+    await asyncio.sleep(2)  # délai initial — laisse le portail démarrer
+    ticks = 0
+    while True:
+        try:
+            now = datetime.now(UTC)
+            counts = await deliver_due(now=now)
+            if counts["delivered"] or counts["retry"] or counts["failed"]:
+                _log.info("workflow_egress_swept", **counts)
+            # Purge des livrées ~toutes les ~60 itérations (≈10 min à 10s).
+            ticks += 1
+            if ticks % 60 == 0:
+                cutoff = now - timedelta(hours=_DELIVERED_RETENTION_HOURS)
+                async with _get_engine().begin() as conn:
+                    purged = await purge_delivered(conn, older_than=cutoff)
+                if purged:
+                    _log.info("workflow_outbox_purged", count=purged)
+        except Exception:
+            _log.warning("workflow_outbox_loop_failed", exc_info=True)
+        await asyncio.sleep(interval_s)
 
 
 def reconcile_workflow_producer() -> list[str]:
     """(Ré)aligne l'abonnement du relais workflow sur la config courante.
 
-    Idempotent : désabonne puis réabonne. Le relais n'est actif que si
-    `enabled` ET une liste blanche non vide (intersectée avec le registre réel).
+    Idempotent : désabonne puis réabonne `enqueue_event`. Le relais n'est actif que
+    si `enabled` ET une liste blanche non vide (intersectée avec le registre réel).
     Appelé au démarrage (lifespan) et après chaque écriture de config — c'est ce
     qui rend le toggle et la liste blanche effectifs **à chaud**, sans redémarrage.
     Retourne les types effectivement abonnés (vide = relais inactif).
@@ -123,5 +248,5 @@ def reconcile_workflow_producer() -> list[str]:
         return []
     types = sorted(set(EVENT_TYPES) & set(cfg.events))
     if types:
-        bus.subscribe(WORKFLOW_PRODUCER, types, forward_to_workflow)
+        bus.subscribe(WORKFLOW_PRODUCER, types, enqueue_event)
     return types
