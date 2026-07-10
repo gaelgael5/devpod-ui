@@ -28,7 +28,7 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
-    "ruff>=0.4",
+    "ruff==0.15.15",  # figé : ruff introduit de nouvelles règles à chaque mineure, un lint reproductible impose une version exacte
     "mypy>=1.10",
     "types-pyyaml",
     "respx>=0.21",
