@@ -3,6 +3,7 @@
 Service partagé par le router workspace_sessions et le backend MCP interne devpod
 (façade I-1 : un point unique pour le saut réseau + mTLS, jamais de client SSH ad hoc).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -10,7 +11,7 @@ import os
 import shlex
 
 from ..config.store import load_global, safe_user_path
-from .ssh_exec import devpod_ssh_key
+from .ssh_exec import control_ssh_args, devpod_ssh_key
 
 # Détection du socket tmux (le devcontainer peut exposer un socket non standard).
 TMUX_SOCK_DETECT = (
@@ -23,9 +24,7 @@ def tmux(args: str) -> str:
     return f'{TMUX_SOCK_DETECT}; tmux ${{TMUX_SOCK:+-S "$TMUX_SOCK"}} {args}'
 
 
-async def ws_exec(
-    login: str, ws_id: str, command: str, timeout: float = 30.0
-) -> tuple[int, str]:
+async def ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0) -> tuple[int, str]:
     """Exécute une commande non-interactive dans le devcontainer via SSH.
 
     ProxyCommand explicite (`devpod ssh --stdio`) : l'entrée ~/.ssh/config écrite par
@@ -45,12 +44,18 @@ async def ws_exec(
     identity_args = ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
     proc = await asyncio.create_subprocess_exec(
         "ssh",
-        "-o", "LogLevel=ERROR",
-        "-o", "BatchMode=yes",
+        "-o",
+        "LogLevel=ERROR",
+        "-o",
+        "BatchMode=yes",
         *identity_args,
-        "-o", f"ProxyCommand={proxy_cmd}",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
+        *control_ssh_args(ws_id),
+        "-o",
+        f"ProxyCommand={proxy_cmd}",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
         "--",
         "vscode@devpod-ws",
         command,

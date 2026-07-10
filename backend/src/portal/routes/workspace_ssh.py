@@ -22,6 +22,7 @@ from ..config.store import load_global
 from ..db.engine import _get_engine
 from ..db.recipes import load_recipes_as_dict
 from ..db.test_hosts import list_test_hosts_for_workspace
+from ..devpod.ssh_exec import control_ssh_args
 from ..devpod.ssh_exec import devpod_ssh_key as _devpod_ssh_key
 from ..devpod.test_vm import build_testhost_ssh_command
 from ..settings import get_settings
@@ -166,6 +167,7 @@ async def workspace_ssh_terminal(
     cmd = [
         "ssh", "-t", "-t",
         *identity_args,
+        *control_ssh_args(ws_id),
         "-o", f"ProxyCommand={proxy_cmd}",
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
