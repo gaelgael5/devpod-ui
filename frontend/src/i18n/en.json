@@ -36,6 +36,8 @@
     "close": "Close",
     "attached": "attached",
     "unreachable": "unreachable",
+    "orphan": "orphan",
+    "hostUnknown": "unknown node",
     "created": "Session “{{name}}” created",
     "closed": "Session “{{name}}” closed",
     "filter": { "all": "All", "workspace": "Containers", "host": "Hosts", "test": "Test" },

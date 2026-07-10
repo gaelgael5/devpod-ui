@@ -128,6 +128,12 @@ async def list_running_db(conn: AsyncConnection) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+async def list_all_status_db(conn: AsyncConnection) -> list[dict[str, Any]]:
+    """Toutes les lignes workspace_status, tous statuts confondus (vue admin)."""
+    rows = (await conn.execute(select(workspace_status))).mappings().all()
+    return [dict(r) for r in rows]
+
+
 async def delete_status_db(ws_id: str, conn: AsyncConnection) -> None:
     await conn.execute(
         delete(workspace_status).where(workspace_status.c.ws_id == ws_id)

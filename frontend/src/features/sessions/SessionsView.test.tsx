@@ -7,11 +7,19 @@ import { useUserStore } from '@/store/user'
 import SessionsView from './SessionsView'
 
 const SESSIONS = [
-  { family: 'workspace', target: 'alice-proj', owner: 'alice', session: 'main', attached: true },
+  {
+    family: 'workspace',
+    target: 'alice-proj',
+    owner: 'alice',
+    host: 'node2',
+    session: 'main',
+    attached: true,
+  },
   {
     family: 'test',
     target: 'testvm-1',
     owner: 'alice',
+    host: 'testvm-1',
     workspace: 'proj',
     session: null,
     attached: false,
@@ -28,8 +36,38 @@ describe('SessionsView', () => {
     renderWithProviders(<SessionsView />)
 
     expect(await screen.findByText('alice-proj')).toBeInTheDocument()
-    expect(screen.getByText('testvm-1')).toBeInTheDocument()
+    expect(screen.getAllByText('testvm-1').length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Open' }).length).toBeGreaterThan(0)
+  })
+
+  it('badge « orphan » sur une session vivante hors registre', async () => {
+    const orphan = [
+      {
+        family: 'workspace',
+        target: 'admin-workflow',
+        owner: 'alice',
+        host: 'host-dev-01',
+        session: 'workflow1',
+        attached: false,
+        orphan: true,
+      },
+    ]
+    server.use(http.get('/sessions', () => HttpResponse.json(orphan)))
+    renderWithProviders(<SessionsView />)
+
+    expect(await screen.findByText('orphan')).toBeInTheDocument()
+    // Le badge coexiste avec le groupe par host.
+    expect(screen.getByRole('rowheader', { name: /host-dev-01/ })).toBeInTheDocument()
+  })
+
+  it('regroupe les sessions par host', async () => {
+    server.use(http.get('/sessions', () => HttpResponse.json(SESSIONS)))
+    renderWithProviders(<SessionsView />)
+
+    await screen.findByText('alice-proj')
+    // Un en-tête de groupe par nœud : le conteneur sous node2, la VM sous elle-même.
+    expect(screen.getByRole('rowheader', { name: /node2/ })).toBeInTheDocument()
+    expect(screen.getByRole('rowheader', { name: /testvm-1/ })).toBeInTheDocument()
   })
 
   it('filtre par famille', async () => {
@@ -39,7 +77,7 @@ describe('SessionsView', () => {
 
     await screen.findByText('alice-proj')
     await user.click(screen.getByRole('button', { name: 'Test' }))
-    expect(screen.getByText('testvm-1')).toBeInTheDocument()
+    expect(screen.getAllByText('testvm-1').length).toBeGreaterThan(0)
     expect(screen.queryByText('alice-proj')).not.toBeInTheDocument()
   })
 

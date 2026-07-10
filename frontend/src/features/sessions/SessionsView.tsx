@@ -17,6 +17,20 @@ function wsNameOf(e: SessionEntry): string {
   return e.target.startsWith(prefix) ? e.target.slice(prefix.length) : e.target
 }
 
+/** Regroupe les sessions par host (nœud), trié ; le bucket « nœud inconnu » en dernier. */
+function groupByHost(entries: SessionEntry[]): { host: string | null; entries: SessionEntry[] }[] {
+  const map = new Map<string, SessionEntry[]>()
+  for (const e of entries) {
+    const key = e.host ?? ''
+    const arr = map.get(key)
+    if (arr) arr.push(e)
+    else map.set(key, [e])
+  }
+  return [...map.keys()]
+    .sort((a, b) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)))
+    .map((k) => ({ host: k === '' ? null : k, entries: map.get(k) ?? [] }))
+}
+
 /** Un admin peut agir sur le conteneur/VM d'un autre user ; sinon seulement le sien. */
 function owns(e: SessionEntry, login: string, isAdmin: boolean): boolean {
   return e.owner === login || isAdmin
@@ -62,6 +76,8 @@ export default function SessionsView() {
 
   const entries = data ?? []
   const shown = filter === 'all' ? entries : entries.filter((e) => e.family === filter)
+  const groups = useMemo(() => groupByHost(shown), [shown])
+  const colCount = isAdmin ? 6 : 5
 
   // Workspaces que l'utilisateur possède (pour créer une nouvelle session).
   const ownWorkspaces = useMemo(() => {
@@ -184,50 +200,71 @@ export default function SessionsView() {
                 <th className="px-3 py-2 text-right">{t('sessions.col.actions')}</th>
               </tr>
             </thead>
-            <tbody>
-              {shown.map((e, i) => (
-                <tr key={`${e.family}-${e.target}-${e.session ?? ''}-${i}`} className="border-t">
-                  <td className="px-3 py-2 font-mono text-xs">{t(`sessions.family.${e.family}`)}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{e.target}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{e.session ?? '—'}</td>
-                  {isAdmin && <td className="px-3 py-2">{e.owner}</td>}
-                  <td className="px-3 py-2">
-                    {e.unreachable && (
-                      <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
-                        {t('sessions.unreachable')}
-                      </span>
-                    )}
-                    {e.attached && (
-                      <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-800">
-                        {t('sessions.attached')}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!canOpen(e, login, isAdmin)}
-                        onClick={() => open(e)}
-                      >
-                        {t('sessions.open')}
-                      </Button>
-                      {canClose(e, login, isAdmin) && (
+            {groups.map((g) => (
+              <tbody key={g.host ?? '__unknown__'}>
+                <tr className="border-t bg-muted/40">
+                  <th
+                    scope="row"
+                    colSpan={colCount}
+                    className="px-3 py-1.5 text-left text-xs font-semibold"
+                  >
+                    {g.host ?? t('sessions.hostUnknown')}
+                    <span className="ml-2 font-normal text-muted-foreground">
+                      {t('sessions.count', { n: g.entries.length })}
+                    </span>
+                  </th>
+                </tr>
+                {g.entries.map((e, i) => (
+                  <tr key={`${e.family}-${e.target}-${e.session ?? ''}-${i}`} className="border-t">
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {t(`sessions.family.${e.family}`)}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">{e.target}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{e.session ?? '—'}</td>
+                    {isAdmin && <td className="px-3 py-2">{e.owner}</td>}
+                    <td className="px-3 py-2">
+                      {e.unreachable && (
+                        <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+                          {t('sessions.unreachable')}
+                        </span>
+                      )}
+                      {e.orphan && (
+                        <span className="rounded bg-orange-100 px-2 py-0.5 text-xs text-orange-800">
+                          {t('sessions.orphan')}
+                        </span>
+                      )}
+                      {e.attached && (
+                        <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-800">
+                          {t('sessions.attached')}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex justify-end gap-2">
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={closeSession.isPending}
-                          onClick={() => close(e)}
+                          disabled={!canOpen(e, login, isAdmin)}
+                          onClick={() => open(e)}
                         >
-                          {t('sessions.close')}
+                          {t('sessions.open')}
                         </Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+                        {canClose(e, login, isAdmin) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={closeSession.isPending}
+                            onClick={() => close(e)}
+                          >
+                            {t('sessions.close')}
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            ))}
           </table>
         </div>
       )}

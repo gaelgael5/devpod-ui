@@ -36,6 +36,8 @@
     "close": "Fermer",
     "attached": "attaché",
     "unreachable": "injoignable",
+    "orphan": "orpheline",
+    "hostUnknown": "nœud inconnu",
     "created": "Session « {{name}} » créée",
     "closed": "Session « {{name}} » fermée",
     "filter": { "all": "Toutes", "workspace": "Conteneurs", "host": "Hosts", "test": "Test" },

@@ -11,6 +11,10 @@ export interface SessionEntry {
   attached: boolean
   unreachable?: boolean
   workspace?: string
+  /** Nœud sur lequel la session tourne (conteneur → nœud devpod ; host/test → lui-même). */
+  host?: string | null
+  /** Session vivante alors que le workspace n'est PAS suivi « running » (oubliée du registre). */
+  orphan?: boolean
 }
 
 /** Vue centralisée des sessions actives (conteneurs, hosts, VM de test).

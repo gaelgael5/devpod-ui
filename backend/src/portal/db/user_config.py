@@ -85,6 +85,22 @@ async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
         _log.info("user_db_row_lazy_created", login=login)
 
 
+async def list_workspace_refs(login: str | None, conn: AsyncConnection) -> list[dict[str, Any]]:
+    """Référentiel léger des workspaces déclarés : `login`, `name`, `host` (nœud).
+
+    Source de vérité des workspaces *existants*, indépendante de workspace_status
+    (un workspace déclaré mais sans ligne de statut « running » existe quand même).
+    `login=None` → tous les users (vue admin) ; sinon restreint au login donné.
+    """
+    stmt = select(workspaces.c.login, workspaces.c.name, workspaces.c.host)
+    if login is not None:
+        stmt = stmt.where(workspaces.c.login == login)
+    rows = (
+        (await conn.execute(stmt.order_by(workspaces.c.login, workspaces.c.name))).mappings().all()
+    )
+    return [dict(r) for r in rows]
+
+
 async def load_user_db(login: str, conn: AsyncConnection) -> UserConfig:
     user_row = (
         (await conn.execute(select(users).where(users.c.login == login))).mappings().one_or_none()
