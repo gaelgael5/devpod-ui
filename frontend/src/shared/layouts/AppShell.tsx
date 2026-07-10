@@ -127,6 +127,9 @@ export default function AppShell() {
                   <DropdownMenuItem onClick={() => navigate('/admin/logs')}>
                     {t('admin.logs.navLabel')}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/workflow')}>
+                    {t('admin.workflow.navLabel')}
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
                     {t('admin.oidc.navLabel')}
                   </DropdownMenuItem>

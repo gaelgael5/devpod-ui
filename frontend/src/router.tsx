@@ -20,6 +20,7 @@ const AdminAgentTypes = lazy(() => import('@/features/admin/AdminAgentTypes'))
 const AdminOidc = lazy(() => import('@/features/admin/AdminOidc'))
 const AdminNetwork = lazy(() => import('@/features/admin/AdminNetwork'))
 const AdminLogs = lazy(() => import('@/features/admin/AdminLogs'))
+const AdminWorkflow = lazy(() => import('@/features/admin/AdminWorkflow'))
 const ProfileList = lazy(() => import('@/features/profiles/ProfileList'))
 const ProfileEditor = lazy(() => import('@/features/profiles/ProfileEditor'))
 const AdminProfileEditor = lazy(() => import('@/features/admin/AdminProfileEditor'))
@@ -156,6 +157,10 @@ export const router = createBrowserRouter([
       {
         path: '/admin/logs',
         element: <AdminGuard><Wrap><AdminLogs /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/workflow',
+        element: <AdminGuard><Wrap><AdminWorkflow /></Wrap></AdminGuard>,
       },
       { path: '/profile', element: <Wrap><ProfilePage /></Wrap> },
       { path: '/compose', element: <Wrap><ComposeGallery /></Wrap> },
