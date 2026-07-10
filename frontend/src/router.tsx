@@ -21,6 +21,7 @@ const AdminOidc = lazy(() => import('@/features/admin/AdminOidc'))
 const AdminNetwork = lazy(() => import('@/features/admin/AdminNetwork'))
 const AdminLogs = lazy(() => import('@/features/admin/AdminLogs'))
 const AdminWorkflow = lazy(() => import('@/features/admin/AdminWorkflow'))
+const SessionsView = lazy(() => import('@/features/sessions/SessionsView'))
 const ProfileList = lazy(() => import('@/features/profiles/ProfileList'))
 const ProfileEditor = lazy(() => import('@/features/profiles/ProfileEditor'))
 const AdminProfileEditor = lazy(() => import('@/features/admin/AdminProfileEditor'))
@@ -107,6 +108,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/workspaces" replace /> },
       { path: '/workspaces', element: <Wrap><WorkspaceList /></Wrap> },
+      { path: '/sessions', element: <Wrap><SessionsView /></Wrap> },
       { path: '/workspaces/new', element: <Wrap><WorkspaceCreate /></Wrap> },
       { path: '/recipes', element: <Wrap><RecipeCatalog /></Wrap> },
       { path: '/profiles', element: <Wrap><ProfileList /></Wrap> },

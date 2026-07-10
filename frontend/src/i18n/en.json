@@ -24,6 +24,31 @@
       "assign": "Could not update groups: {{message}}"
     }
   },
+  "sessions": {
+    "title": "Sessions",
+    "intro": "All active sessions: workspace containers, hosts (admin) and test machines. Open a terminal instantly, create or close a session.",
+    "count": "{{n}} session(s)",
+    "empty": "No active session.",
+    "newSession": "New session",
+    "newNamePlaceholder": "session name",
+    "noWorkspace": "no running workspace",
+    "open": "Open",
+    "close": "Close",
+    "attached": "attached",
+    "unreachable": "unreachable",
+    "created": "Session “{{name}}” created",
+    "closed": "Session “{{name}}” closed",
+    "filter": { "all": "All", "workspace": "Containers", "host": "Hosts", "test": "Test" },
+    "family": { "workspace": "container", "host": "host", "test": "test" },
+    "col": {
+      "kind": "Kind",
+      "target": "Target",
+      "session": "Session",
+      "owner": "Owner",
+      "state": "State",
+      "actions": "Actions"
+    }
+  },
   "workspaces": {
     "title": "Workspaces",
     "new": "New workspace",

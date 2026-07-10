@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images } from 'lucide-react'
+import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images, SquareTerminal } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   DropdownMenu,
@@ -77,6 +77,13 @@ export default function AppShell() {
           title={t('compose.title')}
         >
           <Container size={18} />
+        </NavLink>
+        <NavLink
+          to="/sessions"
+          className={({ isActive }) => cn(RAIL_LINK, isActive && RAIL_ACTIVE)}
+          title={t('sessions.title')}
+        >
+          <SquareTerminal size={18} />
         </NavLink>
         {logsConfig?.enabled && logsConfig.grafana_url && (
           <a
