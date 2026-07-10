@@ -4,9 +4,9 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useUserStore } from '@/store/user'
-import { useCreateSession, useDeleteSession } from '@/features/workspaces/useWorkspaceSessions'
+import { useCreateSession } from '@/features/workspaces/useWorkspaceSessions'
 import SessionTerminalWindow from './SessionTerminalWindow'
-import { useSessions, type SessionEntry } from './useSessions'
+import { useCloseSession, useSessions, type SessionEntry } from './useSessions'
 
 type Filter = 'all' | SessionEntry['family']
 
@@ -17,20 +17,34 @@ function wsNameOf(e: SessionEntry): string {
   return e.target.startsWith(prefix) ? e.target.slice(prefix.length) : e.target
 }
 
+/** Un admin peut agir sur le conteneur/VM d'un autre user ; sinon seulement le sien. */
+function owns(e: SessionEntry, login: string, isAdmin: boolean): boolean {
+  return e.owner === login || isAdmin
+}
+
 function canOpen(e: SessionEntry, login: string, isAdmin: boolean): boolean {
   if (e.family === 'host') return isAdmin
   if (e.unreachable) return false
-  if (e.family === 'workspace') return e.owner === login && !!e.session
-  return e.owner === login // test
+  if (e.family === 'workspace') return owns(e, login, isAdmin) && !!e.session
+  return owns(e, login, isAdmin) // test
 }
 
-function openUrl(e: SessionEntry): string {
+/** Fermeture possible : host/test seulement si attaché (rien à détacher sinon). */
+function canClose(e: SessionEntry, login: string, isAdmin: boolean): boolean {
+  if (e.family === 'workspace') return owns(e, login, isAdmin) && !!e.session
+  if (e.family === 'host') return isAdmin && e.attached
+  return owns(e, login, isAdmin) && e.attached // test
+}
+
+function openUrl(e: SessionEntry, login: string): string {
   if (e.family === 'host') return `/admin/hosts/${encodeURIComponent(e.target)}/ssh`
   const name = wsNameOf(e)
+  // Vue admin sur le conteneur d'un autre : le backend résout le ws_id sur ?owner=.
+  const ownerParam = e.owner !== login ? `&owner=${encodeURIComponent(e.owner)}` : ''
   if (e.family === 'test') {
-    return `/me/workspaces/${encodeURIComponent(name)}/ssh?ssh_test=${encodeURIComponent(e.target)}`
+    return `/me/workspaces/${encodeURIComponent(name)}/ssh?ssh_test=${encodeURIComponent(e.target)}${ownerParam}`
   }
-  return `/me/workspaces/${encodeURIComponent(name)}/ssh?session=${encodeURIComponent(e.session ?? 'main')}`
+  return `/me/workspaces/${encodeURIComponent(name)}/ssh?session=${encodeURIComponent(e.session ?? 'main')}${ownerParam}`
 }
 
 export default function SessionsView() {
@@ -39,7 +53,7 @@ export default function SessionsView() {
   const isAdmin = useUserStore((s) => s.isAdmin())
   const { data, isLoading, isError, refetch } = useSessions()
   const createSession = useCreateSession()
-  const deleteSession = useDeleteSession()
+  const closeSession = useCloseSession()
 
   const [filter, setFilter] = useState<Filter>('all')
   const [term, setTerm] = useState<{ wsUrl: string; title: string } | null>(null)
@@ -61,16 +75,15 @@ export default function SessionsView() {
   function open(e: SessionEntry) {
     const family = t(`sessions.family.${e.family}`)
     const label = e.session ? `${wsNameOf(e)} · ${e.session}` : e.target
-    setTerm({ wsUrl: openUrl(e), title: `${family} — ${label}` })
+    setTerm({ wsUrl: openUrl(e, login), title: `${family} — ${label}` })
   }
 
   function close(e: SessionEntry) {
-    if (e.family !== 'workspace' || !e.session) return
-    deleteSession.mutate(
-      { wsName: wsNameOf(e), sessionName: e.session },
+    closeSession.mutate(
+      { family: e.family, target: e.target, owner: e.owner, session: e.session },
       {
         onSuccess: () => {
-          toast.success(t('sessions.closed', { name: e.session }))
+          toast.success(t('sessions.closed', { name: e.session ?? e.target }))
           refetch()
         },
         onError: (err: Error) => toast.error(err.message),
@@ -200,11 +213,11 @@ export default function SessionsView() {
                       >
                         {t('sessions.open')}
                       </Button>
-                      {e.family === 'workspace' && e.session && e.owner === login && (
+                      {canClose(e, login, isAdmin) && (
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={deleteSession.isPending}
+                          disabled={closeSession.isPending}
                           onClick={() => close(e)}
                         >
                           {t('sessions.close')}
