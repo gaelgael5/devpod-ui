@@ -9,7 +9,7 @@ import structlog
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -23,10 +23,13 @@ from ..db.global_config import save_global_db, set_cached_global
 from ..db.tables import harpo_certificates
 from ..db.tables import workspace_status as _ws_status_table
 from ..db.tables import workspaces as _ws_table
+from ..events.egress import reconcile_workflow_producer
+from ..events.models import EVENT_TYPES
 from ..net import build_resolve_fqdn, is_ipv4, resolve_ipv4
 from ..secrets.system import (
     delete_system_cert,
     delete_system_secret,
+    reveal_system_secret,
     store_system_cert,
     store_system_secret,
 )
@@ -226,6 +229,114 @@ async def put_admin_logs_config(
     return _logs_config_out(cfg)
 
 
+# ─── Producteur d'events workflow (relais egress signé HMAC) ────────────────
+# enabled + workflow_base_url + source_id + liste blanche `events` + secret HMAC
+# (stocké comme secret système, jamais renvoyé). L'écriture reconcilie l'abonnement
+# du bus à chaud (le toggle et la liste blanche prennent effet sans redémarrage).
+
+_EVENTS_HMAC_LABEL = "Workflow events HMAC"
+
+
+class EventsProducerUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    workflow_base_url: str = ""
+    source_id: str = ""
+    source_uri: str = "urn:yoops:devpod"
+    events: list[str] = Field(default_factory=list)
+    secret: str = ""  # vide = conserve le secret existant (jamais renvoyé)
+
+
+async def _system_secret_exists(slug: str, conn: AsyncConnection) -> bool:
+    try:
+        await reveal_system_secret(slug, conn)
+        return True
+    except KeyError:
+        return False
+
+
+def _events_producer_out(cfg: GlobalConfig, *, has_secret: bool) -> dict[str, object]:
+    ep = cfg.events_producer
+    return {
+        "enabled": ep.enabled,
+        "workflow_base_url": ep.workflow_base_url,
+        "source_id": ep.source_id,
+        "source_uri": ep.source_uri,
+        "events": ep.events,
+        "available_events": sorted(EVENT_TYPES),
+        "has_secret": has_secret,
+    }
+
+
+@router.get("/events-producer")
+async def get_admin_events_producer(
+    user: UserInfo = Depends(require_admin), conn: AsyncConnection = Depends(get_conn)
+) -> dict[str, object]:
+    cfg = load_global()
+    has_secret = await _system_secret_exists(cfg.events_producer.secret_slug, conn)
+    return _events_producer_out(cfg, has_secret=has_secret)
+
+
+@router.put("/events-producer")
+async def put_admin_events_producer(
+    body: EventsProducerUpdateRequest,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    """Configure le relais d'events vers le workflow ; reconcilie l'abonnement à chaud.
+
+    Activer exige le contrat complet (URL, source_id, ≥1 event, secret présent) —
+    sinon on activerait un relais qui ne pourrait rien livrer.
+    """
+    unknown = sorted(set(body.events) - EVENT_TYPES)
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"types d'events inconnus: {unknown}")
+
+    cfg = load_global()
+    slug = cfg.events_producer.secret_slug
+    if body.secret.strip():
+        await store_system_secret(slug, _EVENTS_HMAC_LABEL, body.secret.strip(), "local", "", conn)
+    has_secret = bool(body.secret.strip()) or await _system_secret_exists(slug, conn)
+
+    if body.enabled:
+        missing = [
+            name
+            for name, ok in (
+                ("workflow_base_url", bool(body.workflow_base_url.strip())),
+                ("source_id", bool(body.source_id.strip())),
+                ("events", bool(body.events)),
+                ("secret", has_secret),
+            )
+            if not ok
+        ]
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail=f"activation impossible, champs requis manquants: {missing}",
+            )
+
+    cfg.events_producer = cfg.events_producer.model_copy(
+        update={
+            "enabled": body.enabled,
+            "workflow_base_url": body.workflow_base_url.strip(),
+            "source_id": body.source_id.strip(),
+            "source_uri": body.source_uri.strip() or "urn:yoops:devpod",
+            "events": body.events,
+        }
+    )
+    await save_global_db(cfg, conn)
+    set_cached_global(cfg)
+    reconcile_workflow_producer()  # prise d'effet à chaud (abonnement/désabonnement)
+    _log.info(
+        "events_producer_config_updated",
+        by=user.login,
+        enabled=body.enabled,
+        events=len(body.events),
+    )
+    return _events_producer_out(cfg, has_secret=has_secret)
+
+
 # ─── Configuration OIDC de Grafana (SSO Keycloak du login Grafana lui-même) ───
 # Distinct de /oidc (le portail) et de logs.push_token (l'auth des collecteurs
 # Alloy→Loki). Auth/token/userinfo dérivées de auth.oidc.issuer : même realm
@@ -256,9 +367,7 @@ async def get_admin_grafana_oidc(user: UserInfo = Depends(require_admin)) -> dic
     if cfg.auth.oidc.issuer:
         auth_url, token_url, userinfo_url = _keycloak_endpoints(cfg.auth.oidc.issuer)
     redirect_uri = (
-        f"{cfg.logs.grafana_url.rstrip('/')}/login/generic_oauth"
-        if cfg.logs.grafana_url
-        else None
+        f"{cfg.logs.grafana_url.rstrip('/')}/login/generic_oauth" if cfg.logs.grafana_url else None
     )
     return {
         "client_id": cfg.logs.grafana_oauth_client_id,
@@ -577,8 +686,10 @@ async def delete_host(
     if host_cfg.default:
         host_condition = or_(host_condition, _ws_table.c.host == "")
     rows = (
-        await conn.execute(select(_ws_table.c.login, _ws_table.c.name).where(host_condition))
-    ).mappings().all()
+        (await conn.execute(select(_ws_table.c.login, _ws_table.c.name).where(host_condition)))
+        .mappings()
+        .all()
+    )
 
     if rows:
         from .workspace_ops import _get_service
@@ -637,21 +748,23 @@ async def list_host_workspaces(
 
     ws_id_expr = _func.concat(_ws_table.c.login, "-", _ws_table.c.name)
     rows = (
-        await conn.execute(
-            select(
-                _ws_table.c.login,
-                _ws_table.c.name,
-                _ws_status_table.c.status,
-            )
-            .select_from(
-                _ws_table.join(
-                    _ws_status_table, _ws_status_table.c.ws_id == ws_id_expr
+        (
+            await conn.execute(
+                select(
+                    _ws_table.c.login,
+                    _ws_table.c.name,
+                    _ws_status_table.c.status,
                 )
+                .select_from(
+                    _ws_table.join(_ws_status_table, _ws_status_table.c.ws_id == ws_id_expr)
+                )
+                .where(_ws_status_table.c.host_name == name)
+                .order_by(_ws_table.c.login, _ws_table.c.name)
             )
-            .where(_ws_status_table.c.host_name == name)
-            .order_by(_ws_table.c.login, _ws_table.c.name)
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     by_login: dict[str, list[dict[str, str]]] = {}
     for r in rows:
@@ -692,16 +805,18 @@ async def list_host_deployments(
     result: list[dict[str, object]] = []
     for dep in deps:
         tpl: ComposeTemplate | None = await get_template(conn, dep.template_id)
-        result.append({
-            "id": dep.id,
-            "status": dep.status,
-            "template_id": dep.template_id,
-            "template_name": tpl.name if tpl else dep.template_id,
-            "template_version": dep.template_version,
-            "host_ports": dep.host_ports,
-            "last_error": dep.last_error,
-            "created_at": dep.created_at.isoformat() if dep.created_at else None,
-        })
+        result.append(
+            {
+                "id": dep.id,
+                "status": dep.status,
+                "template_id": dep.template_id,
+                "template_name": tpl.name if tpl else dep.template_id,
+                "template_version": dep.template_version,
+                "host_ports": dep.host_ports,
+                "last_error": dep.last_error,
+                "created_at": dep.created_at.isoformat() if dep.created_at else None,
+            }
+        )
     return result
 
 
@@ -893,12 +1008,16 @@ async def get_host_cert(
                 detail="Clé SSH non configurée (lancez bootstrap-ssh)",
             )
         row = (
-            await conn.execute(
-                select(harpo_certificates)
-                .where(harpo_certificates.c.owner_login == "__system__")
-                .where(harpo_certificates.c.slug == host.host_cert_slug)
+            (
+                await conn.execute(
+                    select(harpo_certificates)
+                    .where(harpo_certificates.c.owner_login == "__system__")
+                    .where(harpo_certificates.c.slug == host.host_cert_slug)
+                )
             )
-        ).mappings().one_or_none()
+            .mappings()
+            .one_or_none()
+        )
         if row is None:
             raise HTTPException(status_code=404, detail="Cert introuvable en base")
         return {"public_key": str(row["public_key"]), "cert_type": str(row["cert_type"])}

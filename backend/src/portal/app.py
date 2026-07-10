@@ -238,14 +238,13 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         register_automation(get_bus())
 
         # Producteur d'events workflow (feature d'adoption) : relais egress signé
-        # HMAC des events applicatifs vers le module workflow, uniquement si activé
-        # en config. Best-effort — le bus isole et journalise chaque livraison.
-        from .config.store import load_global
-        from .events.egress import forward_to_workflow
-        from .events.models import EVENT_TYPES
+        # HMAC des events applicatifs vers le module workflow, selon la config
+        # (enabled + liste blanche). Best-effort — le bus isole et journalise chaque
+        # livraison. reconcile_* est aussi rappelé après chaque écriture de config
+        # (prise d'effet à chaud du toggle et de la liste blanche).
+        from .events.egress import reconcile_workflow_producer
 
-        if load_global().events_producer.enabled:
-            get_bus().subscribe("workflow-producer", sorted(EVENT_TYPES), forward_to_workflow)
+        reconcile_workflow_producer()
 
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()

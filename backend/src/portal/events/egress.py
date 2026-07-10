@@ -20,12 +20,15 @@ from typing import Any
 import httpx
 import structlog
 
-from .models import AppEvent
+from .models import EVENT_TYPES, AppEvent
 from .producer import to_envelope
 
 _log = structlog.get_logger(__name__)
 
 _TIMEOUT_S = 10.0
+
+#: Nom stable de l'écouteur de bus qui relaie vers le workflow (clé d'abonnement).
+WORKFLOW_PRODUCER = "workflow-producer"
 
 
 class EgressError(Exception):
@@ -99,3 +102,26 @@ async def forward_to_workflow(event: AppEvent) -> dict[str, Any]:
         event_id=envelope["_eventId"],
     )
     return detail
+
+
+def reconcile_workflow_producer() -> list[str]:
+    """(Ré)aligne l'abonnement du relais workflow sur la config courante.
+
+    Idempotent : désabonne puis réabonne. Le relais n'est actif que si
+    `enabled` ET une liste blanche non vide (intersectée avec le registre réel).
+    Appelé au démarrage (lifespan) et après chaque écriture de config — c'est ce
+    qui rend le toggle et la liste blanche effectifs **à chaud**, sans redémarrage.
+    Retourne les types effectivement abonnés (vide = relais inactif).
+    """
+    from ..config.store import load_global
+    from .bus import get_bus
+
+    cfg = load_global().events_producer
+    bus = get_bus()
+    bus.unsubscribe(WORKFLOW_PRODUCER)
+    if not cfg.enabled:
+        return []
+    types = sorted(set(EVENT_TYPES) & set(cfg.events))
+    if types:
+        bus.subscribe(WORKFLOW_PRODUCER, types, forward_to_workflow)
+    return types

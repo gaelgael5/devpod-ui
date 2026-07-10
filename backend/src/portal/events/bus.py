@@ -75,6 +75,15 @@ class EventBus:
             raise ValueError(f"écouteur déjà enregistré: {name!r}")
         self._subs.append(_Subscription(name=name, event_types=types, handler=handler))
 
+    def unsubscribe(self, name: str) -> bool:
+        """Retire un écouteur par nom. Idempotent : retourne True si un abonnement a été retiré."""
+        before = len(self._subs)
+        self._subs = [s for s in self._subs if s.name != name]
+        return len(self._subs) != before
+
+    def has_subscriber(self, name: str) -> bool:
+        return any(s.name == name for s in self._subs)
+
     async def emit(self, event: AppEvent) -> None:
         """Journalise puis planifie la livraison en tâche de fond. Ne lève jamais."""
         try:

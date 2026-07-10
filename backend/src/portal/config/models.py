@@ -256,6 +256,9 @@ class EventsProducerConfig(BaseModel):
     secret_slug: str = "workflow_events_hmac"
     # Valeur du champ système `_source` (identifie l'application émettrice).
     source_uri: str = "urn:yoops:devpod"
+    # Liste blanche des types d'events relayés (vide = aucun relais, même si enabled).
+    # L'intersection avec le registre réel est refaite à l'abonnement (défensif).
+    events: list[str] = Field(default_factory=list)
 
 
 class GlobalConfig(BaseModel):
