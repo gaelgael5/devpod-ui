@@ -49,6 +49,7 @@ from .routes.recipe_sources import router_admin as recipe_sources_admin_router
 from .routes.recipes import router_admin as recipes_admin_router
 from .routes.recipes import router_me as recipes_me_router
 from .routes.recipes import router_public as recipes_public_router
+from .routes.resource_hosts import me_router as resource_hosts_me_router
 from .routes.secrets import router_admin as secrets_admin_router
 from .routes.secrets import router_me as secrets_me_router
 from .routes.services import router as services_router
@@ -407,6 +408,7 @@ def create_app() -> FastAPI:
     app.include_router(mcp_profiles_router, prefix="/me")
     app.include_router(agent_types_admin_router, prefix="/admin")
     app.include_router(agent_types_me_router, prefix="/me")
+    app.include_router(resource_hosts_me_router, prefix="/me")
     app.include_router(compose_routes.router)
     app.include_router(compose_sources_admin_router, prefix="/admin")
     app.include_router(jinja_templates_router, prefix="/admin")
