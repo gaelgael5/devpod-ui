@@ -947,3 +947,21 @@ user_preferences = Table(
     ),
     UniqueConstraint("login", "pref_key", name="uq_user_preferences_login_key"),
 )
+
+
+# Sources de découverte MCP : une instance mcp-manager (URL de base) + une
+# référence (slug) vers un secret utilisateur de type MCP_DISCOVERY. On y
+# recherche des services MCP pour les ajouter ensuite comme serveurs.
+mcp_discovery_source = Table(
+    "mcp_discovery_source",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("label", Text, nullable=False),
+    Column("slug", Text, nullable=False),
+    Column("url", Text, nullable=False),
+    Column("secret_slug", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("login", "slug", name="uq_mcp_discovery_source_login_slug"),
+)

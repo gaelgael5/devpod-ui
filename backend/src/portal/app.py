@@ -32,6 +32,7 @@ from .routes.event_schemas import router as event_schemas_router
 from .routes.jinja_template_sources import router_admin as jinja_sources_admin_router
 from .routes.jinja_templates import router as jinja_templates_router
 from .routes.mcp import router as mcp_router
+from .routes.mcp_discovery import router as mcp_discovery_router
 from .routes.mcp_profiles import router as mcp_profiles_router
 from .routes.me import router as me_router
 from .routes.nodes import router as nodes_router
@@ -402,6 +403,7 @@ def create_app() -> FastAPI:
     app.include_router(secrets_me_router, prefix="/me")
     app.include_router(secrets_admin_router, prefix="/admin")
     app.include_router(mcp_router, prefix="/me")
+    app.include_router(mcp_discovery_router, prefix="/me")
     app.include_router(mcp_profiles_router, prefix="/me")
     app.include_router(agent_types_admin_router, prefix="/admin")
     app.include_router(agent_types_me_router, prefix="/me")

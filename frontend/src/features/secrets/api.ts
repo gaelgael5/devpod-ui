@@ -43,7 +43,7 @@ export function useSecrets(secretType?: string) {
     queryKey: secretType ? QK.byType(secretType) : QK.list(),
     queryFn: () => {
       const url = secretType
-        ? `/me/secrets?type=${encodeURIComponent(secretType)}`
+        ? `/me/secrets?secret_type=${encodeURIComponent(secretType)}`
         : '/me/secrets'
       return apiFetchJson<Secret[]>(url)
     },

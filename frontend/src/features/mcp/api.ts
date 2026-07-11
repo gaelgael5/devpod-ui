@@ -504,3 +504,62 @@ export function useApproveQuarantined(backendId: string) {
     },
   })
 }
+
+// ── Sources de découverte MCP (étape 2) ────────────────────────────────────
+
+export interface DiscoverySource {
+  id: number
+  label: string
+  slug: string
+  url: string
+  secret_slug: string
+}
+
+export interface DiscoveryProbeResult {
+  ok: boolean
+  name: string | null
+  email: string | null
+}
+
+const DISCOVERY_QK = ['mcp', 'discovery-sources'] as const
+
+export function useDiscoverySources() {
+  return useQuery({
+    queryKey: DISCOVERY_QK,
+    queryFn: () => apiFetchJson<DiscoverySource[]>('/me/mcp/discovery-sources'),
+  })
+}
+
+export function useCreateDiscoverySource() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { label: string; slug: string; url: string; secret_slug: string }) =>
+      apiFetchJson<DiscoverySource>('/me/mcp/discovery-sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: DISCOVERY_QK }),
+  })
+}
+
+export function useDeleteDiscoverySource() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetchVoid(`/me/mcp/discovery-sources/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: DISCOVERY_QK }),
+  })
+}
+
+/** Teste une source (URL + secret) sans l'enregistrer — valide connectivité + clé. */
+export function useProbeDiscoverySource() {
+  return useMutation({
+    mutationFn: (body: { url: string; secret_slug: string }) =>
+      apiFetchJson<DiscoveryProbeResult>('/me/mcp/discovery-sources/probe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+  })
+}

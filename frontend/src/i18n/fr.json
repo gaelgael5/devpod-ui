@@ -866,7 +866,8 @@
       "PAT_GITHUB": "Personal Access Token — GitHub",
       "PAT_GITLAB": "Personal Access Token — GitLab",
       "PAT_AZURE": "Personal Access Token — Azure DevOps",
-      "API_KEY": "Clé API générique"
+      "API_KEY": "Clé API générique",
+      "MCP_DISCOVERY": "Service de découverte MCP"
     },
     "patHelp": {
       "title": "Comment obtenir un Personal Access Token (PAT) ?",
@@ -1023,8 +1024,19 @@
     "explore": {
       "title": "MCP Explore",
       "subtitle": "Explorer un serveur MCP qui expose des services avant de l'enregistrer.",
-      "urlPlaceholder": "URL du serveur MCP",
-      "exploreButton": "Explorer"
+      "urlPlaceholder": "https://mcp.example.org",
+      "labelLabel": "Label",
+      "slugLabel": "Slug",
+      "urlLabel": "URL du service",
+      "secretLabel": "Secret (découverte MCP)",
+      "noSecret": "— aucun secret —",
+      "test": "Tester",
+      "testOk": "Source joignable — {{who}}",
+      "add": "Ajouter",
+      "added": "Source « {{label}} » ajoutée",
+      "deleted": "Source « {{label}} » supprimée",
+      "delete": "Supprimer la source",
+      "sourcesTitle": "Sources configurées"
     },
     "backends": {
       "sectionTitle": "Serveurs MCP",
