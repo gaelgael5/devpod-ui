@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useSetPreference, useUserPreferences } from '@/shared/hooks/useUserPreferences'
 import { stoppedLast } from './sortWorkspaces'
 import { useWorkspaces } from './useWorkspaces'
 import { useWorkspaceStatus, workspaceStatusQueryOptions } from './useWorkspaceStatus'
@@ -49,6 +50,8 @@ function WorkspaceRow({ spec, onManageGroups }: { spec: WorkspaceSpec; onManageG
 
 interface GroupSectionProps {
   title: string
+  /** Clé stable du groupe pour la préférence collapse (id de groupe, ou 'ungrouped'). */
+  groupKey: string
   workspaces: WorkspaceSpec[]
   groupId?: number
   onRename?: (id: number, current: string) => void
@@ -58,6 +61,7 @@ interface GroupSectionProps {
 
 function GroupSection({
   title,
+  groupKey,
   workspaces,
   groupId,
   onRename,
@@ -65,7 +69,11 @@ function GroupSection({
   onManageGroups,
 }: GroupSectionProps) {
   const { t } = useTranslation()
-  const [collapsed, setCollapsed] = useState(false)
+  // État replié persisté par utilisateur (préférence générique). Absence ⇒ déplié.
+  const { data: prefs } = useUserPreferences()
+  const setPreference = useSetPreference()
+  const prefKey = `workspaces.group.${groupKey}.collapse`
+  const collapsed = prefs?.[prefKey] === true
 
   // Statuts (cache partagé avec les cartes) pour reléguer les arrêtés en fin de groupe.
   const statusQueries = useQueries({
@@ -83,7 +91,7 @@ function GroupSection({
       <div className="group/header flex items-center gap-2">
         <button
           className="flex items-center gap-1.5 text-sm font-semibold text-foreground hover:text-primary transition-colors"
-          onClick={() => setCollapsed((c) => !c)}
+          onClick={() => setPreference.mutate({ key: prefKey, value: !collapsed })}
           aria-expanded={!collapsed}
         >
           {collapsed ? (
@@ -224,6 +232,7 @@ export default function WorkspaceList() {
           <GroupSection
             key={g.id}
             title={g.name}
+            groupKey={String(g.id)}
             groupId={g.id}
             workspaces={groupedMap.get(g.name) ?? []}
             onRename={openRename}
@@ -236,6 +245,7 @@ export default function WorkspaceList() {
         {ungrouped.length > 0 && (
           <GroupSection
             title={t('groups.ungrouped')}
+            groupKey="ungrouped"
             workspaces={ungrouped}
             onManageGroups={(ws) => setGroupsTarget(ws)}
           />

@@ -924,3 +924,26 @@ workflow_event_outbox = Table(
     Column("delivered_at", DateTime(timezone=True), nullable=True),
     Index("idx_workflow_event_outbox_due", "status", "next_attempt_at"),
 )
+
+
+# Préférences UI par utilisateur (clé fonctionnelle composée → valeur typée).
+# Une ligne = (login, pref_key) ; la valeur est rangée dans la colonne du type
+# indiqué par `value_type` (les deux autres colonnes restent NULL). Évite de
+# multiplier les colonnes sur `users` pour chaque réglage d'interface.
+user_preferences = Table(
+    "user_preferences",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("pref_key", Text, nullable=False),
+    Column("value_type", Text, nullable=False),
+    Column("value_int", Integer, nullable=True),
+    Column("value_text", Text, nullable=True),
+    Column("value_bool", Boolean, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "value_type IN ('int', 'string', 'bool')", name="ck_user_preferences_value_type"
+    ),
+    UniqueConstraint("login", "pref_key", name="uq_user_preferences_login_key"),
+)

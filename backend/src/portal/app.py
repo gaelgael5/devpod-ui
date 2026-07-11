@@ -38,6 +38,7 @@ from .routes.nodes import router as nodes_router
 from .routes.oauth import router as oauth_router
 from .routes.plugins import get_openvsx
 from .routes.plugins import router as plugins_router
+from .routes.preferences import router as preferences_router
 from .routes.profile_sources import router_admin as profile_sources_admin_router
 from .routes.profiles import get_repo as get_profile_repo
 from .routes.profiles import router as profiles_router
@@ -372,6 +373,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(auth_router)
     app.include_router(me_router, prefix="/me")
+    app.include_router(preferences_router, prefix="/me")
     app.include_router(workspace_ops_router, prefix="/me")
     app.include_router(workspace_groups_router, prefix="/me")
     app.include_router(workspace_sessions_router, prefix="/me")
