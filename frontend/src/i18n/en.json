@@ -1020,6 +1020,12 @@
         "note": "Le Chat MCP integration is available on Pro plans. Use a Client API key as a fallback for API / agent usage."
       }
     },
+    "explore": {
+      "title": "MCP Explore",
+      "subtitle": "Explore an MCP server that exposes services before registering it.",
+      "urlPlaceholder": "MCP server URL",
+      "exploreButton": "Explore"
+    },
     "backends": {
       "sectionTitle": "MCP Servers",
       "add": "Add a server",

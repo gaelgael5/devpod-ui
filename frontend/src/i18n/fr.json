@@ -1020,6 +1020,12 @@
         "note": "L'intégration MCP de Le Chat est disponible sur les plans Pro. Utilise une clé API client en secours pour les usages API / agent."
       }
     },
+    "explore": {
+      "title": "MCP Explore",
+      "subtitle": "Explorer un serveur MCP qui expose des services avant de l'enregistrer.",
+      "urlPlaceholder": "URL du serveur MCP",
+      "exploreButton": "Explorer"
+    },
     "backends": {
       "sectionTitle": "Serveurs MCP",
       "add": "Ajouter un serveur",
