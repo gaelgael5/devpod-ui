@@ -105,12 +105,17 @@ async def _workspace_sessions(
 
 
 def _host_sessions(attached: set[AttachKey]) -> list[dict[str, Any]]:
-    """Hosts admin joignables en terminal (type ssh) — vue admin uniquement."""
+    """Nœuds admin joignables en terminal (type ssh) — vue admin uniquement.
+
+    Exclut les VM de test (`usage="tests"`) : ce sont aussi des hosts ssh, mais
+    elles sont déjà couvertes par la famille `test` — sans ce filtre elles
+    apparaîtraient en double (famille `host` + famille `test`).
+    """
     from ..config.store import load_global
 
     out: list[dict[str, Any]] = []
     for host in load_global().hosts:
-        if host.type != "ssh":
+        if host.type != "ssh" or host.usage == "tests":
             continue
         out.append(
             {

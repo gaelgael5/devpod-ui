@@ -197,9 +197,10 @@ async def test_entries_carry_host_of_the_node(
         return 0, "main\n"
 
     class _Host:
-        def __init__(self, name: str, type: str) -> None:
+        def __init__(self, name: str, type: str, usage: str = "workspaces") -> None:
             self.name = name
             self.type = type
+            self.usage = usage
 
     class _Cfg:
         hosts = [_Host("node1", "ssh")]
@@ -269,12 +270,19 @@ async def test_admin_includes_all_ws_hosts_and_tests(
         return 0, "main\n"
 
     class _Host:
-        def __init__(self, name: str, type: str) -> None:
+        def __init__(self, name: str, type: str, usage: str = "workspaces") -> None:
             self.name = name
             self.type = type
+            self.usage = usage
 
     class _Cfg:
-        hosts = [_Host("node1", "ssh"), _Host("dockerhost", "docker-tls")]
+        # testvm-1 est un host ssh mais `usage=tests` : il ne doit PAS ressortir en
+        # famille `host` (il est déjà couvert par la famille `test`), sinon doublon.
+        hosts = [
+            _Host("node1", "ssh"),
+            _Host("dockerhost", "docker-tls"),
+            _Host("testvm-1", "ssh", usage="tests"),
+        ]
 
     monkeypatch.setattr(
         aggregate, "list_workspace_refs", _refs(("alice", "ws", ""), ("bob", "ws", ""))
@@ -296,9 +304,10 @@ async def test_admin_includes_all_ws_hosts_and_tests(
     ws_owners = {r["owner"] for r in result if r["family"] == "workspace"}
     assert ws_owners == {"alice", "bob"}
     hosts = [r for r in result if r["family"] == "host"]
-    assert {r["target"] for r in hosts} == {"node1"}  # docker-tls exclu
+    # docker-tls exclu (pas ssh) ; testvm-1 exclu (usage=tests, couvert par `test`).
+    assert {r["target"] for r in hosts} == {"node1"}
     tests = [r for r in result if r["family"] == "test"]
-    assert len(tests) == 1
+    assert len(tests) == 1  # testvm-1 apparaît UNE seule fois (famille test)
     assert tests[0]["target"] == "testvm-1"
     assert tests[0]["owner"] == "bob"
     assert tests[0]["workspace"] == "bob-ws"
