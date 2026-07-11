@@ -62,4 +62,55 @@ describe('MCPExplore', () => {
     await waitFor(() => expect(probed).not.toBeNull())
     expect(probed).toEqual({ url: 'https://mcp.yoops.org', secret_slug: '' })
   })
+
+  it('recherche dans une source et affiche les résultats', async () => {
+    let searchUrl = ''
+    server.use(
+      http.get('/me/secrets', () => HttpResponse.json([])),
+      http.get('/me/mcp/discovery-sources', () =>
+        HttpResponse.json([
+          { id: 7, label: 'Yoops', slug: 'yoops', url: 'https://mcp.yoops.org', secret_slug: '' },
+        ]),
+      ),
+      http.get('/me/mcp/discovery-sources/7/search', ({ request }) => {
+        searchUrl = request.url
+        return HttpResponse.json({
+          items: [
+            {
+              id: 42,
+              name: 'io.github.owner/repo',
+              description: 'un serveur de test',
+              transport: 'stdio',
+              category: 'dev',
+              stars: 12,
+              repo_status: 'active',
+              source_url: 'https://github.com/owner/repo',
+              doc_url: '',
+            },
+          ],
+          total: 1,
+          page: 1,
+          per_page: 10,
+        })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<MCPExplore />)
+
+    // La source unique est auto-sélectionnée : pas de sélecteur affiché.
+    const input = await screen.findByPlaceholderText('Search the catalog…')
+    await user.type(input, 'git')
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+
+    await waitFor(() => expect(screen.getByText('io.github.owner/repo')).toBeInTheDocument())
+    expect(searchUrl).toContain('q=git')
+    expect(screen.getByText('un serveur de test')).toBeInTheDocument()
+    expect(screen.getByText('stdio')).toBeInTheDocument()
+    // Lien dépôt présent, lien doc absent (doc_url vide).
+    expect(screen.getByRole('link', { name: /Repository/ })).toHaveAttribute(
+      'href',
+      'https://github.com/owner/repo',
+    )
+    expect(screen.queryByRole('link', { name: /Docs/ })).not.toBeInTheDocument()
+  })
 })

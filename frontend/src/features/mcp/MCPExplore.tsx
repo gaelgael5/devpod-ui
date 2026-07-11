@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Compass, Trash2 } from 'lucide-react'
+import { Compass, ExternalLink, Search, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useSecrets } from '@/features/secrets/api'
 import {
+  type DiscoverySource,
   useCreateDiscoverySource,
   useDeleteDiscoverySource,
+  useDiscoverySearch,
   useDiscoverySources,
   useProbeDiscoverySource,
 } from './api'
@@ -173,6 +175,184 @@ export default function MCPExplore() {
             </div>
           ))}
         </div>
+      )}
+
+      <MCPSearch sources={sources} />
+    </div>
+  )
+}
+
+/** Transport affiché en badge court, robuste aux valeurs inconnues. */
+function transportLabel(transport: string): string {
+  return transport.replace(/_/g, ' ') || '—'
+}
+
+/**
+ * Recherche dans le catalogue d'une source : sélecteur de source, champ de
+ * requête, résultats paginés. Chaque résultat affiche nom, description,
+ * transport, étoiles/statut du dépôt et les liens dépôt/doc. L'ajout comme
+ * serveur MCP arrivera à l'étape 4.
+ */
+function MCPSearch({ sources }: { sources: DiscoverySource[] }) {
+  const { t } = useTranslation()
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [draft, setDraft] = useState('')
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+
+  // Source effective dérivée : le choix explicite s'il est encore valide,
+  // sinon la première source (auto-sélection sans effet de bord).
+  const sourceId =
+    selectedId !== null && sources.some((s) => s.id === selectedId)
+      ? selectedId
+      : (sources[0]?.id ?? null)
+
+  const perPage = 10
+  const search = useDiscoverySearch(sourceId, query, page, perPage)
+  const result = search.data
+
+  function submit() {
+    setQuery(draft.trim())
+    setPage(1)
+  }
+
+  if (sources.length === 0) return null
+
+  const totalPages = result ? Math.max(1, Math.ceil(result.total / result.per_page)) : 1
+
+  return (
+    <div className="flex flex-col gap-3 border-t pt-4">
+      <div className="flex items-center gap-2">
+        <Search className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">{t('mcp.explore.searchTitle')}</h3>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-2">
+        {sources.length > 1 && (
+          <label className="flex flex-col gap-1 text-xs">
+            {t('mcp.explore.sourceLabel')}
+            <select
+              value={sourceId ?? ''}
+              onChange={(e) => {
+                setSelectedId(Number(e.target.value))
+                setQuery('')
+                setDraft('')
+                setPage(1)
+              }}
+              className="h-9 rounded-md border bg-background px-2 text-sm"
+            >
+              {sources.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit()
+          }}
+          placeholder={t('mcp.explore.searchPlaceholder')}
+          className="h-9 min-w-[12rem] flex-1"
+        />
+        <Button size="sm" disabled={draft.trim() === '' || search.isFetching} onClick={submit}>
+          {search.isFetching ? t('mcp.explore.searching') : t('mcp.explore.searchBtn')}
+        </Button>
+      </div>
+
+      {search.isError && (
+        <p className="text-sm text-destructive">{(search.error as Error).message}</p>
+      )}
+
+      {result && !search.isFetching && result.items.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t('mcp.explore.noResults', { q: query })}</p>
+      )}
+
+      {result && result.items.length > 0 && (
+        <>
+          <span className="text-xs text-muted-foreground">
+            {t('mcp.explore.resultsCount', { total: result.total })}
+          </span>
+          <ul className="flex flex-col gap-2">
+            {result.items.map((it) => (
+              <li
+                key={it.id ?? it.name}
+                className="flex flex-col gap-1 rounded-md border bg-background px-3 py-2"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-sm font-medium">{it.name}</span>
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+                    {transportLabel(it.transport)}
+                  </span>
+                  {it.repo_status && (
+                    <span className="text-[10px] uppercase text-muted-foreground">
+                      {it.repo_status}
+                    </span>
+                  )}
+                  {it.stars > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      {t('mcp.explore.stars', { count: it.stars })}
+                    </span>
+                  )}
+                </div>
+                {it.description && (
+                  <p className="line-clamp-2 text-xs text-muted-foreground">{it.description}</p>
+                )}
+                <div className="flex gap-3 text-xs">
+                  {it.source_url && (
+                    <a
+                      href={it.source_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      {t('mcp.explore.openRepo')}
+                    </a>
+                  )}
+                  {it.doc_url && (
+                    <a
+                      href={it.doc_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      {t('mcp.explore.openDoc')}
+                    </a>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-3">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={page <= 1 || search.isFetching}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                {t('mcp.explore.prev')}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {t('mcp.explore.pageOf', { page })} / {totalPages}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={page >= totalPages || search.isFetching}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                {t('mcp.explore.next')}
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

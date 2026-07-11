@@ -1036,7 +1036,21 @@
       "added": "Source “{{label}}” added",
       "deleted": "Source “{{label}}” removed",
       "delete": "Remove source",
-      "sourcesTitle": "Configured sources"
+      "sourcesTitle": "Configured sources",
+      "searchTitle": "Search a service",
+      "sourceLabel": "Source",
+      "searchPlaceholder": "Search the catalog…",
+      "searchBtn": "Search",
+      "searching": "Searching…",
+      "searchNeedsSource": "Configure a source above to search.",
+      "noResults": "No result for “{{q}}”.",
+      "resultsCount": "{{total}} result(s)",
+      "openRepo": "Repository",
+      "openDoc": "Docs",
+      "stars": "{{count}} ★",
+      "prev": "Previous",
+      "next": "Next",
+      "pageOf": "Page {{page}}"
     },
     "backends": {
       "sectionTitle": "MCP Servers",

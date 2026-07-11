@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from portal.mcp import discovery_client as dc
-from portal.mcp.discovery_client import DiscoveryError, _api_base, probe
+from portal.mcp.discovery_client import DiscoveryError, _api_base, probe, search
 
 
 def _patch_client(monkeypatch: pytest.MonkeyPatch, handler) -> None:
@@ -58,3 +58,70 @@ async def test_probe_network_error_raises(monkeypatch: pytest.MonkeyPatch) -> No
     _patch_client(monkeypatch, boom)
     with pytest.raises(DiscoveryError, match="Connexion impossible"):
         await probe("https://down.example", "x")
+
+
+@pytest.mark.asyncio
+async def test_search_ok_normalizes_items(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization", "")
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "id": 42,
+                        "name": "io.github.owner/repo",
+                        "description": "un serveur",
+                        "transport": "stdio",
+                        "category": "dev",
+                        "stars": 12,
+                        "repo_status": "active",
+                        "source_url": "https://github.com/owner/repo",
+                        "doc_url": "https://doc",
+                        "parameters": [{"ignored": True}],
+                    },
+                    "pas-un-objet",
+                ],
+                "total": 1,
+                "page": 2,
+                "per_page": 5,
+            },
+        )
+
+    _patch_client(monkeypatch, handler)
+    out = await search("https://mcp.yoops.org", "mcp_key", "git", page=2, per_page=5)
+    assert seen["auth"] == "Bearer mcp_key"
+    assert "search_mcp" in seen["url"]
+    assert "q=git" in seen["url"] and "page=2" in seen["url"] and "per_page=5" in seen["url"]
+    assert out["total"] == 1 and out["page"] == 2 and out["per_page"] == 5
+    # L'entrée non-objet est ignorée, l'item est normalisé (sans parameters).
+    assert len(out["items"]) == 1
+    it = out["items"][0]
+    assert it == {
+        "id": 42,
+        "name": "io.github.owner/repo",
+        "description": "un serveur",
+        "transport": "stdio",
+        "category": "dev",
+        "stars": 12,
+        "repo_status": "active",
+        "source_url": "https://github.com/owner/repo",
+        "doc_url": "https://doc",
+    }
+
+
+@pytest.mark.asyncio
+async def test_search_401_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_client(monkeypatch, lambda r: httpx.Response(401, json={"detail": "nope"}))
+    with pytest.raises(DiscoveryError, match="401"):
+        await search("https://mcp.yoops.org", "bad", "x")
+
+
+@pytest.mark.asyncio
+async def test_search_bad_payload_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_client(monkeypatch, lambda r: httpx.Response(200, json={"nope": 1}))
+    with pytest.raises(DiscoveryError, match="items"):
+        await search("https://mcp.yoops.org", "k", "x")

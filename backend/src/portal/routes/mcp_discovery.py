@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..auth.rbac import UserInfo, require_user
 from ..db import mcp_discovery as db
 from ..db.engine import get_conn
-from ..mcp.discovery_client import DiscoveryError, probe
+from ..mcp.discovery_client import DiscoveryError, probe, search
 from ..secrets.service import SecretNotFound, VaultLocked, reveal_secret
 
 router = APIRouter(tags=["mcp-discovery"])
@@ -133,5 +133,25 @@ async def probe_source_route(
     key = await _resolve_key(user.login, _sid(request), body.secret_slug, conn)
     try:
         return await probe(body.url, key)
+    except DiscoveryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/mcp/discovery-sources/{source_id}/search")
+async def search_source_route(
+    source_id: _SourceId,
+    request: Request,
+    q: Annotated[str, Query(min_length=1, max_length=200)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    per_page: Annotated[int, Query(ge=1, le=50)] = 10,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    source = await db.get_source(user.login, source_id, conn)
+    if source is None:
+        raise HTTPException(status_code=404, detail="source introuvable")
+    key = await _resolve_key(user.login, _sid(request), source["secret_slug"], conn)
+    try:
+        return await search(source["url"], key, q, page, per_page)
     except DiscoveryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

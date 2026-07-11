@@ -563,3 +563,53 @@ export function useProbeDiscoverySource() {
       }),
   })
 }
+
+// ── Recherche dans une source (étape 3) ─────────────────────────────────────
+
+/** Item de catalogue normalisé (sous-ensemble affiché ; install ajoutée à l'étape 4). */
+export interface DiscoveryItem {
+  id: number | null
+  name: string
+  description: string
+  transport: string
+  category: string | null
+  stars: number
+  repo_status: string | null
+  source_url: string
+  doc_url: string
+}
+
+export interface DiscoverySearchResult {
+  items: DiscoveryItem[]
+  total: number
+  page: number
+  per_page: number
+}
+
+/**
+ * Recherche dans le catalogue d'une source. Désactivée tant que `sourceId` est
+ * nul ou que la requête est vide ; la clé de query inclut page/per_page pour
+ * une pagination naturellement mise en cache.
+ */
+export function useDiscoverySearch(
+  sourceId: number | null,
+  query: string,
+  page: number,
+  perPage = 10,
+) {
+  const q = query.trim()
+  return useQuery({
+    queryKey: ['mcp', 'discovery-search', sourceId, q, page, perPage] as const,
+    queryFn: () => {
+      const params = new URLSearchParams({
+        q,
+        page: String(page),
+        per_page: String(perPage),
+      })
+      return apiFetchJson<DiscoverySearchResult>(
+        `/me/mcp/discovery-sources/${sourceId}/search?${params}`,
+      )
+    },
+    enabled: sourceId !== null && q !== '',
+  })
+}

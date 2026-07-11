@@ -23,8 +23,10 @@ def deps(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     monkeypatch.setattr(rt.db, "create_source", m.create_source)
     monkeypatch.setattr(rt.db, "delete_source", m.delete_source)
     monkeypatch.setattr(rt.db, "list_sources", m.list_sources)
+    monkeypatch.setattr(rt.db, "get_source", m.get_source)
     monkeypatch.setattr(rt, "reveal_secret", m.reveal_secret)
     monkeypatch.setattr(rt, "probe", m.probe)
+    monkeypatch.setattr(rt, "search", m.search)
     return m
 
 
@@ -78,3 +80,40 @@ async def test_probe_discovery_error_is_400(deps: AsyncMock) -> None:
     assert "401" in exc.value.detail
     # secret_slug vide → pas d'appel reveal_secret (clé vide directe).
     deps.reveal_secret.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_search_resolves_source_key_then_calls_client(deps: AsyncMock) -> None:
+    deps.get_source.return_value = {"url": "https://mcp.yoops.org", "secret_slug": "k1"}
+    deps.reveal_secret.return_value = "mcp_clearkey"
+    deps.search.return_value = {"items": [], "total": 0, "page": 1, "per_page": 10}
+    out = await rt.search_source_route(
+        source_id=3, request=REQ, q="git", page=1, per_page=10, user=USER, conn=CONN
+    )
+    assert out["total"] == 0
+    deps.get_source.assert_awaited_once_with("alice", 3, CONN)
+    deps.reveal_secret.assert_awaited_once_with("alice", "sid-1", "k1", CONN)
+    deps.search.assert_awaited_once_with("https://mcp.yoops.org", "mcp_clearkey", "git", 1, 10)
+
+
+@pytest.mark.asyncio
+async def test_search_unknown_source_is_404(deps: AsyncMock) -> None:
+    deps.get_source.return_value = None
+    with pytest.raises(HTTPException) as exc:
+        await rt.search_source_route(
+            source_id=99, request=REQ, q="x", page=1, per_page=10, user=USER, conn=CONN
+        )
+    assert exc.value.status_code == 404
+    deps.search.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_search_discovery_error_is_400(deps: AsyncMock) -> None:
+    deps.get_source.return_value = {"url": "https://mcp.yoops.org", "secret_slug": ""}
+    deps.reveal_secret.return_value = ""
+    deps.search.side_effect = DiscoveryError("Clé refusée (401)")
+    with pytest.raises(HTTPException) as exc:
+        await rt.search_source_route(
+            source_id=3, request=REQ, q="x", page=1, per_page=10, user=USER, conn=CONN
+        )
+    assert exc.value.status_code == 400
