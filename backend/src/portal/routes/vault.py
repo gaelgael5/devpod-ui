@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..db.engine import get_conn
+from ..db.user_config import UserNotProvisionedError
 from ..vault.keys import (
     KeyAlreadyExists,
     KeyNotFound,
@@ -24,6 +25,7 @@ from ..vault.pin import (
     PinNotSetupError,
     PinSetupResult,
     PinWrongError,
+    VaultDisabledError,
     get_vault_status,
     recover_pin,
     reset_vault,
@@ -39,7 +41,17 @@ _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}$")
 
 
 def _sid(request: Request) -> str:
-    return str(request.session.get("session_id", ""))
+    """session_id de la session cookie — jamais vide (bug 031).
+
+    L'invariant (session_id posé par local_login/callback avant session["user"])
+    tient aujourd'hui, mais rien ne fail-closed si un futur chemin d'auth
+    l'oubliait : sans ce garde, toutes ces requêtes indexeraient sur
+    _sessions[""] et partageraient la même master key.
+    """
+    sid = str(request.session.get("session_id", ""))
+    if not sid:
+        raise HTTPException(status_code=401, detail="session_id manquant")
+    return sid
 
 
 class PinBody(BaseModel):
@@ -108,6 +120,12 @@ async def pin_setup(
 ) -> dict[str, str]:
     try:
         result: PinSetupResult = await setup_pin(user.login, body.pin, _sid(request), conn)
+    except VaultDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except UserNotProvisionedError as exc:
+        # Bug 011 : ancre config.yaml illisible — on force un re-login qui
+        # re-provisionne proprement, plutôt que d'inventer un secret_ns.
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"recovery_code": result.recovery_code}
@@ -122,6 +140,8 @@ async def pin_unlock(
 ) -> dict[str, str]:
     try:
         await unlock_pin(user.login, body.pin, _sid(request), conn)
+    except VaultDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except PinLockedError as exc:
         raise HTTPException(
             status_code=423,
@@ -148,6 +168,8 @@ async def pin_recover(
         result = await recover_pin(
             user.login, body.recovery_code, body.new_pin, _sid(request), conn
         )
+    except VaultDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except PinWrongError as exc:
         raise HTTPException(status_code=403, detail="Incorrect recovery code") from exc
     except PinNotSetupError as exc:

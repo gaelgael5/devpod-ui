@@ -1,6 +1,8 @@
 """Tests de la couche persistance workspace_status (Tour 6)."""
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from portal.db.workspace_status import (
@@ -91,6 +93,37 @@ async def test_extra_fields_stored(db_conn):
     assert row["host_name"] == "worker-01"
     assert row["url"] == "https://ws-alice-ws.dev.yoops.org"
     assert row["hostname"] == "ws-alice-ws.dev.yoops.org"
+
+
+@pytest.mark.asyncio
+async def test_upsert_concurrent_meme_ws_id_sans_unique_violation(db_engine_concurrent):
+    """Bug 010 : deux upserts concurrents du même ws_id ne doivent jamais lever
+    UniqueViolation. Le scénario reproduit la course exacte : la 2e transaction
+    démarre pendant que l'INSERT de la 1re est encore non commité (READ COMMITTED
+    → elle ne voit pas la ligne), puis la 1re committe."""
+    async with (
+        db_engine_concurrent.connect() as c1,
+        db_engine_concurrent.connect() as c2,
+    ):
+        # Transaction 1 : insère sans committer → invisible pour la transaction 2
+        await upsert_status_db("ws-race", "provisioning", c1, login="alice")
+
+        async def _concurrent_upsert() -> None:
+            await upsert_status_db("ws-race", "running", c2, login="alice", host_port=41000)
+            await c2.commit()
+
+        task = asyncio.create_task(_concurrent_upsert())
+        # Laisse la transaction 2 émettre son statement et se bloquer sur
+        # l'index unique de l'INSERT non commité de la transaction 1.
+        await asyncio.sleep(0.3)
+        await c1.commit()
+        await asyncio.wait_for(task, timeout=10)
+
+    async with db_engine_concurrent.connect() as c3:
+        row = await get_status_db("ws-race", c3)
+    assert row is not None
+    assert row["status"] == "running"
+    assert row["host_port"] == 41000
 
 
 @pytest.mark.asyncio

@@ -1,10 +1,12 @@
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
 export type Scope = 'shared' | 'user'
 
 export interface ProfileBody {
   name: string
   description: string
+  /** Image de base du devcontainer — vide = image par défaut du portail. */
+  image?: string
   extensions: string[]
   settings: Record<string, unknown>
 }
@@ -14,6 +16,7 @@ export interface ProfileSummary {
   scope: Scope
   name: string
   description: string
+  image?: string
   extension_count: number
   editable: boolean
   gallery_source?: string | null
@@ -49,7 +52,7 @@ export function updateProfile(slug: string, body: ProfileBody): Promise<Profile>
 }
 
 export async function deleteProfile(slug: string): Promise<void> {
-  await apiFetch(`/profiles/${encodeURIComponent(slug)}`, { method: 'DELETE' })
+  await apiFetchVoid(`/profiles/${encodeURIComponent(slug)}`, { method: 'DELETE' })
 }
 
 export function forkProfile(slug: string): Promise<Profile> {
@@ -81,5 +84,5 @@ export function updateSharedProfile(slug: string, body: ProfileBody): Promise<Pr
 }
 
 export async function deleteSharedProfile(slug: string): Promise<void> {
-  await apiFetch(`/admin/profiles/${encodeURIComponent(slug)}`, { method: 'DELETE' })
+  await apiFetchVoid(`/admin/profiles/${encodeURIComponent(slug)}`, { method: 'DELETE' })
 }

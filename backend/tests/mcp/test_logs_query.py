@@ -59,6 +59,34 @@ def test_build_logql_raw_query_wins_over_filters() -> None:
     assert build_logql(p) == "{custom='x'}"
 
 
+def test_build_logql_job_filter_finds_faro_logs() -> None:
+    """job='faro' cible les logs/erreurs navigateur (Grafana Faro, devpod-ui)."""
+    p = LogsQueryParams(job="faro")
+    assert build_logql(p) == '{job="faro"}'
+
+
+def test_build_logql_escapes_double_quote_in_label_value() -> None:
+    """Bug 027 : un `"` dans une valeur de filtre ne doit jamais casser le matcher
+    ni injecter du LogQL arbitraire dans la requête."""
+    p = LogsQueryParams(host='x"} | line_format "{{.__line__}}')
+    logql = build_logql(p)
+    assert logql == '{host="x\\"} | line_format \\"{{.__line__}}"}'
+
+
+def test_build_logql_escapes_backslash_before_quote() -> None:
+    """L'ordre d'échappement compte : backslash d'abord, sinon un `\\"` en entrée
+    se ferait ré-échapper et produirait un guillemet non protégé."""
+    p = LogsQueryParams(host='a\\"b')
+    logql = build_logql(p)
+    assert logql == '{host="a\\\\\\"b"}'
+
+
+def test_build_logql_escapes_quote_in_level_filter() -> None:
+    p = LogsQueryParams(project="rag", level='error" | line_format "boom')
+    logql = build_logql(p)
+    assert logql == '{compose_project="rag"} | json | level="error\\" | line_format \\"boom"'
+
+
 # ---------------------------------------------------------------------------
 # _flatten_streams
 # ---------------------------------------------------------------------------
@@ -96,6 +124,42 @@ def test_flatten_streams_multiple_streams() -> None:
     ]
     lines = _flatten_streams(_loki_response(streams))
     assert len(lines) == 3
+
+
+# ---------------------------------------------------------------------------
+# _flatten_streams — bug 028 : réponse Loki malformée → DevpodToolError, jamais
+# un IndexError/ValueError/AttributeError brut qui échapperait au dispatch MCP.
+# ---------------------------------------------------------------------------
+
+
+def test_flatten_streams_rejects_entry_with_wrong_arity() -> None:
+    streams = [{"stream": {"host": "h1"}, "values": [["only-one-field"]]}]
+    with pytest.raises(DevpodToolError, match="malformée"):
+        _flatten_streams(_loki_response(streams))
+
+
+def test_flatten_streams_rejects_non_numeric_timestamp() -> None:
+    streams = [{"stream": {"host": "h1"}, "values": [["not-a-timestamp", "line"]]}]
+    with pytest.raises(DevpodToolError, match="timestamp"):
+        _flatten_streams(_loki_response(streams))
+
+
+def test_flatten_streams_rejects_non_dict_stream() -> None:
+    streams = ["not-a-dict"]
+    with pytest.raises(DevpodToolError, match="malformée"):
+        _flatten_streams(_loki_response(streams))
+
+
+def test_flatten_streams_rejects_non_list_result() -> None:
+    response = {"data": {"result": "not-a-list"}}
+    with pytest.raises(DevpodToolError, match="malformée"):
+        _flatten_streams(response)
+
+
+def test_flatten_streams_data_not_dict_yields_empty() -> None:
+    """data absent ou d'un autre type : pas de crash, liste vide (rien à aplatir)."""
+    assert _flatten_streams({"data": None}) == []
+    assert _flatten_streams({}) == []
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +284,39 @@ async def test_logs_query_success() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_logs_query_job_faro_filter() -> None:
+    """job='faro' est un filtre structuré valide, exposé côté agent MCP."""
+    ts_ns = str(1_700_000_000 * 1_000_000_000)
+    loki_body = {
+        "data": {
+            "resultType": "streams",
+            "result": [
+                {
+                    "stream": {"job": "faro", "source": "frontend"},
+                    "values": [[ts_ns, 'kind=exception value="console.error: boom"']],
+                }
+            ],
+        }
+    }
+    respx.get("http://loki:3100/loki/api/v1/query_range").mock(
+        return_value=httpx.Response(200, json=loki_body)
+    )
+
+    with patch(
+        "portal.mcp.devpod_tools.logs_tools.load_global",
+        return_value=_make_logs_config(),
+    ):
+        result = await _logs_query(None, {"job": "faro"}, "user")
+
+    assert result["query"] == '{job="faro"}'
+    assert result["count"] == 1
+    assert result["lines"][0]["labels"]["source"] == "frontend"
+    assert result["grafana_url"] is not None
+    assert "grafana:3000" in result["grafana_url"]
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_logs_query_loki_unreachable_raises() -> None:
     respx.get("http://loki:3100/loki/api/v1/query_range").mock(
         side_effect=httpx.ConnectError("connection refused")
@@ -318,3 +415,42 @@ async def test_logs_query_bearer_token_sent() -> None:
     assert route.called
     req = route.calls.last.request
     assert req.headers.get("authorization") == "Bearer mytoken"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_logs_query_invalid_json_body_raises_devpod_tool_error() -> None:
+    """Bug 028 : un corps non-JSON renvoyé par Loki lève DevpodToolError (isError),
+    jamais un json.JSONDecodeError brut qui échapperait au dispatch MCP."""
+    respx.get("http://loki:3100/loki/api/v1/query_range").mock(
+        return_value=httpx.Response(200, text="not json at all")
+    )
+
+    with (
+        patch(
+            "portal.mcp.devpod_tools.logs_tools.load_global",
+            return_value=_make_logs_config(),
+        ),
+        pytest.raises(DevpodToolError, match="illisible"),
+    ):
+        await _logs_query(None, {"host": "h1"}, "user")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_logs_query_malformed_stream_raises_devpod_tool_error() -> None:
+    """Bug 028 : une réponse Loki 200 mais structurellement invalide lève
+    DevpodToolError plutôt qu'un IndexError/ValueError brut."""
+    loki_body = {"data": {"result": [{"stream": {"host": "h1"}, "values": [["bad-ts", "line"]]}]}}
+    respx.get("http://loki:3100/loki/api/v1/query_range").mock(
+        return_value=httpx.Response(200, json=loki_body)
+    )
+
+    with (
+        patch(
+            "portal.mcp.devpod_tools.logs_tools.load_global",
+            return_value=_make_logs_config(),
+        ),
+        pytest.raises(DevpodToolError, match="timestamp"),
+    ):
+        await _logs_query(None, {"host": "h1"}, "user")

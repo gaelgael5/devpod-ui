@@ -51,6 +51,17 @@ class ComposeTemplate(BaseModel):
     updated_at: datetime | None = None
 
 
+class ComposeAutoStart(BaseModel):
+    """Préférence utilisateur : déployer `template_id` sur chaque nouvelle machine de test."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: int
+    owner_login: str
+    template_id: str
+    env_values: dict[str, str] = Field(default_factory=dict)
+    created_at: datetime | None = None
+
+
 class ComposeDeployment(BaseModel):
     model_config = ConfigDict(extra="forbid")
     uid: str  # UUID PK — utilisé dans les URL API

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
 export type SecretType = 'PAT_GITHUB' | 'PAT_GITLAB' | 'PAT_AZURE' | 'API_KEY'
 
@@ -43,7 +43,7 @@ export function useSecrets(secretType?: string) {
     queryKey: secretType ? QK.byType(secretType) : QK.list(),
     queryFn: () => {
       const url = secretType
-        ? `/me/secrets?type=${encodeURIComponent(secretType)}`
+        ? `/me/secrets?secret_type=${encodeURIComponent(secretType)}`
         : '/me/secrets'
       return apiFetchJson<Secret[]>(url)
     },
@@ -93,7 +93,7 @@ export function useDeleteSecret() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (slug: string) =>
-      apiFetch(`/me/secrets/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
+      apiFetchVoid(`/me/secrets/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.list() }),
   })
 }

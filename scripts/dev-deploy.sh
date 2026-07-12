@@ -64,11 +64,16 @@ if [[ $RESETDB -eq 1 ]]; then
     docker compose -f "$COMPOSE_FILE" down --volumes --remove-orphans 2>/dev/null || true
     echo "    Suppression des containers arrêtés résiduels..."
     docker container prune -f || true
-    if [[ -f "$ENV_FILE" ]]; then
-        rm -f "$ENV_FILE"
-        echo "    ${ENV_FILE} supprimé."
+    # /data est un bind mount : non supprimé par 'down --volumes'.
+    # On purge tout son contenu (CA, certs, recettes, workspaces, .env…).
+    # ATTENTION : les nœuds précédemment enrôlés devront être ré-enrôlés.
+    if [[ -d /data ]]; then
+        find /data -mindepth 1 -delete 2>/dev/null || true
+        echo "    /data purgé intégralement (CA, certs, recettes, workspaces)."
     fi
-    echo "    Reset terminé — le .env et la DB seront recréés depuis zéro."
+    echo "    Re-initialisation de /data via install.sh..."
+    bash "$APP_DIR/scripts/install.sh"
+    echo "    Reset terminé — DB et /data seront recréés depuis zéro."
     echo ""
 fi
 
@@ -133,6 +138,21 @@ fi
 if [[ -z "$(_get_env SESSION_SECRET_KEY)" ]]; then
     _set_env SESSION_SECRET_KEY "$(openssl rand -hex 32)"
     echo "    SESSION_SECRET_KEY généré"
+fi
+
+# Générer PORTAL_VAULT_KEK si vide (requis hors dev_mode ; vault désactivé sinon)
+if [[ -z "$(_get_env PORTAL_VAULT_KEK)" ]]; then
+    _set_env PORTAL_VAULT_KEK "$(openssl rand -hex 32)"
+    echo "    PORTAL_VAULT_KEK généré"
+fi
+
+# Générer VAULT_DEV_PIN si vide : VM de test éphémère → le vault de chaque
+# utilisateur s'initialise/déverrouille automatiquement avec ce PIN (dev_mode
+# uniquement, cf. portal.vault.pin._dev_auto_unlock). Évite de ressaisir un
+# PIN à chaque redéploiement. Jamais généré par install.sh (instances réelles).
+if [[ -z "$(_get_env VAULT_DEV_PIN)" ]]; then
+    _set_env VAULT_DEV_PIN "$(printf '%06d' "$((RANDOM % 1000000))")"
+    echo "    VAULT_DEV_PIN généré"
 fi
 
 # Générer LOCAL_PASSWORD + LOCAL_PASSWORD_HASH si vides

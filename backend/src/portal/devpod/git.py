@@ -155,3 +155,32 @@ async def run_git_ls_remote(
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     return proc.returncode if proc.returncode is not None else -1, stdout, stderr
+
+
+# Le credential a bien authentifié le remote (la sonde synthétique n'existe
+# simplement pas — c'est le comportement attendu, pas un échec).
+_NOT_FOUND_MARKERS = ("not found", "does not exist")
+
+
+async def probe_git_credential(credential_name: str, host: str, login: str) -> tuple[bool, str]:
+    """Teste la connectivité d'un credential git, sans dépôt réel.
+
+    Sonde un chemin synthétique sur le host du credential via `run_git_ls_remote`
+    (même injection SSH/token que le reste du module). Succès si et seulement si
+    le remote a répondu ET que le seul problème est l'inexistence du chemin sondé
+    — tout le reste (échec d'auth, réseau injoignable, erreur inconnue) est un
+    échec : on ne rapporte jamais un faux succès.
+    """
+    probe_url = f"https://{host}/__portal_connection_probe__.git"
+    try:
+        returncode, _stdout, stderr = await run_git_ls_remote(probe_url, credential_name, login)
+    except HTTPException as exc:
+        return False, str(exc.detail)
+
+    message = stderr.decode("utf-8", errors="replace").strip()
+    if returncode == 0:
+        return True, message
+    lowered = message.lower()
+    if any(marker in lowered for marker in _NOT_FOUND_MARKERS):
+        return True, message
+    return False, message

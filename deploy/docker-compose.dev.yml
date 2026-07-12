@@ -99,7 +99,7 @@ services:
       GF_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
       GF_AUTH_GENERIC_OAUTH_NAME: Keycloak
-      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: grafana
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: ${GF_OAUTH_CLIENT_ID:-agflow-grafana}
       GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: ${GF_OAUTH_CLIENT_SECRET:-}
       GF_AUTH_GENERIC_OAUTH_SCOPES: openid email profile
       GF_AUTH_GENERIC_OAUTH_AUTH_URL: ${GF_OAUTH_AUTH_URL:-}
@@ -109,6 +109,11 @@ services:
     volumes:
       - ./grafana-provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
+    ports:
+      # Accès direct en dev (bypass Caddy) — le port hôte 3000 est déjà pris par
+      # Browserless sur les VMs de test, d'où 3001. GF_SERVER_ROOT_URL doit
+      # refléter ce port dans /data/.env pour que l'OAuth Grafana redirige juste.
+      - "3001:3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -123,6 +128,34 @@ services:
       retries: 5
       start_period: 30s
 
+  alloy:
+    image: grafana/alloy:v1.5.1
+    restart: unless-stopped
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+    environment:
+      # Collecteur intégré à la stack (rôle=portail, spec 30 §3.3) — capte les logs
+      # de portal/caddy/loki/grafana/postgres via le socket Docker + journald du host.
+      LOKI_URL: "http://loki:3100/loki/api/v1/push"
+      HOSTNAME: ${BASE_DOMAIN}
+      MODULE: devpod
+      ROLE: portail
+    volumes:
+      - ./alloy-config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log:/var/log:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - alloy_data:/var/lib/alloy/data
+    depends_on:
+      loki:
+        condition: service_healthy
+    networks:
+      - internal
+
 networks:
   internal:
     driver: bridge
@@ -133,3 +166,4 @@ volumes:
   postgres_data:
   loki_data:
   grafana_data:
+  alloy_data:

@@ -12,6 +12,8 @@ def test_accepts_valid_values() -> None:
         "base_domain": "dev.yoops.org",
         "external_url": "https://dev.yoops.org",
         "workspace_host": "192.168.10.50",
+        "vs_proxy_domain": "",
+        "cookie_domain": "",
     }
 
 
@@ -21,6 +23,8 @@ def test_allows_all_empty() -> None:
         "base_domain": "",
         "external_url": "",
         "workspace_host": "",
+        "vs_proxy_domain": "",
+        "cookie_domain": "",
     }
 
 
@@ -44,3 +48,21 @@ def test_rejects_external_url_without_scheme() -> None:
 def test_rejects_external_url_with_bad_scheme() -> None:
     with pytest.raises(ValueError):
         validate_network("dev.yoops.org", "ftp://dev.yoops.org", "")
+
+
+def test_accepts_and_trims_vs_proxy_and_cookie_domain() -> None:
+    out = validate_network(
+        "dev.yoops.org", "https://dev.yoops.org", "", "  vs-dev.yoops.org ", "  yoops.org "
+    )
+    assert out["vs_proxy_domain"] == "vs-dev.yoops.org"
+    assert out["cookie_domain"] == "yoops.org"
+
+
+def test_rejects_invalid_vs_proxy_domain() -> None:
+    with pytest.raises(ValueError):
+        validate_network("dev.yoops.org", "https://dev.yoops.org", "", "pas un domaine!", "")
+
+
+def test_rejects_invalid_cookie_domain() -> None:
+    with pytest.raises(ValueError):
+        validate_network("dev.yoops.org", "https://dev.yoops.org", "", "", "pas un domaine!")

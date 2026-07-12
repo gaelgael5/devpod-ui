@@ -8,7 +8,6 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from portal.db.mcp import insert_backend_key
 from portal.db.tables import users
 
 
@@ -94,6 +93,55 @@ async def test_backend_rejects_duplicate_namespace(client: AsyncClient) -> None:
     assert r.status_code == 409
 
 
+async def test_catalog_route_exposes_scope(client: AsyncClient, db_conn: AsyncConnection) -> None:
+    """Le champ scope (read/write/exec/admin) du registre devpod doit survivre au /catalog."""
+    from portal.db.mcp import insert_backend
+    from portal.db.mcp_catalog import upsert_primitive
+
+    await insert_backend(
+        db_conn, id="devpod-alice", owner_login="alice", namespace="devpod",
+        name="DevPod workspaces", url="", transport="internal",
+    )
+    await upsert_primitive(
+        db_conn, backend_id="devpod-alice", kind="tool", original_name="workspace_list",
+        definition={"description": "Liste les workspaces.", "scope": "read"},
+        definition_hash="h1",
+    )
+    await upsert_primitive(
+        db_conn, backend_id="devpod-alice", kind="tool", original_name="workspace_delete",
+        definition={"description": "Supprime un workspace.", "scope": "admin"},
+        definition_hash="h2",
+    )
+
+    r = await client.get("/me/mcp/backends/devpod-alice/catalog")
+    assert r.status_code == 200
+    by_name = {t["name"]: t["scope"] for t in r.json()}
+    assert by_name == {"workspace_list": "read", "workspace_delete": "admin"}
+
+
+async def test_catalog_route_scope_null_for_external_backend(
+    client: AsyncClient, db_conn: AsyncConnection
+) -> None:
+    """Un backend externe sans champ scope dans sa définition → scope=null, pas d'erreur."""
+    r = await client.post("/me/mcp/backends", json={
+        "namespace": "rag", "name": "RAG", "url": "https://rag/mcp", "transport": "streamable_http",
+    })
+    bid = r.json()["id"]
+
+    from portal.db.mcp_catalog import upsert_primitive
+
+    await upsert_primitive(
+        db_conn, backend_id=bid, kind="tool", original_name="search",
+        definition={"description": "Recherche."}, definition_hash="h3",
+    )
+
+    r = await client.get(f"/me/mcp/backends/{bid}/catalog")
+    assert r.status_code == 200
+    assert r.json() == [
+        {"name": "search", "description": "Recherche.", "scope": None, "quarantined": False}
+    ]
+
+
 async def test_apikey_create_returns_clear_once(client: AsyncClient) -> None:
     r = await client.post("/me/mcp/apikeys", json={"label": "cli"})
     assert r.status_code == 201
@@ -105,48 +153,107 @@ async def test_apikey_create_returns_clear_once(client: AsyncClient) -> None:
     assert "token" not in r.json()[0] and "token_hash" not in r.json()[0]
 
 
-async def test_grant_key_must_belong_to_backend(
+# NOTE : l'ancien test « clé d'un autre backend refusée sur PUT /apikeys/{id}/grants »
+# a été retiré : la route grants n'existe plus (refactor profils MCP). Le comportement
+# équivalent (PUT /me/mcp/profiles/{id}/entries/{backend_id} → 404) est couvert par
+# tests/mcp/test_service.py::test_profile_entry_rejects_key_from_other_backend.
+
+
+# ─── Quarantaine (bug create_document — spec 23 : approbation + flag opt-out) ─
+
+
+async def _quarantine_tool(db_conn: AsyncConnection, backend_id: str, name: str = "search") -> None:
+    from portal.db.mcp_catalog import upsert_primitive
+
+    await upsert_primitive(
+        db_conn, backend_id=backend_id, kind="tool", original_name=name,
+        definition={"description": "v1"}, definition_hash="q1",
+    )
+    await upsert_primitive(  # redéfinition → quarantaine collante
+        db_conn, backend_id=backend_id, kind="tool", original_name=name,
+        definition={"description": "v2"}, definition_hash="q2",
+    )
+
+
+async def _create_backend(client: AsyncClient, namespace: str = "rag") -> str:
+    r = await client.post("/me/mcp/backends", json={
+        "namespace": namespace, "name": "RAG", "url": "https://rag/mcp",
+        "transport": "streamable_http",
+    })
+    assert r.status_code == 201
+    return str(r.json()["id"])
+
+
+async def test_quarantined_list_and_approve(client: AsyncClient, db_conn: AsyncConnection) -> None:
+    bid = await _create_backend(client)
+    await _quarantine_tool(db_conn, bid)
+
+    r = await client.get(f"/me/mcp/backends/{bid}/quarantined")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["kind"] == "tool" and body[0]["name"] == "search"
+
+    r = await client.post(
+        f"/me/mcp/backends/{bid}/quarantined/approve",
+        json={"kind": "tool", "name": "search"},
+    )
+    assert r.status_code == 200
+
+    r = await client.get(f"/me/mcp/backends/{bid}/quarantined")
+    assert r.status_code == 200 and r.json() == []
+
+    # Ré-approuver une entrée non quarantinée → 404 (rien à approuver)
+    r = await client.post(
+        f"/me/mcp/backends/{bid}/quarantined/approve",
+        json={"kind": "tool", "name": "search"},
+    )
+    assert r.status_code == 404
+
+
+async def test_quarantined_routes_404_on_foreign_backend(client: AsyncClient) -> None:
+    r = await client.get("/me/mcp/backends/nope/quarantined")
+    assert r.status_code == 404
+    r = await client.post(
+        "/me/mcp/backends/nope/quarantined/approve", json={"kind": "tool", "name": "x"}
+    )
+    assert r.status_code == 404
+
+
+async def test_update_backend_quarantine_disabled_clears_existing(
     client: AsyncClient, db_conn: AsyncConnection
 ) -> None:
-    b1 = (
-        await client.post(
-            "/me/mcp/backends",
-            json={
-                "namespace": "rag",
-                "name": "RAG",
-                "url": "https://rag/mcp",
-                "transport": "streamable_http",
-            },
-        )
-    ).json()["id"]
-    b2 = (
-        await client.post(
-            "/me/mcp/backends",
-            json={
-                "namespace": "wf",
-                "name": "WF",
-                "url": "https://wf/mcp",
-                "transport": "streamable_http",
-            },
-        )
-    ).json()["id"]
-    # clé insérée directement en DB (évite la dépendance vault dans un test route)
-    await insert_backend_key(
-        db_conn,
-        id="kB2",
-        backend_id=b2,
-        slug="read",
-        description="",
-        storage_type="local",
-        secret_value_local=b"x",
-        secret_value_vault_ref=None,
-        vault_identifier=None,
-    )
-    aid = (await client.post("/me/mcp/apikeys", json={"label": "cli"})).json()["id"]
+    bid = await _create_backend(client)
+    await _quarantine_tool(db_conn, bid)
 
-    # clé de b2 affectée à un grant sur b1 → 422
-    r = await client.put(
-        f"/me/mcp/apikeys/{aid}/grants",
-        json={"backend_id": b1, "backend_key_id": "kB2"},
-    )
-    assert r.status_code == 422
+    r = await client.patch(f"/me/mcp/backends/{bid}", json={
+        "name": "RAG", "url": "https://rag/mcp", "transport": "streamable_http",
+        "enabled": True, "quarantine_disabled": True,
+    })
+    assert r.status_code == 200
+
+    # Levée immédiate à l'enregistrement du flag.
+    r = await client.get(f"/me/mcp/backends/{bid}/quarantined")
+    assert r.status_code == 200 and r.json() == []
+
+    r = await client.get("/me/mcp/backends")
+    backend = next(b for b in r.json() if b["id"] == bid)
+    assert backend["quarantine_disabled"] is True
+
+
+async def test_backend_quarantine_disabled_defaults_false(client: AsyncClient) -> None:
+    bid = await _create_backend(client)
+    r = await client.get("/me/mcp/backends")
+    backend = next(b for b in r.json() if b["id"] == bid)
+    assert backend["quarantine_disabled"] is False
+
+
+async def test_catalog_route_exposes_quarantined_flag(
+    client: AsyncClient, db_conn: AsyncConnection
+) -> None:
+    bid = await _create_backend(client)
+    await _quarantine_tool(db_conn, bid)
+
+    r = await client.get(f"/me/mcp/backends/{bid}/catalog")
+    assert r.status_code == 200
+    assert r.json()[0]["quarantined"] is True

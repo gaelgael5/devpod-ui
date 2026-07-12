@@ -231,6 +231,48 @@ else
     echo "    Créez manuellement : docker buildx create --name devpod-builder --driver docker-container --use" >&2
 fi
 
+# 13. Image de base « mcp-runner » pour les serveurs MCP déployés en compose.
+# Contient mcp-proxy (pont stdio→SSE) + node/npx + uv/uvx + docker CLI, afin de
+# couvrir les 3 modes d'install des serveurs du catalogue (docker / node / python).
+# L'image n'est qu'un LANCEUR : ENTRYPOINT=mcp-proxy, la commande stdio du serveur
+# est fournie par le déploiement compose. Buildée sur CHAQUE nœud (socle commun).
+#
+# Build via le builder `default` (driver docker) + --load : l'étape 12 met le
+# builder docker-container par défaut pour l'utilisateur SSH ; avec ce driver une
+# image resterait dans le cache buildkit et n'apparaîtrait PAS dans le store local
+# (docker image inspect / compose ne la verraient pas). On force donc le store local.
+echo "==> Build de l'image de base mcp-runner:1..."
+MCP_RUNNER_TAG="mcp-runner:1"
+if docker image inspect "$MCP_RUNNER_TAG" &>/dev/null; then
+    echo "    $MCP_RUNNER_TAG déjà présente — build ignoré."
+else
+    MCP_BUILD_DIR=$(mktemp -d)
+    cat > "$MCP_BUILD_DIR/Dockerfile" <<'MCPDOCKERFILE'
+FROM node:22-bookworm-slim
+
+# python (pour uv & mcp-proxy) + outils de fetch. node/npx viennent de l'image de base.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 python3-pip curl ca-certificates tar \
+ && rm -rf /var/lib/apt/lists/*
+
+# CLI docker statique : parle au socket du host monté (conteneurs sibling, pas DinD).
+ARG DOCKER_CLI_VERSION=27.3.1
+RUN arch="$(uname -m)" \
+ && curl -fsSL "https://download.docker.com/linux/static/stable/${arch}/docker-${DOCKER_CLI_VERSION}.tgz" -o /tmp/docker.tgz \
+ && tar -xzf /tmp/docker.tgz -C /tmp docker/docker \
+ && install -m 0755 /tmp/docker/docker /usr/local/bin/docker \
+ && rm -rf /tmp/docker.tgz /tmp/docker
+
+# uv (fournit uvx) + mcp-proxy (pont stdio→SSE/HTTP).
+RUN pip install --no-cache-dir --break-system-packages uv mcp-proxy
+
+ENTRYPOINT ["mcp-proxy"]
+MCPDOCKERFILE
+    docker buildx build --builder default --load -t "$MCP_RUNNER_TAG" "$MCP_BUILD_DIR"
+    rm -rf "$MCP_BUILD_DIR"
+    echo "    $MCP_RUNNER_TAG construite."
+fi
+
 echo ""
 echo "Nœud ${NODE_NAME} enrôlé avec succès."
 echo "Testez depuis le portail avec : devpod up --provider docker ..."

@@ -32,3 +32,20 @@ export function useSaveNetwork() {
     onError: (err: Error) => toast.error(err.message),
   })
 }
+
+export interface ResolvedHost {
+  fqdn: string
+  ip: string
+}
+
+/** Résout l'IP courante d'un hostname (workspace_host) via le resolver du portail. */
+export function useResolveWorkspaceHost() {
+  return useMutation<ResolvedHost, Error, string>({
+    mutationFn: (host: string) =>
+      apiFetchJson<ResolvedHost>('/admin/network/resolve-workspace-host', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host }),
+      }),
+  })
+}

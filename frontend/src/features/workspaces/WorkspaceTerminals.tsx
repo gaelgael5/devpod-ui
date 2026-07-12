@@ -25,6 +25,10 @@ import {
   type WorkspaceStartRecipe,
 } from './useWorkspaceSessions'
 
+// Même contrainte que le backend (routes/workspace_sessions.py::_SESSION_NAME_RE) :
+// un nom de session non conforme casse le chemin /sessions/{name} (bug 044).
+const SESSION_NAME_RE = /^[a-z0-9][a-z0-9-]{0,29}$/
+
 function computeNextName(sessions: string[], wsName: string): string {
   const existing = new Set(sessions)
   for (let i = 1; i <= 100; i++) {
@@ -47,6 +51,7 @@ interface CreateDialogProps {
 function CreateSessionDialog({ wsName, sessions, startRecipes, onClose, onCreate }: CreateDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = useState(() => computeNextName(sessions, wsName))
+  const [nameError, setNameError] = useState('')
   const nameEdited = useRef(false)
   const [startRecipe, setStartRecipe] = useState(() => startRecipes[0]?.id ?? '')
   const create = useCreateSession()
@@ -56,6 +61,11 @@ function CreateSessionDialog({ wsName, sessions, startRecipes, onClose, onCreate
   }, [sessions, wsName])
 
   function handleSubmit() {
+    if (!SESSION_NAME_RE.test(name)) {
+      setNameError(t('workspaces.terminals.nameHint'))
+      return
+    }
+    setNameError('')
     create.mutate(
       { wsName, name, startRecipe: startRecipe || undefined },
       {
@@ -77,11 +87,16 @@ function CreateSessionDialog({ wsName, sessions, startRecipes, onClose, onCreate
             <Input
               id="session-name"
               value={name}
-              onChange={(e) => { nameEdited.current = true; setName(e.target.value) }}
+              onChange={(e) => { nameEdited.current = true; setName(e.target.value); setNameError('') }}
               placeholder={t('workspaces.terminals.namePlaceholder')}
               autoFocus
               onKeyDown={(e) => { if (e.key === 'Enter' && name) handleSubmit() }}
             />
+            {nameError && (
+              <p role="alert" className="mt-1 text-sm text-destructive">
+                {nameError}
+              </p>
+            )}
           </div>
           {startRecipes.length === 1 && (
             <label className="flex items-center gap-2 cursor-pointer select-none text-sm">

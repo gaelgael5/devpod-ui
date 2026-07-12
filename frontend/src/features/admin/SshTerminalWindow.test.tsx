@@ -135,4 +135,30 @@ describe('SshTerminalWindow', () => {
     expect(mockTerminalInstance.dispose).toHaveBeenCalled()
     expect(wsCloseCalled).toBe(true)
   })
+
+  it(
+    'ne reconstruit pas le terminal (ne dispose pas, ne ferme pas la connexion) ' +
+      'quand la langue change (bug 043)',
+    async () => {
+      renderWindow()
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 80))
+      })
+      vi.clearAllMocks()
+      wsCloseCalled = false
+
+      // t change d'identité à chaque changement de langue — c'est exactement le
+      // déclencheur du bug (l'effet était dépendant de t).
+      await act(async () => {
+        await i18n.changeLanguage('fr')
+      })
+
+      expect(mockTerminalInstance.dispose).not.toHaveBeenCalled()
+      expect(wsCloseCalled).toBe(false)
+
+      await act(async () => {
+        await i18n.changeLanguage('en')
+      })
+    },
+  )
 })

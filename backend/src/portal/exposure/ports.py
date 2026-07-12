@@ -47,6 +47,17 @@ class PortRegistry:
             _log.error("port_pool_exhausted", ws_id=ws_id)
             raise RuntimeError("No free port in 40000-49999")
 
+    async def release(self, port: int) -> None:
+        """Libère un port réservé en mémoire mais jamais persisté en DB.
+
+        À appeler quand un `up()` échoue après allocate() sans jamais atteindre
+        l'écriture DB du host_port (chemin d'exception synchrone dans up(), ou
+        crash dans _run_up_task) — sinon le port reste réservé jusqu'au restart
+        du portail (bug 037).
+        """
+        async with self._lock:
+            self._reserved.discard(port)
+
     async def _used_ports(self) -> set[int]:
         """Lit les host_port déjà alloués depuis la table workspace_status."""
         from sqlalchemy import select

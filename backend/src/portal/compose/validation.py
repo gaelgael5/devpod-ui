@@ -10,7 +10,12 @@ import yaml
 from .models import ComposeParam, TemplateSource
 from .port_aliases import is_alias_entry
 
-# Bind-mounts système autorisés pour les templates builtin uniquement (lecture seule).
+# Bind-mounts système autorisés (lecture seule) pour les templates builtin ou
+# importés (source réseau explicitement configurée puis validée par un admin —
+# même niveau de confiance que l'import de recettes, qui exécute déjà des
+# install.sh arbitraires). Jamais pour les templates "user" (créés/édités par
+# un utilisateur quelconque via l'API/MCP).
+_SYSTEM_BIND_ALLOWED_SOURCES: frozenset[TemplateSource] = frozenset({"builtin", "imported"})
 _BUILTIN_ALLOWED_BINDS: frozenset[str] = frozenset(
     {
         "/var/run/docker.sock",
@@ -20,7 +25,12 @@ _BUILTIN_ALLOWED_BINDS: frozenset[str] = frozenset(
     }
 )
 
-_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}")
+# Formes compose : ${VAR}, ${VAR:-def}, ${VAR-def}, ${VAR:?msg}, ${VAR?msg}, ${VAR:+alt}
+_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?[-+?][^}]*)?\}")
+
+# Variables de contexte injectées par le portail à chaque déploiement
+# (compose/service.py _log_context_vars) : toujours considérées déclarées.
+PORTAL_INJECTED_VARS: frozenset[str] = frozenset({"LOKI_URL", "HOSTNAME", "MODULE", "ROLE"})
 
 
 class TemplateValidationError(Exception):
@@ -29,6 +39,22 @@ class TemplateValidationError(Exception):
 
 def referenced_vars(compose_content: str) -> set[str]:
     return set(_VAR_RE.findall(compose_content))
+
+
+def first_service_name(compose_content: str) -> str | None:
+    """Nom du premier service défini dans le compose (ordre du document).
+
+    `None` si le compose est invalide ou sans section `services` — best-effort,
+    utilisé pour suggérer un nom de déploiement, jamais pour valider.
+    """
+    try:
+        parsed = yaml.safe_load(compose_content)
+    except yaml.YAMLError:
+        return None
+    services = parsed.get("services") if isinstance(parsed, dict) else None
+    if not isinstance(services, dict) or not services:
+        return None
+    return str(next(iter(services)))
 
 
 def _port_mappings(parsed: dict[str, Any]) -> list[Any]:
@@ -106,7 +132,7 @@ def validate_template(
 
     declared = {p.key for p in parameters}
     used = referenced_vars(compose_content)
-    missing = used - declared
+    missing = used - declared - PORTAL_INJECTED_VARS
     if missing:
         raise TemplateValidationError(
             f"variables référencées non déclarées en paramètres: {sorted(missing)}"
@@ -123,17 +149,40 @@ def validate_template(
             )
 
     # Lint : bind-mounts absolus interdits (isolation workspace-to-workspace).
-    # Exception : templates builtin autorisés sur la whitelist système (lecture seule).
+    # Exception : templates builtin/imported autorisés sur la whitelist système
+    # (lecture seule) — jamais les templates "user".
     services = parsed.get("services") or {}
     for svc_name, svc in services.items():
         if not isinstance(svc, dict):
             continue
         for bad_path in _absolute_bind_mounts(svc):
-            if source == "builtin" and bad_path in _BUILTIN_ALLOWED_BINDS:
+            if source in _SYSTEM_BIND_ALLOWED_SOURCES and bad_path in _BUILTIN_ALLOWED_BINDS:
                 continue
             raise TemplateValidationError(
                 f"service {svc_name!r}: bind-mount absolu interdit ({bad_path!r}) ; "
                 f"utilisez un chemin relatif (ex: ./data:/app/data) ou un volume nommé"
             )
 
-    return []
+    # Warnings (non bloquants) : images non épinglées → déploiements non reproductibles.
+    warnings: list[str] = []
+    for svc_name, svc in services.items():
+        if not isinstance(svc, dict):
+            continue
+        image = svc.get("image")
+        if not isinstance(image, str) or not image or "${" in image:
+            continue
+        # Le tag est dans le dernier segment (après le dernier '/'), pour ne pas
+        # confondre le port d'un registre (registry:5000/img) avec un tag.
+        ref = image.rsplit("/", 1)[-1]
+        if ":" not in ref:
+            warnings.append(
+                f"service {svc_name!r}: image {image!r} sans tag (latest implicite) — "
+                "épinglez une version"
+            )
+        elif ref.endswith(":latest"):
+            warnings.append(
+                f"service {svc_name!r}: image {image!r} utilise le tag latest — "
+                "épinglez une version"
+            )
+
+    return warnings

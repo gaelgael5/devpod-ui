@@ -74,12 +74,6 @@ def build_test_host_views(
     return views
 
 
-def build_resolve_fqdn(name: str, local_domain: str) -> str:
-    """FQDN à résoudre : `<name>.<local_domain>` (ou `<name>` si pas de domaine)."""
-    domain = local_domain.strip().strip(".")
-    return f"{name}.{domain}" if domain else name
-
-
 def replace_host_ip(old_address: str, new_ip: str) -> str:
     """Remplace l'IP d'une adresse SSH en préservant la partie `<user>@`.
 
@@ -142,3 +136,9 @@ def map_result_to_host(
         proxmox_node=resolved_node,
         usage="tests",
     )
+
+
+def host_cert_ready(hosts: Iterable[HostConfig], host_name: str) -> bool:
+    """True si `host_name` a un `host_cert_slug` posé (SSH portail actif → compose déployable)."""
+    host = next((h for h in hosts if h.name == host_name), None)
+    return bool(host and host.host_cert_slug)

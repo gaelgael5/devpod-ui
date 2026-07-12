@@ -222,6 +222,23 @@ async def test_git_commit_on_dev_with_push(monkeypatch: pytest.MonkeyPatch) -> N
     assert seq["n"] == 4
 
 
+class _FakeRows:
+    """Résultat SQLAlchemy minimal : .mappings().all() → []."""
+
+    def mappings(self) -> "_FakeRows":
+        return self
+
+    def all(self) -> list[dict]:
+        return []
+
+
+class _FakeConn:
+    """Connexion factice : node_list ne lit que workspace_test_hosts (aucun lien ici)."""
+
+    async def execute(self, stmt: object) -> _FakeRows:
+        return _FakeRows()
+
+
 @pytest.mark.asyncio
 async def test_node_list_maps_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
     h1 = SimpleNamespace(
@@ -233,15 +250,32 @@ async def test_node_list_maps_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         devpod_tools, "load_global", lambda: SimpleNamespace(hosts=[h1, h2])
     )
-    res = await devpod_tools._node_list(None, {}, "alice")
+    res = await devpod_tools._node_list(_FakeConn(), {}, "alice")
     assert res == [
         {
             "node_id": "node1",
-            "name": "node1",
+            "role": "dev",
             "host": "10.0.0.1",
-            "status": "configured",
-            "capacity": None,
-        }
+            "health": {"reachable": None, "status": "configured", "last_seen": None},
+            "lifecycle": {
+                "origin": "enrolled",
+                "ephemeral": False,
+                "created_at": None,
+                "linked_workspace": None,
+            },
+        },
+        {
+            "node_id": "ci",
+            "role": "test",
+            "host": "tcp://x:2376",
+            "health": {"reachable": None, "status": "configured", "last_seen": None},
+            "lifecycle": {
+                "origin": "generated",
+                "ephemeral": True,
+                "created_at": None,
+                "linked_workspace": None,
+            },
+        },
     ]
 
 
@@ -253,13 +287,7 @@ async def test_node_list_host_fallback_to_docker_host(monkeypatch: pytest.Monkey
     monkeypatch.setattr(
         devpod_tools, "load_global", lambda: SimpleNamespace(hosts=[h])
     )
-    res = await devpod_tools._node_list(None, {}, "alice")
-    assert res == [
-        {
-            "node_id": "node2",
-            "name": "node2",
-            "host": "tcp://x:2376",
-            "status": "configured",
-            "capacity": None,
-        }
-    ]
+    res = await devpod_tools._node_list(_FakeConn(), {}, "alice")
+    assert len(res) == 1
+    assert res[0]["node_id"] == "node2"
+    assert res[0]["host"] == "tcp://x:2376"

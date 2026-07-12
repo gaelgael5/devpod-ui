@@ -4,13 +4,14 @@ L'utilisateur ne fournit que l'hyperviseur et le vmid ; tous les autres args son
 figés par le paramétrage admin (`test_host_params` du type). Le host créé est marqué
 `usage=tests` et associé au workspace.
 """
+
 from __future__ import annotations
 
 import asyncio
 import re
-import socket
 from collections.abc import AsyncIterator
 from typing import Any
+from urllib.parse import urlparse
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,23 +19,27 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from ..auth.rbac import UserInfo, require_user
+from ..compose import service as csvc
 from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor
 from ..config.store import load_global, load_user
 from ..db.engine import _get_engine
-from ..db.global_config import save_global_db
+from ..db.global_config import save_global_db, set_cached_global
 from ..db.test_hosts import (
     assign_test_host,
+    delete_test_host_link,
     get_test_host_message_id,
+    list_test_host_links,
     list_test_hosts_detailed,
     next_test_alias,
     remove_test_host,
     set_test_host_message_id,
+    upsert_test_host_link,
 )
 from ..devpod.ssh_exec import run_ssh_capture
 from ..devpod.test_vm import (
-    build_resolve_fqdn,
     build_test_host_views,
     build_test_vm_args,
+    host_cert_ready,
     map_result_to_host,
     parse_last_json,
     replace_host_ip,
@@ -49,9 +54,11 @@ from ..devpod.vm_init import (
     generate_ed25519_keypair,
     generate_root_password,
 )
+from ..events.bus import emit_event
 from ..messages.renderer import build_host_context
 from ..messages.service import delete_message as msg_delete
 from ..messages.service import render_and_create
+from ..net import build_resolve_fqdn, resolve_ipv4
 from ..secrets.system import delete_system_secret, store_system_cert, store_system_secret
 from ..settings import get_settings
 from .proxmox import (
@@ -128,9 +135,7 @@ async def _init_vm_ssh(
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        _, serr = await asyncio.wait_for(
-            proc.communicate(input=inject.encode()), timeout=60.0
-        )
+        _, serr = await asyncio.wait_for(proc.communicate(input=inject.encode()), timeout=60.0)
     except TimeoutError:
         proc.kill()
         await proc.wait()
@@ -163,8 +168,7 @@ async def _init_vm_ssh(
     )
     if cfg_rc == 0:
         yield (
-            f"==> Alias SSH '{alias}' ajouté au ~/.ssh/config du container "
-            f"(ssh {alias})\n"
+            f"==> Alias SSH '{alias}' ajouté au ~/.ssh/config du container (ssh {alias})\n"
         ).encode()
     else:
         detail = cfg_err.strip()[:200]
@@ -219,6 +223,7 @@ async def _init_vm_ssh(
                 h.host_cert_slug = slug
                 break
         await save_global_db(new_cfg, conn)
+    set_cached_global(new_cfg)  # après commit réussi seulement (bug 034)
 
     yield "==> SSH portail actif — services compose disponibles sur cette machine\n".encode()
 
@@ -323,6 +328,19 @@ async def create_test_vm(
         async with _get_engine().begin() as conn:
             await save_global_db(new_cfg, conn)
             await assign_test_host(login, ws, host.name, alias, conn)
+        set_cached_global(new_cfg)  # après commit réussi seulement (bug 034)
+
+        await emit_event(
+            "test_server.created",
+            actor=login,
+            workspace=ws,
+            subject={
+                "host_name": host.name,
+                "alias": alias,
+                "address": host.address,
+                "hypervisor": node.name,
+            },
+        )
 
         # Message contextuel pour les agents (non-bloquant).
         try:
@@ -350,12 +368,23 @@ async def create_test_vm(
         except Exception:
             _log.warning("test_host_message_create_failed", host=host.name, exc_info=True)
 
-        yield (
-            f"\n==> VM de test '{host.name}' creee et attachee au workspace '{ws}'\n"
-        ).encode()
+        yield (f"\n==> VM de test '{host.name}' creee et attachee au workspace '{ws}'\n").encode()
 
         async for msg in _init_vm_ssh(login, ws, host, node, alias):
             yield msg
+
+        # Auto-start : uniquement si le SSH portail a bien été activé (host_cert_slug
+        # posé par _init_vm_ssh) — sinon les services compose ne sont pas déployables.
+        if host_cert_ready(load_global().hosts, host.name):
+            auto_user_cfg = await load_user(login)
+            async with _get_engine().begin() as conn:
+                async for line in csvc.deploy_auto_start_templates(
+                    conn,
+                    owner_login=login,
+                    secret_ns=auto_user_cfg.secret_ns,
+                    node_id=host.name,
+                ):
+                    yield line.encode()
 
     return StreamingResponse(_stream(), media_type="text/plain; charset=utf-8")
 
@@ -394,9 +423,7 @@ async def delete_test_vm(
 
     # 2. Retirer l'alias du ~/.ssh/config du container (best-effort).
     try:
-        await run_ssh_capture(
-            login, f"{login}-{ws}", build_container_ssh_config_remove_cmd(alias)
-        )
+        await run_ssh_capture(login, f"{login}-{ws}", build_container_ssh_config_remove_cmd(alias))
     except Exception:
         _log.warning("test_vm_ssh_config_cleanup_failed", host=host_name, exc_info=True)
 
@@ -409,17 +436,16 @@ async def delete_test_vm(
             cfg.hosts = [h for h in cfg.hosts if h.name != host_name]
             await save_global_db(cfg, conn)
         await msg_delete(conn, message_id)
+    if host_cfg is not None:
+        set_cached_global(cfg)  # après commit réussi seulement (bug 034)
 
     _log.info("test_vm_deleted", login=login, ws=ws, host=host_name, alias=alias)
-
-
-async def _resolve_ipv4(fqdn: str) -> str:
-    """Première IPv4 résolue pour `fqdn` via le resolver du portail (async)."""
-    loop = asyncio.get_event_loop()
-    infos = await loop.getaddrinfo(fqdn, None, family=socket.AF_INET)
-    if not infos:
-        raise OSError(f"no address for {fqdn}")
-    return str(infos[0][4][0])
+    await emit_event(
+        "test_server.deleted",
+        actor=login,
+        workspace=ws,
+        subject={"host_name": host_name, "alias": alias},
+    )
 
 
 @router.post("/workspaces/{ws}/test-vm/{host_name}/resolve-ip")
@@ -453,7 +479,7 @@ async def resolve_test_vm_ip(
 
     fqdn = build_resolve_fqdn(host_name, cfg.server.local_domain)
     try:
-        new_ip = await _resolve_ipv4(fqdn)
+        new_ip = await resolve_ipv4(fqdn)
     except OSError as exc:
         raise HTTPException(status_code=502, detail=f"Unresolvable: {fqdn} ({exc})") from exc
 
@@ -464,14 +490,95 @@ async def resolve_test_vm_ip(
     ]
     async with _get_engine().begin() as conn:
         await save_global_db(cfg, conn)
+    set_cached_global(cfg)  # après commit réussi seulement (bug 034)
 
     # Réécrit le bloc ~/.ssh/config du container avec la nouvelle IP (best-effort).
     try:
-        await run_ssh_capture(
-            login, f"{login}-{ws}", build_container_ssh_config_cmd(alias, new_ip)
-        )
+        await run_ssh_capture(login, f"{login}-{ws}", build_container_ssh_config_cmd(alias, new_ip))
     except Exception:
         _log.warning("test_vm_ssh_config_refresh_failed", host=host_name, exc_info=True)
 
     _log.info("test_vm_ip_resolved", login=login, ws=ws, host=host_name, fqdn=fqdn, ip=new_ip)
     return {"ip": new_ip, "fqdn": fqdn}
+
+
+# ─── Liens (clé → URL) d'un serveur de test (menu ⋮ du host) ─────────────────
+
+_LINK_KEY_RE = re.compile(r"^[\w][\w .-]{0,49}$")
+
+
+def _validate_link_url(url: str) -> None:
+    """N'accepte que des URLs http(s) absolues — la valeur est ouverte par le navigateur."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(status_code=422, detail=f"URL http(s) absolue requise: {url!r}")
+
+
+async def _require_ws_and_host(ws: str, host_name: str, login: str) -> None:
+    if not _WS_NAME_RE.fullmatch(ws):
+        raise HTTPException(status_code=422, detail="Invalid workspace name")
+    if not _PROXMOX_NAME_RE.fullmatch(host_name):
+        raise HTTPException(status_code=422, detail="Invalid host name")
+    user_cfg = await load_user(login)
+    if not any(w.name == ws for w in user_cfg.workspaces):
+        raise HTTPException(status_code=404, detail=f"Workspace {ws!r} not found")
+
+
+class TestHostLinkBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    url: str
+
+
+@router.get("/workspaces/{ws}/test-hosts/{host_name}/links")
+async def list_test_host_links_route(
+    ws: str,
+    host_name: str,
+    user: UserInfo = Depends(require_user),
+) -> list[dict[str, str]]:
+    """Liens enregistrés pour un serveur de test du workspace."""
+    await _require_ws_and_host(ws, host_name, user.login)
+    async with _get_engine().connect() as conn:
+        links = await list_test_host_links(user.login, ws, host_name, conn)
+    if links is None:
+        raise HTTPException(status_code=404, detail=f"Test host {host_name!r} not found")
+    return links
+
+
+@router.put("/workspaces/{ws}/test-hosts/{host_name}/links")
+async def upsert_test_host_link_route(
+    ws: str,
+    host_name: str,
+    body: TestHostLinkBody,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, str]:
+    """Enregistre (ou remplace) un lien clé → URL du serveur de test."""
+    await _require_ws_and_host(ws, host_name, user.login)
+    key = body.key.strip()
+    if not _LINK_KEY_RE.fullmatch(key):
+        raise HTTPException(status_code=422, detail=f"Invalid link key: {body.key!r}")
+    url = body.url.strip()
+    _validate_link_url(url)
+    async with _get_engine().begin() as conn:
+        saved = await upsert_test_host_link(user.login, ws, host_name, key, url, conn)
+    if not saved:
+        raise HTTPException(status_code=404, detail=f"Test host {host_name!r} not found")
+    _log.info("test_host_link_saved", login=user.login, ws=ws, host=host_name, key=key)
+    return {"key": key, "url": url}
+
+
+@router.delete("/workspaces/{ws}/test-hosts/{host_name}/links/{key}", status_code=204)
+async def delete_test_host_link_route(
+    ws: str,
+    host_name: str,
+    key: str,
+    user: UserInfo = Depends(require_user),
+) -> None:
+    """Supprime un lien du serveur de test."""
+    await _require_ws_and_host(ws, host_name, user.login)
+    async with _get_engine().begin() as conn:
+        deleted = await delete_test_host_link(user.login, ws, host_name, key, conn)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Link {key!r} not found")
+    _log.info("test_host_link_deleted", login=user.login, ws=ws, host=host_name, key=key)

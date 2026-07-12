@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
-export type VaultStatus = 'setup_required' | 'locked' | 'unlocked'
+export type VaultStatus = 'disabled' | 'setup_required' | 'locked' | 'unlocked'
 
 export interface VaultKey {
   identifier: string
@@ -69,7 +69,7 @@ export function usePinRecover() {
 export function useVaultReset() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => apiFetch('/vault/pin', { method: 'DELETE' }),
+    mutationFn: () => apiFetchVoid('/vault/pin', { method: 'DELETE' }),
     onSuccess: () => qc.setQueryData(vaultQueryKeys.status(), { status: 'setup_required' }),
   })
 }
@@ -91,7 +91,7 @@ export function useDeleteVaultKey() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (identifier: string) =>
-      apiFetch(`/vault/keys/${encodeURIComponent(identifier)}`, { method: 'DELETE' }),
+      apiFetchVoid(`/vault/keys/${encodeURIComponent(identifier)}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: vaultQueryKeys.keys() }),
   })
 }

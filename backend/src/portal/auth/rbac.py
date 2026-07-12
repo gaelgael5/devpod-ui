@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hmac
 import re
+import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 import structlog
@@ -15,6 +18,8 @@ _log = structlog.get_logger(__name__)
 
 # Regex username : DNS-safe, max 40 chars, autorise points (LDAP)
 _USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,38}[a-z0-9]$")
+_INVALID_CHARS_RE = re.compile(r"[^a-z0-9._-]")
+_MULTI_SEP_RE = re.compile(r"[-._]{2,}")
 
 
 class UsernameError(ValueError):
@@ -26,6 +31,23 @@ class UserInfo:
     login: str
     roles: list[str] = field(default_factory=list)
     sub: str = ""
+
+
+def normalize_login(raw: str) -> str:
+    """Dérive un login valide depuis un claim brut (email ou username LDAP/OIDC).
+
+    - email → partie locale (avant @)
+    - caractères invalides → tiret
+    - séparateurs multiples → un seul tiret
+    - tronqué à 40 caractères
+    """
+    candidate = raw.lower()
+    if "@" in candidate:
+        candidate = candidate.split("@")[0]
+    candidate = _INVALID_CHARS_RE.sub("-", candidate)
+    candidate = _MULTI_SEP_RE.sub("-", candidate)
+    candidate = candidate.strip("-._")[:40].rstrip("-._")
+    return candidate
 
 
 def validate_username(username: str) -> str:
@@ -50,9 +72,41 @@ def extract_roles(claims: dict[str, object], role_claim_path: str) -> list[str]:
     return []
 
 
+def session_within_max_age(session: Mapping[str, object]) -> bool:
+    """True si la session respecte le plafond d'âge ABSOLU depuis le login (bug 032).
+
+    Les rôles étant figés dans le cookie au login, une session ne peut vivre au-delà
+    de `session_max_age` secondes depuis son `auth_time`. Le max_age du cookie
+    Starlette est glissant (réémis à chaque réponse) et ne borne que l'inactivité ;
+    sans ce plafond, un utilisateur actif garderait indéfiniment des rôles révoqués
+    côté Keycloak. Fail-closed : `auth_time` absent (cookie legacy) = expiré.
+
+    Partagé entre `get_current_user` (deps RBAC) et les proxies openvscode/SSH qui
+    lisent la session hors du dep RBAC : ces derniers DOIVENT aussi appliquer le
+    plafond, sinon l'accès VS Code/SSH survivrait à l'expiration (fail-closed).
+    """
+    auth_time = session.get("auth_time")
+    if not isinstance(auth_time, int):
+        return False
+    return int(time.time()) - auth_time <= get_settings().session_max_age
+
+
 def get_current_user(request: Request) -> UserInfo | None:
+    """Utilisateur courant depuis la session, ou None si absent/expiré.
+
+    À l'expiration du plafond d'âge absolu (bug 032) on renvoie None → 401/403 →
+    re-login OIDC → rôles rafraîchis depuis l'IdP.
+    """
     user_data = request.session.get("user")
     if not user_data:
+        return None
+    if not session_within_max_age(request.session):
+        _log.info(
+            "session_expired_absolute",
+            login=user_data.get("login"),
+            auth_time=request.session.get("auth_time"),
+            max_age_s=get_settings().session_max_age,
+        )
         return None
     return UserInfo(
         login=user_data["login"],
@@ -80,7 +134,9 @@ async def require_admin_or_api_key(
     """Accepte soit une session admin (cookie), soit un Bearer token == portal_api_key."""
     settings = get_settings()
     if credentials is not None:
-        if settings.portal_api_key and credentials.credentials == settings.portal_api_key:
+        if settings.portal_api_key and hmac.compare_digest(
+            credentials.credentials, settings.portal_api_key
+        ):
             return UserInfo(login="__api__", roles=[settings.oidc_admin_role])
         raise HTTPException(status_code=401, detail="Invalid API key")
     return await require_admin(request)

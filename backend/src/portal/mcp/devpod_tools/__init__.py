@@ -18,6 +18,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import structlog
 from mcp import types
 from mcp.shared.exceptions import McpError
 from mcp.types import METHOD_NOT_FOUND, ErrorData
@@ -26,13 +27,21 @@ from sqlalchemy import func as sqlfunc
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ...config.store import _data_root, load_global, load_user, save_user
+from ...config.store import (
+    _data_root,
+    load_global,
+    load_user,
+    save_user,
+    user_config_lock,
+)
 from ...db.tables import compose_deployment as dep_table
 from ...db.tables import workspace_test_hosts as wth_table
 from ...db.tables import workspaces as ws_table
 from ...db.user_config import load_user_db
 from ...devpod.exec import TMUX_SOCK_DETECT, tmux, ws_exec
+from ...events.bus import emit_event
 from . import operations
+from .agent_message_tools import AGENT_MESSAGE_IMPLS
 from .compose_tools import COMPOSE_IMPLS
 from .errors import DevpodToolError
 from .logs_tools import LOGS_IMPLS
@@ -48,6 +57,8 @@ _ENV_TARGET_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 _DEFAULT_IGNORE = [".git", ".venv", "node_modules", "__pycache__"]
 
 __all__ = ["DevpodToolError", "execute_internal_tool"]
+
+_log = structlog.get_logger(__name__)
 
 
 def get_service() -> Any:
@@ -69,6 +80,16 @@ def _require_str(args: dict[str, Any], key: str) -> str:
     if not isinstance(value, str):
         raise DevpodToolError(f"paramètre requis manquant: {key}")
     return value
+
+
+def _optional_int(args: dict[str, Any], key: str, default: int) -> int:
+    """Convertit args[key] en int, ou lève DevpodToolError (jamais un ValueError brut :
+    bug 017, un argument mal typé ne doit pas échapper au dispatch sans audit)."""
+    value = args.get(key, default)
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise DevpodToolError(f"paramètre {key!r} invalide, entier attendu: {value!r}") from exc
 
 
 def _ok(payload: Any) -> types.CallToolResult:
@@ -141,7 +162,7 @@ async def _workspace_status(conn: AsyncConnection, args: dict[str, Any], owner_l
 async def _workspace_logs(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     source = str(args.get("source", "container"))
-    lines = int(args.get("lines", 200))
+    lines = _optional_int(args, "lines", 200)
     if source == "agent":
         cap = await _session_capture(conn, {"workspace": name, "lines": lines}, owner_login)
         return {"source": "agent", "output": cap["output"]}
@@ -397,20 +418,21 @@ async def _workspace_secrets_bind(
         raise DevpodToolError("reference invalide : attendu '${vault://...}' ou '${env://...}'")
     if not _ENV_TARGET_RE.fullmatch(target):
         raise DevpodToolError(f"cible env invalide: {target!r}")
-    cfg = await load_user(owner_login)
-    spec = next((s for s in cfg.workspaces if s.name == name), None)
-    if spec is None:
-        raise DevpodToolError(f"workspace inconnu: {name}")
-    updated = spec.model_copy(update={"env": {**(spec.env or {}), target: reference}})
-    cfg.workspaces = [updated if s.name == name else s for s in cfg.workspaces]
-    await save_user(owner_login, cfg)
+    async with user_config_lock(owner_login):
+        cfg = await load_user(owner_login)
+        spec = next((s for s in cfg.workspaces if s.name == name), None)
+        if spec is None:
+            raise DevpodToolError(f"workspace inconnu: {name}")
+        updated = spec.model_copy(update={"env": {**(spec.env or {}), target: reference}})
+        cfg.workspaces = [updated if s.name == name else s for s in cfg.workspaces]
+        await save_user(owner_login, cfg)
     return {"target": target, "bound": True}
 
 
 async def _workspace_tree(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     p = safe_workspace_path(f"{owner_login}-{name}", str(args.get("path", ".")))
-    depth = int(args.get("depth", 2))
+    depth = _optional_int(args, "depth", 2)
     ignore = args.get("ignore", _DEFAULT_IGNORE)
     prune = ""
     if ignore:
@@ -459,7 +481,7 @@ async def _workspace_write_file(
 async def _workspace_exec(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     command = _require_str(args, "command")
-    timeout = int(args.get("timeout_s", 60))
+    timeout = _optional_int(args, "timeout_s", 60)
     cwd_arg = args.get("cwd")
     ws_id = f"{owner_login}-{name}"
     default_cwd = f"/workspaces/{ws_id}"
@@ -478,7 +500,9 @@ async def _workspace_stop(conn: AsyncConnection, args: dict[str, Any], owner_log
         await get_service().stop(owner_login, f"{owner_login}-{name}")
         return {"workspace": name, "status": "stopped"}
 
-    return {"operation_id": operations.launch_operation("workspace_stop", name, owner_login, work)}
+    return {
+        "operation_id": await operations.launch_operation("workspace_stop", name, owner_login, work)
+    }
 
 
 async def _start_existing(login: str, name: str, conn: AsyncConnection) -> str:
@@ -500,7 +524,7 @@ async def _workspace_reconnect(
             await _start_existing(owner_login, name, bg_conn)
         return {"workspace": name, "status": "provisioning"}
 
-    op = operations.launch_operation("workspace_reconnect", name, owner_login, work)
+    op = await operations.launch_operation("workspace_reconnect", name, owner_login, work)
     return {"operation_id": op}
 
 
@@ -515,12 +539,17 @@ async def _workspace_restart(conn: AsyncConnection, args: dict[str, Any], owner_
             await _start_existing(owner_login, name, bg_conn)
         return {"workspace": name, "status": "provisioning"}
 
-    oid = operations.launch_operation("workspace_restart", name, owner_login, work)
+    oid = await operations.launch_operation("workspace_restart", name, owner_login, work)
     return {"operation_id": oid}
 
 
 def _session_id(workspace: str, session: str) -> str:
     return f"{workspace}:{session}"
+
+
+# Marqueur imprimé UNIQUEMENT par la branche new-session du open idempotent :
+# session.created n'est émis que si la session a réellement été créée.
+_SESSION_CREATED_MARKER = "__portal_session_created__"
 
 
 async def _session_open(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
@@ -535,11 +564,19 @@ async def _session_open(conn: AsyncConnection, args: dict[str, Any], owner_login
     cmd = (
         f"{TMUX_SOCK_DETECT}; "
         f"tmux {_TMUX_SOCK} has-session -t {shlex.quote(sess)} 2>/dev/null || "
-        f"tmux {_TMUX_SOCK} new-session -d -s {shlex.quote(sess)} {shlex.quote(inner)}"
+        f"{{ tmux {_TMUX_SOCK} new-session -d -s {shlex.quote(sess)} {shlex.quote(inner)} "
+        f"&& echo {_SESSION_CREATED_MARKER}; }}"
     )
     rc, out = await ws_exec(owner_login, f"{owner_login}-{name}", cmd)
     if rc != 0:
         raise DevpodToolError(out)
+    if _SESSION_CREATED_MARKER in out:
+        await emit_event(
+            "session.created",
+            actor=owner_login,
+            workspace=name,
+            subject={"session": sess, "command": command},
+        )
     return {
         "session_id": _session_id(name, sess),
         "workspace": name,
@@ -598,13 +635,16 @@ async def _session_close(conn: AsyncConnection, args: dict[str, Any], owner_logi
     )
     if rc != 0:
         raise DevpodToolError(out)
+    await emit_event(
+        "session.closed", actor=owner_login, workspace=name, subject={"session": sess}
+    )
     return {"closed": True}
 
 
 async def _session_capture(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     name = _require_ws(args)
     sess = str(args.get("session", "main"))
-    lines = int(args.get("lines", 200))
+    lines = _optional_int(args, "lines", 200)
     # -e conserve les codes ANSI : buffer brut tel que l'œil le verrait (I-2/I-4).
     rc, out = await ws_exec(
         owner_login,
@@ -799,7 +839,7 @@ async def _node_list(conn: AsyncConnection, args: dict[str, Any], owner_login: s
 
 async def _operations_get(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     oid = _require_str(args, "operation_id")
-    op = operations.get_operation(oid)
+    op = await operations.get_operation(oid)
     if op is None or op.get("owner_login") != owner_login:
         raise DevpodToolError(f"opération inconnue: {oid}")
     return {
@@ -820,7 +860,8 @@ async def _operations_get(conn: AsyncConnection, args: dict[str, Any], owner_log
 
 async def _operations_list(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     ws = args.get("workspace")
-    rows = operations.list_operations(owner_login, workspace=ws if isinstance(ws, str) else None)
+    workspace = ws if isinstance(ws, str) else None
+    rows = await operations.list_operations(owner_login, workspace=workspace)
     _KEYS = ("operation_id", "kind", "workspace", "state", "progress", "created_at")
     return [{k: op.get(k) for k in _KEYS} for op in rows]
 
@@ -910,22 +951,23 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
         from ...devpod.provision import ProvisionParams, provision_workspace
 
         # 1. Sauvegarde du spec dans la config user (le rend visible dans workspace_list).
-        cfg = await load_user(owner_login)
-        if any(ws.name == name for ws in cfg.workspaces):
-            raise DevpodToolError(f"workspace {name!r} existe déjà")
-        ws_spec = WorkspaceSpec(
-            name=name,
-            source=repo,
-            branch=branch,
-            host=node,
-            git_credential=git_credential,
-            recipes=recipes,
-            init_recipes=init_recipes,
-            ssh_key=ssh_key,
-            profile=profile_ref,
-        )
-        cfg.workspaces.append(ws_spec)
-        await save_user(owner_login, cfg)
+        async with user_config_lock(owner_login):
+            cfg = await load_user(owner_login)
+            if any(ws.name == name for ws in cfg.workspaces):
+                raise DevpodToolError(f"workspace {name!r} existe déjà")
+            ws_spec = WorkspaceSpec(
+                name=name,
+                source=repo,
+                branch=branch,
+                host=node,
+                git_credential=git_credential,
+                recipes=recipes,
+                init_recipes=init_recipes,
+                ssh_key=ssh_key,
+                profile=profile_ref,
+            )
+            cfg.workspaces.append(ws_spec)
+            await save_user(owner_login, cfg)
 
         # 2. Provisionnement (lance devpod up en tâche de fond).
         async with _get_engine().begin() as bg_conn:
@@ -956,7 +998,7 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
         final_status = st.get("status", "unknown")
         return {"workspace": name, "ws_id": ws_id, "status": final_status}
 
-    oid = operations.launch_operation("workspace_create", name, owner_login, work)
+    oid = await operations.launch_operation("workspace_create", name, owner_login, work)
     return {"operation_id": oid}
 
 
@@ -969,12 +1011,13 @@ async def _workspace_delete(conn: AsyncConnection, args: dict[str, Any], owner_l
     async def work() -> Any:
         result = await get_service().delete(owner_login, f"{owner_login}-{name}", shelve=True)
         # Retire le spec de la config user pour que workspace_list ne montre plus le workspace.
-        cfg = await load_user(owner_login)
-        cfg.workspaces = [ws for ws in cfg.workspaces if ws.name != name]
-        await save_user(owner_login, cfg)
+        async with user_config_lock(owner_login):
+            cfg = await load_user(owner_login)
+            cfg.workspaces = [ws for ws in cfg.workspaces if ws.name != name]
+            await save_user(owner_login, cfg)
         return {"workspace": name, "deleted": True, **result}
 
-    oid = operations.launch_operation("workspace_delete", name, owner_login, work)
+    oid = await operations.launch_operation("workspace_delete", name, owner_login, work)
     return {"operation_id": oid}
 
 
@@ -986,13 +1029,14 @@ async def _recreate_workspace(owner_login: str, name: str, mutate: Callable[[Any
     from ...db.engine import _get_engine
     from ...devpod.provision import ProvisionParams, provision_workspace
 
-    cfg = await load_user(owner_login)
-    spec = next((s for s in cfg.workspaces if s.name == name), None)
-    if spec is None:
-        raise DevpodToolError(f"workspace inconnu: {name}")
-    spec_updated = mutate(spec)
-    cfg.workspaces = [spec_updated if s.name == name else s for s in cfg.workspaces]
-    await save_user(owner_login, cfg)
+    async with user_config_lock(owner_login):
+        cfg = await load_user(owner_login)
+        spec = next((s for s in cfg.workspaces if s.name == name), None)
+        if spec is None:
+            raise DevpodToolError(f"workspace inconnu: {name}")
+        spec_updated = mutate(spec)
+        cfg.workspaces = [spec_updated if s.name == name else s for s in cfg.workspaces]
+        await save_user(owner_login, cfg)
     await get_service().delete(owner_login, f"{owner_login}-{name}", shelve=False)
     async with _get_engine().begin() as bg_conn:
         return await provision_workspace(
@@ -1036,7 +1080,7 @@ async def _workspace_apply_recipe(
             "status": "provisioning",
         }
 
-    oid = operations.launch_operation("workspace_apply_recipe", name, owner_login, work)
+    oid = await operations.launch_operation("workspace_apply_recipe", name, owner_login, work)
     return {"operation_id": oid}
 
 
@@ -1060,7 +1104,7 @@ async def _workspace_profile_set(
             "status": "provisioning",
         }
 
-    oid = operations.launch_operation("workspace_profile_set", name, owner_login, work)
+    oid = await operations.launch_operation("workspace_profile_set", name, owner_login, work)
     return {"operation_id": oid}
 
 
@@ -1099,6 +1143,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_profile_set": _workspace_profile_set,
     **COMPOSE_IMPLS,
     **MESSAGE_IMPLS,
+    **AGENT_MESSAGE_IMPLS,
     **LOGS_IMPLS,
 }
 
@@ -1114,4 +1159,11 @@ async def execute_internal_tool(
         payload = await impl(conn, arguments, owner_login)
     except DevpodToolError as exc:
         return _err(exc.message)
+    except Exception:
+        # Bug 017 : toute exception non-métier (bug d'impl, argument mal typé non
+        # encore couvert par un _require_*) doit rester dans le CallToolResult pour
+        # que execute_tool_call (handlers.py) puisse toujours écrire audit_record —
+        # la laisser remonter brute contourne l'audit et casse le dispatch MCP.
+        _log.exception("devpod_tool_unhandled_error", tool=name, owner_login=owner_login)
+        return _err("erreur interne lors de l'exécution de l'outil")
     return _ok(payload)

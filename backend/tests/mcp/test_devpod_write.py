@@ -25,7 +25,7 @@ async def test_mkdir(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _capture(monkeypatch)
     res = await devpod_tools._workspace_mkdir(None, {"workspace": "dev", "path": "a/b"}, "admin")
     assert res == {"path": "a/b"}
-    assert "mkdir -p" in calls[0] and "/workspaces/dev/a/b" in calls[0]
+    assert "mkdir -p" in calls[0] and "/workspaces/admin-dev/a/b" in calls[0]
 
 
 @pytest.mark.asyncio

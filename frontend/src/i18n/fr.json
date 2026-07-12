@@ -24,6 +24,33 @@
       "assign": "Impossible de mettre à jour les groupes : {{message}}"
     }
   },
+  "sessions": {
+    "title": "Sessions",
+    "intro": "Toutes les sessions actives : conteneurs de workspace, hosts (admin) et machines de test. Ouvrez un terminal instantanément, créez ou fermez une session.",
+    "count": "{{n}} session(s)",
+    "empty": "Aucune session active.",
+    "newSession": "Nouvelle session",
+    "newNamePlaceholder": "nom de session",
+    "noWorkspace": "aucun workspace running",
+    "open": "Ouvrir",
+    "close": "Fermer",
+    "attached": "attaché",
+    "unreachable": "injoignable",
+    "orphan": "orpheline",
+    "hostUnknown": "nœud inconnu",
+    "created": "Session « {{name}} » créée",
+    "closed": "Session « {{name}} » fermée",
+    "filter": { "all": "Toutes", "workspace": "Conteneurs", "host": "Hosts", "test": "Test" },
+    "family": { "workspace": "conteneur", "host": "host", "test": "test" },
+    "col": {
+      "kind": "Type",
+      "target": "Cible",
+      "session": "Session",
+      "owner": "Propriétaire",
+      "state": "État",
+      "actions": "Actions"
+    }
+  },
   "workspaces": {
     "title": "Workspaces",
     "new": "Nouveau workspace",
@@ -61,6 +88,7 @@
       "createTitle": "Nouvelle session",
       "nameLabel": "Nom",
       "namePlaceholder": "session1",
+      "nameHint": "Lettres minuscules, chiffres, tirets — 1 à 30 caractères, doit commencer par une lettre ou un chiffre",
       "startRecipeLabel": "Script de démarrage",
       "startRecipeNone": "— aucun —",
       "create": "Créer",
@@ -80,6 +108,12 @@
       "failed": "Échec de l'initialisation",
       "needRunning": "Le workspace doit être démarré"
     },
+    "actionsMenu": "Actions",
+    "agentsMenu": {
+      "label": "Agents MCP à mapper",
+      "hint": "Redémarrez le workspace pour appliquer le mapping.",
+      "saved": "Sélection enregistrée — redémarrez le workspace pour l'appliquer."
+    },
     "testVm": {
       "btn": "Add VM for Test",
       "title": "Créer une VM de test",
@@ -95,7 +129,7 @@
       "close": "Fermer"
     },
     "testHosts": {
-      "menu": "SSH test",
+      "actionsMenu": "Actions",
       "openSsh": "Ouvrir une session SSH",
       "resolveIp": "Résoudre l'IP (DNS)",
       "resolving": "Résolution de l'IP…",
@@ -109,6 +143,25 @@
       "deleted": "Machine de test supprimée",
       "deleteFailed": "Échec de la suppression",
       "launchService": "Démarrer un service"
+    },
+    "testHostLinks": {
+      "manage": "Gérer les liens…",
+      "title": "Liens de {{alias}}",
+      "description": "Raccourcis clé → URL affichés dans le menu du serveur de test. Un clic ouvre l'URL dans un nouvel onglet.",
+      "empty": "Aucun lien enregistré.",
+      "keyLabel": "Clé",
+      "keyPlaceholder": "ex. grafana",
+      "urlLabel": "URL",
+      "add": "Ajouter",
+      "update": "Mettre à jour",
+      "cancelEdit": "Annuler la modification",
+      "close": "Fermer",
+      "delete": "Supprimer le lien {{key}}",
+      "edit": "Modifier le lien {{key}}",
+      "copy": "Copier l'URL de {{key}}",
+      "copied": "URL copiée",
+      "copyFailed": "Impossible de copier l'URL",
+      "saveFailed": "Échec de l'enregistrement du lien"
     },
     "form": {
       "name": "Nom",
@@ -147,7 +200,9 @@
       "startRecipeScriptDefault": "#!/usr/bin/env bash\nset -euo pipefail\n",
       "startRecipeCreated": "Recette start «{{id}}» créée.",
       "memoryVolumes": "Volumes persistants",
-      "memoryVolumeLabel": "Activer le volume persistant pour {{recipe}}"
+      "memoryVolumeLabel": "Activer le volume persistant pour {{recipe}}",
+      "agents": "Agents IA",
+      "agentsHint": "Agents installés avec un accès MCP direct : leur fichier de configuration est généré par le portail et monté dans le workspace."
     },
     "confirm": {
       "deleteTitle": "Supprimer le workspace ?",
@@ -220,6 +275,7 @@
   },
   "admin": {
     "hosts": "Hôtes Docker",
+    "galleries": "Galeries",
     "sharedRecipes": "Galerie scripts",
     "proxmox": "Nœuds Proxmox",
     "hypervisors": "Hyperviseurs",
@@ -229,9 +285,33 @@
     "proxmoxEmpty": "Aucun nœud Proxmox enrôlé.",
     "hypervisorsEmpty": "Aucun hyperviseur enrôlé.",
     "hypervisorTypesEmpty": "Aucun type d'hyperviseur configuré.",
+    "agentTypes": {
+      "navLabel": "Types d'agents",
+      "title": "Types d'agents IA",
+      "empty": "Aucun type d'agent configuré.",
+      "add": "Ajouter un type d'agent",
+      "createTitle": "Nouveau type d'agent",
+      "editTitle": "Modifier le type d'agent",
+      "id": "Identifiant",
+      "idHint": "Minuscules, chiffres, tirets — non modifiable après création.",
+      "label": "Libellé",
+      "filename": "Nom de fichier",
+      "targetPath": "Chemin cible",
+      "template": "Template (Jinja2)",
+      "enabled": "Activé",
+      "disabled": "Désactivé",
+      "previewBtn": "Prévisualiser",
+      "deleteTitle": "Supprimer le type « {{id}} » ?",
+      "deleteWarning": "Le type d'agent sera supprimé. La suppression est refusée si un workspace le référence.",
+      "mode": "Mode",
+      "modeReplace": "Remplacement",
+      "modeMerge": "Fusion",
+      "modeReplaceHint": "Fichier dédié au MCP : le portail rend et possède le fichier entier.",
+      "modeMergeHint": "Fichier partagé avec les réglages de l'utilisateur : le template rend un fragment (serveurs préfixés « portal- ») fusionné sans écraser l'existant."
+    },
     "localDomain": {
       "title": "Domaine local (DNS)",
-      "hint": "Ajouté au nom d'une machine de test pour re-résoudre son IP DHCP (ex. home.lan). Laisser vide pour résoudre le nom seul.",
+      "hint": "Ajouté à un hostname pour re-résoudre son IP DHCP courante (ex. home.lan) — s'applique aux machines de test et à l'Adresse LAN du portail ci-dessus lorsqu'elle contient un hostname. Laisser vide pour résoudre le nom seul.",
       "save": "Enregistrer",
       "saved": "Domaine local enregistré"
     },
@@ -239,6 +319,10 @@
     "oidc": {
       "navLabel": "Configuration OIDC",
       "title": "Configuration OIDC",
+      "tabs": {
+        "portal": "Portail",
+        "grafana": "Grafana"
+      },
       "issuer": "URL de l'émetteur (issuer)",
       "clientId": "Client ID",
       "clientSecret": "Client secret",
@@ -261,7 +345,33 @@
       },
       "allowLocalAuth": "Autoriser le compte local break-glass",
       "allowLocalAuthHint": "Quand désactivé, le compte LOCAL_USER (.env) ne peut pas se connecter, même si les identifiants sont configurés.",
-      "allowLocalAuthDisabledHint": "Configurez d'abord OIDC (issuer + client ID) avant de désactiver le login local."
+      "allowLocalAuthDisabledHint": "Configurez d'abord OIDC (issuer + client ID) avant de désactiver le login local.",
+      "grafana": {
+        "title": "SSO Grafana",
+        "intro": "Permet de se connecter à Grafana avec le compte Keycloak au lieu d'un mot de passe local. Utilise le même realm que le portail (issuer ci-dessus).",
+        "clientId": "Client ID",
+        "clientSecret": "Secret client",
+        "secretKept": "(inchangé)",
+        "secretHint": "Laisser vide pour conserver le secret existant.",
+        "save": "Enregistrer",
+        "saved": "Configuration SSO Grafana enregistrée",
+        "restartNeeded": "Un redémarrage de Grafana est nécessaire pour appliquer ce changement (il ne recharge pas sa config OAuth à chaud).",
+        "missingIssuer": "Configurez d'abord l'issuer OIDC du portail ci-dessus.",
+        "missingGrafanaUrl": "Renseignez l'URL de Grafana (config réseau admin) pour obtenir l'URI de redirection exacte.",
+        "endpoints": "Endpoints Keycloak (dérivés de l'issuer)",
+        "authUrl": "URL d'autorisation",
+        "tokenUrl": "URL du token",
+        "userinfoUrl": "URL userinfo",
+        "guide": {
+          "title": "Créer le client Grafana dans Keycloak",
+          "step1": "Clients → Create client → type OpenID Connect, Client ID : celui ci-dessus.",
+          "step2": "Activer « Client authentication » (client confidentiel) et ne garder que « Standard flow ».",
+          "step3": "Renseigner le Valid redirect URI avec exactement cette valeur :",
+          "step4": "Renseigner Web origins avec :",
+          "step5": "Ouvrir l'onglet Credentials, copier le Client secret, et le coller dans le champ ci-dessus.",
+          "copy": "Copier"
+        }
+      }
     },
     "network": {
       "navLabel": "Réseau",
@@ -271,8 +381,10 @@
       "baseDomainHint": "Ex. dev.yoops.org. Vide → pas de routage par sous-domaine (URL directe IP:port).",
       "externalUrl": "URL externe",
       "externalUrlHint": "URL publique absolue du portail, ex. https://dev.yoops.org.",
-      "workspaceHost": "Hôte direct des workspaces",
-      "workspaceHostHint": "Optionnel. IP/hôte joignable en direct quand il n'y a pas de sous-domaine, ex. 192.168.10.50.",
+      "workspaceHost": "Adresse LAN du portail",
+      "resolve": "Résoudre",
+      "resolveEmpty": "Saisis d'abord un hostname ou une IP.",
+      "workspaceHostHint": "Optionnel. IP LAN de la machine qui héberge le conteneur du portail, utilisée pour construire les URLs directes des workspaces quand il n'y a pas de routage par sous-domaine (dev mode). Tous les tunnels des workspaces convergent sur le portail : une seule valeur couvre tous les nœuds. Ex. 192.168.10.50.",
       "cookieDomain": "Domaine du cookie de session",
       "cookieDomainHint": "Domaine racine du cookie de session, ex. yoops.org. Obligatoire quand portail (dev.yoops.org) et proxy VS Code (vs-dev.yoops.org) n'ont qu'un ancêtre commun. Prend effet immédiatement, sans redémarrage.",
       "vsProxyDomain": "Sous-domaine proxy VS Code",
@@ -281,6 +393,61 @@
       "devModeHint": "Activé : les workspaces sont accessibles via une URL directe IP:port (sans route Caddy). À utiliser uniquement pour un accès local sans tunnel Cloudflare.",
       "save": "Enregistrer",
       "saved": "Configuration réseau enregistrée"
+    },
+    "logs": {
+      "navLabel": "Logs",
+      "title": "Logs centralisés",
+      "intro": "Pilote la chaîne Loki/Grafana : le bouton Logs des Workspaces, l'outil MCP logs_query, et les variables injectées aux collecteurs Alloy déployés.",
+      "enabled": "Logs centralisés activés",
+      "enabledHint": "Désactivé : le portail n'injecte aucun collecteur, masque le lien Logs, et désactive l'outil MCP logs_query.",
+      "lokiPushUrl": "URL de push Loki",
+      "lokiPushUrlHint": "Doit être joignable depuis tous les hosts, y compris les serveurs de test distants — une IP/hostname, pas un nom de service Docker. Ex. http://192.168.10.196:3100/loki/api/v1/push.",
+      "lokiQueryUrl": "URL de requête Loki",
+      "lokiQueryUrlHint": "Utilisée par l'outil MCP logs_query, qui tourne dans le portail — le nom de service Docker interne convient, ex. http://loki:3100.",
+      "grafanaUrl": "URL Grafana",
+      "grafanaUrlHint": "URL publique utilisée pour le lien Logs et les deep-links Grafana, ex. https://log.dev.yoops.org.",
+      "module": "Label module",
+      "moduleHint": "Label 'module' commun appliqué à chaque collecteur (défaut : devpod).",
+      "pushToken": "Token de push",
+      "pushTokenKept": "•••••••• (conservé si non modifié)",
+      "pushTokenHint": "Optionnel — uniquement si Loki exige une auth. Valeur littérale ou référence ${vault://...}/${env://...}. Laisser vide pour conserver l'actuel.",
+      "missingUrls": "L'URL de push et l'URL de requête Loki sont requises pour activer les logs centralisés.",
+      "save": "Enregistrer",
+      "saved": "Configuration des logs enregistrée"
+    },
+    "workflow": {
+      "navLabel": "Workflow",
+      "discoveryLabel": "URL à enregistrer dans Workflow",
+      "discoveryHint": "Crée d'abord une source « Discovery » côté Workflow avec cette URL. Workflow te renvoie alors le Source ID (et le secret) à coller ci-dessous.",
+      "copy": "Copier",
+      "copied": "Copié",
+      "testConnection": "Tester la connexion",
+      "sendTestEvent": "Envoyer un event de test",
+      "testOk": "Connexion OK — {{code}} accepté (HTTP {{status}})",
+      "testFail": "Échec de connexion — {{detail}}",
+      "testEventQueued": "Event de test mis en file : {{code}}",
+      "testHint": "« Tester » envoie un event de test synchrone et affiche le verdict ; « Envoyer » met un {appli}.testevent.v1 dans l'outbox (livré si le relais est activé).",
+      "testNeedsSave": "Enregistrez d'abord la configuration (secret compris) pour activer les tests.",
+      "title": "Relais d'events vers Workflow",
+      "intro": "Relaie les events applicatifs (devpod.*) vers le module Workflow, signés HMAC. Désactivé par défaut. Le toggle et la liste blanche prennent effet immédiatement, sans redémarrage.",
+      "enabled": "Relais activé",
+      "enabledHint": "Désactivé : aucun event n'est poussé. L'activation exige l'URL Workflow, l'ID de source, au moins un event coché et un secret.",
+      "baseUrl": "URL de base Workflow",
+      "baseUrlHint": "Base de l'endpoint d'ingestion. Les events sont postés sur {url}/events/{source_id}. Fournie par Workflow.",
+      "sourceId": "ID de source",
+      "sourceIdHint": "UUID attribué par Workflow à l'enregistrement de notre source.",
+      "sourceUri": "URI de source",
+      "sourceUriHint": "Identité de l'application émettrice, placée dans l'enveloppe (défaut : urn:yoops:devpod).",
+      "events": "Events relayés",
+      "eventsHint": "Liste blanche : seuls les types cochés sont poussés vers Workflow.",
+      "selectAll": "Tout cocher",
+      "selectNone": "Tout décocher",
+      "secret": "Secret HMAC",
+      "secretKept": "•••••••• (conservé si non modifié)",
+      "secretHint": "Clé partagée avec Workflow, utilisée pour signer chaque envoi (x-signature). Stockée chiffrée, jamais réaffichée. Laisser vide pour conserver l'actuelle.",
+      "missing": "Pour activer : URL Workflow, ID de source, au moins un event et un secret sont requis.",
+      "save": "Enregistrer",
+      "saved": "Configuration du relais Workflow enregistrée"
     },
     "testHostParams": {
       "btn": "Paramétrage host de test",
@@ -405,7 +572,13 @@
       "showCert": "Voir le certificat TLS",
       "hideCert": "Masquer le certificat",
       "copyCert": "Copier",
-      "proxmoxPassword": "Mot de passe"
+      "usage": "Destination",
+      "usageValues": {
+        "workspaces": "Workspaces",
+        "tests": "Machine de test",
+        "portail": "Portail",
+        "ressources": "Ressources partagées"
+      }
     },
     "deleteHost": "Supprimer l'hôte",
     "deleteHostTitle": "Supprimer l'hôte",
@@ -424,6 +597,10 @@
       "owner": "Appartient au workspace",
       "alias": "alias SSH",
       "noServices": "Aucun service compose actif"
+    },
+    "resourceHosts": {
+      "sectionTitle": "Hosts ressources",
+      "empty": "Aucun host ressource. Ajoutez un host de type ssh avec la destination « Ressources partagées »."
     },
     "sshTerminal": {
       "openBtn": "SSH",
@@ -478,7 +655,9 @@
     "preview": "Aperçu devcontainer.json",
     "fields": {
       "name": "Nom",
-      "description": "Description"
+      "description": "Description",
+      "image": "Image de base",
+      "imageHint": "Image du devcontainer (vide = image par défaut du portail). Choisir une image outillée évite d'installer par recette ce qu'elle contient déjà."
     },
     "sections": {
       "mine": "Mes profils",
@@ -535,6 +714,9 @@
     "empty": "Aucun credential configuré.",
     "add": "Ajouter un credential",
     "edit": "Modifier",
+    "testConnection": "Tester la connexion",
+    "testSuccess": "Connexion réussie",
+    "testFailure": "Échec de la connexion",
     "editDialogTitle": "Modifier le credential",
     "name": "Nom",
     "namePlaceholder": "mon-token-github",
@@ -684,7 +866,8 @@
       "PAT_GITHUB": "Personal Access Token — GitHub",
       "PAT_GITLAB": "Personal Access Token — GitLab",
       "PAT_AZURE": "Personal Access Token — Azure DevOps",
-      "API_KEY": "Clé API générique"
+      "API_KEY": "Clé API générique",
+      "MCP_DISCOVERY": "Service de découverte MCP"
     },
     "patHelp": {
       "title": "Comment obtenir un Personal Access Token (PAT) ?",
@@ -741,9 +924,15 @@
       "autoKey": "Auto (première clé active)",
       "tools": "Tools exposés",
       "allTools": "Tous les tools",
-      "restrictTools": "Restreindre à un sous-ensemble",
-      "allowAllTools": "Autoriser tous les tools",
-      "noToolsCatalog": "Aucun tool indexé (backend non synchronisé)."
+      "allowAllTools": "Tout autoriser",
+      "allowNoneTools": "Tout interdire",
+      "allowReadOnlyTools": "Lecture seule",
+      "noToolsCatalog": "Aucun tool indexé (backend non synchronisé).",
+      "exposedToWorkspaces": "Exposé aux workspaces",
+      "unexposeTitle": "Ne plus exposer « {{name}} » ?",
+      "unexposeWarning": "Le décochage révoque immédiatement les clefs MCP des workspaces dérivées de ce profil et régénère à chaud les fichiers de configuration des agents.",
+      "unexposeConfirm": "Révoquer et retirer",
+      "unexposeDone": "Profil retiré des workspaces — {{count}} workspace(s) affecté(s)."
     },
     "oauth": {
       "openSettings": "Ouvrir →",
@@ -832,6 +1021,37 @@
         "note": "L'intégration MCP de Le Chat est disponible sur les plans Pro. Utilise une clé API client en secours pour les usages API / agent."
       }
     },
+    "explore": {
+      "title": "MCP Explore",
+      "subtitle": "Explorer un serveur MCP qui expose des services avant de l'enregistrer.",
+      "urlPlaceholder": "https://mcp.example.org",
+      "labelLabel": "Label",
+      "slugLabel": "Slug",
+      "urlLabel": "URL du service",
+      "secretLabel": "Secret (découverte MCP)",
+      "noSecret": "— aucun secret —",
+      "test": "Tester",
+      "testOk": "Source joignable — {{who}}",
+      "add": "Ajouter",
+      "added": "Source « {{label}} » ajoutée",
+      "deleted": "Source « {{label}} » supprimée",
+      "delete": "Supprimer la source",
+      "sourcesTitle": "Sources configurées",
+      "searchTitle": "Rechercher un service",
+      "sourceLabel": "Source",
+      "searchPlaceholder": "Rechercher dans le catalogue…",
+      "searchBtn": "Rechercher",
+      "searching": "Recherche…",
+      "searchNeedsSource": "Configure une source ci-dessus pour rechercher.",
+      "noResults": "Aucun résultat pour « {{q}} ».",
+      "resultsCount": "{{total}} résultat(s)",
+      "openRepo": "Dépôt",
+      "openDoc": "Docs",
+      "stars": "{{count}} ★",
+      "prev": "Précédent",
+      "next": "Suivant",
+      "pageOf": "Page {{page}}"
+    },
     "backends": {
       "sectionTitle": "Serveurs MCP",
       "add": "Ajouter un serveur",
@@ -845,6 +1065,10 @@
       "keysTitle": "Clés d'authentification",
       "addKey": "Ajouter une clé",
       "noKeys": "Aucune clé.",
+      "keyProbe": "Tester la clé {{slug}}",
+      "keyProbing": "Test de la clé…",
+      "keyProbeOk": "La clé fonctionne",
+      "keyProbeFailed": "La clé ne fonctionne pas",
       "keyDialogTitle": "Ajouter une clé de service",
       "slug": "Slug fonctionnel",
       "slugHint": "ex : read, admin",
@@ -860,7 +1084,8 @@
       "healthUp": "En ligne",
       "healthDown": "Hors ligne",
       "healthUnknown": "Vérification…",
-      "probe": "Retenter la connexion",
+      "probe": "Re-tester la connexion et rafraîchir les outils",
+      "refreshTools": "Rafraîchir les tools",
       "appUrl": "URL de l'application (optionnel)",
       "appUrlHint": "Lien web optionnel affiché dans la liste pour ouvrir l'application.",
       "openApp": "Ouvrir l'app",
@@ -873,7 +1098,14 @@
       "urlPlaceholder": "https://rag.yoops.org/mcp",
       "slugPlaceholder": "read",
       "viewTools": "Voir les outils",
-      "noTools": "Aucun outil catalogué."
+      "noTools": "Aucun outil catalogué.",
+      "quarantineTitle": "Primitives en quarantaine",
+      "quarantineHint": "Redéfinition détectée (protection anti rug pull). La primitive est masquée et refusée jusqu'à approbation.",
+      "quarantineApprove": "Approuver",
+      "quarantineApproved": "{{name}} approuvé — la primitive est de nouveau exposée",
+      "quarantinedBadge": "Quarantaine",
+      "quarantineDisabledLabel": "Ne pas appliquer la protection des primitives par quarantaine",
+      "quarantineDisabledHint": "Backend de confiance : les redéfinitions d'outils sont acceptées sans approbation. Les quarantaines existantes sont levées à l'enregistrement."
     },
     "apikeys": {
       "sectionTitle": "Apikeys clients",
@@ -893,7 +1125,9 @@
       "delete": "Supprimer",
       "confirmDelete": "Confirmer",
       "connectedAt": "Connecté :",
-      "lastCall": "Dernier appel :"
+      "lastCall": "Dernier appel :",
+      "workspaceBadge": "workspace",
+      "workspaceHint": "Clef générée par le portail pour ce workspace — profil géré automatiquement, révocation seule."
     },
     "saving": "Enregistrement…",
     "save": "Enregistrer"
@@ -940,6 +1174,12 @@
       "submit": "Déployer",
       "portConflict": "Port {{ports}} déjà utilisé ; suggéré : {{suggestion}}",
       "deployFailed": "Déploiement échoué"
+    },
+    "autoStart": {
+      "label": "Démarrage auto sur mes machines de test",
+      "dialogTitle": "Démarrage auto — {{name}}",
+      "dialogHint": "Ce template a besoin de valeurs avant de pouvoir être déployé automatiquement sur chaque nouvelle machine de test que vous créez.",
+      "enable": "Activer"
     },
     "status": {
       "running": "en cours",
@@ -1037,5 +1277,137 @@
       "overwriteConfirmDescription": "Le template {{key}} / {{culture}} existe déjà en base. L'importer écrasera son contenu actuel.",
       "overwrite": "Écraser"
     }
+  },
+  "profile": {
+    "title": "Mon profil",
+    "login": "Identifiant",
+    "loginHint": "L'identifiant est immuable.",
+    "email": "Adresse email",
+    "displayName": "Nom d'affichage",
+    "displayNamePlaceholder": "Votre nom affiché",
+    "save": "Enregistrer",
+    "saved": "Modifications enregistrées.",
+    "saveError": "Erreur lors de la sauvegarde."
+  },
+  "agentMessages": {
+    "title": "Demandes inter-agents",
+    "description": "Messages en attente entre vos workspaces agents. Vous décidez de les transmettre à une session ou de les rejeter.",
+    "empty": "Aucune demande en attente.",
+    "transmit": "Transmettre",
+    "reject": "Rejeter",
+    "rejected": "Message rejeté",
+    "rejectFailed": "Échec du rejet",
+    "cancel": "Annuler",
+    "thread": "Réponses liées",
+    "badgeLabel": "{{count}} message(s) inter-agent en attente",
+    "deliver": {
+      "title": "Transmettre à {{ws}}",
+      "description": "Choisissez la session cible. Le message n'est jamais injecté dans une session en train de travailler.",
+      "pickSession": "Session…",
+      "noSession": "Aucune session active — ouvrir une session pour transmettre.",
+      "submit": "Transmettre",
+      "done": "Message transmis",
+      "failed": "Échec de la transmission"
+    }
+  },
+  "servicesSecurity": {
+    "navLabel": "Services & sécurité"
+  },
+  "services": {
+    "tabLabel": "Services",
+    "sectionTitle": "Services enregistrés",
+    "create": "Ajouter un service",
+    "createTitle": "Nouveau service",
+    "editTitle": "Modifier le service",
+    "name": "Nom",
+    "namePlaceholder": "ex. Grafana",
+    "url": "URL",
+    "mcpProfile": "Profil MCP",
+    "mcpProfilePlaceholder": "Choisir un profil…",
+    "noProfileHint": "Aucun profil MCP disponible — créez-en un dans l'onglet MCP.",
+    "noProfile": "Aucun profil",
+    "empty": "Aucun service enregistré.",
+    "confirmDelete": "Confirmer la suppression"
+  },
+  "rules": {
+    "tabLabel": "Règles",
+    "sectionTitle": "Règles d'automatisation",
+    "intro": "Une règle réagit à un événement : chaque condition appelle une méthode MCP d'un service (sonde) et teste le retour — toutes doivent être vraies (ET). Les actions s'exécutent alors dans l'ordre, puis la règle chaînée le cas échéant. Variables disponibles dans les paramètres : {workspace}, {actor}, {subject[clé]}.",
+    "create": "Ajouter une règle",
+    "createTitle": "Nouvelle règle",
+    "editTitle": "Modifier la règle",
+    "name": "Nom",
+    "namePlaceholder": "ex. Créer le workspace docflow",
+    "event": "Événement déclencheur",
+    "eventPlaceholder": "Choisir un événement…",
+    "conditionsLegend": "Conditions (ET)",
+    "conditionsHint": "Toutes les conditions doivent être vraies ; évaluées dans l'ordre, arrêt au premier faux. Aucune condition = les actions courent à chaque événement.",
+    "conditionN": "Condition {{n}}",
+    "addCondition": "Ajouter une condition",
+    "removeCondition": "Retirer la condition",
+    "actionsLegend": "Actions (dans l'ordre)",
+    "actionsHint": "Exécutées quand toutes les conditions sont vraies ; la première erreur arrête la suite.",
+    "actionN": "Action {{n}}",
+    "addAction": "Ajouter une action",
+    "removeAction": "Retirer l'action",
+    "service": "Service",
+    "servicePlaceholder": "Choisir un service…",
+    "tool": "Méthode MCP",
+    "toolPlaceholder": "Choisir une méthode…",
+    "args": "Paramètres (JSON)",
+    "argsInvalid": "JSON invalide (objet attendu).",
+    "testCall": "Tester",
+    "testCallSent": "Envoyé :",
+    "variablesHint": "Variables : {workspace} · {actor} · {event} · {subject[clé]}",
+    "variablesTitle": "{workspace} = nom du workspace de l'événement · {actor} = login de l'utilisateur · {event} = type d'événement · {subject[clé]} = champ du sujet de l'événement (ex. {subject[ws_id]})",
+    "testWorkspaceEmptyWarning": "{workspace} sera remplacé par une valeur VIDE pour cet essai — renseignez « Workspace de test » en haut du formulaire.",
+    "formTestWorkspace": "Workspace de test (boutons Tester)",
+    "formTestWorkspaceHint": "Valeur injectée dans {workspace} par les boutons « Tester » des sondes et actions — l'appel est réellement exécuté.",
+    "conditionPath": "Chemin d'extraction",
+    "conditionOperator": "Opérateur",
+    "conditionValue": "Valeur comparée",
+    "op": {
+      "eq": "égal (=)",
+      "neq": "différent (≠)",
+      "contains": "contient",
+      "not_contains": "ne contient pas"
+    },
+    "chain": "Puis enchaîner avec",
+    "chainNone": "— aucune —",
+    "chainHint": "Ordre de lancement : la règle suivante est jouée dans tous les cas, même si les conditions étaient fausses. Profondeur maximale 5, boucles détectées.",
+    "clone": "Cloner",
+    "copySuffix": " (copie)",
+    "cloned": "Règle clonée.",
+    "chainedTo": "puis « {{name}} »",
+    "chainStopped": "Enchaînement arrêté :",
+    "summary": "{{conditions}} condition(s) · {{actions}} action(s)",
+    "empty": "Aucune règle. Ajoutez-en une pour réagir aux événements.",
+    "disabled": "désactivée",
+    "serviceMissing": "service manquant",
+    "confirmDelete": "Confirmer la suppression",
+    "play": "Jouer",
+    "testTitle": "Jouer « {{name}} »",
+    "testWorkspace": "Workspace de test",
+    "testWorkspaceHint": "Valeur injectée dans {workspace} pour cet essai. Les actions sont réellement exécutées si les conditions sont vraies.",
+    "conditionOk": "vraie",
+    "conditionKo": "fausse",
+    "traceVerdict": "Verdict",
+    "traceMatched": "vrai — actions exécutées",
+    "traceNotMatched": "faux — pas d'action",
+    "traceError": "Erreur"
+  },
+  "appEvents": {
+    "tabLabel": "Événements",
+    "sectionTitle": "Journal des événements",
+    "empty": "Aucun événement enregistré.",
+    "refresh": "Actualiser",
+    "replay": "Rejouer",
+    "replayRequested": "Rejeu demandé — les écouteurs vont être réexécutés.",
+    "noListener": "Aucun écouteur",
+    "workspaceLabel": "workspace",
+    "ruleMatched": "{{count}} action(s) exécutée(s)",
+    "ruleNotMatched": "conditions fausses — pas d'action",
+    "ruleChainStopped": "enchaînement arrêté :",
+    "retentionHint": "(historique conservé 24 h)"
   }
 }

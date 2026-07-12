@@ -92,6 +92,12 @@ class OidcConfig(BaseModel):
     issuer: str
     client_id: str
     client_secret: str
+
+    @field_validator("issuer", "client_id", "client_secret", mode="before")
+    @classmethod
+    def _strip(cls, v: object) -> object:
+        return v.strip() if isinstance(v, str) else v
+
     scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email", "roles"])
     role_claim: str = "realm_access.roles"
     admin_role: str = "admin"
@@ -155,8 +161,9 @@ class HostConfig(BaseModel):
     # Préférences de stockage des secrets
     storage_type: Literal["local", "harpocrate"] = "local"
     vault_identifier: str = ""
-    # Destination du host : workspaces (sélectionnable à la création) ou tests.
-    usage: Literal["workspaces", "tests", "portail"] = "workspaces"
+    # Destination du host : workspaces, tests, portail (machine du portail), ou
+    # ressources (service partagé permanent, sans workspace propriétaire — spec 33).
+    usage: Literal["workspaces", "tests", "portail", "ressources"] = "workspaces"
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
@@ -190,7 +197,6 @@ class Hypervisor(BaseModel):
     ssh_key_path: str
     pve_node: str = "pve"
     hypervisor_type: str = ""
-    password: str = ""
 
     @field_validator("name")
     @classmethod
@@ -223,6 +229,36 @@ class LogsConfig(BaseModel):
     grafana_url: str | None = None
     module: str = "devpod"
     push_token: str | None = None  # littéral ou ${vault://...}/${env://...}
+    # Client OAuth Keycloak du login SSO de Grafana lui-même — distinct de
+    # push_token qui authentifie les collecteurs Alloy vers Loki. Auth/token/
+    # userinfo URL dérivées de auth.oidc.issuer (même realm Keycloak).
+    grafana_oauth_client_id: str = "agflow-grafana"
+    grafana_oauth_client_secret: str | None = None
+
+
+class EventsProducerConfig(BaseModel):
+    """Producteur d'events vers le module workflow (contrat producteur d'events).
+
+    Le portail émet déjà des events applicatifs en interne (bus `portal.events`) ;
+    ce bloc active leur relais signé HMAC vers le module workflow. `source_id` est
+    l'UUID attribué par le workflow à l'enregistrement de la source ; `secret_slug`
+    référence le secret HMAC partagé, stocké comme secret système (jamais inline ici).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    # URL de base du module workflow (endpoint d'ingestion : `{url}/events/{source_id}`).
+    workflow_base_url: str = ""
+    # UUID de la source, attribué côté workflow à l'enregistrement.
+    source_id: str = ""
+    # Slug du secret système portant la clé HMAC partagée.
+    secret_slug: str = "workflow_events_hmac"
+    # Valeur du champ système `_source` (identifie l'application émettrice).
+    source_uri: str = "urn:yoops:devpod"
+    # Liste blanche des types d'events relayés (vide = aucun relais, même si enabled).
+    # L'intersection avec le registre réel est refaite à l'abonnement (défensif).
+    events: list[str] = Field(default_factory=list)
 
 
 class GlobalConfig(BaseModel):
@@ -239,6 +275,7 @@ class GlobalConfig(BaseModel):
     caddy: CaddyConfig = Field(default_factory=CaddyConfig)
     cloudflare_manager: CloudflareManagerConfig = Field(default_factory=CloudflareManagerConfig)
     logs: LogsConfig = Field(default_factory=LogsConfig)
+    events_producer: EventsProducerConfig = Field(default_factory=EventsProducerConfig)
 
     @model_validator(mode="before")
     @classmethod
@@ -327,6 +364,20 @@ class WorkspaceSpec(BaseModel):
     recipe_volumes: list[str] = Field(default_factory=list)
     init_recipes: list[str] = Field(default_factory=list)
     groups: list[str] = Field(default_factory=list)
+    # Spec 35 : types d'agents à configurer dans le workspace (accès direct MCP).
+    agents: list[str] = Field(default_factory=list)
+
+    @field_validator("agents")
+    @classmethod
+    def validate_agent_ids(cls, v: list[str]) -> list[str]:
+        from portal.agents.models import AGENT_ID_RE
+
+        for aid in v:
+            if not AGENT_ID_RE.fullmatch(aid):
+                raise ValueError(
+                    f"agent id {aid!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$"
+                )
+        return v
 
     @field_validator("start_recipes", "init_recipes")
     @classmethod

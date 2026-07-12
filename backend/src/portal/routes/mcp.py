@@ -11,9 +11,15 @@ from ..auth.rbac import UserInfo, require_user
 from ..db import mcp as db
 from ..db.engine import get_conn
 from ..db.mcp_audit import list_for_owner as audit_list
+from ..db.mcp_catalog import (
+    clear_quarantine,
+    list_quarantined,
+    set_quarantine,
+)
 from ..db.mcp_catalog import list_primitives as list_catalog_primitives
 from ..mcp import models, service
-from ..mcp.monitor import get_health, monitor_backend_once
+from ..mcp.monitor import get_health, monitor_backend_once, probe_backend_key
+from ..mcp.rest_config import set_rest_tools
 
 _log = structlog.get_logger(__name__)
 
@@ -68,6 +74,22 @@ async def create_backend_route(
     return {"id": bid}
 
 
+@router.put("/mcp/backends/{backend_id}/rest-tools")
+async def set_rest_tools_route(
+    body: models.RestToolsSet,
+    backend_id: _BackendId,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, int]:
+    """Déclare (remplace) le jeu d'outils d'un backend `rest`."""
+    try:
+        count = await set_rest_tools(conn, user.login, backend_id, body.tools)
+    except Exception as exc:
+        _map_error(exc)
+        raise
+    return {"tools": count}
+
+
 @router.patch("/mcp/backends/{backend_id}")
 async def update_backend_route(
     body: models.BackendUpdate,
@@ -78,10 +100,19 @@ async def update_backend_route(
     ok = await db.update_backend(
         conn, user.login, backend_id,
         name=body.name, url=body.url, transport=body.transport, enabled=body.enabled,
-        app_url=body.app_url,
+        app_url=body.app_url, quarantine_disabled=body.quarantine_disabled,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="backend introuvable")
+    if body.quarantine_disabled:
+        # Levée immédiate : activer l'opt-out répare le backend en un geste,
+        # sans attendre la prochaine passe du monitor.
+        cleared = await clear_quarantine(conn, backend_id)
+        if cleared:
+            _log.info(
+                "mcp_quarantine_cleared_by_flag",
+                backend_id=backend_id, login=user.login, cleared=cleared,
+            )
     return {"id": backend_id}
 
 
@@ -98,7 +129,7 @@ async def probe_backend_route(
     if backend is None:
         _log.warning("mcp_probe_backend_not_found", backend_id=backend_id, login=user.login)
         raise HTTPException(status_code=404, detail="backend introuvable")
-    health = await monitor_backend_once(conn, backend)
+    health = await monitor_backend_once(conn, backend, trigger="probe")
     _log.info("mcp_probe_result", backend_id=backend_id, status=health.status, error=health.error)
     return {"id": backend_id, "health": health.status}
 
@@ -141,6 +172,28 @@ async def create_key_route(
         _map_error(exc)
         raise
     return {"id": kid}
+
+
+@router.post("/mcp/backends/{backend_id}/keys/{key_id}/probe")
+async def probe_key_route(
+    backend_id: _BackendId,
+    key_id: _UuidId,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str | None]:
+    """Teste une clé de service : handshake MCP authentifié avec cette clé."""
+    backend = await db.get_backend(conn, user.login, backend_id)
+    if backend is None:
+        raise HTTPException(status_code=404, detail="backend introuvable")
+    if backend.get("transport") == "internal":
+        raise HTTPException(
+            status_code=422, detail="backend interne : aucune clé réseau à tester"
+        )
+    try:
+        result = await probe_backend_key(conn, backend, key_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="clé introuvable") from None
+    return {"id": key_id, "status": result.status, "error": result.error}
 
 
 @router.delete("/mcp/backends/{backend_id}/keys/{key_id}", status_code=204)
@@ -213,9 +266,61 @@ async def list_catalog_route(
         raise HTTPException(status_code=404, detail="backend introuvable")
     rows = await list_catalog_primitives(conn, backend_id, kind)
     return [
-        {"name": r["original_name"], "description": (r["definition"] or {}).get("description", "")}
+        {
+            "name": r["original_name"],
+            "description": (r["definition"] or {}).get("description", ""),
+            # Contrat read/write/exec/admin — présent pour le backend interne devpod
+            # (DEVPOD_PRIMITIVES), absent pour les backends externes.
+            "scope": (r["definition"] or {}).get("scope"),
+            "quarantined": r["quarantined"],
+        }
         for r in rows
     ]
+
+
+# ─── Quarantaine (anti rug-pull, spec 23) ─────────────────────────────────────
+
+
+@router.get("/mcp/backends/{backend_id}/quarantined")
+async def list_quarantined_route(
+    backend_id: _BackendId,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[dict[str, Any]]:
+    """Primitives quarantinées du backend (redéfinition détectée, en attente d'approbation)."""
+    if await db.get_backend(conn, user.login, backend_id) is None:
+        raise HTTPException(status_code=404, detail="backend introuvable")
+    rows = await list_quarantined(conn, backend_id)
+    return [
+        {
+            "kind": r["kind"],
+            "name": r["original_name"],
+            "description": (r["definition"] or {}).get("description", ""),
+            "first_seen": r["first_seen"],
+            "last_seen": r["last_seen"],
+        }
+        for r in rows
+    ]
+
+
+@router.post("/mcp/backends/{backend_id}/quarantined/approve")
+async def approve_quarantined_route(
+    body: models.QuarantineApprove,
+    backend_id: _BackendId,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str]:
+    """Approuve une redéfinition : lève la quarantaine, la définition courante fait foi."""
+    if await db.get_backend(conn, user.login, backend_id) is None:
+        raise HTTPException(status_code=404, detail="backend introuvable")
+    lifted = await set_quarantine(conn, backend_id, body.kind, body.name, False)
+    if not lifted:
+        raise HTTPException(status_code=404, detail="primitive non quarantinée ou inconnue")
+    _log.info(
+        "mcp_quarantine_approved",
+        backend_id=backend_id, kind=body.kind, name=body.name, login=user.login,
+    )
+    return {"id": backend_id, "kind": body.kind, "name": body.name}
 
 
 @router.delete("/mcp/apikeys/{apikey_id}", status_code=204)

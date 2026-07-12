@@ -9,7 +9,7 @@ describe('compose types', () => {
   it('template shape compiles', () => {
     const t: ComposeTemplate = {
       id: 'browserless', name: 'B', description: '', tags: ['web'], version: '1',
-      compose_content: 'services: {}', parameters: [], source: 'user',
+      compose_content: 'services: {}', parameters: [], source: 'user', auto_start: false,
     }
     expect(t.id).toBe('browserless')
   })

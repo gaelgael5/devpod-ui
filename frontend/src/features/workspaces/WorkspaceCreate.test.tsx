@@ -86,6 +86,86 @@ describe('WorkspaceCreate', () => {
     })
   })
 
+  it(
+    "conserve l'erreur de la bonne source après suppression d'une source du " +
+      'milieu (bug 042)',
+    async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<WorkspaceCreate />)
+      await user.type(screen.getByLabelText(/name|nom/i), 'my-project')
+
+      const addBtn = screen.getByRole('button', { name: /ajouter|add source/i })
+      await user.click(addBtn)
+      await user.click(addBtn)
+      await user.click(addBtn)
+
+      const urlInputs = screen.getAllByPlaceholderText('github.com/org/repo')
+      expect(urlInputs).toHaveLength(3)
+      await user.type(urlInputs[0], 'github.com/org/a')
+      // urlInputs[1] (B) laissé vide : c'est la source qui doit porter l'erreur.
+      await user.type(urlInputs[2], 'github.com/org/c')
+
+      await user.click(screen.getByRole('button', { name: /create|créer/i }))
+      await waitFor(() => {
+        expect(screen.getByText(/source url is required|url de la source est requise/i))
+          .toBeInTheDocument()
+      })
+
+      // Supprime la première source (A).
+      const removeButtons = screen.getAllByRole('button', { name: /remove|supprimer/i })
+      await user.click(removeButtons[0])
+
+      const remaining = screen.getAllByPlaceholderText('github.com/org/repo')
+      expect(remaining).toHaveLength(2)
+      expect(remaining[0]).toHaveValue('') // B, toujours vide
+      expect(remaining[1]).toHaveValue('github.com/org/c') // C
+
+      // Bug 042 : sans clé stable, l'erreur (indexée par position) glissait sur C
+      // après la suppression de A. Elle doit rester sur B (input vide).
+      expect(remaining[0].parentElement).toHaveTextContent(
+        /source url is required|url de la source est requise/i,
+      )
+      expect(remaining[1].parentElement).not.toHaveTextContent(
+        /source url is required|url de la source est requise/i,
+      )
+    },
+  )
+
+  it('sélectionner un agent IA envoie agents:["claude"] dans les deux requêtes (spec 35)', async () => {
+    const capturedBodies: unknown[] = []
+    server.use(
+      http.get('/me/agent-types', () =>
+        HttpResponse.json([{ id: 'claude', label: 'Claude Code' }])),
+      http.post('/me/workspaces', async ({ request }) => {
+        capturedBodies.push(await request.json())
+        return HttpResponse.json({}, { status: 201 })
+      }),
+      http.post('/me/workspaces/:name/up', async ({ request }) => {
+        capturedBodies.push(await request.json())
+        return HttpResponse.json({ ws_id: 'alice-my-project', status: 'provisioning' }, { status: 202 })
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<WorkspaceCreate />, { route: '/workspaces/new' })
+
+    await user.type(screen.getByLabelText(/name|nom/i), 'my-project')
+    await user.click(await screen.findByRole('button', { name: 'Claude Code' }))
+    await user.click(screen.getByRole('button', { name: /create|créer/i }))
+
+    await waitFor(() => expect(capturedBodies).toHaveLength(2))
+    const [specBody, upBody] = capturedBodies as Array<{ agents?: string[] }>
+    expect(specBody.agents).toEqual(['claude'])
+    expect(upBody.agents).toEqual(['claude'])
+  })
+
+  it('masque la section Agents IA quand la liste des types est vide', async () => {
+    renderWithProviders(<WorkspaceCreate />)
+    // Handler par défaut : GET /me/agent-types → []
+    await screen.findByLabelText(/name|nom/i)
+    expect(screen.queryByText(/AI agents|Agents IA/i)).not.toBeInTheDocument()
+  })
+
   it('affiche le toggle Générer une clé SSH', () => {
     renderWithProviders(<WorkspaceCreate />)
     expect(

@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import structlog
-from sqlalchemy import delete, insert, select, update
+from sqlalchemy import delete, insert, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from portal.config.models import GlobalConfig, HostConfig, Hypervisor, HypervisorType
@@ -52,16 +53,32 @@ def invalidate_cache() -> None:
     _cache = None
 
 
+def set_cached_global(cfg: GlobalConfig) -> None:
+    """Peuple le cache RAM sans toucher la DB.
+
+    À appeler seulement après un COMMIT réussi (config/store.py::save_global) —
+    jamais depuis l'intérieur d'une transaction : si le COMMIT échoue à la sortie
+    du bloc `begin()`, la DB rollback mais un cache déjà peuplé continuerait de
+    servir un état fantôme jusqu'au prochain redémarrage (bug 034).
+    """
+    global _cache
+    _cache = cfg
+
+
 async def load_global_db(conn: AsyncConnection) -> GlobalConfig | None:
     """Lecture depuis la DB (sans cache). Utilisé par warm_global_cache et les tests."""
     return await _load_from_db(conn)
 
 
 async def save_global_db(cfg: GlobalConfig, conn: AsyncConnection) -> None:
-    """Écrit la GlobalConfig en DB et met à jour le cache."""
-    global _cache
+    """Écrit la GlobalConfig en DB.
+
+    Ne touche PAS le cache : `conn` est encore dans la transaction de l'appelant
+    à ce stade, le COMMIT n'a pas encore eu lieu. Le cache est peuplé par
+    l'appelant (config/store.py::save_global) après la sortie réussie du bloc
+    `begin()` — voir set_cached_global (bug 034).
+    """
     await _write_to_db(cfg, conn)
-    _cache = cfg
     _log.info("global_config_saved")
 
 
@@ -110,6 +127,16 @@ def _build_global_config(
                 "format": row["log_format"],
                 "output": row["log_output"],
             },
+        },
+        "logs": {
+            "enabled": row["logs_enabled"],
+            "loki_push_url": row["logs_loki_push_url"] or None,
+            "loki_query_url": row["logs_loki_query_url"] or None,
+            "grafana_url": row["logs_grafana_url"] or None,
+            "module": row["logs_module"],
+            "push_token": row["logs_push_token"] or None,
+            "grafana_oauth_client_id": row["logs_grafana_oauth_client_id"],
+            "grafana_oauth_client_secret": row["logs_grafana_oauth_client_secret"] or None,
         },
         "auth": {
             "oidc": {
@@ -174,7 +201,6 @@ def _hyp_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "ssh_key_path": row["ssh_key_path"],
         "pve_node": row["pve_node"],
         "hypervisor_type": row["hypervisor_type"],
-        "password": row["password"],
     }
 
 
@@ -198,15 +224,16 @@ def _host_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
 async def _write_to_db(cfg: GlobalConfig, conn: AsyncConnection) -> None:
     scalars = _cfg_to_scalars(cfg)
 
-    existing = await conn.execute(
-        select(global_config.c.id).where(global_config.c.id == 1)
-    )
-    if existing.one_or_none() is None:
-        await conn.execute(insert(global_config).values(**scalars))
-    else:
-        await conn.execute(
-            update(global_config).where(global_config.c.id == 1).values(**scalars)
+    # Upsert atomique du singleton id=1 (bug 010) : le check-then-insert laissait
+    # deux transactions concurrentes tenter chacune l'INSERT → UniqueViolation.
+    await conn.execute(
+        pg_insert(global_config)
+        .values(**scalars)
+        .on_conflict_do_update(
+            index_elements=[global_config.c.id],
+            set_={k: v for k, v in scalars.items() if k != "id"},
         )
+    )
 
     # Remplacement complet des listes (delete + insert)
     await conn.execute(delete(hypervisor_types))
@@ -246,6 +273,14 @@ def _cfg_to_scalars(cfg: GlobalConfig) -> dict[str, Any]:
         "log_level": cfg.server.log.level,
         "log_format": cfg.server.log.format,
         "log_output": cfg.server.log.output,
+        "logs_enabled": cfg.logs.enabled,
+        "logs_loki_push_url": cfg.logs.loki_push_url or "",
+        "logs_loki_query_url": cfg.logs.loki_query_url or "",
+        "logs_grafana_url": cfg.logs.grafana_url or "",
+        "logs_module": cfg.logs.module,
+        "logs_push_token": cfg.logs.push_token or "",
+        "logs_grafana_oauth_client_id": cfg.logs.grafana_oauth_client_id,
+        "logs_grafana_oauth_client_secret": cfg.logs.grafana_oauth_client_secret or "",
         "oidc_issuer": cfg.auth.oidc.issuer,
         "oidc_client_id": cfg.auth.oidc.client_id,
         "oidc_client_secret": cfg.auth.oidc.client_secret,
@@ -290,7 +325,6 @@ def _hyp_to_row(h: Hypervisor) -> dict[str, Any]:
         "ssh_key_path": h.ssh_key_path,
         "pve_node": h.pve_node,
         "hypervisor_type": h.hypervisor_type,
-        "password": h.password,
     }
 
 

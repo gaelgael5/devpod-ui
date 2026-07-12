@@ -1,12 +1,18 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, Copy, KeyRound, Pencil, Trash2 } from 'lucide-react'
+import { ChevronRight, Copy, KeyRound, MoreVertical, Pencil, PlayCircle, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -16,6 +22,10 @@ import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import TestHostParamsDialog from './TestHostParamsDialog'
 import SshTerminalWindow from './SshTerminalWindow'
+import { useDeployments } from '@/features/compose/hooks/useCompose'
+import HostServicesBlock from '@/features/compose/components/HostServicesBlock'
+
+const USAGE_VALUES = ['workspaces', 'tests', 'portail', 'ressources'] as const
 
 const EMPTY: HostCreatePayload = {
   name: '',
@@ -26,6 +36,7 @@ const EMPTY: HostCreatePayload = {
   proxmox_node: '',
   vmid: '',
   ci_password: '',
+  usage: 'workspaces',
 }
 
 type DialogMode = 'add' | 'edit'
@@ -359,6 +370,94 @@ function TestHostsGroupedSection({
   )
 }
 
+// ─── Section hosts de catégorie « ressources » (spec 33) ──────────────────────
+
+function ResourceHostsSection({
+  hosts,
+  actions,
+}: {
+  hosts: HostConfig[]
+  actions: HostActions
+}) {
+  const { t } = useTranslation()
+  const { data: deployments = [] } = useDeployments()
+  // Host dont le dialog « Démarrer un service » est ouvert (item du menu ⋮).
+  const [launchFor, setLaunchFor] = useState<string | null>(null)
+
+  return (
+    <div className="mt-4 flex flex-col gap-3">
+      <h2 className="px-1 text-sm font-semibold text-muted-foreground">
+        {t('admin.resourceHosts.sectionTitle')}
+      </h2>
+      {hosts.length === 0 && (
+        <p className="px-1 text-xs text-muted-foreground">{t('admin.resourceHosts.empty')}</p>
+      )}
+      {hosts.map((host) => (
+        <div key={host.name} className="rounded-lg border bg-card overflow-hidden">
+          <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span className="font-semibold text-sm truncate">{host.name}</span>
+              <span className="font-mono text-xs text-muted-foreground truncate">
+                {host.address || '—'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => actions.onEdit(host)}>
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => actions.onDelete(host)}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+              {!host.host_cert_slug && (
+                <Button size="sm" variant="outline"
+                  className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
+                  onClick={() => actions.onBootstrap(host)}>
+                  {t('admin.bootstrap.btn')}
+                </Button>
+              )}
+              {host.host_cert_slug && (
+                <Button size="sm" variant="outline"
+                  className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
+                  onClick={() => actions.onSsh(host)}>
+                  {t('admin.sshTerminal.openBtn')}
+                </Button>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    aria-label={t('workspaces.testHosts.actionsMenu')}
+                  >
+                    <MoreVertical className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onSelect={() => setLaunchFor(host.name)} className="gap-2">
+                    <PlayCircle className="h-3.5 w-3.5" />
+                    {t('workspaces.testHosts.launchService')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+          <div className="p-2">
+            <HostServicesBlock
+              nodeId={host.name}
+              nodeLabel={host.name}
+              namingHint={host.name}
+              deployments={deployments.filter((d) => d.node_id === host.name)}
+              launchOpen={launchFor === host.name}
+              onLaunchOpenChange={(o) => setLaunchFor(o ? host.name : null)}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── Composant principal ──────────────────────────────────────────────────────
 
 export default function AdminHosts() {
@@ -405,6 +504,7 @@ export default function AdminHosts() {
       proxmox_node: host.proxmox_node ?? '',
       vmid: host.vmid ?? '',
       ci_password: '',  // toujours vide en édition (secret non visible)
+      usage: host.usage ?? 'workspaces',
     })
     setMode('edit'); setShowCert(false); setOpen(true)
   }
@@ -420,6 +520,7 @@ export default function AdminHosts() {
       proxmox_node: form.proxmox_node,
       vmid: form.vmid,
       ci_password: form.ci_password ?? '',
+      usage: form.usage ?? 'workspaces',
     }
     const mutation = mode === 'edit' ? updateHost : addHost
     mutation.mutate(payload, { onSuccess: () => handleClose(false) })
@@ -436,6 +537,7 @@ export default function AdminHosts() {
       proxmox_node: config.proxmox_node ?? '',
       vmid: config.vmid ?? '',
       ci_password: ciPassword ?? '',
+      usage: config.usage ?? 'workspaces',
     })
     setMode('add'); setShowCert(false); setOpen(true)
   }
@@ -500,8 +602,9 @@ export default function AdminHosts() {
         <p className="text-muted-foreground">{t('admin.hostsEmpty')}</p>
       )}
       {hosts && hosts.length > 0 && (() => {
-        const wsHosts = hosts.filter((h: HostConfig) => h.usage !== 'tests')
+        const wsHosts = hosts.filter((h: HostConfig) => h.usage !== 'tests' && h.usage !== 'ressources')
         const testHosts = hosts.filter((h: HostConfig) => h.usage === 'tests')
+        const resourceHosts = hosts.filter((h: HostConfig) => h.usage === 'ressources')
         const hostActions: HostActions = {
           onEdit: openEdit,
           onDelete: confirmDelete,
@@ -578,6 +681,7 @@ export default function AdminHosts() {
               </div>
             )}
             <TestHostsGroupedSection hosts={testHosts} actions={hostActions} />
+            <ResourceHostsSection hosts={resourceHosts} actions={hostActions} />
           </>
         )
       })()}
@@ -635,6 +739,17 @@ export default function AdminHosts() {
                   placeholder="user@192.168.1.50" />
               </div>
             )}
+            <div className="flex flex-col gap-1.5">
+              <Label>{t('admin.form.usage')}</Label>
+              <Select value={form.usage ?? 'workspaces'} onValueChange={(v) => set('usage', v as HostConfig['usage'])}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {USAGE_VALUES.map((v) => (
+                    <SelectItem key={v} value={v}>{t(`admin.form.usageValues.${v}`)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-1">
               <Label htmlFor="h-ci-password">{t('hosts.form.ci_password', 'Mot de passe console Proxmox (optionnel)')}</Label>
               <Input

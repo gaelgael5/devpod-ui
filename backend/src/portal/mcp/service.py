@@ -61,6 +61,7 @@ async def create_backend(conn: AsyncConnection, owner_login: str, body: BackendC
             url=body.url,
             transport=body.transport,
             app_url=body.app_url,
+            quarantine_disabled=body.quarantine_disabled,
         )
     except IntegrityError as exc:
         raise NamespaceTaken(f"namespace '{body.namespace}' déjà utilisé") from exc

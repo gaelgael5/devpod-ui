@@ -18,6 +18,7 @@ from ..db.recipes import load_recipes_as_dict
 from ..devpod.exec import TMUX_SOCK_DETECT as _TMUX_SOCK_DETECT
 from ..devpod.exec import tmux as _tmux
 from ..devpod.exec import ws_exec
+from ..events.bus import emit_event
 from ..recipes.models import _RECIPE_ID_RE
 
 _log = structlog.get_logger(__name__)
@@ -164,6 +165,13 @@ async def create_session(
         raise HTTPException(status_code=502, detail=f"Failed to create tmux session: {output}")
 
     _log.info("session_created", ws_id=ws_id, session=req.name, start_recipe=req.start_recipe)
+    # new-session échoue si la session existe déjà : succès ⇒ création réelle.
+    await emit_event(
+        "session.created",
+        actor=user.login,
+        workspace=name,
+        subject={"session": req.name, "start_recipe": req.start_recipe},
+    )
     return {"name": req.name}
 
 
@@ -185,3 +193,6 @@ async def delete_session(
     if rc != 0:
         raise HTTPException(status_code=502, detail=f"Failed to kill tmux session: {output}")
     _log.info("session_deleted", ws_id=ws_id, session=session_name)
+    await emit_event(
+        "session.closed", actor=user.login, workspace=name, subject={"session": session_name}
+    )

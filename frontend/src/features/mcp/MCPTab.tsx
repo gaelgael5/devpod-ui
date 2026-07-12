@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import MCPBackends from './MCPBackends'
+import MCPExplore from './MCPExplore'
 import MCPApikeys from './MCPApikeys'
 import MCPProfiles from './MCPProfiles'
 
@@ -106,7 +107,10 @@ export default function MCPTab() {
 
       {/* ── Onglet MCP Servers ── */}
       <TabsContent value="servers" className="mt-0">
-        <MCPBackends />
+        <div className="flex flex-col gap-6">
+          <MCPExplore />
+          <MCPBackends />
+        </div>
       </TabsContent>
 
       {/* ── Onglet Profils ── */}

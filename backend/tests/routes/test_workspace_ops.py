@@ -369,6 +369,33 @@ def test_get_ssh_key_returns_200_when_key_exists(tmp_path: Path) -> None:
     assert data["public_key"] == expected_pub
 
 
+def test_get_ssh_key_deports_file_io_via_to_thread(tmp_path: Path, monkeypatch) -> None:
+    """Bug 039 : exists()/read_text() sont bloquants — doivent être déportés via
+    asyncio.to_thread, jamais exécutés directement dans l'event loop du handler."""
+    import portal.routes.workspace_ops as ws_ops_mod
+
+    app = _make_app(tmp_path)
+
+    from portal.ssh_keys import ensure_workspace_ssh_key
+
+    ensure_workspace_ssh_key("alice", "myapp")
+
+    calls: list[object] = []
+    real_to_thread = asyncio.to_thread
+
+    async def spy_to_thread(func, *args, **kwargs):
+        calls.append(func)
+        return await real_to_thread(func, *args, **kwargs)
+
+    monkeypatch.setattr(ws_ops_mod.asyncio, "to_thread", spy_to_thread)
+
+    with TestClient(app) as client:
+        resp = client.get("/me/workspaces/myapp/ssh-key")
+
+    assert resp.status_code == 200
+    assert ws_ops_mod._read_ssh_public_key in calls
+
+
 def test_up_with_generate_ssh_key_creates_key_file(tmp_path: Path) -> None:
     """POST up avec generate_ssh_key=True génère la paire de clés sur disque."""
     app = _make_app(tmp_path)

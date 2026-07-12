@@ -371,7 +371,7 @@ export default function AdminJinjaTemplates() {
                   </div>
                 </div>
                 <Button size="sm" onClick={() => onImportClick(rt)} disabled={importTemplate.isPending}>
-                  {importTemplate.isPending
+                  {importTemplate.isPending && importTemplate.variables?.source_url === rt.source_url
                     ? t('jinjaTemplates.gallery.importing')
                     : t('jinjaTemplates.gallery.import')}
                 </Button>

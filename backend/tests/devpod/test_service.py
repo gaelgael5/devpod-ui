@@ -21,6 +21,67 @@ async def test_up_rejects_non_dns_safe_name(
         svc._ws_id("alice", "INVALID NAME!")
 
 
+# ---------------------------------------------------------------------------
+# Bug 040 : _WS_ID_RE partagée entre devpod/service.py et exposure/__init__.py —
+# tout ws_id accepté par _ws_id() doit l'être aussi par ExposureService.expose().
+# ---------------------------------------------------------------------------
+
+
+def test_ws_id_regex_is_the_same_object_in_service_and_exposure() -> None:
+    """Une seule définition, importée des deux côtés — pas de risque de dérive."""
+    from portal.devpod.service import _WS_ID_RE as service_re
+    from portal.exposure import _WS_ID_RE as exposure_re
+
+    assert service_re is exposure_re
+
+
+@pytest.mark.asyncio
+async def test_ws_id_rejects_combo_too_long_for_dns_label(
+    tmp_data_root: Path, global_cfg, fake_devpod_bin: list[str]
+) -> None:
+    """login (40 chars max) + name (32 chars max) peut atteindre 73 caractères
+    bruts, mais le sous-domaine Caddy réel est "ws-{ws_id}" — un label DNS est
+    limité à 63 caractères. _ws_id() doit rejeter ce cas tôt, plutôt que de
+    laisser expose() échouer après coup (statut running sans URL)."""
+    from portal.devpod.service import DevPodService
+
+    svc = DevPodService(global_cfg=global_cfg, devpod_bin=fake_devpod_bin)
+    login = "a" * 40
+    name = "b" * 32
+    with pytest.raises(ValueError, match="DNS"):
+        svc._ws_id(login, name)
+
+
+@pytest.mark.asyncio
+async def test_ws_id_within_dns_limit_accepted_by_both_service_and_exposure(
+    tmp_data_root: Path, global_cfg, fake_devpod_bin: list[str]
+) -> None:
+    """Un ws_id qui passe _ws_id() doit toujours être accepté par expose()."""
+    from portal.devpod.service import DevPodService
+    from portal.exposure import _WS_ID_RE as exposure_re
+
+    svc = DevPodService(global_cfg=global_cfg, devpod_bin=fake_devpod_bin)
+    login = "a" * 20
+    name = "b" * 32
+    ws_id = svc._ws_id(login, name)
+    assert exposure_re.fullmatch(ws_id)
+
+
+@pytest.mark.asyncio
+async def test_ws_id_with_dotted_login_accepted_by_both(
+    tmp_data_root: Path, global_cfg, fake_devpod_bin: list[str]
+) -> None:
+    """Un login LDAP avec point (ex. "a.b") doit passer les deux regex — l'ancienne
+    regex de service.py rejetait tout point (bug 040)."""
+    from portal.devpod.service import DevPodService
+    from portal.exposure import _WS_ID_RE as exposure_re
+
+    svc = DevPodService(global_cfg=global_cfg, devpod_bin=fake_devpod_bin)
+    ws_id = svc._ws_id("a.b", "app")
+    assert ws_id == "a.b-app"
+    assert exposure_re.fullmatch(ws_id)
+
+
 @pytest.mark.asyncio
 async def test_up_writes_status_file(
     tmp_data_root: Path, global_cfg, fake_devpod_bin: list[str]

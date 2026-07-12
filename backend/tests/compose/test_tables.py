@@ -9,6 +9,12 @@ def test_compose_tables_declared() -> None:
     tcols = set(tables.compose_template.c.keys())
     assert {"id", "name", "tags", "version", "compose_content", "parameters", "source"} <= tcols
     dcols = set(tables.compose_deployment.c.keys())
-    assert {"id", "template_id", "node_id", "owner_login", "env_values", "host_ports", "status"} <= dcols
+    expected_dcols = {
+        "id", "template_id", "node_id", "owner_login", "env_values", "host_ports", "status",
+    }
+    assert expected_dcols <= dcols
     lcols = set(tables.compose_deployment_log.c.keys())
     assert {"id", "deployment_id", "operation", "content", "started_at", "finished_at"} <= lcols
+    assert tables.compose_auto_start.name == "compose_auto_start"
+    acols = set(tables.compose_auto_start.c.keys())
+    assert {"id", "owner_login", "template_id", "env_values", "created_at"} <= acols

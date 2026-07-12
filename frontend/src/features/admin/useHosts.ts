@@ -1,7 +1,7 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetch, apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
 export interface HostConfig {
   name: string
@@ -14,8 +14,9 @@ export interface HostConfig {
   // Références harpo_* (lecture seule — jamais de secret brut)
   ci_password_secret_slug?: string
   host_cert_slug?: string
-  // Destination : workspaces (sélectionnable à la création) ou tests.
-  usage?: 'workspaces' | 'tests'
+  // Destination : workspaces, tests, portail (machine du portail), ou
+  // ressources (service partagé permanent, sans workspace propriétaire — spec 33).
+  usage?: 'workspaces' | 'tests' | 'portail' | 'ressources'
 }
 
 export interface HostCreatePayload {
@@ -27,6 +28,7 @@ export interface HostCreatePayload {
   proxmox_node?: string
   vmid?: string
   ci_password?: string
+  usage?: 'workspaces' | 'tests' | 'portail' | 'ressources'
 }
 
 export function useHosts() {
@@ -69,7 +71,7 @@ export function useDeleteHost() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (name: string) =>
-      apiFetch(`/admin/hosts/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+      apiFetchVoid(`/admin/hosts/${encodeURIComponent(name)}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hosts'] }),
     onError: (err: Error) => toast.error(err.message),
   })
@@ -114,24 +116,33 @@ export function useDestroyVm() {
     done: false,
     error: null,
   })
+  const controllerRef = useRef<AbortController | null>(null)
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
 
   const reset = useCallback(() => {
     setState({ logs: '', running: false, done: false, error: null })
   }, [])
 
   const execute = useCallback(async (hypervisorName: string, vmid: string) => {
+    // Un execute() concurrent (retry sans fermer le dialog) ne doit pas laisser
+    // l'ancien stream ouvert (bug 020).
+    controllerRef.current?.abort()
+    const controller = new AbortController()
+    controllerRef.current = controller
     setState({ logs: '', running: true, done: false, error: null })
     try {
       const res = await apiFetch(`/admin/hypervisors/${encodeURIComponent(hypervisorName)}/execute-destroy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vmid }),
+        signal: controller.signal,
       })
       if (!res.ok) {
         const text = await res.text().catch(() => '')
         throw new Error(text || `HTTP ${res.status}`)
       }
       const reader = res.body!.getReader()
+      readerRef.current = reader
       const decoder = new TextDecoder()
       let accum = ''
       while (true) {
@@ -141,10 +152,21 @@ export function useDestroyVm() {
         const snap = accum
         setState(s => ({ ...s, logs: snap }))
       }
+      readerRef.current = null
       setState(s => ({ ...s, logs: accum, running: false, done: true }))
     } catch (e) {
+      readerRef.current = null
+      // Annulé (unmount ou nouvel execute()) : le hook est détaché, pas d'update d'état.
+      if (controller.signal.aborted) return
       const msg = e instanceof Error ? e.message : String(e)
       setState(s => ({ ...s, error: msg, running: false, done: true }))
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      controllerRef.current?.abort()
+      readerRef.current?.cancel().catch(() => {})
     }
   }, [])
 
@@ -243,7 +265,7 @@ export function useBootstrapSsh() {
   })
 }
 
-// ─── Groupement des hosts de test par workspace ───────────────────────────────
+// ─── Groupement des hosts de test par workspace ─────────────────────────────
 
 export interface TestHostEntry {
   host: HostConfig

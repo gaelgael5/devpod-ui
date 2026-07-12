@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
@@ -24,6 +24,7 @@ import ProfileSelector from './ProfileSelector'
 import SourceRow from './SourceRow'
 import { useUserStore } from '@/store/user'
 import { useHosts, type HostConfig } from '@/features/admin/useHosts'
+import { useAgentTypes } from '@/features/mcp/api'
 import { apiFetchJson } from '@/shared/api/client'
 
 /** Valeur sentinelle Radix Select pour "pas de nœud choisi" (Radix refuse les strings vides). */
@@ -49,6 +50,14 @@ function emptySource(): SourceEntry {
   return { url: '', branch: '', credential: '' }
 }
 
+/** Une ligne de source avec un identifiant stable (bug 042) : indexer les erreurs
+ * et la clé React par position de tableau casse dès qu'une source du milieu est
+ * supprimée (l'erreur/état d'une ligne "glisse" sur la ligne suivante). */
+interface SourceRowState {
+  id: string
+  entry: SourceEntry
+}
+
 // ─── Composant principal ──────────────────────────────────────────────────────
 
 export default function WorkspaceCreate() {
@@ -63,14 +72,18 @@ export default function WorkspaceCreate() {
   const { data: credentials = [] } = useGitCredentials()
   const { data: profiles = [] } = useProfiles()
   const { data: startRecipes = [] } = useStartRecipes()
+  const { data: agentTypes = [] } = useAgentTypes()
 
   const [name, setName] = useState('')
-  const [sources, setSources] = useState<SourceEntry[]>([])
+  const [sourceRows, setSourceRows] = useState<SourceRowState[]>([])
+  const nextSourceIdRef = useRef(0)
+  const sources = useMemo(() => sourceRows.map(r => r.entry), [sourceRows])
   const [host, setHost] = useState('')
   const [selectedRecipes, setSelectedRecipes] = useState<string[]>([])
   const [selectedStartRecipes, setSelectedStartRecipes] = useState<string[]>([])
   const [selectedInitRecipes, setSelectedInitRecipes] = useState<string[]>([])
   const [volumeRecipes, setVolumeRecipes] = useState<string[]>([])
+  const [selectedAgents, setSelectedAgents] = useState<string[]>([])
 
   const recipesWithOptionalVolume = useMemo(
     () => recipes.filter(r => selectedRecipes.includes(r.id) && r.memory_volume?.optional),
@@ -94,25 +107,30 @@ export default function WorkspaceCreate() {
   const [generateSshKey, setGenerateSshKey] = useState(false)
   const [profile, setProfile] = useState('')
   const [nameError, setNameError] = useState('')
-  const [sourceErrors, setSourceErrors] = useState<Record<number, string>>({})
+  const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({})
   const [serverError, setServerError] = useState('')
 
-  function updateSource(index: number, updated: SourceEntry) {
-    setSources(prev => prev.map((s, i) => (i === index ? updated : s)))
-    if (sourceErrors[index]) {
-      setSourceErrors(e => ({ ...e, [index]: '' }))
+  function newSourceId(): string {
+    nextSourceIdRef.current += 1
+    return `src-${nextSourceIdRef.current}`
+  }
+
+  function updateSource(id: string, updated: SourceEntry) {
+    setSourceRows(prev => prev.map(r => (r.id === id ? { ...r, entry: updated } : r)))
+    if (sourceErrors[id]) {
+      setSourceErrors(e => ({ ...e, [id]: '' }))
     }
   }
 
   function addSource() {
-    setSources(prev => [...prev, emptySource()])
+    setSourceRows(prev => [...prev, { id: newSourceId(), entry: emptySource() }])
   }
 
-  function removeSource(index: number) {
-    setSources(prev => prev.filter((_, i) => i !== index))
+  function removeSource(id: string) {
+    setSourceRows(prev => prev.filter(r => r.id !== id))
     setSourceErrors(e => {
       const next = { ...e }
-      delete next[index]
+      delete next[id]
       return next
     })
   }
@@ -175,10 +193,10 @@ export default function WorkspaceCreate() {
       setNameError('')
     }
 
-    const errors: Record<number, string> = {}
-    sources.forEach((s, i) => {
-      if (!s.url.trim()) {
-        errors[i] = t('workspaces.form.sourceUrlRequired')
+    const errors: Record<string, string> = {}
+    sourceRows.forEach((row) => {
+      if (!row.entry.url.trim()) {
+        errors[row.id] = t('workspaces.form.sourceUrlRequired')
         valid = false
       }
     })
@@ -208,6 +226,7 @@ export default function WorkspaceCreate() {
         startRecipes: selectedStartRecipes,
         volumeRecipes,
         initRecipes: selectedInitRecipes,
+        agents: selectedAgents,
       })
       navigate('/workspaces')
     } catch (err) {
@@ -274,19 +293,19 @@ export default function WorkspaceCreate() {
             </Button>
           </div>
           <div className="flex flex-col gap-2">
-            {sources.map((src, i) => (
+            {sourceRows.map((row, i) => (
               <SourceRow
-                key={i}
+                key={row.id}
                 index={i}
-                entry={src}
-                onChange={updated => updateSource(i, updated)}
-                onRemove={() => removeSource(i)}
+                entry={row.entry}
+                onChange={updated => updateSource(row.id, updated)}
+                onRemove={() => removeSource(row.id)}
                 credentials={credentials}
-                urlError={sourceErrors[i]}
+                urlError={sourceErrors[row.id]}
               />
             ))}
           </div>
-          {sources.length > 0 && (
+          {sourceRows.length > 0 && (
             <p className="mt-1.5 text-xs text-muted-foreground">
               {t('workspaces.form.sourcesHint')}
             </p>
@@ -443,6 +462,40 @@ export default function WorkspaceCreate() {
                     }`}
                   >
                     {r.id}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ─── Agents IA (spec 35) ────────────────────────────────────────── */}
+        {agentTypes.length > 0 && (
+          <div>
+            <Label>{t('workspaces.form.agents')}</Label>
+            <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+              {t('workspaces.form.agentsHint')}
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {agentTypes.map((a) => {
+                const selected = selectedAgents.includes(a.id)
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    title={a.id}
+                    onClick={() =>
+                      setSelectedAgents((prev) =>
+                        selected ? prev.filter((x) => x !== a.id) : [...prev, a.id],
+                      )
+                    }
+                    className={`rounded-sm px-2 py-0.5 text-xs border transition-colors ${
+                      selected
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-muted text-muted-foreground border-border hover:border-primary'
+                    }`}
+                  >
+                    {a.label}
                   </button>
                 )
               })}

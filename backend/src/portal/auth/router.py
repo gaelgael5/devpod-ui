@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import os
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from ..config.store import _data_root, ensure_user_dir, load_global
 from ..settings import get_settings
 from . import rbac as rbac_mod
 from .oidc import OIDCClient, OIDCError
-from .rbac import UsernameError, extract_roles, validate_username
+from .rbac import UsernameError, extract_roles, normalize_login, validate_username
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -92,6 +93,9 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
         raise HTTPException(status_code=401, detail="Invalid credentials")
     await provision_user(login=settings.local_user, sub="local", data_root=_data_root())
     request.session.setdefault("session_id", str(uuid.uuid4()))
+    # Horodatage de login absolu : borne l'âge maximal de la session indépendamment
+    # du max_age glissant du cookie (bug 032).
+    request.session["auth_time"] = int(time.time())
     request.session["user"] = {
         "login": settings.local_user,
         "roles": [load_global().auth.oidc.admin_role],
@@ -122,19 +126,24 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
         _log.warning("oidc_callback_error", error=str(exc))
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-    raw_login = claims.get(oidc.username_claim, "")
+    raw_login = str(claims.get(oidc.username_claim, ""))
+    login_name = normalize_login(raw_login)
     try:
-        login_name = validate_username(str(raw_login))
+        validate_username(login_name)
     except UsernameError as exc:
-        _log.warning("oidc_invalid_username", username=raw_login)
+        _log.warning("oidc_invalid_username", username=raw_login, normalized=login_name)
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     roles = extract_roles(claims, oidc.role_claim)
     sub = str(claims.get("sub", ""))
+    email = str(claims.get("email", ""))
 
-    await provision_user(login=login_name, sub=sub, data_root=_data_root())
+    await provision_user(login=login_name, sub=sub, data_root=_data_root(), email=email)
 
     request.session.setdefault("session_id", str(uuid.uuid4()))
+    # Horodatage de login absolu : borne l'âge maximal de la session indépendamment
+    # du max_age glissant du cookie (bug 032).
+    request.session["auth_time"] = int(time.time())
     request.session["user"] = {"login": login_name, "roles": roles, "sub": sub}
     _log.info("user_logged_in", login=login_name, roles=roles)
     return RedirectResponse("/", status_code=302)
@@ -157,7 +166,7 @@ async def logout(request: Request) -> RedirectResponse:
     return resp
 
 
-async def provision_user(login: str, sub: str, data_root: Path) -> None:
+async def provision_user(login: str, sub: str, data_root: Path, email: str = "") -> None:
     """Crée le répertoire + config YAML initiale si absent, upsert la row users. Idempotent."""
     validate_username(login)
     user_dir = data_root / "users" / login
@@ -193,23 +202,30 @@ async def provision_user(login: str, sub: str, data_root: Path) -> None:
     # Upsert dans la table users (nécessaire pour les FK vault, workspaces, etc.)
     settings = get_settings()
     if settings.database_url:
-        from sqlalchemy import insert, select
+        from sqlalchemy import update
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
 
         from ..db.engine import _get_engine
         from ..db.tables import users
 
         async with _get_engine().begin() as conn:
-            existing = (
-                await conn.execute(select(users.c.login).where(users.c.login == login))
-            ).scalar_one_or_none()
-            if existing is None:
-                await conn.execute(
-                    insert(users).values(login=login, version="1", secret_ns=secret_ns_str)
-                )
+            # INSERT atomique (même famille que bug 010) : deux callbacks de
+            # login concurrents du même user ne doivent pas lever UniqueViolation.
+            # DO NOTHING préserve la ligne existante (et son secret_ns).
+            result = await conn.execute(
+                pg_insert(users)
+                .values(login=login, version="1", secret_ns=secret_ns_str, email=email)
+                .on_conflict_do_nothing(index_elements=[users.c.login])
+            )
+            if (result.rowcount or 0) > 0:
                 _log.info("user_db_row_created", login=login)
                 from ..mcp.devpod_bootstrap import ensure_devpod_backend
 
                 await ensure_devpod_backend(conn, login)
+            elif email:
+                await conn.execute(
+                    update(users).where(users.c.login == login).values(email=email)
+                )
 
 
 @router.get("/caddy/verify")

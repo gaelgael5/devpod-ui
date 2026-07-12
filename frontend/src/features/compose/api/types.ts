@@ -25,6 +25,8 @@ export interface ComposeTemplate {
   message_key?: string | null
   created_at?: string | null
   updated_at?: string | null
+  auto_start: boolean
+  first_service: string | null
 }
 
 export interface ComposeDeployment {
@@ -77,6 +79,11 @@ export interface DeploymentCreateBody {
   node_id: string
   name: string
   env_values: Record<string, string>
+}
+
+export interface AutoStartUpdateBody {
+  enabled: boolean
+  env_values?: Record<string, string>
 }
 
 export interface TemplateSaveResult {

@@ -4,10 +4,12 @@ from sqlalchemy import (
     ARRAY,
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     LargeBinary,
     MetaData,
@@ -15,6 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
@@ -41,6 +44,15 @@ global_config = Table(
     Column("log_level", Text, nullable=False, server_default="info"),
     Column("log_format", Text, nullable=False, server_default="text"),
     Column("log_output", Text, nullable=False, server_default=""),
+    # LogsConfig (Loki/Grafana — distinct du LogConfig structlog ci-dessus)
+    Column("logs_enabled", Boolean, nullable=False, server_default="false"),
+    Column("logs_loki_push_url", Text, nullable=False, server_default=""),
+    Column("logs_loki_query_url", Text, nullable=False, server_default=""),
+    Column("logs_grafana_url", Text, nullable=False, server_default=""),
+    Column("logs_module", Text, nullable=False, server_default="devpod"),
+    Column("logs_push_token", Text, nullable=False, server_default=""),
+    Column("logs_grafana_oauth_client_id", Text, nullable=False, server_default="agflow-grafana"),
+    Column("logs_grafana_oauth_client_secret", Text, nullable=False, server_default=""),
     # OidcConfig
     Column("oidc_issuer", Text, nullable=False),
     Column("oidc_client_id", Text, nullable=False),
@@ -94,7 +106,6 @@ hypervisors = Table(
     Column("ssh_key_path", Text, nullable=False),
     Column("pve_node", Text, nullable=False, server_default="pve"),
     Column("hypervisor_type", Text, nullable=False, server_default=""),
-    Column("password", Text, nullable=False, server_default=""),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
@@ -165,6 +176,8 @@ users = Table(
     Column("default_idle_timeout", Text, nullable=False, server_default="4h"),
     Column("harpocrate_api_key", Text, nullable=False, server_default=""),
     Column("culture", Text, nullable=False, server_default="fr"),
+    Column("email", Text, nullable=False, server_default=""),
+    Column("display_name", Text, nullable=False, server_default=""),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
@@ -208,6 +221,8 @@ workspaces = Table(
     Column("recipe_volumes", ARRAY(Text), nullable=False, server_default="{}"),
     Column("init_recipes", ARRAY(Text), nullable=False, server_default="{}"),
     Column("groups", ARRAY(Text), nullable=False, server_default="{}"),
+    # Spec 35 : types d'agents à configurer (accès MCP direct).
+    Column("agents", ARRAY(Text), nullable=False, server_default="{}"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("login", "name", name="uq_workspaces_login_name"),
@@ -249,6 +264,23 @@ workspace_test_hosts = Table(
     Column("message_id", BigInteger, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("login", "workspace_name", "host_name", name="uq_wth_login_ws_host"),
+)
+
+# Liens (clé → URL) attachés à un serveur de test — affichés dans le menu ⋮ du host.
+test_host_links = Table(
+    "test_host_links",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "test_host_id",
+        Integer,
+        ForeignKey("workspace_test_hosts.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("key", Text, nullable=False),
+    Column("url", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("test_host_id", "key", name="uq_thl_host_key"),
 )
 
 # ─── Tour 10 : node_certificates (Groupe 4 — dépend de hosts) ───────────────
@@ -352,6 +384,8 @@ profiles = Table(
     Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=True),
     Column("name", Text, nullable=False),
     Column("description", Text, nullable=False, server_default=""),
+    # Image de base du devcontainer (vide = défaut du portail)
+    Column("image", Text, nullable=False, server_default=""),
     Column("extensions", ARRAY(Text), nullable=False, server_default="{}"),
     Column("settings", JSONB, nullable=False, server_default="{}"),
     Column("gallery_source", Text, nullable=True),
@@ -446,6 +480,10 @@ mcp_backend = Table(
     Column("enabled", Boolean, nullable=False, server_default="true"),
     # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
     Column("app_url", Text, nullable=False, server_default=""),
+    # Opt-out de la protection anti rug-pull (quarantaine sur redéfinition, spec 23).
+    # false par défaut : protection active. true = backend de confiance (service
+    # exposé par l'utilisateur lui-même) → jamais de quarantaine, levée au resync.
+    Column("quarantine_disabled", Boolean, nullable=False, server_default="false"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("owner_login", "namespace", name="uq_mcp_backend_owner_namespace"),
@@ -474,6 +512,8 @@ mcp_profile = Table(
     Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
     Column("name", Text, nullable=False),
     Column("description", Text, nullable=False, server_default=""),
+    # Spec 35 : profil injecté dans les fichiers MCP des workspaces de son owner.
+    Column("exposed_in_workspaces", Boolean, nullable=False, server_default="false"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=True),
 )
@@ -503,6 +543,10 @@ mcp_apikey = Table(
     Column("token_hash", Text, nullable=False),  # sha256 hex du token clair
     Column("label", Text, nullable=False, server_default=""),
     Column("revoked", Boolean, nullable=False, server_default="false"),
+    # Instant de révocation (NULL tant que non révoquée) — base de la purge à 24h.
+    # Les lignes révoquées avant l'ajout de la colonne l'ont NULL : la purge retombe
+    # alors sur created_at.
+    Column("revoked_at", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     # OAuth : un token émis par le flow OAuth est une apikey kind='oauth'.
     Column("kind", Text, nullable=False, server_default="apikey"),  # apikey | oauth
@@ -516,6 +560,36 @@ mcp_apikey = Table(
         ForeignKey("mcp_profile.id", ondelete="SET NULL"),
         nullable=True,
     ),
+    # Spec 35 : clef générée pour un workspace (ws_id "{login}-{name}", convention
+    # spec 34 — pas de FK dure). NULL = clef utilisateur classique.
+    Column("workspace_ref", Text, nullable=True),
+    Index(
+        "idx_mcp_apikey_workspace_ref",
+        "workspace_ref",
+        postgresql_where=text("workspace_ref IS NOT NULL"),
+    ),
+)
+
+# ─── Types d'agents workspace (spec 35) ──────────────────────────────────────
+
+# Un type d'agent = un fichier de configuration MCP généré dans chaque workspace
+# qui le demande : template Jinja (rendu sandboxé) + nom de fichier + chemin cible
+# dans le conteneur. Les contraintes de format (slug, filename sans '/', target_path
+# sans '..') sont validées côté pydantic (portal.agents.models).
+agent_type = Table(
+    "agent_type",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("label", Text, nullable=False),
+    Column("filename", Text, nullable=False),
+    Column("template", Text, nullable=False),
+    Column("target_path", Text, nullable=False),
+    # Stratégie de matérialisation : 'replace' (fichier dédié, symlink vers mount
+    # ro) ou 'merge' (fichier partagé, fusion du connecteur). Cf. migration 058.
+    Column("mode", Text, nullable=False, server_default="replace"),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=True),
 )
 
 # ─── MCP Gateway (lot 2 — runtime) ───────────────────────────────────────────
@@ -654,6 +728,22 @@ compose_deployment_log = Table(
     Column("finished_at", DateTime(timezone=True), nullable=True),
 )
 
+# Préférence utilisateur : déployer automatiquement ce template sur chaque
+# nouvelle machine de test qu'il crée (lié à user + template, pas au host —
+# voir cadrage utilisateur : la vignette est globale, le choix est personnel).
+compose_auto_start = Table(
+    "compose_auto_start",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column(
+        "template_id", Text, ForeignKey("compose_template.id", ondelete="CASCADE"), nullable=False
+    ),
+    Column("env_values", JSONB, nullable=False, server_default="{}"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("owner_login", "template_id", name="uq_compose_auto_start_login_tpl"),
+)
+
 # ─── Système de messages contextuels pour agents ──────────────────────────────
 
 jinja2_template = Table(
@@ -675,4 +765,203 @@ workspace_message = Table(
     Column("type", Text, nullable=False),
     Column("message", Text, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+
+# ─── Spec 34 : messagerie inter-agents (délivrance pilotée par l'utilisateur) ──
+#
+# Référence de workspace par ws_id texte ("{login}-{name}"), comme workspace_status :
+# workspaces.id est un entier réattribué à chaque save de config (delete+réinsertion),
+# donc inutilisable en FK stable. owner_login scope les deux workspaces (v1 intra-user).
+agent_message = Table(
+    "agent_messages",
+    metadata,
+    Column("id", Text, primary_key=True),  # uuid4 généré côté Python (cf. compose_deployment)
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("owner_login", Text, nullable=False),
+    Column("from_ws_id", Text, nullable=False),
+    Column("from_session", Text, nullable=True),
+    Column("to_ws_id", Text, nullable=False),
+    Column("subject", Text, nullable=False),
+    Column("body", Text, nullable=False),
+    # Fil de réponses : agent_messages est une table stable (lignes immuables une fois
+    # créées), la self-FK est donc saine — SET NULL si le message parent disparaît.
+    Column("reply_to", Text, ForeignKey("agent_messages.id", ondelete="SET NULL"), nullable=True),
+    Column(
+        "status",
+        Text,
+        nullable=False,
+        server_default="pending",
+    ),
+    Column("delivered_at", DateTime(timezone=True), nullable=True),
+    Column("delivered_to_session", Text, nullable=True),
+    Column("cancelled_at", DateTime(timezone=True), nullable=True),
+    CheckConstraint("from_ws_id <> to_ws_id", name="ck_agent_messages_no_self"),
+    CheckConstraint("char_length(subject) <= 200", name="ck_agent_messages_subject_len"),
+    CheckConstraint("char_length(body) <= 20000", name="ck_agent_messages_body_len"),
+    CheckConstraint(
+        "status IN ('pending', 'delivered', 'cancelled')", name="ck_agent_messages_status"
+    ),
+    Index(
+        "idx_agent_messages_to_pending",
+        "to_ws_id",
+        postgresql_where=text("status = 'pending'"),
+    ),
+    Index("idx_agent_messages_from", "from_ws_id", "created_at"),
+    Index(
+        "idx_agent_messages_reply_to",
+        "reply_to",
+        postgresql_where=text("reply_to IS NOT NULL"),
+    ),
+)
+
+
+# ─── Événements applicatifs (bus interne — journal + livraisons) ─────────────
+#
+# `actor` = login émetteur ou "system" — volontairement sans FK vers users :
+# le journal survit à la purge d'un utilisateur (audit).
+app_event = Table(
+    "app_event",
+    metadata,
+    Column("id", Text, primary_key=True),  # uuid4 hex généré côté Python
+    Column("type", Text, nullable=False),
+    Column("actor", Text, nullable=False),
+    Column("workspace", Text, nullable=True),
+    Column("subject", JSONB, nullable=False, server_default="{}"),
+    Column("correlation_id", Text, nullable=True),
+    Column("occurred_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index("idx_app_event_actor_time", "actor", "occurred_at"),
+)
+
+app_event_delivery = Table(
+    "app_event_delivery",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("event_id", Text, ForeignKey("app_event.id", ondelete="CASCADE"), nullable=False),
+    Column("listener", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("error", Text, nullable=True),
+    # Détail structuré retourné par l'écouteur (ex. user-rules : verdict et
+    # erreurs par règle déclenchée) — null si l'écouteur n'en fournit pas.
+    Column("detail", JSONB, nullable=True),
+    Column("finished_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("status IN ('ok', 'error')", name="ck_app_event_delivery_status"),
+    Index("idx_app_event_delivery_event", "event_id"),
+)
+
+# ─── Règles utilisateur (moteur sonde → condition → action) ───────────────────
+#
+# Écrites par l'utilisateur dans l'UI (bloc Rules). Une règle réagit à UN type
+# d'événement ; conditions (ET, chacune = sonde MCP + test) et actions
+# (ordonnées) sont des listes JSONB — les service_id qu'elles contiennent
+# référencent user_services SANS FK (JSONB) : un service supprimé rend la
+# règle inopérante, signalée à l'exécution et dans l'UI, jamais silencieuse.
+# next_rule_id : règle jouée à la suite quand les actions ont couru.
+user_rules = Table(
+    "user_rules",
+    metadata,
+    Column("id", Text, primary_key=True),  # uuid4 généré côté Python
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("name", Text, nullable=False),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("event_type", Text, nullable=False),
+    # [{service_id, tool, args, path, operator, value}] — ET logique, ordre préservé
+    Column("conditions", JSONB, nullable=False, server_default="[]"),
+    # [{service_id, tool, args}] — exécutées dans l'ordre, arrêt à la 1re erreur
+    Column("actions", JSONB, nullable=False, server_default="[]"),
+    Column(
+        "next_rule_id",
+        Text,
+        ForeignKey("user_rules.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=True),
+    Index("idx_user_rules_owner_event", "owner_login", "event_type"),
+)
+
+# ─── Registre de services (hub Services & Security) ──────────────────────────
+#
+# Adresses de services externes utiles au travail de l'utilisateur, avec le
+# profil MCP permettant d'y accéder. mcp_profile_id nullable + SET NULL : la
+# suppression du profil ne doit jamais faire disparaître le service enregistré,
+# seulement son association (l'UI signale « aucun profil »).
+user_services = Table(
+    "user_services",
+    metadata,
+    Column("id", Text, primary_key=True),  # uuid4 généré côté Python
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("name", Text, nullable=False),
+    Column("url", Text, nullable=False),
+    Column(
+        "mcp_profile_id",
+        Text,
+        ForeignKey("mcp_profile.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=True),
+)
+
+# ─── Outbox transactionnel du relais d'events workflow ───────────────────────
+#
+# Tampon durable entre l'écouteur du bus (qui n'y fait qu'insérer l'enveloppe,
+# dans la même txn) et le worker de fond (qui signe HMAC + POST, hors txn DB —
+# bug 026). `raw_body` = octets exacts sérialisés à signer ET poster. `status`
+# ∈ {pending, delivered, failed} ; retry/backoff porté par next_attempt_at.
+workflow_event_outbox = Table(
+    "workflow_event_outbox",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("event_id", Text, nullable=False),
+    Column("event_code", Text, nullable=False),
+    Column("raw_body", Text, nullable=False),
+    Column("status", Text, nullable=False, server_default="pending"),
+    Column("attempts", Integer, nullable=False, server_default="0"),
+    Column("last_error", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("next_attempt_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("delivered_at", DateTime(timezone=True), nullable=True),
+    Index("idx_workflow_event_outbox_due", "status", "next_attempt_at"),
+)
+
+
+# Préférences UI par utilisateur (clé fonctionnelle composée → valeur typée).
+# Une ligne = (login, pref_key) ; la valeur est rangée dans la colonne du type
+# indiqué par `value_type` (les deux autres colonnes restent NULL). Évite de
+# multiplier les colonnes sur `users` pour chaque réglage d'interface.
+user_preferences = Table(
+    "user_preferences",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("pref_key", Text, nullable=False),
+    Column("value_type", Text, nullable=False),
+    Column("value_int", Integer, nullable=True),
+    Column("value_text", Text, nullable=True),
+    Column("value_bool", Boolean, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "value_type IN ('int', 'string', 'bool')", name="ck_user_preferences_value_type"
+    ),
+    UniqueConstraint("login", "pref_key", name="uq_user_preferences_login_key"),
+)
+
+
+# Sources de découverte MCP : une instance mcp-manager (URL de base) + une
+# référence (slug) vers un secret utilisateur de type MCP_DISCOVERY. On y
+# recherche des services MCP pour les ajouter ensuite comme serveurs.
+mcp_discovery_source = Table(
+    "mcp_discovery_source",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("label", Text, nullable=False),
+    Column("slug", Text, nullable=False),
+    Column("url", Text, nullable=False),
+    Column("secret_slug", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("login", "slug", name="uq_mcp_discovery_source_login_slug"),
 )

@@ -84,6 +84,10 @@ CREATE TABLE mcp_backend (
     transport  text NOT NULL DEFAULT 'streamable_http'
                CHECK (transport IN ('streamable_http','sse','stdio')),
     enabled    boolean NOT NULL DEFAULT true,
+    -- Opt-out anti rug-pull (2026-07-06) : true = backend de confiance, les
+    -- redéfinitions ne sont jamais quarantinées et les quarantaines héritées
+    -- sont levées (au resync et à l'enregistrement du flag). false par défaut.
+    quarantine_disabled boolean NOT NULL DEFAULT false,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -284,7 +288,7 @@ Deux couches distinctes, qui convergent toutes deux vers la couche **profils**.
 
 | Menace | Mitigation |
 |---|---|
-| **Rug pull** (redéfinition d'un tool après approbation) | Épinglage : `definition_hash` en base. Au rafraîchissement, si le hash change, marquer `quarantined = true` jusqu'à approbation manuelle. Entrée d'audit. |
+| **Rug pull** (redéfinition d'un tool après approbation) | Épinglage : `definition_hash` en base. Au rafraîchissement, si le hash change, marquer `quarantined = true` jusqu'à **approbation manuelle** (route `POST /mcp/backends/{id}/quarantined/approve` + section « Primitives en quarantaine » dans le détail du backend). Entrée d'audit (`status=denied`, `error=quarantined`). Opt-out par backend via `quarantine_disabled` (backends de confiance auto-hébergés) — dans ce cas la redéfinition est acceptée, loggée (`mcp_catalog_resync`), jamais bloquante. |
 | **Tool poisoning** (injection via descriptions) | Les descriptions des backends sont des données non fiables. Ne pas les exécuter ; les exposer telles quelles au client mais journaliser tout changement. |
 | **Cross-server shadowing** (un backend en usurpe un autre) | Namespacing strict par `backend_id` (clé primaire) ; un backend ne peut pas publier sous le préfixe d'un autre. |
 | **Fuite de credentials** | Secrets résolus à la volée, jamais persistés en clair ; `auth_ref` (sur la clé de service) = référence uniquement. |

@@ -1,9 +1,24 @@
+import { execSync } from 'child_process'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
+// Sha court du commit courant, injecté comme app.version pour Faro (télémétrie
+// navigateur) — permet de relier une erreur/un log vus dans Grafana au build
+// exact qui l'a produit. 'unknown' si .git est absent (build hors dépôt).
+function gitShortSha(): string {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim()
+  } catch {
+    return 'unknown'
+  }
+}
+
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(gitShortSha()),
+  },
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
   },

@@ -930,9 +930,11 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
     "logs_query": {
         "description": (
             "Interroge les logs centralisés de la stack "
-            "(tous les hosts + workspaces + système). "
-            "Filtres structurés par host/role/project/service/unit/level, "
+            "(tous les hosts + workspaces + système + erreurs navigateur devpod-ui). "
+            "Filtres structurés par host/role/project/service/unit/job/level, "
             "ou expression LogQL brute pour les cas avancés. "
+            "Pour les erreurs/logs console/web vitals du frontend devpod-ui : job='faro' "
+            "(source='frontend'). "
             "Retourne les lignes correspondantes et un lien Grafana pré-filtré. "
             "Préférer cet outil à workspace_logs/compose_service_logs "
             "pour une vue transverse ou historique ; "
@@ -966,6 +968,13 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
                     "type": "string",
                     "description": "Filtre label 'unit' (logs journald, ex. 'docker.service').",
                 },
+                "job": {
+                    "type": "string",
+                    "description": (
+                        "Filtre label 'job'. 'faro' = logs/erreurs console et web vitals du "
+                        "frontend devpod-ui (navigateur) ; 'journal' = logs système journald."
+                    ),
+                },
                 "level": {
                     "type": "string",
                     "description": "Filtre niveau structlog via '| json | level=\"...\"'.",
@@ -995,6 +1004,86 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
                     "enum": ["forward", "backward"],
                     "default": "backward",
                     "description": "Ordre (backward = plus récent d'abord).",
+                },
+            },
+        },
+        "scope": "read",
+    },
+    # ─── Spec 34 : messagerie inter-agents ────────────────────────────────────
+    "message_send": {
+        "description": (
+            "Envoie un message asynchrone à un autre workspace agent. La délivrance "
+            "est pilotée par l'utilisateur (fire-and-forget) : ne PAS attendre ni "
+            "poller la réponse, poursuivre ses tâches. Consigner l'envoi dans le "
+            "journal de travail. Impact: crée un message en attente de validation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["from_workspace", "to_workspace", "subject", "body"],
+            "properties": {
+                "from_workspace": {
+                    "type": "string",
+                    "description": "Nom du workspace émetteur (celui où tourne l'agent appelant).",
+                },
+                "to_workspace": {
+                    "type": "string",
+                    "description": "Nom du workspace destinataire.",
+                },
+                "subject": {"type": "string", "description": "Sujet (≤ 200 caractères)."},
+                "body": {"type": "string", "description": "Corps markdown (≤ 20000 caractères)."},
+                "reply_to": {
+                    "type": "string",
+                    "description": "message_id d'un message reçu auquel on répond (optionnel).",
+                },
+                "from_session": {
+                    "type": "string",
+                    "description": "Nom de la session émettrice si connu (optionnel).",
+                },
+            },
+        },
+        "scope": "write",
+    },
+    "message_status": {
+        "description": (
+            "Statut et horodatages d'un message envoyé (+ réponses liées). "
+            "Ne PAS poller : la réponse éventuelle arrivera comme un message entrant. "
+            "Impact: read-only."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["message_id"],
+            "properties": {
+                "message_id": {"type": "string", "description": "Id du message."},
+            },
+        },
+        "scope": "read",
+    },
+    "message_list": {
+        "description": (
+            "Liste les messages d'un workspace. 'received' ne retourne que les messages "
+            "DÉLIVRÉS (les messages en attente appartiennent à l'utilisateur, invisibles "
+            "à l'agent). Impact: read-only."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace"],
+            "properties": {
+                "workspace": {"type": "string", "description": "Nom du workspace."},
+                "direction": {
+                    "type": "string",
+                    "enum": ["received", "sent", "all"],
+                    "default": "received",
+                    "description": "received (délivrés reçus), sent (envoyés), all.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Nombre max de messages.",
                 },
             },
         },

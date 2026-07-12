@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from portal.db.mcp_audit import record as audit_record
 from portal.mcp.aggregator import (
+    PrimitiveQuarantined,
     aggregate_primitives,
     make_namespaced_uri,
     resolve_resource,
@@ -78,9 +79,22 @@ async def execute_resource_read(
 ) -> list[ReadResourceContents]:
     """Route un resources/read vers son backend. Deny-by-default + audit à chaque sortie."""
     session_fn = open_session_fn if open_session_fn is not None else open_session
-    target = await resolve_resource(
-        conn, apikey_id=apikey_id, owner_login=owner_login, namespaced_uri=namespaced_uri
-    )
+    try:
+        target = await resolve_resource(
+            conn, apikey_id=apikey_id, owner_login=owner_login, namespaced_uri=namespaced_uri
+        )
+    except PrimitiveQuarantined as exc:
+        await audit_record(
+            conn, apikey_id=apikey_id, owner_login=owner_login,
+            namespaced_name=namespaced_uri, backend_id=exc.backend_id, backend_key_id=None,
+            latency_ms=None, status="denied", error="quarantined",
+        )
+        raise McpError(
+            ErrorData(
+                code=METHOD_NOT_FOUND,
+                message="resource indisponible (en attente d'approbation)",
+            )
+        ) from exc
     if target is None:
         await audit_record(
             conn, apikey_id=apikey_id, owner_login=owner_login,

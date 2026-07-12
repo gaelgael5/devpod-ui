@@ -6,6 +6,9 @@ export const handlers = [
   ),
   http.get('/me/workspaces', () => HttpResponse.json([])),
   http.get('/me/git-credentials', () => HttpResponse.json([])),
+  http.post('/me/git-credentials/:name/test', () =>
+    HttpResponse.json({ ok: true, message: '' }),
+  ),
   http.post('/me/workspaces', () => HttpResponse.json({}, { status: 201 })),
   http.delete('/me/workspaces/:name', () => HttpResponse.json({ deleted: 'ok' })),
   http.post('/me/workspaces/:name/up', () =>
@@ -20,10 +23,17 @@ export const handlers = [
   http.get('/me/workspaces/:name/status', () =>
     HttpResponse.json({ ws_id: 'alice-myapp', status: 'running', url: 'https://alice-myapp.dev.yoops.org' })
   ),
+  http.get('/me/workspaces/:name/initializers', () => HttpResponse.json([])),
+  http.get('/me/workspaces/:name/test-hosts/:host/links', () => HttpResponse.json([])),
+  http.get('/me/agent-messages/pending-counts', () => HttpResponse.json({})),
+  http.get('/me/agent-messages', () => HttpResponse.json([])),
+  http.get('/me/agent-types', () => HttpResponse.json([])),
+  http.get('/admin/agent-types', () => HttpResponse.json([])),
+  http.get('/me/services', () => HttpResponse.json([])),
   http.get('/recipes', () =>
     HttpResponse.json([
-      { id: 'claude-code', version: '1.0.0', description: 'Claude Code CLI', installs_after: [], requires_secrets: [{ path: 'llm/anthropic_key', env: 'ANTHROPIC_API_KEY' }] },
-      { id: 'aider', version: '1.0.0', description: 'Aider AI pair programmer', installs_after: [], requires_secrets: [{ path: 'llm/anthropic_key', env: 'ANTHROPIC_API_KEY' }] },
+      { id: 'claude-code', key: '11111111-1111-4111-8111-111111111111', version: '1.0.0', description: 'Claude Code CLI', type: 'install', scope: 'shared', installs_after: [], requires_secrets: [{ path: 'llm/anthropic_key', env: 'ANTHROPIC_API_KEY' }] },
+      { id: 'aider', key: '22222222-2222-4222-8222-222222222222', version: '1.0.0', description: 'Aider AI pair programmer', type: 'install', scope: 'shared', installs_after: [], requires_secrets: [{ path: 'llm/anthropic_key', env: 'ANTHROPIC_API_KEY' }] },
     ])
   ),
   http.get('/me/recipes', () => HttpResponse.json([])),
@@ -34,9 +44,29 @@ export const handlers = [
       { name: 'ssh-dev', type: 'ssh', default: false, address: 'debian@192.168.10.175', host_cert_slug: 'hosts/ssh_dev_ed25519', storage_type: 'local' },
     ])
   ),
+  http.get('/me/git/branches', () => HttpResponse.json({ branches: [] })),
+  http.get('/admin/hosts/:name/workspaces', () => HttpResponse.json([])),
+  http.get('/admin/hosts/:name/deployments', () => HttpResponse.json([])),
   http.get('/admin/hypervisor-types', () => HttpResponse.json([])),
   http.get('/admin/oidc', () =>
     HttpResponse.json({ issuer: '', client_id: '', has_secret: false }),
+  ),
+  http.get('/admin/network', () =>
+    HttpResponse.json({
+      base_domain: '', external_url: '', workspace_host: '', dev_mode: false,
+      vs_proxy_domain: '', cookie_domain: '',
+    }),
+  ),
+  http.get('/admin/grafana-oidc', () =>
+    HttpResponse.json({
+      client_id: 'agflow-grafana',
+      has_secret: false,
+      auth_url: null,
+      token_url: null,
+      userinfo_url: null,
+      redirect_uri: null,
+      grafana_url: null,
+    }),
   ),
   http.get('/me/test-hypervisors', () => HttpResponse.json([])),
   http.get('/admin/recipes', () => HttpResponse.json([])),
@@ -207,6 +237,7 @@ export const handlers = [
   http.post('/me/mcp/backends', () => HttpResponse.json({ id: 'b-new' }, { status: 201 })),
   http.delete('/me/mcp/backends/:id', () => new HttpResponse(null, { status: 204 })),
   http.get('/me/mcp/backends/:id/keys', () => HttpResponse.json([])),
+  http.get('/me/mcp/backends/:id/quarantined', () => HttpResponse.json([])),
   http.post('/me/mcp/backends/:id/keys', () => HttpResponse.json({ id: 'k-new' }, { status: 201 })),
   http.delete('/me/mcp/backends/:id/keys/:keyId', () => new HttpResponse(null, { status: 204 })),
   http.get('/me/mcp/apikeys', () => HttpResponse.json([])),
@@ -226,9 +257,12 @@ export const handlers = [
   http.get('/api/compose/templates', () =>
     HttpResponse.json([
       { id: 'browserless', name: 'Browserless', description: '', tags: ['web'],
-        version: '1', compose_content: 'services: {}', parameters: [], source: 'user' },
+        version: '1', compose_content: 'services: {}', parameters: [], source: 'user',
+        auto_start: false, first_service: null },
     ])),
   http.delete('/api/compose/templates/:id', () => new HttpResponse(null, { status: 204 })),
+  http.put('/api/compose/templates/:id/auto-start', () =>
+    HttpResponse.json({ template_id: 'browserless', enabled: true })),
   http.get('/api/compose/nodes', () =>
     HttpResponse.json([{ node_id: 'n1', name: 'n1' }])),
   http.get('/api/compose/deployments', () => HttpResponse.json([])),

@@ -31,6 +31,12 @@ class TemplateUpdateBody(BaseModel):
     message_key: str | None = None
 
 
+class AutoStartUpdateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+    env_values: dict[str, str] = {}
+
+
 class DeploymentCreateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     template_id: str

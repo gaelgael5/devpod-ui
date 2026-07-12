@@ -1,13 +1,14 @@
 """Persistance UserConfig (users, git_credentials, workspaces, workspace_extra_sources)."""
+
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 from typing import Any
 
 import structlog
 import yaml
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, insert, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..config.models import (
@@ -25,12 +26,32 @@ from .tables import git_credentials, users, workspace_extra_sources, workspaces
 _log = structlog.get_logger(__name__)
 
 
+class UserNotProvisionedError(Exception):
+    """Ligne users absente et ancre config.yaml illisible — re-login requis.
+
+    Ne JAMAIS fabriquer un secret_ns de secours (bug 011) : le namespace
+    Harpocrate est externe — un GUID inventé rendrait les secrets existants
+    inaccessibles et divergerait du YAML recréé au prochain login.
+    """
+
+    def __init__(self, login: str) -> None:
+        super().__init__(
+            f"User {login!r} has no users row and no readable config.yaml — re-login required"
+        )
+        self.login = login
+
+
 async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
     """Garantit l'existence de la row users — idempotent.
 
     Appelé comme garde-FK avant toute opération qui dépend de users.login
     (pin setup, workspaces…). Couvre le cas où la session cookie survit à un
     restart/wipe DB sans que l'utilisateur soit repassé par le login.
+
+    Atomicité (bug 010) : l'INSERT porte un ON CONFLICT DO NOTHING — deux
+    provisions concurrentes du même login n'échouent jamais en UniqueViolation
+    et n'écrasent jamais une ligne existante. Le SELECT préalable n'est qu'un
+    fast path (évite la lecture YAML), pas une garde de correction.
     """
     existing = (
         await conn.execute(select(users.c.login).where(users.c.login == login))
@@ -38,45 +59,76 @@ async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
     if existing is not None:
         return
 
-    # Lire le secret_ns depuis le YAML (cohérence filesystem ↔ DB)
-    from ..config.store import _data_root  # import lazy pour éviter les cycles
+    # Lire le secret_ns depuis le YAML, seule ancre durable (cohérence
+    # filesystem ↔ DB). S'il est illisible, échouer explicitement (bug 011).
+    from ..config.store import safe_user_path  # import lazy pour éviter les cycles
 
-    config_path: Path = _data_root() / "users" / login / "config.yaml"
+    config_path: Path = safe_user_path(login, "config.yaml")
     try:
         with config_path.open(encoding="utf-8") as f:
             raw: dict[str, object] = yaml.safe_load(f) or {}
-        secret_ns_str = str(raw.get("secret_ns", uuid.uuid4()))
-    except OSError:
-        secret_ns_str = str(uuid.uuid4())
+    except (OSError, yaml.YAMLError) as exc:
+        _log.warning("user_not_provisioned", login=login, reason=str(exc))
+        raise UserNotProvisionedError(login) from exc
+    secret_ns_raw = raw.get("secret_ns")
+    if not secret_ns_raw:
+        _log.warning("user_not_provisioned", login=login, reason="secret_ns missing in config.yaml")
+        raise UserNotProvisionedError(login)
+    secret_ns_str = str(secret_ns_raw)
 
-    await conn.execute(
-        insert(users).values(login=login, version="1", secret_ns=secret_ns_str)
+    result = await conn.execute(
+        pg_insert(users)
+        .values(login=login, version="1", secret_ns=secret_ns_str)
+        .on_conflict_do_nothing(index_elements=[users.c.login])
     )
-    _log.info("user_db_row_lazy_created", login=login)
+    if (result.rowcount or 0) > 0:
+        _log.info("user_db_row_lazy_created", login=login)
+
+
+async def list_workspace_refs(login: str | None, conn: AsyncConnection) -> list[dict[str, Any]]:
+    """Référentiel léger des workspaces déclarés : `login`, `name`, `host` (nœud).
+
+    Source de vérité des workspaces *existants*, indépendante de workspace_status
+    (un workspace déclaré mais sans ligne de statut « running » existe quand même).
+    `login=None` → tous les users (vue admin) ; sinon restreint au login donné.
+    """
+    stmt = select(workspaces.c.login, workspaces.c.name, workspaces.c.host)
+    if login is not None:
+        stmt = stmt.where(workspaces.c.login == login)
+    rows = (
+        (await conn.execute(stmt.order_by(workspaces.c.login, workspaces.c.name))).mappings().all()
+    )
+    return [dict(r) for r in rows]
 
 
 async def load_user_db(login: str, conn: AsyncConnection) -> UserConfig:
     user_row = (
-        await conn.execute(select(users).where(users.c.login == login))
-    ).mappings().one_or_none()
+        (await conn.execute(select(users).where(users.c.login == login))).mappings().one_or_none()
+    )
     if user_row is None:
         raise FileNotFoundError(f"User {login!r} not found in DB")
 
     cred_rows = (
-        await conn.execute(
-            select(git_credentials)
-            .where(git_credentials.c.login == login)
-            .order_by(git_credentials.c.id)
+        (
+            await conn.execute(
+                select(git_credentials)
+                .where(git_credentials.c.login == login)
+                .order_by(git_credentials.c.id)
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     ws_rows = (
-        await conn.execute(
-            select(workspaces)
-            .where(workspaces.c.login == login)
-            .order_by(workspaces.c.id)
+        (
+            await conn.execute(
+                select(workspaces).where(workspaces.c.login == login).order_by(workspaces.c.id)
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     ws_ids = [r["id"] for r in ws_rows]
     if ws_ids:
@@ -100,28 +152,24 @@ async def load_user_db(login: str, conn: AsyncConnection) -> UserConfig:
 
 
 async def save_user_db(login: str, cfg: UserConfig, conn: AsyncConnection) -> None:
-    # Upsert user row
-    existing = (
-        await conn.execute(select(users.c.login).where(users.c.login == login))
-    ).scalar_one_or_none()
-
-    user_vals = {
+    # Upsert atomique de la ligne users (bug 010) : INSERT … ON CONFLICT remplace
+    # le check-then-insert qui levait UniqueViolation sous concurrence.
+    user_vals: dict[str, Any] = {
         "login": login,
         "version": cfg.version,
         "secret_ns": str(cfg.secret_ns),
         "default_ide": cfg.defaults.ide,
         "default_idle_timeout": cfg.defaults.idle_timeout,
         "harpocrate_api_key": cfg.harpocrate.api_key,
+        "culture": cfg.culture,
     }
-    if existing is None:
-        await conn.execute(insert(users).values(**user_vals))
-    else:
-        await conn.execute(
-            update(users).where(users.c.login == login).values(
-                **{k: v for k, v in user_vals.items() if k != "login"},
-                updated_at=func.now(),
-            )
-        )
+    set_vals: dict[str, Any] = {k: v for k, v in user_vals.items() if k != "login"}
+    set_vals["updated_at"] = func.now()
+    await conn.execute(
+        pg_insert(users)
+        .values(**user_vals)
+        .on_conflict_do_update(index_elements=[users.c.login], set_=set_vals)
+    )
 
     # Replace git credentials
     await conn.execute(delete(git_credentials).where(git_credentials.c.login == login))
@@ -181,6 +229,7 @@ def _build_user_config(
     return UserConfig(
         version=user_row["version"],
         secret_ns=str(user_row["secret_ns"]),
+        culture=user_row["culture"],
         defaults=UserDefaults(
             ide=user_row["default_ide"],
             idle_timeout=user_row["default_idle_timeout"],
@@ -226,6 +275,7 @@ def _ws_row_to_model(row: dict[str, Any], extra_rows: list[Any]) -> WorkspaceSpe
         recipe_volumes=list(row["recipe_volumes"] or []),
         init_recipes=list(row["init_recipes"] or []),
         groups=list(row["groups"] or []),
+        agents=list(row["agents"] or []),
         extra_sources=[
             SourceSpec(
                 url=e["url"],
@@ -260,4 +310,5 @@ def _ws_to_row(login: str, ws: WorkspaceSpec) -> dict[str, Any]:
         "recipe_volumes": list(ws.recipe_volumes),
         "init_recipes": list(ws.init_recipes),
         "groups": list(ws.groups),
+        "agents": list(ws.agents),
     }

@@ -1,6 +1,7 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, KeyRound, Pencil } from 'lucide-react'
+import { Plus, Trash2, KeyRound, Pencil, PlugZap, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,6 +26,7 @@ import {
   useAddGitCredential,
   useDeleteGitCredential,
   useUpdateGitCredential,
+  useTestGitCredential,
   type GitCredentialSummary,
   type UpdateCredentialPayload,
 } from './useGitCredentials'
@@ -96,6 +98,21 @@ export default function GitCredentialManager() {
   const addMutation = useAddGitCredential()
   const deleteMutation = useDeleteGitCredential()
   const updateMutation = useUpdateGitCredential()
+  const testMutation = useTestGitCredential()
+
+  function handleTest(name: string) {
+    testMutation.mutate(name, {
+      onSuccess: (res) => {
+        if (res.ok) {
+          toast.success(t('gitCredentials.testSuccess'), { description: res.message || undefined })
+        } else {
+          toast.error(t('gitCredentials.testFailure'), { description: res.message || undefined })
+        }
+      },
+      onError: (err: unknown) =>
+        toast.error(err instanceof Error ? err.message : t('gitCredentials.testFailure')),
+    })
+  }
 
   function mapApiError(err: unknown, fallbackKey: string): string {
     const msg = err instanceof Error ? err.message : ''
@@ -424,6 +441,20 @@ export default function GitCredentialManager() {
               </Badge>
             </div>
             <div className="flex items-center gap-1">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                onClick={() => handleTest(c.name)}
+                disabled={testMutation.isPending && testMutation.variables === c.name}
+                aria-label={t('gitCredentials.testConnection')}
+              >
+                {testMutation.isPending && testMutation.variables === c.name ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <PlugZap className="h-4 w-4" />
+                )}
+              </Button>
               <Button
                 size="icon"
                 variant="ghost"

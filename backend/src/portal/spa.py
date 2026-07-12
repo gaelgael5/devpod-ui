@@ -18,6 +18,10 @@ _BACKEND_NAV_PATHS: tuple[str, ...] = (
     "/oauth/authorize",
     "/.well-known",
     "/mcp",
+    # Proxy applicatif VS Code : toutes les requêtes /vsproxy/* sont gérées par le portail
+    # Python (HTTP streaming + WS pump), pas par React. Sans cette exclusion, SPAMiddleware
+    # servirait index.html sur la navigation initiale vers vs-dev.yoops.org.
+    "/vsproxy",
 )
 
 

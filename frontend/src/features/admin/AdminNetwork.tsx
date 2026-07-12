@@ -4,12 +4,19 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useAdminNetwork, useSaveNetwork, type NetworkConfig } from './useAdminNetwork'
+import {
+  useAdminNetwork,
+  useResolveWorkspaceHost,
+  useSaveNetwork,
+  type NetworkConfig,
+} from './useAdminNetwork'
+import LocalDomainField from './LocalDomainField'
 
 /** Formulaire monté avec les valeurs chargées (state initialisé en lazy, pas d'effet). */
 function NetworkForm({ initial }: { initial: NetworkConfig }) {
   const { t } = useTranslation()
   const save = useSaveNetwork()
+  const resolve = useResolveWorkspaceHost()
   const [baseDomain, setBaseDomain] = useState(initial.base_domain)
   const [externalUrl, setExternalUrl] = useState(initial.external_url)
   const [workspaceHost, setWorkspaceHost] = useState(initial.workspace_host)
@@ -57,12 +64,32 @@ function NetworkForm({ initial }: { initial: NetworkConfig }) {
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="net-workspace-host">{t('admin.network.workspaceHost')}</Label>
-        <Input
-          id="net-workspace-host"
-          value={workspaceHost}
-          onChange={(e) => setWorkspaceHost(e.target.value)}
-          placeholder="192.168.10.50"
-        />
+        <div className="flex gap-2">
+          <Input
+            id="net-workspace-host"
+            value={workspaceHost}
+            onChange={(e) => setWorkspaceHost(e.target.value)}
+            placeholder="192.168.10.50"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            disabled={resolve.isPending}
+            onClick={() => {
+              const host = workspaceHost.trim()
+              if (!host) {
+                toast.error(t('admin.network.resolveEmpty'))
+                return
+              }
+              resolve.mutate(host, {
+                onSuccess: (r) => toast.success(`${r.fqdn} → ${r.ip}`),
+                onError: (e) => toast.error(e.message),
+              })
+            }}
+          >
+            {t('admin.network.resolve')}
+          </Button>
+        </div>
         <p className="text-xs text-muted-foreground">{t('admin.network.workspaceHostHint')}</p>
       </div>
 
@@ -130,6 +157,9 @@ export default function AdminNetwork() {
       {isLoading && <p className="text-muted-foreground">…</p>}
       {isError && <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>}
       {data && <NetworkForm initial={data} />}
+      <div className="mt-8 border-t pt-6">
+        <LocalDomainField />
+      </div>
     </div>
   )
 }

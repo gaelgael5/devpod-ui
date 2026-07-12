@@ -5,9 +5,11 @@ from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.types import ServerCapabilities
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+import portal.mcp.monitor as monitor_mod
 from portal.db.tables import mcp_backend, users
 from portal.mcp.connections import BackendUnavailable
 from portal.mcp.monitor import (
@@ -89,6 +91,26 @@ async def test_monitor_backend_once_up(db_conn: AsyncConnection) -> None:
     # le catalogue a été synchronisé
     from portal.db.mcp_catalog import list_primitives
     assert len(await list_primitives(db_conn, "b1", "tool")) == 1
+
+
+async def test_monitor_backend_once_internal_resyncs_catalog(db_conn: AsyncConnection) -> None:
+    """Backend interne (devpod) : toujours 'up', et son catalogue est resynchronisé
+    (auparavant un no-op — seul un redémarrage du portail ou un nouveau user le faisait)."""
+    reset_health()
+    await db_conn.execute(
+        insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
+    )
+    backend = {
+        "id": "devpod-alice", "owner_login": "alice", "namespace": "devpod",
+        "name": "DevPod workspaces", "url": "", "transport": "internal", "enabled": True,
+    }
+    await db_conn.execute(insert(mcp_backend).values(**backend))
+
+    health = await monitor_backend_once(db_conn, backend)
+
+    assert health.status == "up"
+    from portal.db.mcp_catalog import list_primitives
+    assert len(await list_primitives(db_conn, "devpod-alice", "tool")) > 0
 
 
 async def test_monitor_backend_once_down(db_conn: AsyncConnection) -> None:
@@ -181,3 +203,181 @@ async def test_run_monitor_pass_tolerates_non_unavailable_error(
 
     # La santé de b1 conserve sa dernière valeur ("up"), pas de faux "down"
     assert get_health("b1").status == "up"
+
+
+# ---------------------------------------------------------------------------
+# Bug 026 : aucune connexion DB tenue ouverte pendant l'I/O réseau du probe.
+# Tests purement mockés (pas de db_conn/db_engine) : pas besoin de Docker.
+# ---------------------------------------------------------------------------
+
+
+class _FakeResult:
+    """Résultat SQLAlchemy minimal : aucune ligne (catalogue vide)."""
+
+    def mappings(self) -> _FakeResult:
+        return self
+
+    def all(self) -> list[object]:
+        return []
+
+
+class _FakeConn:
+    """Connexion minimale : write_backend_catalog lit le catalogue (delta de resync)."""
+
+    async def execute(self, *args: object, **kw: object) -> _FakeResult:
+        return _FakeResult()
+
+
+class _FakeConnCM:
+    """Async context manager qui journalise entrée/sortie dans `events`."""
+
+    def __init__(self, events: list[str], label: str) -> None:
+        self._events = events
+        self._label = label
+
+    async def __aenter__(self) -> object:
+        self._events.append(f"{self._label}_enter")
+        return _FakeConn()
+
+    async def __aexit__(self, *exc: object) -> None:
+        self._events.append(f"{self._label}_exit")
+
+
+class _FakeEngine:
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+
+    def connect(self) -> _FakeConnCM:
+        return _FakeConnCM(self._events, "connect")
+
+    def begin(self) -> _FakeConnCM:
+        return _FakeConnCM(self._events, "begin")
+
+
+class _FakeSession:
+    def get_server_capabilities(self) -> ServerCapabilities:
+        # Aucune capability annoncée → fetch_primitives ne fait aucun appel réseau
+        # supplémentaire (list_tools/list_resources/list_prompts), suffisant pour
+        # vérifier l'ordre des acquisitions de connexion autour du round-trip.
+        return ServerCapabilities()
+
+
+async def test_monitor_backend_once_no_conn_never_holds_db_during_network(
+    monkeypatch,
+) -> None:
+    """conn=None (run_monitor_pass) : la connexion du bearer est relâchée avant le
+    round-trip réseau, et la transaction d'écriture n'ouvre qu'après (bug 026)."""
+    events: list[str] = []
+    engine = _FakeEngine(events)
+    monkeypatch.setattr(monitor_mod, "_get_engine", lambda: engine)
+
+    async def fake_resolve_bearer(conn: object, backend_id: str) -> str | None:
+        return None
+
+    monkeypatch.setattr(monitor_mod, "_resolve_monitor_bearer", fake_resolve_bearer)
+
+    @asynccontextmanager
+    async def fake_open_session(url: str, *, transport: str, bearer: str | None = None):
+        events.append("network_enter")
+        yield _FakeSession()
+        events.append("network_exit")
+
+    reset_health()
+    backend = {
+        "id": "b1", "owner_login": "alice", "namespace": "rag", "name": "RAG",
+        "url": "https://rag/mcp", "transport": "streamable_http", "enabled": True,
+    }
+    health = await monitor_backend_once(None, backend, open_session_fn=fake_open_session)
+
+    assert health.status == "up"
+    assert events == ["connect_enter", "connect_exit", "network_enter", "network_exit",
+                       "begin_enter", "begin_exit"]
+
+
+# ---------------------------------------------------------------------------
+# probe_backend_key — test d'une clé de service précise
+# ---------------------------------------------------------------------------
+
+
+class _FakeSecret:
+    def reveal(self) -> str:
+        return "tok"
+
+
+_KEY_BACKEND = {"id": "b1", "url": "https://rag/mcp", "transport": "streamable_http"}
+
+
+_KEY_ROW_DEFAULT = object()
+
+
+def _patch_key_resolution(
+    monkeypatch, *, secret=None, resolve_error=None, key_row=_KEY_ROW_DEFAULT
+):
+    row = {"id": "k1"} if key_row is _KEY_ROW_DEFAULT else key_row
+
+    async def fake_get_secret(conn, backend_id, key_id):
+        return row
+
+    async def fake_resolve(row):
+        if resolve_error is not None:
+            raise resolve_error
+        return secret
+
+    monkeypatch.setattr(monitor_mod, "get_backend_key_secret", fake_get_secret)
+    monkeypatch.setattr(monitor_mod, "resolve_grant_key", fake_resolve)
+
+
+async def test_probe_backend_key_ok(monkeypatch) -> None:
+    _patch_key_resolution(monkeypatch, secret=_FakeSecret())
+    result = await monitor_mod.probe_backend_key(
+        None, _KEY_BACKEND, "k1", open_session_fn=_patched_open_session(_fake_backend())
+    )
+    assert result.status == "ok"
+    assert result.error is None
+
+
+async def test_probe_backend_key_uses_the_requested_key_bearer(monkeypatch) -> None:
+    """Le handshake est fait avec LA clé demandée, pas la première résoluble."""
+    _patch_key_resolution(monkeypatch, secret=_FakeSecret())
+    seen: list[str | None] = []
+
+    @asynccontextmanager
+    async def _spy(url: str, *, bearer: str | None = None, **kw):
+        seen.append(bearer)
+        async with create_connected_server_and_client_session(_fake_backend()) as session:
+            yield session
+
+    await monitor_mod.probe_backend_key(None, _KEY_BACKEND, "k1", open_session_fn=_spy)
+    assert seen == ["tok"]
+
+
+async def test_probe_backend_key_connection_refused(monkeypatch) -> None:
+    _patch_key_resolution(monkeypatch, secret=_FakeSecret())
+
+    @asynccontextmanager
+    async def _refuse(url: str, *, bearer: str | None = None, **kw):
+        raise BackendUnavailable("HTTP 401 Unauthorized")
+        yield  # pragma: no cover
+
+    result = await monitor_mod.probe_backend_key(
+        None, _KEY_BACKEND, "k1", open_session_fn=_refuse
+    )
+    assert result.status == "failed"
+    assert "401" in (result.error or "")
+
+
+async def test_probe_backend_key_unresolvable_secret(monkeypatch) -> None:
+    _patch_key_resolution(
+        monkeypatch, resolve_error=monitor_mod.UnresolvableSecret("vault verrouillé")
+    )
+    result = await monitor_mod.probe_backend_key(None, _KEY_BACKEND, "k1")
+    assert result.status == "failed"
+    assert "vault" in (result.error or "")
+
+
+async def test_probe_backend_key_unknown_key(monkeypatch) -> None:
+    _patch_key_resolution(monkeypatch, key_row=None)
+    import pytest
+
+    with pytest.raises(KeyError):
+        await monitor_mod.probe_backend_key(None, _KEY_BACKEND, "ghost")

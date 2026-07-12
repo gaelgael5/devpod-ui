@@ -11,7 +11,7 @@ from .validation import TemplateValidationError, validate_template
 
 _log = structlog.get_logger(__name__)
 
-_ALLOY_VERSION = "1"
+_ALLOY_VERSION = "2"
 
 _ALLOY_COMPOSE = """\
 services:

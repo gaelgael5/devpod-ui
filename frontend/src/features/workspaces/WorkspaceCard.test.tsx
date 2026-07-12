@@ -73,33 +73,9 @@ describe('WorkspaceCard', () => {
     expect(onStop).toHaveBeenCalledWith('myapp')
   })
 
-  it('affiche le bouton Clé SSH quand spec.ssh_key=true', () => {
-    const spec: WorkspaceSpec = { ...SPEC, ssh_key: true }
-    renderWithProviders(
-      <WorkspaceCard
-        spec={spec}
-        status={{ ws_id: 'alice-myapp', status: 'running', url: 'https://x' }}
-        onStop={vi.fn()}
-        onDelete={vi.fn()}
-      />
-    )
-    expect(screen.getByRole('button', { name: /clé ssh|ssh key/i })).toBeInTheDocument()
-  })
-
-  it("n'affiche pas le bouton Clé SSH quand spec.ssh_key=false", () => {
-    const spec: WorkspaceSpec = { ...SPEC, ssh_key: false }
-    renderWithProviders(
-      <WorkspaceCard
-        spec={spec}
-        status={{ ws_id: 'alice-myapp', status: 'running', url: 'https://x' }}
-        onStop={vi.fn()}
-        onDelete={vi.fn()}
-      />
-    )
-    expect(screen.queryByRole('button', { name: /clé ssh|ssh key/i })).not.toBeInTheDocument()
-  })
-
-  it('ouvre le dialog SSH au clic sur le bouton Clé SSH', async () => {
+  it('propose Clé SSH dans le menu Actions quand spec.ssh_key=true', async () => {
+    Element.prototype.hasPointerCapture = vi.fn()
+    Element.prototype.scrollIntoView = vi.fn()
     const user = userEvent.setup()
     const spec: WorkspaceSpec = { ...SPEC, ssh_key: true }
     renderWithProviders(
@@ -110,7 +86,55 @@ describe('WorkspaceCard', () => {
         onDelete={vi.fn()}
       />
     )
-    await user.click(screen.getByRole('button', { name: /clé ssh|ssh key/i }))
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^actions$/i }))
+    expect(await screen.findByRole('menuitem', { name: /clé ssh|ssh key/i })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /shell ssh|ssh shell/i })).toBeInTheDocument()
+  })
+
+  it("ne propose pas Clé SSH quand spec.ssh_key=false", async () => {
+    Element.prototype.hasPointerCapture = vi.fn()
+    Element.prototype.scrollIntoView = vi.fn()
+    const user = userEvent.setup()
+    const spec: WorkspaceSpec = { ...SPEC, ssh_key: false }
+    renderWithProviders(
+      <WorkspaceCard
+        spec={spec}
+        status={{ ws_id: 'alice-myapp', status: 'running', url: 'https://x' }}
+        onStop={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    )
+    await user.click(screen.getByRole('button', { name: /^actions$/i }))
+    expect(await screen.findByRole('menuitem', { name: /add vm for test/i })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /clé ssh|ssh key/i })).not.toBeInTheDocument()
+  })
+
+  it("ouvre le dialog SSH via l'item Clé SSH du menu Actions", async () => {
+    Element.prototype.hasPointerCapture = vi.fn()
+    Element.prototype.scrollIntoView = vi.fn()
+    const user = userEvent.setup()
+    const spec: WorkspaceSpec = { ...SPEC, ssh_key: true }
+    renderWithProviders(
+      <WorkspaceCard
+        spec={spec}
+        status={{ ws_id: 'alice-myapp', status: 'running', url: 'https://x' }}
+        onStop={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    )
+    await user.click(screen.getByRole('button', { name: /^actions$/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /clé ssh|ssh key/i }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('regroupe Initialize et Add VM for Test dans le menu Actions quand running', async () => {
+    Element.prototype.hasPointerCapture = vi.fn()
+    Element.prototype.scrollIntoView = vi.fn()
+    const user = userEvent.setup()
+    renderWithProviders(card('running', 'https://alice-myapp.dev.yoops.org'))
+
+    expect(screen.queryByRole('button', { name: /add vm for test/i })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^actions$/i }))
+    expect(await screen.findByRole('menuitem', { name: /add vm for test/i })).toBeInTheDocument()
   })
 })

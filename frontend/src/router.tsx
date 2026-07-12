@@ -16,8 +16,12 @@ const AdminHosts = lazy(() => import('@/features/admin/AdminHosts'))
 const AdminRecipes = lazy(() => import('@/features/admin/AdminRecipes'))
 const AdminProxmox = lazy(() => import('@/features/admin/AdminProxmox'))
 const AdminHypervisorTypes = lazy(() => import('@/features/admin/AdminHypervisorTypes'))
+const AdminAgentTypes = lazy(() => import('@/features/admin/AdminAgentTypes'))
 const AdminOidc = lazy(() => import('@/features/admin/AdminOidc'))
 const AdminNetwork = lazy(() => import('@/features/admin/AdminNetwork'))
+const AdminLogs = lazy(() => import('@/features/admin/AdminLogs'))
+const AdminWorkflow = lazy(() => import('@/features/admin/AdminWorkflow'))
+const SessionsView = lazy(() => import('@/features/sessions/SessionsView'))
 const ProfileList = lazy(() => import('@/features/profiles/ProfileList'))
 const ProfileEditor = lazy(() => import('@/features/profiles/ProfileEditor'))
 const AdminProfileEditor = lazy(() => import('@/features/admin/AdminProfileEditor'))
@@ -31,6 +35,7 @@ const ConsentPage = lazy(() => import('@/features/oauth/ConsentPage'))
 const ComposeGallery = lazy(() => import('@/features/compose/ComposeGallery'))
 const AdminCompose = lazy(() => import('@/features/compose/AdminCompose'))
 const AdminJinjaTemplates = lazy(() => import('@/features/admin/AdminJinjaTemplates'))
+const ProfilePage = lazy(() => import('@/features/profile/ProfilePage'))
 
 function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -103,6 +108,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/workspaces" replace /> },
       { path: '/workspaces', element: <Wrap><WorkspaceList /></Wrap> },
+      { path: '/sessions', element: <Wrap><SessionsView /></Wrap> },
       { path: '/workspaces/new', element: <Wrap><WorkspaceCreate /></Wrap> },
       { path: '/recipes', element: <Wrap><RecipeCatalog /></Wrap> },
       { path: '/profiles', element: <Wrap><ProfileList /></Wrap> },
@@ -139,6 +145,10 @@ export const router = createBrowserRouter([
         element: <AdminGuard><Wrap><AdminHypervisorTypes /></Wrap></AdminGuard>,
       },
       {
+        path: '/admin/agent-types',
+        element: <AdminGuard><Wrap><AdminAgentTypes /></Wrap></AdminGuard>,
+      },
+      {
         path: '/admin/oidc',
         element: <AdminGuard><Wrap><AdminOidc /></Wrap></AdminGuard>,
       },
@@ -146,6 +156,15 @@ export const router = createBrowserRouter([
         path: '/admin/network',
         element: <AdminGuard><Wrap><AdminNetwork /></Wrap></AdminGuard>,
       },
+      {
+        path: '/admin/logs',
+        element: <AdminGuard><Wrap><AdminLogs /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/workflow',
+        element: <AdminGuard><Wrap><AdminWorkflow /></Wrap></AdminGuard>,
+      },
+      { path: '/profile', element: <Wrap><ProfilePage /></Wrap> },
       { path: '/compose', element: <Wrap><ComposeGallery /></Wrap> },
       {
         path: '/admin/compose',

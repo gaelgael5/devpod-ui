@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from .rest_adapter import RestToolSpec
 
 NAMESPACE_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 
-Transport = Literal["streamable_http", "sse", "stdio"]
+Transport = Literal["streamable_http", "sse", "stdio", "rest"]
 
 
 def _validate_namespace(v: str) -> str:
@@ -34,6 +36,9 @@ class BackendCreate(BaseModel):
     transport: Transport = "streamable_http"
     # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
     app_url: str = ""
+    # « Ne pas appliquer la protection des primitives par quarantaine » —
+    # opt-out anti rug-pull pour les backends de confiance. Protégé par défaut.
+    quarantine_disabled: bool = False
 
     @field_validator("namespace")
     @classmethod
@@ -76,6 +81,8 @@ class BackendUpdate(BaseModel):
     transport: Transport
     enabled: bool
     app_url: str = ""
+    # cf. BackendCreate — l'activer lève immédiatement les quarantaines du backend.
+    quarantine_disabled: bool = False
 
     @field_validator("url")
     @classmethod
@@ -90,6 +97,14 @@ class BackendUpdate(BaseModel):
         return _validate_app_url(v)
 
 
+class QuarantineApprove(BaseModel):
+    """Approbation d'une primitive quarantinée : ré-épingle la définition courante."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["tool", "resource", "prompt"]
+    name: str = Field(min_length=1, max_length=512)
+
+
 class ApikeyCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str = ""
@@ -99,3 +114,33 @@ class ApikeyCreate(BaseModel):
 class ApikeySetProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
     profile_id: str | None = None
+
+
+class RestToolDeclaration(BaseModel):
+    """Déclaration d'un outil d'un backend `rest` : contrat MCP + mapping REST.
+
+    `input_schema` est reçu sous la clé `inputSchema` (convention MCP). Le `spec`
+    porte le mapping vers l'appel HTTP (cf. RestToolSpec).
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    name: str
+    description: str = ""
+    input_schema: dict[str, Any] = Field(
+        default_factory=lambda: {"type": "object"}, alias="inputSchema"
+    )
+    spec: RestToolSpec
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, v: str) -> str:
+        if not SLUG_RE.fullmatch(v) or "__" in v:
+            raise ValueError("name: [a-z0-9_-], initiale alphanumérique, sans '__', 1 à 63 car.")
+        return v
+
+
+class RestToolsSet(BaseModel):
+    """Jeu complet d'outils d'un backend `rest` (remplace le catalogue déclaré)."""
+
+    model_config = ConfigDict(extra="forbid")
+    tools: list[RestToolDeclaration]

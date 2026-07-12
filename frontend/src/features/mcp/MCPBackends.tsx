@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Server, Plus, KeyRound, ExternalLink, Pencil, Power, PowerOff, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
+import { Server, Plus, KeyRound, ExternalLink, Pencil, Power, PowerOff, ChevronDown, ChevronRight, RefreshCw, ShieldAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -31,7 +32,10 @@ import {
   useBackendKeys,
   useCreateKey,
   useDeleteKey,
+  useProbeKey,
   useBackendCatalog,
+  useQuarantined,
+  useApproveQuarantined,
   type MCPBackend,
   type MCPBackendKey,
   type StorageType,
@@ -131,10 +135,14 @@ function EditBackendDialog({ backend, open, onClose }: { backend: MCPBackend; op
   const [transport, setTransport] = useState<Transport>(backend.transport)
   const [appUrl, setAppUrl] = useState(backend.app_url)
   const [enabled, setEnabled] = useState(backend.enabled)
+  const [quarantineDisabled, setQuarantineDisabled] = useState(backend.quarantine_disabled)
 
   function submit() {
     update.mutate(
-      { id: backend.id, name, url, transport, enabled, app_url: appUrl.trim() },
+      {
+        id: backend.id, name, url, transport, enabled,
+        app_url: appUrl.trim(), quarantine_disabled: quarantineDisabled,
+      },
       { onSuccess: onClose, onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) },
     )
   }
@@ -188,6 +196,23 @@ function EditBackendDialog({ backend, open, onClose }: { backend: MCPBackend; op
                 onChange={(e) => setAppUrl(e.target.value)}
                 placeholder="https://app.example.com"
               />
+            </div>
+          )}
+          {!isDevpod && (
+            <div className="flex items-start gap-2 rounded-md border p-2.5">
+              <Switch
+                id="quarantine-disabled"
+                checked={quarantineDisabled}
+                onCheckedChange={setQuarantineDisabled}
+              />
+              <div className="flex flex-col gap-0.5">
+                <Label htmlFor="quarantine-disabled" className="cursor-pointer">
+                  {t('mcp.backends.quarantineDisabledLabel')}
+                </Label>
+                <span className="text-xs text-muted-foreground">
+                  {t('mcp.backends.quarantineDisabledHint')}
+                </span>
+              </div>
             </div>
           )}
           {!isDevpod && (
@@ -313,7 +338,23 @@ function AddKeyDialog({ backendId, open, onClose }: { backendId: string; open: b
 function KeyRow({ backendId, keyItem }: { backendId: string; keyItem: MCPBackendKey }) {
   const { t } = useTranslation()
   const del = useDeleteKey(backendId)
+  const probe = useProbeKey(backendId)
   const [confirmDel, setConfirmDel] = useState(false)
+
+  function handleProbe() {
+    toast.promise(
+      probe.mutateAsync(keyItem.id).then((r) => {
+        if (r.status !== 'ok') {
+          throw new Error(r.error || t('mcp.backends.keyProbeFailed'))
+        }
+      }),
+      {
+        loading: t('mcp.backends.keyProbing'),
+        success: t('mcp.backends.keyProbeOk'),
+        error: (e) => (e instanceof Error ? e.message : t('mcp.backends.keyProbeFailed')),
+      },
+    )
+  }
 
   return (
     <div className="flex items-center gap-2 text-sm">
@@ -321,6 +362,16 @@ function KeyRow({ backendId, keyItem }: { backendId: string; keyItem: MCPBackend
       <code className="font-mono">{keyItem.slug}</code>
       <Badge variant="outline" className="text-xs">{keyItem.storage_type}</Badge>
       <span className="text-muted-foreground">{keyItem.description}</span>
+      <Button
+        size="icon"
+        variant="ghost"
+        className="h-6 w-6"
+        aria-label={t('mcp.backends.keyProbe', { slug: keyItem.slug })}
+        disabled={probe.isPending}
+        onClick={handleProbe}
+      >
+        <RefreshCw className={`h-3.5 w-3.5 ${probe.isPending ? 'animate-spin' : ''}`} />
+      </Button>
       <div className="ml-auto flex gap-1">
         {confirmDel ? (
           <>
@@ -402,6 +453,11 @@ function PrimitivesList({ backendId }: { backendId: string }) {
           {tools.map((tool) => (
             <div key={tool.name} className="flex items-baseline gap-2 text-xs">
               <code className="shrink-0 font-mono text-foreground">{tool.name}</code>
+              {tool.quarantined && (
+                <Badge variant="outline" className="shrink-0 border-amber-500 text-amber-600">
+                  {t('mcp.backends.quarantinedBadge')}
+                </Badge>
+              )}
               {tool.description && (
                 <span className="text-muted-foreground truncate">{tool.description}</span>
               )}
@@ -409,6 +465,51 @@ function PrimitivesList({ backendId }: { backendId: string }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function QuarantineList({ backendId }: { backendId: string }) {
+  const { t } = useTranslation()
+  const { data: items = [] } = useQuarantined(backendId)
+  const approve = useApproveQuarantined(backendId)
+
+  // Rien à approuver : la section n'existe pas (cas nominal).
+  if (items.length === 0) return null
+
+  return (
+    <div className="mt-2 flex flex-col gap-2 rounded-md border border-amber-500/50 bg-amber-500/5 p-2.5">
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-600">
+        <ShieldAlert className="h-3.5 w-3.5" />
+        {t('mcp.backends.quarantineTitle')}
+      </div>
+      <span className="text-xs text-muted-foreground">{t('mcp.backends.quarantineHint')}</span>
+      {items.map((item) => (
+        <div key={`${item.kind}:${item.name}`} className="flex items-center gap-2 text-xs">
+          <code className="font-mono text-foreground">{item.name}</code>
+          <Badge variant="outline" className="text-xs">{item.kind}</Badge>
+          {item.description && (
+            <span className="text-muted-foreground truncate">{item.description}</span>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto h-6 border-amber-500 px-2 text-amber-600 hover:text-amber-700"
+            disabled={approve.isPending}
+            onClick={() =>
+              approve.mutate(
+                { kind: item.kind, name: item.name },
+                {
+                  onSuccess: () => toast.success(t('mcp.backends.quarantineApproved', { name: item.name })),
+                  onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
+                },
+              )
+            }
+          >
+            {t('mcp.backends.quarantineApprove')}
+          </Button>
+        </div>
+      ))}
     </div>
   )
 }
@@ -438,22 +539,28 @@ function BackendCard({ backend }: { backend: MCPBackend }) {
         {(!backend.health || backend.health === 'unknown') && (
           <Badge variant="secondary">{t('mcp.backends.healthUnknown')}</Badge>
         )}
-        {backend.health !== 'up' && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 px-1.5"
-            disabled={probe.isPending}
-            onClick={() =>
-              probe.mutate(backend.id, {
-                onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
-              })
-            }
-            title={t('mcp.backends.probe')}
-          >
-            <RefreshCw className={`h-3.5 w-3.5${probe.isPending ? ' animate-spin' : ''}`} />
-          </Button>
-        )}
+        {/* Toujours visible : re-probe la santé ET resynchronise les primitives
+            (utile même quand le backend est up — le serveur distant peut avoir
+            changé ses outils). Auparavant caché une fois « up », donc introuvable
+            dès qu'un backend passait Online. */}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-1.5"
+          disabled={probe.isPending}
+          onClick={() =>
+            probe.mutate(backend.id, {
+              onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
+            })
+          }
+          title={
+            backend.transport === 'internal'
+              ? t('mcp.backends.refreshTools')
+              : t('mcp.backends.probe')
+          }
+        >
+          <RefreshCw className={`h-3.5 w-3.5${probe.isPending ? ' animate-spin' : ''}`} />
+        </Button>
         {!backend.enabled && <Badge variant="secondary">{t('mcp.backends.statusDisabled')}</Badge>}
         <span className="ml-2 text-xs text-muted-foreground">{backend.url}</span>
         {backend.app_url && (
@@ -512,6 +619,7 @@ function BackendCard({ backend }: { backend: MCPBackend }) {
           )}
         </div>
       </div>
+      <QuarantineList backendId={backend.id} />
       <KeyList backendId={backend.id} />
       <PrimitivesList backendId={backend.id} />
       {editOpen && (

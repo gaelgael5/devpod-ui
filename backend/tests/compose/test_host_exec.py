@@ -1,3 +1,4 @@
+import asyncio
 import base64
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -73,3 +74,72 @@ async def test_write_host_file_base64_roundtrip(monkeypatch) -> None:
 async def test_write_host_file_rejects_tilde_path() -> None:
     with pytest.raises(host_exec.HostExecError):
         await host_exec.write_host_file(_ssh_host(), "~/devpod-compose/d1/.env", "A=1\n")
+
+
+class _FakeStreamProc:
+    """Simule un asyncio.subprocess.Process pour stream_host_command."""
+
+    def __init__(self, lines: list[bytes]) -> None:
+        self._lines = list(lines)
+        self.returncode: int | None = None
+        self.killed = False
+        self.waited = False
+        self.stdout = self
+
+    async def readline(self) -> bytes:
+        if self._lines:
+            return self._lines.pop(0)
+        # Plus de ligne disponible : bloque indéfiniment (simule un process qui
+        # tourne encore), comme le ferait un vrai stdout ouvert sans EOF.
+        await asyncio.Event().wait()
+        return b""  # pragma: no cover — jamais atteint
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -9
+
+    async def wait(self) -> int:
+        self.waited = True
+        if self.returncode is None:
+            self.returncode = 0
+        return self.returncode
+
+
+def _patch_stream_deps(monkeypatch, tmp_path, proc: _FakeStreamProc) -> None:
+    monkeypatch.setattr(host_exec, "_data_root", lambda: tmp_path)
+    monkeypatch.setattr(host_exec, "_materialize_system_cert", AsyncMock(return_value="/tmp/k"))
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        return proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+
+@pytest.mark.asyncio
+async def test_stream_host_command_yields_lines_and_reaps_process(monkeypatch, tmp_path) -> None:
+    proc = _FakeStreamProc([b"hello\n", b"world\n", b""])
+    _patch_stream_deps(monkeypatch, tmp_path, proc)
+
+    lines = [line async for line in host_exec.stream_host_command(_ssh_host(), "cmd")]
+
+    assert lines == ["hello", "world"]
+    assert proc.waited is True
+    assert proc.killed is False
+
+
+@pytest.mark.asyncio
+async def test_stream_host_command_kills_process_on_early_disconnect(monkeypatch, tmp_path) -> None:
+    """Bug 016 : si le consommateur ferme le générateur en cours de stream (client
+    HTTP déconnecté), asyncio lève GeneratorExit — le sous-process ssh doit être
+    tué et attendu, pas laissé orphelin."""
+    proc = _FakeStreamProc([b"line1\n"])
+    _patch_stream_deps(monkeypatch, tmp_path, proc)
+
+    gen = host_exec.stream_host_command(_ssh_host(), "cmd")
+    first = await gen.__anext__()
+    assert first == "line1"
+
+    await gen.aclose()
+
+    assert proc.killed is True
+    assert proc.waited is True

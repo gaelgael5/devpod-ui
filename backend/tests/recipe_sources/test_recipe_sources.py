@@ -128,12 +128,6 @@ def test_put_recipe_sources_replaces_list(tmp_path: Path) -> None:
     data = resp.json()
     assert data["sources"] == new_sources
 
-    # Verify persistence on disk
-    sources_file = tmp_path / "recipe-sources.yaml"
-    assert sources_file.exists()
-    on_disk = yaml.safe_load(sources_file.read_text(encoding="utf-8"))
-    assert on_disk["sources"] == new_sources
-
 
 # Test 3: GET after PUT returns updated sources
 def test_get_after_put_returns_updated_sources(tmp_path: Path) -> None:
@@ -267,8 +261,7 @@ def test_import_recipe_from_source_basic(tmp_path: Path) -> None:
     assert resp.status_code == 201
     data = resp.json()
     assert data["id"] == "git"
-    assert data["version"] == "1.0.0"
-    assert data["description"] == "Configure Git"
+    assert data["imported"] == ["git"]
 
     recipe_dir = tmp_path / "recipes" / "git"
     assert recipe_dir.is_dir()
@@ -322,6 +315,127 @@ def test_import_rejects_internal_url(tmp_path: Path) -> None:
 
     assert resp.status_code == 422
     assert "blocked" in resp.json()["detail"].lower()
+
+
+# Test 13: import format répertoire — les ops initialize (copy/transform) sont
+# préservées dans le recipe.meta.yaml écrit sur disque, et les fichiers sources
+# des ops `copy` sont téléchargés dans le dossier de la recette.
+@respx.mock
+def test_import_dir_recipe_preserves_initialize_ops(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_admin_app(tmp_path)
+
+    base = "https://example.com/recipes/myinit"
+    meta_yaml = """\
+id: myinit
+key: 4fb53687-da81-4ed8-87ac-544b31ad4eb9
+type: initialize
+version: "1.0.0"
+description: "Recette initialize avec ops"
+copy:
+  - source: files/config.json
+    target: /home/vscode/.claude/config.json
+transform:
+  - op: replace
+    target:
+      file: /home/vscode/.claude/settings.json
+      node: $.permissions
+    value:
+      defaultMode: bypassPermissions
+  - op: remove
+    target:
+      file: /home/vscode/.claude/settings.json
+      node: $.old
+"""
+    respx.get(f"{base}/recipe.meta.yaml").mock(return_value=Response(200, text=meta_yaml))
+    respx.get(f"{base}/install.sh").mock(return_value=Response(404))
+    respx.get(f"{base}/files/config.json").mock(
+        return_value=Response(200, content=b'{"a": 1}\n')
+    )
+
+    with patch(
+        "portal.routes.recipe_sources._socket.getaddrinfo",
+        return_value=_MOCK_PUBLIC_ADDR,
+    ), TestClient(app) as client:
+        resp = client.post(
+            "/admin/recipe-sources/import", json={"source_url": f"{base}/install.sh"}
+        )
+
+    assert resp.status_code == 201
+    assert resp.json()["id"] == "myinit"
+
+    from portal.recipes.models import RecipeMeta
+
+    recipe_dir = tmp_path / "recipes" / "myinit"
+    meta = RecipeMeta.from_yaml(recipe_dir / "recipe.meta.yaml")
+    assert meta.type == "initialize"
+    assert [c.source for c in meta.copies] == ["files/config.json"]
+    assert [tr.op for tr in meta.transform] == ["replace", "remove"]
+    assert meta.transform[0].value == {"defaultMode": "bypassPermissions"}
+    assert (recipe_dir / "files" / "config.json").read_bytes() == b'{"a": 1}\n'
+
+
+# Test 14: import format répertoire — source de copie introuvable → 422 explicite,
+# rien n'est écrit sur disque (pas de recette menteuse).
+@respx.mock
+def test_import_dir_recipe_missing_copy_source_rejected(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_admin_app(tmp_path)
+
+    base = "https://example.com/recipes/myinit"
+    meta_yaml = """\
+id: myinit
+type: initialize
+version: "1.0.0"
+copy:
+  - source: files/absent.json
+    target: /home/vscode/absent.json
+"""
+    respx.get(f"{base}/recipe.meta.yaml").mock(return_value=Response(200, text=meta_yaml))
+    respx.get(f"{base}/install.sh").mock(return_value=Response(404))
+    respx.get(f"{base}/files/absent.json").mock(return_value=Response(404))
+
+    with patch(
+        "portal.routes.recipe_sources._socket.getaddrinfo",
+        return_value=_MOCK_PUBLIC_ADDR,
+    ), TestClient(app) as client:
+        resp = client.post(
+            "/admin/recipe-sources/import", json={"source_url": f"{base}/install.sh"}
+        )
+
+    assert resp.status_code == 422
+    assert "absent.json" in resp.json()["detail"]
+    assert not (tmp_path / "recipes" / "myinit").exists()
+
+
+# Test 15: import format répertoire — source de copie hors du dossier recette rejetée.
+@respx.mock
+def test_import_dir_recipe_copy_source_traversal_rejected(tmp_path: Path) -> None:
+    _write_global_config(tmp_path)
+    app = _make_admin_app(tmp_path)
+
+    base = "https://example.com/recipes/evil"
+    meta_yaml = """\
+id: evil
+type: initialize
+version: "1.0.0"
+copy:
+  - source: ../../etc/passwd
+    target: /tmp/pwned
+"""
+    respx.get(f"{base}/recipe.meta.yaml").mock(return_value=Response(200, text=meta_yaml))
+    respx.get(f"{base}/install.sh").mock(return_value=Response(404))
+
+    with patch(
+        "portal.routes.recipe_sources._socket.getaddrinfo",
+        return_value=_MOCK_PUBLIC_ADDR,
+    ), TestClient(app) as client:
+        resp = client.post(
+            "/admin/recipe-sources/import", json={"source_url": f"{base}/install.sh"}
+        )
+
+    assert resp.status_code == 422
+    assert not (tmp_path / "recipes" / "evil").exists()
 
 
 # Test 11: POST /admin/recipe-sources/import — 502 when remote fetch returns an error

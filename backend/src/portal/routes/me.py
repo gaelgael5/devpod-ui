@@ -13,12 +13,25 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..auth.rbac import UserInfo, require_user
 from ..certificates import service as cert_svc
 from ..config.models import GitCredential, UserConfig, WorkspaceSpec
-from ..config.store import load_global, load_user, safe_user_path, save_user
+from ..config.store import (
+    load_global,
+    load_user,
+    safe_user_path,
+    save_user,
+    user_config_lock,
+)
 from ..db.engine import get_conn
-from ..devpod.git import run_git_ls_remote
+from ..db.tables import users
+from ..devpod.git import probe_git_credential, run_git_ls_remote
 from ..secrets import service as secret_svc
 
 _CRED_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}[a-z0-9]$")
+
+# Champs de UserConfig modifiables par l'utilisateur via PUT /me/config (bug 008).
+# secret_ns/version/workspaces/git_credentials/harpocrate sont exclus : ils ont leurs
+# propres invariants (isolation, cohérence FK, endpoints CRUD dédiés) et ne doivent
+# jamais transiter par ce merge générique.
+_ALLOWED_CONFIG_UPDATE_FIELDS = {"defaults", "culture"}
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["me"])
@@ -26,6 +39,49 @@ router = APIRouter(tags=["me"])
 
 def _sid(request: Request) -> str:
     return str(request.session.get("session_id", ""))
+
+
+class _ProfilePatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str
+
+
+@router.get("/profile")
+async def get_profile(
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    from sqlalchemy import select
+
+    row = (
+        await conn.execute(
+            select(users.c.login, users.c.email, users.c.display_name).where(
+                users.c.login == user.login
+            )
+        )
+    ).mappings().one_or_none()
+    if row is None:
+        return {"login": user.login, "email": "", "display_name": ""}
+    return {"login": row["login"], "email": row["email"], "display_name": row["display_name"]}
+
+
+@router.patch("/profile")
+async def patch_profile(
+    body: _ProfilePatch,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    from sqlalchemy import update
+
+    display_name = body.display_name.strip()
+    if len(display_name) > 80:
+        raise HTTPException(status_code=422, detail="display_name must be ≤ 80 characters")
+    await conn.execute(
+        update(users).where(users.c.login == user.login).values(display_name=display_name)
+    )
+    _log.info("user_display_name_updated", login=user.login)
+    return {"login": user.login, "display_name": display_name}
 
 
 @router.get("")
@@ -50,14 +106,24 @@ async def get_config(user: UserInfo = Depends(require_user)) -> dict[str, object
 async def put_config(
     updates: dict[str, object], user: UserInfo = Depends(require_user)
 ) -> dict[str, object]:
-    cfg = await load_user(user.login)
-    merged = cfg.model_dump(mode="json")
-    merged.update(updates)
-    try:
-        new_cfg = UserConfig.model_validate(merged)
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    await save_user(user.login, new_cfg)
+    # Allowlist stricte : secret_ns/version/workspaces/git_credentials/harpocrate ont
+    # leurs propres invariants (isolation, cohérence, endpoints CRUD dédiés) — jamais
+    # via ce merge générique, sous peine de laisser un client réécrire son secret_ns.
+    disallowed = set(updates) - _ALLOWED_CONFIG_UPDATE_FIELDS
+    if disallowed:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Champs non modifiables via cet endpoint : {sorted(disallowed)}",
+        )
+    async with user_config_lock(user.login):
+        cfg = await load_user(user.login)
+        merged = cfg.model_dump(mode="json")
+        merged.update(updates)
+        try:
+            new_cfg = UserConfig.model_validate(merged)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        await save_user(user.login, new_cfg)
     _log.info("user_config_updated", login=user.login)
     return new_cfg.model_dump(mode="json")
 
@@ -72,13 +138,51 @@ async def list_workspaces(user: UserInfo = Depends(require_user)) -> list[dict[s
 async def add_workspace(
     workspace: WorkspaceSpec, user: UserInfo = Depends(require_user)
 ) -> dict[str, object]:
-    cfg = await load_user(user.login)
-    if any(ws.name == workspace.name for ws in cfg.workspaces):
-        raise HTTPException(status_code=409, detail=f"Workspace {workspace.name!r} already exists")
-    cfg.workspaces.append(workspace)
-    await save_user(user.login, cfg)
+    async with user_config_lock(user.login):
+        cfg = await load_user(user.login)
+        if any(ws.name == workspace.name for ws in cfg.workspaces):
+            raise HTTPException(
+                status_code=409, detail=f"Workspace {workspace.name!r} already exists"
+            )
+        cfg.workspaces.append(workspace)
+        await save_user(user.login, cfg)
     _log.info("workspace_added", login=user.login, name=workspace.name)
     return workspace.model_dump(mode="json")
+
+
+class _WorkspaceAgentsPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agents: list[str]
+
+
+@router.patch("/workspaces/{name}/agents")
+async def patch_workspace_agents(
+    name: str,
+    body: _WorkspaceAgentsPatch,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, object]:
+    """Choix des agent_types à mapper (spec 35) — persiste sans redémarrer.
+
+    Le mapping effectif (génération des fichiers host, bind mount) n'a lieu
+    qu'au prochain `up` du workspace ; cet endpoint ne fait que sauvegarder
+    la sélection pour ce `up` à venir.
+    """
+    async with user_config_lock(user.login):
+        cfg = await load_user(user.login)
+        idx = next((i for i, ws in enumerate(cfg.workspaces) if ws.name == name), None)
+        if idx is None:
+            raise HTTPException(status_code=404, detail=f"Workspace {name!r} introuvable")
+        try:
+            updated = WorkspaceSpec.model_validate(
+                {**cfg.workspaces[idx].model_dump(), "agents": body.agents}
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        cfg.workspaces[idx] = updated
+        await save_user(user.login, cfg)
+    _log.info("workspace_agents_updated", login=user.login, name=name, agents=body.agents)
+    return updated.model_dump(mode="json")
 
 
 @router.get("/git/branches")
@@ -205,17 +309,24 @@ async def add_git_credential(
         except secret_svc.SecretNotFound:
             raise HTTPException(status_code=404, detail="secret_not_found") from None
 
-    cfg.git_credentials.append(
-        GitCredential(
-            name=body.name,
-            host=host,
-            kind=body.kind,
-            key_path=key_path,
-            username=body.username.strip(),
-            token=token,
-        )
+    new_cred = GitCredential(
+        name=body.name,
+        host=host,
+        kind=body.kind,
+        key_path=key_path,
+        username=body.username.strip(),
+        token=token,
     )
-    await save_user(user.login, cfg)
+    # Re-load sous verrou (bug 009) : le reveal vault ci-dessus est une I/O réseau,
+    # on ne tient pas le verrou pendant — on revalide l'unicité sur l'état frais.
+    async with user_config_lock(user.login):
+        cfg = await load_user(user.login)
+        if any(c.name == body.name for c in cfg.git_credentials):
+            raise HTTPException(
+                status_code=409, detail=f"Credential {body.name!r} already exists"
+            )
+        cfg.git_credentials.append(new_cred)
+        await save_user(user.login, cfg)
     _log.info("git_credential_added", login=user.login, name=body.name, kind=body.kind)
     return {"name": body.name, "host": host, "kind": body.kind}
 
@@ -331,17 +442,29 @@ async def patch_git_credential(
         username=effective_username,
         token=new_token,
     )
-    cfg.git_credentials = [updated if c.name == name else c for c in cfg.git_credentials]
+    # Re-load sous verrou (bug 009) : les reveals vault ci-dessus sont des I/O
+    # réseau, on ne tient pas le verrou pendant — mutation sur l'état frais.
+    async with user_config_lock(user.login):
+        cfg = await load_user(user.login)
+        if not any(c.name == name for c in cfg.git_credentials):
+            raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
+        if effective_name != name and any(
+            c.name == effective_name for c in cfg.git_credentials
+        ):
+            raise HTTPException(
+                status_code=409, detail=f"Credential {effective_name!r} already exists"
+            )
+        cfg.git_credentials = [updated if c.name == name else c for c in cfg.git_credentials]
 
-    if effective_name != name:
-        for ws in cfg.workspaces:
-            if ws.git_credential == name:
-                ws.git_credential = effective_name
-            for src in ws.extra_sources:
-                if src.git_credential == name:
-                    src.git_credential = effective_name
+        if effective_name != name:
+            for ws in cfg.workspaces:
+                if ws.git_credential == name:
+                    ws.git_credential = effective_name
+                for src in ws.extra_sources:
+                    if src.git_credential == name:
+                        src.git_credential = effective_name
 
-    await save_user(user.login, cfg)
+        await save_user(user.login, cfg)
 
     if key_to_delete and key_to_delete.exists():
         key_to_delete.unlink()
@@ -358,12 +481,13 @@ async def delete_git_credential(
     name: str,
     user: UserInfo = Depends(require_user),
 ) -> dict[str, object]:
-    cfg = await load_user(user.login)
-    cred = next((c for c in cfg.git_credentials if c.name == name), None)
-    if not cred:
-        raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
-    cfg.git_credentials = [c for c in cfg.git_credentials if c.name != name]
-    await save_user(user.login, cfg)
+    async with user_config_lock(user.login):
+        cfg = await load_user(user.login)
+        cred = next((c for c in cfg.git_credentials if c.name == name), None)
+        if not cred:
+            raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
+        cfg.git_credentials = [c for c in cfg.git_credentials if c.name != name]
+        await save_user(user.login, cfg)
     if cred.kind == "ssh" and cred.key_path:
         key_file = Path(cred.key_path)
         if key_file.exists():
@@ -375,13 +499,29 @@ async def delete_git_credential(
     return {"deleted": name}
 
 
+@router.post("/git-credentials/{name}/test")
+async def test_git_credential_connection(
+    name: str,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, object]:
+    """Teste l'authentification d'un credential sur son host (sans dépôt réel)."""
+    cfg = await load_user(user.login)
+    cred = next((c for c in cfg.git_credentials if c.name == name), None)
+    if not cred:
+        raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
+    ok, message = await probe_git_credential(name, cred.host, user.login)
+    _log.info("git_credential_tested", login=user.login, name=name, ok=ok)
+    return {"ok": ok, "message": message}
+
+
 @router.delete("/workspaces/{name}")
 async def delete_workspace(name: str, user: UserInfo = Depends(require_user)) -> dict[str, object]:
-    cfg = await load_user(user.login)
-    before = len(cfg.workspaces)
-    cfg.workspaces = [ws for ws in cfg.workspaces if ws.name != name]
-    if len(cfg.workspaces) == before:
-        raise HTTPException(status_code=404, detail=f"Workspace {name!r} not found")
-    await save_user(user.login, cfg)
+    async with user_config_lock(user.login):
+        cfg = await load_user(user.login)
+        before = len(cfg.workspaces)
+        cfg.workspaces = [ws for ws in cfg.workspaces if ws.name != name]
+        if len(cfg.workspaces) == before:
+            raise HTTPException(status_code=404, detail=f"Workspace {name!r} not found")
+        await save_user(user.login, cfg)
     _log.info("workspace_deleted", login=user.login, name=name)
     return {"deleted": name}

@@ -25,6 +25,8 @@ interface Props {
   nodeId: string
   /** Label affiché dans le dialog (= TestHost.alias) */
   nodeLabel: string
+  /** Suggestion de nommage (workspace ou host) — utilisée pour préremplir le nom du service. */
+  namingHint?: string
 }
 
 function parsePortConflict(text: string): PortConflictDetail | null {
@@ -89,18 +91,27 @@ function DeployForm({
   template,
   nodeId,
   nodeLabel,
+  namingHint,
   onBack,
   onSuccess,
 }: {
   template: ComposeTemplate
   nodeId: string
   nodeLabel: string
+  namingHint?: string
   onBack: () => void
   onSuccess: () => void
 }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
-  const [name, setName] = useState('')
+  // Convention : {premier service du compose}-{suggestion}, ex. "alloy-devpod" (workspace)
+  // ou "alloy-host-resources-1" (host ressource). Sans suggestion, le premier service seul.
+  // Laisse Start désactivé (placeholder) si le compose n'a pas de service identifiable.
+  const [name, setName] = useState(() =>
+    template.first_service
+      ? (namingHint ? `${template.first_service}-${namingHint}` : template.first_service)
+      : '',
+  )
   const [envValues, setEnvValues] = useState<Record<string, string>>(
     () => Object.fromEntries(template.parameters.map((p) => [p.key, p.default ?? ''])),
   )
@@ -109,6 +120,8 @@ function DeployForm({
   const [streaming, setStreaming] = useState(false)
   const [streamDone, setStreamDone] = useState(false)
   const logRef = useRef<HTMLPreElement>(null)
+  const controllerRef = useRef<AbortController | null>(null)
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
 
   useEffect(() => {
     if (logRef.current) {
@@ -116,10 +129,23 @@ function DeployForm({
     }
   }, [logs])
 
+  useEffect(() => {
+    // Bug 020 : le dialog peut se démonter (Échap, clic hors dialog) pendant le
+    // streaming — sans ce cleanup la connexion HTTP reste ouverte et le backend
+    // continue de streamer dans le vide.
+    return () => {
+      controllerRef.current?.abort()
+      readerRef.current?.cancel().catch(() => {})
+    }
+  }, [])
+
   const handleSubmit = useCallback(async () => {
     setServerError(null)
     setLogs('')
     setStreamDone(false)
+
+    const controller = new AbortController()
+    controllerRef.current = controller
 
     let res: Response
     try {
@@ -132,8 +158,10 @@ function DeployForm({
           name: name.trim(),
           env_values: envValues,
         }),
+        signal: controller.signal,
       })
     } catch (e) {
+      if (controller.signal.aborted) return
       setServerError(e instanceof Error ? e.message : String(e))
       return
     }
@@ -159,6 +187,7 @@ function DeployForm({
 
     setStreaming(true)
     const reader = res.body!.getReader()
+    readerRef.current = reader
     const decoder = new TextDecoder()
     let accum = ''
 
@@ -169,7 +198,11 @@ function DeployForm({
         accum += decoder.decode(value, { stream: true })
         setLogs(accum)
       }
+    } catch (e) {
+      if (controller.signal.aborted) return
+      throw e
     } finally {
+      readerRef.current = null
       setStreaming(false)
       setStreamDone(true)
     }
@@ -252,7 +285,7 @@ function DeployForm({
   )
 }
 
-export default function ServiceLaunchDialog({ open, onOpenChange, nodeId, nodeLabel }: Props) {
+export default function ServiceLaunchDialog({ open, onOpenChange, nodeId, nodeLabel, namingHint }: Props) {
   const { t } = useTranslation()
   const [selected, setSelected] = useState<ComposeTemplate | null>(null)
 
@@ -284,6 +317,7 @@ export default function ServiceLaunchDialog({ open, onOpenChange, nodeId, nodeLa
             template={selected}
             nodeId={nodeId}
             nodeLabel={nodeLabel}
+            namingHint={namingHint}
             onBack={() => setSelected(null)}
             onSuccess={handleClose}
           />

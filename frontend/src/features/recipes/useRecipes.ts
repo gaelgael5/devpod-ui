@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiFetch, apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 import type { Recipe } from './types'
 
 export function useRecipes(type?: 'install' | 'start' | 'initialize') {
@@ -70,7 +70,7 @@ export function useDeleteUserRecipe() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (recipeId: string) =>
-      apiFetch(`/me/recipes/${encodeURIComponent(recipeId)}`, { method: 'DELETE' }),
+      apiFetchVoid(`/me/recipes/${encodeURIComponent(recipeId)}`, { method: 'DELETE' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['recipes'] })
     },

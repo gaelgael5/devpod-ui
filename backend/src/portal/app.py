@@ -14,24 +14,32 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import Message, Receive, Scope, Send
 
 from .auth.router import router as auth_router
 from .mcp.monitor import monitor_loop
 from .mcp.server import build_server as _build_mcp_server
 from .routes import compose as compose_routes
 from .routes.admin import router as admin_router
+from .routes.agent_messages import router as agent_messages_router
+from .routes.agent_types import admin_router as agent_types_admin_router
+from .routes.agent_types import me_router as agent_types_me_router
+from .routes.app_events import router as app_events_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
+from .routes.event_schemas import router as event_schemas_router
 from .routes.jinja_template_sources import router_admin as jinja_sources_admin_router
 from .routes.jinja_templates import router as jinja_templates_router
 from .routes.mcp import router as mcp_router
+from .routes.mcp_discovery import router as mcp_discovery_router
 from .routes.mcp_profiles import router as mcp_profiles_router
 from .routes.me import router as me_router
 from .routes.nodes import router as nodes_router
 from .routes.oauth import router as oauth_router
 from .routes.plugins import get_openvsx
 from .routes.plugins import router as plugins_router
+from .routes.preferences import router as preferences_router
 from .routes.profile_sources import router_admin as profile_sources_admin_router
 from .routes.profiles import get_repo as get_profile_repo
 from .routes.profiles import router as profiles_router
@@ -41,12 +49,17 @@ from .routes.recipe_sources import router_admin as recipe_sources_admin_router
 from .routes.recipes import router_admin as recipes_admin_router
 from .routes.recipes import router_me as recipes_me_router
 from .routes.recipes import router_public as recipes_public_router
+from .routes.resource_hosts import me_router as resource_hosts_me_router
 from .routes.secrets import router_admin as secrets_admin_router
 from .routes.secrets import router_me as secrets_me_router
+from .routes.services import router as services_router
+from .routes.sessions import router as sessions_router
 from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
 from .routes.test_vm import router as test_vm_router
+from .routes.user_rules import router as user_rules_router
 from .routes.vault import router as vault_router
+from .routes.vscode_proxy import router as vscode_proxy_router
 from .routes.workspace_groups import router as workspace_groups_router
 from .routes.workspace_messages import router as workspace_messages_router
 from .routes.workspace_ops import _get_service
@@ -64,19 +77,40 @@ _log = structlog.get_logger(__name__)
 
 
 class _PortalSessionMiddleware(SessionMiddleware):
-    """SessionMiddleware dont le domaine de cookie est résolu dynamiquement.
+    """SessionMiddleware qui injecte l'attribut Domain au moment du Set-Cookie.
 
-    Lit get_effective_cookie_domain() à chaque Set-Cookie au lieu d'un domaine
-    figé à l'init — permet de changer cookie_domain via /admin/network sans redémarrage.
+    Starlette fige les attributs du cookie (security_flags, dont domain=) à
+    l'init du middleware : un domaine lu dynamiquement doit donc être ajouté à
+    l'émission de la réponse. get_effective_cookie_domain() est relu à chaque
+    Set-Cookie — modifiable via /admin/network sans redémarrage — et sans
+    Domain le cookie resterait host-only : jamais transmis à vs_proxy_domain
+    (proxy VS Code) ni aux sous-domaines workspaces (forward_auth).
     """
 
-    @property  # type: ignore[override]
-    def domain(self) -> str | None:
-        return get_effective_cookie_domain()
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        async def send_with_domain(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                self._append_cookie_domain(message)
+            await send(message)
 
-    @domain.setter
-    def domain(self, _value: str | None) -> None:
-        pass  # ignoré : on lit toujours le global via la property
+        await super().__call__(scope, receive, send_with_domain)
+
+    def _append_cookie_domain(self, message: Message) -> None:
+        domain = get_effective_cookie_domain()
+        if not domain:
+            return
+        prefix = f"{self.session_cookie}=".encode()
+        suffix = f"; domain={domain}".encode()
+        headers: list[tuple[bytes, bytes]] = []
+        for name, value in message.get("headers", []):
+            if (
+                name.lower() == b"set-cookie"
+                and value.startswith(prefix)
+                and b"domain=" not in value.lower()
+            ):
+                value = value + suffix
+            headers.append((name, value))
+        message["headers"] = headers
 
 
 # L'environnement Docker n'a pas de routage IPv6. urllib3 (requests/harpocrate)
@@ -122,9 +156,16 @@ class SPAMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-async def _message_sweep_loop(interval_s: float = 3600.0) -> None:
-    """Tâche de fond : purge les messages orphelins toutes les `interval_s` secondes."""
+async def _maintenance_sweep_loop(interval_s: float = 3600.0) -> None:
+    """Tâche de fond horaire : messages orphelins + purge du journal d'événements
+    + purge des clés API révoquées depuis plus de 24h.
+
+    Chaque entretien a son propre try/except : l'échec de l'un ne prive pas
+    les autres de leur passage.
+    """
+    from .db.app_events import purge_old_events
     from .db.engine import _get_engine
+    from .db.mcp import purge_revoked_apikeys
     from .messages.service import sweep_orphans
 
     await asyncio.sleep(60)  # délai initial — laisse le portail démarrer
@@ -134,6 +175,20 @@ async def _message_sweep_loop(interval_s: float = 3600.0) -> None:
                 await sweep_orphans(conn)
         except Exception:
             _log.warning("message_sweep_failed", exc_info=True)
+        try:
+            async with _get_engine().begin() as conn:
+                purged = await purge_old_events(conn)
+            if purged:
+                _log.info("app_events_purged", count=purged)
+        except Exception:
+            _log.warning("app_event_purge_failed", exc_info=True)
+        try:
+            async with _get_engine().begin() as conn:
+                purged_keys = await purge_revoked_apikeys(conn)
+            if purged_keys:
+                _log.info("revoked_apikeys_purged", count=purged_keys)
+        except Exception:
+            _log.warning("revoked_apikey_purge_failed", exc_info=True)
         await asyncio.sleep(interval_s)
 
 
@@ -159,6 +214,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 update_cookie_domain(
                     cached.server.cookie_domain or settings_obj.cookie_domain,
                     cached.server.base_domain or settings_obj.base_domain,
+                    external_url=cached.server.external_url,
+                    vs_proxy_domain=cached.server.vs_proxy_domain,
                 )
             from .secrets.system import ensure_system_user
 
@@ -177,6 +234,22 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Pas de synchro automatique des recettes : c'est l'admin qui choisit quoi
         # synchroniser, via POST /admin/recipes/sync.
 
+        # Bus d'événements applicatifs : écouteurs d'automatisation (règles
+        # déterministes sonde → condition → action). DB requise (journal).
+        from .automation.runtime import register_automation
+        from .events.bus import get_bus
+
+        register_automation(get_bus())
+
+        # Producteur d'events workflow (feature d'adoption) : relais egress signé
+        # HMAC des events applicatifs vers le module workflow, selon la config
+        # (enabled + liste blanche). Best-effort — le bus isole et journalise chaque
+        # livraison. reconcile_* est aussi rappelé après chaque écriture de config
+        # (prise d'effet à chaud du toggle et de la liste blanche).
+        from .events.egress import reconcile_workflow_producer
+
+        reconcile_workflow_producer()
+
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()
 
@@ -188,19 +261,49 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         async with app.state.mcp_session_manager.run():
             _monitor_task: asyncio.Task[None] | None = None
             _sweep_task: asyncio.Task[None] | None = None
+            _agent_reconcile_task: asyncio.Task[None] | None = None
+            _outbox_task: asyncio.Task[None] | None = None
             if settings_obj.database_url:
                 _monitor_task = asyncio.create_task(
                     monitor_loop(settings_obj.mcp_monitor_interval_s)
                 )
-                _sweep_task = asyncio.create_task(_message_sweep_loop())
+                _sweep_task = asyncio.create_task(_maintenance_sweep_loop())
+                # Worker de fond de l'outbox workflow : livre les events mis en file
+                # par l'écouteur du bus (POST signé HMAC + retry/backoff).
+                from .events.egress import outbox_worker_loop
+
+                _outbox_task = asyncio.create_task(outbox_worker_loop())
+                # Spec 35b T6 : les conteneurs restés running pendant une
+                # indisponibilité du portail peuvent porter une config agents
+                # périmée — réconciliation best-effort, throttlée, en fond.
+                from .agents.resync import reconcile_agents_on_boot
+
+                _agent_reconcile_task = asyncio.create_task(reconcile_agents_on_boot())
             try:
                 yield
             finally:
-                for _task in (_monitor_task, _sweep_task):
+                for _task in (
+                    _monitor_task,
+                    _sweep_task,
+                    _agent_reconcile_task,
+                    _outbox_task,
+                ):
                     if _task is not None:
                         _task.cancel()
                         with contextlib.suppress(asyncio.CancelledError):
                             await _task
+                # Bus d'événements : annule les livraisons en attente et oublie le
+                # singleton — deux apps successives (tests TestClient) ne doivent
+                # pas cumuler leurs abonnements.
+                from .events.bus import get_bus, reset_bus
+
+                await get_bus().aclose()
+                reset_bus()
+                # Ferme le pool DB : indispensable pour que deux apps successives
+                # (tests TestClient) ne partagent pas un engine lié à un ancien loop.
+                from .db.engine import dispose_engine
+
+                await dispose_engine()
 
 
 def create_app() -> FastAPI:
@@ -231,7 +334,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="workspace-portal", version="0.1.0", lifespan=_lifespan)
 
-    @app.exception_handler(Exception)  # type: ignore[misc]
+    @app.exception_handler(Exception)
     async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         _log.exception(
             "unhandled_exception",
@@ -265,17 +368,25 @@ def create_app() -> FastAPI:
         session_cookie="portal_session",
         https_only=not settings.dev_mode,
         same_site="lax",
-        max_age=86400,
-        # domain= ignoré par _PortalSessionMiddleware (lu via get_effective_cookie_domain).
+        # Idle timeout (glissant) ; le plafond d'âge absolu est appliqué en plus dans
+        # rbac.get_current_user via session["auth_time"] (bug 032).
+        max_age=settings.session_max_age,
+        # Domain injecté à l'émission par _PortalSessionMiddleware (relu à chaque réponse).
     )
     app.include_router(auth_router)
     app.include_router(me_router, prefix="/me")
+    app.include_router(preferences_router, prefix="/me")
     app.include_router(workspace_ops_router, prefix="/me")
     app.include_router(workspace_groups_router, prefix="/me")
     app.include_router(workspace_sessions_router, prefix="/me")
+    app.include_router(agent_messages_router, prefix="/me")
+    app.include_router(services_router, prefix="/me")
+    app.include_router(app_events_router, prefix="/me")
+    app.include_router(user_rules_router, prefix="/me")
     app.include_router(test_vm_router, prefix="/me")
     app.include_router(plugins_router)
     app.include_router(recipes_public_router)
+    app.include_router(event_schemas_router)
     app.include_router(recipes_me_router, prefix="/me")
     app.include_router(admin_router, prefix="/admin")
     app.include_router(nodes_router, prefix="/admin")
@@ -293,13 +404,20 @@ def create_app() -> FastAPI:
     app.include_router(secrets_me_router, prefix="/me")
     app.include_router(secrets_admin_router, prefix="/admin")
     app.include_router(mcp_router, prefix="/me")
+    app.include_router(mcp_discovery_router, prefix="/me")
     app.include_router(mcp_profiles_router, prefix="/me")
+    app.include_router(agent_types_admin_router, prefix="/admin")
+    app.include_router(agent_types_me_router, prefix="/me")
+    app.include_router(resource_hosts_me_router, prefix="/me")
     app.include_router(compose_routes.router)
     app.include_router(compose_sources_admin_router, prefix="/admin")
     app.include_router(jinja_templates_router, prefix="/admin")
     app.include_router(jinja_sources_admin_router, prefix="/admin")
     app.include_router(workspace_messages_router, prefix="/me")
+    app.include_router(sessions_router)  # racine : /sessions (vue centralisée)
     app.include_router(oauth_router)  # racine : /.well-known/* et /oauth/*
+    # Proxy applicatif VS Code : /vsproxy/* (HTTP + WS) — avant static_router.
+    app.include_router(vscode_proxy_router)
     # static_router en dernier : son catch-all /{full_path:path} ne doit pas
     # intercepter les routes API enregistrées avant lui.
     app.include_router(static_router)

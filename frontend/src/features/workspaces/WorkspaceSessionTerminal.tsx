@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -12,6 +12,14 @@ interface Props {
 export default function WorkspaceSessionTerminal({ wsName, session }: Props) {
   const { t } = useTranslation()
   const termRef = useRef<HTMLDivElement>(null)
+  // t change d'identité à chaque changement de langue ; le lire via une ref (au
+  // lieu de le mettre en dépendance de l'effet) évite de reconstruire le
+  // terminal + WebSocket — et donc de couper la connexion en cours — quand
+  // l'utilisateur change juste la langue de l'UI (bug 043).
+  const tRef = useRef(t)
+  useLayoutEffect(() => {
+    tRef.current = t
+  })
 
   useEffect(() => {
     const terminal = new Terminal({
@@ -54,8 +62,8 @@ export default function WorkspaceSessionTerminal({ wsName, session }: Props) {
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
       terminal.write(data)
     }
-    ws.onclose = () => terminal.write(t('admin.sshTerminal.connClosed'))
-    ws.onerror = () => terminal.write(t('admin.sshTerminal.connError'))
+    ws.onclose = () => terminal.write(tRef.current('admin.sshTerminal.connClosed'))
+    ws.onerror = () => terminal.write(tRef.current('admin.sshTerminal.connError'))
 
     const onResize = () => fitAddon.fit()
     window.addEventListener('resize', onResize)
@@ -70,7 +78,7 @@ export default function WorkspaceSessionTerminal({ wsName, session }: Props) {
       ws.close()
       terminal.dispose()
     }
-  }, [wsName, session, t])
+  }, [wsName, session])
 
   return <div ref={termRef} className="absolute inset-0 bg-[#0d0d1a]" />
 }

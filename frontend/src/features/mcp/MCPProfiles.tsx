@@ -7,12 +7,14 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
   useProfiles,
@@ -20,6 +22,7 @@ import {
   useCreateProfile,
   useUpdateProfile,
   useDeleteProfile,
+  useSetProfileExposed,
   useUpsertEntry,
   useDeleteEntry,
   useBackends,
@@ -210,13 +213,10 @@ function ToolsEditor({
   const { data: catalog = [] } = useBackendCatalog(backendId)
 
   const allSelected = tools === null
+  const readOnlyNames = catalog.filter((c) => c.scope === 'read').map((c) => c.name)
 
-  function toggleAll() {
-    upsert.mutate({
-      backend_id: backendId,
-      backend_key_id: keyId,
-      tools: allSelected ? [] : null,
-    })
+  function applyPreset(next: string[] | null) {
+    upsert.mutate({ backend_id: backendId, backend_key_id: keyId, tools: next })
   }
 
   function toggleTool(name: string) {
@@ -237,13 +237,31 @@ function ToolsEditor({
         <span className="text-xs font-semibold uppercase text-muted-foreground">
           {t('mcp.profiles.tools')}
         </span>
-        <button
-          type="button"
-          className="ml-auto text-xs text-primary underline-offset-2 hover:underline"
-          onClick={toggleAll}
-        >
-          {allSelected ? t('mcp.profiles.restrictTools') : t('mcp.profiles.allowAllTools')}
-        </button>
+        <div className="ml-auto flex gap-2">
+          <button
+            type="button"
+            className="text-xs text-primary underline-offset-2 hover:underline"
+            onClick={() => applyPreset(null)}
+          >
+            {t('mcp.profiles.allowAllTools')}
+          </button>
+          {readOnlyNames.length > 0 && (
+            <button
+              type="button"
+              className="text-xs text-primary underline-offset-2 hover:underline"
+              onClick={() => applyPreset(readOnlyNames)}
+            >
+              {t('mcp.profiles.allowReadOnlyTools')}
+            </button>
+          )}
+          <button
+            type="button"
+            className="text-xs text-primary underline-offset-2 hover:underline"
+            onClick={() => applyPreset([])}
+          >
+            {t('mcp.profiles.allowNoneTools')}
+          </button>
+        </div>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {catalog.map((tool) => {
@@ -359,6 +377,79 @@ function ProfileEntriesDialog({
   )
 }
 
+// ── Exposition aux workspaces (spec 35) ───────────────────────────────────────
+
+function ProfileExposureSwitch({ profile }: { profile: MCPProfile }) {
+  const { t } = useTranslation()
+  const setExposed = useSetProfileExposed()
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  function handleChange(checked: boolean) {
+    if (!checked) {
+      // Décocher révoque immédiatement les clefs workspace dérivées : confirmation.
+      setConfirmOpen(true)
+      return
+    }
+    setExposed.mutate(
+      { id: profile.id, exposed: true },
+      { onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) },
+    )
+  }
+
+  function confirmUnexpose() {
+    setExposed.mutate(
+      { id: profile.id, exposed: false },
+      {
+        onSuccess: (r) => {
+          setConfirmOpen(false)
+          toast.success(
+            t('mcp.profiles.unexposeDone', { count: r.affected_workspaces.length }),
+          )
+        },
+        onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
+      },
+    )
+  }
+
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <Switch
+        id={`profile-exposed-${profile.id}`}
+        checked={profile.exposed_in_workspaces}
+        disabled={setExposed.isPending}
+        onCheckedChange={handleChange}
+      />
+      <Label
+        htmlFor={`profile-exposed-${profile.id}`}
+        className="cursor-pointer text-xs font-normal text-muted-foreground"
+      >
+        {t('mcp.profiles.exposedToWorkspaces')}
+      </Label>
+
+      <Dialog open={confirmOpen} onOpenChange={(o) => { if (!o) setConfirmOpen(false) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('mcp.profiles.unexposeTitle', { name: profile.name })}</DialogTitle>
+            <DialogDescription>{t('mcp.profiles.unexposeWarning')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={setExposed.isPending}
+              onClick={confirmUnexpose}
+            >
+              {t('mcp.profiles.unexposeConfirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
 // ── Card profil ───────────────────────────────────────────────────────────────
 
 function ProfileCard({ profile }: { profile: MCPProfile }) {
@@ -379,6 +470,7 @@ function ProfileCard({ profile }: { profile: MCPProfile }) {
           {profile.description && (
             <p className="mt-0.5 text-xs text-muted-foreground">{profile.description}</p>
           )}
+          <ProfileExposureSwitch profile={profile} />
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <Button

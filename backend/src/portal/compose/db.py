@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..db.tables import compose_deployment, compose_deployment_log, compose_template
-from .models import ComposeDeployment, ComposeParam, ComposeTemplate
+from ..db.tables import (
+    compose_auto_start,
+    compose_deployment,
+    compose_deployment_log,
+    compose_template,
+)
+from .models import ComposeAutoStart, ComposeDeployment, ComposeParam, ComposeTemplate
 
 
 def _row_to_template(row: RowMapping) -> ComposeTemplate:
@@ -219,6 +227,22 @@ async def delete_deployment(conn: AsyncConnection, uid: str) -> None:
     await conn.execute(delete(compose_deployment).where(compose_deployment.c.uid == uid))
 
 
+def _node_lock_key(node_id: str) -> int:
+    """Clé advisory 64 bits signée, stable, dérivée du node_id."""
+    digest = hashlib.blake2b(node_id.encode(), digest_size=8).digest()
+    return int.from_bytes(digest, "big", signed=True)
+
+
+async def acquire_node_ports_lock(conn: AsyncConnection, node_id: str) -> None:
+    """Sérialise lecture → allocation → réservation des ports d'un nœud (bug 015).
+
+    pg_advisory_xact_lock est détenu jusqu'au COMMIT/ROLLBACK de la transaction
+    de `conn` : un déploiement concurrent ne lit used_ports_on_node qu'une fois
+    la ligne de réservation du premier visible — jamais le même port.
+    """
+    await conn.execute(select(func.pg_advisory_xact_lock(_node_lock_key(node_id))))
+
+
 async def used_ports_on_node(conn: AsyncConnection, node_id: str) -> set[int]:
     """Tous les ports host déjà réservés sur ce nœud (tous déploiements confondus)."""
     rows = (
@@ -260,3 +284,69 @@ async def persist_op_log(conn: AsyncConnection, uid: str, operation: str, conten
             finished_at=func.now(),
         )
     )
+
+
+def _row_to_auto_start(row: RowMapping) -> ComposeAutoStart:
+    return ComposeAutoStart(
+        id=row["id"],
+        owner_login=row["owner_login"],
+        template_id=row["template_id"],
+        env_values=dict(row["env_values"] or {}),
+        created_at=row.get("created_at"),
+    )
+
+
+async def upsert_auto_start(
+    conn: AsyncConnection, owner_login: str, template_id: str, env_values: dict[str, str]
+) -> None:
+    """Active (ou met à jour les valeurs de) l'auto-start pour (owner_login, template_id)."""
+    stmt = pg_insert(compose_auto_start).values(
+        owner_login=owner_login, template_id=template_id, env_values=env_values
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[compose_auto_start.c.owner_login, compose_auto_start.c.template_id],
+        set_={"env_values": stmt.excluded.env_values},
+    )
+    await conn.execute(stmt)
+
+
+async def delete_auto_start(conn: AsyncConnection, owner_login: str, template_id: str) -> None:
+    await conn.execute(
+        delete(compose_auto_start).where(
+            (compose_auto_start.c.owner_login == owner_login)
+            & (compose_auto_start.c.template_id == template_id)
+        )
+    )
+
+
+async def get_auto_start(
+    conn: AsyncConnection, owner_login: str, template_id: str
+) -> ComposeAutoStart | None:
+    row = (
+        (
+            await conn.execute(
+                select(compose_auto_start).where(
+                    (compose_auto_start.c.owner_login == owner_login)
+                    & (compose_auto_start.c.template_id == template_id)
+                )
+            )
+        )
+        .mappings()
+        .first()
+    )
+    return _row_to_auto_start(row) if row else None
+
+
+async def list_auto_start_for_user(
+    conn: AsyncConnection, owner_login: str
+) -> list[ComposeAutoStart]:
+    rows = (
+        (
+            await conn.execute(
+                select(compose_auto_start).where(compose_auto_start.c.owner_login == owner_login)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [_row_to_auto_start(r) for r in rows]

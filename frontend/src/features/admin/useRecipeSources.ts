@@ -8,7 +8,7 @@ export interface RemoteRecipe {
   name: string
   description: string
   version: string
-  type: 'install' | 'start'
+  type: 'install' | 'start' | 'initialize'
   source_url: string
   install_script: string
 }

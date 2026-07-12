@@ -20,6 +20,8 @@ export interface WorkspaceSpec {
   recipe_volumes?: string[]
   init_recipes?: string[]
   groups?: string[]
+  // Ids de types d'agents IA avec accès MCP direct (spec 35).
+  agents?: string[]
 }
 
 export type WorkspaceStatusValue =

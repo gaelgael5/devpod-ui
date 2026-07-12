@@ -24,6 +24,7 @@ _LABEL: dict[str, str] = {
     "project": "compose_project",
     "service": "compose_service",
     "unit": "unit",
+    "job": "job",
 }
 
 
@@ -36,6 +37,7 @@ class LogsQueryParams(BaseModel):
     project: str | None = None
     service: str | None = None
     unit: str | None = None
+    job: str | None = None
     level: str | None = None
     since: str = "1h"
     start: str | None = None
@@ -44,31 +46,62 @@ class LogsQueryParams(BaseModel):
     direction: Literal["forward", "backward"] = "backward"
 
 
+def _escape_logql_string(value: str) -> str:
+    """Échappe un littéral de chaîne LogQL (backslash puis guillemet, dans cet ordre —
+    sinon un `"` initial se ferait ré-échapper par la substitution du backslash).
+
+    Sans cet échappement, une valeur de filtre contenant un `"` casse le matcher et
+    injecte du LogQL arbitraire dans la requête (bug 027)."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def build_logql(p: LogsQueryParams) -> str:
     """Construit l'expression LogQL à partir des filtres structurés."""
     if p.query:
         return p.query
-    sel = [f'{lbl}="{getattr(p, key)}"' for key, lbl in _LABEL.items() if getattr(p, key)]
+    sel = [
+        f'{lbl}="{_escape_logql_string(getattr(p, key))}"'
+        for key, lbl in _LABEL.items()
+        if getattr(p, key)
+    ]
     if not sel:
         raise ValueError(
             "logs_query: fournir une query LogQL ou au moins un filtre de label "
-            "(host/role/project/service/unit)"
+            "(host/role/project/service/unit/job)"
         )
     expr = "{" + ",".join(sel) + "}"
     if p.level:
-        expr += f' | json | level="{p.level}"'
+        expr += f' | json | level="{_escape_logql_string(p.level)}"'
     return expr
 
 
 def _flatten_streams(loki_response: dict[str, Any]) -> list[dict[str, Any]]:
-    """Aplatit les streams Loki en liste de {ts, labels, line}."""
-    streams = loki_response.get("data", {}).get("result", [])
+    """Aplatit les streams Loki en liste de {ts, labels, line}.
+
+    Valide la forme de chaque entrée avant de la déballer : une réponse Loki
+    malformée (entrée qui n'est pas une paire [ts, line], timestamp non
+    numérique) lève DevpodToolError plutôt qu'un IndexError/ValueError brut qui
+    échapperait au dispatch MCP (même défaut que le bug 017, bug 028).
+    """
+    data = loki_response.get("data")
+    streams = data.get("result", []) if isinstance(data, dict) else []
+    if not isinstance(streams, list):
+        raise DevpodToolError(f"réponse Loki malformée : data.result inattendu {streams!r}")
     lines: list[dict[str, Any]] = []
     for stream in streams:
+        if not isinstance(stream, dict):
+            raise DevpodToolError(f"réponse Loki malformée : stream inattendu {stream!r}")
         labels: dict[str, str] = stream.get("stream", {})
         for entry in stream.get("values", []):
-            ts_ns_str, line = entry[0], entry[1]
-            ts_ms = int(ts_ns_str) // 1_000_000
+            if not isinstance(entry, list | tuple) or len(entry) != 2:
+                raise DevpodToolError(f"réponse Loki malformée : entrée inattendue {entry!r}")
+            ts_ns_str, line = entry
+            try:
+                ts_ms = int(ts_ns_str) // 1_000_000
+            except (TypeError, ValueError) as exc:
+                raise DevpodToolError(
+                    f"réponse Loki malformée : timestamp invalide {ts_ns_str!r}"
+                ) from exc
             dt = datetime.datetime.fromtimestamp(ts_ms / 1000, tz=datetime.UTC)
             lines.append(
                 {
@@ -156,7 +189,13 @@ async def _logs_query(
         _log.warning("logs_backend_unreachable", url=url, error=str(exc))
         raise DevpodToolError(f"logs_backend_unreachable: {url} ({exc})") from exc
 
-    lines = _flatten_streams(r.json())[: params.limit]
+    try:
+        lines = _flatten_streams(r.json())[: params.limit]
+    except ValueError as exc:
+        # r.json() lève json.JSONDecodeError (sous-classe de ValueError) si le
+        # corps n'est pas du JSON valide — même traitement que les erreurs de
+        # structure levées par _flatten_streams (bug 028).
+        raise DevpodToolError(f"réponse Loki illisible : {exc}") from exc
     return {
         "query": logql,
         "range": {

@@ -9,12 +9,31 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from portal.db.mcp import get_backend
 from portal.db.mcp_catalog import list_primitives
-from portal.db.mcp_profiles import find_first_backend_key, list_entries_for_apikey
+from portal.db.mcp_profiles import (
+    find_first_backend_key,
+    list_entries_for_apikey,
+    list_profile_entries,
+)
 
 log = structlog.get_logger(__name__)
 
 NS_SEP = "__"
 _URI_PREFIX = "gw+"
+
+
+class PrimitiveQuarantined(Exception):
+    """La primitive existe et est autorisée, mais quarantinée (redéfinition non approuvée).
+
+    Distincte du deny-by-default (`None`) : l'appelant doit servir le message
+    « en attente d'approbation » (spec 23 §13), pas « unknown tool » — c'est ce
+    message trompeur qui a rendu le bug create_document indiagnosticable.
+    """
+
+    def __init__(self, backend_id: str, kind: str, original_name: str) -> None:
+        super().__init__(f"{kind} '{original_name}' quarantiné (backend {backend_id})")
+        self.backend_id = backend_id
+        self.kind = kind
+        self.original_name = original_name
 
 
 class AggregatedPrimitive(BaseModel):
@@ -81,9 +100,9 @@ async def _resolve_backend_key_id(
 ) -> str | None:
     """Clé sortante : explicite dans l'entry, sinon première clé enabled du backend."""
     if entry["backend_key_id"] is not None:
-        return entry["backend_key_id"]
+        return str(entry["backend_key_id"])
     row = await find_first_backend_key(conn, entry["backend_id"])
-    return row["id"] if row else None
+    return str(row["id"]) if row else None
 
 
 async def aggregate_primitives(
@@ -93,8 +112,30 @@ async def aggregate_primitives(
 
     profile_entries → backends enabled → catalogue → filtrage tools → namespacing.
     """
-    out: list[AggregatedPrimitive] = []
     entries = await list_entries_for_apikey(conn, apikey_id=apikey_id, owner_login=owner_login)
+    return await _aggregate_for_entries(conn, entries, owner_login=owner_login, kind=kind)
+
+
+async def aggregate_primitives_for_profile(
+    conn: AsyncConnection, *, profile_id: str, owner_login: str, kind: str
+) -> list[AggregatedPrimitive]:
+    """Vue agrégée des primitives `kind` autorisées par un profil MCP directement.
+
+    Même sémantique que la voie apikey (moteur de règles : le profil vient du
+    service enregistré, pas d'une apikey).
+    """
+    entries = await list_profile_entries(conn, profile_id)
+    return await _aggregate_for_entries(conn, entries, owner_login=owner_login, kind=kind)
+
+
+async def _aggregate_for_entries(
+    conn: AsyncConnection,
+    entries: list[dict[str, Any]],
+    *,
+    owner_login: str,
+    kind: str,
+) -> list[AggregatedPrimitive]:
+    out: list[AggregatedPrimitive] = []
     for entry in entries:
         backend = await get_backend(conn, owner_login, entry["backend_id"])
         if backend is None or not backend["enabled"]:
@@ -133,6 +174,39 @@ async def _resolve_target(
     Ne révèle jamais l'existence d'un backend : tout cas non autorisé renvoie `None`.
     """
     entries = await list_entries_for_apikey(conn, apikey_id=apikey_id, owner_login=owner_login)
+    return await _resolve_target_entries(
+        conn, entries, owner_login=owner_login, namespace=namespace, original=original, kind=kind
+    )
+
+
+async def resolve_call_for_profile(
+    conn: AsyncConnection,
+    *,
+    profile_id: str,
+    owner_login: str,
+    namespaced_name: str,
+    kind: str,
+) -> CallTarget | None:
+    """Résout un appel namespacé via un profil MCP directement (moteur de règles)."""
+    parsed = split_namespaced(namespaced_name)
+    if parsed is None:
+        return None
+    namespace, original = parsed
+    entries = await list_profile_entries(conn, profile_id)
+    return await _resolve_target_entries(
+        conn, entries, owner_login=owner_login, namespace=namespace, original=original, kind=kind
+    )
+
+
+async def _resolve_target_entries(
+    conn: AsyncConnection,
+    entries: list[dict[str, Any]],
+    *,
+    owner_login: str,
+    namespace: str,
+    original: str,
+    kind: str,
+) -> CallTarget | None:
     log.debug(
         "resolve_target",
         namespace=namespace,
@@ -183,7 +257,7 @@ async def _resolve_target(
                 backend_id=entry["backend_id"],
                 original=original,
             )
-            return None
+            raise PrimitiveQuarantined(entry["backend_id"], kind, original)
         backend_key_id = await _resolve_backend_key_id(conn, entry)
         return CallTarget(
             backend_id=entry["backend_id"],

@@ -15,14 +15,19 @@ from ..compose import service as csvc
 from ..compose.models import ComposeDeployment, ComposeTemplate, validate_slug
 from ..compose.ports import PortConflict
 from ..compose.service import ComposeServiceError
-from ..compose.validation import TemplateValidationError, validate_template
+from ..compose.validation import TemplateValidationError, first_service_name, validate_template
 from ..config.models import HostConfig
 from ..config.store import load_global, load_user
 from ..db.engine import _get_engine, get_conn
 from ..db.test_hosts import host_full_info
 from ..messages import db as mdb
 from ..messages.models import WorkspaceMessage
-from ..schemas.compose import DeploymentCreateBody, TemplateCreateBody, TemplateUpdateBody
+from ..schemas.compose import (
+    AutoStartUpdateBody,
+    DeploymentCreateBody,
+    TemplateCreateBody,
+    TemplateUpdateBody,
+)
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -35,7 +40,15 @@ async def list_templates(
     conn: Annotated[AsyncConnection, Depends(get_conn)],
     tag: str | None = Query(default=None),
 ) -> list[dict[str, Any]]:
-    return [t.model_dump(mode="json") for t in await cdb.list_templates(conn, tag)]
+    auto_start = {a.template_id for a in await cdb.list_auto_start_for_user(conn, user.login)}
+    return [
+        {
+            **t.model_dump(mode="json"),
+            "auto_start": t.id in auto_start,
+            "first_service": first_service_name(t.compose_content),
+        }
+        for t in await cdb.list_templates(conn, tag)
+    ]
 
 
 @router.get("/templates/{template_id}")
@@ -47,7 +60,7 @@ async def get_template(
     tpl = await cdb.get_template(conn, template_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="template inconnu")
-    return tpl.model_dump(mode="json")
+    return {**tpl.model_dump(mode="json"), "first_service": first_service_name(tpl.compose_content)}
 
 
 @router.post("/templates", status_code=201)
@@ -99,6 +112,28 @@ async def delete_template(
     if count > 0:
         raise HTTPException(status_code=409, detail="template référencé par des déploiements")
     await cdb.delete_template(conn, template_id)
+
+
+@router.put("/templates/{template_id}/auto-start")
+async def set_auto_start(
+    template_id: str,
+    body: AutoStartUpdateBody,
+    user: Annotated[UserInfo, Depends(require_user)],
+    conn: Annotated[AsyncConnection, Depends(get_conn)],
+) -> dict[str, Any]:
+    """Active/désactive le déploiement automatique de ce template sur les futures
+    machines de test de l'utilisateur (spec cadrage : lié à user+template, pas au host)."""
+    tpl = await cdb.get_template(conn, template_id)
+    if tpl is None:
+        raise HTTPException(status_code=404, detail="template inconnu")
+    if body.enabled:
+        missing = [p.key for p in tpl.parameters if p.required and p.key not in body.env_values]
+        if missing:
+            raise HTTPException(status_code=422, detail=f"paramètres requis manquants: {missing}")
+        await cdb.upsert_auto_start(conn, user.login, template_id, body.env_values)
+    else:
+        await cdb.delete_auto_start(conn, user.login, template_id)
+    return {"template_id": template_id, "enabled": body.enabled}
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +213,11 @@ async def create_deployment(
     missing = [p.key for p in tpl.parameters if p.required and p.key not in body.env_values]
     if missing:
         raise HTTPException(status_code=422, detail=f"paramètres requis manquants: {missing}")
+    foreign = csvc.foreign_env_keys(tpl, body.env_values)
+    if foreign:
+        raise HTTPException(
+            status_code=422, detail=f"clés env_values non déclarées par le template: {foreign}"
+        )
     if await cdb.get_deployment_by_name_node(conn, body.name, body.node_id) is not None:
         raise HTTPException(
             status_code=409,
@@ -223,6 +263,11 @@ async def create_deployment_stream(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    user_cfg = await load_user(user.login)
+
+    # La transaction commite dès la sortie du bloc : la ligne de réservation
+    # « created » insérée par prepare_deployment (bug 015) devient visible des
+    # déploiements concurrents AVANT le docker compose up streamé ci-dessous.
     async with _get_engine().begin() as conn:
         tpl = await cdb.get_template(conn, body.template_id)
         if tpl is None:
@@ -232,16 +277,24 @@ async def create_deployment_stream(
             raise HTTPException(
                 status_code=422, detail=f"paramètres requis manquants: {missing}"
             )
+        foreign = csvc.foreign_env_keys(tpl, body.env_values)
+        if foreign:
+            raise HTTPException(
+                status_code=422,
+                detail=f"clés env_values non déclarées par le template: {foreign}",
+            )
         if await cdb.get_deployment_by_name_node(conn, body.name, body.node_id) is not None:
             raise HTTPException(
                 status_code=409,
                 detail=f"déploiement {body.name!r} existe déjà sur ce nœud",
             )
         try:
-            port_map, host_ports, compose_to_write = await csvc.prepare_deployment(
+            uid, port_map, host_ports, compose_to_write = await csvc.prepare_deployment(
                 conn,
+                name=body.name,
                 template=tpl,
                 node_id=body.node_id,
+                owner_login=user.login,
                 env_values=body.env_values,
             )
         except PortConflict as exc:
@@ -256,11 +309,10 @@ async def create_deployment_stream(
         except ComposeServiceError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    user_cfg = await load_user(user.login)
-
     async def _gen() -> AsyncIterator[bytes]:
         try:
             async for chunk in csvc.deploy_stream(
+                uid=uid,
                 name=body.name,
                 template=tpl,
                 node_id=body.node_id,
@@ -273,9 +325,16 @@ async def create_deployment_stream(
             ):
                 yield chunk.encode()
         except ComposeServiceError as exc:
+            # deploy_stream a déjà retiré la réservation sur ce chemin.
             yield f"__ERROR__:{exc}\n".encode()
         except Exception as exc:
             _log.exception("deploy_stream_unexpected", exc=repr(exc))
+            # Ne jamais laisser la réservation « created » orpheline (bug 015).
+            try:
+                async with _get_engine().begin() as err_conn:
+                    await cdb.update_deployment_status(err_conn, uid, "error", str(exc)[:2000])
+            except Exception:
+                _log.warning("deploy_stream_mark_error_failed", uid=uid)
             yield f"__ERROR__:Erreur interne : {exc}\n".encode()
 
     return StreamingResponse(_gen(), media_type="text/plain; charset=utf-8")

@@ -161,6 +161,12 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
       <div className="flex items-center gap-2 flex-wrap">
         <Key className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="font-medium">{apikey.label || apikey.id}</span>
+        {apikey.workspace_ref && (
+          <Badge variant="outline" className="text-xs" title={t('mcp.apikeys.workspaceHint')}>
+            {t('mcp.apikeys.workspaceBadge')}
+            <code className="ml-1 font-mono">{apikey.workspace_ref}</code>
+          </Badge>
+        )}
         {apikey.revoked && <Badge variant="secondary">{t('mcp.apikeys.revoked')}</Badge>}
         {!apikey.revoked && (
           <Button
@@ -177,8 +183,10 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
             <Ban className="mr-1 h-3.5 w-3.5" />{t('mcp.apikeys.revoke')}
           </Button>
         )}
+        {/* Clef workspace active : cycle de vie géré par le portail (rotation au up,
+            purge au delete du workspace) — révocation seule, pas de suppression manuelle. */}
         <div className={`${apikey.revoked ? 'ml-auto' : ''} flex gap-1`}>
-          {confirmDel ? (
+          {apikey.workspace_ref && !apikey.revoked ? null : confirmDel ? (
             <>
               <Button
                 size="sm"
@@ -211,7 +219,16 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
         </div>
       </div>
 
-      {!apikey.revoked && (
+      {/* Clef workspace (spec 35) : le profil est géré par le portail, pas d'édition
+          manuelle — on affiche le profil en lecture seule, la révocation reste possible. */}
+      {!apikey.revoked && apikey.workspace_ref && profileName && (
+        <div className="mt-2 flex items-center gap-2 border-l pl-3">
+          <span className="text-xs text-muted-foreground shrink-0">{t('mcp.apikeys.profile')}</span>
+          <Badge variant="outline" className="text-xs shrink-0">{profileName}</Badge>
+        </div>
+      )}
+
+      {!apikey.revoked && !apikey.workspace_ref && (
         <div className="mt-2 flex items-center gap-2 border-l pl-3">
           <span className="text-xs text-muted-foreground shrink-0">{t('mcp.apikeys.profile')}</span>
           <Select

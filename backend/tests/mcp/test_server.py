@@ -14,9 +14,10 @@ from pydantic import AnyUrl
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from portal.db.mcp import insert_apikey, insert_backend_key, revoke_apikey, set_grant
+from portal.db.mcp import insert_apikey, insert_backend_key, revoke_apikey
 from portal.db.mcp_audit import list_for_owner
 from portal.db.mcp_catalog import upsert_primitive
+from portal.db.mcp_profiles import insert_profile, upsert_profile_entry
 from portal.db.tables import mcp_backend, users
 from portal.mcp.aggregator import make_namespaced_uri
 from portal.mcp.connections import BackendUnavailable
@@ -46,11 +47,14 @@ def test_extract_bearer_missing_or_malformed() -> None:
 
 
 async def _seed_apikey(conn: AsyncConnection, token: str) -> str:
+    """user alice + profil p1 + apikey ak1 rattachée au profil (modèle profils)."""
     await conn.execute(
         insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
     )
+    await insert_profile(conn, id="p1", owner_login="alice", name="Profil test")
     await insert_apikey(
-        conn, id="ak1", owner_login="alice", token_hash=token_hash(token), label=""
+        conn, id="ak1", owner_login="alice", token_hash=token_hash(token), label="",
+        profile_id="p1",
     )
     return "ak1"
 
@@ -81,7 +85,9 @@ async def _seed_backend_with_tool(conn: AsyncConnection) -> None:
             url="https://rag/mcp", transport="streamable_http",
         )
     )
-    await set_grant(conn, apikey_id="ak1", backend_id="b1", backend_key_id=None)
+    await upsert_profile_entry(
+        conn, profile_id="p1", backend_id="b1", backend_key_id=None, tools=None
+    )
     await upsert_primitive(
         conn, backend_id="b1", kind="tool", original_name="search",
         definition={"name": "search", "description": "Cherche", "inputSchema": {"type": "object"}},
@@ -138,7 +144,7 @@ def _patched_open_session(server: Server):
 
 async def test_execute_tool_call_routes_and_forwards(db_conn: AsyncConnection) -> None:
     await _seed_apikey(db_conn, "mcpk_secret")
-    await _seed_backend_with_tool(db_conn)  # backend public (backend_key_id=None)
+    await _seed_backend_with_tool(db_conn)  # backend public (aucune clé déclarée)
 
     result = await execute_tool_call(
         db_conn, apikey_id="ak1", owner_login="alice",
@@ -180,7 +186,7 @@ async def test_gateway_list_backends_includes_health(db_conn: AsyncConnection) -
     from portal.mcp.monitor import BackendHealth, reset_health, set_health
 
     await _seed_apikey(db_conn, "mcpk_secret")
-    await _seed_backend_with_tool(db_conn)  # backend b1 ns=rag, grant ak1
+    await _seed_backend_with_tool(db_conn)  # backend b1 ns=rag, entry du profil p1
     reset_health()
     set_health("b1", BackendHealth(status="up"))
 
@@ -277,7 +283,10 @@ async def test_execute_tool_call_audits_error_on_unresolvable_key(
         secret_value_vault_ref="${vault://x}",  # non-env ref → UnresolvableSecret
         vault_identifier=None,
     )
-    await set_grant(db_conn, apikey_id="ak1", backend_id="b1", backend_key_id="k1")
+    # L'entry du profil pointe explicitement sur la clé non résolvable.
+    await upsert_profile_entry(
+        db_conn, profile_id="p1", backend_id="b1", backend_key_id="k1", tools=None
+    )
 
     with pytest.raises(McpError):
         await execute_tool_call(
@@ -306,7 +315,9 @@ async def _seed_backend_with_prompt(conn: AsyncConnection) -> None:
             url="https://rag/mcp", transport="streamable_http",
         )
     )
-    await set_grant(conn, apikey_id="ak1", backend_id="b1", backend_key_id=None)
+    await upsert_profile_entry(
+        conn, profile_id="p1", backend_id="b1", backend_key_id=None, tools=None
+    )
     await upsert_primitive(
         conn, backend_id="b1", kind="prompt", original_name="welcome",
         definition={"name": "welcome", "description": "Prompt de bienvenue"},
@@ -410,7 +421,10 @@ async def test_execute_prompt_get_audits_error_on_unresolvable_key(
         secret_value_vault_ref="${vault://x}",  # non-env ref → UnresolvableSecret
         vault_identifier=None,
     )
-    await set_grant(db_conn, apikey_id="ak1", backend_id="b1", backend_key_id="k1")
+    # L'entry du profil pointe explicitement sur la clé non résolvable.
+    await upsert_profile_entry(
+        db_conn, profile_id="p1", backend_id="b1", backend_key_id="k1", tools=None
+    )
 
     with pytest.raises(McpError):
         await execute_prompt_get(
@@ -438,7 +452,9 @@ async def _seed_backend_with_resource(conn: AsyncConnection) -> None:
             url="https://rag/mcp", transport="streamable_http",
         )
     )
-    await set_grant(conn, apikey_id="ak1", backend_id="b1", backend_key_id=None)
+    await upsert_profile_entry(
+        conn, profile_id="p1", backend_id="b1", backend_key_id=None, tools=None
+    )
     await upsert_primitive(
         conn, backend_id="b1", kind="resource", original_name="resource://foo",
         definition={"uri": "resource://foo", "name": "Foo"},

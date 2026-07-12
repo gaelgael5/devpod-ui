@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { FileText, FolderOpen, Key, Loader2, MessageSquare } from 'lucide-react'
+import { Code2, Loader2, Mail, Play, Square } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,19 +17,21 @@ import type { WorkspaceSpec, WorkspaceStatus, WorkspaceStatusValue } from './typ
 import SshKeyDialog from './SshKeyDialog'
 import LogDialog from './LogDialog'
 import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
-import InitializersMenu from './InitializersMenu'
+import WorkspaceActionsMenu from './WorkspaceActionsMenu'
 import AddTestVmDialog from './AddTestVmDialog'
-import TestHostsMenu from './TestHostsMenu'
 import HostServicesSection from './HostServicesSection'
 import WorkspaceMessagesDialog from './WorkspaceMessagesDialog'
+import AgentMessagesPanel from './AgentMessagesPanel'
+import { usePendingCounts } from './useAgentMessages'
+import { STATUS_TONE_CLASS } from './statusTone'
 import type { TestHost } from './useTestVm'
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
-  running: 'bg-green-500/10 text-green-600 border-green-500/30',
-  stopped: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30',
-  provisioning: 'bg-primary/10 text-primary border-primary/30',
-  failed: 'bg-destructive/10 text-destructive border-destructive/30',
-  unknown: 'bg-muted text-muted-foreground border-border',
+  running: STATUS_TONE_CLASS.running,
+  stopped: STATUS_TONE_CLASS.stopped,
+  provisioning: STATUS_TONE_CLASS.progress,
+  failed: STATUS_TONE_CLASS.error,
+  unknown: STATUS_TONE_CLASS.neutral,
 }
 
 interface Props {
@@ -53,6 +55,9 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const [shellOpen, setShellOpen] = useState(false)
   const [addVmOpen, setAddVmOpen] = useState(false)
   const [sshTestHost, setSshTestHost] = useState<TestHost | null>(null)
+  const [agentMsgOpen, setAgentMsgOpen] = useState(false)
+  const { data: pendingCounts } = usePendingCounts()
+  const pendingCount = pendingCounts?.[spec.name] ?? 0
   const s = status.status
 
   return (
@@ -65,13 +70,30 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             <div className="text-xs text-muted-foreground/70 font-mono">{spec.host}</div>
           )}
         </div>
-        <Badge
-          variant="outline"
-          className={cn('shrink-0 text-xs', STATUS_CLASS[s])}
-        >
-          {s === 'provisioning' && '⟳ '}{t(`workspaces.status.${s}`)}
-        </Badge>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {pendingCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setAgentMsgOpen(true)}
+              aria-label={t('agentMessages.badgeLabel', { count: pendingCount })}
+              className="flex items-center gap-1 rounded-full border border-amber-500/50 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-100"
+            >
+              <Mail className="h-3.5 w-3.5" />
+              {pendingCount}
+            </button>
+          )}
+          <Badge
+            variant="outline"
+            className={cn('text-xs', STATUS_CLASS[s])}
+          >
+            {s === 'provisioning' && '⟳ '}{t(`workspaces.status.${s}`)}
+          </Badge>
+        </div>
       </div>
+
+      {agentMsgOpen && (
+        <AgentMessagesPanel open onOpenChange={(o) => { if (!o) setAgentMsgOpen(false) }} />
+      )}
 
       {spec.recipes.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-1">
@@ -92,17 +114,22 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {s === 'running' && status.url && (
-          <Button size="sm" asChild>
+          <Button size="sm" asChild aria-label={t('workspaces.actions.openVscode')}>
             <a href={status.url} target="_blank" rel="noopener noreferrer">
-              {t('workspaces.actions.openVscode')}
+              <Code2 className="h-4 w-4" />
             </a>
           </Button>
         )}
         {s === 'running' && (
-          <Button size="sm" variant="outline" onClick={() => onStop(spec.name)}>
-            {t('workspaces.actions.stop')}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onStop(spec.name)}
+            aria-label={t('workspaces.actions.stop')}
+          >
+            <Square className="h-4 w-4" />
           </Button>
         )}
         {s === 'running' && (
@@ -118,9 +145,9 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             variant="outline"
             onClick={() => onStart?.(spec.name)}
             disabled={!onStart || isStarting}
+            aria-label={t('workspaces.actions.start')}
           >
-            {isStarting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-            {t('workspaces.actions.start')}
+            {isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           </Button>
         )}
         {(s === 'stopped' || s === 'unknown' || s === 'failed') && (
@@ -154,65 +181,23 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             {t('workspaces.actions.retry')}
           </Button>
         )}
-        {spec.ssh_key && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setSshKeyOpen(true)}
-            aria-label={t('workspaces.sshKey.button')}
-          >
-            <Key className="h-4 w-4" />
-          </Button>
-        )}
-        {s === 'running' && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
-            onClick={() => setShellOpen(true)}
-            aria-label={t('workspaces.ssh.shellButton')}
-          >
-            {t('admin.sshTerminal.openBtn')}
-          </Button>
-        )}
-        {s === 'running' && <InitializersMenu wsName={spec.name} enabled />}
-        {s === 'running' && (
-          <Button size="sm" variant="outline" onClick={() => setAddVmOpen(true)}>
-            {t('workspaces.testVm.btn')}
-          </Button>
-        )}
-        {s === 'running' && (
-          <TestHostsMenu wsName={spec.name} enabled onOpenSsh={setSshTestHost} />
-        )}
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setMessagesOpen(true)}
-          aria-label={t('workspaces.messages.button')}
-        >
-          <MessageSquare className="h-4 w-4" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setLogsOpen(true)}
-          aria-label={t('workspaces.logs.button')}
-        >
-          <FileText className="h-4 w-4" />
-        </Button>
-        {onManageGroups && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onManageGroups}
-            aria-label={t('groups.manage')}
-          >
-            <FolderOpen className="h-4 w-4" />
-          </Button>
-        )}
+        {/* Aligné à droite, sous le menu ⋮ des machines de test */}
+        <div className="ml-auto">
+          <WorkspaceActionsMenu
+            wsName={spec.name}
+            running={s === 'running'}
+            agents={spec.agents ?? []}
+            onAddVm={() => setAddVmOpen(true)}
+            onOpenShell={() => setShellOpen(true)}
+            onShowSshKey={spec.ssh_key ? () => setSshKeyOpen(true) : undefined}
+            onOpenMessages={() => setMessagesOpen(true)}
+            onOpenLogs={() => setLogsOpen(true)}
+            onManageGroups={onManageGroups}
+          />
+        </div>
       </div>
 
-      <HostServicesSection wsName={spec.name} enabled={s === 'running'} />
+      <HostServicesSection wsName={spec.name} enabled={s === 'running'} onOpenSsh={setSshTestHost} />
 
       {spec.ssh_key && (
         <SshKeyDialog

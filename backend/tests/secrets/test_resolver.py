@@ -32,17 +32,28 @@ def test_empty_string_returned_unchanged():
     assert result == ""
 
 
-def test_env_ref_returns_secret(monkeypatch):
+def test_env_ref_rejected_in_user_resolver(monkeypatch):
+    # Bug 002 : env:// exposé aux entrées utilisateur permettait d'exfiltrer
+    # n'importe quelle variable du process. Le résolveur user-facing le refuse.
     monkeypatch.setenv("MY_TEST_TOKEN", "env_value")
-    result = resolve("${env://MY_TEST_TOKEN}", USER_SCOPE, _backend())
-    assert isinstance(result, Secret)
-    assert result.reveal() == "env_value"
+    b = _backend()
+    with pytest.raises(SecretAccessError, match="env://"):
+        resolve("${env://MY_TEST_TOKEN}", USER_SCOPE, b)
+    b.get.assert_not_called()
 
 
-def test_env_ref_raises_on_missing_var(monkeypatch):
-    monkeypatch.delenv("ABSENT_VAR", raising=False)
-    with pytest.raises(SecretAccessError, match="ABSENT_VAR"):
-        resolve("${env://ABSENT_VAR}", USER_SCOPE, _backend())
+def test_env_ref_rejected_even_for_sensitive_process_var(monkeypatch):
+    # Le secret existe dans l'environnement du process : il ne doit JAMAIS
+    # être renvoyé, quel que soit son nom.
+    monkeypatch.setenv("PORTAL_VAULT_KEK", "kek-super-secret")
+    with pytest.raises(SecretAccessError, match="env://"):
+        resolve("${env://PORTAL_VAULT_KEK}", USER_SCOPE, _backend())
+
+
+def test_env_ref_rejected_in_global_scope(monkeypatch):
+    monkeypatch.setenv("SESSION_SECRET_KEY", "sig-key")
+    with pytest.raises(SecretAccessError, match="env://"):
+        resolve("${env://SESSION_SECRET_KEY}", GLOBAL_SCOPE, _backend())
 
 
 def test_vault_user_prefixes_namespace():

@@ -94,6 +94,7 @@ function AddDialog({ open, onClose }: AddDialogProps) {
     { value: 'PAT_GITLAB', label: t('secrets.types.PAT_GITLAB') },
     { value: 'PAT_AZURE', label: t('secrets.types.PAT_AZURE') },
     { value: 'API_KEY', label: t('secrets.types.API_KEY') },
+    { value: 'MCP_DISCOVERY', label: t('secrets.types.MCP_DISCOVERY') },
   ]
 
   const [label, setLabel] = useState('')

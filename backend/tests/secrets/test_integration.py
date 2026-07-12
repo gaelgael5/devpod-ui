@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 import yaml
 
 from portal.secrets.backends.inline import InlineBackend
@@ -76,11 +77,13 @@ def test_literal_is_plain_string_not_secret():
     b.get.assert_not_called()
 
 
-def test_env_resolution_does_not_call_backend(monkeypatch):
+def test_env_reference_is_rejected_and_never_leaks(monkeypatch):
+    # Bug 002 : ${env://...} soumis par un utilisateur ne doit rien résoudre.
+    from portal.secrets.resolver import SecretAccessError
+
     monkeypatch.setenv("PORTAL_TEST_KEY", "from_env")
     b = MagicMock()
     b.base_path = "devpod"
-    result = resolve("${env://PORTAL_TEST_KEY}", USER_SCOPE, b)
-    assert isinstance(result, Secret)
-    assert result.reveal() == "from_env"
+    with pytest.raises(SecretAccessError, match="env://"):
+        resolve("${env://PORTAL_TEST_KEY}", USER_SCOPE, b)
     b.get.assert_not_called()

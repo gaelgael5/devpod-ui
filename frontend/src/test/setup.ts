@@ -11,6 +11,19 @@ globalThis.ResizeObserver = class ResizeObserver {
   disconnect() {}
 }
 
+// jsdom ne fournit pas window.matchMedia — requis par xterm (Terminal._updateDpr) dès qu'un
+// terminal est monté (ex. WorkspaceSessionTerminal après création/sélection d'une session)
+window.matchMedia ??= () => ({
+  matches: false,
+  media: '',
+  onchange: null,
+  addListener: () => {},
+  removeListener: () => {},
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  dispatchEvent: () => false,
+})
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
 afterEach(() => {
   cleanup()

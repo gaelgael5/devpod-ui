@@ -7,14 +7,45 @@ commande courte et on capture sa sortie — utilisé par les actions `initialize
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import shlex
+from pathlib import Path
 
 import structlog
 
 from ..config.store import load_global, safe_user_path
 
 _log = structlog.get_logger(__name__)
+
+# Multiplexage SSH (ControlMaster) : un tunnel devpod « chaud » réutilisé entre
+# ouvertures. Répertoire des sockets de contrôle (portal-local) et durée de
+# persistance du master après la dernière déconnexion (pas de fuite : il se ferme).
+_CONTROL_DIR = Path("/tmp/portal-ssh-cm")  # noqa: S108 — socket local du portail, 0700
+SSH_CONTROL_PERSIST = "300"  # secondes d'inactivité avant fermeture du master
+
+
+def control_ssh_args(ws_id: str) -> list[str]:
+    """Options de multiplexage SSH partagées pour un workspace (un master par ws_id).
+
+    Le 1er `ssh` monte le tunnel (handshake mTLS via `devpod ssh --stdio` une seule
+    fois) ; les suivants s'y rattachent via le même `ControlPath` → ouverture
+    quasi-instantanée. `ControlPersist` ferme le master après inactivité.
+
+    Le `ControlPath` NE PEUT PAS dériver du host nominal : il est identique pour tous
+    les workspaces (`vscode@devpod-ws`), donc `%C` collisionnerait entre workspaces.
+    On le clé donc sur un hash de `ws_id` (unique : `login-name`).
+    """
+    _CONTROL_DIR.mkdir(mode=0o700, exist_ok=True)
+    digest = hashlib.sha256(ws_id.encode()).hexdigest()[:16]
+    return [
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        f"ControlPath={_CONTROL_DIR / digest}",
+        "-o",
+        f"ControlPersist={SSH_CONTROL_PERSIST}",
+    ]
 
 
 def host_key_changed(ssh_stderr: bytes) -> bool:
@@ -57,6 +88,7 @@ def build_ssh_argv(
         "-o",
         "LogLevel=ERROR",
         *identity_args,
+        *control_ssh_args(ws_id),
         "-o",
         f"ProxyCommand={proxy_cmd}",
         "-o",
@@ -78,6 +110,33 @@ def ssh_env(login: str) -> dict[str, str]:
     }
 
 
+async def workspace_env(login: str, ws_id: str) -> dict[str, str]:
+    """Env complet pour un appel devpod ciblant ws_id.
+
+    ssh_env + DOCKER_HOST/DOCKER_TLS_VERIFY/DOCKER_CERT_PATH si le host du
+    workspace est docker-tls — sans quoi devpod cherche /var/run/docker.sock
+    et tout `devpod ssh --stdio` échoue (initializers, sessions, terminal).
+    """
+    env = ssh_env(login)
+    name = ws_id[len(login) + 1 :] if ws_id.startswith(f"{login}-") else ws_id
+    try:
+        from ..config.store import load_user
+        from .env import _find_host
+
+        cfg = load_global()
+        user_cfg = await load_user(login)
+        ws = next((w for w in user_cfg.workspaces if w.name == name), None)
+        host = _find_host(ws.host if ws is not None else "", cfg)
+    except Exception:
+        _log.warning("workspace_env_host_unresolved", login=login, ws_id=ws_id)
+        return env
+    if host.type == "docker-tls":
+        env["DOCKER_HOST"] = host.docker_host
+        env["DOCKER_TLS_VERIFY"] = "1"
+        env["DOCKER_CERT_PATH"] = cfg.devpod.client_cert_path
+    return env
+
+
 async def run_ssh_capture(
     login: str, ws_id: str, remote_cmd: str, *, timeout: float = 60.0
 ) -> tuple[int, str, str]:
@@ -91,7 +150,7 @@ async def run_ssh_capture(
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        env=ssh_env(login),
+        env=await workspace_env(login, ws_id),
     )
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)

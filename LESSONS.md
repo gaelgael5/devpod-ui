@@ -1,108 +1,96 @@
 # Lessons apprises
 
-## [app/lifespan] JAMAIS de synchro automatique des recettes au démarrage
-Ne pas appeler `sync_bundled_recipes` / `sync_recipes_to_db` dans le lifespan (ni ailleurs au démarrage). C'est l'admin qui choisit quoi synchroniser, via `POST /admin/recipes/sync`. Demandé 3 fois par l'utilisateur — ne jamais réintroduire.
+## [app/lifespan]
+- JAMAIS de synchro auto des recettes au démarrage (`sync_bundled_recipes`) — c'est un choix admin via `POST /admin/recipes/sync`. Demandé 3x, ne pas réintroduire.
+- `get_cached_global()` raise si DB vide → crash silencieux du lifespan AVANT le `yield` (boucle de redémarrage sans trace). Utiliser `get_optional_cached_global()` là où `None` est un état valide.
 
-## [docker] openssh-client manquant dans l'image
-`asyncio.create_subprocess_exec("ssh", ...)` lève `FileNotFoundError` si `openssh-client` n'est pas installé. L'exception est avalée silencieusement dans un `except Exception` → la feature (option_script, SSH run) ne fonctionne pas sans erreur visible. Toujours ajouter `openssh-client` dans le Dockerfile dès qu'on utilise SSH côté backend.
+## [backend/ssh-subprocess]
+- `openssh-client` absent de l'image → `FileNotFoundError` avalé silencieusement. Toujours l'ajouter au Dockerfile dès qu'on shell out vers `ssh`.
+- SSH non-interactif : PATH incomplet (`/usr/sbin` absent) → binaires Proxmox introuvables, erreur masquée par `2>/dev/null`. Préfixer `PATH=/usr/sbin:/usr/bin:$PATH`.
+- Toujours vérifier `proc.returncode` après `communicate()` et lever avec stderr — sinon un échec SSH retourne un stdout vide sans erreur visible.
+- `resp.json()` doit être appelé DANS le `async with httpx.AsyncClient()`, pas après.
+- Docker bridge + IPv6 : le DNS retourne AAAA en premier, urllib3/httpx n'essaient pas IPv4 en fallback (contrairement à curl). Patcher `socket.getaddrinfo` (après les imports, avant toute connexion) pour prioriser AF_INET.
 
-## [backend] resp.json() doit être dans le bloc `async with httpx.AsyncClient()`
-httpx : appeler `resp.json()` après la fermeture du context manager fonctionne en pratique (corps en mémoire) mais est incorrect. Toujours mettre `return dict(resp.json())` à l'intérieur du `try` dans le `async with`.
+## [frontend]
+- lucide-react ≥1.0 a renommé des icônes (`CheckCircle2`→`CircleCheck`, `XCircle`→`CircleX`, `Loader2`→`LoaderCircle`) — import inexistant = composant crashe silencieusement. Vérifier avec `tsc --noEmit`.
+- `DialogFooter` (3 boutons) : `flex-col-reverse` sous 640px tronque le 1er bouton. Utiliser un `div` custom `sm:justify-between`.
 
-## [backend] SSH non-interactif : PATH incomplet sur Proxmox
-En SSH non-interactif, `/usr/sbin` n'est pas dans le PATH. `pvesm`, `qm` et autres binaires Proxmox sont introuvables → `2>/dev/null` masque l'erreur et la commande retourne vide. Préfixer avec `PATH=/usr/sbin:/usr/bin:$PATH` dans les `option_script` Proxmox.
+## [openvsx]
+- Router : `/{ns}/{name}/readme` AVANT `/{ns}/{name}` (sinon "readme" est lu comme `name`). Préfixe `/plugins` (pas `/api/`, incohérent avec le reste). `env_prefix=OPENVSX_` → `monkeypatch.setenv` dans les tests. Cache TTL par-process (à revoir si multi-worker). `q` optionnel sur `/search` → sans lui, top global Open VSX.
 
-## [backend] _ssh_run ne vérifiait pas le code de retour SSH
-Un échec SSH (auth, host injoignable, commande absente) retournait stdout vide sans lever d'exception → erreur totalement invisible. Toujours vérifier `proc.returncode` après `communicate()` et lever `RuntimeError` avec le contenu de stderr.
+## [vault/harpocrate]
+- `VaultClient.whoami()` → 404 sur vault.yoops.org (endpoint inexistant). Utiliser `client._resolve_wallet_id()` + reconstruire depuis `client._parsed.*`.
+- `PORTAL_VAULT_KEK` a plusieurs consommateurs (vault/pin, secrets/system, mcp/runtime_secrets) — chacun DOIT avoir un `info=` HKDF distinct (domain separation), à préserver pour tout nouveau consommateur.
 
-## [frontend] lucide-react v1 a renommé plusieurs icônes
-En lucide-react ≥1.0, les icônes suivantes n'existent plus :
-- `CheckCircle2` → `CircleCheck`
-- `XCircle` → `CircleX`
-- `Loader2` → `LoaderCircle`
-Un import d'icône inexistante donne `undefined` au runtime → le composant React crashe silencieusement (dialog vide). Vérifier avec `npx tsc --noEmit` ou inspecter `node_modules/lucide-react/dist/lucide-react.d.ts`.
+## [recipes/models]
+- Clé YAML à tiret (`memory-volume`) ≠ champ pydantic underscore → `ValidationError` avec `extra="forbid"`. Fix : `model_validator(mode="before")` qui normalise avant validation.
 
-## [frontend] DialogFooter avec 3 boutons : le premier est caché en viewport étroit
-`DialogFooter` utilise `flex-col-reverse` sous le breakpoint `sm` (640px). Avec 3 boutons [Test, Cancel, Save], l'ordre visuel devient [Save, Cancel, Test] et Test peut être tronqué si le dialog est haut. Utiliser un `div` custom avec `sm:justify-between` : bouton test à gauche, Cancel+Save à droite.
+## [devpod/service]
+- `--devcontainer-path` : Go `filepath.Join` préfixe TOUJOURS `content/`, même un chemin absolu ; `{workspace_dir}` est effacé par devpod. Uploader dans `workspaces/.devpod-portal-dc/{ws_id}/` (frère, non effacé) + chemin relatif `../../`.
+- Clé SSH host dans un tempfile → supprimée avant que `devpod ssh --stdio` (ProxyCommand) en ait besoin = timeout silencieux. Écrire dans `{user_devpod_dir}/keys/{slug}.pem` (chemin stable).
+- Profil/recettes : seulement pour `docker-tls` (sur SSH, `--devcontainer-path` est inexploitable — limitation connue, pas de contournement via `postCreateCommand`).
+- Tout `devpod ssh --stdio` exige `DEVPOD_HOME` + `DOCKER_*` — utiliser `workspace_env()`, jamais un env minimal.
+- devcontainer.json : le champ est `appPort`, pas `appPorts` — un champ inconnu est ignoré en silence par DevPod, vérifier contre la spec avant usage.
+- Un bind mount / `postCreateCommand` ne s'applique qu'à la CONSTRUCTION du conteneur : `devpod up` par défaut réutilise le conteneur existant (`--recreate` requis pour reconstruire). Toute config qui doit s'appliquer sur un simple `restart` doit être ÉCRITE dans le conteneur (`ws_exec`/`devpod ssh`), pas livrée par mount. Ne jamais proposer delete+recreate quand la contrainte utilisateur est « restart maximum » (spec 35b : livraison par écriture conteneur).
 
-## [openvsx] Cache TTL par-process
-Avec plusieurs workers uvicorn, chaque worker a son propre cache. Acceptable pour un proxy Open VSX (pas d'état métier), mais à documenter si on passe à un déploiement multi-worker.
+## [mcp]
+- Backends `transport=internal` (devpod) : leur catalogue n'était resync qu'au bootstrap/nouveau user, jamais par le monitor périodique ni le bouton probe — un no-op déguisé en "toujours up". `monitor_backend_once` doit aussi resync les internes (`ensure_devpod_backend`), pas juste renvoyer `up`.
+- `get_backend_key`/`list_backend_keys` omettent `secret_value_local` par hygiène — `resolve_grant_key` a besoin d'un fetcher dédié (`get_backend_key_secret`), ne pas élargir `_KEY_COLS`.
+- `streamablehttp_client` est `@deprecated` en mcp 1.28 → utiliser `streamable_http_client` + `create_mcp_http_client(headers=, timeout=Timeout(read=300.0))` (read timeout long sinon les call_tool streamés SSE sont coupés).
+- `app.mount("/mcp", asgi)` redirige `/mcp`→`/mcp/` (307) — cibler le slash final ou `follow_redirects=True`.
+- Push serveur→client (`list_changed`) hors d'atteinte en mcp 1.28 (pas d'API publique pour les `ServerSession` internes) — polling/TTL côté frontend à la place.
+- `fetch_primitives` DOIT suivre `nextCursor` (`list_tools/resources/prompts` sont paginés) : ne lire que la page 1 + `prune_absent` = queue du catalogue effacée à chaque probe (bug registre fédéré partiel docflow `create_document`/`set_document_parent`). Tout stub de session en test doit porter la vraie signature `list_tools(cursor, *, params)`.
+- `call_tool` qui lève → `CallToolResult(isError=True)`, PAS d'exception client ; `read_resource`/`get_prompt`/`list_*` propagent en `McpError`. Adapter les assertions de test en conséquence.
+- Paramètre par défaut `open_session_fn: Any = open_session` fige l'objet à la définition → `monkeypatch.setattr` inopérant. Défaut `None` + résolution call-time.
+- `_ID = Path(...)` partagé entre params de noms différents (`key_id`/`apikey_id`) fige l'alias sur le premier → 422 sur les suivants. Utiliser `Annotated[str, Path(...)]` par paramètre, jamais un objet `Path()` partagé.
+- `FastMCP` annonce toujours les 3 capabilities (tools/resources/prompts) même avec un seul `@srv.tool()` — inutilisable pour tester une logique capability-aware ; construire une session stub à la main.
+- `mcp_apikey_grant.backend_key_id` doit être nullable (backend public sans clé) — vérifier après toute migration touchant cette contrainte (symptôme : 500 muet au premier grant public).
 
-## [openvsx] Ordre routes FastAPI
-Déclarer `/{ns}/{name}/readme` AVANT `/{ns}/{name}` dans le router, sinon FastAPI interprète "readme" comme valeur du paramètre `name`.
+- Un mécanisme de sécurité à moitié implémenté = bug invisible : la quarantaine anti rug-pull (spec 23) posait un flag collant SANS route d'approbation ni erreur dédiée → « unknown tool » trompeur pendant 24 h (create_document). Toujours livrer détection + chemin de sortie + message distinct EN MÊME TEMPS ; un état bloquant silencieux doit se re-logger à chaque passe, pas seulement à la pose.
 
-## [openvsx] Préfixe routes
-Adapter `/api/plugins` en `/plugins` pour cohérence avec les autres routes du projet (aucun autre router n'utilise de préfixe `/api/`).
+## [spa]
+- Toute route backend visitée directement par le navigateur (OAuth redirects, `/.well-known/*`, `/mcp`) doit être dans `_BACKEND_NAV_PATHS` (spa.py), sinon le fallback SPA (`Accept: text/html`) la masque → faux 404 React Router. NE PAS y mettre les vraies pages React.
+- Corollaire diagnostic : ne jamais tester une route API en la tapant dans la barre d'adresse du navigateur — `Accept: text/html` déclenche ce même fallback et donne un faux négatif. Utiliser DevTools Network (vraie requête `fetch`) ou `curl`.
 
-## [openvsx] env_prefix pydantic-settings
-`OpenVsxSettings` utilise `OPENVSX_` — si un test lit ces variables d'env, utiliser `monkeypatch.setenv` pour garantir l'isolation (pas `os.environ` direct).
+## [tests]
+- `TestClient` : tout appel (`client.get(...)`) fait APRÈS la sortie du bloc `with TestClient(app) as client:` s'exécute post-lifespan-shutdown (`dispose_engine()` déjà passé) → reconnexion d'engine liée à une event loop mourante, fuite vers le test suivant (`attached to a different loop`). Toujours garder les appels DANS le `with`.
+- Avant de chasser un test rouge : vérifier s'il teste un comportement disparu (signature changée, champ renommé) plutôt que de le réparer mécaniquement — grep le code réel d'abord.
 
-## [plugins] GET /api/plugins/search : q est désormais optionnel (min_length=1 si présent). Sans q, la clé `query` est absente de la requête Open VSX → l'API renvoie le top global trié par sortBy.
+## [git]
+- Tout le code va sur `dev`, jamais `main` (même si "committe"/"pousse" sans préciser). Vérifier `git branch --show-current` avant tout commit. Ne jamais proposer `git checkout -b feat/...`.
 
-## [vault] `whoami()` du SDK harpocrate retourne 404 sur vault.yoops.org
-`VaultClient.whoami()` appelle `GET /v1/api-keys/{id}` — endpoint inexistant sur vault.yoops.org. Utiliser `client._resolve_wallet_id()` qui appelle `GET /v1/api-keys/{id}/wallet-id` et retourne un 200 si le token est valide. Reconstruire la réponse depuis `client._parsed.api_key_id` et `client._parsed.permissions`.
+## [exposure]
+- Proxy VS Code : `vs-dev.yoops.org` (1 niveau, couvert par le wildcard `*.yoops.org`) — 2 niveaux (`*.dev.yoops.org`) hors Cloudflare Universal SSL. `COOKIE_DOMAIN=yoops.org` obligatoire. Placeholders `{http.reverse_proxy.header.*}` non fiables dans la config JSON Caddy (routes handle_response) — les éviter.
+- Wildcard DNS tunnel (`*.dev.yoops.org`) posé une fois, manuellement, hors du portail — sans lui tous les sous-domaines `ws-*` sont NXDOMAIN.
+- Cookie de session : surcharger un attribut (`domain`) de `SessionMiddleware` en property ne sert à rien — Starlette fige tout dans `security_flags` au `__init__`, la property n'est jamais lue. Vérifier le mécanisme de la version installée de la lib, et valider par le comportement observable (`curl -D-` sur le Set-Cookie), pas par la valeur calculée en interne.
+- Config JSON Caddy (API admin) : les raccourcis Caddyfile (`{uri}`, `{path}`) n'existent pas — un placeholder inconnu est remplacé par du vide, silencieusement. Toujours la forme complète (`{http.request.uri}`). Les routes dynamiques sont perdues à chaque restart de Caddy (pas de `--resume`) : un expose() doit les recréer.
+- `workspace_host` n'est PAS l'hôte des workspaces : tous les tunnels SSH convergent sur le conteneur portail (`node_ip = caddy.portal_host = "portal"`), c'est donc l'IP LAN du portail — une seule valeur couvre N nœuds. En DHCP, le mettre en hostname et le re-résoudre via `<host>.<local_domain>` (`net.resolve_ipv4`). Ne jamais prioriser `node_ip` (nom Docker interne) devant lui dans les fallbacks URL directe.
 
-## [docker] Docker bridge + IPv6 : urllib3 échoue sans fallback IPv4
-En réseau Docker bridge, l'IPv6 n'est pas routé. Le DNS retourne des AAAA en premier ; urllib3/httpx tentent IPv6 et abandonnent sans essayer IPv4 (contrairement à curl). Fix : patcher `socket.getaddrinfo` au démarrage du process Python pour retourner les entrées AF_INET en premier quand `family=0`. Placer le patch après tous les imports (ruff E402) mais avant toute connexion runtime — urllib3 ne met pas `getaddrinfo` en cache à l'import.
+## [admin/config]
+- JAMAIS `save_global()` depuis un process externe (`docker exec python`) : `load_global()` y retombe sur la config bootstrap VIDE (cache jamais réchauffé) → le save écrase toute la config réelle (hosts effacés sur test1, 2026-07-06). Toute mutation de config passe par l'API admin du portail qui tourne ; à défaut, UPDATE SQL ciblé + restart.
+- Un modèle pydantic + persistance DB ne veut pas dire qu'un réglage est configurable : vérifier qu'une route PUT existe réellement avant de supposer qu'un admin peut le changer (ex. `logs.enabled`/`loki_push_url` avaient le modèle + la DB mais aucune route d'écriture — seule la lecture existait).
+- Avant d'ajouter un nouveau champ de config, vérifier qu'un champ existant ne porte pas déjà la même valeur sous un autre nom (`workspace_host` couvrait déjà "IP directe du host").
 
-## [recipes/models] Clé YAML avec tiret ≠ champ pydantic avec underscore
-`memory-volume` (YAML) est vu comme champ inconnu par pydantic (`extra="forbid"`) → `ValidationError`. `RecipeMeta.model_validate()` échoue partout (galerie, sync, devcontainer). Fix : `model_validator(mode="before")` qui normalise `memory-volume` → `memory_volume` avant validation.
+## [compose/env]
+- Tout `$` écrit dans `/data/.env` doit être doublé (`$$`) — sinon un hash bcrypt est tronqué par l'interpolation docker-compose (`Invalid salt`).
 
-## [devpod/service] `--devcontainer-path` : Go filepath.Join préfixe TOUJOURS content/
-DevPod fait `filepath.Join(content_dir, path)` en Go. Même un chemin absolu est préfixé par `content/` (Go ≠ Python : le '/' initial n'est pas traité comme racine). Seul un chemin relatif avec `../` peut échapper à `content/`. De plus, `{workspace_dir}` est entièrement effacé par "Delete old workspace". Solution : uploader dans `workspaces/.devpod-portal-dc/{ws_id}/` (répertoire frère, non effacé) et passer `../../.devpod-portal-dc/{ws_id}/devcontainer.json`.
+## [api]
+- Update partiel : ne jamais écraser un spec stocké avec les défauts du DTO. Fusionner via `req.model_fields_set` — seuls les champs explicitement envoyés priment.
 
-## [devpod/service] Clé SSH host : temp file = timeout SSH post-devpod-up
-`EXTRA_FLAGS=-i /tmp/devpod-host-xxx.pem` stocke le chemin d'un fichier temporaire supprimé dans le `finally` après `devpod up`. Le ProxyCommand `devpod ssh --stdio {ws_id}` échoue ensuite silencieusement (timeout 30 s) pour toute connexion SSH (_ssh, tmux, sessions). Le port-forward fonctionne car c'est une connexion persistante établie avant la suppression. Fix : écrire la clé à `{user_devpod_dir}/keys/{slug}.pem` (chemin stable, jamais supprimé par le guard `startswith(tempfile.gettempdir())`).
+## [observability/alloy-caddy]
+- `faro.receiver` (Alloy) n'écoute QUE sur `/collect`, aucun préfixe configurable côté composant — un `reverse_proxy /faro/collect* alloy:PORT` transmet le chemin complet et prend un 404. Utiliser `handle_path /faro/* { reverse_proxy alloy:PORT }` pour retirer le préfixe public avant de proxier.
+- `docker compose` (même `exec`/`logs` sur UN service) interpole tout le YAML avant d'exécuter quoi que ce soit — une var requise manquante pour un service sans rapport bloque TOUTES les commandes compose. Contournement diagnostic : `docker exec <container>`/`docker logs <container>` (docker brut, ignore le compose file).
+- Sync des templates compose builtin (`compose_bootstrap.py`) gatée sur un simple `version` string : modifier le contenu (ex. `extra_files`) SANS bumper la version → la resynchro ne se déclenche jamais sur les déploiements existants, silencieusement, aucune erreur ni log.
 
-## [devpod/service] Profil et recettes : docker-tls uniquement
-`_write_devcontainer` n'est appelé que pour les hosts `docker-tls`. Sur SSH, DevPod tourne
-sur la VM distante — `--devcontainer-path` y est inexploitable (chemin local du portail).
-Profil et recettes sont donc silencieusement ignorés sur SSH. Limitation préexistante, hors
-périmètre du chantier 20. Ne pas contourner via `postCreateCommand` (interdit par PITFALLS).
-Dégradation gracieuse : si le profil référencé est introuvable au moment du `up`, le workspace
-démarre quand même sans profil (warning loggé, pas d'erreur HTTP).
+## [deploy/cloudflare]
+- Cloudflare (edge + navigateur) peut servir un bundle JS périmé un moment après un redeploy backend réussi sur dev.yoops.org — hard refresh (Ctrl+Shift+R) avant de conclure qu'un fix ne marche pas.
+- Un 502 Cloudflare "brandé" (Ray ID, page HTML complète) sur UN chemin précis pendant que le reste du domaine fonctionne = problème de routage du Tunnel Cloudflare, pas de l'app. Isoler via curl direct (bypass Caddy puis bypass tunnel) avant de creuser côté code — si backend+Caddy répondent proprement en direct, c'est hors périmètre du dépôt (config tunnel/cloudflare-manager).
 
-## [mcp] Consommateurs de PORTAL_VAULT_KEK : info HKDF distinct obligatoire
-`PORTAL_VAULT_KEK` est dérivée par plusieurs consommateurs (vault/pin, secrets/system → `portal-system-vault`, mcp/runtime_secrets → `mcp-backend-key-v1`). Chacun DOIT utiliser un `info=` HKDF distinct (domain separation) pour ne jamais produire la même sous-clé. Préserver cet invariant pour tout futur consommateur.
+## [mcp/logs_query]
+- Les filtres structurés de `logs_query` (host/role/project/service/unit/job) doivent suivre les labels RÉELLEMENT posés par Alloy (`external_labels`/`extra_log_labels`) — une nouvelle source de logs (ex. `job=faro` pour le frontend) est invisible pour un agent si le filtre ET la description de l'outil ne la mentionnent pas explicitement. Vérifier en conditions réelles (cache réchauffé via `warm_global_cache`, pas un script isolé) avant de considérer l'outil fonctionnel.
 
-## [mcp/runtime] resolve_grant_key exige secret_value_local — pas via get_backend_key
-`get_backend_key`/`list_backend_keys` omettent `secret_value_local` (hygiène : le blob chiffré ne sort jamais d'un listing/registre). `resolve_grant_key` en a besoin → le runtime (Plan 2) doit ajouter un fetcher dédié `get_backend_key_secret(conn, backend_id, key_id)` qui sélectionne `storage_type, secret_value_local, secret_value_vault_ref`. NE PAS élargir `_KEY_COLS`.
-
-## [mcp/runtime] streamablehttp_client est @deprecated en mcp 1.28
-`mcp.client.streamable_http.streamablehttp_client` porte `@deprecated` et émet un `DeprecationWarning` à l'appel (casse la sortie pristine). Utiliser `streamable_http_client(url, http_client=create_mcp_http_client(headers=, timeout=httpx.Timeout(connect_s, read=300.0)))`. Importer `create_mcp_http_client` du module public `mcp.client.streamable_http` (pas du privé `_httpx_utils`) avec `# type: ignore[attr-defined]` (module sans `__all__`). Préserver un read timeout long (300s) sinon les call_tool streamés (SSE) sont coupés. Le SDK ne ferme PAS un http_client fourni (`client_provided`) → pas de double-close.
-
-## [mcp/server] Starlette mount redirect 307 : /mcp → /mcp/
-`app.mount("/mcp", asgi)` redirige `/mcp` → `/mcp/` avec un 307. Les clients MCP doivent cibler `/mcp/` (slash final) ou suivre les redirections (`follow_redirects`). Tests in-process httpx : `follow_redirects=True` + URL avec slash final dans `streamable_http_client`.
-
-## [mcp/server] push serveur→client list_changed HORS D'ATTEINTE en mcp 1.28
-Aucune API publique pour pousser `send_tool_list_changed` aux clients depuis une tâche de fond : `StreamableHTTPSessionManager._server_instances` = transports HTTP (privé), jamais les `ServerSession` (internes à `Server.run()`). `server.request_context.session` n'existe QUE dans un handler. Recevoir les notif backend→gateway exige des sessions LONGUES (pool, incompatible open_session stateless) = sous-projet à part. → Notifications différées ; alternative = polling frontend court. Refresh catalogue TTL + health-ping périodique (dict mémoire) = faisables proprement via `asyncio.create_task` dans le lifespan.
-
-## [mcp/server] call_tool wrappe les exceptions en isError ; read_resource/get_prompt non
-Un `@server.call_tool()` qui lève → le SDK renvoie `CallToolResult(isError=True)` (lowlevel/server.py `except Exception: _make_error_result`), PAS d'exception côté client. Mais `read_resource`/`get_prompt`/`list_*` propagent l'erreur en `McpError` côté client. Tester les assertions en conséquence (isError pour call_tool, pytest.raises(McpError) pour les autres).
-
-## [mcp/server] open_session_fn=open_session en défaut capture l'objet → monkeypatch inopérant
-Un paramètre `open_session_fn: Any = open_session` fige l'objet à la définition ; `monkeypatch.setattr("portal.mcp.X.open_session", fake)` n'a alors aucun effet (le défaut tient l'ancien objet). Pour rendre patchable : défaut `None` + résolution call-time `fn = open_session_fn if open_session_fn is not None else open_session` (lookup du global au moment de l'appel).
-
-## [spa] Routes backend atteintes par le navigateur : exclure du SPAMiddleware
-Une route backend visitée directement par le navigateur (GET + `text/html`) — redirections OAuth `/oauth/authorize`, métadonnées `/.well-known/*`, transport `/mcp` — est masquée par le fallback SPA (index.html) si elle n'est pas dans `_BACKEND_NAV_PATHS` (spa.py) → React Router affiche 404. Y ajouter tout nouvel endpoint backend navigable. NE PAS y mettre les vraies pages React (ex. `/oauth/consent`).
-
-## [mcp/db] mcp_apikey_grant.backend_key_id : nullable (backend public sans clé)
-Un grant vers un backend MCP public (sans clé d'auth, ex. DeepWiki « No key ») a `backend_key_id=NULL`. La 018 le déclarait nullable, mais d'anciennes bases l'ont créé NOT NULL (fichier corrigé après application → divergence DB/modèle). La 028 réaligne (DROP NOT NULL). Symptôme : IntegrityError dans `set_grant` → 500 muet (rollback) au premier grant sans clé (le flow OAuth). Tout grant (apikey statique OU token OAuth) vers un backend public en dépend.
-
-## [git] Push sur dev uniquement — main est réservé à l'humain
-Tout le code va sur `dev`. Jamais de commit ni de push sur `main` directement, même si l'utilisateur dit "committe" ou "pousse" sans préciser la branche. Vérifier `git branch --show-current` avant tout commit ; switcher sur `dev` si nécessaire. Ne jamais proposer `git checkout -b feat/...`. Push immédiat après commit si demandé — mais uniquement sur `dev`, jamais `git push origin main`.
-
-## [exposure/vs-proxy] Architecture proxy VS Code : sous-domaine fixe + upstream hardcodé dans la route
-Cloudflare Universal SSL couvre `*.yoops.org` mais PAS `*.dev.yoops.org` (deux niveaux → `ERR_SSL_VERSION_OR_CIPHER_MISMATCH`). Solution : `vs-dev.yoops.org` (un niveau, couvert par `*.yoops.org`). Un seul sous-domaine pour tous les workspaces. Caddy route vers le bon port via une route mise à jour à chaque workspace_up — même pattern que `_build_route` : `_forward_auth_handler` + `_ws_proxy("portal:{host_port}")` chaînés dans le même handle list. Quand handle_response [2xx] complète sans réponse, Caddy appelle next → _ws_proxy s'exécute. `COOKIE_DOMAIN=yoops.org` obligatoire. NE PAS utiliser les placeholders `{http.reverse_proxy.header.*}` dans la config JSON Caddy : non fiables (title case et lowercase échouent les deux — le replacer ne les expose pas dans le contexte des routes handle_response en JSON API).
-
-## [exposure/cloudflare] Wildcard DNS tunnel : une commande, une fois, en dehors du portail
-Décision d'architecture retenue (§F-32) : un seul CNAME wildcard `*.dev.yoops.org` → tunnel Cloudflare, posé manuellement sur la machine `cloudflare-manager` avec `cloudflared tunnel route dns <tunnel> "*.dev.yoops.org"`. Le portail ne gère pas ce DNS — il gère uniquement les routes Caddy par workspace via l'API admin. Sans ce wildcard, tous les sous-domaines `ws-*.dev.yoops.org` retournent `NXDOMAIN` (ERR_NAME_NOT_RESOLVED). Procédure documentée dans `documentations/fr/deploiement-portail.md` § Étape 9.
-
-## [app/lifespan] get_cached_global() raise si DB vide → crash silencieux uvicorn avant yield
-Au premier démarrage (DB vide), `warm_global_cache()` set `_cache = None`. L'appel suivant `get_cached_global()` raise `RuntimeError`. Cette exception dans le bloc `async with _get_engine().begin() as conn:` fait crasher le lifespan AVANT le `yield` — uvicorn attend la confirmation de démarrage indéfiniment → boucle de redémarrage silencieuse (aucune trace `Application startup failed`). Fix : utiliser `get_optional_cached_global()` (retourne `None` si non initialisé) dans le lifespan, là où le `None` est un état valide.
-
-## [mcp/routes] Path(…) partagé entre handlers FastAPI → alias figé sur le premier paramètre
-`_ID = Path(...)` utilisé comme valeur par défaut pour plusieurs paramètres de route avec des NOMS DIFFÉRENTS (`key_id`, puis `apikey_id`) cause une association d'alias incorrecte dans FastAPI/Pydantic v2. Résultat : tous les handlers qui partagent `_ID` après `delete_key_route` cherchent `key_id` dans le path → 422 `"loc":["path","key_id"]`. Fix : utiliser `Annotated[str, Path(pattern=...)]` en alias de type — FastAPI lit les métadonnées `Annotated` et les copie proprement pour chaque paramètre. Ne JAMAIS partager un objet `Path(...)` entre paramètres de noms différents.
-
-## [mcp/runtime] FastMCP annonce TOUJOURS les 3 capabilities
-Un `FastMCP` avec seulement des `@srv.tool()` annonce quand même `tools` ET `resources` ET `prompts` dans ses capabilities. Donc `get_server_capabilities()` via un serveur FastMCP ne sert PAS à tester une logique capability-aware (ex. `advertised_kinds`, prune par kind). Construire `ServerCapabilities(tools={})` à la main, ou une session stub (`get_server_capabilities` + `list_tools`), pour représenter un backend tools-only réel.
+## [tests/test1]
+- Sur test1, `uv sync` SANS `--extra dev` → testcontainers/docker absents → les tests DB skippent SILENCIEUSEMENT (affichent « Docker non disponible » alors que Docker est là). Toujours `uv sync --extra dev`, et exiger des PASSED explicites (`-v | grep PASSED`) plutôt qu'un exit code — piégé deux fois dans la même session.
+- `await coro["k"]` subscripte la coroutine (précédence), pas le résultat : écrire `(await coro)["k"]`. Invisible tant que le test skip localement — encore une raison de valider les tests DB sur test1 avant de conclure.
+- Tables avec FK vers `users.login` (profiles, mcp_profile, user_services…) : tout test DB doit seeder la ligne `users` d'abord (pattern `_seed_user` de test_profiles.py).
+- Stub `_test/login` des tests websocket : poser `request.session["auth_time"] = int(time.time())` en plus de `["user"]`, sinon `session_within_max_age` (plafond bug 032) ferme le WS en 4001 « Session expired » AVANT toute logique — symptôme trompeur d'échec d'auth.

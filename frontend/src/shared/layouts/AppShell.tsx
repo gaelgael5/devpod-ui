@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity } from 'lucide-react'
+import { LayoutDashboard, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images, SquareTerminal } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   DropdownMenu,
@@ -7,6 +7,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useUserStore } from '@/store/user'
@@ -64,7 +67,7 @@ export default function AppShell() {
         <NavLink
           to="/git-credentials"
           className={({ isActive }) => cn(RAIL_LINK, isActive && RAIL_ACTIVE)}
-          title={t('gitCredentials.title')}
+          title={t('servicesSecurity.navLabel')}
         >
           <KeyRound size={18} />
         </NavLink>
@@ -74,6 +77,13 @@ export default function AppShell() {
           title={t('compose.title')}
         >
           <Container size={18} />
+        </NavLink>
+        <NavLink
+          to="/sessions"
+          className={({ isActive }) => cn(RAIL_LINK, isActive && RAIL_ACTIVE)}
+          title={t('sessions.title')}
+        >
+          <SquareTerminal size={18} />
         </NavLink>
         {logsConfig?.enabled && logsConfig.grafana_url && (
           <a
@@ -118,8 +128,23 @@ export default function AppShell() {
               {isAdmin && (
                 <>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => navigate('/admin/network')}>
+                    {t('admin.network.navLabel')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/logs')}>
+                    {t('admin.logs.navLabel')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/workflow')}>
+                    {t('admin.workflow.navLabel')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
+                    {t('admin.oidc.navLabel')}
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/hypervisor-types')}>
                     {t('admin.hypervisorTypes')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/agent-types')}>
+                    {t('admin.agentTypes.navLabel')}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/hypervisors')}>
                     {t('admin.hypervisors')}
@@ -127,27 +152,34 @@ export default function AppShell() {
                   <DropdownMenuItem onClick={() => navigate('/admin/hosts')}>
                     {t('admin.hosts')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/recipes')}>
-                    {t('admin.sharedRecipes')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/profile-sources')}>
-                    {t('admin.profileSources.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
-                    {t('admin.oidc.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/network')}>
-                    {t('admin.network.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/compose')}>
-                    {t('compose.admin.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/jinja-templates')}>
-                    {t('jinjaTemplates.title')}
-                  </DropdownMenuItem>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Images size={14} className="mr-2" />
+                      {t('admin.galleries')}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onClick={() => navigate('/admin/recipes')}>
+                        {t('admin.sharedRecipes')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/profile-sources')}>
+                        {t('admin.profileSources.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/compose')}>
+                        {t('compose.admin.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/jinja-templates')}>
+                        {t('jinjaTemplates.title')}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                 </>
               )}
 
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate('/profile')}>
+                <UserCircle size={14} className="mr-2" />
+                {t('nav.profile')}
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout} className="text-destructive">
                 <LogOut size={14} className="mr-2" />

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import ipaddress as _ipmod
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-import yaml
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -22,57 +22,17 @@ def tmp_data_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture(autouse=True)
-def _reset_token_locks() -> None:
-    from portal.nodes import enroll
+def _reset_global_cache() -> Iterator[None]:
+    """Invalide le cache RAM de la GlobalConfig avant et après chaque test.
 
-    enroll.clear_token_locks()
+    enroll_node lit la config via load_global() (cache DB) : sans invalidation,
+    un test précédent pourrait laisser un cache peuplé et fausser l'isolation.
+    """
+    from portal.db.global_config import invalidate_cache
 
-
-def _make_global_config(tmp_data_root: Path) -> None:
-    config = {
-        "version": "1",
-        "server": {
-            "listen": "0.0.0.0:8080",
-            "base_domain": "dev.yoops.org",
-            "external_url": "https://dev.yoops.org",
-            "dev_mode": True,
-            "log": {"level": "info", "format": "text", "output": ""},
-        },
-        "auth": {
-            "oidc": {
-                "issuer": "https://kc.test",
-                "client_id": "portal",
-                "client_secret": "",
-                "scopes": ["openid"],
-                "role_claim": "realm_access.roles",
-                "admin_role": "admin",
-                "user_role": "dev",
-                "username_claim": "preferred_username",
-            }
-        },
-        "secrets": {
-            "backend": "inline",
-            "harpocrate": {"url": "", "api_key": "", "base_path": "devpod"},
-        },
-        "devpod": {
-            "binary": "devpod",
-            "defaults": {"ide": "openvscode", "idle_timeout": "2h", "dotfiles": ""},
-            "client_cert_path": str(tmp_data_root / "certs" / "portal"),
-        },
-        "hosts": [],
-        "caddy": {"admin_api": "http://caddy:2019"},
-        "cloudflare_manager": {"url": "", "api_key": ""},
-    }
-    (tmp_data_root / "config.yaml").write_text(
-        yaml.dump(config, default_flow_style=False), encoding="utf-8"
-    )
-
-
-@pytest.fixture
-def global_config(tmp_data_root: Path) -> Path:
-    """Écrit un config.yaml minimal et retourne tmp_data_root."""
-    _make_global_config(tmp_data_root)
-    return tmp_data_root
+    invalidate_cache()
+    yield
+    invalidate_cache()
 
 
 @pytest.fixture

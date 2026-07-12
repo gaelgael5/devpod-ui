@@ -31,10 +31,16 @@ def resolve(value: str, scope: Scope, backend: SecretsBackend) -> str | Secret:
     kind, path = m.group(1), m.group(2)
 
     if kind == "env":
-        env_val = os.environ.get(path)
-        if env_val is None:
-            raise SecretAccessError(f"Environment variable not found: {path!r}")
-        return Secret(env_val)
+        # env:// est réservé à la résolution INTERNE (EnvSecretResolver / config admin).
+        # Exposé aux entrées utilisateur (compose env_values, recettes), il transforme
+        # tout l'espace des variables d'environnement du process en magasin de secrets
+        # lisible par un simple rôle `dev` — exfiltration de PORTAL_VAULT_KEK,
+        # SESSION_SECRET_KEY, OIDC_CLIENT_SECRET… (bug 002). Refus catégorique ici :
+        # ce résolveur n'accepte que ${vault://...} soumis à l'isolation secret_ns.
+        raise SecretAccessError(
+            "référence env:// interdite dans ce contexte "
+            "(réservée à la configuration interne du portail)"
+        )
 
     # vault://
     if scope.kind == "user":

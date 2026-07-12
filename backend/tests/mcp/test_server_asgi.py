@@ -21,9 +21,10 @@ from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.applications import Starlette
 
-from portal.db.mcp import insert_apikey, set_grant
+from portal.db.mcp import insert_apikey
 from portal.db.mcp_audit import list_for_owner
 from portal.db.mcp_catalog import upsert_primitive
+from portal.db.mcp_profiles import insert_profile, upsert_profile_entry
 from portal.db.tables import mcp_backend, users
 from portal.mcp.aggregator import make_namespaced_uri
 from portal.mcp.handlers import GATEWAY_LIST_BACKENDS
@@ -173,8 +174,10 @@ async def test_mcp_endpoint_lists_resources_and_prompts(
         await conn.execute(
             insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
         )
+        await insert_profile(conn, id="p1", owner_login="alice", name="Profil test")
         await insert_apikey(
-            conn, id="ak1", owner_login="alice", token_hash=token_hash("mcpk_secret"), label=""
+            conn, id="ak1", owner_login="alice", token_hash=token_hash("mcpk_secret"),
+            label="", profile_id="p1",
         )
         await conn.execute(
             insert(mcp_backend).values(
@@ -186,7 +189,9 @@ async def test_mcp_endpoint_lists_resources_and_prompts(
                 transport="streamable_http",
             )
         )
-        await set_grant(conn, apikey_id="ak1", backend_id="b1", backend_key_id=None)
+        await upsert_profile_entry(
+            conn, profile_id="p1", backend_id="b1", backend_key_id=None, tools=None
+        )
         await upsert_primitive(
             conn,
             backend_id="b1",
@@ -273,13 +278,15 @@ def _make_fake_open_session(backend: Server) -> object:
 
 
 async def _seed_resource_and_prompt(engine: AsyncEngine) -> None:
-    """Seed complet : alice / ak1 / backend rag / grant / resource + prompt dans le catalogue."""
+    """Seed complet : alice / profil p1 / ak1 / backend rag / entry / resource + prompt."""
     async with engine.begin() as conn:
         await conn.execute(
             insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
         )
+        await insert_profile(conn, id="p1", owner_login="alice", name="Profil test")
         await insert_apikey(
-            conn, id="ak1", owner_login="alice", token_hash=token_hash("mcpk_secret"), label=""
+            conn, id="ak1", owner_login="alice", token_hash=token_hash("mcpk_secret"),
+            label="", profile_id="p1",
         )
         await conn.execute(
             insert(mcp_backend).values(
@@ -291,7 +298,9 @@ async def _seed_resource_and_prompt(engine: AsyncEngine) -> None:
                 transport="streamable_http",
             )
         )
-        await set_grant(conn, apikey_id="ak1", backend_id="b1", backend_key_id=None)
+        await upsert_profile_entry(
+            conn, profile_id="p1", backend_id="b1", backend_key_id=None, tools=None
+        )
         await upsert_primitive(
             conn,
             backend_id="b1",

@@ -43,3 +43,11 @@ def test_no_spa_for_assets() -> None:
 def test_no_spa_for_json_or_non_get() -> None:
     assert not should_serve_spa("GET", "/", "application/json")
     assert not should_serve_spa("POST", "/", _HTML)
+
+
+def test_no_spa_for_vscode_proxy() -> None:
+    # Le proxy VS Code applicatif gère ses propres routes — le SPA ne doit jamais
+    # court-circuiter la navigation initiale vers vs-dev.yoops.org (rewritée en /vsproxy/).
+    assert not should_serve_spa("GET", "/vsproxy", _HTML)
+    assert not should_serve_spa("GET", "/vsproxy/", _HTML)
+    assert not should_serve_spa("GET", "/vsproxy/stable-abc/out/main.js", _HTML)

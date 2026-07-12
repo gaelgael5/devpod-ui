@@ -14,8 +14,9 @@ from urllib.parse import urlparse
 
 import structlog
 
+from ..agents.keys import revoke_workspace_keys
 from ..config.models import GlobalConfig, SourceSpec, WorkspaceSpec
-from ..config.store import _data_root, load_global, load_user, safe_user_path
+from ..config.store import _data_root, load_global, load_user, safe_login_path, safe_user_path
 from ..db.engine import _get_engine
 from ..db.log_blobs import persist_log_blob_from_file
 from ..db.workspace_status import (
@@ -23,8 +24,12 @@ from ..db.workspace_status import (
     get_status_db,
     list_by_login_db,
     list_running_db,
+    port_claimed_by_other_db,
+    update_status_if_exists_db,
     upsert_status_db,
 )
+from ..events.bus import emit_event
+from ..exposure import _WS_ID_RE
 from ..messages import db as _msg_db
 from ..profiles.models import Profile
 from ..recipes.models import RecipeMeta
@@ -64,13 +69,30 @@ async def _materialize_system_cert(slug: str, login: str = "") -> str:
     os.replace(tmp, path)
     return str(path)
 
+
 if TYPE_CHECKING:
     from ..exposure import ExposureService
 
 _log = structlog.get_logger(__name__)
 
-# DNS-safe pour ws_id : login (max ~40 chars) + "-" + name (max 32 chars)
-_WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$")
+# Verrous de lifecycle par ws_id (bug 003). Sérialisent TOUTE opération lifecycle
+# (up/stop/delete + _run_up_task) sur un même workspace, contrairement au verrou de
+# runner.py qui n'entoure que l'exécution du subprocess devpod. Ordre d'acquisition
+# global : lifecycle → subprocess (jamais l'inverse), donc pas de cycle/deadlock.
+# Registre module-level (comme runner._locks) : en prod la boucle est unique ; sous
+# pytest-asyncio (une boucle par test) le registre est vidé entre tests via
+# clear_lifecycle_locks (fixture autouse, cf. runner.clear_locks).
+_lifecycle_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_lifecycle_lock(ws_id: str) -> asyncio.Lock:
+    return _lifecycle_locks.setdefault(ws_id, asyncio.Lock())
+
+
+def clear_lifecycle_locks() -> None:
+    """Vide le registre de verrous de lifecycle. Usage tests uniquement."""
+    _lifecycle_locks.clear()
+
 
 # Image de base utilisée quand aucune source git n'est fournie
 _DEFAULT_IMAGE = "mcr.microsoft.com/devcontainers/base:ubuntu"
@@ -120,6 +142,9 @@ class DevPodService:
         )
         self._exposure = exposure
         self._background_tasks: set[asyncio.Task[None]] = set()
+        # Tâches _run_up_task actives, indexées par ws_id : permettent à stop/delete
+        # d'annuler un `up` en cours (politique delete-vs-up, bug 003).
+        self._up_tasks: dict[str, asyncio.Task[None]] = {}
         # Processus devpod port-forward actifs, indexés par ws_id
         self._port_forward_procs: dict[str, asyncio.subprocess.Process] = {}
 
@@ -143,8 +168,14 @@ class DevPodService:
         generate_ssh_key: bool = False,
         request_host: str = "",
         profile: Profile | None = None,
+        lifecycle_event: str = "workspace.created",
     ) -> str:
-        """Lance un workspace en tâche de fond. Retourne ws_id immédiatement."""
+        """Lance un workspace en tâche de fond. Retourne ws_id immédiatement.
+
+        lifecycle_event : événement émis si le up aboutit — "workspace.created"
+        par défaut, "workspace.restarted" quand l'appelant relance un workspace
+        existant (restart/reconnect).
+        """
         ws_id = self._ws_id(login, ws_spec.name)
 
         if generate_ssh_key:
@@ -154,9 +185,7 @@ class DevPodService:
             pub_key = await asyncio.to_thread(ensure_workspace_ssh_key, login, ws_spec.name)
             priv_path = get_workspace_ssh_key_path(login, ws_spec.name)
             async with _get_engine().begin() as _conn:
-                await upsert_ssh_key_db(
-                    login, ws_spec.name, str(priv_path), pub_key, _conn
-                )
+                await upsert_ssh_key_db(login, ws_spec.name, str(priv_path), pub_key, _conn)
 
         # Rechargement systématique : la liste des hosts évolue pendant la vie du singleton
         global_cfg = load_global()
@@ -178,6 +207,7 @@ class DevPodService:
 
         tmp_key_path = ""
         task_created = False
+        host_port: int | None = None
         try:
             if host_cfg.type == "ssh" and host_cfg.host_cert_slug:
                 tmp_key_path = await _materialize_system_cert(host_cfg.host_cert_slug, login)
@@ -193,9 +223,55 @@ class DevPodService:
                 devpod_bin=self._devpod_bin,
             )
 
-            host_port: int | None = None
             if self._exposure is not None:
-                host_port = await self._exposure.allocate_port(ws_id)
+                # Réutiliser le port déjà persisté pour ce ws_id (bug 001) : au re-up
+                # (reconnexion, réconciliation au démarrage) une réallocation en rafale
+                # sans mémoire partagée (_reserved volatile) produisait des collisions.
+                # Jamais si un AUTRE workspace revendique le même port (doublon hérité
+                # de l'ancienne allocation) : le réutiliser perpétuerait la collision —
+                # on réalloue, et l'écriture provisioning ci-dessous assainit la ligne.
+                reuse_port: int | None = None
+                async with _get_engine().connect() as conn:
+                    existing_row = await get_status_db(ws_id, conn)
+                    raw_port = existing_row.get("host_port") if existing_row is not None else None
+                    if raw_port is not None:
+                        candidate = int(raw_port)
+                        if await port_claimed_by_other_db(ws_id, candidate, conn):
+                            _log.warning("port_duplicate_detected", ws_id=ws_id, port=candidate)
+                        else:
+                            reuse_port = candidate
+                if reuse_port is not None:
+                    host_port = reuse_port
+                    _log.info("port_reused", ws_id=ws_id, port=host_port)
+                else:
+                    host_port = await self._exposure.allocate_port(ws_id)
+
+            # Spec 35b : validation des agents demandés (échec 422 si inconnu/
+            # désactivé, host incompatible, ou external_url manquante). La LIVRAISON
+            # des fichiers a lieu APRÈS readiness, par écriture directe dans le
+            # conteneur (post-readiness dans _run_up_impl) : plus de bind mount, un
+            # simple restart suffit à (ré)installer la config des agents.
+            agent_ids: list[str] = []
+            agents_mcp_url = ""
+            if ws_spec.agents:
+                from ..agents.provisioning import (
+                    AgentProvisionError,
+                    _load_requested_agent_types,
+                )
+
+                if host_cfg.type != "ssh":
+                    raise AgentProvisionError(
+                        f"agents non disponibles sur un host '{host_cfg.type}' "
+                        "(dépose via devpod ssh, v1 SSH — spec 35 §10)"
+                    )
+                await _load_requested_agent_types(ws_spec.agents)  # 422 si invalide
+                agents_mcp_url = global_cfg.server.external_url.rstrip("/") + "/mcp/"
+                if not agents_mcp_url.startswith(("https://", "http://")):
+                    raise AgentProvisionError(
+                        "server.external_url doit être configurée pour exposer la "
+                        "gateway MCP aux agents workspace"
+                    )
+                agent_ids = list(ws_spec.agents)
 
             # Pour docker-tls : devcontainer.json généré localement, chemin absolu local valide.
             # Pour SSH : le fichier est généré localement puis uploadé sur la VM distante via
@@ -205,10 +281,12 @@ class DevPodService:
                 recipes or feature_env or ws_spec.extra_sources or profile or ws_spec.recipe_volumes
             )
             if needs_devcontainer:
-                dc_path = self._write_devcontainer(
+                # mkdtemp/copytree/write_text sont bloquants (plusieurs répertoires de
+                # recettes à copier) : déportés hors de l'event loop (bug 039).
+                dc_path = await asyncio.to_thread(
+                    self._write_devcontainer,
                     login,
                     ws_id,
-                    host_port=host_port if host_cfg.type == "docker-tls" else None,
                     recipes=recipes,
                     feature_env=feature_env,
                     extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
@@ -253,18 +331,21 @@ class DevPodService:
             if ws_spec.branch and effective_source:
                 devpod_source = f"{effective_source}@{ws_spec.branch}"
 
-            # Pour SSH : devpod ssh -L bind sur 0.0.0.0 dans le container portal ;
-            # Caddy atteint portal:{host_port} via le réseau Docker interne.
-            # Pour docker-tls : l'IP réelle du nœud Docker est utilisée directement.
-            node_ip = self._resolve_node_ip(host_cfg)
-            if host_cfg.type == "ssh":
-                node_ip = global_cfg.caddy.portal_host
+            # Le tunnel openvscode (ssh -o ProxyCommand "devpod ssh --stdio") est
+            # bindé sur 0.0.0.0:{host_port} DANS le conteneur portail pour tous les
+            # types de host : l'upstream des routes Caddy / URLs est donc toujours
+            # le portail, jamais le nœud (dont le pare-feu n'expose que 2376).
+            node_ip = global_cfg.caddy.portal_host
 
             # Plusieurs sources → ouvrir /workspaces pour voir tous les repos clonés.
             # Source unique ou image seule → ouvrir directement /workspaces/{ws_id}.
             workspace_folder = "/workspaces" if ws_spec.extra_sources else f"/workspaces/{ws_id}"
 
-            await self._write_status(ws_id, "provisioning", login=login)
+            # Le host_port est persisté DÈS le provisioning (bug 001) : la colonne ne
+            # repasse jamais à NULL pendant le devpod up (jusqu'à 30 min), donc
+            # _used_ports() protège le port même après la perte de _reserved
+            # (restart du portail, _reset_service).
+            await self._write_status(ws_id, "provisioning", login=login, host_port=host_port)
 
             task = asyncio.create_task(
                 self._run_up_task(
@@ -284,10 +365,21 @@ class DevPodService:
                     workspace_folder=workspace_folder,
                     host_name=host_cfg.name,
                     git_ssh_key_path=git_ssh_key_path,
+                    lifecycle_event=lifecycle_event,
+                    agents=agent_ids,
+                    mcp_url=agents_mcp_url,
+                    project_root=f"/workspaces/{ws_id}",
                 )
             )
             self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+            self._up_tasks[ws_id] = task
+
+            def _on_up_done(t: asyncio.Task[None]) -> None:
+                self._background_tasks.discard(t)
+                if self._up_tasks.get(ws_id) is t:
+                    del self._up_tasks[ws_id]
+
+            task.add_done_callback(_on_up_done)
             task_created = True
             _log.info("workspace_up_started", ws_id=ws_id, login=login)
             return ws_id
@@ -295,6 +387,11 @@ class DevPodService:
             if not task_created and tmp_key_path and tmp_key_path.startswith(tempfile.gettempdir()):
                 with contextlib.suppress(OSError):
                     os.unlink(tmp_key_path)
+            if not task_created and host_port is not None and self._exposure is not None:
+                # Le port a été réservé en mémoire (allocate_port) mais _run_up_task
+                # n'a jamais démarré : jamais persisté en DB, il faut le relâcher
+                # explicitement (bug 037), sinon il reste réservé jusqu'au restart.
+                await self._exposure.release_port(host_port)
 
     def _devpod_state_exists(self, ws_id: str, login: str) -> bool:
         """Vérifie si devpod connaît ce workspace (état local présent).
@@ -311,16 +408,22 @@ class DevPodService:
         Appelé quand l'état devpod est absent au démarrage (rebuild conteneur portail
         sans volume mount). DevPod détecte le container existant sur l'hôte distant
         et se reconnecte sans le recréer. Le port-forward est relancé en fin de up().
+
+        Délègue à start_existing_workspace : la résolution recettes/secrets/profil
+        doit être rejouée — un up() nu (recipes=None) ne régénère pas le
+        devcontainer.json et devpod échoue sur le chemin uploadé de la fois
+        précédente, supprimé après chaque up.
         """
+        # Import différé : routes → service à l'import du module, jamais l'inverse.
+        from ..routes.workspace_ops import start_existing_workspace
+
         try:
-            user_cfg = await load_user(login)
             ws_name = ws_id.removeprefix(f"{login}-")
-            ws_spec = next((w for w in user_cfg.workspaces if w.name == ws_name), None)
-            if ws_spec is None:
-                _log.warning("reconcile_ws_spec_not_found", ws_id=ws_id, login=login)
-                return
             _log.info("reconcile_triggering_devpod_up", ws_id=ws_id, login=login)
-            await self.up(login, ws_spec)
+            async with _get_engine().connect() as conn:
+                await start_existing_workspace(login, ws_name, conn)
+        except ValueError:
+            _log.warning("reconcile_ws_spec_not_found", ws_id=ws_id, login=login)
         except Exception as exc:
             _log.warning("reconcile_reconnect_failed", ws_id=ws_id, error=str(exc))
 
@@ -333,12 +436,9 @@ class DevPodService:
           détecte le container existant, se reconnecte et relance le tunnel en fin de up().
         """
         global_cfg = load_global()
-        minimal_env = {"HOME": os.environ.get("HOME", "/root")}
         async with _get_engine().connect() as conn:
             running_rows = await list_running_db(conn)
         for data in running_rows:
-            if data.get("host_type") != "ssh":
-                continue
             ws_id: str = data.get("ws_id", "")
             host_port_raw = data.get("host_port")
             host_name: str = data.get("host_name", "")
@@ -355,7 +455,9 @@ class DevPodService:
                     ws_id=ws_id,
                     msg="devpod up déclenché en arrière-plan pour reconnexion automatique",
                 )
-                asyncio.create_task(self._reconnect_workspace(ws_id, login_for_key))
+                task = asyncio.create_task(self._reconnect_workspace(ws_id, login_for_key))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
                 continue
 
             try:
@@ -364,6 +466,18 @@ class DevPodService:
                 _log.warning("reconcile_host_not_found", ws_id=ws_id, host_name=host_name)
                 continue
             _log.info("reconcile_port_forward", ws_id=ws_id, host_port=host_port)
+            # Env complet requis : sans DEVPOD_HOME, `devpod ssh --stdio` cherche le
+            # workspace dans le contexte par défaut → "workspace doesn't exist" et le
+            # tunnel meurt silencieusement. DOCKER_* requis pour les hosts docker-tls.
+            tunnel_env = {
+                "HOME": os.environ.get("HOME", "/root"),
+                "PATH": os.environ.get("PATH", ""),
+                "DEVPOD_HOME": str(safe_user_path(login_for_key, "devpod")),
+            }
+            if host_cfg.type == "docker-tls":
+                tunnel_env["DOCKER_HOST"] = host_cfg.docker_host
+                tunnel_env["DOCKER_TLS_VERIFY"] = "1"
+                tunnel_env["DOCKER_CERT_PATH"] = global_cfg.devpod.client_cert_path
             tmp_key_path = ""
             pf_ok = False
             try:
@@ -373,7 +487,7 @@ class DevPodService:
                     )
                 await self._start_port_forward(
                     ws_id,
-                    minimal_env,
+                    tunnel_env,
                     host_port,
                 )
                 pf_ok = True
@@ -385,8 +499,8 @@ class DevPodService:
                         os.unlink(tmp_key_path)
 
             if pf_ok and self._exposure is not None:
-                # Pour SSH le tunnel est bindé sur le container portal ; Caddy atteint
-                # portal_host:host_port via le réseau Docker interne.
+                # Le tunnel est bindé sur le container portal (tous types de host) ;
+                # Caddy atteint portal_host:host_port via le réseau Docker interne.
                 node_ip = global_cfg.caddy.portal_host
                 try:
                     await self._exposure.expose(ws_id, node_ip, host_port)
@@ -402,52 +516,150 @@ class DevPodService:
         """
         asyncio.create_task(self._reconnect_workspace(ws_id, login))  # noqa: RUF006
 
+    async def _cancel_up_task(self, ws_id: str) -> None:
+        """Annule un `up` en cours pour ws_id et attend sa terminaison (bug 003).
+
+        Politique delete/stop-vs-up : on ANNULE le provisioning en cours plutôt que
+        d'attendre (jusqu'à 30 min) une provision qu'on va détruire/arrêter. On tue
+        aussi le subprocess devpod (kill_if_running) pour débloquer `run_subprocess`,
+        puis on attend la fin de la tâche : cela garantit que le verrou lifecycle est
+        relâché AVANT que l'appelant tente de l'acquérir.
+        """
+        await kill_if_running(ws_id)
+        task = self._up_tasks.get(ws_id)
+        if task is None or task.done():
+            return
+        task.cancel()
+        # CancelledError est une BaseException : le `except Exception` de _run_up_impl
+        # ne l'intercepte pas, la tâche remonte l'annulation, exécute ses finally
+        # (nettoyage) et relâche le verrou lifecycle. On avale l'annulation ici : c'est
+        # NOUS qui l'avons déclenchée, elle ne doit pas annuler stop/delete.
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            _log.warning("up_task_ended_with_error_during_cancel", ws_id=ws_id)
+        _log.info("up_task_cancelled", ws_id=ws_id)
+
     async def stop(self, login: str, ws_id: str) -> None:
         """Arrête un workspace en cours d'exécution."""
-        await self._stop_port_forward(ws_id)
-        if self._exposure is not None:
-            try:
-                await self._exposure.unexpose(ws_id)
-            except Exception as exc:
-                _log.warning("workspace_unexpose_failed", ws_id=ws_id, error=type(exc).__name__)
-        env = self._minimal_env(login)
-        cmd = [*self._devpod_bin, "stop", ws_id]
-        log_path = self._log_path(login, f"{ws_id}-stop")
-        await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120)
-        async with _get_engine().begin() as _conn:
-            await persist_log_blob_from_file(ws_id, login, "stop", log_path, _conn)
-        await self._write_status(ws_id, "stopped", login=login)
-        _log.info("workspace_stopped", ws_id=ws_id, login=login)
+        # Annule un `up` en cours (le subprocess est tué) puis sérialise via le verrou
+        # lifecycle : stop ne peut pas s'entrelacer avec un provisioning (bug 003).
+        await self._cancel_up_task(ws_id)
+        async with _get_lifecycle_lock(ws_id):
+            await self._stop_port_forward(ws_id)
+            if self._exposure is not None:
+                try:
+                    await self._exposure.unexpose(ws_id)
+                except Exception as exc:
+                    _log.warning("workspace_unexpose_failed", ws_id=ws_id, error=type(exc).__name__)
+            env = self._minimal_env(login)
+            cmd = [*self._devpod_bin, "stop", ws_id]
+            log_path = self._log_path(login, f"{ws_id}-stop")
+            rc = await run_subprocess(
+                cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120
+            )
+            async with _get_engine().begin() as _conn:
+                await persist_log_blob_from_file(ws_id, login, "stop", log_path, _conn)
+            # Écritures gardées (épitaphe, bug 007) : stop() sur un workspace dont la
+            # ligne a été supprimée (delete concurrent ou antérieur) ne doit jamais
+            # recréer une ligne fantôme — seul up() crée la ligne (provisioning).
+            if rc != 0:
+                # L'exposition est déjà retirée (tunnel + route Caddy) ; si `devpod stop`
+                # échoue, le conteneur peut encore tourner — ne jamais mentir en écrivant
+                # "stopped" : l'état réel est indéterminé tant qu'on n'a pas reconfirmé.
+                _log.warning("workspace_stop_failed", ws_id=ws_id, returncode=rc)
+                await self._write_status_if_exists(ws_id, "unknown", login=login)
+                return
+            await self._write_status_if_exists(ws_id, "stopped", login=login)
+            _log.info("workspace_stopped", ws_id=ws_id, login=login)
+            await emit_event(
+                "workspace.stopped",
+                actor=login,
+                workspace=ws_id.removeprefix(f"{login}-"),
+                subject={"ws_id": ws_id},
+            )
 
     async def delete(self, login: str, ws_id: str, *, shelve: bool = True) -> dict[str, Any]:
         """Supprime un workspace (force). Shelve le travail en attente si shelve=True."""
-        # Tuer le subprocess en cours (ex. devpod up en provisioning) pour libérer le verrou
-        # avant d'appeler shelve ou run_subprocess(delete).
-        await kill_if_running(ws_id)
-        branch: str | None = None
-        if shelve:
-            # shelve_if_pending lance devpod ssh (git dans le conteneur), pas une opération
-            # lifecycle DevPod — intentionnellement en dehors du verrou workspace de run_subprocess.
-            branch = await shelve_if_pending(self._devpod_bin, ws_id, self._minimal_env(login))
-        await self._stop_port_forward(ws_id)
-        if self._exposure is not None:
-            try:
-                await self._exposure.unexpose(ws_id)
-            except Exception as exc:
-                _log.warning("workspace_unexpose_failed", ws_id=ws_id, error=type(exc).__name__)
-        env = self._minimal_env(login)
-        cmd = [*self._devpod_bin, "delete", ws_id, "--force"]
-        log_path = self._log_path(login, f"{ws_id}-delete")
-        rc = await run_subprocess(cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120)
-        if rc != 0:
-            _log.warning("workspace_delete_failed", ws_id=ws_id, returncode=rc)
-        ws_name = ws_id.removeprefix(f"{login}-")
-        async with _get_engine().begin() as conn:
-            await persist_log_blob_from_file(ws_id, login, "delete", log_path, conn)
-            await delete_status_db(ws_id, conn)
-            await _msg_db.purge_workspace_messages(conn, login, ws_name)
-        _log.info("workspace_deleted", ws_id=ws_id, login=login, recovery_branch=branch)
-        return {"deleted": True, "recovery_branch": branch}
+        # Annule un `up` en cours (provisioning) et tue son subprocess, puis prend le
+        # verrou lifecycle pour toute la suppression : aucune écriture de statut tardive
+        # de _run_up_task ne peut s'entrelacer avec delete_status_db (bug 003).
+        await self._cancel_up_task(ws_id)
+        async with _get_lifecycle_lock(ws_id):
+            branch: str | None = None
+            if shelve:
+                # Jamais de shelve sur un workspace en provisioning (bug 041) : l'up
+                # vient d'être tué, `devpod ssh` sur un conteneur à moitié provisionné
+                # échouerait en 409 et laisserait un zombie non nettoyé. Pour les autres
+                # statuts, un échec de shelve annule la suppression AVANT tout démontage
+                # (le workspace reste intact et utilisable).
+                async with _get_engine().connect() as conn:
+                    row = await get_status_db(ws_id, conn)
+                status = row["status"] if row is not None else None
+                if status in (None, "provisioning"):
+                    _log.info("workspace_shelve_skipped", ws_id=ws_id, status=status or "absent")
+                else:
+                    # shelve_if_pending lance devpod ssh (git dans le conteneur), pas une
+                    # opération lifecycle DevPod — hors du verrou subprocess de run_subprocess.
+                    branch = await shelve_if_pending(
+                        self._devpod_bin, ws_id, self._minimal_env(login)
+                    )
+            await self._stop_port_forward(ws_id)
+            if self._exposure is not None:
+                try:
+                    await self._exposure.unexpose(ws_id)
+                except Exception as exc:
+                    _log.warning("workspace_unexpose_failed", ws_id=ws_id, error=type(exc).__name__)
+            env = self._minimal_env(login)
+            cmd = [*self._devpod_bin, "delete", ws_id, "--force"]
+            log_path = self._log_path(login, f"{ws_id}-delete")
+            rc = await run_subprocess(
+                cmd=cmd, env=env, log_path=log_path, ws_id=ws_id, timeout_s=120
+            )
+            if rc != 0:
+                _log.warning("workspace_delete_failed", ws_id=ws_id, returncode=rc)
+            ws_name = ws_id.removeprefix(f"{login}-")
+            async with _get_engine().begin() as conn:
+                await persist_log_blob_from_file(ws_id, login, "delete", log_path, conn)
+                await delete_status_db(ws_id, conn)
+                await _msg_db.purge_workspace_messages(conn, login, ws_name)
+                # Spec 35 : les clefs MCP du workspace meurent avec lui.
+                await revoke_workspace_keys(conn, login, ws_id)
+            await self._purge_agent_config(login, ws_id, ws_name)
+            _log.info("workspace_deleted", ws_id=ws_id, login=login, recovery_branch=branch)
+            await emit_event(
+                "workspace.deleted",
+                actor=login,
+                workspace=ws_name,
+                subject={"ws_id": ws_id, "recovery_branch": branch},
+            )
+            return {"deleted": True, "recovery_branch": branch}
+
+    async def _purge_agent_config(self, login: str, ws_id: str, ws_name: str) -> None:
+        """Purge best-effort de l'arborescence agent-config sur le host (spec 35).
+
+        Les clefs sont déjà révoquées en DB (fail closed) : un échec de purge ne
+        laisse que des fichiers inertes sur un host admin-only — best-effort assumé.
+        """
+        try:
+            user_cfg = await load_user(login)
+            spec = next((w for w in user_cfg.workspaces if w.name == ws_name), None)
+            if spec is None or not spec.agents:
+                return
+            host_cfg = _find_host(spec.host, load_global())
+            if host_cfg.type != "ssh" or not (host_cfg.address and host_cfg.host_cert_slug):
+                return
+            ssh_user, ssh_host = "root", host_cfg.address
+            if "@" in host_cfg.address:
+                ssh_user, ssh_host = host_cfg.address.split("@", 1)
+            key_path = await _materialize_system_cert(host_cfg.host_cert_slug, login)
+            from ..agents.sync import purge_tree_ssh
+
+            await purge_tree_ssh(ws_id, ssh_user=ssh_user, ssh_host=ssh_host, ssh_key_path=key_path)
+        except Exception:
+            _log.warning("agent_config_purge_failed", ws_id=ws_id, exc_info=True)
 
     async def status(self, login: str, ws_id: str) -> dict[str, Any]:
         """Retourne l'état courant depuis la DB."""
@@ -477,23 +689,40 @@ class DevPodService:
     # ------------------------------------------------------------------
 
     def _log_path(self, login: str, ws_id: str) -> Path:
-        return _data_root() / "logs" / login / f"{ws_id}.log"
+        return safe_login_path("logs", login, f"{ws_id}.log")
 
     async def _write_status(self, ws_id: str, status: str, login: str = "", **extra: Any) -> None:
-        """Persiste le statut du workspace en DB."""
+        """Persiste le statut du workspace en DB (upsert : crée la ligne si absente)."""
         async with _get_engine().begin() as conn:
             await upsert_status_db(ws_id, status, conn, login=login, **extra)
+
+    async def _write_status_if_exists(
+        self, ws_id: str, status: str, login: str = "", **extra: Any
+    ) -> bool:
+        """Écrit le statut UNIQUEMENT si la ligne existe encore (épitaphe, bug 003).
+
+        Utilisé pour les écritures FINALES de _run_up_task : si un delete concurrent a
+        supprimé la ligne, l'UPDATE atomique WHERE ws_id ne touche rien et ne ressuscite
+        pas le workspace — même si upsert_status_db reste un upsert inconditionnel.
+        Retourne True si la ligne a été mise à jour.
+        """
+        async with _get_engine().begin() as conn:
+            written = await update_status_if_exists_db(ws_id, status, conn, login=login, **extra)
+        if not written:
+            _log.warning("workspace_status_write_skipped_deleted", ws_id=ws_id, status=status)
+        return written
 
     def _write_devcontainer(
         self,
         login: str,
         ws_id: str,
-        host_port: int | None = None,
         recipes: list[RecipeMeta] | None = None,
         feature_env: dict[str, str] | None = None,
         extra_sources: list[SourceSpec] | None = None,
         profile: Profile | None = None,
         recipe_volumes: list[str] | None = None,
+        extra_mounts: list[str] | None = None,
+        extra_post_create: list[str] | None = None,
     ) -> Path:
         """Écrit devcontainer.json + Feature dirs dans un tmpdir. Retourne le chemin du JSON."""
         user_dir = safe_user_path(login, "devpod")
@@ -501,11 +730,10 @@ class DevPodService:
 
         tmp_dir = Path(tempfile.mkdtemp(dir=user_dir, prefix=f"{ws_id}-dc-"))
         try:
-            content: dict[str, Any] = {
-                "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-            }
-            if host_port is not None:
-                content["appPorts"] = [f"{host_port}:{_OPENVSCODE_SERVER_PORT}"]
+            # Image de base : celle du profil si définie (image outillée — les
+            # recettes ne couvrent alors que les manques), sinon le défaut portail.
+            base_image = profile.image if profile is not None and profile.image else _DEFAULT_IMAGE
+            content: dict[str, Any] = {"image": base_image}
 
             if recipes:
                 key_to_id: dict[str, str] = {r.key: r.id for r in recipes}
@@ -527,19 +755,13 @@ class DevPodService:
                     # aux features locales ./nodejs)
                     feature_json = dest / "devcontainer-feature.json"
                     if feature_json.exists() and recipe.installs_after:
-                        dep_ids = [
-                            key_to_id[k]
-                            for k in recipe.installs_after
-                            if k in key_to_id
-                        ]
+                        dep_ids = [key_to_id[k] for k in recipe.installs_after if k in key_to_id]
                         if dep_ids:
                             fd: dict[str, Any] = json.loads(
                                 feature_json.read_text(encoding="utf-8")
                             )
                             fd["installsAfter"] = [f"./{d}" for d in dep_ids]
-                            feature_json.write_text(
-                                json.dumps(fd, indent=2), encoding="utf-8"
-                            )
+                            feature_json.write_text(json.dumps(fd, indent=2), encoding="utf-8")
                     features_block[f"./{recipe.id}"] = {}
                 if features_block:
                     content["features"] = features_block
@@ -573,6 +795,12 @@ class DevPodService:
                 if clone_cmds:
                     content["postCreateCommand"] = " && ".join(clone_cmds)
 
+            # Spec 35 : symlinks agent-config après les clones éventuels.
+            if extra_post_create:
+                existing_pc = content.get("postCreateCommand")
+                parts = [existing_pc] if existing_pc else []
+                content["postCreateCommand"] = " && ".join([*parts, *extra_post_create])
+
             if profile is not None:
                 frag = profile.to_customizations()["vscode"]
                 if frag["extensions"] or frag["settings"]:
@@ -584,8 +812,8 @@ class DevPodService:
                         **frag["settings"],
                     }
 
+            mounts: list[str] = []
             if recipe_volumes and recipes:
-                mounts: list[str] = []
                 for recipe in recipes:
                     if recipe.memory_volume is not None and recipe.id in recipe_volumes:
                         vol_name = f"{ws_id}-{recipe.memory_volume.name}"
@@ -594,8 +822,10 @@ class DevPodService:
                             f"target={recipe.memory_volume.mapping.target},"
                             f"type=volume"
                         )
-                if mounts:
-                    content["mounts"] = mounts
+            if extra_mounts:
+                mounts.extend(extra_mounts)
+            if mounts:
+                content["mounts"] = mounts
 
             dc_path = tmp_dir / "devcontainer.json"
             dc_path.write_text(json.dumps(content, indent=2), encoding="utf-8")
@@ -626,16 +856,23 @@ class DevPodService:
         Lève RuntimeError si l'upload échoue.
         """
         ssh_opts = [
-            "-i", ssh_key_path,
-            "-o", "StrictHostKeyChecking=accept-new",
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=15",
+            "-i",
+            ssh_key_path,
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=15",
         ]
         ssh_target = f"{ssh_user}@{ssh_host}"
 
         # Récupérer le home dir réel de l'utilisateur SSH
         home_proc = await asyncio.create_subprocess_exec(
-            "ssh", *ssh_opts, ssh_target, "echo $HOME",
+            "ssh",
+            *ssh_opts,
+            ssh_target,
+            "echo $HOME",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -648,24 +885,27 @@ class DevPodService:
         # vers workspaces/.devpod-portal-dc/{ws_id}/ — répertoire FRÈRE du workspace
         # DevPod, donc non effacé lors du "Delete old workspace {ws_id}".
         # content/ est toujours à depth 2 sous workspaces/ : workspaces/{ws_id}/content/
-        devpod_workspaces = (
-            f"{home}/.devpod/agent/contexts/default/workspaces"
-        )
+        devpod_workspaces = f"{home}/.devpod/agent/contexts/default/workspaces"
         remote_dir = f"{devpod_workspaces}/.devpod-portal-dc/{ws_id}"
         devcontainer_path = f"../../.devpod-portal-dc/{ws_id}/devcontainer.json"
 
-        remote_cmd = (
-            f"mkdir -p {shlex.quote(remote_dir)} && "
-            f"tar xzf - -C {shlex.quote(remote_dir)}"
-        )
+        remote_cmd = f"mkdir -p {shlex.quote(remote_dir)} && tar xzf - -C {shlex.quote(remote_dir)}"
 
         tar_proc = await asyncio.create_subprocess_exec(
-            "tar", "czf", "-", "-C", str(dc_dir), ".",
+            "tar",
+            "czf",
+            "-",
+            "-C",
+            str(dc_dir),
+            ".",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
         ssh_proc = await asyncio.create_subprocess_exec(
-            "ssh", *ssh_opts, ssh_target, remote_cmd,
+            "ssh",
+            *ssh_opts,
+            ssh_target,
+            remote_cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
@@ -705,33 +945,24 @@ class DevPodService:
     ) -> None:
         """Supprime le répertoire temporaire distant après devpod up (best-effort)."""
         ssh_opts = [
-            "-i", ssh_key_path,
-            "-o", "StrictHostKeyChecking=accept-new",
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=10",
+            "-i",
+            ssh_key_path,
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
         ]
         proc = await asyncio.create_subprocess_exec(
-            "ssh", *ssh_opts, f"{ssh_user}@{ssh_host}",
+            "ssh",
+            *ssh_opts,
+            f"{ssh_user}@{ssh_host}",
             f"rm -rf {shlex.quote(remote_dir)}",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
         await proc.communicate()
-
-    def _resolve_node_ip(self, host_cfg: Any) -> str:
-        """Résout l'IP du nœud Docker/SSH depuis l'HostConfig."""
-        from ..config.models import HostConfig
-
-        if not isinstance(host_cfg, HostConfig):
-            return "127.0.0.1"
-        if host_cfg.type == "docker-tls" and host_cfg.docker_host:
-            return urlparse(host_cfg.docker_host).hostname or "127.0.0.1"
-        if host_cfg.type == "ssh" and host_cfg.address:
-            addr = host_cfg.address
-            if "@" in addr:
-                _, addr = addr.split("@", 1)
-            return addr.strip() or "127.0.0.1"
-        return "127.0.0.1"
 
     def _minimal_env(self, login: str) -> dict[str, str]:
         """Env minimal pour les commandes stop/delete (pas de secrets)."""
@@ -745,9 +976,6 @@ class DevPodService:
         ws_id: str,
         env: dict[str, str],
         host_port: int,
-        ssh_host: str = "",
-        ssh_user: str = "root",
-        ssh_key_path: str = "",
     ) -> None:
         """
         Expose le port 3000 du devcontainer via le tunnel SSH écrit par DevPod.
@@ -760,14 +988,25 @@ class DevPodService:
         # par DevPod, qui est perdue au rebuild du conteneur portail.
         if ws_id.startswith("-"):
             raise ValueError(f"Insecure ws_id: {ws_id!r}")
+        # Re-up/reconcile : tuer un éventuel tunnel précédent de ce workspace,
+        # sinon l'ancien processus garde le port et le nouveau bind échoue.
+        await self._stop_port_forward(ws_id)
         proxy_cmd = f"{shlex.join(self._devpod_bin)} ssh --stdio {shlex.quote(ws_id)}"
         cmd = [
             "ssh",
             "-N",
-            "-o", f"ProxyCommand={proxy_cmd}",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-L", f"0.0.0.0:{host_port}:localhost:{_OPENVSCODE_SERVER_PORT}",
+            "-o",
+            f"ProxyCommand={proxy_cmd}",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            # Bind raté (port déjà pris) → ssh doit mourir, pas continuer sans
+            # forward : le check post-spawn le détecte alors comme une erreur.
+            "-o",
+            "ExitOnForwardFailure=yes",
+            "-L",
+            f"0.0.0.0:{host_port}:localhost:{_OPENVSCODE_SERVER_PORT}",
             "root@devpod-ws",
         ]
         ssh_env = {**env, "HOME": os.environ.get("HOME", "/root")}
@@ -778,9 +1017,25 @@ class DevPodService:
             stderr=asyncio.subprocess.PIPE,
         )
         self._port_forward_procs[ws_id] = proc
-        _log.info("port_forward_started", ws_id=ws_id, host_port=host_port)
         # Laisser le tunnel SSH s'établir avant que Caddy tente de router
         await asyncio.sleep(_PORT_FORWARD_SETTLE_S)
+        # Un tunnel qui meurt immédiatement (workspace inconnu, daemon injoignable…)
+        # doit être une erreur visible, pas un listener fantôme.
+        if proc.returncode is not None:
+            stderr_txt = ""
+            if proc.stderr is not None:
+                with contextlib.suppress(Exception):
+                    stderr_txt = (await proc.stderr.read()).decode(errors="replace")
+            self._port_forward_procs.pop(ws_id, None)
+            _log.error(
+                "port_forward_died",
+                ws_id=ws_id,
+                host_port=host_port,
+                returncode=proc.returncode,
+                stderr=stderr_txt[-500:],
+            )
+            raise RuntimeError(f"port-forward {ws_id} died: {stderr_txt[-200:]}")
+        _log.info("port_forward_started", ws_id=ws_id, host_port=host_port)
 
     async def _stop_port_forward(self, ws_id: str) -> None:
         """Arrête le processus devpod port-forward s'il est en cours (best-effort)."""
@@ -793,7 +1048,41 @@ class DevPodService:
                 await asyncio.wait_for(proc.wait(), timeout=5.0)
         _log.info("port_forward_stopped", ws_id=ws_id)
 
-    async def _run_up_task(
+    async def _push_agent_files_safe(
+        self, login: str, ws_id: str, agents: list[str], mcp_url: str, project_root: str
+    ) -> None:
+        """Écrit la config des agents dans le conteneur (post-readiness, best-effort).
+
+        Un échec (canal, home introuvable, rendu) n'invalide pas le workspace, qui
+        reste `running` : il est logué. La révocation au décochage d'un profil reste
+        gérée séparément (fail-closed)."""
+        from ..agents.push import push_agent_files
+
+        try:
+            pushed = await push_agent_files(
+                login=login,
+                ws_id=ws_id,
+                ws_name=ws_id.removeprefix(f"{login}-"),
+                agents=agents,
+                mcp_url=mcp_url,
+                project_root=project_root,
+            )
+            _log.info("agent_files_pushed_on_up", ws_id=ws_id, agents=pushed)
+        except Exception:
+            _log.warning("agent_files_push_failed", ws_id=ws_id, exc_info=True)
+
+    async def _run_up_task(self, ws_id: str, *args: Any, **kwargs: Any) -> None:
+        """Tâche de fond `up`, sérialisée par le verrou lifecycle par ws_id (bug 003).
+
+        Le verrou est détenu pour TOUTE la durée de l'orchestration (subprocess devpod +
+        allocation port-forward + expose + écriture de statut), pas seulement le
+        subprocess. Un stop/delete concurrent annule cette tâche (kill + task.cancel),
+        la libération du verrou intervient alors dans les finally de _run_up_impl.
+        """
+        async with _get_lifecycle_lock(ws_id):
+            await self._run_up_impl(ws_id, *args, **kwargs)
+
+    async def _run_up_impl(
         self,
         ws_id: str,
         source: str,
@@ -811,33 +1100,47 @@ class DevPodService:
         workspace_folder: str = "",
         host_name: str = "",
         git_ssh_key_path: str = "",
+        lifecycle_event: str = "workspace.created",
+        agents: list[str] | None = None,
+        mcp_url: str = "",
+        project_root: str = "",
     ) -> None:
-        """Tâche de fond : exécute devpod up, expose le workspace si running."""
+        """Exécute devpod up, expose le workspace si running. Détient déjà le verrou."""
         # Copie de l'env pour y injecter SSH_AUTH_SOCK sans muter le dict partagé
         subprocess_env = dict(env)
-        agent_pid: str | None = None
+        agent_proc: asyncio.subprocess.Process | None = None
 
         # Pour les providers SSH avec credential git SSH : démarrer un ssh-agent
         # temporaire, y charger la clé deploy, et exposer SSH_AUTH_SOCK au subprocess
         # devpod. Le provider est configuré avec -A (ForwardAgent) dans EXTRA_FLAGS,
         # ce qui transmet l'agent à la VM distante pour que git clone puisse s'authentifier.
+        #
+        # -D (foreground) au lieu de -s seul : sans -D, `ssh-agent -s` daemonise —
+        # le process lancé imprime les variables d'env PUIS SORT IMMÉDIATEMENT (vérifié
+        # empiriquement), le vrai agent tournant en arrière-plan sous un PID différent,
+        # jamais capturé. Avec -D, agent_proc reste le process réel de l'agent tout du
+        # long : agent_proc.pid est le vrai PID (pas de fork), et on peut le tuer dans le
+        # finally indépendamment du succès du parsing de sa sortie (bug 038).
         if git_ssh_key_path and host_type == "ssh":
             try:
                 agent_proc = await asyncio.create_subprocess_exec(
-                    "ssh-agent", "-s",
+                    "ssh-agent",
+                    "-s",
+                    "-D",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                agent_stdout, _ = await agent_proc.communicate()
-                agent_output = agent_stdout.decode(errors="replace")
-                sock_match = re.search(r"SSH_AUTH_SOCK=([^;]+);", agent_output)
-                pid_match = re.search(r"SSH_AGENT_PID=(\d+);", agent_output)
-                if sock_match and pid_match:
+                assert agent_proc.stdout is not None
+                first_line = await agent_proc.stdout.readline()
+                sock_match = re.search(
+                    r"SSH_AUTH_SOCK=([^;]+);", first_line.decode(errors="replace")
+                )
+                if sock_match:
                     subprocess_env["SSH_AUTH_SOCK"] = sock_match.group(1)
-                    subprocess_env["SSH_AGENT_PID"] = pid_match.group(1)
-                    agent_pid = pid_match.group(1)
+                    subprocess_env["SSH_AGENT_PID"] = str(agent_proc.pid)
                     add_proc = await asyncio.create_subprocess_exec(
-                        "ssh-add", git_ssh_key_path,
+                        "ssh-add",
+                        git_ssh_key_path,
                         env=subprocess_env,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
@@ -851,6 +1154,12 @@ class DevPodService:
                         )
                     else:
                         _log.info("git_ssh_agent_started", ws_id=ws_id)
+                else:
+                    _log.warning(
+                        "git_ssh_agent_output_unparsable",
+                        ws_id=ws_id,
+                        output=first_line.decode(errors="replace"),
+                    )
             except Exception:
                 _log.warning("git_ssh_agent_setup_failed", ws_id=ws_id, exc_info=True)
 
@@ -901,15 +1210,16 @@ class DevPodService:
                 "host_name": host_name,
             }
 
-            if status == "running" and host_type == "ssh" and host_port is not None:
-                await self._start_port_forward(
-                    ws_id,
-                    env,
-                    host_port,
-                    ssh_host=ssh_host,
-                    ssh_user=ssh_user,
-                    ssh_key_path=ssh_key_path,
-                )
+            # Tunnel openvscode pour TOUS les types de host : `devpod ssh --stdio`
+            # est agnostique du provider (docker exec via daemon TLS pour docker-tls,
+            # ssh pour les VMs). Le port n'est jamais publié sur le nœud.
+            if status == "running" and host_port is not None:
+                try:
+                    await self._start_port_forward(ws_id, env, host_port)
+                except Exception:
+                    # Workspace démarré mais tunnel KO : on garde le statut running,
+                    # l'erreur est loguée (le proxy VS Code répondra 502/503).
+                    _log.error("port_forward_start_failed", ws_id=ws_id, exc_info=True)
 
             if status == "running" and self._exposure is not None and host_port is not None:
                 extra["host_port"] = host_port
@@ -930,14 +1240,35 @@ class DevPodService:
                     )
             elif host_port is not None:
                 extra["host_port"] = host_port
-            await self._write_status(ws_id, status, login=login, **extra)
+            # Écriture FINALE gardée (épitaphe) : ne ressuscite pas une ligne qu'un
+            # delete concurrent aurait supprimée (bug 003).
+            await self._write_status_if_exists(ws_id, status, login=login, **extra)
             if returncode != 0:
                 _log.warning("workspace_up_failed", ws_id=ws_id, returncode=returncode)
             else:
                 _log.info("workspace_up_done", ws_id=ws_id, login=login)
+                # Spec 35b : livraison des fichiers agents PAR ÉCRITURE conteneur,
+                # une fois le conteneur prêt (ws_exec joignable). Aucun bind mount,
+                # aucun recreate — rejoué à chaque up, donc un restart suffit.
+                if agents:
+                    await self._push_agent_files_safe(login, ws_id, agents, mcp_url, project_root)
+                await emit_event(
+                    lifecycle_event,
+                    actor=login,
+                    workspace=ws_id.removeprefix(f"{login}-"),
+                    subject={"ws_id": ws_id, "node": host_name},
+                )
         except Exception as exc:
-            await self._write_status(ws_id, "failed", login=login, error=type(exc).__name__)
+            await self._write_status_if_exists(
+                ws_id, "failed", login=login, error=type(exc).__name__
+            )
             _log.error("workspace_up_crashed", ws_id=ws_id, error=type(exc).__name__)
+            if host_port is not None and self._exposure is not None:
+                # Ce chemin de crash n'écrit pas host_port dans workspace_status
+                # (contrairement au chemin returncode != 0 plus haut) : jamais
+                # persisté, le port reste réservé en mémoire tant qu'il n'est pas
+                # relâché explicitement (bug 037).
+                await self._exposure.release_port(host_port)
         finally:
             if dc_path is not None:
                 with contextlib.suppress(Exception):
@@ -945,16 +1276,15 @@ class DevPodService:
             if remote_dc_dir and ssh_host and ssh_key_path:
                 with contextlib.suppress(Exception):
                     await self._cleanup_ssh_dir(remote_dc_dir, ssh_user, ssh_host, ssh_key_path)
-            if agent_pid:
+            if agent_proc is not None and agent_proc.returncode is None:
+                # Tue le process ssh-agent -D directement — indépendamment du succès
+                # du parsing de sa sortie (bug 038) : agent_proc est le process réel
+                # (foreground), pas un lanceur déjà sorti après avoir daemonisé.
+                with contextlib.suppress(ProcessLookupError):
+                    agent_proc.kill()
                 with contextlib.suppress(Exception):
-                    kill_proc = await asyncio.create_subprocess_exec(
-                        "ssh-agent", "-k",
-                        env=subprocess_env,
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.DEVNULL,
-                    )
-                    await kill_proc.communicate()
-                    _log.info("git_ssh_agent_stopped", ws_id=ws_id)
+                    await agent_proc.wait()
+                _log.info("git_ssh_agent_stopped", ws_id=ws_id)
             if ssh_key_path and ssh_key_path.startswith(tempfile.gettempdir()):
                 with contextlib.suppress(OSError):
                     os.unlink(ssh_key_path)

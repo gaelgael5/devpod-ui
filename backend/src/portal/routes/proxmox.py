@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
+import shlex
 import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -16,6 +18,7 @@ from ..auth.rbac import UserInfo, require_admin
 from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor, HypervisorType
 from ..config.store import load_global, save_global
 from ..settings import get_settings
+from ._ssrf import pinned_get, resolve_pinned
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["admin"])
@@ -203,10 +206,27 @@ async def _ssh_stream(node: Hypervisor, commands: list[str]) -> AsyncIterator[by
         yield f"\n[ERROR] Script terminé avec le code {proc.returncode}\n".encode()
 
 
+_SUBST_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
 def _substitute(template: str, args: dict[str, str]) -> str:
-    for k, v in args.items():
-        template = template.replace(f"{{{k}}}", v)
-    return template
+    """Remplace les placeholders {KEY} par shlex.quote(value), en une seule passe.
+
+    re.sub scanne le template original une seule fois : le texte produit par une
+    substitution n'est jamais réexaminé pour un futur remplacement — contrairement
+    à un enchaînement de str.replace, où la valeur d'un arg contenant littéralement
+    "{PORTAL_TOKEN}" se ferait re-substituer par le vrai token à l'itération
+    suivante (bug 024, exfiltration). shlex.quote protège aussi l'injection shell
+    dans les commandes exécutées via `bash -s`.
+    """
+
+    def _repl(m: re.Match[str]) -> str:
+        key = m.group(1)
+        if key not in args:
+            return m.group(0)
+        return shlex.quote(args[key])
+
+    return _SUBST_PLACEHOLDER_RE.sub(_repl, template)
 
 
 async def _run_destroy_script(cfg: GlobalConfig, host_cfg: HostConfig) -> None:
@@ -234,9 +254,18 @@ async def _run_destroy_script(cfg: GlobalConfig, host_cfg: HostConfig) -> None:
     if hyp_type is None or not hyp_type.destroy_script:
         return
 
+    try:
+        pinned_ip = await asyncio.to_thread(resolve_pinned, hyp_type.destroy_script)
+    except HTTPException as exc:
+        _log.error("host_destroy_script_fetch_failed", host=host_cfg.name, error=str(exc.detail))
+        return
+
     async with httpx.AsyncClient() as client:
         try:
-            resp = await client.get(hyp_type.destroy_script, timeout=15.0, follow_redirects=True)
+            # Connexion épinglée sur l'IP validée (anti-rebinding, bug 022)
+            resp = await pinned_get(
+                client, hyp_type.destroy_script, timeout=15.0, pinned_ip=pinned_ip
+            )
             resp.raise_for_status()
             spec = dict(resp.json())
         except httpx.HTTPError as exc:
@@ -411,7 +440,6 @@ async def add_hypervisor(
     ssh_port: int = Form(22),
     pve_node: str = Form("pve"),
     hypervisor_type: str = Form(""),
-    password: str = Form(""),
     ssh_key: UploadFile = File(...),
     user: UserInfo = Depends(require_admin),
 ) -> dict[str, object]:
@@ -439,7 +467,6 @@ async def add_hypervisor(
         ssh_key_path=str(key_path),
         pve_node=pve_node,
         hypervisor_type=hypervisor_type,
-        password=password,
     )
     cfg.hypervisors.append(node)
     await save_global(cfg)
@@ -455,7 +482,6 @@ async def update_hypervisor(
     ssh_port: int = Form(22),
     pve_node: str = Form("pve"),
     hypervisor_type: str = Form(""),
-    password: str = Form(""),
     ssh_key: UploadFile | None = File(default=None),
     user: UserInfo = Depends(require_admin),
 ) -> dict[str, object]:
@@ -480,7 +506,6 @@ async def update_hypervisor(
         ssh_key_path=key_path,
         pve_node=pve_node,
         hypervisor_type=hypervisor_type,
-        password=password if password else node.password,
     )
     cfg.hypervisors = [updated if n.name == name else n for n in cfg.hypervisors]
     await save_global(cfg)
@@ -573,9 +598,11 @@ async def _fetch_spec_for_type(hyp_type: HypervisorType) -> dict[str, object]:
             status_code=404,
             detail=f"Hypervisor type {hyp_type.name!r} has no add_script configured",
         )
+    pinned_ip = await asyncio.to_thread(resolve_pinned, hyp_type.add_script)
     async with httpx.AsyncClient() as client:
         try:
-            resp = await client.get(hyp_type.add_script, timeout=15.0, follow_redirects=True)
+            # Connexion épinglée sur l'IP validée (anti-rebinding, bug 022)
+            resp = await pinned_get(client, hyp_type.add_script, timeout=15.0, pinned_ip=pinned_ip)
             resp.raise_for_status()
             return dict(resp.json())
         except httpx.HTTPError as exc:
@@ -713,9 +740,13 @@ async def execute_hypervisor_destroy_script(
             detail=f"Hypervisor type {node.hypervisor_type!r} has no destroy_script configured",
         )
 
+    pinned_ip = await asyncio.to_thread(resolve_pinned, hyp_type.destroy_script)
     async with httpx.AsyncClient() as client:
         try:
-            resp = await client.get(hyp_type.destroy_script, timeout=15.0, follow_redirects=True)
+            # Connexion épinglée sur l'IP validée (anti-rebinding, bug 022)
+            resp = await pinned_get(
+                client, hyp_type.destroy_script, timeout=15.0, pinned_ip=pinned_ip
+            )
             resp.raise_for_status()
             spec = dict(resp.json())
         except httpx.HTTPError as exc:

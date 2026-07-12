@@ -37,6 +37,7 @@ async def list_profiles_db(
                 scope=r["scope"],
                 name=r["name"],
                 description=r["description"],
+                image=r.get("image") or "",
                 extension_count=len(r["extensions"] or []),
                 editable=editable,
                 gallery_source=r.get("gallery_source"),
@@ -114,6 +115,7 @@ async def _write_profile_db(
         "login": login,
         "name": body.name,
         "description": body.description,
+        "image": body.image,
         "extensions": list(body.extensions),
         "settings": dict(body.settings),
     }
@@ -151,6 +153,7 @@ def _row_to_profile(row: dict[str, Any]) -> Profile:
         scope=row["scope"],
         name=row["name"],
         description=row["description"],
+        image=row.get("image") or "",
         extensions=list(row["extensions"] or []),
         settings=dict(row["settings"] or {}),
     )
@@ -201,7 +204,7 @@ class AsyncProfileRepository:
     async def fork(self, login: str, shared_slug: str) -> Profile:
         async with _get_engine().begin() as conn:
             src = await get_profile_db("shared", shared_slug, login, conn)
-            fields = {"name", "description", "extensions", "settings"}
+            fields = {"name", "description", "image", "extensions", "settings"}
             body = ProfileBody(**src.model_dump(include=fields))
             return await _write_profile_db("user", login, slugify(src.name), body, False, conn)
 

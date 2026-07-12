@@ -19,8 +19,17 @@ class BearerGate:
         self._app = app
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
-        if scope.get("type") != "http":
+        scope_type = scope.get("type")
+        # "lifespan" (démarrage/arrêt ASGI, pas une requête client) doit passer sans
+        # auth — sinon l'app ne démarre jamais. Tout le reste (websocket compris) est
+        # fail-closed explicite : le sous-app monté est HTTP uniquement aujourd'hui,
+        # mais laisser passer un scope non-http sans vérification serait une brèche
+        # dormante si un transport websocket était monté un jour (bug 029).
+        if scope_type == "lifespan":
             await self._app(scope, receive, send)
+            return
+        if scope_type != "http":
+            await self._reject_non_http(scope_type, receive, send)
             return
         headers = {
             k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])
@@ -32,6 +41,15 @@ class BearerGate:
             await self._unauthorized(send)
             return
         await self._app(scope, receive, send)
+
+    async def _reject_non_http(self, scope_type: str | None, receive: Any, send: Any) -> None:
+        """Fail-closed pour tout scope non-http/lifespan (ex. websocket)."""
+        if scope_type == "websocket":
+            await receive()  # websocket.connect — doit être consommé avant de clore
+            await send({"type": "websocket.close", "code": 4401})
+            return
+        # Type de scope ASGI inconnu : ne rien envoyer plutôt que de deviner un
+        # protocole de rejet, mais ne jamais transmettre à l'app protégée.
 
     async def _unauthorized(self, send: Any) -> None:
         base = load_global().server.external_url.rstrip("/")

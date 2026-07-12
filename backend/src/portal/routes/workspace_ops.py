@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import shlex
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..config.models import ProfileRef, SourceSpec, WorkspaceSpec
-from ..config.store import _data_root, load_global, safe_user_path
+from ..config.store import _data_root, load_global, safe_login_path, safe_user_path
 from ..db.engine import get_conn
 from ..db.profiles import AsyncProfileRepository
 from ..db.recipes import load_recipes_as_dict
@@ -55,6 +56,8 @@ class UpRequest(BaseModel):
     generate_ssh_key: bool = False
     profile: ProfileRef | None = None
     recipe_volumes: list[str] = Field(default_factory=list)
+    # Spec 35 : types d'agents à configurer (accès MCP direct).
+    agents: list[str] = Field(default_factory=list)
 
 
 _service: DevPodService | None = None
@@ -122,11 +125,20 @@ def _available_with_bundled_fallback(db_available: dict[str, RecipeMeta]) -> dic
     )
     if not fs:
         return db_available
-    # FS a priorité sur DB pour garantir que les GUIDs (key) des recettes bundlées
-    # sont toujours corrects — la DB peut avoir un key périmé si la recette a été
-    # insérée avant l'introduction du champ key dans recipe.meta.yaml.
+    # Fusion FS + DB : FS apporte type/version/description/scripts (recettes bundlées à jour),
+    # DB est la source authoritative pour le key — le YAML local peut avoir un key aléatoire
+    # si la recette a été importée avant la correction de _write_recipe.
     # Les recettes uniquement en DB (créées par l'utilisateur) sont préservées.
-    return {**db_available, **fs}
+    merged: dict[str, RecipeMeta] = {}
+    for rid, fs_meta in fs.items():
+        if rid in db_available and db_available[rid].key != fs_meta.key:
+            merged[rid] = fs_meta.model_copy(update={"key": db_available[rid].key})
+        else:
+            merged[rid] = fs_meta
+    for rid, db_meta in db_available.items():
+        if rid not in merged:
+            merged[rid] = db_meta
+    return merged
 
 
 def _get_service() -> DevPodService:
@@ -173,6 +185,7 @@ def _build_service() -> DevPodService:
         dev_mode=dev_mode,
         external_url=global_cfg.server.external_url,
         workspace_host=global_cfg.server.workspace_host,
+        local_domain=global_cfg.server.local_domain,
         vs_proxy_domain=global_cfg.server.vs_proxy_domain,
         vs_proxy_verify_uri=vs_proxy_verify_uri,
     )
@@ -252,13 +265,44 @@ async def workspace_up(
 
     _validate_name(name)
 
+    # Fusion spec stocké ⊕ requête : seuls les champs EXPLICITEMENT présents dans
+    # le corps priment (model_fields_set). Un up partiel — a fortiori un corps
+    # vide — ne doit jamais effacer la config stockée (source, host, recettes…) :
+    # c'était une perte de données silencieuse.
+    from ..config.store import load_user
+    from ..config.store import save_user as _save_user
+
+    _spec_fields = (
+        "source",
+        "branch",
+        "git_credential",
+        "host",
+        "recipes",
+        "extra_sources",
+        "profile",
+        "recipe_volumes",
+        "agents",
+    )
+    _user_cfg = await load_user(user.login)
+    _stored = next((ws for ws in _user_cfg.workspaces if ws.name == name), None)
+    _overrides = {k: getattr(req, k) for k in _spec_fields if k in req.model_fields_set}
+    try:
+        if _stored is not None:
+            effective = WorkspaceSpec.model_validate(
+                {**_stored.model_dump(), **{k: v for k, v in _overrides.items()}}
+            )
+        else:
+            effective = WorkspaceSpec(name=name, **{k: getattr(req, k) for k in _spec_fields})
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     # Validation des recipe IDs (avant tout accès disque)
-    for rid in req.recipes:
+    for rid in effective.recipes:
         if not _RECIPE_ID_PATTERN.fullmatch(rid):
             raise HTTPException(status_code=422, detail=f"Invalid recipe id {rid!r}")
 
     # Validation des sources supplémentaires
-    for idx, src in enumerate(req.extra_sources):
+    for idx, src in enumerate(effective.extra_sources):
         if not src.url:
             raise HTTPException(
                 status_code=422, detail=f"extra_sources[{idx}].url must not be empty"
@@ -269,65 +313,42 @@ async def workspace_up(
                 detail=f"extra_sources[{idx}].url must not start with '-'",
             )
 
-    # Validation du spec (avant le pre-flight git)
-    try:
-        WorkspaceSpec(
-            name=name,
-            source=req.source,
-            branch=req.branch,
-            git_credential=req.git_credential,
-            host=req.host,
-            recipes=req.recipes,
-            extra_sources=req.extra_sources,
-            profile=req.profile,
-            recipe_volumes=req.recipe_volumes,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
     # Pre-flight git : vérifie l'accès au dépôt avant de lancer devpod up
-    if req.source:
-        returncode, _, stderr = await run_git_ls_remote(req.source, req.git_credential, user.login)
+    if effective.source:
+        returncode, _, stderr = await run_git_ls_remote(
+            effective.source, effective.git_credential, user.login
+        )
         if returncode != 0:
             err = stderr.decode(errors="replace").strip() if stderr else ""
             _log.warning(
                 "workspace_git_preflight_failed",
                 login=user.login,
-                source=req.source,
+                source=effective.source,
                 returncode=returncode,
                 err=err[:300],
             )
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    f"Dépôt git inaccessible — vérifiez l'URL et les credentials ({req.source})"
+                    "Dépôt git inaccessible — vérifiez l'URL et les credentials "
+                    f"({effective.source})"
                 ),
             )
 
-    # Synchronise le spec en DB — le host (et autres champs) peut différer de la valeur
-    # stockée lors de la création initiale (ex. 409 ignoré, reprovisioning avec autre host).
-    from ..config.store import load_user
-    from ..config.store import save_user as _save_user
+    # Synchronise le spec fusionné en DB s'il diffère du stocké (ex. reprovisioning
+    # avec un autre host demandé explicitement dans la requête). Re-load sous
+    # verrou (bug 009) : le pre-flight git ci-dessus est une I/O réseau, on ne
+    # tient pas le verrou pendant — mutation appliquée sur l'état frais.
+    if _stored is not None and effective != _stored:
+        from ..config.store import user_config_lock
 
-    _up_fields = {
-        "source": req.source,
-        "branch": req.branch,
-        "git_credential": req.git_credential,
-        "host": req.host,
-        "recipes": req.recipes,
-        "extra_sources": req.extra_sources,
-        "profile": req.profile,
-        "recipe_volumes": req.recipe_volumes,
-    }
-    _user_cfg = await load_user(user.login)
-    for _i, _existing in enumerate(_user_cfg.workspaces):
-        if _existing.name == name:
-            _updated = _existing.model_copy(update=_up_fields)
-            if _updated != _existing:
-                _user_cfg.workspaces[_i] = _updated
-                await _save_user(user.login, _user_cfg)
+        async with user_config_lock(user.login):
+            fresh_cfg = await load_user(user.login)
+            ws_idx = next((i for i, ws in enumerate(fresh_cfg.workspaces) if ws.name == name), None)
+            if ws_idx is not None:
+                fresh_cfg.workspaces[ws_idx] = effective
+                await _save_user(user.login, fresh_cfg)
                 _log.info("workspace_spec_synced", login=user.login, name=name)
-            break
 
     request_host = request.headers.get("x-forwarded-host") or request.url.hostname or ""
     try:
@@ -335,14 +356,16 @@ async def workspace_up(
             user.login,
             ProvisionParams(
                 name=name,
-                source=req.source,
-                branch=req.branch,
-                git_credential=req.git_credential,
-                host=req.host,
-                recipes=req.recipes,
-                extra_sources=req.extra_sources,
-                profile=req.profile,
-                recipe_volumes=req.recipe_volumes,
+                source=effective.source,
+                branch=effective.branch,
+                git_credential=effective.git_credential,
+                host=effective.host,
+                recipes=effective.recipes,
+                extra_sources=effective.extra_sources,
+                profile=effective.profile,
+                recipe_volumes=effective.recipe_volumes,
+                init_recipes=effective.init_recipes,
+                agents=effective.agents,
                 generate_ssh_key=req.generate_ssh_key,
                 request_host=request_host,
             ),
@@ -405,6 +428,8 @@ async def start_existing_workspace(login: str, name: str, conn: AsyncConnection)
         generate_ssh_key=spec.ssh_key,
         request_host="",
         profile=profile_obj,
+        # Relance d'un workspace déjà déclaré (restart/reconnect), pas une création.
+        lifecycle_event="workspace.restarted",
     )
 
 
@@ -524,6 +549,12 @@ async def workspace_status(
     return await svc.status(login=user.login, ws_id=ws_id)
 
 
+def _read_ssh_public_key(pub_path: Path) -> str | None:
+    if not pub_path.exists():
+        return None
+    return pub_path.read_text(encoding="utf-8").strip()
+
+
 @router.get("/workspaces/{name}/ssh-key")
 async def get_workspace_ssh_key(
     name: str,
@@ -531,12 +562,14 @@ async def get_workspace_ssh_key(
 ) -> dict[str, str]:
     _validate_name(name)
     pub_path = safe_user_path(user.login, "keys", "workspaces", name) / "id_ed25519.pub"
-    if not pub_path.exists():
+    # exists()/read_text() sont bloquants — déportés hors de l'event loop (bug 039).
+    public_key = await asyncio.to_thread(_read_ssh_public_key, pub_path)
+    if public_key is None:
         raise HTTPException(
             status_code=404,
             detail="SSH key not generated for this workspace",
         )
-    return {"public_key": pub_path.read_text(encoding="utf-8").strip()}
+    return {"public_key": public_key}
 
 
 @router.get("/workspaces/{name}/start-recipes")
@@ -656,10 +689,7 @@ async def get_workspace_logs(
 ) -> str:
     _validate_name(name)
     ws_id = f"{user.login}-{name}"
-    logs_root = _data_root() / "logs"
-    log_file = logs_root / user.login / f"{ws_id}.log"
-    if not log_file.is_relative_to(logs_root):
-        raise HTTPException(status_code=422, detail="Invalid log path")
+    log_file = safe_login_path("logs", user.login, f"{ws_id}.log")
     if not log_file.exists():
         raise HTTPException(status_code=404, detail="Log file not found")
     _log.info("workspace_logs_fetched", login=user.login, ws_id=ws_id)

@@ -52,7 +52,30 @@ def _write_atomic(path: Path, data: dict[str, Any]) -> None:
         raise
 
 
-def create_operation(kind: str, workspace: str, owner_login: str) -> dict[str, Any]:
+def _get_operation_sync(operation_id: str) -> dict[str, Any] | None:
+    path = _op_path(operation_id)
+    if not path.exists():
+        return None
+    result = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return result if isinstance(result, dict) else None
+
+
+def _list_operations_sync(
+    owner_login: str, workspace: str | None
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for path in _operations_root().glob("*.yaml"):
+        op = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(op, dict) or op.get("owner_login") != owner_login:
+            continue
+        if workspace is not None and op.get("workspace") != workspace:
+            continue
+        rows.append(op)
+    rows.sort(key=lambda o: o.get("created_at", ""))
+    return rows
+
+
+async def create_operation(kind: str, workspace: str, owner_login: str) -> dict[str, Any]:
     now = _now()
     op: dict[str, Any] = {
         "operation_id": uuid.uuid4().hex,
@@ -66,54 +89,46 @@ def create_operation(kind: str, workspace: str, owner_login: str) -> dict[str, A
         "created_at": now,
         "updated_at": now,
     }
-    _write_atomic(_op_path(op["operation_id"]), op)
+    await asyncio.to_thread(_write_atomic, _op_path(op["operation_id"]), op)
     return op
 
 
-def get_operation(operation_id: str) -> dict[str, Any] | None:
-    path = _op_path(operation_id)
-    if not path.exists():
-        return None
-    result = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return result if isinstance(result, dict) else None
+async def get_operation(operation_id: str) -> dict[str, Any] | None:
+    # glob()/read_text()/yaml.safe_load sont bloquants — jamais dans l'event loop (bug 025).
+    return await asyncio.to_thread(_get_operation_sync, operation_id)
 
 
-def update_operation(operation_id: str, **fields: Any) -> dict[str, Any]:
-    op = get_operation(operation_id)
+async def update_operation(operation_id: str, **fields: Any) -> dict[str, Any]:
+    op = await get_operation(operation_id)
     if op is None:
         raise DevpodToolError(f"opération inconnue: {operation_id}")
     op.update(fields)
     op["updated_at"] = _now()
-    _write_atomic(_op_path(operation_id), op)
+    await asyncio.to_thread(_write_atomic, _op_path(operation_id), op)
     return op
 
 
-def list_operations(owner_login: str, workspace: str | None = None) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for path in _operations_root().glob("*.yaml"):
-        op = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if not isinstance(op, dict) or op.get("owner_login") != owner_login:
-            continue
-        if workspace is not None and op.get("workspace") != workspace:
-            continue
-        rows.append(op)
-    rows.sort(key=lambda o: o.get("created_at", ""))
-    return rows
+async def list_operations(
+    owner_login: str, workspace: str | None = None
+) -> list[dict[str, Any]]:
+    return await asyncio.to_thread(_list_operations_sync, owner_login, workspace)
 
 
 async def run_operation_now(operation_id: str, work: Callable[[], Awaitable[Any]]) -> None:
-    update_operation(operation_id, state="running")
+    await update_operation(operation_id, state="running")
     try:
         result = await work()
-        update_operation(operation_id, state="done", progress=100, result=result)
+        await update_operation(operation_id, state="done", progress=100, result=result)
     except Exception as exc:
-        update_operation(operation_id, state="failed", error=f"{type(exc).__name__}: {exc}")
+        await update_operation(
+            operation_id, state="failed", error=f"{type(exc).__name__}: {exc}"
+        )
 
 
-def launch_operation(
+async def launch_operation(
     kind: str, workspace: str, owner_login: str, work: Callable[[], Awaitable[Any]]
 ) -> str:
-    op = create_operation(kind, workspace, owner_login)
+    op = await create_operation(kind, workspace, owner_login)
     oid = cast(str, op["operation_id"])
     task = asyncio.create_task(run_operation_now(oid, work))
     _op_tasks.add(task)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from pathlib import Path
@@ -8,15 +9,44 @@ from .models import GlobalConfig, UserConfig
 
 _LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,38}[a-z0-9]$")
 
+_user_config_locks: dict[str, asyncio.Lock] = {}
+
+
+def user_config_lock(login: str) -> asyncio.Lock:
+    """Verrou par login pour tout cycle load_user → mutation → save_user (bug 009).
+
+    save_user_db remplace intégralement les listes (delete + réinsertion) : deux
+    cycles concurrents du même login s'écrasent mutuellement (lost update — un
+    workspace ajouté disparaît). Tout site qui sauvegarde une UserConfig mutée
+    doit détenir ce verrou du load au save. Même hypothèse single-process que
+    le verrou lifecycle par ws_id (bug 003).
+    """
+    lock = _user_config_locks.get(login)
+    if lock is None:
+        lock = _user_config_locks[login] = asyncio.Lock()
+    return lock
+
+
+def clear_user_config_locks() -> None:
+    """Tests uniquement : un asyncio.Lock se lie à la première boucle qui l'acquiert."""
+    _user_config_locks.clear()
+
 
 def _data_root() -> Path:
     return Path(os.environ.get("PORTAL_DATA_ROOT", "/data"))
 
 
-def safe_user_path(login: str, *parts: str) -> Path:
+def safe_login_path(root_name: str, login: str, *parts: str) -> Path:
+    """Construit un chemin sous `_data_root()/<root_name>/<login>/...`, validé.
+
+    Cœur commun de safe_user_path (root_name="users") — toute construction de
+    chemin sous /data doit passer par l'une de ces deux fonctions, jamais par une
+    concaténation de strings, même quand login provient déjà d'un appelant qui le
+    valide (bug 033 : ne jamais dépendre de la validation d'un appelant).
+    """
     if not _LOGIN_RE.fullmatch(login):
         raise ValueError(f"Invalid login: {login!r}")
-    base = _data_root() / "users" / login
+    base = _data_root() / root_name / login
     result = base
     for part in parts:
         if "/" in part or "\\" in part or ".." in part:
@@ -25,6 +55,10 @@ def safe_user_path(login: str, *parts: str) -> Path:
     if not result.is_relative_to(base):
         raise ValueError(f"Path escapes user directory: {result!r}")
     return result
+
+
+def safe_user_path(login: str, *parts: str) -> Path:
+    return safe_login_path("users", login, *parts)
 
 
 def ensure_user_dir(login: str) -> None:
@@ -97,7 +131,11 @@ async def save_user(login: str, cfg: UserConfig) -> None:
 
 async def save_global(cfg: GlobalConfig) -> None:
     from portal.db.engine import _get_engine
-    from portal.db.global_config import save_global_db
+    from portal.db.global_config import save_global_db, set_cached_global
 
     async with _get_engine().begin() as conn:
         await save_global_db(cfg, conn)
+    # Cache peuplé seulement après un COMMIT réussi (bug 034) — si le commit
+    # échoue, l'exception se propage avant cette ligne et le cache garde son
+    # ancien état, cohérent avec la DB rollback.
+    set_cached_global(cfg)

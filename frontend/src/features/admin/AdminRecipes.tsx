@@ -230,7 +230,7 @@ export default function AdminRecipes() {
                   onClick={() => importRecipe.mutate(r.source_url)}
                   disabled={importRecipe.isPending}
                 >
-                  {importRecipe.isPending
+                  {importRecipe.isPending && importRecipe.variables === r.source_url
                     ? t('admin.importing')
                     : t('admin.importRecipe')}
                 </Button>

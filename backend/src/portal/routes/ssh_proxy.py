@@ -10,9 +10,11 @@ import structlog
 from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
+from ..auth.rbac import session_within_max_age
 from ..config.store import _data_root, load_global
 from ..devpod.service import _materialize_system_cert
 from ..devpod.ssh_exec import host_key_changed
+from ..sessions import registry
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -48,6 +50,10 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
             session_keys=list(websocket.session.keys()),
         )
         await websocket.close(code=4001, reason="Not authenticated")
+        return
+    if not session_within_max_age(websocket.session):
+        # Plafond d'âge absolu (bug 032) : session expirée → re-login requis.
+        await websocket.close(code=4001, reason="Session expired")
         return
     if settings.oidc_admin_role not in user_data.get("roles", []):
         _log.warning("ws_ssh_admin_denied", login=user_data.get("login"))
@@ -142,6 +148,11 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         stderr=asyncio.subprocess.STDOUT,
     )
 
+    # Enregistrement du terminal vivant (vue centralisée des sessions).
+    live_term = registry.new_terminal(
+        family="host", target=name, owner=user_data.get("login") or "admin"
+    )
+
     async def _ws_to_ssh() -> None:
         try:
             while True:
@@ -177,9 +188,17 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         asyncio.create_task(_ws_to_ssh()),
         asyncio.create_task(_ssh_to_ws()),
     ]
+
+    # Closer : `POST /sessions/close` annule le pont (téardown dans le `finally`).
+    def _closer() -> None:
+        for t in tasks:
+            t.cancel()
+
+    registry.register(live_term, closer=_closer)
     try:
         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:
+        registry.unregister(live_term.id)
         for t in tasks:
             t.cancel()
         if proc.returncode is None:

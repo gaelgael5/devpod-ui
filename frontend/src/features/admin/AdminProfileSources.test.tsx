@@ -13,14 +13,17 @@ describe('AdminProfileSources', () => {
   it('affiche le titre de la section sources', () => {
     renderWithProviders(<AdminProfileSources />)
     expect(
-      screen.getByRole('heading', { name: /sources configurées|configured sources/i })
+      screen.getByRole('heading', {
+        name: /^(galerie profils vs code|vs code profile gallery)$/i,
+      })
     ).toBeInTheDocument()
   })
 
   it('affiche le titre de la galerie', () => {
     renderWithProviders(<AdminProfileSources />)
+    // Ancré : « VS Code Profile Gallery » contient aussi « Profile Gallery ».
     expect(
-      screen.getByRole('heading', { name: /galerie de profils|profile gallery/i })
+      screen.getByRole('heading', { name: /^(galerie de profils|profile gallery)$/i })
     ).toBeInTheDocument()
   })
 
@@ -31,16 +34,54 @@ describe('AdminProfileSources', () => {
     ).toBeInTheDocument()
   })
 
-  it('affiche la section des profils importés', () => {
-    renderWithProviders(<AdminProfileSources />)
-    expect(
-      screen.getByRole('heading', { name: /profils importés|imported profiles/i })
-    ).toBeInTheDocument()
-  })
-
-  it('affiche les profils partagés dans la liste locale', async () => {
+  it('marque comme importé un profil de la galerie déjà présent en partagé', async () => {
+    // « Python Dev » (slug python-dev) existe côté /profiles scope=shared →
+    // la carte galerie correspondante porte le flag Importé.
+    const { server } = await import('@/test/server')
+    const { http, HttpResponse } = await import('msw')
+    server.use(
+      http.get('/admin/profile-sources/preview', () =>
+        HttpResponse.json({
+          profiles: [
+            {
+              filename: 'python-dev.json',
+              name: 'Python Dev',
+              description: 'Python stack',
+              extension_count: 2,
+              source_url: 'https://example.com/profiles/python-dev.json',
+              source_base: 'https://example.com/profiles',
+            },
+          ],
+        })
+      )
+    )
     renderWithProviders(<AdminProfileSources />)
     expect(await screen.findByText('Python Dev')).toBeInTheDocument()
+    expect(await screen.findByText(/^(importé|imported)$/i)).toBeInTheDocument()
+  })
+
+  it('affiche le bouton Importer actif pour un profil non importé', async () => {
+    const { server } = await import('@/test/server')
+    const { http, HttpResponse } = await import('msw')
+    server.use(
+      http.get('/admin/profile-sources/preview', () =>
+        HttpResponse.json({
+          profiles: [
+            {
+              filename: 'go-dev.json',
+              name: 'Go Dev',
+              description: 'Go stack',
+              extension_count: 1,
+              source_url: 'https://example.com/profiles/go-dev.json',
+              source_base: 'https://example.com/profiles',
+            },
+          ],
+        })
+      )
+    )
+    renderWithProviders(<AdminProfileSources />)
+    expect(await screen.findByText('Go Dev')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^(importer|import)$/i })).toBeEnabled()
   })
 
   it("permet d'ajouter une source via le champ texte", async () => {

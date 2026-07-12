@@ -14,8 +14,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import NameOID
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..config.models import HostConfig
-from ..config.store import _data_root, load_global, save_global
+from ..config.models import GlobalConfig, HostConfig
+from ..config.store import _data_root, load_global
 from ..db.tokens import consume_token as consume_token_db
 
 _log = structlog.get_logger(__name__)
@@ -31,20 +31,41 @@ class CsrValidationError(ValueError):
     """CSR invalide ou non conforme. §E-28."""
 
 
-def _address_in_san(san: x509.SubjectAlternativeName, address: str) -> bool:
+def _authoritative_san(expected_address: str) -> x509.SubjectAlternativeName:
+    """Construit le SAN **autoritatif** du certificat nœud à partir de la seule
+    identité réseau que le portail juge légitime pour ce nœud. §E-28, §013.
+
+    Le portail ne joint jamais un nœud autrement que par
+    ``docker_host = tcp://{address}:2376`` (cf. ``_register_host``) : l'``address``
+    scellée dans le join token est donc la *seule* identité que la vérification
+    mTLS d'hostname contrôlera. Le SAN ne contient qu'elle :
+
+    - jamais le SAN déclaré par la CSR (le recopier verbatim permet à un nœud
+      d'ajouter l'IP d'un autre nœud et d'usurper son daemon — §013) ;
+    - jamais le ``node_name``, qui est un label logique jamais utilisé comme
+      cible réseau et n'a donc pas à figurer comme identité du certificat.
+
+    L'``address`` est une IP *ou* un hostname (cf. validation ``/nodes/token``) :
+    on émet un ``IPAddress`` si elle parse en IP, sinon un ``DNSName``.
+    """
     try:
-        ip = ipaddress.ip_address(address)
-        return any(isinstance(n, x509.IPAddress) and n.value == ip for n in san)
+        ip = ipaddress.ip_address(expected_address)
+        name: x509.GeneralName = x509.IPAddress(ip)
     except ValueError:
-        return any(isinstance(n, x509.DNSName) and n.value == address for n in san)
+        name = x509.DNSName(expected_address)
+    return x509.SubjectAlternativeName([name])
 
 
 def _validate_csr(
     csr: x509.CertificateSigningRequest,
     expected_cn: str,
-    expected_address: str,
 ) -> None:
-    """Valide CN, SAN et l'absence de CA:TRUE. §E-28."""
+    """Valide signature, CN, présence d'un SAN et l'absence de CA:TRUE. §E-28.
+
+    Le SAN de la CSR n'est **pas** recopié dans le certificat signé (§013) : sa
+    présence n'est exigée que comme garde de bonne formation. L'identité réseau
+    effective du certificat est reconstruite par ``_authoritative_san``.
+    """
     if not csr.is_signature_valid:
         raise CsrValidationError("CSR has an invalid signature")
     cn_attrs = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
@@ -60,13 +81,9 @@ def _validate_csr(
         pass
 
     try:
-        san_ext = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
-        if not _address_in_san(san_ext.value, expected_address):
-            raise CsrValidationError(f"CSR SAN must contain {expected_address!r}")
+        csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
     except x509.ExtensionNotFound:
-        raise CsrValidationError(
-            "CSR must have a SAN extension containing the expected address"
-        ) from None
+        raise CsrValidationError("CSR must have a SAN extension") from None
 
 
 # §E-29 : validité 5 ans (1825 j). Renouvellement à prévoir avant expiration.
@@ -82,14 +99,15 @@ def sign_csr(
 ) -> tuple[bytes, bytes]:
     """Valide et signe la CSR. Retourne (cert_pem, ca_cert_pem). §E-28, §E-29."""
     csr = x509.load_pem_x509_csr(csr_pem)
-    _validate_csr(csr, expected_cn, expected_address)
+    _validate_csr(csr, expected_cn)
 
     ca_cert_pem = ca_cert_path.read_bytes()
     ca_cert = x509.load_pem_x509_certificate(ca_cert_pem)
     ca_key = serialization.load_pem_private_key(ca_key_path.read_bytes(), password=None)
 
     now = datetime.now(UTC)
-    san_ext = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+    # §013 : on ne recopie JAMAIS le SAN de la CSR. On signe un SAN autoritatif
+    # reconstruit à partir de la seule adresse scellée dans le join token.
     cert = (
         x509.CertificateBuilder()
         .subject_name(csr.subject)
@@ -98,7 +116,7 @@ def sign_csr(
         .serial_number(x509.random_serial_number())
         .not_valid_before(now)
         .not_valid_after(now + timedelta(days=_CERT_VALIDITY_DAYS))
-        .add_extension(san_ext.value, critical=False)
+        .add_extension(_authoritative_san(expected_address), critical=False)
         .add_extension(
             x509.KeyUsage(
                 digital_signature=True,
@@ -150,11 +168,19 @@ def _save_node_cert(node_name: str, cert_pem: bytes) -> None:
         raise
 
 
-async def _register_host(node_name: str, address: str) -> None:
-    """Ajoute le nœud dans global_config en DB."""
-    cfg = load_global()
-    if any(h.name == node_name for h in cfg.hosts):
-        raise ValueError(f"Host {node_name!r} already registered — delete it first")
+async def _register_host(
+    cfg: GlobalConfig, node_name: str, address: str, conn: AsyncConnection
+) -> None:
+    """Enregistre le nœud dans ``global_config`` sur la transaction fournie. §014.
+
+    Écrit via ``save_global_db(conn)`` — **jamais** ``save_global``, qui ouvrirait
+    sa propre transaction et committerait tôt, rompant l'atomicité
+    token + host + cert (cause racine de §014). Le cache RAM n'est **pas** mis à
+    jour ici : il l'est par l'appelant HTTP (``routes/nodes.py``) après le COMMIT
+    de la transaction d'enrôlement, jamais avant (bug 034).
+    """
+    from ..db.global_config import save_global_db
+
     cfg.hosts.append(
         HostConfig(
             name=node_name,
@@ -163,12 +189,36 @@ async def _register_host(node_name: str, address: str) -> None:
             docker_host=f"tcp://{address}:2376",
         )
     )
-    await save_global(cfg)
+    await save_global_db(cfg, conn)
     _log.info("node_host_registered", node_name=node_name, address=address)
 
 
-async def enroll_node(token: str, csr_pem: str, conn: AsyncConnection) -> dict[str, str]:
-    """Consomme le token, valide + signe la CSR, enregistre le nœud."""
+async def enroll_node(
+    token: str, csr_pem: str, conn: AsyncConnection
+) -> tuple[dict[str, str], GlobalConfig]:
+    """Enrôle un nœud de façon **atomique** sur ``conn``. §014, §E-27, §E-28.
+
+    Consommation du token, enregistrement du host et persistance de la ligne de
+    certificat s'exécutent toutes sur la **même** transaction ``conn`` : elles
+    committent ou rollbackent **ensemble**. Aucune écriture n'ouvre de
+    transaction séparée. L'appelant (``routes/nodes.py``) COMMIT ``conn`` puis
+    met à jour le cache RAM avec la ``GlobalConfig`` retournée (bug 034).
+
+    Le point critique de §014 — le token ne redevient **jamais** réutilisable
+    pendant qu'un host reste enregistré — est garanti par cette atomicité DB :
+    sur rollback, le flag ``used`` du token, la ligne host et la ligne cert
+    disparaissent ensemble ; un rejeu du token porte alors sur un état où rien
+    n'a eu lieu, ce qui est cohérent.
+
+    Compromis écriture disque (§014) : le fichier certificat n'est pas
+    transactionnel. Il est écrit en **dernier**, après les écritures DB en
+    transaction, via un ``os.replace`` atomique et idempotent. Si le COMMIT
+    final (hors de cette fonction) échoue, un fichier cert orphelin peut
+    subsister ; il est inoffensif — aucune ligne host committée ne le référence,
+    il est inutilisable seul — et il est écrasé à l'identique lors d'une nouvelle
+    tentative légitime. On priorise ainsi l'atomicité DB token+host+cert-row : un
+    cert orphelin nettoyable est un moindre mal qu'un token rejouable.
+    """
     from ..db.node_certs import save_node_cert_db
 
     node_name, address = await consume_token_db(token, conn)
@@ -179,6 +229,13 @@ async def enroll_node(token: str, csr_pem: str, conn: AsyncConnection) -> dict[s
     if any(h.name == node_name for h in cfg.hosts):
         raise ValueError(f"Host {node_name!r} already registered — delete it first")
 
+    # Copie profonde AVANT toute mutation : `load_global()` renvoie l'objet caché
+    # vivant (get_cached_global). Muter `cfg.hosts` en place polluerait le cache RAM
+    # dès maintenant — donc AVANT le COMMIT, et le laisserait pollué sur rollback
+    # (host fantôme absent de la DB). On travaille sur une copie ; le cache n'est
+    # rafraîchi que par l'appelant, après COMMIT réussi, via set_cached_global (§014, bug 034).
+    cfg = cfg.model_copy(deep=True)
+
     ca_cert_path = _data_root() / "certs" / "ca" / "ca.pem"
     ca_key_path = _data_root() / "certs" / "ca" / "ca-key.pem"
     cert_pem, ca_pem = sign_csr(
@@ -188,26 +245,33 @@ async def enroll_node(token: str, csr_pem: str, conn: AsyncConnection) -> dict[s
         ca_cert_path=ca_cert_path,
         ca_key_path=ca_key_path,
     )
-    _save_node_cert(node_name, cert_pem)
-    await _register_host(node_name, address)
 
-    # Persistance en DB : extraction des métadonnées depuis le certificat signé
+    # Enregistrement du host sur la MÊME transaction que le token (§014)
+    await _register_host(cfg, node_name, address, conn)
+
+    # Ligne de certificat sur la MÊME transaction (§014) : métadonnées extraites
+    # du certificat signé
     cert_obj = x509.load_pem_x509_certificate(cert_pem)
-    serial_hex = format(cert_obj.serial_number, "x")
-    signed_at = cert_obj.not_valid_before_utc
-    expires_at = cert_obj.not_valid_after_utc
     await save_node_cert_db(
         node_name=node_name,
         address=address,
         cert_pem=cert_pem.decode(),
-        serial_number=serial_hex,
-        signed_at=signed_at,
-        expires_at=expires_at,
+        serial_number=format(cert_obj.serial_number, "x"),
+        signed_at=cert_obj.not_valid_before_utc,
+        expires_at=cert_obj.not_valid_after_utc,
         conn=conn,
     )
 
-    return {
-        "cert_pem": cert_pem.decode(),
-        "ca_pem": ca_pem.decode(),
-        "node_name": node_name,
-    }
+    # Écriture disque en dernier : atomique/idempotente et hors transaction (§014).
+    # Placée après les écritures DB pour qu'un échec d'une opération DB ne laisse
+    # aucun fichier orphelin ; seul un échec du COMMIT final pourrait en laisser un.
+    _save_node_cert(node_name, cert_pem)
+
+    return (
+        {
+            "cert_pem": cert_pem.decode(),
+            "ca_pem": ca_pem.decode(),
+            "node_name": node_name,
+        },
+        cfg,
+    )

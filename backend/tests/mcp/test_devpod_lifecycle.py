@@ -11,7 +11,7 @@ from portal.mcp import devpod_tools
 async def test_stop_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, str] = {}
 
-    def fake_launch(kind: str, workspace: str, owner_login: str, work: object) -> str:
+    async def fake_launch(kind: str, workspace: str, owner_login: str, work: object) -> str:
         captured.update(kind=kind, workspace=workspace, owner=owner_login)
         return "d" * 32
 
@@ -25,7 +25,7 @@ async def test_stop_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_reconnect_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, str] = {}
 
-    def fake_launch(kind: str, workspace: str, owner_login: str, work: object) -> str:
+    async def fake_launch(kind: str, workspace: str, owner_login: str, work: object) -> str:
         captured.update(kind=kind, workspace=workspace, owner=owner_login)
         return "e" * 32
 
@@ -39,7 +39,7 @@ async def test_reconnect_launches_operation(monkeypatch: pytest.MonkeyPatch) -> 
 async def test_restart_launches_operation(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, str] = {}
 
-    def fake_launch(kind: str, workspace: str, owner_login: str, work: object) -> str:
+    async def fake_launch(kind: str, workspace: str, owner_login: str, work: object) -> str:
         captured.update(kind=kind, workspace=workspace, owner=owner_login)
         return "f" * 32
 
@@ -57,7 +57,7 @@ async def test_restart_work_stops_then_starts(monkeypatch: pytest.MonkeyPatch) -
     # ── 1. capture le coroutine work via fake launch_operation ─────────────
     work_holder: dict[str, object] = {}
 
-    def fake_launch(kind: str, workspace: str, owner_login: str, work: object) -> str:
+    async def fake_launch(kind: str, workspace: str, owner_login: str, work: object) -> str:
         work_holder["work"] = work
         return "a" * 32
 

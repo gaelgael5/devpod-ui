@@ -3,28 +3,41 @@ from __future__ import annotations
 import asyncio
 import re
 import shlex
-from typing import Literal
+from typing import Any, Literal
 
+import httpx
 import structlog
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
+from ..config.env_file import update_env_file
 from ..config.models import GlobalConfig, HostConfig, Hypervisor, validate_network
 from ..config.store import _data_root, load_global
 from ..db.engine import get_conn
-from ..db.global_config import save_global_db
+from ..db.global_config import save_global_db, set_cached_global
 from ..db.tables import harpo_certificates
 from ..db.tables import workspace_status as _ws_status_table
 from ..db.tables import workspaces as _ws_table
+from ..db.workflow_outbox import enqueue as outbox_enqueue
+from ..events.egress import (
+    compute_signature,
+    post_event,
+    reconcile_workflow_producer,
+    serialize_envelope,
+)
+from ..events.models import EVENT_TYPES
+from ..events.producer import build_test_envelope
+from ..net import build_resolve_fqdn, is_ipv4, resolve_ipv4
 from ..secrets.system import (
     delete_system_cert,
     delete_system_secret,
+    reveal_system_secret,
     store_system_cert,
     store_system_secret,
 )
@@ -37,7 +50,7 @@ router = APIRouter(tags=["admin"])
 _ADDRESS_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}@[a-zA-Z0-9][a-zA-Z0-9._-]{0,253}$")
 
 
-# ─── DTOs ─────────────────────────────────────────────────────────────────────
+# ─── DTOs ────────────────────────────────────────────────────────────────────
 
 
 class HostCreateRequest(BaseModel):
@@ -53,6 +66,9 @@ class HostCreateRequest(BaseModel):
     proxmox_node: str = ""
     vmid: str = ""
     ci_password: str = ""  # valeur brute, stockée dans harpo au CREATE/UPDATE
+    # None = défaut à la création ("workspaces"), valeur existante préservée à l'update.
+    # ressources (spec 33) : service partagé permanent, sans workspace propriétaire.
+    usage: Literal["workspaces", "tests", "portail", "ressources"] | None = None
 
 
 class BootstrapSshRequest(BaseModel):
@@ -60,7 +76,7 @@ class BootstrapSshRequest(BaseModel):
     proxmox_node: str = ""  # optionnel si host.proxmox_node est déjà connu
 
 
-# ─── Config ───────────────────────────────────────────────────────────────────
+# ─── Config ──────────────────────────────────────────────────────────────────
 
 
 @router.get("/config")
@@ -84,11 +100,12 @@ async def put_admin_config(
 
     async with _get_engine().begin() as conn:
         await save_global_db(new_cfg, conn)
+    set_cached_global(new_cfg)  # après commit réussi seulement (bug 034)
     _log.info("global_config_updated", by=user.login)
     return new_cfg.model_dump(mode="json")
 
 
-# ─── Configuration OIDC ───────────────────────────────────────────────────────
+# ─── Configuration OIDC ──────────────────────────────────────────────────────
 
 
 class OidcUpdateRequest(BaseModel):
@@ -142,6 +159,7 @@ async def put_admin_oidc(
 
     async with _get_engine().begin() as conn:
         await save_global_db(cfg, conn)
+    set_cached_global(cfg)  # après commit réussi seulement (bug 034)
     _log.info("oidc_config_updated", by=user.login, issuer=body.issuer)
     return {
         "issuer": new_oidc.issuer,
@@ -151,7 +169,334 @@ async def put_admin_oidc(
     }
 
 
-# ─── Domaine local (résolution DNS des VM de test DHCP) ──────────────────────
+# ─── Configuration de la chaîne de logs centralisés (spec 30 §2) ────────────
+# enabled/loki_push_url/loki_query_url/grafana_url/module/push_token : le bloc
+# qui pilote à la fois le bouton "Logs" (GET /me/logs-config), la primitive MCP
+# logs_query et les variables injectées aux collecteurs Alloy déployés.
+
+
+class LogsConfigUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    loki_push_url: str = ""
+    loki_query_url: str = ""
+    grafana_url: str = ""
+    module: str = "devpod"
+    push_token: str = ""  # vide = conserve le token existant (littéral ou ${vault://...})
+
+
+def _logs_config_out(cfg: GlobalConfig) -> dict[str, object]:
+    return {
+        "enabled": cfg.logs.enabled,
+        "loki_push_url": cfg.logs.loki_push_url or "",
+        "loki_query_url": cfg.logs.loki_query_url or "",
+        "grafana_url": cfg.logs.grafana_url or "",
+        "module": cfg.logs.module,
+        "has_push_token": bool(cfg.logs.push_token),
+    }
+
+
+@router.get("/logs-config")
+async def get_admin_logs_config(user: UserInfo = Depends(require_admin)) -> dict[str, object]:
+    return _logs_config_out(load_global())
+
+
+@router.put("/logs-config")
+async def put_admin_logs_config(
+    body: LogsConfigUpdateRequest,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    """Active/configure la chaîne de logs. enabled=true exige les deux URLs Loki —
+    sans elles ni les collecteurs (push) ni logs_query (query) n'auraient de cible.
+
+    N'affecte pas le catalogue MCP des backends existants (logs_query n'y apparaît
+    qu'après un redémarrage du portail ou un clic sur "Refresh tools" par backend).
+    """
+    if body.enabled and (not body.loki_push_url.strip() or not body.loki_query_url.strip()):
+        raise HTTPException(
+            status_code=422,
+            detail="loki_push_url et loki_query_url sont requis pour activer les logs",
+        )
+    cfg = load_global()
+    new_token = body.push_token.strip() or cfg.logs.push_token
+    cfg.logs = cfg.logs.model_copy(
+        update={
+            "enabled": body.enabled,
+            "loki_push_url": body.loki_push_url.strip() or None,
+            "loki_query_url": body.loki_query_url.strip() or None,
+            "grafana_url": body.grafana_url.strip() or None,
+            "module": body.module.strip() or "devpod",
+            "push_token": new_token,
+        }
+    )
+    await save_global_db(cfg, conn)
+    set_cached_global(cfg)
+    _log.info("logs_config_updated", by=user.login, enabled=body.enabled)
+    return _logs_config_out(cfg)
+
+
+# ─── Producteur d'events workflow (relais egress signé HMAC) ────────────────
+# enabled + workflow_base_url + source_id + liste blanche `events` + secret HMAC
+# (stocké comme secret système, jamais renvoyé). L'écriture reconcilie l'abonnement
+# du bus à chaud (le toggle et la liste blanche prennent effet sans redémarrage).
+
+_EVENTS_HMAC_LABEL = "Workflow events HMAC"
+
+
+class EventsProducerUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    workflow_base_url: str = ""
+    source_id: str = ""
+    source_uri: str = "urn:yoops:devpod"
+    events: list[str] = Field(default_factory=list)
+    secret: str = ""  # vide = conserve le secret existant (jamais renvoyé)
+
+
+async def _system_secret_exists(slug: str, conn: AsyncConnection) -> bool:
+    try:
+        await reveal_system_secret(slug, conn)
+        return True
+    except KeyError:
+        return False
+
+
+def _events_producer_out(cfg: GlobalConfig, *, has_secret: bool) -> dict[str, object]:
+    ep = cfg.events_producer
+    base = cfg.server.external_url.rstrip("/") if cfg.server.external_url else ""
+    return {
+        "enabled": ep.enabled,
+        "workflow_base_url": ep.workflow_base_url,
+        "source_id": ep.source_id,
+        "source_uri": ep.source_uri,
+        "events": ep.events,
+        "available_events": sorted(EVENT_TYPES),
+        "has_secret": has_secret,
+        # URL publique du catalogue d'events à enregistrer côté Workflow (source
+        # « Discovery ») — c'est de cet enregistrement que Workflow renvoie le source_id.
+        "discovery_url": f"{base}/schemas",
+    }
+
+
+@router.get("/events-producer")
+async def get_admin_events_producer(
+    user: UserInfo = Depends(require_admin), conn: AsyncConnection = Depends(get_conn)
+) -> dict[str, object]:
+    cfg = load_global()
+    has_secret = await _system_secret_exists(cfg.events_producer.secret_slug, conn)
+    return _events_producer_out(cfg, has_secret=has_secret)
+
+
+@router.put("/events-producer")
+async def put_admin_events_producer(
+    body: EventsProducerUpdateRequest,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    """Configure le relais d'events vers le workflow ; reconcilie l'abonnement à chaud.
+
+    Activer exige le contrat complet (URL, source_id, ≥1 event, secret présent) —
+    sinon on activerait un relais qui ne pourrait rien livrer.
+    """
+    unknown = sorted(set(body.events) - EVENT_TYPES)
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"types d'events inconnus: {unknown}")
+
+    cfg = load_global()
+    slug = cfg.events_producer.secret_slug
+    if body.secret.strip():
+        await store_system_secret(slug, _EVENTS_HMAC_LABEL, body.secret.strip(), "local", "", conn)
+    has_secret = bool(body.secret.strip()) or await _system_secret_exists(slug, conn)
+
+    if body.enabled:
+        missing = [
+            name
+            for name, ok in (
+                ("workflow_base_url", bool(body.workflow_base_url.strip())),
+                ("source_id", bool(body.source_id.strip())),
+                ("events", bool(body.events)),
+                ("secret", has_secret),
+            )
+            if not ok
+        ]
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail=f"activation impossible, champs requis manquants: {missing}",
+            )
+
+    cfg.events_producer = cfg.events_producer.model_copy(
+        update={
+            "enabled": body.enabled,
+            "workflow_base_url": body.workflow_base_url.strip(),
+            "source_id": body.source_id.strip(),
+            "source_uri": body.source_uri.strip() or "urn:yoops:devpod",
+            "events": body.events,
+        }
+    )
+    await save_global_db(cfg, conn)
+    set_cached_global(cfg)
+    reconcile_workflow_producer()  # prise d'effet à chaud (abonnement/désabonnement)
+    _log.info(
+        "events_producer_config_updated",
+        by=user.login,
+        enabled=body.enabled,
+        events=len(body.events),
+    )
+    return _events_producer_out(cfg, has_secret=has_secret)
+
+
+def _require_producer_target(cfg_ep: Any) -> None:
+    if not cfg_ep.workflow_base_url.strip() or not cfg_ep.source_id.strip():
+        raise HTTPException(status_code=422, detail="URL Workflow et Source ID requis")
+
+
+@router.post("/events-producer/test-connection")
+async def test_events_producer_connection(
+    user: UserInfo = Depends(require_admin), conn: AsyncConnection = Depends(get_conn)
+) -> dict[str, object]:
+    """Envoie un event de test **synchrone** et retourne le verdict de connexion.
+
+    Valide en un geste : config complète, joignabilité du workflow, et signature
+    HMAC (202). Ne passe pas par l'outbox — feedback immédiat. Utilise la config
+    enregistrée (le secret vient du store) : enregistrer d'abord.
+    """
+    cfg = load_global().events_producer
+    _require_producer_target(cfg)
+    try:
+        secret = await reveal_system_secret(cfg.secret_slug, conn)
+    except KeyError:
+        raise HTTPException(
+            status_code=422, detail="secret HMAC absent — enregistrez-le d'abord"
+        ) from None
+    envelope = build_test_envelope(cfg.source_uri)
+    raw = serialize_envelope(envelope)
+    signature = compute_signature(secret.encode(), raw)
+    try:
+        status = await post_event(cfg.workflow_base_url, cfg.source_id, raw, signature)
+    except httpx.HTTPError as exc:
+        _log.warning("events_producer_test_failed", by=user.login, exc_type=type(exc).__name__)
+        return {"ok": False, "event_code": envelope["_eventCode"], "error": type(exc).__name__}
+    return {"ok": status == 202, "status_code": status, "event_code": envelope["_eventCode"]}
+
+
+@router.post("/events-producer/send-test-event")
+async def send_events_producer_test_event(
+    user: UserInfo = Depends(require_admin), conn: AsyncConnection = Depends(get_conn)
+) -> dict[str, object]:
+    """Met en file (outbox) un event de test normalisé `{appli}.testevent.v1`.
+
+    Emprunte le **vrai chemin asynchrone** : le worker le livrera si le relais est
+    activé. Sert à valider le pipeline de bout en bout (et le déclenchement de règles).
+    """
+    cfg = load_global().events_producer
+    _require_producer_target(cfg)
+    envelope = build_test_envelope(cfg.source_uri)
+    raw = serialize_envelope(envelope)
+    await outbox_enqueue(
+        conn,
+        event_id=envelope["_eventId"],
+        event_code=envelope["_eventCode"],
+        raw_body=raw.decode(),
+    )
+    _log.info("events_producer_test_event_queued", by=user.login, event_code=envelope["_eventCode"])
+    return {
+        "queued": True,
+        "event_id": envelope["_eventId"],
+        "event_code": envelope["_eventCode"],
+    }
+
+
+# ─── Configuration OIDC de Grafana (SSO Keycloak du login Grafana lui-même) ───
+# Distinct de /oidc (le portail) et de logs.push_token (l'auth des collecteurs
+# Alloy→Loki). Auth/token/userinfo dérivées de auth.oidc.issuer : même realm
+# Keycloak, un seul champ à saisir (le client secret Grafana).
+
+
+def _keycloak_endpoints(issuer: str) -> tuple[str, str, str]:
+    base = issuer.rstrip("/")
+    return (
+        f"{base}/protocol/openid-connect/auth",
+        f"{base}/protocol/openid-connect/token",
+        f"{base}/protocol/openid-connect/userinfo",
+    )
+
+
+class GrafanaOidcUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_id: str = "agflow-grafana"
+    client_secret: str = ""  # vide = conserver le secret existant
+
+
+@router.get("/grafana-oidc")
+async def get_admin_grafana_oidc(user: UserInfo = Depends(require_admin)) -> dict[str, object]:
+    """Config SSO Grafana : URLs Keycloak dérivées, secret jamais ré-exposé."""
+    cfg = load_global()
+    auth_url = token_url = userinfo_url = None
+    if cfg.auth.oidc.issuer:
+        auth_url, token_url, userinfo_url = _keycloak_endpoints(cfg.auth.oidc.issuer)
+    redirect_uri = (
+        f"{cfg.logs.grafana_url.rstrip('/')}/login/generic_oauth" if cfg.logs.grafana_url else None
+    )
+    return {
+        "client_id": cfg.logs.grafana_oauth_client_id,
+        "has_secret": bool(cfg.logs.grafana_oauth_client_secret),
+        "auth_url": auth_url,
+        "token_url": token_url,
+        "userinfo_url": userinfo_url,
+        "redirect_uri": redirect_uri,
+        "grafana_url": cfg.logs.grafana_url,
+    }
+
+
+@router.put("/grafana-oidc")
+async def put_admin_grafana_oidc(
+    body: GrafanaOidcUpdateRequest,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    """Enregistre client_id/secret Grafana ; secret vide = conservé.
+
+    Écrit aussi GF_OAUTH_* dans /data/.env (env_file de Grafana) — un
+    redémarrage du conteneur Grafana reste nécessaire pour que ça s'applique
+    (Grafana ne recharge pas sa config OAuth à chaud).
+    """
+    cfg = load_global()
+    if not cfg.auth.oidc.issuer:
+        raise HTTPException(
+            status_code=422,
+            detail="L'issuer OIDC du portail doit être configuré avant le SSO Grafana",
+        )
+    new_secret = body.client_secret or cfg.logs.grafana_oauth_client_secret
+    cfg.logs = cfg.logs.model_copy(
+        update={
+            "grafana_oauth_client_id": body.client_id,
+            "grafana_oauth_client_secret": new_secret,
+        }
+    )
+    await save_global_db(cfg, conn)
+    set_cached_global(cfg)
+
+    auth_url, token_url, userinfo_url = _keycloak_endpoints(cfg.auth.oidc.issuer)
+    env_updates = {
+        "GF_OAUTH_CLIENT_ID": body.client_id,
+        "GF_OAUTH_AUTH_URL": auth_url,
+        "GF_OAUTH_TOKEN_URL": token_url,
+        "GF_OAUTH_API_URL": userinfo_url,
+    }
+    if body.client_secret:
+        env_updates["GF_OAUTH_CLIENT_SECRET"] = body.client_secret
+    await update_env_file(_data_root() / ".env", env_updates)
+
+    _log.info("grafana_oauth_config_updated", by=user.login, client_id=body.client_id)
+    return {"client_id": body.client_id, "has_secret": bool(new_secret)}
+
+
+# ─── Domaine local (résolution DNS des VM de test DHCP) ─────────────────────
 
 
 class LocalDomainRequest(BaseModel):
@@ -176,6 +521,7 @@ async def put_local_domain(
 
     async with _get_engine().begin() as conn:
         await save_global_db(cfg, conn)
+    set_cached_global(cfg)  # après commit réussi seulement (bug 034)
     _log.info("local_domain_updated", by=user.login, local_domain=cfg.server.local_domain)
     return {"local_domain": cfg.server.local_domain}
 
@@ -230,13 +576,19 @@ async def put_network(
 
     async with _get_engine().begin() as conn:
         await save_global_db(cfg, conn)
+    set_cached_global(cfg)  # après commit réussi seulement (bug 034)
     # Invalider le singleton DevPodService (embarque ExposureService avec dev_mode/base_domain
     # baked-in). Le prochain _get_service() le recrée depuis la DB.
     _reset_service()
     # Actualise immédiatement le domaine du cookie de session (sans redémarrage).
     from ..settings import update_cookie_domain
 
-    update_cookie_domain(clean.get("cookie_domain", ""), clean.get("base_domain", ""))
+    update_cookie_domain(
+        clean.get("cookie_domain", ""),
+        clean.get("base_domain", ""),
+        external_url=clean.get("external_url", ""),
+        vs_proxy_domain=clean.get("vs_proxy_domain", ""),
+    )
     # Réexposer immédiatement les workspaces actifs avec la nouvelle config.
     await re_expose_running_workspaces()
     _log.info(
@@ -253,7 +605,39 @@ async def put_network(
     }
 
 
-# ─── Hosts CRUD ───────────────────────────────────────────────────────────────
+class ResolveHostRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    host: str = ""
+
+
+@router.post("/network/resolve-workspace-host")
+async def resolve_workspace_host(
+    body: ResolveHostRequest, user: UserInfo = Depends(require_admin)
+) -> dict[str, str]:
+    """Résout l'IPv4 courante de workspace_host pour tester la config DHCP.
+
+    IP littérale → renvoyée telle quelle. Sinon `<host>.<local_domain>` est résolu
+    via le resolver du portail. 422 si vide, 502 si non résolvable.
+    """
+    host = body.host.strip()
+    if not host:
+        raise HTTPException(status_code=422, detail="host vide")
+    if is_ipv4(host):
+        _log.info("resolve_workspace_host_literal_ip", by=user.login, host=host)
+        return {"fqdn": host, "ip": host}
+    fqdn = build_resolve_fqdn(host, load_global().server.local_domain)
+    _log.info("resolve_workspace_host_start", by=user.login, host=host, fqdn=fqdn)
+    try:
+        ip = await resolve_ipv4(fqdn)
+    except OSError as exc:
+        _log.warning("resolve_workspace_host_failed", by=user.login, fqdn=fqdn, error=str(exc))
+        raise HTTPException(status_code=502, detail=f"Non résolvable : {fqdn} ({exc})") from exc
+    _log.info("resolve_workspace_host_done", by=user.login, fqdn=fqdn, ip=ip)
+    return {"fqdn": fqdn, "ip": ip}
+
+
+# ─── Hosts CRUD ──────────────────────────────────────────────────────────────
 
 
 @router.get("/hosts")
@@ -296,10 +680,11 @@ async def add_host(
         host_cert_slug="",
         storage_type="local",
         vault_identifier="",
-        usage="workspaces",
+        usage=body.usage or "workspaces",
     )
     cfg.hosts.append(host)
     await save_global_db(cfg, conn)
+    set_cached_global(cfg)
     _log.info("host_added", name=body.name, by=user.login)
     return host.model_dump(mode="json")
 
@@ -343,12 +728,13 @@ async def update_host(
         vmid=body.vmid,
         ci_password_secret_slug=ci_slug,
         host_cert_slug=existing.host_cert_slug,  # conservé
-        storage_type="local",
-        vault_identifier="",
-        usage=existing.usage,  # préservé (pas exposé au payload)
+        storage_type=existing.storage_type,  # conservé (l'update ne doit rien réinitialiser)
+        vault_identifier=existing.vault_identifier,  # conservé
+        usage=body.usage if body.usage is not None else existing.usage,
     )
     cfg.hosts[idx] = host
     await save_global_db(cfg, conn)
+    set_cached_global(cfg)
     _log.info("host_updated", name=name, by=user.login)
     return host.model_dump(mode="json")
 
@@ -373,8 +759,10 @@ async def delete_host(
     if host_cfg.default:
         host_condition = or_(host_condition, _ws_table.c.host == "")
     rows = (
-        await conn.execute(select(_ws_table.c.login, _ws_table.c.name).where(host_condition))
-    ).mappings().all()
+        (await conn.execute(select(_ws_table.c.login, _ws_table.c.name).where(host_condition)))
+        .mappings()
+        .all()
+    )
 
     if rows:
         from .workspace_ops import _get_service
@@ -412,6 +800,7 @@ async def delete_host(
     # 4. Retirer le host de la config
     cfg.hosts = [h for h in cfg.hosts if h.name != name]
     await save_global_db(cfg, conn)
+    set_cached_global(cfg)
     _log.info("host_deleted", name=name, by=user.login, workspaces_deleted=len(rows))
 
 
@@ -432,21 +821,23 @@ async def list_host_workspaces(
 
     ws_id_expr = _func.concat(_ws_table.c.login, "-", _ws_table.c.name)
     rows = (
-        await conn.execute(
-            select(
-                _ws_table.c.login,
-                _ws_table.c.name,
-                _ws_status_table.c.status,
-            )
-            .select_from(
-                _ws_table.join(
-                    _ws_status_table, _ws_status_table.c.ws_id == ws_id_expr
+        (
+            await conn.execute(
+                select(
+                    _ws_table.c.login,
+                    _ws_table.c.name,
+                    _ws_status_table.c.status,
                 )
+                .select_from(
+                    _ws_table.join(_ws_status_table, _ws_status_table.c.ws_id == ws_id_expr)
+                )
+                .where(_ws_status_table.c.host_name == name)
+                .order_by(_ws_table.c.login, _ws_table.c.name)
             )
-            .where(_ws_status_table.c.host_name == name)
-            .order_by(_ws_table.c.login, _ws_table.c.name)
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     by_login: dict[str, list[dict[str, str]]] = {}
     for r in rows:
@@ -484,23 +875,25 @@ async def list_host_deployments(
     from ..compose.models import ComposeTemplate
 
     deps = await list_deployments_for_node(conn, name)
-    result = []
+    result: list[dict[str, object]] = []
     for dep in deps:
         tpl: ComposeTemplate | None = await get_template(conn, dep.template_id)
-        result.append({
-            "id": dep.id,
-            "status": dep.status,
-            "template_id": dep.template_id,
-            "template_name": tpl.name if tpl else dep.template_id,
-            "template_version": dep.template_version,
-            "host_ports": dep.host_ports,
-            "last_error": dep.last_error,
-            "created_at": dep.created_at.isoformat() if dep.created_at else None,
-        })
+        result.append(
+            {
+                "id": dep.id,
+                "status": dep.status,
+                "template_id": dep.template_id,
+                "template_name": tpl.name if tpl else dep.template_id,
+                "template_version": dep.template_version,
+                "host_ports": dep.host_ports,
+                "last_error": dep.last_error,
+                "created_at": dep.created_at.isoformat() if dep.created_at else None,
+            }
+        )
     return result
 
 
-# ─── Bootstrap SSH ────────────────────────────────────────────────────────────
+# ─── Bootstrap SSH ───────────────────────────────────────────────────────────
 
 
 @router.post("/hosts/{name}/bootstrap-ssh")
@@ -655,12 +1048,13 @@ async def bootstrap_host_ssh(
     except Exception:
         log.exception("bootstrap_ssh_save_failed")
         raise
+    set_cached_global(cfg)
 
     log.info("bootstrap_ssh_done")
     return {"public_key": public_key, "address": body.address, "host_cert_slug": cert_slug}
 
 
-# ─── Cert ─────────────────────────────────────────────────────────────────────
+# ─── Cert ────────────────────────────────────────────────────────────────────
 
 
 @router.get("/hosts/{name}/cert")
@@ -687,12 +1081,16 @@ async def get_host_cert(
                 detail="Clé SSH non configurée (lancez bootstrap-ssh)",
             )
         row = (
-            await conn.execute(
-                select(harpo_certificates)
-                .where(harpo_certificates.c.owner_login == "__system__")
-                .where(harpo_certificates.c.slug == host.host_cert_slug)
+            (
+                await conn.execute(
+                    select(harpo_certificates)
+                    .where(harpo_certificates.c.owner_login == "__system__")
+                    .where(harpo_certificates.c.slug == host.host_cert_slug)
+                )
             )
-        ).mappings().one_or_none()
+            .mappings()
+            .one_or_none()
+        )
         if row is None:
             raise HTTPException(status_code=404, detail="Cert introuvable en base")
         return {"public_key": str(row["public_key"]), "cert_type": str(row["cert_type"])}
@@ -723,7 +1121,7 @@ async def get_host_cert(
     return result
 
 
-# ─── SSH helper (conservé pour les WebSocket SSH proxy) ──────────────────────
+# ─── SSH helper (conservé pour les WebSocket SSH proxy) ─────────────────────
 
 
 async def _run_script_on_pve(node: Hypervisor, script: str, timeout: float = 30.0) -> str:

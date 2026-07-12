@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ipaddress
 import re
 from urllib.parse import urlparse
 
@@ -8,13 +7,24 @@ import structlog
 
 from ..db.engine import _get_engine
 from ..db.workspace_status import get_status_db, upsert_status_db
+from ..net import build_resolve_fqdn, is_ipv4, resolve_ipv4
 from .caddy import CaddyClient
 from .ports import PortRegistry
 
 _log = structlog.get_logger(__name__)
 
-# Regex de validation des ws_id (défense en profondeur, les ws_id sont générés en interne).
-_WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,38}[a-z0-9]$")
+# Regex canonique de ws_id — SEULE définition du projet (bug 040 : service.py et
+# ce module avaient deux regex différentes ; un ws_id validé par
+# DevPodService._ws_id() pouvait être rejeté ici, écrivant un statut "running"
+# sans URL ni route Caddy, silencieusement).
+#
+# login (jusqu'à 40 chars, autorise les points — comptes LDAP) + "-" + name
+# (jusqu'à 32 chars, sans point) = jusqu'à 73 caractères bruts. Mais le
+# sous-domaine Caddy réel est "ws-{ws_id}" : un label DNS (RFC 1035) est limité à
+# 63 caractères, donc ws_id est plafonné à 60 pour laisser la place au préfixe
+# "ws-". _ws_id() (devpod/service.py) importe cette même regex : toute
+# combinaison login+name qui la passe est garantie acceptée par expose().
+_WS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,58}[a-z0-9]$")
 
 
 class ExposureService:
@@ -36,6 +46,7 @@ class ExposureService:
         dev_mode: bool = False,
         external_url: str = "",
         workspace_host: str = "",
+        local_domain: str = "",
         vs_proxy_domain: str = "",
         vs_proxy_verify_uri: str = "",
     ) -> None:
@@ -46,8 +57,26 @@ class ExposureService:
         self._dev_mode = dev_mode
         self._external_url = external_url
         self._workspace_host = workspace_host
+        self._local_domain = local_domain
         self._vs_proxy_domain = vs_proxy_domain
         self._vs_proxy_verify_uri = vs_proxy_verify_uri
+
+    async def _resolved_workspace_host(self) -> str:
+        """workspace_host prêt pour une URL navigateur.
+
+        Vide si non configuré. IP littérale → telle quelle. Sinon hostname
+        re-résolu en IP courante via `<workspace_host>.<local_domain>` (couvre le
+        DHCP) ; en cas d'échec de résolution, on retombe sur le hostname littéral.
+        """
+        wh = self._workspace_host.strip()
+        if not wh or is_ipv4(wh):
+            return wh
+        fqdn = build_resolve_fqdn(wh, self._local_domain)
+        try:
+            return await resolve_ipv4(fqdn)
+        except OSError as exc:
+            _log.warning("workspace_host_resolve_failed", host=wh, fqdn=fqdn, error=str(exc))
+            return wh
 
     async def allocate_port(self, ws_id: str) -> int:
         """Délègue l'allocation de port au PortRegistry.
@@ -59,6 +88,10 @@ class ExposureService:
             Port hôte unique dans la plage 40000-49999.
         """
         return await self._registry.allocate(ws_id)
+
+    async def release_port(self, port: int) -> None:
+        """Libère un port alloué mais jamais persisté en DB (échec avant `up()` — bug 037)."""
+        await self._registry.release(port)
 
     async def expose(
         self,
@@ -87,23 +120,28 @@ class ExposureService:
         folder = workspace_folder or f"/workspaces/{ws_id}"
 
         if self._vs_proxy_domain:
-            # Proxy VS Code à sous-domaine fixe : une seule route Caddy partagée,
-            # l'upstream est résolu dynamiquement via /auth/caddy/verify-workspace.
+            # Proxy VS Code applicatif : une route Caddy statique rewrite /* → /vsproxy/*
+            # et proxy vers le portail Python. L'auth est gérée dans /vsproxy/* (Option A).
+            # La route est idempotente : on la (re)crée à chaque expose() pour garantir
+            # qu'elle existe même après un restart Caddy.
             if self._caddy is not None:
-                await self._caddy.upsert_vs_proxy_route(
+                portal_upstream = urlparse(self._vs_proxy_verify_uri).netloc
+                await self._caddy.upsert_vs_portal_route(
                     match_host=self._vs_proxy_domain,
-                    verify_uri=self._vs_proxy_verify_uri,
-                    host_port=host_port,
+                    portal_upstream=portal_upstream,
                 )
-            url = f"{self._url_scheme}://{self._vs_proxy_domain}/?folder={folder}"
+            # &ws= : identifie explicitement le workspace cible pour le vsproxy —
+            # folder ne suffit pas (les workspaces multi-sources ouvrent /workspaces
+            # tout court, sans ws_id dedans). OpenVSCode ignore ce paramètre inconnu.
+            url = f"{self._url_scheme}://{self._vs_proxy_domain}/?folder={folder}&ws={ws_id}"
             await self._write_exposure(ws_id, hostname=self._vs_proxy_domain, url=url)
-            _log.info("workspace_exposed_vs_proxy", ws_id=ws_id, url=url)
+            _log.info("workspace_exposed_vs_portal", ws_id=ws_id, url=url)
             return url
 
         if self._dev_mode:
             host = (
                 request_host
-                or self._workspace_host
+                or await self._resolved_workspace_host()
                 or urlparse(self._external_url).hostname
                 or "localhost"
             )
@@ -114,18 +152,12 @@ class ExposureService:
 
         if not self._base_domain:
             # Pas de base_domain → impossible de router par sous-domaine.
-            # Fallback URL directe : priorité à l'IP routable du nœud Docker,
-            # puis workspace_host configuré, puis l'hôte de la requête.
-            def _is_ip(s: str) -> bool:
-                try:
-                    ipaddress.ip_address(s)
-                    return True
-                except ValueError:
-                    return False
-
+            # Fallback URL directe : priorité au workspace_host configuré (résolu en
+            # IP courante si hostname), puis à l'IP routable du nœud Docker, puis
+            # l'hôte de la requête.
             host = (
-                self._workspace_host
-                or (node_ip if _is_ip(node_ip) else None)
+                await self._resolved_workspace_host()
+                or (node_ip if is_ipv4(node_ip) else None)
                 or request_host
                 or urlparse(self._external_url).hostname
                 or "localhost"

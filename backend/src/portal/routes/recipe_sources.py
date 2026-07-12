@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import json as _json
 import re
 import shutil
-import socket as _socket
 import tempfile
 from pathlib import Path
 from typing import Any, Literal
@@ -23,6 +21,7 @@ from ..config.store import _data_root
 from ..db.engine import get_conn
 from ..db.sources import load_recipe_sources, save_recipe_sources
 from ..recipes.models import _RECIPE_ID_RE, RecipeMeta
+from ._ssrf import check_ssrf, pinned_get
 
 _log = structlog.get_logger(__name__)
 
@@ -45,38 +44,6 @@ class RecipeSourcesPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     sources: list[str]
-
-
-def _check_ssrf(url: str) -> None:
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(status_code=422, detail=f"URL scheme must be http or https: {url!r}")
-    host = (parsed.hostname or "").rstrip(".").lower()
-    if not host:
-        raise HTTPException(status_code=422, detail="URL has no hostname")
-    try:
-        infos = _socket.getaddrinfo(host, None)
-    except _socket.gaierror as exc:
-        raise HTTPException(
-            status_code=422, detail=f"Cannot resolve hostname '{host}': {exc}"
-        ) from exc
-    for _fam, _type, _proto, _canon, sa in infos:
-        try:
-            ip = ipaddress.ip_address(sa[0])
-        except ValueError:
-            continue
-        if (
-            ip.is_loopback
-            or ip.is_link_local
-            or ip.is_private
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail=f"URL resolves to a blocked internal address: {ip}",
-            )
 
 
 @router_admin.get("/recipe-sources")
@@ -103,10 +70,16 @@ def _parse_sh_headers(content: str) -> dict[str, str]:
 
 
 async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
-    await asyncio.to_thread(_check_ssrf, url)
-    resp = await client.get(url, timeout=5.0, follow_redirects=False)
+    resp = await pinned_get(client, url, timeout=5.0)
     resp.raise_for_status()
     return resp.text
+
+
+async def _fetch_bytes(client: httpx.AsyncClient, url: str) -> bytes:
+    """Variante binaire de _fetch_text — pour les fichiers sources des ops `copy`."""
+    resp = await pinned_get(client, url, timeout=10.0)
+    resp.raise_for_status()
+    return resp.content
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +131,12 @@ async def _fetch_dir_recipe(
 
     try:
         install_script = await _fetch_text(client, sh_url)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            install_script = ""  # optionnel pour les recettes type=initialize
+        else:
+            _log.warning("recipe_install_fetch_failed", url=sh_url, error=str(exc))
+            return None
     except Exception as exc:
         _log.warning("recipe_install_fetch_failed", url=sh_url, error=str(exc))
         return None
@@ -234,7 +213,7 @@ async def put_recipe_sources(
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     for url in body.sources:
-        await asyncio.to_thread(_check_ssrf, url)
+        await asyncio.to_thread(check_ssrf, url)
     await save_recipe_sources(body.sources, conn)
     _log.info("recipe_sources_updated", count=len(body.sources), by=user.login)
     return {"sources": body.sources}
@@ -251,6 +230,33 @@ class RecipeImportRequest(BaseModel):
     source_url: str
 
 
+async def _purge_orphan_recipe_dirs(
+    base_id: str, shared_dir: Path, conn: AsyncConnection
+) -> None:
+    """Supprime les dossiers de recettes présents sur le disque mais absents de la DB.
+
+    Scanne base_id, base_id-1, base_id-2, ... et supprime les orphelins afin que
+    l'import suivant puisse réutiliser l'ID canonique sans générer de suffixe.
+    """
+    from ..db.recipes import get_recipe_db
+
+    counter = 0
+    while True:
+        dir_id = base_id if counter == 0 else f"{base_id}-{counter}"
+        cand = shared_dir / dir_id
+        if not cand.exists():
+            if counter == 0:
+                return  # rien à nettoyer
+            break
+        in_db = await get_recipe_db(dir_id, "shared", None, conn) is not None
+        if not in_db:
+            await asyncio.to_thread(shutil.rmtree, cand, True)
+            _log.info("orphan_recipe_dir_purged", path=str(cand))
+        counter += 1
+        if counter > 100:
+            break
+
+
 def _unique_recipe_id(base_id: str, shared_dir: Path) -> str:
     if not (shared_dir / base_id).exists():
         return base_id
@@ -262,32 +268,48 @@ def _unique_recipe_id(base_id: str, shared_dir: Path) -> str:
     return f"{base_id}-{counter}"
 
 
+def _meta_to_yaml(meta: RecipeMeta) -> str:
+    """Sérialise un RecipeMeta complet (ops incluses) en YAML rechargeable par from_yaml."""
+    data = meta.model_dump(by_alias=True, mode="json")
+    # Le validateur TransformOp refuse une clé `value` (même None) pour op=remove.
+    for tr in data.get("transform") or []:
+        if tr.get("op") == "remove":
+            tr.pop("value", None)
+    # YAML minimal : pas de clés vides ni de memory_volume nul.
+    for key in ("options", "installs_after", "requires_secrets", "copy", "transform"):
+        if not data.get(key):
+            data.pop(key, None)
+    if data.get("memory_volume") is None:
+        data.pop("memory_volume", None)
+    return yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+
+def _validate_copy_source(source: str) -> None:
+    """Rejette les sources `copy` qui sortiraient du dossier de la recette."""
+    p = Path(source)
+    if not source or p.is_absolute() or ".." in p.parts:
+        raise ValueError(
+            f"copy source {source!r} must be a relative path inside the recipe directory"
+        )
+
+
 def _write_recipe(
     shared_dir: Path,
-    recipe_id: str,
-    version: str,
-    description: str,
+    meta: RecipeMeta,
     install_script: str,
-    options: dict[str, Any] | None = None,
-    installs_after: list[str] | None = None,
-    recipe_type: Literal["install", "start", "initialize"] = "install",
+    files: dict[str, bytes] | None = None,
 ) -> None:
-    recipe_path = shared_dir / recipe_id
-    tmp_str = tempfile.mkdtemp(dir=shared_dir, prefix=f".tmp-{recipe_id}-")
+    """Écrit le dossier complet d'une recette : meta (ops incluses), scripts, fichiers.
+
+    `files` contient les fichiers compagnons (sources des ops `copy`), chemins
+    relatifs au dossier de la recette — validés par _validate_copy_source en amont.
+    """
+    recipe_path = shared_dir / meta.id
+    tmp_str = tempfile.mkdtemp(dir=shared_dir, prefix=f".tmp-{meta.id}-")
     tmp = Path(tmp_str)
     try:
-        meta = RecipeMeta(
-            id=recipe_id,
-            version=version,
-            description=description,
-            type=recipe_type,
-            options=options or {},
-            installs_after=installs_after or [],
-        )
-        (tmp / "recipe.meta.yaml").write_text(
-            yaml.dump(meta.model_dump(), default_flow_style=False), encoding="utf-8"
-        )
-        feature_json: dict[str, Any] = {"id": recipe_id, "version": version}
+        (tmp / "recipe.meta.yaml").write_text(_meta_to_yaml(meta), encoding="utf-8")
+        feature_json: dict[str, Any] = {"id": meta.id, "version": meta.version}
         if meta.options:
             feature_json["options"] = {k: v.model_dump() for k, v in meta.options.items()}
         (tmp / "devcontainer-feature.json").write_text(
@@ -296,6 +318,10 @@ def _write_recipe(
         install_sh = tmp / "install.sh"
         install_sh.write_text(install_script, encoding="utf-8")
         install_sh.chmod(0o755)
+        for rel, content in (files or {}).items():
+            dest = tmp / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content)
         tmp.rename(recipe_path)
     except Exception:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -328,59 +354,59 @@ async def _import_single_recipe(
     fname = url_path.name
 
     recipe_type: Literal["install", "start", "initialize"] = "install"
+    files: dict[str, bytes] = {}
     if fname == "install.sh":
         dir_base_url = source_url.rsplit("/", 1)[0]
         meta_url = f"{dir_base_url}/recipe.meta.yaml"
-        install_script = await _fetch_text(http, source_url)
+        try:
+            install_script = await _fetch_text(http, source_url)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                install_script = ""  # optionnel pour les recettes type=initialize
+            else:
+                raise
         meta_text = await _fetch_text(http, meta_url)
         meta = RecipeMeta.model_validate(_normalize_recipe_yaml(yaml.safe_load(meta_text)))
-        recipe_type = meta.type
-        options_dict = {k: v.model_dump() for k, v in meta.options.items()}
-        installs_after = meta.installs_after
         base_id = meta.id
-        version = meta.version
-        description = meta.description
+        # Fichiers compagnons des ops `copy` : sans eux, la recette initialize
+        # serait un no-op silencieux au moment du run.
+        for c in meta.copies:
+            _validate_copy_source(c.source)
+            src_file_url = f"{dir_base_url}/{c.source}"
+            try:
+                files[c.source] = await _fetch_bytes(http, src_file_url)
+            except httpx.HTTPStatusError as exc:
+                raise ValueError(
+                    f"copy source {c.source!r} introuvable ({src_file_url}, "
+                    f"HTTP {exc.response.status_code}) — les sources de type "
+                    "répertoire ne sont pas supportées via toc.txt"
+                ) from exc
     else:
         install_script = await _fetch_text(http, source_url)
         headers = _parse_sh_headers(install_script)
         base_id = fname[:-3] if fname.endswith(".sh") else fname
-        version = headers.get("version", "1.0.0")
-        description = headers.get("description", "")
         raw_type = headers.get("type", "install")
         if raw_type == "start":
             recipe_type = "start"
         elif raw_type == "initialize":
             recipe_type = "initialize"
         # sinon recipe_type reste "install" (valeur par défaut)
-        options_dict = {}
-        installs_after = []
         meta = RecipeMeta(
-            id=base_id, version=version, description=description, type=recipe_type
+            id=base_id,
+            version=headers.get("version", "1.0.0"),
+            description=headers.get("description", ""),
+            type=recipe_type,
         )
 
     if not _RECIPE_ID_RE.fullmatch(base_id):
         raise ValueError(f"Invalid recipe id: {base_id!r}")
 
+    await _purge_orphan_recipe_dirs(base_id, shared_dir, conn)
     recipe_id = await asyncio.to_thread(_unique_recipe_id, base_id, shared_dir)
-    await asyncio.to_thread(
-        _write_recipe,
-        shared_dir,
-        recipe_id,
-        version,
-        description,
-        install_script,
-        options_dict,
-        installs_after,
-        recipe_type,
-    )
-    final_meta = RecipeMeta(
-        id=recipe_id,
-        key=meta.key,
-        version=version,
-        description=description,
-        type=recipe_type,
-        installs_after=installs_after,
-    )
+    # model_copy : conserve copies/transform/options — un RecipeMeta reconstruit
+    # partiellement perdait les ops initialize (recette "applied" sans effet).
+    final_meta = meta.model_copy(update={"id": recipe_id})
+    await asyncio.to_thread(_write_recipe, shared_dir, final_meta, install_script, files)
     await upsert_recipe_db(final_meta, "shared", None, conn)
     return recipe_id, final_meta
 
@@ -447,7 +473,7 @@ async def import_recipe_from_source(
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
-    await asyncio.to_thread(_check_ssrf, body.source_url)
+    await asyncio.to_thread(check_ssrf, body.source_url)
 
     data_root = _data_root()
     shared_dir = data_root / "recipes"
@@ -467,6 +493,9 @@ async def import_recipe_from_source(
             )
     except HTTPException:
         raise
+    except ValueError as exc:
+        # Contenu distant invalide (id hors format, copy source absente/traversal…)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

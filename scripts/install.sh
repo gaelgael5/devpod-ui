@@ -189,6 +189,7 @@ if [[ -f "$ENV_FILE" ]]; then
 else
     echo "==> Génération de /data/.env..."
     SESSION_KEY=$(openssl rand -hex 32)
+    VAULT_KEK=$(openssl rand -hex 32)
 
     # Credentials auth locale — bcrypt via python3
     python3 -c "import bcrypt" 2>/dev/null || {
@@ -201,12 +202,17 @@ import sys, bcrypt
 p = sys.stdin.read().strip().encode()
 print(bcrypt.hashpw(p, bcrypt.gensalt()).decode())
 ")
+    # docker compose interpole \$VAR dans les env_file : doubler \$ → \$\$ pour que
+    # le hash bcrypt (\$2b\$12\$…) arrive intact dans le conteneur (même convention
+    # que dev-deploy.sh, sinon le hash est tronqué → ValueError: Invalid salt).
+    LOCAL_HASH=$(printf '%s' "$LOCAL_HASH" | sed 's/\$/\$\$/g')
 
     cat > "$ENV_FILE" <<ENVEOF
 # Généré par install.sh
 # Perms 600 requises — ne JAMAIS commiter ce fichier (§D-21)
 
 SESSION_SECRET_KEY=${SESSION_KEY}
+PORTAL_VAULT_KEK=${VAULT_KEK}
 OIDC_CLIENT_SECRET=
 HARPOCRATE_API_KEY=
 CFM_API_KEY=

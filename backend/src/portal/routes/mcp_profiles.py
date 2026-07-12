@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated, Any
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from ..agents.resync import resync_owner_workspaces
 from ..auth.rbac import UserInfo, require_user
 from ..db import mcp as mcp_db
 from ..db import mcp_profiles as db
 from ..db.engine import get_conn
 from ..mcp.service import new_id
+
+_log = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["mcp-profiles"])
 
@@ -89,6 +94,65 @@ async def update_profile_route(
     if not updated:
         raise HTTPException(status_code=404, detail="profil introuvable")
     return {"id": profile_id}
+
+
+class ExposedUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    exposed: bool
+
+
+# Références fortes sur les resyncs fire-and-forget (sinon GC possible mi-course).
+_resync_tasks: set[asyncio.Task[Any]] = set()
+
+
+def _spawn_resync(login: str, only_ws_ids: set[str] | None) -> None:
+    task = asyncio.create_task(resync_owner_workspaces(login, only_ws_ids))
+    _resync_tasks.add(task)
+
+    def _done(t: asyncio.Task[Any]) -> None:
+        _resync_tasks.discard(t)
+        if not t.cancelled() and t.exception() is not None:
+            _log.error("agent_resync_task_failed", login=login, exc_info=t.exception())
+
+    task.add_done_callback(_done)
+
+
+@router.put("/mcp/profiles/{profile_id}/exposed")
+async def set_profile_exposed_route(
+    body: ExposedUpdate,
+    profile_id: _ProfileId,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, Any]:
+    """(Dé)coche « exposé aux workspaces » (spec 35 §3).
+
+    Décochage = fail closed immédiat : flag + révocation des clefs dérivées dans
+    une transaction dédiée, committée AVANT de lancer le resync. Ne PAS utiliser
+    la connexion de requête + BackgroundTasks ici : l'ordre commit/tâche n'est pas
+    garanti par FastAPI (constaté sur test1 : resync lisant l'état d'avant, et
+    rollback silencieux du décochage). Le resync est un asyncio.create_task
+    fire-and-forget dont l'échec est loggé — les clefs révoquées restent le
+    fail closed même si la régénération des fichiers échoue."""
+    from ..db.engine import _get_engine
+
+    affected: list[str] = []
+    async with _get_engine().begin() as conn:
+        if not await db.set_profile_exposed(conn, user.login, profile_id, exposed=body.exposed):
+            raise HTTPException(status_code=404, detail="profil introuvable")
+        if not body.exposed:
+            affected = await mcp_db.revoke_profile_workspace_apikeys(conn, user.login, profile_id)
+    # Transaction committée — le resync lit l'état à jour.
+    if body.exposed:
+        _spawn_resync(user.login, None)
+    elif affected:
+        _spawn_resync(user.login, set(affected))
+    _log.info(
+        "mcp_profile_exposed_set",
+        login=user.login,
+        profile_id=profile_id,
+        exposed=body.exposed,
+        revoked_workspaces=affected,
+    )
+    return {"id": profile_id, "exposed": body.exposed, "affected_workspaces": affected}
 
 
 @router.delete("/mcp/profiles/{profile_id}", status_code=204)

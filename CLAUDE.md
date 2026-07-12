@@ -1,5 +1,18 @@
 # workspace-portal — Instructions Claude Code
 
+## mcp 
+Tu es connecté au mcp du protail devpod via le serveur claude-code
+
+## Backloag
+La gatway mcp propose une api pour se connecter à docflow
+docflow contient des workspace qui contiennent des blocs qui contiennent des documents.
+Allant sur le workspace=devpod et bloc=planner tu as un backlog de tache à executer.
+
+Quand on te demande de traiter le backlog tu te connectes 
+Tu identifies les taches qui ne sont pas en status 'en review'
+Quand tu prends une tache tu passe le statusd 'en cours'
+Quand tu as finis tu passes le status de la tache 'en review'.
+
 ## Projet
 
 Portail web self-hosted de workspaces de développement : l'utilisateur s'authentifie (OIDC Keycloak), paramètre des environnements devcontainer, et obtient un VS Code dans le navigateur, sans rien installer sur son poste. Orchestration via DevPod CLI, workspaces = conteneurs Docker sur des nœuds distants pilotés en mTLS. Spec complète : `00_README.md` → `16_M7_recipes.md` (lire `01`, `02`, `03` avant tout code ; `03_PITFALLS.md` contient des **exigences**, pas des conseils).
@@ -168,6 +181,23 @@ Résumé du cycle obligatoire : lint + mypy → push `dev` → `dev-deploy.sh` s
 
 ### /commit
 **Quand** : quand l'utilisateur demande explicitement de committer. Format français conventionnel.
+
+## Messagerie inter-agents (spec 34)
+
+Les outils MCP `devpod__message_send` / `message_status` / `message_list` permettent de
+solliciter un autre workspace agent. La délivrance est **pilotée par l'utilisateur** : un
+message envoyé reste en attente jusqu'à ce que l'utilisateur le transmette depuis le portail.
+
+Contrat côté agent, à respecter :
+- **Fire-and-forget** : après un `message_send`, **consigne dans ton journal de travail**
+  l'id du message, le destinataire, ce que tu attends en retour, et l'impact (bloquant / non
+  bloquant). Puis poursuis tes autres tâches ou rends la main.
+- **Ne fais JAMAIS de polling** sur `message_status` et n'attends pas la réponse : elle
+  t'arrivera comme un message entrant injecté par l'utilisateur (pas d'auto-délivrance).
+- Si une tâche est **bloquée** par l'attente d'une réponse, signale-le explicitement en fin
+  de tour pour que le pilote puisse séquencer.
+- `message_send` exige `from_workspace` (le workspace où tu tournes) et `to_workspace` ; on ne
+  répond (`reply_to`) qu'à un message qu'on a **reçu**.
 
 ## Auto-amélioration
 

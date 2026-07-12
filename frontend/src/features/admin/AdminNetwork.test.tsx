@@ -1,4 +1,5 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
@@ -20,5 +21,49 @@ describe('AdminNetwork', () => {
     expect(await screen.findByDisplayValue('dev.yoops.org')).toBeInTheDocument()
     expect(screen.getByDisplayValue('https://dev.yoops.org')).toBeInTheDocument()
     expect(screen.getByDisplayValue('192.168.10.50')).toBeInTheDocument()
+  })
+
+  it('le bouton Resolve envoie le workspace_host courant au backend', async () => {
+    let received: unknown = null
+    server.use(
+      http.get('/admin/network', () =>
+        HttpResponse.json({
+          base_domain: '',
+          external_url: '',
+          workspace_host: 'portal',
+        }),
+      ),
+      http.post('/admin/network/resolve-workspace-host', async ({ request }) => {
+        received = await request.json()
+        return HttpResponse.json({ fqdn: 'portal.home.lan', ip: '192.168.10.42' })
+      }),
+    )
+    renderWithProviders(<AdminNetwork />)
+
+    await screen.findByDisplayValue('portal')
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Resolve' }))
+
+    await waitFor(() => expect(received).toEqual({ host: 'portal' }))
+  })
+
+  it('Resolve reste cliquable mais n’appelle pas le backend si le champ est vide', async () => {
+    let called = false
+    server.use(
+      http.get('/admin/network', () =>
+        HttpResponse.json({ base_domain: '', external_url: '', workspace_host: '' }),
+      ),
+      http.post('/admin/network/resolve-workspace-host', () => {
+        called = true
+        return HttpResponse.json({ fqdn: '', ip: '' })
+      }),
+    )
+    renderWithProviders(<AdminNetwork />)
+
+    const button = await screen.findByRole('button', { name: 'Resolve' })
+    expect(button).toBeEnabled()
+    await userEvent.setup().click(button)
+
+    await new Promise((r) => setTimeout(r, 50))
+    expect(called).toBe(false)
   })
 })
