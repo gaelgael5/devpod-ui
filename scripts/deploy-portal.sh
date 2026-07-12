@@ -5,10 +5,15 @@
 #
 # Usage :
 #   ./scripts/deploy-portal.sh [BRANCH] [--resetdb]
+#   ./scripts/deploy-portal.sh --delete-user <login|email> [--yes]
 #   ex : ./scripts/deploy-portal.sh main --resetdb
+#   ex : ./scripts/deploy-portal.sh --delete-user gaelgael5
 #
-#   --resetdb  Arrête la stack, supprime les volumes DB et le fichier .env,
-#              puis repart de zéro (nouveaux credentials générés).
+#   --resetdb            Arrête la stack, supprime les volumes DB et le fichier
+#                        .env, puis repart de zéro (nouveaux credentials générés).
+#   --delete-user X      Supprime un compte (login OU email) et court-circuite le
+#                        déploiement. Destructif : DELETE users (CASCADE) + le
+#                        dossier <DATA_ROOT>/users/<login>. --yes saute la confirmation.
 #
 # Variables d'env reconnues (toutes optionnelles si /data déjà initialisé) :
 #   REPO_URL               URL git du repo        (défaut : HTTPS public gaelgael5/devpod-ui)
@@ -32,17 +37,29 @@ COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker-compose.yml}"
 # ─── Arguments : branche cible + flags ───────────────────────────────────────
 TARGET_BRANCH=""
 RESETDB=0
-for arg in "$@"; do
-    case "$arg" in
+DELETE_USER=""
+ASSUME_YES=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --resetdb) RESETDB=1 ;;
-        --*) echo "ERREUR : flag inconnu : $arg" >&2; exit 1 ;;
+        --yes | -y) ASSUME_YES=1 ;;
+        --delete-user)
+            shift
+            if [[ $# -eq 0 || -z "$1" ]]; then
+                echo "ERREUR : --delete-user attend un login ou un email." >&2; exit 1
+            fi
+            DELETE_USER="$1"
+            ;;
+        --delete-user=*) DELETE_USER="${1#*=}" ;;
+        --*) echo "ERREUR : flag inconnu : $1" >&2; exit 1 ;;
         *)
             if [[ -n "$TARGET_BRANCH" ]]; then
                 echo "ERREUR : plusieurs branches passées en argument." >&2; exit 1
             fi
-            TARGET_BRANCH="$arg"
+            TARGET_BRANCH="$1"
             ;;
     esac
+    shift
 done
 
 # ─── 0) Prérequis ─────────────────────────────────────────────────────────────
@@ -68,6 +85,94 @@ if ! docker compose version &>/dev/null; then
 fi
 
 echo "    Prérequis OK."
+
+# ─── Mode admin : suppression d'un compte (login ou email) ────────────────────
+# Court-circuite tout déploiement (aucun clone/pull/build). Opération destructive :
+# supprime la ligne `users` — les FK ON DELETE CASCADE purgent workspaces, secrets,
+# sessions, mcp, compose… — puis le dossier <DATA_ROOT>/users/<login>. Les secrets
+# stockés dans Harpocrate (namespace secret_ns) NE sont PAS purgés (système externe).
+_ACCOUNT_LOGIN_RE='^[a-z0-9][a-z0-9._-]{0,38}[a-z0-9]$'
+
+_psql_portal() {
+    # Requête SQL non interactive dans le conteneur postgres. -tA : sortie brute
+    # (tuples-only, non alignée) ; ON_ERROR_STOP=1 : exit ≠ 0 sur erreur SQL.
+    # psql -v ident=… + référence :'ident' → le littéral est quoté par psql
+    # (échappement des quotes) : pas d'injection via un login/email malicieux.
+    local pguser
+    pguser="$(grep -m1 '^POSTGRES_USER=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '\r')"
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T postgres \
+        psql -U "$pguser" -d portal -tA -v ON_ERROR_STOP=1 "$@"
+}
+
+delete_account() {
+    local ident="$1" assume_yes="$2" login="" confirm exists user_dir
+    local matches=()
+
+    if [[ ! -f "$ENV_FILE" ]]; then
+        echo "ERREUR : ${ENV_FILE} absent — stack non initialisée ?" >&2; exit 1
+    fi
+    if ! _psql_portal -c "SELECT 1;" >/dev/null 2>&1; then
+        echo "ERREUR : postgres injoignable (la stack est-elle démarrée ?)." >&2; exit 1
+    fi
+
+    if [[ "$ident" == *@* ]]; then
+        mapfile -t matches < <(_psql_portal -v ident="$ident" \
+            -c "SELECT login FROM users WHERE email = :'ident';")
+        if [[ "${#matches[@]}" -eq 0 || -z "${matches[0]}" ]]; then
+            echo "ERREUR : aucun compte avec l'email '${ident}'." >&2; exit 1
+        fi
+        if [[ "${#matches[@]}" -gt 1 ]]; then
+            echo "ERREUR : plusieurs comptes partagent l'email '${ident}' :" >&2
+            printf '  - %s\n' "${matches[@]}" >&2
+            echo "  → relance avec le login précis." >&2; exit 1
+        fi
+        login="${matches[0]}"
+    else
+        login="$ident"
+        exists="$(_psql_portal -v ident="$login" \
+            -c "SELECT 1 FROM users WHERE login = :'ident';")"
+        if [[ -z "$exists" ]]; then
+            echo "ERREUR : aucun compte '${login}'." >&2; exit 1
+        fi
+    fi
+
+    # Garde-fou anti-traversal : le login résolu DOIT matcher la regex avant le rm.
+    if [[ ! "$login" =~ $_ACCOUNT_LOGIN_RE ]]; then
+        echo "ERREUR : login résolu '${login}' invalide — abandon." >&2; exit 1
+    fi
+
+    user_dir="${DATA_ROOT}/users/${login}"
+    echo "⚠️  Suppression du compte :"
+    echo "    login     : ${login}"
+    echo "    base      : DELETE users (CASCADE : workspaces, secrets, sessions, mcp, compose…)"
+    echo "    fichiers  : ${user_dir}"
+    echo "    NON purgé : secrets Harpocrate (namespace externe)"
+
+    if [[ "$assume_yes" != "1" ]]; then
+        read -r -p "Confirme en retapant le login (${login}) : " confirm
+        if [[ "$confirm" != "$login" ]]; then
+            echo "Abandon (saisie ≠ '${login}')." >&2; exit 1
+        fi
+    fi
+
+    _psql_portal -v ident="$login" -c "DELETE FROM users WHERE login = :'ident';" >/dev/null
+    echo "    ✓ ligne users supprimée (CASCADE appliqué)"
+
+    if [[ -d "$user_dir" ]]; then
+        rm -rf "$user_dir"
+        echo "    ✓ ${user_dir} supprimé"
+    else
+        echo "    (dossier ${user_dir} déjà absent)"
+    fi
+    echo "==> Compte '${login}' supprimé."
+    exit 0
+}
+
+if [[ -n "$DELETE_USER" ]]; then
+    cd "$APP_DIR" 2>/dev/null || { echo "ERREUR : ${APP_DIR} introuvable." >&2; exit 1; }
+    ENV_FILE="${DATA_ROOT}/.env"
+    delete_account "$DELETE_USER" "$ASSUME_YES"
+fi
 
 # ─── 1) Positionnement dans le repo ───────────────────────────────────────────
 echo ""
