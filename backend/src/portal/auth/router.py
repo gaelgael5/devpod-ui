@@ -98,7 +98,9 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
     request.session["auth_time"] = int(time.time())
     request.session["user"] = {
         "login": settings.local_user,
-        "roles": [load_global().auth.oidc.admin_role],
+        # Source de vérité unique du nom de rôle admin = settings (comme tout le
+        # RBAC : rbac.py, sessions.py, compose.py, ssh_proxy.py, ownership.py).
+        "roles": [settings.oidc_admin_role],
         "sub": "local",
     }
     _log.info("local_login_success", login=settings.local_user)
