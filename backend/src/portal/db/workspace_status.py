@@ -128,6 +128,31 @@ async def list_running_db(conn: AsyncConnection) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+async def fail_stale_provisioning_db(conn: AsyncConnection) -> list[str]:
+    """Bascule en `failed` toutes les lignes restées en `provisioning`.
+
+    À appeler au démarrage : la transition vers un état final est faite par la
+    tâche asyncio du `devpod up`, qui ne survit jamais à un restart du portail.
+    Toute ligne `provisioning` vue au boot est donc orpheline — sans ce balayage
+    elle resterait « provisioning » à vie (aucun autre chemin ne la réconcilie).
+
+    Retourne les ws_id basculés (pour le log de démarrage).
+    """
+    rows = (
+        await conn.execute(
+            update(workspace_status)
+            .where(workspace_status.c.status == "provisioning")
+            .values(
+                status="failed",
+                error="portal restarted during provisioning",
+                updated_at=func.now(),
+            )
+            .returning(workspace_status.c.ws_id)
+        )
+    ).scalars().all()
+    return list(rows)
+
+
 async def list_all_status_db(conn: AsyncConnection) -> list[dict[str, Any]]:
     """Toutes les lignes workspace_status, tous statuts confondus (vue admin)."""
     rows = (await conn.execute(select(workspace_status))).mappings().all()

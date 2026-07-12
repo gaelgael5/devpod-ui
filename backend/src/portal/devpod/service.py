@@ -21,6 +21,7 @@ from ..db.engine import _get_engine
 from ..db.log_blobs import persist_log_blob_from_file
 from ..db.workspace_status import (
     delete_status_db,
+    fail_stale_provisioning_db,
     get_status_db,
     list_by_login_db,
     list_running_db,
@@ -426,6 +427,21 @@ class DevPodService:
             _log.warning("reconcile_ws_spec_not_found", ws_id=ws_id, login=login)
         except Exception as exc:
             _log.warning("reconcile_reconnect_failed", ws_id=ws_id, error=str(exc))
+
+    async def fail_stale_provisioning(self) -> None:
+        """Au démarrage : bascule en `failed` les lignes `provisioning` orphelines.
+
+        La transition provisioning → running/failed est écrite exclusivement par
+        la tâche asyncio du `devpod up` (_run_up_task), qui meurt avec le process.
+        Après un restart, toute ligne encore `provisioning` est donc orpheline et
+        resterait bloquée à vie sans ce balayage.
+        """
+        async with _get_engine().begin() as conn:
+            failed_ids = await fail_stale_provisioning_db(conn)
+        if failed_ids:
+            _log.warning(
+                "stale_provisioning_failed", ws_ids=failed_ids, count=len(failed_ids)
+            )
 
     async def reconcile_port_forwards(self) -> None:
         """Au démarrage, relance les tunnels SSH et recrée les routes Caddy des workspaces running.

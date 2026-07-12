@@ -250,6 +250,11 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         reconcile_workflow_producer()
 
+    # Les lignes `provisioning` sont orphelines après un restart (la tâche up meurt
+    # avec le process) : basculées en failed AVANT la réconciliation des running,
+    # sinon elles restent affichées « provisioning » à vie.
+    with contextlib.suppress(Exception):
+        await _get_service().fail_stale_provisioning()
     with contextlib.suppress(Exception):
         await _get_service().reconcile_port_forwards()
 
