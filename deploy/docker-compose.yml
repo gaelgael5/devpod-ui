@@ -6,6 +6,13 @@ services:
     image: workspace-portal:latest
     restart: unless-stopped
     env_file: /data/.env
+    environment:
+      # Noms des rôles Keycloak (realm_access.roles) du realm Yoops, différents
+      # des défauts code (admin/dev). Fixés ici (prime sur env_file) pour que le
+      # RBAC — settings.oidc_admin_role / oidc_user_role — matche les rôles
+      # réellement portés par le token.
+      OIDC_ADMIN_ROLE: yoops-admin
+      OIDC_USER_ROLE: yoops-user
     volumes:
       - /data:/data
       - /data/.devpod:/root/.devpod

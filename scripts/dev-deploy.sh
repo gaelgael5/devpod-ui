@@ -170,15 +170,6 @@ if [[ -z "$(_get_env LOCAL_PASSWORD)" ]]; then
     echo "    LOCAL_PASSWORD généré : ${LOCAL_PASS}"
 fi
 
-# Rôles RBAC du realm Yoops : les noms de rôle Keycloak (realm_access.roles)
-# diffèrent des défauts code (admin/dev). On les force à chaque déploiement pour
-# que le RBAC (settings.oidc_admin_role / oidc_user_role) matche les rôles
-# réellement portés par le token. Valeurs fixes et non secrètes → _set_env
-# inconditionnel (auto-correction d'une valeur obsolète dans /data/.env).
-_set_env OIDC_ADMIN_ROLE "yoops-admin"
-_set_env OIDC_USER_ROLE "yoops-user"
-echo "    OIDC_ADMIN_ROLE=yoops-admin / OIDC_USER_ROLE=yoops-user (realm Yoops)"
-
 # Détection de conflit sur le port 80 : si un process tiers écoute déjà sur :80,
 # on utilise 8090 pour Caddy afin d'éviter le "bind: address already in use".
 # CADDY_DEV_PORT=80 par défaut (valeur absente = pas de conflit).

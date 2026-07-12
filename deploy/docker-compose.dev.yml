@@ -31,6 +31,10 @@ services:
       # Accès HTTP direct (sans TLS) en dev : désactive le flag Secure sur les
       # cookies de session, sans quoi le navigateur ne les renvoie jamais.
       DEV_MODE: "true"
+      # Rôles Keycloak du realm Yoops (voir docker-compose.yml) : prime sur
+      # env_file pour que le RBAC matche yoops-admin / yoops-user.
+      OIDC_ADMIN_ROLE: yoops-admin
+      OIDC_USER_ROLE: yoops-user
     volumes:
       - /data:/data
     ports:
