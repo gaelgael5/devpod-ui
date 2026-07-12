@@ -140,6 +140,11 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     sub = str(claims.get("sub", ""))
     email = str(claims.get("email", ""))
 
+    matched = await resolve_login_by_email(email, email_verified=claims.get("email_verified"))
+    if matched is not None and matched != login_name:
+        _log.info("oidc_login_matched_by_email", derived=login_name, matched=matched)
+        login_name = matched
+
     await provision_user(login=login_name, sub=sub, data_root=_data_root(), email=email)
 
     request.session.setdefault("session_id", str(uuid.uuid4()))
@@ -166,6 +171,42 @@ async def logout(request: Request) -> RedirectResponse:
     # COOKIE_DOMAIN) ; le SessionMiddleware, lui, ne supprime que celui sur son domaine.
     resp.delete_cookie("portal_session", path="/")
     return resp
+
+
+async def resolve_login_by_email(email: str, email_verified: object = None) -> str | None:
+    """Rapproche un login OIDC d'un compte existant portant le même email.
+
+    Un compte existant avec cet email = la même personne : on réutilise son login
+    au lieu d'en dériver un nouveau du preferred_username (évite les doublons).
+    Fail-closed sur les cas ambigus :
+    - email absent, ou email_verified explicitement False (anti-usurpation) → None ;
+    - plusieurs comptes partagent l'email → 403 (on ne choisit pas au hasard) ;
+    - aucun match → None (flux de provisioning normal).
+    """
+    if not email or not get_settings().database_url:
+        return None
+    if email_verified is False:
+        _log.warning("oidc_email_not_verified_skip_match", email=email)
+        return None
+
+    from sqlalchemy import select
+
+    from ..db.engine import _get_engine
+    from ..db.tables import users
+
+    async with _get_engine().connect() as conn:
+        logins = (
+            (await conn.execute(select(users.c.login).where(users.c.email == email)))
+            .scalars()
+            .all()
+        )
+    if len(logins) > 1:
+        _log.warning("oidc_email_ambiguous", email=email, logins=list(logins))
+        raise HTTPException(
+            status_code=403,
+            detail="Multiple accounts share this email — contact an administrator",
+        )
+    return logins[0] if logins else None
 
 
 async def provision_user(login: str, sub: str, data_root: Path, email: str = "") -> None:
