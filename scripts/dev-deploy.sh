@@ -65,15 +65,21 @@ cd "$APP_DIR"
 # dans Harpocrate (namespace secret_ns) NE sont PAS purgés (système externe).
 _ACCOUNT_LOGIN_RE='^[a-z0-9][a-z0-9._-]{0,38}[a-z0-9]$'
 
+_sql_lit() {
+    # Échappe une valeur pour un littéral SQL entre quotes simples : double les
+    # quotes. standard_conforming_strings=on (défaut Postgres) → le backslash est
+    # littéral, donc doubler les quotes suffit à neutraliser toute injection.
+    printf "%s" "${1//\'/\'\'}"
+}
+
 _psql_portal() {
-    # Requête SQL non interactive dans le conteneur postgres. -tA : sortie brute
-    # (tuples-only, non alignée) ; ON_ERROR_STOP=1 : exit ≠ 0 sur erreur SQL.
-    # psql -v ident=… + référence :'ident' → le littéral est quoté par psql
-    # (échappement des quotes) : pas d'injection via un login/email malicieux.
+    # Exécute une requête SQL (valeurs déjà quotées via _sql_lit) dans le conteneur
+    # postgres. -tA : sortie brute (tuples-only, non alignée) ; ON_ERROR_STOP=1 :
+    # exit ≠ 0 sur erreur SQL.
     local pguser
     pguser="$(grep -m1 '^POSTGRES_USER=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '\r')"
     docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T postgres \
-        psql -U "$pguser" -d portal -tA -v ON_ERROR_STOP=1 "$@"
+        psql -U "$pguser" -d portal -tA -v ON_ERROR_STOP=1 -c "$1"
 }
 
 delete_account() {
@@ -83,14 +89,15 @@ delete_account() {
     if [[ ! -f "$ENV_FILE" ]]; then
         echo "ERREUR : ${ENV_FILE} absent — stack non initialisée ?" >&2; exit 1
     fi
-    if ! _psql_portal -c "SELECT 1;" >/dev/null 2>&1; then
+    if ! _psql_portal "SELECT 1;" >/dev/null 2>&1; then
         echo "ERREUR : postgres injoignable (la stack est-elle démarrée ?)." >&2; exit 1
     fi
 
+    local esc
+    esc="$(_sql_lit "$ident")"
     if [[ "$ident" == *@* ]]; then
         # Email → résoudre le login via la table users.
-        mapfile -t matches < <(_psql_portal -v ident="$ident" \
-            -c "SELECT login FROM users WHERE email = :'ident';")
+        mapfile -t matches < <(_psql_portal "SELECT login FROM users WHERE email = '${esc}';")
         if [[ "${#matches[@]}" -eq 0 || -z "${matches[0]}" ]]; then
             echo "ERREUR : aucun compte avec l'email '${ident}'." >&2; exit 1
         fi
@@ -102,8 +109,7 @@ delete_account() {
         login="${matches[0]}"
     else
         login="$ident"
-        exists="$(_psql_portal -v ident="$login" \
-            -c "SELECT 1 FROM users WHERE login = :'ident';")"
+        exists="$(_psql_portal "SELECT 1 FROM users WHERE login = '${esc}';")"
         if [[ -z "$exists" ]]; then
             echo "ERREUR : aucun compte '${login}'." >&2; exit 1
         fi
@@ -128,7 +134,7 @@ delete_account() {
         fi
     fi
 
-    _psql_portal -v ident="$login" -c "DELETE FROM users WHERE login = :'ident';" >/dev/null
+    _psql_portal "DELETE FROM users WHERE login = '$(_sql_lit "$login")';" >/dev/null
     echo "    ✓ ligne users supprimée (CASCADE appliqué)"
 
     if [[ -d "$user_dir" ]]; then
