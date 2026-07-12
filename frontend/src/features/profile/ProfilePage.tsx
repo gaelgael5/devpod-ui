@@ -11,16 +11,20 @@ export default function ProfilePage() {
   const update = useUpdateProfile()
 
   const [displayName, setDisplayName] = useState('')
+  const [email, setEmail] = useState('')
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    if (profile) setDisplayName(profile.display_name)
+    if (profile) {
+      setDisplayName(profile.display_name)
+      setEmail(profile.email)
+    }
   }, [profile])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaved(false)
-    await update.mutateAsync(displayName)
+    await update.mutateAsync({ display_name: displayName, email })
     setSaved(true)
   }
 
@@ -39,7 +43,14 @@ export default function ProfilePage() {
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="email">{t('profile.email')}</Label>
-          <Input id="email" value={profile?.email ?? ''} readOnly className="opacity-60" />
+          <Input
+            id="email"
+            type="email"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setSaved(false) }}
+            placeholder={t('profile.emailPlaceholder')}
+            maxLength={254}
+          />
         </div>
 
         <div className="flex flex-col gap-1.5">

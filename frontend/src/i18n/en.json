@@ -1283,6 +1283,7 @@
     "login": "Login",
     "loginHint": "Your login cannot be changed.",
     "email": "Email address",
+    "emailPlaceholder": "you@example.org",
     "displayName": "Display name",
     "displayNamePlaceholder": "Your display name",
     "save": "Save",

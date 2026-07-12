@@ -1283,6 +1283,7 @@
     "login": "Identifiant",
     "loginHint": "L'identifiant est immuable.",
     "email": "Adresse email",
+    "emailPlaceholder": "vous@exemple.org",
     "displayName": "Nom d'affichage",
     "displayNamePlaceholder": "Votre nom affiché",
     "save": "Enregistrer",

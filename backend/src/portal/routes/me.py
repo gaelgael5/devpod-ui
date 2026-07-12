@@ -26,6 +26,10 @@ from ..devpod.git import probe_git_credential, run_git_ls_remote
 from ..secrets import service as secret_svc
 
 _CRED_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}[a-z0-9]$")
+# Validation email « pragmatique » : local@domaine.tld, sans espace ni @ superflu.
+# On ne vise pas la conformité RFC 5322 complète (inexploitable), juste un garde-fou
+# contre les saisies manifestement invalides. Chaîne vide autorisée = efface l'email.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # Champs de UserConfig modifiables par l'utilisateur via PUT /me/config (bug 008).
 # secret_ns/version/workspaces/git_credentials/harpocrate sont exclus : ils ont leurs
@@ -42,9 +46,27 @@ def _sid(request: Request) -> str:
 
 
 class _ProfilePatch(BaseModel):
+    # Patch partiel : seuls les champs fournis sont mis à jour. Le login n'y figure
+    # pas — c'est la clé d'identité (PK users + dossier /data/users/<login>), immuable.
     model_config = ConfigDict(extra="forbid")
 
-    display_name: str
+    display_name: str | None = None
+    email: str | None = None
+
+
+async def _read_profile(conn: AsyncConnection, login: str) -> dict[str, object]:
+    from sqlalchemy import select
+
+    row = (
+        await conn.execute(
+            select(users.c.login, users.c.email, users.c.display_name).where(
+                users.c.login == login
+            )
+        )
+    ).mappings().one_or_none()
+    if row is None:
+        return {"login": login, "email": "", "display_name": ""}
+    return {"login": row["login"], "email": row["email"], "display_name": row["display_name"]}
 
 
 @router.get("/profile")
@@ -52,18 +74,7 @@ async def get_profile(
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, object]:
-    from sqlalchemy import select
-
-    row = (
-        await conn.execute(
-            select(users.c.login, users.c.email, users.c.display_name).where(
-                users.c.login == user.login
-            )
-        )
-    ).mappings().one_or_none()
-    if row is None:
-        return {"login": user.login, "email": "", "display_name": ""}
-    return {"login": row["login"], "email": row["email"], "display_name": row["display_name"]}
+    return await _read_profile(conn, user.login)
 
 
 @router.patch("/profile")
@@ -74,14 +85,30 @@ async def patch_profile(
 ) -> dict[str, object]:
     from sqlalchemy import update
 
-    display_name = body.display_name.strip()
-    if len(display_name) > 80:
-        raise HTTPException(status_code=422, detail="display_name must be ≤ 80 characters")
-    await conn.execute(
-        update(users).where(users.c.login == user.login).values(display_name=display_name)
-    )
-    _log.info("user_display_name_updated", login=user.login)
-    return {"login": user.login, "display_name": display_name}
+    values: dict[str, str] = {}
+
+    if body.display_name is not None:
+        display_name = body.display_name.strip()
+        if len(display_name) > 80:
+            raise HTTPException(status_code=422, detail="display_name must be ≤ 80 characters")
+        values["display_name"] = display_name
+
+    if body.email is not None:
+        email = body.email.strip()
+        if len(email) > 254:
+            raise HTTPException(status_code=422, detail="email must be ≤ 254 characters")
+        if email and not _EMAIL_RE.fullmatch(email):
+            raise HTTPException(status_code=422, detail="email is not a valid address")
+        values["email"] = email
+
+    if not values:
+        raise HTTPException(status_code=422, detail="no profile field to update")
+
+    await conn.execute(update(users).where(users.c.login == user.login).values(**values))
+    _log.info("user_profile_updated", login=user.login, fields=sorted(values))
+    # On relit la ligne pour renvoyer le profil complet (login, email, display_name) :
+    # le frontend rafraîchit son cache avec cette réponse, elle doit être cohérente.
+    return await _read_profile(conn, user.login)
 
 
 @router.get("")
