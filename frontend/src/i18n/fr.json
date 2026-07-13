@@ -88,9 +88,7 @@
       "closeLabel": "Fermer la session SSH"
     },
     "terminals": {
-      "title": "Sessions",
       "open": "Terminal",
-      "back": "Workspaces",
       "newSession": "Nouvelle session",
       "sessionsMenu": "Sessions ({{count}})",
       "noSession": "Aucune session active",
@@ -102,11 +100,7 @@
       "startRecipeLabel": "Script de démarrage",
       "startRecipeNone": "— aucun —",
       "create": "Créer",
-      "cancel": "Annuler",
-      "deleteSession": "Supprimer la session",
-      "reconnectSession": "Reconnecter la session",
-      "hideSidebar": "Masquer le panneau",
-      "showSidebar": "Afficher le panneau"
+      "cancel": "Annuler"
     },
     "initializers": {
       "button": "Initialiser",
