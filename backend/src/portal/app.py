@@ -25,6 +25,7 @@ from .routes.agent_messages import router as agent_messages_router
 from .routes.agent_types import admin_router as agent_types_admin_router
 from .routes.agent_types import me_router as agent_types_me_router
 from .routes.app_events import router as app_events_router
+from .routes.applications import router as applications_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
@@ -381,6 +382,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(me_router, prefix="/me")
     app.include_router(preferences_router, prefix="/me")
+    app.include_router(applications_router, prefix="/me")
     app.include_router(workspace_ops_router, prefix="/me")
     app.include_router(workspace_groups_router, prefix="/me")
     app.include_router(workspace_sessions_router, prefix="/me")

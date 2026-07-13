@@ -40,8 +40,17 @@
     "hostUnknown": "nœud inconnu",
     "created": "Session « {{name}} » créée",
     "closed": "Session « {{name}} » fermée",
-    "filter": { "all": "Toutes", "workspace": "Conteneurs", "host": "Hosts", "test": "Test" },
-    "family": { "workspace": "conteneur", "host": "host", "test": "test" },
+    "filter": {
+      "all": "Toutes",
+      "workspace": "Conteneurs",
+      "host": "Hosts",
+      "test": "Test"
+    },
+    "family": {
+      "workspace": "conteneur",
+      "host": "host",
+      "test": "test"
+    },
     "col": {
       "kind": "Type",
       "target": "Cible",
@@ -1411,5 +1420,23 @@
     "ruleNotMatched": "conditions fausses — pas d'action",
     "ruleChainStopped": "enchaînement arrêté :",
     "retentionHint": "(historique conservé 24 h)"
+  },
+  "applications": {
+    "title": "Applications",
+    "intro": "Vos applications importantes, à portée de clic.",
+    "addButton": "Ajouter",
+    "addTitle": "Ajouter une application",
+    "iconLabel": "Icône",
+    "iconPlaceholder": "📚 ou https://…/icone.png",
+    "iconHint": "Un emoji, ou l'URL https d'une image.",
+    "nameLabel": "Nom",
+    "namePlaceholder": "Doc",
+    "urlLabel": "URL",
+    "urlPlaceholder": "https://doc.yoops.org",
+    "urlHint": "L'URL doit commencer par http:// ou https://",
+    "add": "Ajouter",
+    "cancel": "Annuler",
+    "empty": "Aucune application. Cliquez sur « Ajouter » pour créer votre premier raccourci.",
+    "remove": "Supprimer {{name}}"
   }
 }

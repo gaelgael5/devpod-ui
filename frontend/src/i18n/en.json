@@ -40,8 +40,17 @@
     "hostUnknown": "unknown node",
     "created": "Session “{{name}}” created",
     "closed": "Session “{{name}}” closed",
-    "filter": { "all": "All", "workspace": "Containers", "host": "Hosts", "test": "Test" },
-    "family": { "workspace": "container", "host": "host", "test": "test" },
+    "filter": {
+      "all": "All",
+      "workspace": "Containers",
+      "host": "Hosts",
+      "test": "Test"
+    },
+    "family": {
+      "workspace": "container",
+      "host": "host",
+      "test": "test"
+    },
     "col": {
       "kind": "Kind",
       "target": "Target",
@@ -1411,5 +1420,23 @@
     "ruleNotMatched": "conditions false — no action",
     "ruleChainStopped": "chain stopped:",
     "retentionHint": "(history kept for 24 h)"
+  },
+  "applications": {
+    "title": "Applications",
+    "intro": "Your important applications, one click away.",
+    "addButton": "Add",
+    "addTitle": "Add an application",
+    "iconLabel": "Icon",
+    "iconPlaceholder": "📚 or https://…/icon.png",
+    "iconHint": "An emoji, or an https image URL.",
+    "nameLabel": "Name",
+    "namePlaceholder": "Doc",
+    "urlLabel": "URL",
+    "urlPlaceholder": "https://doc.yoops.org",
+    "urlHint": "URL must start with http:// or https://",
+    "add": "Add",
+    "cancel": "Cancel",
+    "empty": "No application yet. Click “Add” to create your first shortcut.",
+    "remove": "Remove {{name}}"
   }
 }

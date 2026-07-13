@@ -33,6 +33,7 @@ const VaultRecover = lazy(() => import('@/features/vault/VaultRecover'))
 const VaultKeys = lazy(() => import('@/features/vault/VaultKeys'))
 const ConsentPage = lazy(() => import('@/features/oauth/ConsentPage'))
 const ComposeGallery = lazy(() => import('@/features/compose/ComposeGallery'))
+const ApplicationsPage = lazy(() => import('@/features/applications/ApplicationsPage'))
 const AdminCompose = lazy(() => import('@/features/compose/AdminCompose'))
 const AdminJinjaTemplates = lazy(() => import('@/features/admin/AdminJinjaTemplates'))
 const ProfilePage = lazy(() => import('@/features/profile/ProfilePage'))
@@ -166,6 +167,7 @@ export const router = createBrowserRouter([
       },
       { path: '/profile', element: <Wrap><ProfilePage /></Wrap> },
       { path: '/compose', element: <Wrap><ComposeGallery /></Wrap> },
+      { path: '/applications', element: <Wrap><ApplicationsPage /></Wrap> },
       {
         path: '/admin/compose',
         element: <AdminGuard><Wrap><AdminCompose /></Wrap></AdminGuard>,
