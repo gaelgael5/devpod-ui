@@ -13,6 +13,7 @@
 
 ## [frontend]
 - lucide-react ≥1.0 a renommé des icônes (`CheckCircle2`→`CircleCheck`, `XCircle`→`CircleX`, `Loader2`→`LoaderCircle`) — import inexistant = composant crashe silencieusement. Vérifier avec `tsc --noEmit`.
+- Ne jamais coder un NOM de rôle en dur côté frontend (`roles.includes('admin')`) : c'est une config serveur (oidc_admin_role). Changer la config a cassé toute l'UI admin. Le backend calcule et expose le booléen (`is_admin` dans GET /me). En changeant une valeur configurable, grepper ses anciens littéraux dans TOUT le repo, frontend inclus.
 - `DialogFooter` (3 boutons) : `flex-col-reverse` sous 640px tronque le 1er bouton. Utiliser un `div` custom `sm:justify-between`.
 
 ## [openvsx]
