@@ -83,6 +83,7 @@
       "open": "Terminal",
       "back": "Workspaces",
       "newSession": "Nouvelle session",
+      "addSession": "Ajouter une session",
       "noSession": "Aucune session active",
       "noSessionAction": "Créer une session",
       "createTitle": "Nouvelle session",
