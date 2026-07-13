@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AppWindow, Plus, X } from 'lucide-react'
+import { AppWindow, Pencil, Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,9 +12,11 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useUserStore } from '@/store/user'
 import {
   useApplications,
   useAddApplication,
+  useUpdateApplication,
   useDeleteApplication,
   probeFavicon,
   type KioskApplication,
@@ -33,7 +35,17 @@ function AppIcon({ icon }: { icon: string }) {
   return <span className="text-4xl leading-none">{icon}</span>
 }
 
-function AppTile({ app, onDelete }: { app: KioskApplication; onDelete: (app: KioskApplication) => void }) {
+function AppTile({
+  app,
+  isAdmin,
+  onEdit,
+  onDelete,
+}: {
+  app: KioskApplication
+  isAdmin: boolean
+  onEdit: (app: KioskApplication) => void
+  onDelete: (app: KioskApplication) => void
+}) {
   const { t } = useTranslation()
   return (
     <div className="group relative rounded-lg border bg-card transition-colors hover:border-primary/50">
@@ -46,27 +58,43 @@ function AppTile({ app, onDelete }: { app: KioskApplication; onDelete: (app: Kio
         <AppIcon icon={app.icon} />
         <span className="max-w-full truncate text-sm font-medium text-foreground">{app.name}</span>
       </a>
-      <button
-        type="button"
-        onClick={() => onDelete(app)}
-        aria-label={t('applications.remove', { name: app.name })}
-        className="absolute right-1.5 top-1.5 hidden rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive group-hover:block"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
+      {isAdmin && (
+        <div className="absolute right-1.5 top-1.5 hidden gap-1 group-hover:flex">
+          <button
+            type="button"
+            onClick={() => onEdit(app)}
+            aria-label={t('applications.edit', { name: app.name })}
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(app)}
+            aria-label={t('applications.remove', { name: app.name })}
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
 
-const EMPTY_FORM = { name: '', url: '', icon: '' }
-
-function AddApplicationDialog({ onClose }: { onClose: () => void }) {
+/** Dialog d'ajout (app absent) ou d'édition (app fourni). */
+function ApplicationDialog({ app, onClose }: { app: KioskApplication | null; onClose: () => void }) {
   const { t } = useTranslation()
-  const [form, setForm] = useState(EMPTY_FORM)
+  const [form, setForm] = useState(
+    app ? { name: app.name, url: app.url, icon: app.icon } : { name: '', url: '', icon: '' }
+  )
   const [probing, setProbing] = useState(false)
   const add = useAddApplication()
+  const update = useUpdateApplication()
+  const pending = add.isPending || update.isPending
   // La saisie manuelle de l'icône prime : plus d'auto-remplissage après édition.
-  const iconEdited = useRef(false)
+  // En mode édition, une icône déjà présente est traitée comme une saisie.
+  const iconEdited = useRef(Boolean(app?.icon))
   // Ignore le résultat d'un probe périmé (URL retapée entre-temps).
   const probeSeq = useRef(0)
 
@@ -93,20 +121,20 @@ function AddApplicationDialog({ onClose }: { onClose: () => void }) {
       toast.error(t('applications.urlHint'))
       return
     }
-    add.mutate(
-      { name: form.name.trim(), url, icon: form.icon.trim() },
-      {
-        onSuccess: () => onClose(),
-        onError: (err) => toast.error(err.message),
-      }
-    )
+    const body = { name: form.name.trim(), url, icon: form.icon.trim() }
+    const opts = {
+      onSuccess: () => onClose(),
+      onError: (err: Error) => toast.error(err.message),
+    }
+    if (app) update.mutate({ id: app.id, ...body }, opts)
+    else add.mutate(body, opts)
   }
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>{t('applications.addTitle')}</DialogTitle>
+          <DialogTitle>{app ? t('applications.editTitle') : t('applications.addTitle')}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
           <div className="space-y-1.5">
@@ -159,8 +187,8 @@ function AddApplicationDialog({ onClose }: { onClose: () => void }) {
             <Button type="button" variant="ghost" onClick={onClose}>
               {t('applications.cancel')}
             </Button>
-            <Button type="submit" disabled={!form.name.trim() || !form.url.trim() || add.isPending}>
-              {add.isPending ? '…' : t('applications.add')}
+            <Button type="submit" disabled={!form.name.trim() || !form.url.trim() || pending}>
+              {pending ? '…' : app ? t('applications.save') : t('applications.add')}
             </Button>
           </DialogFooter>
         </form>
@@ -171,8 +199,10 @@ function AddApplicationDialog({ onClose }: { onClose: () => void }) {
 
 export default function ApplicationsPage() {
   const { t } = useTranslation()
+  const isAdmin = useUserStore((s) => s.isAdmin())
   const { data: apps = [], isLoading } = useApplications()
-  const [addOpen, setAddOpen] = useState(false)
+  // null = fermé ; 'new' = ajout ; KioskApplication = édition.
+  const [dialog, setDialog] = useState<KioskApplication | 'new' | null>(null)
   const del = useDeleteApplication()
 
   function handleDelete(app: KioskApplication) {
@@ -188,27 +218,37 @@ export default function ApplicationsPage() {
           <h1 className="text-2xl font-semibold">{t('applications.title')}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{t('applications.intro')}</p>
         </div>
-        <Button onClick={() => setAddOpen(true)}>
-          <Plus className="mr-1 h-4 w-4" />
-          {t('applications.addButton')}
-        </Button>
+        {isAdmin && (
+          <Button onClick={() => setDialog('new')}>
+            <Plus className="mr-1 h-4 w-4" />
+            {t('applications.addButton')}
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
         <p className="text-muted-foreground">…</p>
       ) : apps.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          {t('applications.empty')}
+          {isAdmin ? t('applications.empty') : t('applications.emptyUser')}
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {apps.map((app) => (
-            <AppTile key={app.id} app={app} onDelete={handleDelete} />
+            <AppTile
+              key={app.id}
+              app={app}
+              isAdmin={isAdmin}
+              onEdit={(a) => setDialog(a)}
+              onDelete={handleDelete}
+            />
           ))}
         </div>
       )}
 
-      {addOpen && <AddApplicationDialog onClose={() => setAddOpen(false)} />}
+      {dialog !== null && (
+        <ApplicationDialog app={dialog === 'new' ? null : dialog} onClose={() => setDialog(null)} />
+      )}
     </div>
   )
 }

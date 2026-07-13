@@ -382,7 +382,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(me_router, prefix="/me")
     app.include_router(preferences_router, prefix="/me")
-    app.include_router(applications_router, prefix="/me")
+    app.include_router(applications_router)  # /applications : lecture users, gestion admin
     app.include_router(workspace_ops_router, prefix="/me")
     app.include_router(workspace_groups_router, prefix="/me")
     app.include_router(workspace_sessions_router, prefix="/me")

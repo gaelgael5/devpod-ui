@@ -9,7 +9,7 @@ export interface KioskApplication {
   position: number
 }
 
-export interface KioskApplicationCreate {
+export interface KioskApplicationBody {
   name: string
   url: string
   icon: string
@@ -18,7 +18,7 @@ export interface KioskApplicationCreate {
 export function useApplications() {
   return useQuery<KioskApplication[]>({
     queryKey: ['kiosk-applications'],
-    queryFn: () => apiFetchJson<KioskApplication[]>('/me/applications'),
+    queryFn: () => apiFetchJson<KioskApplication[]>('/applications'),
     staleTime: 60 * 1000,
   })
 }
@@ -26,9 +26,24 @@ export function useApplications() {
 export function useAddApplication() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (app: KioskApplicationCreate) =>
-      apiFetchJson<KioskApplication>('/me/applications', {
+    mutationFn: (app: KioskApplicationBody) =>
+      apiFetchJson<KioskApplication>('/applications', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(app),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['kiosk-applications'] })
+    },
+  })
+}
+
+export function useUpdateApplication() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...app }: KioskApplicationBody & { id: number }) =>
+      apiFetchJson<KioskApplication>(`/applications/${id}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(app),
       }),
@@ -40,7 +55,7 @@ export function useAddApplication() {
 
 export async function probeFavicon(url: string): Promise<string | null> {
   const res = await apiFetchJson<{ favicon: string | null }>(
-    `/me/applications/favicon?url=${encodeURIComponent(url)}`
+    `/applications/favicon?url=${encodeURIComponent(url)}`
   )
   return res.favicon
 }
@@ -49,7 +64,7 @@ export function useDeleteApplication() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) =>
-      apiFetchVoid(`/me/applications/${id}`, { method: 'DELETE' }),
+      apiFetchVoid(`/applications/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['kiosk-applications'] })
     },

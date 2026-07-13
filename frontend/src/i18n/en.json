@@ -1426,6 +1426,9 @@
     "intro": "Your important applications, one click away.",
     "addButton": "Add",
     "addTitle": "Add an application",
+    "editTitle": "Edit application",
+    "save": "Save",
+    "edit": "Edit {{name}}",
     "iconLabel": "Icon",
     "iconPlaceholder": "📚 or https://…/icon.png",
     "iconHint": "An emoji, or an https image URL. Auto-detected from the URL when possible.",
@@ -1438,6 +1441,7 @@
     "add": "Add",
     "cancel": "Cancel",
     "empty": "No application yet. Click “Add” to create your first shortcut.",
+    "emptyUser": "No application has been published by an administrator yet.",
     "remove": "Remove {{name}}"
   }
 }

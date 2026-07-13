@@ -949,20 +949,19 @@ user_preferences = Table(
 )
 
 
-# Kiosque d'applications : liens personnels (icône + nom + URL) affichés sur la
-# page /applications. L'icône est libre : emoji/texte court ou URL d'image https.
-user_applications = Table(
-    "user_applications",
+# Kiosque d'applications : liens partagés (icône + nom + URL) affichés sur la
+# page /applications pour TOUS les utilisateurs. Gérés exclusivement par un
+# admin ; l'icône est libre : emoji/texte court ou URL d'image https.
+kiosk_applications = Table(
+    "kiosk_applications",
     metadata,
     Column("id", BigInteger, primary_key=True, autoincrement=True),
-    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
-    Column("name", Text, nullable=False),
+    Column("name", Text, nullable=False, unique=True),
     Column("url", Text, nullable=False),
     Column("icon", Text, nullable=False, server_default=""),
     Column("position", Integer, nullable=False, server_default="0"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
-    UniqueConstraint("login", "name", name="uq_user_applications_login_name"),
 )
 
 

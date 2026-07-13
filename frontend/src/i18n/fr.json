@@ -1426,6 +1426,9 @@
     "intro": "Vos applications importantes, à portée de clic.",
     "addButton": "Ajouter",
     "addTitle": "Ajouter une application",
+    "editTitle": "Modifier l'application",
+    "save": "Enregistrer",
+    "edit": "Modifier {{name}}",
     "iconLabel": "Icône",
     "iconPlaceholder": "📚 ou https://…/icone.png",
     "iconHint": "Un emoji, ou l'URL https d'une image. Détectée automatiquement depuis l'URL si possible.",
@@ -1438,6 +1441,7 @@
     "add": "Ajouter",
     "cancel": "Annuler",
     "empty": "Aucune application. Cliquez sur « Ajouter » pour créer votre premier raccourci.",
+    "emptyUser": "Aucune application n'a encore été publiée par un administrateur.",
     "remove": "Supprimer {{name}}"
   }
 }

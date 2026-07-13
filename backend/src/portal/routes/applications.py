@@ -1,10 +1,13 @@
-"""Kiosque d'applications — `GET/POST /me/applications`, `DELETE /me/applications/{id}`,
-`GET /me/applications/favicon`.
+"""Kiosque d'applications global — lecture pour tous, gestion admin-only.
 
-Liens personnels (icône + nom + URL) affichés sur la page Applications. L'URL
-est restreinte à http(s) — un lien `javascript:` stocké puis rendu dans un
-<a href> serait un XSS stocké. L'icône est un emoji/texte court ou une URL
-d'image https (même restriction de schéma).
+`GET /applications` (tout utilisateur authentifié), `POST /applications`,
+`PATCH/DELETE /applications/{id}` et `GET /applications/favicon` (admin).
+
+Liens partagés (icône + nom + URL) affichés sur la page Applications de tous
+les utilisateurs ; seul un admin gère les boutons. L'URL est restreinte à
+http(s) — un lien `javascript:` stocké puis rendu dans un <a href> serait un
+XSS stocké. L'icône est un emoji/texte court ou une URL d'image https (même
+restriction de schéma).
 
 Le probe favicon fetche une URL fournie par l'utilisateur : chaque requête (et
 chaque saut de redirection) passe par le module anti-SSRF `_ssrf` (validation
@@ -24,10 +27,14 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..auth.rbac import UserInfo, require_user
+from ..auth.rbac import UserInfo, require_admin, require_user
 from ..db.engine import get_conn
-from ..db.user_applications import add_application, delete_application, list_applications
-from ..db.user_config import ensure_user_db
+from ..db.kiosk_applications import (
+    add_application,
+    delete_application,
+    list_applications,
+    update_application,
+)
 from ._ssrf import pinned_get
 
 _log = structlog.get_logger(__name__)
@@ -36,7 +43,7 @@ router = APIRouter(tags=["applications"])
 _ALLOWED_SCHEMES = ("http://", "https://")
 
 
-class ApplicationCreate(BaseModel):
+class ApplicationBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
@@ -76,19 +83,17 @@ async def get_applications(
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, Any]]:
-    return await list_applications(user.login, conn)
+    return await list_applications(conn)
 
 
 @router.post("/applications", status_code=201)
 async def post_application(
-    body: ApplicationCreate,
-    user: UserInfo = Depends(require_user),
+    body: ApplicationBody,
+    user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
-    # Garde-FK : garantit la ligne users avant l'insert (idempotent).
-    await ensure_user_db(user.login, conn)
     try:
-        row = await add_application(user.login, body.name, body.url, body.icon, conn)
+        row = await add_application(body.name, body.url, body.icon, conn)
     except IntegrityError as exc:
         raise HTTPException(
             status_code=409, detail=f"application {body.name!r} already exists"
@@ -97,13 +102,32 @@ async def post_application(
     return row
 
 
+@router.patch("/applications/{app_id}")
+async def patch_application(
+    app_id: int,
+    body: ApplicationBody,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    try:
+        row = await update_application(app_id, body.name, body.url, body.icon, conn)
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=409, detail=f"application {body.name!r} already exists"
+        ) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="application not found")
+    _log.info("application_updated", login=user.login, app_id=app_id, name=body.name)
+    return row
+
+
 @router.delete("/applications/{app_id}", status_code=204)
 async def remove_application(
     app_id: int,
-    user: UserInfo = Depends(require_user),
+    user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
-    if not await delete_application(user.login, app_id, conn):
+    if not await delete_application(app_id, conn):
         raise HTTPException(status_code=404, detail="application not found")
     _log.info("application_deleted", login=user.login, app_id=app_id)
 
@@ -164,7 +188,7 @@ def _is_image_response(resp: httpx.Response) -> bool:
 @router.get("/applications/favicon")
 async def probe_favicon(
     url: str,
-    user: UserInfo = Depends(require_user),
+    user: UserInfo = Depends(require_admin),
 ) -> dict[str, str | None]:
     """Tente de déterminer l'URL du favicon d'un site. `{"favicon": url | null}`.
 
