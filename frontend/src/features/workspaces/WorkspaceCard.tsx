@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, Code2, Loader2, Mail, Play, Plus, Square, SquareTerminal } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -153,13 +152,6 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             aria-label={t('workspaces.actions.stop')}
           >
             <Square className="h-4 w-4" />
-          </Button>
-        )}
-        {s === 'running' && (
-          <Button size="sm" variant="outline" asChild>
-            <Link to={`/workspaces/${spec.name}/terminals`}>
-              {t('workspaces.terminals.open')}
-            </Link>
           </Button>
         )}
         {s === 'running' && (

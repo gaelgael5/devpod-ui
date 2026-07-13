@@ -88,7 +88,6 @@
       "closeLabel": "Fermer la session SSH"
     },
     "terminals": {
-      "open": "Terminal",
       "newSession": "Nouvelle session",
       "sessionsMenu": "Sessions ({{count}})",
       "noSession": "Aucune session active",
