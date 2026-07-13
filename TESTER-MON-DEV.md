@@ -74,7 +74,7 @@ ssh test1 "docker compose -f /opt/workspace-portal-dev/deploy/docker-compose.dev
 curl -s http://192.168.10.196:8080/health
 ```
 
-`dev-deploy.sh` est **idempotent** et **auto-mise à jour** (il se ré-exécute lui-même si le script a changé dans le pull). Ne jamais faire `git pull` manuellement sur test1 — le script le fait.
+`dev-deploy.sh` est un shim qui délègue à `scripts/deploy-portal.sh` (script de déploiement **unique** : pull, install.sh, .env, build, **migrations Alembic**, smoke) avec le compose de dev. Il est **idempotent** et **auto-mise à jour** (ré-exécution si le dépôt a changé au pull). Ne jamais faire `git pull` manuellement sur test1 — le script le fait.
 
 ---
 

@@ -221,10 +221,11 @@ initialisé :
 ./scripts/dev-deploy.sh dev
 ```
 
-> `deploy-portal.sh` initialise `/data` (CA, config, `.env`) ; `dev-deploy.sh` **suppose
-> `/data` déjà présent** et se contente de rebuild/redémarrer. Lancer `dev-deploy.sh`
-> avant le premier `deploy-portal.sh` démarrerait le portail sans configuration
-> (`SESSION_SECRET_KEY not set`). Les deux exigent **root**.
+> `deploy-portal.sh` est le **script unique** de déploiement (pull + `install.sh` +
+> `.env` + build + migrations + smoke) ; `dev-deploy.sh` (racine ou `scripts/`) est un
+> simple shim qui le lance avec le compose de dev (`deploy/docker-compose.dev.yml`).
+> Les deux points d'entrée sont donc interchangeables et idempotents, premier
+> lancement compris. Les deux exigent **root**.
 
 Le secret OIDC vient de Keycloak (étape 4). Si Keycloak n'est pas encore configuré,
 sauter ce test local et y revenir, ou poursuivre via le déploiement piloté (étapes 3 → 5).
