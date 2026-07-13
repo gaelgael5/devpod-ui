@@ -31,7 +31,7 @@ const CODEX = {
 
 describe('AdminAgentTypes', () => {
   beforeEach(() => {
-    useUserStore.setState({ user: { login: 'alice', roles: ['dev', 'admin'] } })
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev', 'admin'], is_admin: true } })
   })
 
   it('liste les types d\'agents (id, label, filename, target_path, enabled)', async () => {

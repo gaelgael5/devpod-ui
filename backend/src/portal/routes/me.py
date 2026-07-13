@@ -113,7 +113,17 @@ async def patch_profile(
 
 @router.get("")
 async def get_current_user(user: UserInfo = Depends(require_user)) -> dict[str, object]:
-    return {"login": user.login, "roles": user.roles}
+    from ..settings import get_settings
+
+    # is_admin calculé côté serveur : le NOM du rôle admin (oidc_admin_role) est
+    # une config de déploiement — le frontend ne doit pas le connaître (bug :
+    # un `roles.includes('admin')` codé en dur cassait l'UI admin dès que le
+    # realm utilisait un autre nom, ex. yoops-admin).
+    return {
+        "login": user.login,
+        "roles": user.roles,
+        "is_admin": get_settings().oidc_admin_role in user.roles,
+    }
 
 
 @router.get("/logs-config")

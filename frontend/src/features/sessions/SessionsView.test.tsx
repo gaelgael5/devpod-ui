@@ -28,7 +28,7 @@ const SESSIONS = [
 
 describe('SessionsView', () => {
   beforeEach(() => {
-    useUserStore.setState({ user: { login: 'alice', roles: [] } })
+    useUserStore.setState({ user: { login: 'alice', roles: [], is_admin: false } })
   })
 
   it('liste les sessions et propose Ouvrir', async () => {
@@ -104,7 +104,7 @@ describe('SessionsView', () => {
   })
 
   it('admin : Ouvrir/Fermer actifs sur la session attachée d’un autre user (host)', async () => {
-    useUserStore.setState({ user: { login: 'root', roles: ['admin'] } })
+    useUserStore.setState({ user: { login: 'root', roles: ['admin'], is_admin: true } })
     const hostSessions = [
       { family: 'host', target: 'node1', owner: 'admin', session: null, attached: true },
       {

@@ -2,7 +2,7 @@ import { http, HttpResponse } from 'msw'
 
 export const handlers = [
   http.get('/me', () =>
-    HttpResponse.json({ login: 'alice', roles: ['dev'] })
+    HttpResponse.json({ login: 'alice', roles: ['dev'], is_admin: false })
   ),
   http.get('/me/workspaces', () => HttpResponse.json([])),
   http.get('/me/git-credentials', () => HttpResponse.json([])),

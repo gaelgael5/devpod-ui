@@ -5,7 +5,7 @@ import AdminCompose from '../AdminCompose'
 
 describe('AdminCompose', () => {
   it('lists templates for an admin', async () => {
-    useUserStore.setState({ user: { login: 'root', roles: ['admin'] } })
+    useUserStore.setState({ user: { login: 'root', roles: ['admin'], is_admin: true } })
     const { findByText } = renderWithProviders(<AdminCompose />, { route: '/admin/compose' })
     expect(await findByText('Browserless')).toBeInTheDocument()
   })

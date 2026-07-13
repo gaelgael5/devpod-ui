@@ -12,7 +12,7 @@ describe('AdminGuard', () => {
   beforeEach(() => useUserStore.setState({ user: null }))
 
   it('affiche le contenu si admin', () => {
-    useUserStore.setState({ user: { login: 'alice', roles: ['dev', 'admin'] } })
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev', 'admin'], is_admin: true } })
     renderWithProviders(
       <AdminGuard>
         <AdminPage />
@@ -22,7 +22,7 @@ describe('AdminGuard', () => {
   })
 
   it('affiche 403 si non admin', () => {
-    useUserStore.setState({ user: { login: 'alice', roles: ['dev'] } })
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev'], is_admin: false } })
     renderWithProviders(
       <AdminGuard>
         <AdminPage />

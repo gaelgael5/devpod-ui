@@ -206,7 +206,7 @@ describe('WorkspaceCreate', () => {
 // donc on interagit avec le <select> natif via fireEvent.change pour changer la valeur.
 describe('WorkspaceCreate — sélecteur profil', () => {
   beforeEach(() => {
-    useUserStore.setState({ user: { login: 'alice', roles: ['dev'] } })
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev'], is_admin: false } })
   })
 
   /** Retourne le <select> natif aria-hidden que Radix génère sous le hood. */

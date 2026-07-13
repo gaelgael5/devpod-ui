@@ -24,7 +24,7 @@ vi.mock('@xterm/addon-fit', () => ({
 
 describe('AdminHosts', () => {
   beforeEach(() => {
-    useUserStore.setState({ user: { login: 'alice', roles: ['dev', 'admin'] } })
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev', 'admin'], is_admin: true } })
   })
 
   it('affiche le titre', () => {

@@ -46,6 +46,7 @@ def test_get_me_returns_login_and_roles(tmp_path: Path) -> None:
     data = resp.json()
     assert data["login"] == "alice"
     assert data["roles"] == ["dev"]
+    assert data["is_admin"] is False
 
 
 def test_get_me_admin_returns_admin_role(tmp_path: Path) -> None:
@@ -55,6 +56,8 @@ def test_get_me_admin_returns_admin_role(tmp_path: Path) -> None:
         resp = client.get("/me")
     assert resp.status_code == 200
     assert "admin" in resp.json()["roles"]
+    # is_admin est calculé côté serveur contre settings.oidc_admin_role.
+    assert resp.json()["is_admin"] is True
 
 
 def test_get_me_config_returns_user_config(tmp_path: Path) -> None:
