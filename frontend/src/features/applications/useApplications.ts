@@ -38,6 +38,13 @@ export function useAddApplication() {
   })
 }
 
+export async function probeFavicon(url: string): Promise<string | null> {
+  const res = await apiFetchJson<{ favicon: string | null }>(
+    `/me/applications/favicon?url=${encodeURIComponent(url)}`
+  )
+  return res.favicon
+}
+
 export function useDeleteApplication() {
   const qc = useQueryClient()
   return useMutation({

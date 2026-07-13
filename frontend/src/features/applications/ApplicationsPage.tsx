@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AppWindow, Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -16,6 +16,7 @@ import {
   useApplications,
   useAddApplication,
   useDeleteApplication,
+  probeFavicon,
   type KioskApplication,
 } from './useApplications'
 
@@ -62,7 +63,28 @@ const EMPTY_FORM = { name: '', url: '', icon: '' }
 function AddApplicationDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
   const [form, setForm] = useState(EMPTY_FORM)
+  const [probing, setProbing] = useState(false)
   const add = useAddApplication()
+  // La saisie manuelle de l'icône prime : plus d'auto-remplissage après édition.
+  const iconEdited = useRef(false)
+  // Ignore le résultat d'un probe périmé (URL retapée entre-temps).
+  const probeSeq = useRef(0)
+
+  async function detectFavicon() {
+    const url = form.url.trim()
+    if (iconEdited.current || !/^https?:\/\//i.test(url)) return
+    const seq = ++probeSeq.current
+    setProbing(true)
+    try {
+      const favicon = await probeFavicon(url)
+      if (seq !== probeSeq.current || iconEdited.current) return
+      setForm((f) => ({ ...f, icon: favicon ?? '' }))
+    } catch {
+      // Probe best-effort : en échec on laisse simplement l'icône vide.
+    } finally {
+      if (seq === probeSeq.current) setProbing(false)
+    }
+  }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -88,17 +110,6 @@ function AddApplicationDialog({ onClose }: { onClose: () => void }) {
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
           <div className="space-y-1.5">
-            <Label htmlFor="app-icon">{t('applications.iconLabel')}</Label>
-            <Input
-              id="app-icon"
-              value={form.icon}
-              onChange={(e) => setForm((f) => ({ ...f, icon: e.target.value }))}
-              placeholder={t('applications.iconPlaceholder')}
-              maxLength={300}
-            />
-            <p className="text-xs text-muted-foreground">{t('applications.iconHint')}</p>
-          </div>
-          <div className="space-y-1.5">
             <Label htmlFor="app-name">{t('applications.nameLabel')}</Label>
             <Input
               id="app-name"
@@ -116,9 +127,33 @@ function AddApplicationDialog({ onClose }: { onClose: () => void }) {
               type="url"
               value={form.url}
               onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
+              onBlur={detectFavicon}
               placeholder={t('applications.urlPlaceholder')}
               maxLength={2000}
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="app-icon">{t('applications.iconLabel')}</Label>
+            <div className="flex items-center gap-3">
+              <Input
+                id="app-icon"
+                value={form.icon}
+                onChange={(e) => { iconEdited.current = true; setForm((f) => ({ ...f, icon: e.target.value })) }}
+                placeholder={t('applications.iconPlaceholder')}
+                maxLength={300}
+                className="flex-1"
+              />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded border bg-muted/30">
+                {probing ? (
+                  <span className="text-xs text-muted-foreground animate-pulse">…</span>
+                ) : (
+                  <AppIcon icon={form.icon.trim()} />
+                )}
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {probing ? t('applications.iconDetecting') : t('applications.iconHint')}
+            </p>
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={onClose}>
