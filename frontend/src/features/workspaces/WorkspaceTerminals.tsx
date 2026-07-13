@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Plus, RotateCw, Terminal, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -19,11 +19,17 @@ import {
 
 export default function WorkspaceTerminals() {
   const { wsName } = useParams<{ wsName: string }>()
+  const [searchParams] = useSearchParams()
   const { t } = useTranslation()
   const { data: sessions = [] } = useWorkspaceSessions(wsName)
   const { data: startRecipes = [] } = useWorkspaceStartRecipes(wsName)
   const { data: wsStatus } = useWorkspaceStatus(wsName!)
-  const [selected, setSelected] = useState<string | null>(null)
+  // ?session=<nom> présélectionne une session (ouverture depuis la carte
+  // workspace dans un nouvel onglet). Si elle n'existe pas/plus, les effets
+  // ci-dessous retombent sur la première session disponible.
+  const [selected, setSelected] = useState<string | null>(
+    () => searchParams.get('session')
+  )
   const [epochs, setEpochs] = useState<Record<string, number>>({})
   const [createOpen, setCreateOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)

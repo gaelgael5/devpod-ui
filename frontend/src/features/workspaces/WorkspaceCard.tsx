@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Code2, Loader2, Mail, Play, Plus, Square } from 'lucide-react'
+import { ChevronDown, Code2, Loader2, Mail, Play, Plus, Square, SquareTerminal } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,7 +19,14 @@ import LogDialog from './LogDialog'
 import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
 import WorkspaceActionsMenu from './WorkspaceActionsMenu'
 import { CreateSessionDialogHost } from './CreateSessionDialog'
-import SessionTerminalWindow from '@/features/sessions/SessionTerminalWindow'
+import { useWorkspaceSessions } from './useWorkspaceSessions'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import AddTestVmDialog from './AddTestVmDialog'
 import HostServicesSection from './HostServicesSection'
 import WorkspaceMessagesDialog from './WorkspaceMessagesDialog'
@@ -59,7 +66,19 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const [sshTestHost, setSshTestHost] = useState<TestHost | null>(null)
   const [agentMsgOpen, setAgentMsgOpen] = useState(false)
   const [addSessionOpen, setAddSessionOpen] = useState(false)
-  const [floatingSession, setFloatingSession] = useState<string | null>(null)
+  // Sessions actives (polling léger, uniquement workspace running) : alimente
+  // le libellé « Sessions (N) » et la liste du menu déroulant.
+  const { data: sessions = [] } = useWorkspaceSessions(
+    status.status === 'running' ? spec.name : undefined
+  )
+
+  function openSessionTab(session: string) {
+    window.open(
+      `/workspaces/${encodeURIComponent(spec.name)}/terminals?session=${encodeURIComponent(session)}`,
+      '_blank',
+      'noopener'
+    )
+  }
   const { data: pendingCounts } = usePendingCounts()
   const pendingCount = pendingCounts?.[spec.name] ?? 0
   const s = status.status
@@ -144,10 +163,27 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
           </Button>
         )}
         {s === 'running' && (
-          <Button size="sm" variant="outline" onClick={() => setAddSessionOpen(true)}>
-            <Plus className="mr-1 h-3.5 w-3.5" />
-            {t('workspaces.terminals.addSession')}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline">
+                {t('workspaces.terminals.sessionsMenu', { count: sessions.length })}
+                <ChevronDown className="ml-1 h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onSelect={() => setAddSessionOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                {t('workspaces.terminals.newSession')}
+              </DropdownMenuItem>
+              {sessions.length > 0 && <DropdownMenuSeparator />}
+              {sessions.map((session) => (
+                <DropdownMenuItem key={session} onSelect={() => openSessionTab(session)}>
+                  <SquareTerminal className="mr-2 h-4 w-4" />
+                  {session}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
         {s === 'stopped' && (
           <Button
@@ -227,14 +263,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         <CreateSessionDialogHost
           wsName={spec.name}
           onClose={() => setAddSessionOpen(false)}
-          onCreate={(name) => setFloatingSession(name)}
-        />
-      )}
-      {floatingSession && (
-        <SessionTerminalWindow
-          wsUrl={`/me/workspaces/${encodeURIComponent(spec.name)}/ssh?session=${encodeURIComponent(floatingSession)}`}
-          title={`${spec.name} · ${floatingSession}`}
-          onClose={() => setFloatingSession(null)}
+          onCreate={openSessionTab}
         />
       )}
       {sshTestHost && (

@@ -92,7 +92,7 @@
       "open": "Terminal",
       "back": "Workspaces",
       "newSession": "New session",
-      "addSession": "Add session",
+      "sessionsMenu": "Sessions ({{count}})",
       "noSession": "No active session",
       "noSessionAction": "Create a session",
       "createTitle": "New session",
