@@ -73,6 +73,9 @@ class AppSettings(BaseSettings):
     # MCP : intervalle de la boucle de monitoring des backends (secondes).
     mcp_monitor_interval_s: float = 300.0
 
+    # skills.sh : URL de base de l'API tierce (surchargée en test/mock).
+    skills_sh_base_url: str = "https://skills.sh"
+
     # MCP transport SSE : délai de stabilisation entre `initialize` et le premier
     # message applicatif. Certains serveurs SSE (ex. docflow) n'ont pas encore
     # démarré leur boucle de dispatch de messages quand le handshake se termine :
