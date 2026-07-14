@@ -178,6 +178,11 @@ users = Table(
     Column("culture", Text, nullable=False, server_default="fr"),
     Column("email", Text, nullable=False, server_default=""),
     Column("display_name", Text, nullable=False, server_default=""),
+    # Sujet OIDC (claim `sub`) : ancre d'identité STABLE, contrairement au
+    # preferred_username (dérive le login) et à l'email (peut changer/collision).
+    # Nullable : les comptes existants n'en ont pas encore — backfillé au 1er
+    # login OIDC (migration 068). UNIQUE : un sub ↔ au plus un login.
+    Column("sub", Text, nullable=True, unique=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )

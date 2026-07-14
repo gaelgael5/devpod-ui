@@ -140,10 +140,28 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     sub = str(claims.get("sub", ""))
     email = str(claims.get("email", ""))
 
-    matched = await resolve_login_by_email(email, email_verified=claims.get("email_verified"))
-    if matched is not None and matched != login_name:
-        _log.info("oidc_login_matched_by_email", derived=login_name, matched=matched)
-        login_name = matched
+    # Le sub OIDC est l'ancre d'identité. OIDC le garantit ; son absence est
+    # anormale → fail closed (impossible d'ancrer de façon stable).
+    if not sub:
+        _log.warning("oidc_missing_sub", login=login_name)
+        raise HTTPException(status_code=403, detail="OIDC token has no subject (sub)")
+
+    # 1) Ancrage : un compte porte déjà ce sub → c'est l'identité canonique,
+    #    quel que soit le preferred_username (qui a pu changer côté IdP).
+    anchored = await resolve_login_by_sub(sub)
+    if anchored is not None:
+        if anchored != login_name:
+            _log.info("oidc_login_matched_by_sub", derived=login_name, matched=anchored)
+        login_name = anchored
+    else:
+        # 2) Sinon, rapprochement par email (1er login d'un compte pré-créé) ;
+        #    3) sinon on garde le login dérivé du preferred_username.
+        matched = await resolve_login_by_email(
+            email, email_verified=claims.get("email_verified")
+        )
+        if matched is not None and matched != login_name:
+            _log.info("oidc_login_matched_by_email", derived=login_name, matched=matched)
+            login_name = matched
 
     await provision_user(login=login_name, sub=sub, data_root=_data_root(), email=email)
 
@@ -171,6 +189,23 @@ async def logout(request: Request) -> RedirectResponse:
     # COOKIE_DOMAIN) ; le SessionMiddleware, lui, ne supprime que celui sur son domaine.
     resp.delete_cookie("portal_session", path="/")
     return resp
+
+
+async def resolve_login_by_sub(sub: str) -> str | None:
+    """Login du compte ancré sur ce sujet OIDC, ou None si aucun (ni ancre en DB
+    ni DB configurée). Ancre stable : insensible aux changements de
+    preferred_username / email."""
+    if not sub or not get_settings().database_url:
+        return None
+    from sqlalchemy import select
+
+    from ..db.engine import _get_engine
+    from ..db.tables import users
+
+    async with _get_engine().connect() as conn:
+        return (
+            await conn.execute(select(users.c.login).where(users.c.sub == sub))
+        ).scalar_one_or_none()
 
 
 async def resolve_login_by_email(email: str, email_verified: object = None) -> str | None:
@@ -245,7 +280,7 @@ async def provision_user(login: str, sub: str, data_root: Path, email: str = "")
     # Upsert dans la table users (nécessaire pour les FK vault, workspaces, etc.)
     settings = get_settings()
     if settings.database_url:
-        from sqlalchemy import update
+        from sqlalchemy import select, update
         from sqlalchemy.dialects.postgresql import insert as pg_insert
 
         from ..db.engine import _get_engine
@@ -255,9 +290,12 @@ async def provision_user(login: str, sub: str, data_root: Path, email: str = "")
             # INSERT atomique (même famille que bug 010) : deux callbacks de
             # login concurrents du même user ne doivent pas lever UniqueViolation.
             # DO NOTHING préserve la ligne existante (et son secret_ns).
+            values = {"login": login, "version": "1", "secret_ns": secret_ns_str, "email": email}
+            if sub:
+                values["sub"] = sub
             result = await conn.execute(
                 pg_insert(users)
-                .values(login=login, version="1", secret_ns=secret_ns_str, email=email)
+                .values(**values)
                 .on_conflict_do_nothing(index_elements=[users.c.login])
             )
             if (result.rowcount or 0) > 0:
@@ -265,10 +303,35 @@ async def provision_user(login: str, sub: str, data_root: Path, email: str = "")
                 from ..mcp.devpod_bootstrap import ensure_devpod_backend
 
                 await ensure_devpod_backend(conn, login)
-            elif email:
-                await conn.execute(
-                    update(users).where(users.c.login == login).values(email=email)
-                )
+            else:
+                if email:
+                    await conn.execute(
+                        update(users).where(users.c.login == login).values(email=email)
+                    )
+                # Ancrage de la ligne existante sur le sub : backfill si absent
+                # (1er login OIDC d'un compte pré-existant), collision si un AUTRE
+                # sub y est déjà lié (deux personnes, même login dérivé).
+                if sub:
+                    current = (
+                        await conn.execute(
+                            select(users.c.sub).where(users.c.login == login)
+                        )
+                    ).scalar_one()
+                    if current is None:
+                        await conn.execute(
+                            update(users)
+                            .where(users.c.login == login, users.c.sub.is_(None))
+                            .values(sub=sub)
+                        )
+                        _log.info("user_sub_backfilled", login=login)
+                    elif current != sub:
+                        _log.warning(
+                            "oidc_login_sub_collision", login=login, existing_sub=current
+                        )
+                        raise HTTPException(
+                            status_code=403,
+                            detail="login already bound to another identity",
+                        )
 
 
 @router.get("/caddy/verify")
