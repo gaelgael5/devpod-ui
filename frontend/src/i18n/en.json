@@ -1440,5 +1440,26 @@
     "empty": "No application yet. Click “Add” to create your first shortcut.",
     "emptyUser": "No application has been published by an administrator yet.",
     "remove": "Remove {{name}}"
+  },
+  "skills": {
+    "tabLabel": "Skills",
+    "title": "Skills (skills.sh)",
+    "subtitle": "Search skills for your agents. “Add” creates a validation request — no skill is ever usable without explicit human validation.",
+    "secretLabel": "API key (rate limit)",
+    "noSecret": "— no key —",
+    "searchPlaceholder": "Search a skill…",
+    "searchBtn": "Search",
+    "searching": "Searching…",
+    "resultsCount": "{{total}} result(s)",
+    "noResults": "No result for “{{q}}”.",
+    "add": "Add",
+    "requested": "Validation request created for “{{name}}”",
+    "status": {
+      "requested": "Requested",
+      "pending": "Pending validation",
+      "granted": "Granted",
+      "paused": "Paused",
+      "revoked": "Revoked"
+    }
   }
 }

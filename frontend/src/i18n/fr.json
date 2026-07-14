@@ -1440,5 +1440,26 @@
     "empty": "Aucune application. Cliquez sur « Ajouter » pour créer votre premier raccourci.",
     "emptyUser": "Aucune application n'a encore été publiée par un administrateur.",
     "remove": "Supprimer {{name}}"
+  },
+  "skills": {
+    "tabLabel": "Skills",
+    "title": "Skills (skills.sh)",
+    "subtitle": "Recherchez des skills pour vos agents. « Ajouter » crée une demande de validation — aucune skill n'est utilisable sans validation humaine explicite.",
+    "secretLabel": "Clé API (débit)",
+    "noSecret": "— sans clé —",
+    "searchPlaceholder": "Rechercher une skill…",
+    "searchBtn": "Rechercher",
+    "searching": "Recherche…",
+    "resultsCount": "{{total}} résultat(s)",
+    "noResults": "Aucun résultat pour « {{q}} ».",
+    "add": "Ajouter",
+    "requested": "Demande de validation créée pour « {{name}} »",
+    "status": {
+      "requested": "Demandée",
+      "pending": "En attente de validation",
+      "granted": "Validée",
+      "paused": "En pause",
+      "revoked": "Révoquée"
+    }
   }
 }
