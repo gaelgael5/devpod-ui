@@ -90,7 +90,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const s = status.status
 
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <div className="rounded-lg border bg-card p-4" data-testid={`workspace-card-${spec.name}`}>
       <div className="mb-2 flex items-start justify-between gap-2">
         <div>
           <div className="font-semibold text-foreground">{spec.name}</div>
