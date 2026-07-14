@@ -931,24 +931,46 @@ class DevPodService:
             assert tar_proc.stdout is not None
             assert ssh_proc.stdin is not None
             try:
+                # drain() DANS la boucle : backpressure réel (sinon tout le tar
+                # est bufferisé en mémoire avant la première écriture réseau).
                 while chunk := await tar_proc.stdout.read(65536):
                     ssh_proc.stdin.write(chunk)
-                await ssh_proc.stdin.drain()
+                    await ssh_proc.stdin.drain()
+            except (BrokenPipeError, ConnectionResetError, RuntimeError):
+                # ssh mort ou stdin fermé pendant l'écriture : on arrête de
+                # pomper sans lever — l'échec réel est rapporté par le
+                # returncode ssh ci-dessous (avec son stderr). On DRAINE alors
+                # tar jusqu'à EOF pour le laisser se terminer : sans lecteur il
+                # bloquerait sur son pipe plein, et un kill() laisserait un
+                # zombie que Process.wait() d'asyncio ne récolte pas (pipe
+                # stdout non consommé) — vérifié : wait() pendait indéfiniment.
+                with contextlib.suppress(Exception):
+                    while await tar_proc.stdout.read(65536):
+                        pass
             finally:
-                ssh_proc.stdin.close()
+                with contextlib.suppress(Exception):
+                    ssh_proc.stdin.close()
 
+        # PAS de ssh_proc.communicate() ici : communicate() sans input ferme
+        # immédiatement stdin, en pleine course avec le pump qui y écrit —
+        # flux tronqué (« gzip: unexpected end of file » côté distant) et
+        # RuntimeError « handler is closed » côté portail (bug vu au boot).
         pump_task = asyncio.create_task(_pump())
-        _, ssh_err = await ssh_proc.communicate()
+        assert ssh_proc.stderr is not None
+        ssh_err = await ssh_proc.stderr.read()
         await pump_task
+        await ssh_proc.wait()
         await tar_proc.wait()
 
-        if tar_proc.returncode != 0:
-            raise RuntimeError(f"tar devcontainer échoué (code {tar_proc.returncode})")
+        # ssh d'abord : si le pump a avorté (ssh mort), tar a été tué (-9) et
+        # son returncode ne doit pas masquer l'erreur ssh réelle (avec stderr).
         if ssh_proc.returncode != 0:
             raise RuntimeError(
                 f"Upload SSH devcontainer vers {remote_dir!r} échoué : "
                 f"{ssh_err.decode(errors='replace').strip()}"
             )
+        if tar_proc.returncode != 0:
+            raise RuntimeError(f"tar devcontainer échoué (code {tar_proc.returncode})")
         _log.info("devcontainer_uploaded_ssh", remote_dir=remote_dir, path=devcontainer_path)
         return devcontainer_path, remote_dir
 
