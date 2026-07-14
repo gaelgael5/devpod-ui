@@ -99,7 +99,14 @@
       "startRecipeLabel": "Script de démarrage",
       "startRecipeNone": "— aucun —",
       "create": "Créer",
-      "cancel": "Annuler"
+      "cancel": "Annuler",
+      "disconnected": "Session déconnectée.",
+      "reconnect": "Reconnecter",
+      "deleteSession": "Supprimer la session {{name}}",
+      "deleteTitle": "Supprimer la session ?",
+      "deleteDescription": "La session « {{name}} » et son tmux seront fermés — tout processus en cours (dont un agent) sera interrompu.",
+      "confirmDelete": "Supprimer",
+      "deleted": "Session « {{name}} » supprimée."
     },
     "initializers": {
       "button": "Initialiser",

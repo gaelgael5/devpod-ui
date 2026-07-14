@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, Code2, Loader2, Mail, Play, Plus, Square, SquareTerminal } from 'lucide-react'
+import { ChevronDown, Code2, Loader2, Mail, Play, Plus, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,7 +20,7 @@ import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
 import WorkspaceActionsMenu from './WorkspaceActionsMenu'
 import { CreateSessionDialogHost } from './CreateSessionDialog'
 import WorkspaceSkillsDialog from '@/features/skills/WorkspaceSkillsDialog'
-import { useWorkspaceSessions } from './useWorkspaceSessions'
+import { useWorkspaceSessions, useDeleteSession } from './useWorkspaceSessions'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,6 +68,10 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const [agentMsgOpen, setAgentMsgOpen] = useState(false)
   const [addSessionOpen, setAddSessionOpen] = useState(false)
   const [skillsOpen, setSkillsOpen] = useState(false)
+  // Confirmation de suppression d'une session (le tmux et ses agents meurent) :
+  // on ne supprime jamais sur simple clic dans le menu.
+  const [sessionToDelete, setSessionToDelete] = useState<string | null>(null)
+  const deleteSession = useDeleteSession()
   // Sessions actives (polling léger, uniquement workspace running) : alimente
   // le libellé « Sessions (N) » et la liste du menu déroulant.
   const { data: sessions = [] } = useWorkspaceSessions(
@@ -171,9 +176,21 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
               </DropdownMenuItem>
               {sessions.length > 0 && <DropdownMenuSeparator />}
               {sessions.map((session) => (
-                <DropdownMenuItem key={session} onSelect={() => openSessionTab(session)}>
-                  <SquareTerminal className="mr-2 h-4 w-4" />
-                  {session}
+                <DropdownMenuItem
+                  key={session}
+                  onSelect={() => openSessionTab(session)}
+                  className="group/session gap-2"
+                >
+                  <SquareTerminal className="h-4 w-4" />
+                  <span className="flex-1 truncate">{session}</span>
+                  <button
+                    type="button"
+                    aria-label={t('workspaces.terminals.deleteSession', { name: session })}
+                    className="rounded p-0.5 text-muted-foreground opacity-0 hover:text-destructive group-hover/session:opacity-100"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSessionToDelete(session) }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -264,6 +281,40 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
       {skillsOpen && (
         <WorkspaceSkillsDialog wsName={spec.name} onClose={() => setSkillsOpen(false)} />
       )}
+      <Dialog open={sessionToDelete !== null} onOpenChange={(o) => { if (!o) setSessionToDelete(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('workspaces.terminals.deleteTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('workspaces.terminals.deleteDescription', { name: sessionToDelete ?? '' })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button variant="ghost" size="sm" onClick={() => setSessionToDelete(null)}>
+              {t('workspaces.confirm.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={deleteSession.isPending}
+              onClick={() => {
+                const name = sessionToDelete
+                if (!name) return
+                deleteSession.mutate(
+                  { wsName: spec.name, sessionName: name },
+                  {
+                    onSuccess: () => toast.success(t('workspaces.terminals.deleted', { name })),
+                    onError: (e) => toast.error(e.message),
+                  },
+                )
+                setSessionToDelete(null)
+              }}
+            >
+              {t('workspaces.terminals.confirmDelete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {sshTestHost && (
         <WorkspaceSshTerminalWindow
           wsName={spec.name}
