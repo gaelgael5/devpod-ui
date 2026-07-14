@@ -233,6 +233,35 @@ async def list_placements_for_grant(
     return [dict(r) for r in rows]
 
 
+async def list_workspace_skills(
+    workspace_id: str, user_subject: str, conn: AsyncConnection
+) -> list[dict[str, Any]]:
+    """Placements d'un workspace pour un sujet, enrichis du grant (UI menu
+    workspace : skill, statuts des deux lifecycles, hashes)."""
+    rows = (
+        await conn.execute(
+            select(
+                skill_placements.c.id.label("placement_id"),
+                skill_grants.c.id.label("grant_id"),
+                skill_grants.c.skill_id,
+                skill_grants.c.statut.label("grant_statut"),
+                skill_grants.c.approved_hash,
+                skill_placements.c.statut.label("placement_statut"),
+                skill_placements.c.installed_hash,
+            )
+            .select_from(
+                skill_placements.join(
+                    skill_grants, skill_placements.c.grant_id == skill_grants.c.id
+                )
+            )
+            .where(skill_placements.c.workspace_id == workspace_id)
+            .where(skill_grants.c.user_subject == user_subject)
+            .order_by(skill_placements.c.id)
+        )
+    ).mappings().all()
+    return [dict(r) for r in rows]
+
+
 # ── Ensemble effectif (requête de routage de la gateway) ─────────────────────
 
 

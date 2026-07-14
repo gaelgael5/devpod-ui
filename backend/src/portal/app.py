@@ -55,6 +55,7 @@ from .routes.secrets import router_admin as secrets_admin_router
 from .routes.secrets import router_me as secrets_me_router
 from .routes.services import router as services_router
 from .routes.sessions import router as sessions_router
+from .routes.skill_placements import router as skill_placements_router
 from .routes.skills import router as skills_router
 from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
@@ -385,6 +386,7 @@ def create_app() -> FastAPI:
     app.include_router(preferences_router, prefix="/me")
     app.include_router(applications_router)  # /applications : lecture users, gestion admin
     app.include_router(skills_router, prefix="/me")
+    app.include_router(skill_placements_router, prefix="/me")
     app.include_router(workspace_ops_router, prefix="/me")
     app.include_router(workspace_groups_router, prefix="/me")
     app.include_router(workspace_sessions_router, prefix="/me")
