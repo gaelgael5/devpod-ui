@@ -353,16 +353,6 @@ if [[ -n "${OIDC_CLIENT_SECRET:-}" && -z "$(_get_env OIDC_CLIENT_SECRET)" ]]; th
     echo "    OIDC_CLIENT_SECRET injecté dans ${ENV_FILE}."
 fi
 
-# Détection de conflit sur le port 80 (compose dev : Caddy mappe
-# ${CADDY_DEV_PORT:-80}:80) — bascule sur 8090 si :80 est déjà pris.
-if [[ $_IS_DEV_COMPOSE -eq 1 && -z "$(_get_env CADDY_DEV_PORT)" ]]; then
-    if ss -tlnp 2>/dev/null | grep -q ':80 ' || \
-       netstat -tlnp 2>/dev/null | grep -q ':80 '; then
-        _set_env CADDY_DEV_PORT "8090"
-        echo "    Port 80 déjà utilisé → CADDY_DEV_PORT=8090"
-    fi
-fi
-
 # Validation : échouer explicitement si une variable critique est encore vide
 for _required_key in POSTGRES_USER POSTGRES_PASSWORD SESSION_SECRET_KEY; do
     if [[ -z "$(_get_env "$_required_key")" ]]; then
@@ -391,6 +381,21 @@ docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build
 echo ""
 echo "==> Redémarrage de la stack..."
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down --remove-orphans || true
+
+# Détection de conflit sur le port 80 (compose dev : Caddy mappe
+# ${CADDY_DEV_PORT:-80}:80) — bascule sur 8090 si :80 est déjà pris.
+# IMPÉRATIVEMENT APRÈS le down : sinon c'est notre PROPRE Caddy encore actif
+# qui est détecté comme conflit, et 8090 se persiste à tort dans .env
+# (le front du portail — tunnel → :80 — tombe alors dans le vide).
+if [[ $_IS_DEV_COMPOSE -eq 1 && -z "$(_get_env CADDY_DEV_PORT)" ]]; then
+    if ss -tlnp 2>/dev/null | grep -q ':80 ' || \
+       netstat -tlnp 2>/dev/null | grep -q ':80 '; then
+        _set_env CADDY_DEV_PORT "8090"
+        export CADDY_DEV_PORT="8090"
+        echo "    Port 80 déjà utilisé par un service tiers → CADDY_DEV_PORT=8090"
+    fi
+fi
+
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
 
 echo ""
