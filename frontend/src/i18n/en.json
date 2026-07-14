@@ -870,7 +870,8 @@
       "PAT_GITLAB": "Personal Access Token — GitLab",
       "PAT_AZURE": "Personal Access Token — Azure DevOps",
       "API_KEY": "Generic API Key",
-      "MCP_DISCOVERY": "MCP Discovery Service"
+      "MCP_DISCOVERY": "MCP Discovery Service",
+      "SKILLS_SH": "skills.sh API key"
     },
     "patHelp": {
       "title": "How do I get a Personal Access Token (PAT)?",

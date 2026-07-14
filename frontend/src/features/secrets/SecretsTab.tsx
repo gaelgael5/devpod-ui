@@ -95,6 +95,7 @@ function AddDialog({ open, onClose }: AddDialogProps) {
     { value: 'PAT_AZURE', label: t('secrets.types.PAT_AZURE') },
     { value: 'API_KEY', label: t('secrets.types.API_KEY') },
     { value: 'MCP_DISCOVERY', label: t('secrets.types.MCP_DISCOVERY') },
+    { value: 'SKILLS_SH', label: t('secrets.types.SKILLS_SH') },
   ]
 
   const [label, setLabel] = useState('')
