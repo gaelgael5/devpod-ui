@@ -18,6 +18,7 @@ import LogDialog from './LogDialog'
 import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
 import WorkspaceActionsMenu from './WorkspaceActionsMenu'
 import { CreateSessionDialogHost } from './CreateSessionDialog'
+import WorkspaceSkillsDialog from '@/features/skills/WorkspaceSkillsDialog'
 import { useWorkspaceSessions } from './useWorkspaceSessions'
 import {
   DropdownMenu,
@@ -65,6 +66,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const [sshTestHost, setSshTestHost] = useState<TestHost | null>(null)
   const [agentMsgOpen, setAgentMsgOpen] = useState(false)
   const [addSessionOpen, setAddSessionOpen] = useState(false)
+  const [skillsOpen, setSkillsOpen] = useState(false)
   // Sessions actives (polling léger, uniquement workspace running) : alimente
   // le libellé « Sessions (N) » et la liste du menu déroulant.
   const { data: sessions = [] } = useWorkspaceSessions(
@@ -231,6 +233,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             onOpenMessages={() => setMessagesOpen(true)}
             onOpenLogs={() => setLogsOpen(true)}
             onManageGroups={onManageGroups}
+            onManageSkills={() => setSkillsOpen(true)}
           />
         </div>
       </div>
@@ -257,6 +260,9 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
           onClose={() => setAddSessionOpen(false)}
           onCreate={openSessionTab}
         />
+      )}
+      {skillsOpen && (
+        <WorkspaceSkillsDialog wsName={spec.name} onClose={() => setSkillsOpen(false)} />
       )}
       {sshTestHost && (
         <WorkspaceSshTerminalWindow

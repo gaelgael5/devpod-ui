@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
-  Bot, FileText, FolderOpen, Key, MessageSquare, MoreVertical, PlusCircle, TerminalSquare,
+  Bot, FileText, FolderOpen, Key, MessageSquare, MoreVertical, PlusCircle, Sparkles, TerminalSquare,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -33,12 +33,14 @@ interface Props {
   onOpenMessages: () => void
   onOpenLogs: () => void
   onManageGroups?: () => void
+  /** Gestion des skills placées dans le workspace (running uniquement). */
+  onManageSkills?: () => void
 }
 
 /** Menu "⋮" du workspace : SSH, messages, logs, groupes, initializers, VM de test, agents MCP. */
 export default function WorkspaceActionsMenu({
   wsName, running, agents = [], onAddVm, onOpenShell, onShowSshKey,
-  onOpenMessages, onOpenLogs, onManageGroups,
+  onOpenMessages, onOpenLogs, onManageGroups, onManageSkills,
 }: Props) {
   const { t } = useTranslation()
   const { data: initializers = [] } = useWorkspaceInitializers(running ? wsName : undefined)
@@ -85,6 +87,12 @@ export default function WorkspaceActionsMenu({
           <DropdownMenuItem className="gap-2" onSelect={onAddVm}>
             <PlusCircle className="h-3.5 w-3.5" />
             {t('workspaces.testVm.btn')}
+          </DropdownMenuItem>
+        )}
+        {running && onManageSkills && (
+          <DropdownMenuItem className="gap-2" onSelect={onManageSkills}>
+            <Sparkles className="h-3.5 w-3.5" />
+            {t('workspaces.skillsMenu')}
           </DropdownMenuItem>
         )}
         {(running || onShowSshKey) && <DropdownMenuSeparator />}

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueries, useQueryClient } from '@tanstack/react-query'
-import { apiFetchJson } from '@/shared/api/client'
+import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
 export interface SkillResult {
   id: string
@@ -101,6 +101,62 @@ export interface SkillMdDoc {
   content: string
   hash: string
   approved_hash: string | null
+}
+
+export interface WorkspacePlacement {
+  placement_id: number
+  grant_id: number
+  skill_id: string
+  grant_statut: string
+  approved_hash: string | null
+  placement_statut: 'requested' | 'placed' | 'verified' | 'unverified'
+  installed_hash: string | null
+}
+
+export function useWorkspaceSkills(wsName: string, enabled: boolean) {
+  return useQuery<WorkspacePlacement[]>({
+    queryKey: ['workspace-skills', wsName],
+    queryFn: () =>
+      apiFetchJson<WorkspacePlacement[]>(
+        `/me/workspaces/${encodeURIComponent(wsName)}/skills`,
+      ),
+    enabled,
+    staleTime: 15 * 1000,
+  })
+}
+
+export function usePlaceSkill(wsName: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (skillId: string) =>
+      apiFetchJson<WorkspacePlacement>(
+        `/me/workspaces/${encodeURIComponent(wsName)}/skills`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ skill_id: skillId }),
+        },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['workspace-skills', wsName] })
+      // Une dérive détectée à l'install fait retomber le grant en pending.
+      qc.invalidateQueries({ queryKey: ['skills-grants'] })
+    },
+  })
+}
+
+export function useRemovePlacement(wsName: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (placementId: number) =>
+      apiFetchVoid(
+        `/me/workspaces/${encodeURIComponent(wsName)}/skills/${placementId}`,
+        { method: 'DELETE' },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['workspace-skills', wsName] })
+    },
+  })
 }
 
 export function useGrantSkillMd(grantId: number | null) {

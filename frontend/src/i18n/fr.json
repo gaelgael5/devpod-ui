@@ -244,7 +244,8 @@
       "loading": "Chargement…",
       "copy": "Copier",
       "copied": "Copié !"
-    }
+    },
+    "skillsMenu": "Skills du workspace…"
   },
   "recipes": {
     "title": "Recettes",
@@ -1477,6 +1478,26 @@
       "revoke": "Grant révoqué — routage coupé sur tous les placements.",
       "pause": "Skill mise en pause.",
       "resume": "Skill remise en service."
+    },
+    "ws": {
+      "title": "Skills du workspace {{name}}",
+      "empty": "Aucune skill installée dans ce workspace.",
+      "installLabel": "Installer une skill validée",
+      "selectPlaceholder": "— choisir une skill —",
+      "noGranted": "— aucune skill validée disponible —",
+      "install": "Installer",
+      "installing": "Installation…",
+      "installed": "Skill installée et vérifiée — routable.",
+      "installedUnverified": "Installée mais NON vérifiée (le contenu a dérivé) — re-validation requise, pas de routage.",
+      "remove": "Retirer {{name}}",
+      "removed": "Skill retirée du workspace (le grant reste valide).",
+      "hint": "L'installation tire la version courante (npx skills add, sans clé). Si le contenu a dérivé du hash approuvé, la skill est marquée unverified et n'est pas routée.",
+      "placement": {
+        "requested": "demandée",
+        "placed": "installée",
+        "verified": "vérifiée",
+        "unverified": "non vérifiée"
+      }
     }
   }
 }
