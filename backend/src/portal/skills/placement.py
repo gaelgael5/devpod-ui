@@ -30,6 +30,7 @@ from ..db.skills import (
     set_placement_verified,
 )
 from ..devpod.exec import ws_exec
+from ..events.bus import emit_event
 
 _log = structlog.get_logger(__name__)
 
@@ -93,6 +94,17 @@ async def place_skill(
         verified=ok,
         installed_hash=installed_hash,
     )
+    if ok:
+        # Émission uniquement quand la skill est réellement disponible
+        # (verified). Aucune logique de restart ici — un workflow réactif
+        # décide de l'action (spec : règles réactives, pas de câblage direct).
+        workspace = ws_id.removeprefix(f"{login}-")
+        await emit_event(
+            "skill.available",
+            actor=login,
+            workspace=workspace,
+            subject={"skill_id": grant["skill_id"], "installed_hash": installed_hash},
+        )
     return {
         **placement,
         "statut": "verified" if ok else "unverified",

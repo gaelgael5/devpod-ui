@@ -49,6 +49,12 @@ class Harness:
             self.db_calls.append(("delete", pid))
             return True
 
+        self.events: list[tuple] = []
+
+        async def fake_emit(event_type, *, actor, workspace=None, subject=None, **_):
+            self.events.append((event_type, actor, workspace, (subject or {}).get("skill_id")))
+
+        monkeypatch.setattr(mod, "emit_event", fake_emit)
         monkeypatch.setattr(mod, "ws_exec", fake_ws_exec)
         monkeypatch.setattr(mod, "create_or_get_placement", fake_create)
         monkeypatch.setattr(mod, "set_placement_placed", fake_placed)
@@ -68,6 +74,8 @@ async def test_place_verified_on_hash_match(monkeypatch):
     assert "--agent claude-code" in install_cmd and "--copy" in install_cmd
     assert ("verified", 11, True) in h.db_calls
     assert all(c[0] != "pending" for c in h.db_calls)  # pas de retombée
+    # Événement « skill disponible » émis (workspace sans préfixe login, skill).
+    assert h.events == [("skill.available", "alice", "ws", GRANT["skill_id"])]
 
 
 @pytest.mark.asyncio
@@ -78,6 +86,8 @@ async def test_place_unverified_on_drift_marks_grant_pending(monkeypatch):
     assert ("verified", 11, False) in h.db_calls
     # Dérive (HEAD non épinglé) → le grant retombe pending (re-validation).
     assert ("pending", 3) in h.db_calls
+    # Aucun événement de disponibilité tant que non vérifié.
+    assert h.events == []
 
 
 @pytest.mark.asyncio
