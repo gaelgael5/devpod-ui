@@ -95,3 +95,6 @@
 - `await coro["k"]` subscripte la coroutine (précédence), pas le résultat : écrire `(await coro)["k"]`. Invisible tant que le test skip localement — encore une raison de valider les tests DB sur test1 avant de conclure.
 - Tables avec FK vers `users.login` (profiles, mcp_profile, user_services…) : tout test DB doit seeder la ligne `users` d'abord (pattern `_seed_user` de test_profiles.py).
 - Stub `_test/login` des tests websocket : poser `request.session["auth_time"] = int(time.time())` en plus de `["user"]`, sinon `session_within_max_age` (plafond bug 032) ferme le WS en 4001 « Session expired » AVANT toute logique — symptôme trompeur d'échec d'auth.
+
+## [deploy]
+- En fusionnant des scripts, l'ORDRE des étapes est une sémantique : le check « port 80 libre ? » n'a de sens qu'APRÈS le down de la stack (sinon notre propre Caddy se détecte comme conflit et 8090 se persiste dans .env → front mort). Vérifier les dépendances implicites entre étapes avant de déplacer un bloc.
