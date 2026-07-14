@@ -965,6 +965,62 @@ kiosk_applications = Table(
 )
 
 
+# Registre des skills (skills.sh) — DEUX cycles de vie distincts liés par FK,
+# à ne JAMAIS fusionner (spec epic skills) :
+# - skill_grants : AUTORISATION per-user, human-gated. Keyée user_subject (sub
+#   OIDC) — v1 single-principal, mais le subject rouvre le multi-principal sans
+#   réécriture. requested → pending → granted → (revoked | paused). Le grant
+#   porte sur (user, skill, approved_hash) : une dérive de hash retombe en
+#   pending SANS effacer approved_hash (comparaison à la re-validation).
+# - skill_placements : INSTALLATION per-workspace. requested → placed →
+#   verified | unverified. installed_hash figé à l'installation (pas de check
+#   continu).
+# INVARIANT de cascade : révoquer/pauser un grant coupe le routage de tous ses
+# placements — appliqué par la requête d'ensemble effectif (JOIN sur le statut
+# du grant), les lignes placements restent en base pour l'audit.
+skill_grants = Table(
+    "skill_grants",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("user_subject", Text, nullable=False),
+    Column("skill_id", Text, nullable=False),
+    Column("approved_hash", Text, nullable=True),
+    Column("statut", Text, nullable=False, server_default="pending"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("granted_at", DateTime(timezone=True), nullable=True),
+    Column("revoked_at", DateTime(timezone=True), nullable=True),
+    CheckConstraint(
+        "statut IN ('requested', 'pending', 'granted', 'paused', 'revoked')",
+        name="ck_skill_grants_statut",
+    ),
+    UniqueConstraint("user_subject", "skill_id", name="uq_skill_grants_subject_skill"),
+)
+
+
+skill_placements = Table(
+    "skill_placements",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column(
+        "grant_id",
+        BigInteger,
+        ForeignKey("skill_grants.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("workspace_id", Text, nullable=False),
+    Column("installed_hash", Text, nullable=True),
+    Column("statut", Text, nullable=False, server_default="requested"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "statut IN ('requested', 'placed', 'verified', 'unverified')",
+        name="ck_skill_placements_statut",
+    ),
+    UniqueConstraint("grant_id", "workspace_id", name="uq_skill_placements_grant_ws"),
+)
+
+
 # Sources de découverte MCP : une instance mcp-manager (URL de base) + une
 # référence (slug) vers un secret utilisateur de type MCP_DISCOVERY. On y
 # recherche des services MCP pour les ajouter ensuite comme serveurs.
