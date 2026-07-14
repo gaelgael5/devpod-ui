@@ -75,6 +75,8 @@ class AppSettings(BaseSettings):
 
     # skills.sh : URL de base de l'API tierce (surchargée en test/mock).
     skills_sh_base_url: str = "https://skills.sh"
+    # Contenu canonique des SKILL.md (même source que `npx skills add`).
+    skills_raw_base_url: str = "https://raw.githubusercontent.com"
 
     # MCP transport SSE : délai de stabilisation entre `initialize` et le premier
     # message applicatif. Certains serveurs SSE (ex. docflow) n'ont pas encore

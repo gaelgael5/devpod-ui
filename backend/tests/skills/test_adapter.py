@@ -42,8 +42,11 @@ AUDIT_BODY = {
 }
 
 
+RAW = "https://raw.test"
+
+
 def make_adapter(now: list[float]) -> SkillsShAdapter:
-    return SkillsShAdapter(base_url=BASE, time_fn=lambda: now[0])
+    return SkillsShAdapter(base_url=BASE, time_fn=lambda: now[0], raw_base_url=RAW)
 
 
 @pytest.mark.asyncio
@@ -159,6 +162,38 @@ async def test_api_key_never_in_cache_key_but_segments_cache():
     assert route.call_count == 1
     for key in adapter._cache:  # noqa: SLF001 — assertion d'hygiène volontaire
         assert "sk-AAA" not in str(key)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_skill_md_content_and_hash():
+    import hashlib
+
+    now = [0.0]
+    adapter = make_adapter(now)
+    content = "---\nname: git-commit\n---\nInstructions."
+    route = respx.get(f"{RAW}/github/awesome-copilot/HEAD/skills/git-commit/SKILL.md").mock(
+        return_value=httpx.Response(200, text=content)
+    )
+    doc = await adapter.skill_md("github/awesome-copilot", "git-commit")
+    assert doc["content"] == content
+    assert doc["hash"] == "sha256:" + hashlib.sha256(content.encode()).hexdigest()
+    # Cache 5 min.
+    await adapter.skill_md("github/awesome-copilot", "git-commit")
+    assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_skill_md_missing_raises():
+    now = [0.0]
+    adapter = make_adapter(now)
+    respx.get(f"{RAW}/github/x/HEAD/skills/absent/SKILL.md").mock(
+        return_value=httpx.Response(404, text="Not Found")
+    )
+    with pytest.raises(SkillsShError) as exc_info:
+        await adapter.skill_md("github/x", "absent")
+    assert exc_info.value.status == 404
 
 
 @pytest.mark.asyncio

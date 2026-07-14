@@ -64,8 +64,12 @@ class SkillsShAdapter:
         self,
         base_url: str | None = None,
         time_fn: Any = time.monotonic,
+        raw_base_url: str | None = None,
     ) -> None:
         self._base_url = (base_url or get_settings().skills_sh_base_url).rstrip("/")
+        self._raw_base_url = (
+            raw_base_url or get_settings().skills_raw_base_url
+        ).rstrip("/")
         self._time = time_fn
         self._cache: dict[_CacheKey, tuple[float, Any]] = {}
 
@@ -106,6 +110,42 @@ class SkillsShAdapter:
         path = f"/api/skill/{source}/{skill_id}"
         cache_key = ("detail", source, skill_id, _key_fingerprint(api_key))
         return await self._get_cached(path, {}, cache_key, DETAIL_TTL_S, api_key)
+
+    async def skill_md(self, source: str, skill_id: str) -> dict[str, str]:
+        """Contenu canonique du SKILL.md + son SHA-256 : `{"content", "hash"}`.
+
+        Récupéré depuis GitHub raw (`{source}/HEAD/skills/{skill_id}/SKILL.md`),
+        PUBLIC et sans clé — c'est la même source que `npx skills add`, donc le
+        même contenu que hashera la vérification post-install. Hôte FIXE
+        (raw.githubusercontent.com) + segments validés par les routes : pas de
+        SSRF possible. Cache 5 min.
+        """
+        cache_key = ("skill_md", source, skill_id, "-")
+        now = self._time()
+        cached = self._cache.get(cache_key)
+        if cached is not None and cached[0] > now:
+            return dict(cached[1])
+        url = (
+            f"{self._raw_base_url}/{source}/HEAD/skills/{skill_id}/SKILL.md"
+        )
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, timeout=_TIMEOUT_S, follow_redirects=True)
+        except httpx.HTTPError as exc:
+            raise SkillsShError(f"skill content unreachable: {exc}") from exc
+        if resp.status_code != 200:
+            raise SkillsShError(
+                f"SKILL.md introuvable pour {source}/{skill_id} "
+                f"(HTTP {resp.status_code})",
+                status=resp.status_code,
+            )
+        content = resp.text
+        payload = {
+            "content": content,
+            "hash": "sha256:" + hashlib.sha256(content.encode()).hexdigest(),
+        }
+        self._cache[cache_key] = (now + DETAIL_TTL_S, payload)
+        return payload
 
     # ── Transport + cache ─────────────────────────────────────────────────────
 

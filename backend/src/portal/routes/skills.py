@@ -22,7 +22,15 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..db.engine import get_conn
-from ..db.skills import create_or_get_grant, list_grants
+from ..db.skills import (
+    approve_grant,
+    create_or_get_grant,
+    get_grant_by_id,
+    list_grants,
+    pause_grant,
+    resume_grant,
+    revoke_grant,
+)
 from ..secrets.service import SecretNotFound, VaultLocked, reveal_secret
 from ..skills.adapter import SkillsShError, get_skills_adapter
 
@@ -145,3 +153,137 @@ async def request_grant(
             skill_id=body.skill_id,
         )
     return {**grant, "created": created}
+
+
+# ── Cycle de vie des grants (onglet Validations) ─────────────────────────────
+# Toutes ces routes sont des actions HUMAINES authentifiées (session Keycloak).
+# La surface MCP n'exposera que pause (restreindre) — jamais approve/resume.
+
+
+async def _own_grant(
+    grant_id: int, user: UserInfo, conn: AsyncConnection
+) -> dict[str, Any]:
+    """Le grant s'il appartient au sujet de la session — 404 sinon (pas de
+    fuite d'existence des grants d'autrui)."""
+    grant = await get_grant_by_id(grant_id, conn)
+    if grant is None or grant["user_subject"] != _subject(user):
+        raise HTTPException(status_code=404, detail="grant introuvable")
+    return grant
+
+
+def _split_skill_id(skill_id: str) -> tuple[str, str]:
+    """`source/skillId` → (source, skillId) — le skillId est le dernier segment."""
+    source, _, sid = skill_id.rpartition("/")
+    return source, sid
+
+
+@router.get("/skills/grants/{grant_id}/skillmd")
+async def get_grant_skill_md(
+    grant_id: int,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Contenu canonique du SKILL.md + hash courant, avec l'approved_hash du
+    grant : l'écran de validation compare les deux (décision informée, y
+    compris re-validation après dérive)."""
+    grant = await _own_grant(grant_id, user, conn)
+    source, sid = _split_skill_id(grant["skill_id"])
+    try:
+        doc = await get_skills_adapter().skill_md(source, sid)
+    except SkillsShError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {**doc, "approved_hash": grant["approved_hash"]}
+
+
+@router.post("/skills/grants/{grant_id}/approve")
+async def approve(
+    grant_id: int,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Validation humaine : granted + approved_hash figé au hash COURANT du
+    SKILL.md canonique (récupéré côté serveur — le client ne fournit jamais le
+    hash, sinon un client malveillant validerait un contenu différent)."""
+    grant = await _own_grant(grant_id, user, conn)
+    if grant["statut"] != "pending":
+        raise HTTPException(status_code=409, detail=f"grant {grant['statut']}, pas pending")
+    source, sid = _split_skill_id(grant["skill_id"])
+    try:
+        doc = await get_skills_adapter().skill_md(source, sid)
+    except SkillsShError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    await approve_grant(grant_id, doc["hash"], conn)
+    _log.info(
+        "skill_grant_approved",
+        login=user.login,
+        subject=user.sub,
+        skill_id=grant["skill_id"],
+        approved_hash=doc["hash"],
+    )
+    updated = await get_grant_by_id(grant_id, conn)
+    assert updated is not None
+    return updated
+
+
+@router.post("/skills/grants/{grant_id}/revoke")
+async def revoke(
+    grant_id: int,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Révocation humaine — cascade sur tous les placements via la requête
+    d'ensemble effectif (le routage s'arrête immédiatement, le scrub disque
+    est optionnel)."""
+    grant = await _own_grant(grant_id, user, conn)
+    if grant["statut"] == "revoked":
+        raise HTTPException(status_code=409, detail="grant déjà révoqué")
+    await revoke_grant(grant_id, conn)
+    _log.info(
+        "skill_grant_revoked",
+        login=user.login,
+        subject=user.sub,
+        skill_id=grant["skill_id"],
+    )
+    updated = await get_grant_by_id(grant_id, conn)
+    assert updated is not None
+    return updated
+
+
+@router.post("/skills/grants/{grant_id}/pause")
+async def pause(
+    grant_id: int,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Pause : suspend le routage sans révoquer. (Également exposable côté MCP :
+    restreindre est sain.)"""
+    grant = await _own_grant(grant_id, user, conn)
+    if grant["statut"] != "granted":
+        raise HTTPException(status_code=409, detail=f"grant {grant['statut']}, pas granted")
+    await pause_grant(grant_id, conn)
+    _log.info(
+        "skill_grant_paused", login=user.login, subject=user.sub, skill_id=grant["skill_id"]
+    )
+    updated = await get_grant_by_id(grant_id, conn)
+    assert updated is not None
+    return updated
+
+
+@router.post("/skills/grants/{grant_id}/resume")
+async def resume(
+    grant_id: int,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Remise en service : ré-accorder un accès → action humaine UNIQUEMENT
+    (asymétrie pause/resume — jamais de primitive MCP)."""
+    grant = await _own_grant(grant_id, user, conn)
+    if grant["statut"] != "paused":
+        raise HTTPException(status_code=409, detail=f"grant {grant['statut']}, pas paused")
+    await resume_grant(grant_id, conn)
+    _log.info(
+        "skill_grant_resumed", login=user.login, subject=user.sub, skill_id=grant["skill_id"]
+    )
+    updated = await get_grant_by_id(grant_id, conn)
+    assert updated is not None
+    return updated
