@@ -1021,6 +1021,27 @@ skill_placements = Table(
 )
 
 
+# Délégation agent↔humain : l'agent est un acteur on-behalf-of, JAMAIS un
+# principal autonome (epic skills). L'autorisation résout l'agent vers son
+# principal délégant ; grants effectifs de l'agent = grants du principal,
+# jamais davantage. Révoquer la délégation = kill-switch indépendant des
+# grants. Source de vérité remplaçable plus tard par un token exchange
+# Keycloak sans changer la logique d'autorisation. Une seule délégation
+# ACTIVE par (agent_id, scope) — index unique partiel (revoked_at IS NULL)
+# posé par la migration 067 : une révoquée reste en base pour l'audit.
+agent_delegations = Table(
+    "agent_delegations",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("agent_id", Text, nullable=False),
+    Column("principal_subject", Text, nullable=False),
+    Column("scope", Text, nullable=False, server_default="skills"),
+    Column("granted_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("expires_at", DateTime(timezone=True), nullable=True),
+    Column("revoked_at", DateTime(timezone=True), nullable=True),
+)
+
+
 # Sources de découverte MCP : une instance mcp-manager (URL de base) + une
 # référence (slug) vers un secret utilisateur de type MCP_DISCOVERY. On y
 # recherche des services MCP pour les ajouter ensuite comme serveurs.
