@@ -135,6 +135,15 @@ _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
         ["actor", "workspace", "host_name", "alias"],
         {"actor": _STR, "workspace": _STR, "host_name": _STR, "alias": _STR},
     ),
+    "skill.available": _obj(
+        ["actor", "workspace", "skill_id", "installed_hash"],
+        {
+            "actor": _STR,
+            "workspace": _STR,
+            "skill_id": _STR,
+            "installed_hash": _STR,
+        },
+    ),
 }
 
 # Vérrou de cohérence au chargement : tout type interne DOIT avoir un dataSchema.

@@ -98,3 +98,6 @@
 
 ## [deploy]
 - En fusionnant des scripts, l'ORDRE des étapes est une sémantique : le check « port 80 libre ? » n'a de sens qu'APRÈS le down de la stack (sinon notre propre Caddy se détecte comme conflit et 8090 se persiste dans .env → front mort). Vérifier les dépendances implicites entre étapes avant de déplacer un bloc.
+
+## [events]
+- Ajouter un type dans `EVENT_TYPES` (models.py) impose 3 synchronisations sinon crash à l'import (garde `schemas.py`) : dataSchema dans `events/schemas.py`, plus les tests figés `tests/events/test_models.py` et `tests/routes/test_event_schemas.py` (préférer dériver d'`EVENT_TYPES` que coder le compte en dur).
