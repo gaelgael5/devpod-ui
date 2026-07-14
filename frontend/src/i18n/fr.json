@@ -1039,7 +1039,6 @@
       "added": "Source « {{label}} » ajoutée",
       "deleted": "Source « {{label}} » supprimée",
       "delete": "Supprimer la source",
-      "sourcesTitle": "Sources configurées",
       "searchTitle": "Rechercher un service",
       "sourceLabel": "Source",
       "searchPlaceholder": "Rechercher dans le catalogue…",
@@ -1053,7 +1052,11 @@
       "stars": "{{count}} ★",
       "prev": "Précédent",
       "next": "Suivant",
-      "pageOf": "Page {{page}}"
+      "pageOf": "Page {{page}}",
+      "addSource": "Ajouter une source",
+      "addTitle": "Nouvelle source de découverte",
+      "cancel": "Annuler",
+      "noSources": "Aucune source configurée — ajoutez-en une pour rechercher dans un catalogue."
     },
     "backends": {
       "sectionTitle": "Serveurs MCP",

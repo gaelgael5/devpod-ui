@@ -1039,7 +1039,6 @@
       "added": "Source “{{label}}” added",
       "deleted": "Source “{{label}}” removed",
       "delete": "Remove source",
-      "sourcesTitle": "Configured sources",
       "searchTitle": "Search a service",
       "sourceLabel": "Source",
       "searchPlaceholder": "Search the catalog…",
@@ -1053,7 +1052,11 @@
       "stars": "{{count}} ★",
       "prev": "Previous",
       "next": "Next",
-      "pageOf": "Page {{page}}"
+      "pageOf": "Page {{page}}",
+      "addSource": "Add source",
+      "addTitle": "New discovery source",
+      "cancel": "Cancel",
+      "noSources": "No source configured — add one to search a catalog."
     },
     "backends": {
       "sectionTitle": "MCP Servers",

@@ -27,6 +27,8 @@ describe('MCPExplore', () => {
     const user = userEvent.setup()
     renderWithProviders(<MCPExplore />)
 
+    // Le formulaire est packagé dans un dialog ouvert par « Add source ».
+    await user.click(screen.getByRole('button', { name: /Add source/ }))
     await user.type(screen.getByLabelText('Label'), 'Yoops Hub')
     // Le slug est auto-dérivé.
     expect(screen.getByLabelText('Slug')).toHaveValue('yoops-hub')
@@ -54,6 +56,7 @@ describe('MCPExplore', () => {
     const user = userEvent.setup()
     renderWithProviders(<MCPExplore />)
 
+    await user.click(screen.getByRole('button', { name: /Add source/ }))
     // Bouton Test désactivé tant que l'URL est vide.
     expect(screen.getByRole('button', { name: 'Test' })).toBeDisabled()
     await user.type(screen.getByLabelText('Service URL'), 'https://mcp.yoops.org')
@@ -97,7 +100,7 @@ describe('MCPExplore', () => {
     const user = userEvent.setup()
     renderWithProviders(<MCPExplore />)
 
-    // La source unique est auto-sélectionnée : pas de sélecteur affiché.
+    // La source unique est auto-sélectionnée dans le sélecteur.
     const input = await screen.findByPlaceholderText('Search the catalog…')
     await user.type(input, 'git')
     await user.click(screen.getByRole('button', { name: 'Search' }))
