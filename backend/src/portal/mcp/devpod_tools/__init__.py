@@ -47,6 +47,7 @@ from .errors import DevpodToolError
 from .logs_tools import LOGS_IMPLS
 from .message_tools import MESSAGE_IMPLS
 from .paths import safe_workspace_path
+from .skills_tools import SKILLS_IMPLS
 
 # Préfixe socket réutilisable pour les commandes tmux multi-étapes (session_open).
 _TMUX_SOCK = '${TMUX_SOCK:+-S "$TMUX_SOCK"}'
@@ -1145,6 +1146,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     **MESSAGE_IMPLS,
     **AGENT_MESSAGE_IMPLS,
     **LOGS_IMPLS,
+    **SKILLS_IMPLS,
 }
 
 
