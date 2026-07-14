@@ -4,6 +4,7 @@ import { RotateCw } from 'lucide-react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { Button } from '@/components/ui/button'
+import TerminalKeybar from './TerminalKeybar'
 import '@xterm/xterm/css/xterm.css'
 
 interface Props {
@@ -14,6 +15,11 @@ interface Props {
 export default function WorkspaceSessionTerminal({ wsName, session }: Props) {
   const { t } = useTranslation()
   const termRef = useRef<HTMLDivElement>(null)
+  // Refs vivantes vers la WS et le terminal : la barre de touches écrit dans le
+  // stdin (Échap, SIGINT, presse-papier) et lit la sélection sans reconstruire
+  // la connexion. Peuplées dans l'effet, remises à null au démontage.
+  const wsRef = useRef<WebSocket | null>(null)
+  const terminalRef = useRef<Terminal | null>(null)
   // La WS peut tomber (veille, réseau, redéploiement du portail). On affiche
   // alors un overlay de reconnexion : le tmux backend survit, une nouvelle
   // connexion s'y rattache via ?session= (évite le F5 qui perd le scrollback).
@@ -51,6 +57,8 @@ export default function WorkspaceSessionTerminal({ wsName, session }: Props) {
       `?session=${encodeURIComponent(session)}`
     )
     ws.binaryType = 'arraybuffer'
+    wsRef.current = ws
+    terminalRef.current = terminal
 
     const sendResize = (cols: number, rows: number) => {
       if (ws.readyState === WebSocket.OPEN)
@@ -90,25 +98,41 @@ export default function WorkspaceSessionTerminal({ wsName, session }: Props) {
       resizeDisposable.dispose()
       ws.close()
       terminal.dispose()
+      wsRef.current = null
+      terminalRef.current = null
     }
   }, [wsName, session, epoch])
 
+  // Écrit dans le stdin de la session via la WS ouverte, puis rend le focus au
+  // terminal (le clic sur un bouton l'avait pris). No-op si la WS est fermée.
+  const sendToSession = (data: string) => {
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(data))
+    terminalRef.current?.focus()
+  }
+
   return (
-    <div className="absolute inset-0 bg-[#0d0d1a]">
-      <div ref={termRef} className="absolute inset-0" />
-      {disconnected && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 backdrop-blur-sm">
-          <p className="text-sm text-white/80">{t('workspaces.terminals.disconnected')}</p>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => { setDisconnected(false); setEpoch((e) => e + 1) }}
-          >
-            <RotateCw className="mr-1 h-3.5 w-3.5" />
-            {t('workspaces.terminals.reconnect')}
-          </Button>
-        </div>
-      )}
+    <div className="absolute inset-0 flex flex-col bg-[#0d0d1a]">
+      <div className="relative min-h-0 flex-1">
+        <div ref={termRef} className="absolute inset-0" />
+        {disconnected && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 backdrop-blur-sm">
+            <p className="text-sm text-white/80">{t('workspaces.terminals.disconnected')}</p>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => { setDisconnected(false); setEpoch((e) => e + 1) }}
+            >
+              <RotateCw className="mr-1 h-3.5 w-3.5" />
+              {t('workspaces.terminals.reconnect')}
+            </Button>
+          </div>
+        )}
+      </div>
+      <TerminalKeybar
+        onSend={sendToSession}
+        getSelection={() => terminalRef.current?.getSelection() ?? ''}
+      />
     </div>
   )
 }

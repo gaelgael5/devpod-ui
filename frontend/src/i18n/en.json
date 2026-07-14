@@ -106,7 +106,20 @@
       "deleteTitle": "Delete session?",
       "deleteDescription": "Session “{{name}}” and its tmux will be closed — any running process (including an agent) will be interrupted.",
       "confirmDelete": "Delete",
-      "deleted": "Session “{{name}}” deleted."
+      "deleted": "Session “{{name}}” deleted.",
+      "keybar": {
+        "esc": "Esc",
+        "escTitle": "Send the Escape key",
+        "interrupt": "Interrupt",
+        "interruptTitle": "Interrupt the foreground process (SIGINT)",
+        "paste": "Paste",
+        "pasteTitle": "Paste the clipboard into the session",
+        "pasteError": "Clipboard unavailable",
+        "copy": "Copy",
+        "copyTitle": "Copy the terminal selection",
+        "copyEmpty": "No selection to copy",
+        "copied": "Selection copied"
+      }
     },
     "initializers": {
       "button": "Initialize",
