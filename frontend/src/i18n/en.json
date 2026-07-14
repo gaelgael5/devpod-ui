@@ -1460,6 +1460,23 @@
       "granted": "Granted",
       "paused": "Paused",
       "revoked": "Revoked"
+    },
+    "validationsTitle": "Validations",
+    "noGrants": "No request or granted skill yet.",
+    "review": "Review",
+    "approve": "Approve",
+    "revoke": "Revoke",
+    "pause": "Pause",
+    "resume": "Resume",
+    "revalidation": "Re-validation (hash drifted)",
+    "currentHash": "Current hash",
+    "approvedHash": "Approved hash",
+    "hashDrifted": "content changed since validation",
+    "actionDone": {
+      "approve": "Skill approved — approved hash pinned.",
+      "revoke": "Grant revoked — routing cut on all placements.",
+      "pause": "Skill paused.",
+      "resume": "Skill resumed."
     }
   }
 }

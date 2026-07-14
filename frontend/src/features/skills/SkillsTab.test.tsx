@@ -84,7 +84,10 @@ describe('SkillsTab', () => {
     await user.type(screen.getByPlaceholderText('Search a skill…'), 'git')
     await user.click(screen.getByRole('button', { name: /Search/ }))
 
-    await waitFor(() => expect(screen.getByText('Pending validation')).toBeInTheDocument())
+    // Le badge apparaît sur le résultat ET dans le panneau Validations intégré.
+    await waitFor(() =>
+      expect(screen.getAllByText('Pending validation').length).toBeGreaterThan(0),
+    )
     expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument()
   })
 })

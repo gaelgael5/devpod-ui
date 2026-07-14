@@ -81,3 +81,33 @@ export function useRequestGrant() {
     },
   })
 }
+
+export type GrantAction = 'approve' | 'revoke' | 'pause' | 'resume'
+
+export function useGrantAction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ grantId, action }: { grantId: number; action: GrantAction }) =>
+      apiFetchJson<SkillGrant>(`/me/skills/grants/${grantId}/${action}`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['skills-grants'] })
+    },
+  })
+}
+
+export interface SkillMdDoc {
+  content: string
+  hash: string
+  approved_hash: string | null
+}
+
+export function useGrantSkillMd(grantId: number | null) {
+  return useQuery<SkillMdDoc>({
+    queryKey: ['skills-grant-md', grantId],
+    queryFn: () => apiFetchJson<SkillMdDoc>(`/me/skills/grants/${grantId}/skillmd`),
+    enabled: grantId !== null,
+    staleTime: 5 * 60 * 1000,
+  })
+}

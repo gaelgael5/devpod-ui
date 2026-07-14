@@ -1460,6 +1460,23 @@
       "granted": "Validée",
       "paused": "En pause",
       "revoked": "Révoquée"
+    },
+    "validationsTitle": "Validations",
+    "noGrants": "Aucune demande ni skill validée.",
+    "review": "Examiner",
+    "approve": "Valider",
+    "revoke": "Révoquer",
+    "pause": "Mettre en pause",
+    "resume": "Remettre en service",
+    "revalidation": "Re-validation (hash dérivé)",
+    "currentHash": "Hash courant",
+    "approvedHash": "Hash approuvé",
+    "hashDrifted": "le contenu a changé depuis la validation",
+    "actionDone": {
+      "approve": "Skill validée — hash approuvé figé.",
+      "revoke": "Grant révoqué — routage coupé sur tous les placements.",
+      "pause": "Skill mise en pause.",
+      "resume": "Skill remise en service."
     }
   }
 }

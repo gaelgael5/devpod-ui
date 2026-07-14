@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useSecrets } from '@/features/secrets/api'
+import GrantsPanel from './GrantsPanel'
 import {
   useMyGrants,
   useRequestGrant,
@@ -205,6 +206,8 @@ export default function SkillsTab() {
           })}
         </ul>
       )}
+
+      <GrantsPanel />
     </div>
   )
 }
