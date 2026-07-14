@@ -27,6 +27,14 @@ export default function WorkspaceTerminals() {
   )
   const [createOpen, setCreateOpen] = useState(false)
 
+  // Titre d'onglet distinctif : chaque session s'ouvre dans son propre onglet,
+  // sans ça ils s'appellent tous « DevPod Portal ».
+  useEffect(() => {
+    const previous = document.title
+    document.title = selected ? `${selected} — ${wsName}` : `${wsName} — sessions`
+    return () => { document.title = previous }
+  }, [wsName, selected])
+
   useEffect(() => {
     if (sessions.length > 0 && selected === null) setSelected(sessions[0])
   }, [sessions, selected])
