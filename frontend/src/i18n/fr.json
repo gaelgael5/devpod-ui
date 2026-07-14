@@ -1474,6 +1474,7 @@
     "resultsCount": "{{total}} résultat(s)",
     "noResults": "Aucun résultat pour « {{q}} ».",
     "add": "Ajouter",
+    "viewOnSkillsSh": "Voir sur skills.sh",
     "requested": "Demande de validation créée pour « {{name}} »",
     "status": {
       "requested": "Demandée",

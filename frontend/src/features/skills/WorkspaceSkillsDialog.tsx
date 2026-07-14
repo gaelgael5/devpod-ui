@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import SkillShLink from './SkillShLink'
 import {
   useMyGrants,
   usePlaceSkill,
@@ -84,6 +85,7 @@ export default function WorkspaceSkillsDialog({
                   <span className="min-w-0 flex-1 truncate font-mono text-sm">
                     {p.skill_id}
                   </span>
+                  <SkillShLink skillId={p.skill_id} />
                   <span
                     className={`rounded px-1.5 py-0.5 text-[10px] uppercase ${PLACEMENT_CLASS[p.placement_statut] ?? 'bg-muted text-muted-foreground'}`}
                   >

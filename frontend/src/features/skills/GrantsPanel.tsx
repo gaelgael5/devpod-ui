@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import SkillShLink from './SkillShLink'
 import {
   useGrantAction,
   useGrantSkillMd,
@@ -64,6 +65,7 @@ function GrantRow({ grant }: { grant: SkillGrant }) {
     <li className="flex flex-col gap-2 rounded-md border bg-background px-3 py-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-mono text-sm">{grant.skill_id}</span>
+        <SkillShLink skillId={grant.skill_id} />
         <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
           {t(`skills.status.${grant.statut}`)}
         </span>

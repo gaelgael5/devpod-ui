@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useSecrets } from '@/features/secrets/api'
 import GrantsPanel from './GrantsPanel'
+import SkillShLink from './SkillShLink'
 import {
   useMyGrants,
   useRequestGrant,
@@ -169,6 +170,7 @@ export default function SkillsTab() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-sm font-medium">{r.name}</span>
+                    <SkillShLink skillId={r.id} />
                     {risk ? (
                       <span
                         className={`rounded px-1.5 py-0.5 text-[10px] uppercase ${RISK_CLASS[risk] ?? 'bg-muted text-muted-foreground'}`}
