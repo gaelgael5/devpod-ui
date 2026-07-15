@@ -192,6 +192,25 @@ describe('TestHostBlock — liens (clé → URL) du menu ⋮', () => {
   })
 })
 
+describe('TestHostBlock — bloc partagé (sharedFrom)', () => {
+  const SHARED: TestHost = { ...HOST, sharedFrom: 'owner-ws' }
+
+  it('affiche le badge « Partagé par » et masque les actions de cycle de vie', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <TestHostBlock wsName="ws1" host={SHARED} deployments={[]} onOpenSsh={vi.fn()} />,
+    )
+    expect(screen.getByText(/partagé par owner-ws|shared by owner-ws/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /actions/i }))
+    // Ouvrir SSH reste ; suppression, partage et resolve-ip sont absents.
+    expect(await screen.findByText(/open ssh session|ouvrir une session ssh/i)).toBeInTheDocument()
+    expect(screen.queryByText(/^delete$|^supprimer$/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^share…$|^partager…$/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/resolve ip|résoudre l'ip/i)).not.toBeInTheDocument()
+  })
+})
+
 describe('stoppedLast — workspaces arrêtés en fin de groupe', () => {
   const ws = (name: string): WorkspaceSpec => ({ name, source: '' }) as WorkspaceSpec
   const list = [ws('a'), ws('b'), ws('c'), ws('d')]

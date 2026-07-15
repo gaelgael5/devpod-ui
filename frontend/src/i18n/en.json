@@ -186,6 +186,19 @@
       "copyFailed": "Failed to copy URL",
       "saveFailed": "Failed to save link"
     },
+    "testHostShare": {
+      "menu": "Share…",
+      "title": "Share {{alias}}",
+      "description": "Make this test machine reachable over SSH from other running workspaces. Each checked workspace gets access (ssh) and a message for its agent; unchecking removes access.",
+      "loading": "Loading…",
+      "empty": "No other running workspace to share with.",
+      "notRunning": "stopped",
+      "sharedBadge": "Shared by {{from}}",
+      "save": "Save",
+      "saving": "Applying share…",
+      "saved": "Sharing updated",
+      "saveFailed": "Failed to update sharing"
+    },
     "form": {
       "name": "Name",
       "sources": "Git sources",

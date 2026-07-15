@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Copy, ExternalLink, Link2, MoreVertical, PlayCircle, RefreshCw, TerminalSquare, Trash2,
+  Copy, ExternalLink, Link2, MoreVertical, PlayCircle, RefreshCw, Share2, TerminalSquare, Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,7 @@ import {
   useDeleteTestHost, useResolveTestHostIp, useTestHostLinks, type TestHost,
 } from './useTestVm'
 import TestHostLinksDialog from './TestHostLinksDialog'
+import TestHostShareDialog from './TestHostShareDialog'
 import type { ComposeDeployment } from '@/features/compose/api/types'
 import HostServicesBlock from '@/features/compose/components/HostServicesBlock'
 
@@ -41,7 +42,11 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [launchOpen, setLaunchOpen] = useState(false)
   const [linksOpen, setLinksOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const { data: links = [] } = useTestHostLinks(wsName, host.name)
+  // Bloc partagé-VERS ce workspace : accès SSH seul, pas de contrôle du cycle de
+  // vie de la VM (ni suppression, ni resolve-ip, ni re-partage).
+  const shared = !!host.sharedFrom
 
   function handleResolve() {
     toast.promise(resolve.mutateAsync(host.name), {
@@ -68,6 +73,11 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
           <span className="font-mono text-xs text-muted-foreground truncate">
             {host.name} · {host.ip}
           </span>
+          {shared && (
+            <span className="shrink-0 self-center rounded bg-primary/10 px-1.5 py-0.5 text-[10px] uppercase text-primary">
+              {t('workspaces.testHostShare.sharedBadge', { from: host.sharedFrom })}
+            </span>
+          )}
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -81,18 +91,28 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuItem onSelect={() => setLaunchOpen(true)} className="gap-2">
-              <PlayCircle className="h-3.5 w-3.5" />
-              {t('workspaces.testHosts.launchService')}
-            </DropdownMenuItem>
+            {!shared && (
+              <DropdownMenuItem onSelect={() => setLaunchOpen(true)} className="gap-2">
+                <PlayCircle className="h-3.5 w-3.5" />
+                {t('workspaces.testHosts.launchService')}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => onOpenSsh(host)} className="gap-2">
               <TerminalSquare className="h-3.5 w-3.5" />
               {t('workspaces.testHosts.openSsh')}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={handleResolve} className="gap-2">
-              <RefreshCw className="h-3.5 w-3.5" />
-              {t('workspaces.testHosts.resolveIp')}
-            </DropdownMenuItem>
+            {!shared && (
+              <DropdownMenuItem onSelect={handleResolve} className="gap-2">
+                <RefreshCw className="h-3.5 w-3.5" />
+                {t('workspaces.testHosts.resolveIp')}
+              </DropdownMenuItem>
+            )}
+            {!shared && (
+              <DropdownMenuItem onSelect={() => setShareOpen(true)} className="gap-2">
+                <Share2 className="h-3.5 w-3.5" />
+                {t('workspaces.testHostShare.menu')}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             {links.map((link) => (
               <DropdownMenuItem
@@ -122,18 +142,24 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
                 </button>
               </DropdownMenuItem>
             ))}
-            <DropdownMenuItem onSelect={() => setLinksOpen(true)} className="gap-2">
-              <Link2 className="h-3.5 w-3.5" />
-              {t('workspaces.testHostLinks.manage')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="gap-2 text-destructive focus:text-destructive"
-              onSelect={() => setConfirmDelete(true)}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              {t('workspaces.testHosts.delete')}
-            </DropdownMenuItem>
+            {!shared && (
+              <DropdownMenuItem onSelect={() => setLinksOpen(true)} className="gap-2">
+                <Link2 className="h-3.5 w-3.5" />
+                {t('workspaces.testHostLinks.manage')}
+              </DropdownMenuItem>
+            )}
+            {!shared && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="gap-2 text-destructive focus:text-destructive"
+                  onSelect={() => setConfirmDelete(true)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {t('workspaces.testHosts.delete')}
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -156,6 +182,15 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
           wsName={wsName}
           hostName={host.name}
           hostAlias={host.alias}
+        />
+      )}
+
+      {shareOpen && (
+        <TestHostShareDialog
+          wsName={wsName}
+          hostName={host.name}
+          hostAlias={host.alias}
+          onClose={() => setShareOpen(false)}
         />
       )}
 

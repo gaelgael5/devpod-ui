@@ -186,6 +186,19 @@
       "copyFailed": "Impossible de copier l'URL",
       "saveFailed": "Échec de l'enregistrement du lien"
     },
+    "testHostShare": {
+      "menu": "Partager…",
+      "title": "Partager {{alias}}",
+      "description": "Rendez cette machine de test accessible en SSH à d'autres workspaces démarrés. Chaque workspace coché reçoit l'accès (ssh) et un message à l'attention de son agent ; décocher retire l'accès.",
+      "loading": "Chargement…",
+      "empty": "Aucun autre workspace démarré à qui partager.",
+      "notRunning": "arrêté",
+      "sharedBadge": "Partagé par {{from}}",
+      "save": "Enregistrer",
+      "saving": "Application du partage…",
+      "saved": "Partage mis à jour",
+      "saveFailed": "Échec de la mise à jour du partage"
+    },
     "form": {
       "name": "Nom",
       "sources": "Sources Git",

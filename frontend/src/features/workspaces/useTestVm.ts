@@ -14,6 +14,9 @@ export interface TestHost {
   name: string
   ip: string
   vmid: string
+  /** Non vide = VM partagée-vers ce workspace depuis le workspace nommé (bloc en
+   *  lecture seule : accès SSH sans contrôle du cycle de vie). */
+  sharedFrom?: string
 }
 
 /** Machines de test attachées à un workspace (pour le menu SSH test). */
@@ -125,6 +128,46 @@ export function useCreateTestVm() {
   }, [qc])
 
   return { ...state, execute, reset }
+}
+
+/** Workspaces à qui une VM de test (possédée par wsName) est partagée. */
+export function useTestHostShares(wsName: string, hostName: string, enabled: boolean) {
+  return useQuery<string[]>({
+    queryKey: ['me', 'workspaces', wsName, 'test-hosts', hostName, 'shares'],
+    queryFn: async () => {
+      const r = await apiFetchJson<{ shared: string[] }>(
+        `/me/workspaces/${encodeURIComponent(wsName)}/test-hosts/${encodeURIComponent(hostName)}/shares`,
+      )
+      return r.shared
+    },
+    enabled,
+    staleTime: 15_000,
+  })
+}
+
+/** Réconcilie l'ensemble des workspaces partagés (cases cochées de la fenêtre). */
+export function useSetTestHostShares(wsName: string, hostName: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (workspaces: string[]) => {
+      const r = await apiFetchJson<{ shared: string[] }>(
+        `/me/workspaces/${encodeURIComponent(wsName)}/test-hosts/${encodeURIComponent(hostName)}/shares`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaces }),
+        },
+      )
+      return r.shared
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey: ['me', 'workspaces', wsName, 'test-hosts', hostName, 'shares'],
+      })
+      // Le partage crée un message agent PENDING côté cible → rafraîchir les compteurs.
+      qc.invalidateQueries({ queryKey: ['agent-messages'] })
+    },
+  })
 }
 
 export interface TestHostLink {
