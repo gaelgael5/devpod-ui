@@ -267,6 +267,9 @@ workspace_test_hosts = Table(
     # Alias court `testN` (par workspace), pour `ssh testN` dans le container.
     Column("alias", Text, nullable=True),
     Column("message_id", BigInteger, nullable=True),
+    # NULL = ligne du workspace PROPRIÉTAIRE (créateur de la VM, pilote son cycle
+    # de vie) ; non-NULL = ligne de PARTAGE, valeur = nom du workspace d'origine.
+    Column("shared_from_workspace", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("login", "workspace_name", "host_name", name="uq_wth_login_ws_host"),
 )

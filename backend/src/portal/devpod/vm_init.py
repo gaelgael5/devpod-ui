@@ -91,6 +91,54 @@ def build_vm_root_inject_script(pubkey: str, password: str, vm_address: str) -> 
     )
 
 
+def build_vm_authorized_key_add_script(pubkey: str, vm_address: str) -> str:
+    """Script exécuté sur le nœud PVE : AJOUTE une pubkey dans
+    /root/.ssh/authorized_keys de la VM, SANS toucher au mot de passe root.
+
+    Utilisé pour PARTAGER la VM à un autre workspace (dont on autorise la clé de
+    container) : contrairement à `build_vm_root_inject_script`, ne réinitialise
+    pas le mot de passe (le partage n'est pas une (re)création de VM).
+    """
+    pub_q = shlex.quote(pubkey)
+    inner = (
+        "set -euo pipefail; "
+        "sudo mkdir -p /root/.ssh && sudo chmod 700 /root/.ssh && "
+        f"(sudo grep -qxF {pub_q} /root/.ssh/authorized_keys 2>/dev/null || "
+        f"echo {pub_q} | sudo tee -a /root/.ssh/authorized_keys >/dev/null) && "
+        "sudo chmod 600 /root/.ssh/authorized_keys"
+    )
+    return (
+        "set -euo pipefail\n"
+        "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 "
+        f"{shlex.quote(vm_address)} {shlex.quote(inner)}\n"
+    )
+
+
+def build_vm_authorized_key_remove_script(pubkey: str, vm_address: str) -> str:
+    """Script exécuté sur le nœud PVE : RETIRE une pubkey de
+    /root/.ssh/authorized_keys de la VM (dé-partage). No-op si absente.
+
+    Filtre la ligne exacte (grep -vxF) via un fichier temporaire pour ne pas
+    dépendre d'un `sed` sur une clé contenant des caractères spéciaux.
+    """
+    pub_q = shlex.quote(pubkey)
+    inner = (
+        "set -euo pipefail; "
+        "f=/root/.ssh/authorized_keys; "
+        "if sudo test -f \"$f\"; then "
+        # `grep -v` sort en code 1 si TOUTES les lignes sont filtrées (clé seule) :
+        # `|| true` évite que pipefail ne fasse échouer un retrait légitime.
+        f"{{ sudo grep -vxF {pub_q} \"$f\" || true; }} | sudo tee \"$f.tmp\" >/dev/null && "
+        "sudo mv \"$f.tmp\" \"$f\" && sudo chmod 600 \"$f\"; "
+        "fi"
+    )
+    return (
+        "set -euo pipefail\n"
+        "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 "
+        f"{shlex.quote(vm_address)} {shlex.quote(inner)}\n"
+    )
+
+
 def _ssh_cfg_sed_delete(alias: str) -> str:
     """Expression `sed` ancrée supprimant le bloc délimité d'un alias (BRE littéral)."""
     begin = _SSH_CFG_BEGIN.format(name=alias)

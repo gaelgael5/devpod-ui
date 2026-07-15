@@ -26,16 +26,21 @@ from ..db.engine import _get_engine
 from ..db.global_config import save_global_db, set_cached_global
 from ..db.test_hosts import (
     assign_test_host,
+    count_owned_test_hosts,
     delete_test_host_link,
     get_test_host_message_id,
+    is_owned_test_host,
+    list_shared_targets,
     list_test_host_links,
     list_test_hosts_detailed,
+    list_test_hosts_with_share,
     next_test_alias,
     remove_test_host,
     set_test_host_message_id,
     upsert_test_host_link,
 )
 from ..devpod.ssh_exec import run_ssh_capture
+from ..devpod.test_host_share import ShareError, add_share, node_for_host, remove_share
 from ..devpod.test_vm import (
     build_test_host_views,
     build_test_vm_args,
@@ -240,9 +245,15 @@ async def list_workspace_test_hosts(
     if not any(w.name == ws for w in user_cfg.workspaces):
         raise HTTPException(status_code=404, detail=f"Workspace {ws!r} not found")
     async with _get_engine().connect() as conn:
-        detailed = await list_test_hosts_detailed(user.login, ws, conn)
+        triples = await list_test_hosts_with_share(user.login, ws, conn)
     cfg = load_global()
-    return build_test_host_views(detailed, cfg.hosts)
+    shared_map = {name: (sf or "") for name, _alias, sf in triples}
+    views = build_test_host_views([(n, a) for n, a, _ in triples], cfg.hosts)
+    for v in views:
+        # `sharedFrom` non vide = VM partagée-vers ce workspace (bloc en lecture
+        # seule côté carte : pas de suppression/recréation).
+        v["sharedFrom"] = shared_map.get(v["name"], "")
+    return views
 
 
 class CreateTestVmRequest(BaseModel):
@@ -294,7 +305,9 @@ async def create_test_vm(
     # alias = plus petit `testN` libre (réutilise les numéros des machines supprimées).
     async with _get_engine().connect() as conn:
         detailed = await list_test_hosts_detailed(login, ws, conn)
-    n = len(detailed)
+        # `<N>` = nombre de VM POSSÉDÉES (une VM partagée-vers ce workspace ne
+        # décale pas la numérotation) ; l'alias évite toutes les collisions ssh.
+        n = await count_owned_test_hosts(login, ws, conn)
     alias = next_test_alias([a for _, a in detailed])
     args = substitute_param_vars(args, {"N": str(n), "N+1": str(n + 1)})
 
@@ -408,14 +421,32 @@ async def delete_test_vm(
     login = user.login
     async with _get_engine().connect() as conn:
         detailed = await list_test_hosts_detailed(login, ws, conn)
+        owned = await is_owned_test_host(login, ws, host_name, conn)
+        shared_targets = await list_shared_targets(login, host_name, conn)
     alias = next((a for n, a in detailed if n == host_name), None)
     if alias is None:
         raise HTTPException(
             status_code=404, detail=f"Test host {host_name!r} not found for workspace {ws!r}"
         )
+    if not owned:
+        # Garde de cycle de vie : une VM seulement PARTAGÉE-vers ce workspace ne
+        # peut pas être détruite depuis lui (seul le propriétaire le peut).
+        raise HTTPException(
+            status_code=403,
+            detail="Cette VM vous est partagée : seul son propriétaire peut la supprimer.",
+        )
 
     cfg = load_global()
     host_cfg = next((h for h in cfg.hosts if h.name == host_name), None)
+
+    # 0. Nettoyer les partages (bloc ssh config des cibles + message). La VM va être
+    #    détruite → pas de retrait de clé sur la VM (node=None), best-effort.
+    if host_cfg is not None:
+        for target_ws, _alias, _msg in shared_targets:
+            try:
+                await remove_share(login, host_cfg, None, target_ws)
+            except Exception:
+                _log.warning("test_vm_share_cleanup_failed", host=host_name, target=target_ws)
 
     # 1. Détruire la VM sur l'hyperviseur (best-effort, ne lève pas).
     if host_cfg is not None:
@@ -466,10 +497,16 @@ async def resolve_test_vm_ip(
     login = user.login
     async with _get_engine().connect() as conn:
         detailed = await list_test_hosts_detailed(login, ws, conn)
+        owned = await is_owned_test_host(login, ws, host_name, conn)
     alias = next((a for n, a in detailed if n == host_name), None)
     if alias is None:
         raise HTTPException(
             status_code=404, detail=f"Test host {host_name!r} not found for workspace {ws!r}"
+        )
+    if not owned:
+        raise HTTPException(
+            status_code=403,
+            detail="Cette VM vous est partagée : seul son propriétaire peut la re-résoudre.",
         )
 
     cfg = load_global()
@@ -500,6 +537,99 @@ async def resolve_test_vm_ip(
 
     _log.info("test_vm_ip_resolved", login=login, ws=ws, host=host_name, fqdn=fqdn, ip=new_ip)
     return {"ip": new_ip, "fqdn": fqdn}
+
+
+# ─── Partage d'une VM de test vers d'autres workspaces (menu ⋮ « Partager ») ──
+
+
+@router.get("/workspaces/{ws}/test-hosts/{host_name}/shares")
+async def get_test_host_shares(
+    ws: str,
+    host_name: str,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, list[str]]:
+    """Workspaces à qui cette VM (possédée par `ws`) est actuellement partagée."""
+    await _require_ws_and_host(ws, host_name, user.login)
+    async with _get_engine().connect() as conn:
+        if not await is_owned_test_host(user.login, ws, host_name, conn):
+            raise HTTPException(
+                status_code=404, detail=f"Test host {host_name!r} not owned by {ws!r}"
+            )
+        targets = await list_shared_targets(user.login, host_name, conn)
+    return {"shared": sorted(t[0] for t in targets)}
+
+
+class ShareBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspaces: list[str]
+
+
+@router.put("/workspaces/{ws}/test-hosts/{host_name}/shares")
+async def set_test_host_shares(
+    ws: str,
+    host_name: str,
+    body: ShareBody,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, list[str]]:
+    """Réconcilie l'ensemble des workspaces partagés (cases cochées de la fenêtre).
+
+    Diff vs état courant : les ajouts injectent la clé du container cible sur la
+    VM + écrivent son ssh config + créent un message ; les retraits nettoient tout.
+    Réservé au workspace PROPRIÉTAIRE de la VM.
+    """
+    await _require_ws_and_host(ws, host_name, user.login)
+    login = user.login
+
+    user_cfg = await load_user(login)
+    ws_names = {w.name for w in user_cfg.workspaces}
+    desired: set[str] = set()
+    for target in body.workspaces:
+        if not _WS_NAME_RE.fullmatch(target):
+            raise HTTPException(status_code=422, detail=f"Invalid workspace name: {target!r}")
+        if target == ws:
+            raise HTTPException(
+                status_code=422, detail="Une VM ne se partage pas à son propre propriétaire"
+            )
+        if target not in ws_names:
+            raise HTTPException(status_code=404, detail=f"Workspace {target!r} not found")
+        desired.add(target)
+
+    cfg = load_global()
+    host_cfg = next((h for h in cfg.hosts if h.name == host_name), None)
+    if host_cfg is None:
+        raise HTTPException(status_code=404, detail=f"Host {host_name!r} not found")
+    async with _get_engine().connect() as conn:
+        if not await is_owned_test_host(login, ws, host_name, conn):
+            raise HTTPException(
+                status_code=404, detail=f"Test host {host_name!r} not owned by {ws!r}"
+            )
+        current = {t[0] for t in await list_shared_targets(login, host_name, conn)}
+
+    node = node_for_host(cfg, host_cfg)
+    to_add = desired - current
+    to_remove = current - desired
+
+    errors: list[str] = []
+    if to_add:
+        if node is None:
+            raise HTTPException(
+                status_code=409, detail="Nœud PVE de la VM introuvable — partage impossible"
+            )
+        for target in sorted(to_add):
+            try:
+                await add_share(login, ws, host_cfg, node, target)
+            except ShareError as exc:
+                errors.append(f"{target}: {exc}")
+    for target in sorted(to_remove):
+        await remove_share(login, host_cfg, node, target)
+
+    if errors:
+        raise HTTPException(status_code=502, detail="Partage partiel — " + " ; ".join(errors))
+
+    async with _get_engine().connect() as conn:
+        targets = await list_shared_targets(login, host_name, conn)
+    return {"shared": sorted(t[0] for t in targets)}
 
 
 # ─── Liens (clé → URL) d'un serveur de test (menu ⋮ du host) ─────────────────
