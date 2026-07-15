@@ -209,6 +209,18 @@ describe('TestHostBlock — bloc partagé (sharedFrom)', () => {
     expect(screen.queryByText(/^share…$|^partager…$/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/resolve ip|résoudre l'ip/i)).not.toBeInTheDocument()
   })
+
+  it('affiche les services sans aucun bouton d’action (lecture seule)', () => {
+    renderWithProviders(
+      <TestHostBlock wsName="ws1" host={SHARED} deployments={[DEPLOYMENT]} onOpenSsh={vi.fn()} />,
+    )
+    // Le service reste visible avec son statut (même graphisme)…
+    expect(screen.getByText('nginx-demo')).toBeInTheDocument()
+    // …mais aucune action (stop/restart/logs/supprimer) n'est proposée.
+    expect(screen.queryByRole('button', { name: /stop|arrêter/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /restart|redémarrer/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /logs|journaux/i })).not.toBeInTheDocument()
+  })
 })
 
 describe('stoppedLast — workspaces arrêtés en fin de groupe', () => {

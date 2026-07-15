@@ -11,6 +11,8 @@ interface Props {
   /** Ouverture du dialog de lancement — pilotée par le parent (item du menu ⋮ du host). */
   launchOpen: boolean
   onLaunchOpenChange: (open: boolean) => void
+  /** Lecture seule (VM partagée-vers ce workspace) : services affichés sans actions. */
+  readOnly?: boolean
 }
 
 /**
@@ -20,7 +22,7 @@ interface Props {
  * le dialog reste ici pour mutualiser nodeId/nodeLabel/namingHint.
  */
 export default function HostServicesBlock({
-  nodeId, nodeLabel, namingHint, deployments, launchOpen, onLaunchOpenChange,
+  nodeId, nodeLabel, namingHint, deployments, launchOpen, onLaunchOpenChange, readOnly = false,
 }: Props) {
   const { t } = useTranslation()
 
@@ -29,7 +31,7 @@ export default function HostServicesBlock({
       {deployments.length > 0 ? (
         <div className="flex flex-col gap-1.5">
           {deployments.map((dep) => (
-            <DeploymentRow key={dep.uid} dep={dep} />
+            <DeploymentRow key={dep.uid} dep={dep} readOnly={readOnly} />
           ))}
         </div>
       ) : (

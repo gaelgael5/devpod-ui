@@ -4,6 +4,7 @@ import {
   Copy, ExternalLink, Link2, MoreVertical, PlayCircle, RefreshCw, Share2, TerminalSquare, Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -66,8 +67,19 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
   }
 
   return (
-    <div className="rounded-lg border bg-card overflow-hidden">
-      <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2">
+    <div
+      className={cn(
+        'rounded-lg border overflow-hidden',
+        // Teinte distincte pour une VM partagée-vers ce workspace (vs possédée).
+        shared ? 'border-primary/30 bg-primary/[0.04]' : 'bg-card',
+      )}
+    >
+      <div
+        className={cn(
+          'flex items-center justify-between gap-2 border-b px-3 py-2',
+          shared ? 'bg-primary/10' : 'bg-muted/40',
+        )}
+      >
         <div className="flex min-w-0 items-baseline gap-2">
           <span className="font-semibold text-sm truncate">{host.alias}</span>
           <span className="font-mono text-xs text-muted-foreground truncate">
@@ -172,6 +184,7 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
           deployments={deployments}
           launchOpen={launchOpen}
           onLaunchOpenChange={setLaunchOpen}
+          readOnly={shared}
         />
       </div>
 
