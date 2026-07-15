@@ -1,6 +1,6 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nextProvider } from 'react-i18next'
@@ -10,11 +10,17 @@ import i18n from '@/i18n'
 import { server } from '@/test/server'
 import WorkspaceTerminals from './WorkspaceTerminals'
 
-function renderPage() {
+// Stub du terminal : évite xterm/WebSocket (absents de jsdom) et expose la
+// session effectivement sélectionnée.
+vi.mock('./WorkspaceSessionTerminal', () => ({
+  default: ({ session }: { session: string }) => <div data-testid="term">{session}</div>,
+}))
+
+function renderPage(path = '/workspaces/myapp/terminals') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   const router = createMemoryRouter(
     [{ path: '/workspaces/:wsName/terminals', element: <I18nextProvider i18n={i18n}><WorkspaceTerminals /></I18nextProvider> }],
-    { initialEntries: ['/workspaces/myapp/terminals'] }
+    { initialEntries: [path] }
   )
   return render(
     <QueryClientProvider client={queryClient}>
@@ -77,5 +83,35 @@ describe('bug 044 : validation client du nom de session', () => {
 
     await waitFor(() => expect(createdName).toBe('myapp1'))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
+describe('bug : ?session ne doit pas retomber sur la première session', () => {
+  it('honore ?session=devpod2 même pendant le chargement de la liste', async () => {
+    server.use(
+      http.get('/me/workspaces/:name/sessions', () =>
+        HttpResponse.json(['devpod1', 'devpod2']),
+      ),
+      http.get('/me/workspaces/:name/start-recipes', () => HttpResponse.json([])),
+    )
+    renderPage('/workspaces/myapp/terminals?session=devpod2')
+
+    // La session ciblée par l'URL est sélectionnée d'emblée…
+    expect(await screen.findByTestId('term')).toHaveTextContent('devpod2')
+    // …et le reste après résolution de la liste (pas de repli sur devpod1).
+    await waitFor(() => expect(document.title).toContain('devpod2'))
+    expect(screen.getByTestId('term')).toHaveTextContent('devpod2')
+    expect(screen.getByTestId('term')).not.toHaveTextContent('devpod1')
+  })
+
+  it('retombe sur la première session si ?session cible une session inexistante', async () => {
+    server.use(
+      http.get('/me/workspaces/:name/sessions', () =>
+        HttpResponse.json(['devpod1', 'devpod2']),
+      ),
+      http.get('/me/workspaces/:name/start-recipes', () => HttpResponse.json([])),
+    )
+    renderPage('/workspaces/myapp/terminals?session=ghost')
+    await waitFor(() => expect(screen.getByTestId('term')).toHaveTextContent('devpod1'))
   })
 })

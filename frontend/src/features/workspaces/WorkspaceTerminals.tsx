@@ -18,14 +18,27 @@ export default function WorkspaceTerminals() {
   const { wsName } = useParams<{ wsName: string }>()
   const [searchParams] = useSearchParams()
   const { t } = useTranslation()
-  const { data: sessions = [] } = useWorkspaceSessions(wsName)
+  const { data: sessions = [], isFetched } = useWorkspaceSessions(wsName)
   const { data: startRecipes = [] } = useWorkspaceStartRecipes(wsName)
-  // ?session=<nom> présélectionne la session ; si elle n'existe pas/plus, les
-  // effets ci-dessous retombent sur la première session disponible.
-  const [selected, setSelected] = useState<string | null>(
-    () => searchParams.get('session')
-  )
+  const urlSession = searchParams.get('session')
+  // Session choisie explicitement (ex. tout juste créée) — prime sur l'URL.
+  const [picked, setPicked] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+
+  // Session effective, DÉRIVÉE (pas d'effet → pas de race) :
+  //   1. un choix explicite prime toujours (session créée à l'instant) ;
+  //   2. sinon on honore ?session=<nom> ;
+  //   3. la retombée sur la première session n'a lieu QU'APRÈS le chargement de
+  //      la liste — sinon `sessions` vide pendant le fetch écrasait ?session=
+  //      et toute session ouverte par URL retombait sur la première (bug).
+  const selected =
+    picked !== null
+      ? picked
+      : !isFetched
+        ? urlSession
+        : urlSession && sessions.includes(urlSession)
+          ? urlSession
+          : (sessions[0] ?? null)
 
   // Titre d'onglet distinctif : chaque session s'ouvre dans son propre onglet,
   // sans ça ils s'appellent tous « DevPod Portal ».
@@ -34,18 +47,6 @@ export default function WorkspaceTerminals() {
     document.title = selected ? `${selected} — ${wsName}` : `${wsName} — sessions`
     return () => { document.title = previous }
   }, [wsName, selected])
-
-  useEffect(() => {
-    if (sessions.length > 0 && selected === null) setSelected(sessions[0])
-  }, [sessions, selected])
-
-  useEffect(() => {
-    if (selected !== null && sessions.length > 0 && !sessions.includes(selected)) {
-      setSelected(sessions[0])
-    } else if (selected !== null && sessions.length === 0) {
-      setSelected(null)
-    }
-  }, [sessions, selected])
 
   return (
     <div className="flex h-screen flex-col bg-background">
@@ -70,7 +71,7 @@ export default function WorkspaceTerminals() {
           sessions={sessions}
           startRecipes={startRecipes}
           onClose={() => setCreateOpen(false)}
-          onCreate={(name) => setSelected(name)}
+          onCreate={(name) => setPicked(name)}
         />
       )}
     </div>
