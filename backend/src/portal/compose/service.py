@@ -147,6 +147,62 @@ def _parse_ps_status(ps_json: str) -> str:
     return "stopped"
 
 
+def _parse_compose_ls(out: str) -> list[dict[str, str]]:
+    """Parse `docker compose ls --format json` — tableau JSON ou JSON-lines."""
+    text = out.strip()
+    if not text:
+        return []
+    items: list[object] = []
+    try:
+        parsed = json.loads(text)
+        items = parsed if isinstance(parsed, list) else [parsed]
+    except json.JSONDecodeError:
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                items.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    stacks: list[dict[str, str]] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        name = str(it.get("Name", "")).strip()
+        if not name:
+            continue
+        stacks.append(
+            {
+                "name": name,
+                "status": str(it.get("Status", "")),
+                "configFiles": str(it.get("ConfigFiles", "")),
+            }
+        )
+    return sorted(stacks, key=lambda s: s["name"])
+
+
+async def list_host_stacks(node_id: str) -> list[dict[str, str]]:
+    """Stacks docker-compose réellement présentes sur la machine (`docker compose ls`).
+
+    Vue LIVE via le docker de l'hôte (SSH + CLI), indépendante des déploiements
+    trackés par le portail. Best-effort : docker/compose absent ou hôte injoignable
+    → liste vide (c'est informationnel, pas une erreur bloquante).
+    """
+    host = _host_for_node(node_id)
+    try:
+        rc, out, err = await run_host_command(
+            host, "docker compose ls --all --format json", timeout=30.0
+        )
+    except HostExecError as exc:
+        _log.info("host_stacks_unavailable", node=node_id, error=str(exc))
+        return []
+    if rc != 0:
+        _log.info("host_stacks_ls_failed", node=node_id, rc=rc, err=err[:200])
+        return []
+    return _parse_compose_ls(out)
+
+
 async def deploy(
     conn: AsyncConnection,
     *,

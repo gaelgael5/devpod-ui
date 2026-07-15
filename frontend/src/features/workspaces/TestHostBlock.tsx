@@ -21,6 +21,7 @@ import {
 } from './useTestVm'
 import TestHostLinksDialog from './TestHostLinksDialog'
 import TestHostShareDialog from './TestHostShareDialog'
+import TestHostStacks from './TestHostStacks'
 import type { ComposeDeployment } from '@/features/compose/api/types'
 import HostServicesBlock from '@/features/compose/components/HostServicesBlock'
 
@@ -185,6 +186,12 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
           launchOpen={launchOpen}
           onLaunchOpenChange={setLaunchOpen}
           readOnly={shared}
+        />
+        <TestHostStacks
+          wsName={wsName}
+          hostName={host.name}
+          enabled
+          excludeNames={deployments.map((d) => d.id)}
         />
       </div>
 

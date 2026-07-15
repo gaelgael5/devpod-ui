@@ -186,6 +186,9 @@
       "copyFailed": "Failed to copy URL",
       "saveFailed": "Failed to save link"
     },
+    "testHostStacks": {
+      "title": "Other Docker stacks on the machine"
+    },
     "testHostShare": {
       "menu": "Share…",
       "title": "Share {{alias}}",

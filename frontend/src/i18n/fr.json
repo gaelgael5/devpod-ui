@@ -186,6 +186,9 @@
       "copyFailed": "Impossible de copier l'URL",
       "saveFailed": "Échec de l'enregistrement du lien"
     },
+    "testHostStacks": {
+      "title": "Autres stacks Docker sur la machine"
+    },
     "testHostShare": {
       "menu": "Partager…",
       "title": "Partager {{alias}}",

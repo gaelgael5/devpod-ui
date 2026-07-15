@@ -130,6 +130,26 @@ export function useCreateTestVm() {
   return { ...state, execute, reset }
 }
 
+export interface HostStack {
+  name: string
+  status: string
+  configFiles: string
+}
+
+/** Stacks docker réellement en cours sur la machine (vue live via son docker). */
+export function useHostStacks(wsName: string, hostName: string, enabled: boolean) {
+  return useQuery<HostStack[]>({
+    queryKey: ['me', 'workspaces', wsName, 'test-hosts', hostName, 'stacks'],
+    queryFn: () =>
+      apiFetchJson<HostStack[]>(
+        `/me/workspaces/${encodeURIComponent(wsName)}/test-hosts/${encodeURIComponent(hostName)}/stacks`,
+      ),
+    enabled,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+  })
+}
+
 /** Workspaces à qui une VM de test (possédée par wsName) est partagée. */
 export function useTestHostShares(wsName: string, hostName: string, enabled: boolean) {
   return useQuery<string[]>({

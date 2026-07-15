@@ -52,6 +52,34 @@ def test_parse_ps_status_stopped_when_empty() -> None:
     assert service._parse_ps_status("") == "stopped"
 
 
+def test_parse_compose_ls_json_array() -> None:
+    out = (
+        '[{"Name":"chromium","Status":"running(1)","ConfigFiles":"/opt/a/docker-compose.yml"},'
+        '{"Name":"alloy","Status":"running(1)","ConfigFiles":"/opt/b/compose.yml"}]'
+    )
+    stacks = service._parse_compose_ls(out)
+    assert stacks == [
+        {"name": "alloy", "status": "running(1)", "configFiles": "/opt/b/compose.yml"},
+        {"name": "chromium", "status": "running(1)", "configFiles": "/opt/a/docker-compose.yml"},
+    ]
+
+
+def test_parse_compose_ls_json_lines() -> None:
+    out = (
+        '{"Name":"proj","Status":"exited(2)","ConfigFiles":"/x/docker-compose.yml"}\n'
+        '\n'
+        '{"Name":"","Status":"running"}\n'  # sans nom → ignoré
+    )
+    assert service._parse_compose_ls(out) == [
+        {"name": "proj", "status": "exited(2)", "configFiles": "/x/docker-compose.yml"}
+    ]
+
+
+def test_parse_compose_ls_empty_and_garbage() -> None:
+    assert service._parse_compose_ls("") == []
+    assert service._parse_compose_ls("not json at all") == []
+
+
 def _tpl() -> ComposeTemplate:
     return ComposeTemplate(
         id="browserless", name="B", version="1",

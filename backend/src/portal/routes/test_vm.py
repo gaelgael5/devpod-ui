@@ -539,6 +539,29 @@ async def resolve_test_vm_ip(
     return {"ip": new_ip, "fqdn": fqdn}
 
 
+@router.get("/workspaces/{ws}/test-hosts/{host_name}/stacks")
+async def list_test_host_stacks(
+    ws: str,
+    host_name: str,
+    user: UserInfo = Depends(require_user),
+) -> list[dict[str, str]]:
+    """Stacks docker réellement en cours sur la machine (vue live via son docker).
+
+    Accessible à tout workspace auquel la VM est attachée (possédée OU partagée).
+    """
+    await _require_ws_and_host(ws, host_name, user.login)
+    async with _get_engine().connect() as conn:
+        detailed = await list_test_hosts_detailed(user.login, ws, conn)
+    if not any(n == host_name for n, _ in detailed):
+        raise HTTPException(
+            status_code=404, detail=f"Test host {host_name!r} not attached to {ws!r}"
+        )
+    try:
+        return await csvc.list_host_stacks(host_name)
+    except csvc.ComposeServiceError:
+        return []
+
+
 # ─── Partage d'une VM de test vers d'autres workspaces (menu ⋮ « Partager ») ──
 
 
