@@ -87,7 +87,7 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
             {host.name} · {host.ip}
           </span>
           {shared && (
-            <span className="shrink-0 self-center rounded bg-primary/10 px-1.5 py-0.5 text-[10px] uppercase text-primary">
+            <span className="shrink-0 self-center rounded bg-gradient-to-b from-sky-400/30 to-blue-600/20 px-1.5 py-0.5 text-[10px] uppercase text-blue-700 shadow-sm ring-1 ring-inset ring-blue-400/40 dark:text-blue-200 dark:ring-blue-400/30">
               {t('workspaces.testHostShare.sharedBadge', { from: host.sharedFrom })}
             </span>
           )}
