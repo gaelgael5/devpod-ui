@@ -187,7 +187,8 @@
       "saveFailed": "Failed to save link"
     },
     "testHostStacks": {
-      "title": "Other Docker stacks on the machine"
+      "stacksTitle": "Other Docker stacks on the machine",
+      "containersTitle": "Non-compose containers"
     },
     "testHostShare": {
       "menu": "Share…",

@@ -136,12 +136,24 @@ export interface HostStack {
   configFiles: string
 }
 
-/** Stacks docker réellement en cours sur la machine (vue live via son docker). */
-export function useHostStacks(wsName: string, hostName: string, enabled: boolean) {
-  return useQuery<HostStack[]>({
+export interface HostContainer {
+  name: string
+  image: string
+  state: string
+  status: string
+}
+
+export interface HostDocker {
+  stacks: HostStack[]
+  containers: HostContainer[]
+}
+
+/** État docker LIVE de la machine : stacks compose + conteneurs hors compose. */
+export function useHostDocker(wsName: string, hostName: string, enabled: boolean) {
+  return useQuery<HostDocker>({
     queryKey: ['me', 'workspaces', wsName, 'test-hosts', hostName, 'stacks'],
     queryFn: () =>
-      apiFetchJson<HostStack[]>(
+      apiFetchJson<HostDocker>(
         `/me/workspaces/${encodeURIComponent(wsName)}/test-hosts/${encodeURIComponent(hostName)}/stacks`,
       ),
     enabled,

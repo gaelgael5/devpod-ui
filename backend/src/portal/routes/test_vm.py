@@ -544,8 +544,9 @@ async def list_test_host_stacks(
     ws: str,
     host_name: str,
     user: UserInfo = Depends(require_user),
-) -> list[dict[str, str]]:
-    """Stacks docker réellement en cours sur la machine (vue live via son docker).
+) -> dict[str, list[dict[str, str]]]:
+    """État docker LIVE de la machine : `stacks` (docker compose ls) + `containers`
+    hors compose (docker ps). Vue en direct via le docker de l'hôte.
 
     Accessible à tout workspace auquel la VM est attachée (possédée OU partagée).
     """
@@ -557,9 +558,11 @@ async def list_test_host_stacks(
             status_code=404, detail=f"Test host {host_name!r} not attached to {ws!r}"
         )
     try:
-        return await csvc.list_host_stacks(host_name)
+        stacks = await csvc.list_host_stacks(host_name)
+        containers = await csvc.list_host_containers(host_name)
     except csvc.ComposeServiceError:
-        return []
+        return {"stacks": [], "containers": []}
+    return {"stacks": stacks, "containers": containers}
 
 
 # ─── Partage d'une VM de test vers d'autres workspaces (menu ⋮ « Partager ») ──

@@ -187,7 +187,8 @@
       "saveFailed": "Échec de l'enregistrement du lien"
     },
     "testHostStacks": {
-      "title": "Autres stacks Docker sur la machine"
+      "stacksTitle": "Autres stacks Docker sur la machine",
+      "containersTitle": "Conteneurs hors compose"
     },
     "testHostShare": {
       "menu": "Partager…",

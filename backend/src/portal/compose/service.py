@@ -203,6 +203,60 @@ async def list_host_stacks(node_id: str) -> list[dict[str, str]]:
     return _parse_compose_ls(out)
 
 
+_COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
+
+
+def _parse_docker_ps_standalone(out: str) -> list[dict[str, str]]:
+    """Parse `docker ps --format json` (JSON-lines) et NE garde que les conteneurs
+    HORS compose (sans le label de projet compose — les autres sont déjà couverts
+    par les stacks)."""
+    containers: list[dict[str, str]] = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if _COMPOSE_PROJECT_LABEL in str(obj.get("Labels", "")):
+            continue
+        name = str(obj.get("Names", "")).strip()
+        if not name:
+            continue
+        containers.append(
+            {
+                "name": name,
+                "image": str(obj.get("Image", "")),
+                "state": str(obj.get("State", "")),
+                "status": str(obj.get("Status", "")),
+            }
+        )
+    return sorted(containers, key=lambda c: c["name"])
+
+
+async def list_host_containers(node_id: str) -> list[dict[str, str]]:
+    """Conteneurs docker HORS compose en cours sur la machine (`docker ps`).
+
+    Vue LIVE via le docker de l'hôte, best-effort (docker absent/injoignable →
+    liste vide). Les conteneurs appartenant à une stack compose sont exclus (déjà
+    listés par `list_host_stacks`)."""
+    host = _host_for_node(node_id)
+    try:
+        rc, out, err = await run_host_command(
+            host, "docker ps --all --format json", timeout=30.0
+        )
+    except HostExecError as exc:
+        _log.info("host_containers_unavailable", node=node_id, error=str(exc))
+        return []
+    if rc != 0:
+        _log.info("host_containers_ps_failed", node=node_id, rc=rc, err=err[:200])
+        return []
+    return _parse_docker_ps_standalone(out)
+
+
 async def deploy(
     conn: AsyncConnection,
     *,
