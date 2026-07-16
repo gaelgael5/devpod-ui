@@ -56,6 +56,7 @@ async def register_certificate(
     public_key: str,
     private_key_pem: str,
     *,
+    ca_pem: str | None = None,
     storage_type: str,
     vault_identifier: str | None,
     conn: AsyncConnection,
@@ -77,6 +78,7 @@ async def register_certificate(
     try:
         await create_certificate(
             login, slug, label, description, cert_type, public_key,
+            ca_pem=ca_pem or None,
             private_key_local=encrypted,
             private_key_vault_ref=vault_ref,
             storage_type=storage_type,

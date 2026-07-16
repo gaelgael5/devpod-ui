@@ -443,6 +443,9 @@ harpo_certificates = Table(
     # tls-rsa-2048 | tls-rsa-4096 | tls-ec-p256 | tls-ec-p384
     Column("cert_type", Text, nullable=False),
     Column("public_key", Text, nullable=False),
+    # CA optionnel (public) : présent pour un bundle mTLS docker-tls importé
+    # (cert client = public_key, clé = private_key_*, autorité = ca_pem).
+    Column("ca_pem", Text, nullable=True),
     Column("private_key_local", LargeBinary, nullable=True),  # AES-GCM, master_key
     Column("private_key_vault_ref", Text, nullable=True),  # ${vault://id:certificats/slug/private}
     Column("storage_type", Text, nullable=False),  # local | harpocrate

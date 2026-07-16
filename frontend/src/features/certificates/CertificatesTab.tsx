@@ -93,6 +93,7 @@ function AddDialog({ open, onClose }: AddDialogProps) {
   const [vaultId, setVaultId] = useState('')
   const [pubKey, setPubKey] = useState('')
   const [privKey, setPrivKey] = useState('')
+  const [caPem, setCaPem] = useState('')
 
   const slug = slugify(label)
   const isPending = generate.isPending || register.isPending
@@ -105,6 +106,7 @@ function AddDialog({ open, onClose }: AddDialogProps) {
     setVaultId('')
     setPubKey('')
     setPrivKey('')
+    setCaPem('')
     generate.reset()
     register.reset()
   }
@@ -137,6 +139,7 @@ function AddDialog({ open, onClose }: AddDialogProps) {
         cert_type: certType,
         public_key: pubKey,
         private_key_pem: privKey,
+        ca_pem: certType.startsWith('tls-') ? caPem || null : null,
         storage_type: storage,
         vault_identifier: storage === 'harpocrate' ? vaultId : null,
       },
@@ -276,6 +279,18 @@ function AddDialog({ open, onClose }: AddDialogProps) {
                   className="font-mono text-xs"
                 />
               </div>
+              {certType.startsWith('tls-') && (
+                <div className="flex flex-col gap-1.5">
+                  <Label>{t('certificates.form.caPem')}</Label>
+                  <Textarea
+                    rows={3}
+                    value={caPem}
+                    onChange={(e) => setCaPem(e.target.value)}
+                    placeholder={t('certificates.form.caPemHint')}
+                    className="font-mono text-xs"
+                  />
+                </div>
+              )}
             </>
           )}
 

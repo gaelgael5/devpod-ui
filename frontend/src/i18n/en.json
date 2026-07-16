@@ -865,6 +865,8 @@
       "storageHarpocrate": "Harpocrate Wallet",
       "vaultWallet": "Wallet",
       "privateKey": "Private key (PEM)",
+      "caPem": "CA (PEM) — optional, for docker-tls mTLS",
+      "caPemHint": "ca.pem of the authority that signed the daemon certificate (required for the docker-tls connection)",
       "publicKey": "Public key",
       "pasteMode": "Paste",
       "generateMode": "Generate",
