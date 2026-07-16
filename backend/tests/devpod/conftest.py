@@ -113,9 +113,11 @@ def tmp_data_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture
 def global_cfg(tmp_data_root: Path):
-    """GlobalConfig minimal avec un host docker-tls et un host ssh."""
-    import yaml
+    """GlobalConfig minimal avec un host docker-tls et un host ssh.
 
+    Construit le modèle directement : load_global() lit le cache DB (plus le
+    fichier /data/config.yaml), écrire un yaml ici serait un no-op trompeur.
+    """
     config = {
         "version": "1",
         "server": {
@@ -166,9 +168,6 @@ def global_cfg(tmp_data_root: Path):
         "caddy": {"admin_api": "http://caddy:2019"},
         "cloudflare_manager": {"url": "http://cfm:8000", "api_key": ""},
     }
-    (tmp_data_root / "config.yaml").write_text(
-        yaml.dump(config, default_flow_style=False), encoding="utf-8"
-    )
-    from portal.config.store import load_global
+    from portal.config.models import GlobalConfig
 
-    return load_global()
+    return GlobalConfig.model_validate(config)
