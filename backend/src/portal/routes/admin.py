@@ -78,7 +78,7 @@ class HostCreateRequest(BaseModel):
     docker_cert_slug: str | None = None
     # None = défaut à la création ("workspaces"), valeur existante préservée à l'update.
     # ressources (spec 33) : service partagé permanent, sans workspace propriétaire.
-    usage: Literal["workspaces", "tests", "portail", "ressources"] | None = None
+    usage: Literal["workspaces", "tests", "portail", "ressources", "autres"] | None = None
 
     @field_validator("docker_cert_slug")
     @classmethod

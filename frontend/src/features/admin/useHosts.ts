@@ -19,7 +19,7 @@ export interface HostConfig {
   docker_cert_slug?: string
   // Destination : workspaces, tests, portail (machine du portail), ou
   // ressources (service partagé permanent, sans workspace propriétaire — spec 33).
-  usage?: 'workspaces' | 'tests' | 'portail' | 'ressources'
+  usage?: 'workspaces' | 'tests' | 'portail' | 'ressources' | 'autres'
 }
 
 export interface HostCreatePayload {
@@ -32,7 +32,7 @@ export interface HostCreatePayload {
   vmid?: string
   ci_password?: string
   docker_cert_slug?: string
-  usage?: 'workspaces' | 'tests' | 'portail' | 'ressources'
+  usage?: 'workspaces' | 'tests' | 'portail' | 'ressources' | 'autres'
 }
 
 export function useHosts() {

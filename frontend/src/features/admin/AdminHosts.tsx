@@ -31,7 +31,7 @@ import { useDeployments } from '@/features/compose/hooks/useCompose'
 import HostServicesBlock from '@/features/compose/components/HostServicesBlock'
 import { useCertificates } from '@/features/certificates/api'
 
-const USAGE_VALUES = ['workspaces', 'tests', 'portail', 'ressources'] as const
+const USAGE_VALUES = ['workspaces', 'tests', 'portail', 'ressources', 'autres'] as const
 
 const EMPTY: HostCreatePayload = {
   name: '',
@@ -416,6 +416,64 @@ function TestHostsGroupedSection({
   )
 }
 
+// ─── Section hosts de catégorie « autres » (inventaire simple) ────────────────
+
+function OtherHostsSection({
+  hosts,
+  actions,
+}: {
+  hosts: HostConfig[]
+  actions: HostActions
+}) {
+  const { t } = useTranslation()
+
+  // Inventaire facultatif : pas de section vide en permanence.
+  if (hosts.length === 0) return null
+
+  return (
+    <div className="mt-4 flex flex-col gap-3">
+      <h2 className="px-1 text-sm font-semibold text-muted-foreground">
+        {t('admin.otherHosts.sectionTitle')}
+      </h2>
+      {hosts.map((host) => (
+        <div
+          key={host.name}
+          className="flex items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2"
+        >
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="font-semibold text-sm truncate">{host.name}</span>
+            <span className="font-mono text-xs text-muted-foreground truncate">
+              {(host.type === 'ssh' ? host.address : host.docker_host) || '—'}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => actions.onEdit(host)}>
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => actions.onDelete(host)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+            {host.type === 'ssh' && !host.host_cert_slug && (
+              <Button size="sm" variant="outline"
+                className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
+                onClick={() => actions.onBootstrap(host)}>
+                {t('admin.bootstrap.btn')}
+              </Button>
+            )}
+            {host.type === 'ssh' && host.host_cert_slug && (
+              <Button size="sm" variant="outline"
+                className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
+                onClick={() => actions.onSsh(host)}>
+                {t('admin.sshTerminal.openBtn')}
+              </Button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── Section hosts de catégorie « ressources » (spec 33) ──────────────────────
 
 function ResourceHostsSection({
@@ -651,9 +709,12 @@ export default function AdminHosts() {
         <p className="text-muted-foreground">{t('admin.hostsEmpty')}</p>
       )}
       {hosts && hosts.length > 0 && (() => {
-        const wsHosts = hosts.filter((h: HostConfig) => h.usage !== 'tests' && h.usage !== 'ressources')
+        const wsHosts = hosts.filter(
+          (h: HostConfig) => h.usage !== 'tests' && h.usage !== 'ressources' && h.usage !== 'autres',
+        )
         const testHosts = hosts.filter((h: HostConfig) => h.usage === 'tests')
         const resourceHosts = hosts.filter((h: HostConfig) => h.usage === 'ressources')
+        const otherHosts = hosts.filter((h: HostConfig) => h.usage === 'autres')
         const hostActions: HostActions = {
           onEdit: openEdit,
           onDelete: confirmDelete,
@@ -731,6 +792,7 @@ export default function AdminHosts() {
             )}
             <TestHostsGroupedSection hosts={testHosts} actions={hostActions} />
             <ResourceHostsSection hosts={resourceHosts} actions={hostActions} />
+            <OtherHostsSection hosts={otherHosts} actions={hostActions} />
           </>
         )
       })()}

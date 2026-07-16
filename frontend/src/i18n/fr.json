@@ -624,7 +624,8 @@
         "workspaces": "Workspaces",
         "tests": "Machine de test",
         "portail": "Portail",
-        "ressources": "Ressources partagées"
+        "ressources": "Ressources partagées",
+        "autres": "Autres"
       }
     },
     "deleteHost": "Supprimer l'hôte",
@@ -665,6 +666,9 @@
       "selectNode": "Sélectionner un nœud…",
       "configure": "Configurer",
       "configuring": "Configuration en cours…"
+    },
+    "otherHosts": {
+      "sectionTitle": "Autres serveurs"
     }
   },
   "errors": {

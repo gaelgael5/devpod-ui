@@ -624,7 +624,8 @@
         "workspaces": "Workspaces",
         "tests": "Test machine",
         "portail": "Portal",
-        "ressources": "Shared resources"
+        "ressources": "Shared resources",
+        "autres": "Other"
       }
     },
     "deleteHost": "Delete host",
@@ -665,6 +666,9 @@
       "selectNode": "Select a node…",
       "configure": "Configure",
       "configuring": "Configuring…"
+    },
+    "otherHosts": {
+      "sectionTitle": "Other servers"
     }
   },
   "errors": {

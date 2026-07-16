@@ -105,6 +105,22 @@ describe('AdminHosts', () => {
     expect(await screen.findByText(/^purpose$|^destination$/i)).toBeInTheDocument()
   })
 
+  it("liste un host usage=autres dans la section « Autres serveurs », hors table workspaces", async () => {
+    server.use(
+      http.get('/admin/hosts', () =>
+        HttpResponse.json([
+          { name: 'pve1', type: 'docker-tls', default: true, docker_host: 'tcp://192.168.1.50:2376', usage: 'workspaces' },
+          { name: 'backup-srv', type: 'ssh', default: false, address: 'debian@192.168.10.190', usage: 'autres' },
+        ])),
+    )
+    renderWithProviders(<AdminHosts />)
+    await waitFor(() => expect(screen.getByText('backup-srv')).toBeInTheDocument())
+    expect(screen.getByText(/other servers|autres serveurs/i)).toBeInTheDocument()
+    // Pas dans la table workspaces : backup-srv n'est pas dans une ligne <tr>
+    const rows = screen.queryAllByRole('row')
+    expect(rows.find((r) => r.textContent?.includes('backup-srv'))).toBeUndefined()
+  })
+
   it('propose le certificat mTLS (certs tls-* uniquement) pour un host docker-tls', async () => {
     const user = userEvent.setup()
     renderWithProviders(<AdminHosts />)

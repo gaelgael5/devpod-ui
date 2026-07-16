@@ -72,6 +72,17 @@ def test_host_create_request_docker_cert_slug_valid() -> None:
     assert req.docker_cert_slug == "docker-node1"
 
 
+def test_host_create_request_accepts_usage_autres() -> None:
+    """La catégorie « autres » (inventaire simple) est un usage valide."""
+    from portal.config.models import HostConfig
+    from portal.routes.admin import HostCreateRequest
+
+    req = HostCreateRequest(name="backup-srv", type="ssh", usage="autres")
+    assert req.usage == "autres"
+    host = HostConfig(name="backup-srv", type="ssh", usage="autres")
+    assert host.usage == "autres"
+
+
 def test_host_create_request_with_ci_password() -> None:
     from portal.routes.admin import HostCreateRequest
 
