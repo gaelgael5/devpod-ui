@@ -626,7 +626,10 @@
         "portail": "Portal",
         "ressources": "Shared resources",
         "autres": "Other"
-      }
+      },
+      "sshCert": "SSH key",
+      "sshCertNone": "— keep current key —",
+      "sshCertHint": "ssh-* key from the certificate manager (Security) to use for the connection. Its public key must already be authorized on the host (otherwise use \"Bootstrap SSH\")."
     },
     "deleteHost": "Delete host",
     "deleteHostTitle": "Delete host",

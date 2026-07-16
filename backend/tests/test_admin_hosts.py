@@ -72,6 +72,20 @@ def test_host_create_request_docker_cert_slug_valid() -> None:
     assert req.docker_cert_slug == "docker-node1"
 
 
+def test_host_create_request_ssh_cert_slug_invalid() -> None:
+    from portal.routes.admin import HostCreateRequest
+
+    with pytest.raises(ValidationError):
+        HostCreateRequest(name="vm-01", type="ssh", ssh_cert_slug="../etc/passwd")
+
+
+def test_host_create_request_ssh_cert_slug_valid() -> None:
+    from portal.routes.admin import HostCreateRequest
+
+    req = HostCreateRequest(name="vm-01", type="ssh", ssh_cert_slug="my-key")
+    assert req.ssh_cert_slug == "my-key"
+
+
 def test_host_create_request_accepts_usage_autres() -> None:
     """La catégorie « autres » (inventaire simple) est un usage valide."""
     from portal.config.models import HostConfig
@@ -342,6 +356,192 @@ async def test_materialize_docker_cert_vault_locked_403() -> None:
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail == "vault_locked"
     mock_bundle.assert_not_called()
+
+
+# ─── _materialize_ssh_cert ───────────────────────────────────────────────────
+
+
+def _ssh_cert_row(**overrides: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "slug": "my-key",
+        "label": "Ma clé",
+        "cert_type": "ssh-ed25519",
+        "public_key": "ssh-ed25519 AAAAC3Nz... user@host",
+        "ca_pem": None,
+        "owner_login": "admin",
+        "is_own": True,
+    }
+    row.update(overrides)
+    return row
+
+
+@pytest.mark.asyncio
+async def test_materialize_ssh_cert_stores_system_cert() -> None:
+    """Cas nominal : cert ssh-* du gestionnaire → cert système host.<name>.cert."""
+    from portal.routes.admin import _materialize_ssh_cert
+
+    conn = AsyncMock()
+    with (
+        patch("portal.routes.admin.get_certificate", new_callable=AsyncMock) as mock_get,
+        patch("portal.routes.admin.reveal_private_key", new_callable=AsyncMock) as mock_reveal,
+        patch("portal.routes.admin.store_system_cert", new_callable=AsyncMock) as mock_store,
+    ):
+        mock_get.return_value = _ssh_cert_row()
+        mock_reveal.return_value = "-----BEGIN OPENSSH PRIVATE KEY-----\nK\n-----END..."
+        slug = await _materialize_ssh_cert("admin", "sid-9", "vm-01", "my-key", conn)
+
+    assert slug == "host.vm-01.cert"
+    mock_reveal.assert_awaited_once_with("admin", "sid-9", "my-key", conn)
+    mock_store.assert_awaited_once()
+    kw = mock_store.call_args.kwargs
+    assert kw["slug"] == "host.vm-01.cert"
+    assert kw["cert_type"] == "ssh-ed25519"
+    assert kw["public_key"] == "ssh-ed25519 AAAAC3Nz... user@host"
+    assert kw["private_pem"] == "-----BEGIN OPENSSH PRIVATE KEY-----\nK\n-----END..."
+    assert kw["storage_type"] == "local"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("row", "status"),
+    [
+        (None, 404),  # introuvable
+        (_ssh_cert_row(cert_type="tls-rsa-4096"), 422),  # pas un cert SSH
+        (_ssh_cert_row(is_own=False, owner_login="bob"), 422),  # cert d'un autre user
+    ],
+)
+async def test_materialize_ssh_cert_rejects_unusable(
+    row: dict[str, object] | None, status: int
+) -> None:
+    from fastapi import HTTPException
+
+    from portal.routes.admin import _materialize_ssh_cert
+
+    conn = AsyncMock()
+    with (
+        patch("portal.routes.admin.get_certificate", new_callable=AsyncMock) as mock_get,
+        patch("portal.routes.admin.store_system_cert", new_callable=AsyncMock) as mock_store,
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        mock_get.return_value = row
+        await _materialize_ssh_cert("admin", "sid-1", "vm-01", "my-key", conn)
+
+    assert exc_info.value.status_code == status
+    mock_store.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_materialize_ssh_cert_vault_locked_403() -> None:
+    from fastapi import HTTPException
+
+    from portal.certificates.service import VaultLocked
+    from portal.routes.admin import _materialize_ssh_cert
+
+    conn = AsyncMock()
+    with (
+        patch("portal.routes.admin.get_certificate", new_callable=AsyncMock) as mock_get,
+        patch("portal.routes.admin.reveal_private_key", new_callable=AsyncMock) as mock_reveal,
+        patch("portal.routes.admin.store_system_cert", new_callable=AsyncMock) as mock_store,
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        mock_get.return_value = _ssh_cert_row()
+        mock_reveal.side_effect = VaultLocked("locked")
+        await _materialize_ssh_cert("admin", "sid-1", "vm-01", "my-key", conn)
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "vault_locked"
+    mock_store.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_add_ssh_host_with_cert_sets_host_cert_slug() -> None:
+    """add_host ssh avec ssh_cert_slug matérialise le cert et pose host_cert_slug."""
+    from portal.auth.rbac import UserInfo
+    from portal.config.models import AuthConfig, GlobalConfig, OidcConfig, ServerConfig
+    from portal.routes.admin import HostCreateRequest, add_host
+
+    cfg = GlobalConfig(
+        version="1",
+        server=ServerConfig(base_domain="", external_url=""),
+        auth=AuthConfig(oidc=OidcConfig(issuer="", client_id="", client_secret="")),
+    )
+    conn = AsyncMock()
+    user = UserInfo(login="admin", roles=["admin"])
+    body = HostCreateRequest(
+        name="vm-01", type="ssh", address="debian@10.0.0.5", ssh_cert_slug="my-key"
+    )
+
+    with (
+        patch("portal.routes.admin.load_global", return_value=cfg),
+        patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
+        patch("portal.routes.admin._materialize_ssh_cert", new_callable=AsyncMock) as mock_mat,
+    ):
+        mock_mat.return_value = "host.vm-01.cert"
+        result = await add_host(request=_req("sid-7"), body=body, user=user, conn=conn)
+
+    mock_mat.assert_awaited_once_with("admin", "sid-7", "vm-01", "my-key", conn)
+    assert result["host_cert_slug"] == "host.vm-01.cert"
+
+
+@pytest.mark.asyncio
+async def test_update_ssh_host_with_cert_rematerializes() -> None:
+    """update_host ssh avec ssh_cert_slug rematérialise et remplace host_cert_slug."""
+    from portal.auth.rbac import UserInfo
+    from portal.config.models import AuthConfig, GlobalConfig, HostConfig, OidcConfig, ServerConfig
+    from portal.routes.admin import HostCreateRequest, update_host
+
+    existing = HostConfig(name="vm-01", type="ssh", host_cert_slug="host.vm-01.cert")
+    cfg = GlobalConfig(
+        version="1",
+        server=ServerConfig(base_domain="", external_url=""),
+        auth=AuthConfig(oidc=OidcConfig(issuer="", client_id="", client_secret="")),
+        hosts=[existing],
+    )
+    conn = AsyncMock()
+    user = UserInfo(login="admin", roles=["admin"])
+    body = HostCreateRequest(
+        name="vm-01", type="ssh", address="debian@10.0.0.5", ssh_cert_slug="other-key"
+    )
+
+    with (
+        patch("portal.routes.admin.load_global", return_value=cfg),
+        patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
+        patch("portal.routes.admin._materialize_ssh_cert", new_callable=AsyncMock) as mock_mat,
+    ):
+        mock_mat.return_value = "host.vm-01.cert"
+        result = await update_host(request=_req(), name="vm-01", body=body, user=user, conn=conn)
+
+    mock_mat.assert_awaited_once()
+    assert result["host_cert_slug"] == "host.vm-01.cert"
+
+
+@pytest.mark.asyncio
+async def test_update_ssh_host_without_cert_preserves_bootstrap_slug() -> None:
+    """update_host ssh sans ssh_cert_slug ne touche pas host_cert_slug (bootstrap conservé)."""
+    from portal.auth.rbac import UserInfo
+    from portal.config.models import AuthConfig, GlobalConfig, HostConfig, OidcConfig, ServerConfig
+    from portal.routes.admin import HostCreateRequest, update_host
+
+    existing = HostConfig(name="vm-01", type="ssh", host_cert_slug="host.vm-01.cert")
+    cfg = GlobalConfig(
+        version="1",
+        server=ServerConfig(base_domain="", external_url=""),
+        auth=AuthConfig(oidc=OidcConfig(issuer="", client_id="", client_secret="")),
+        hosts=[existing],
+    )
+    conn = AsyncMock()
+    user = UserInfo(login="admin", roles=["admin"])
+    body = HostCreateRequest(name="vm-01", type="ssh", address="debian@10.0.0.5")
+
+    with (
+        patch("portal.routes.admin.load_global", return_value=cfg),
+        patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
+        patch("portal.routes.admin._materialize_ssh_cert", new_callable=AsyncMock) as mock_mat,
+    ):
+        result = await update_host(request=_req(), name="vm-01", body=body, user=user, conn=conn)
+
+    mock_mat.assert_not_called()
+    assert result["host_cert_slug"] == "host.vm-01.cert"
 
 
 # ─── update_host ──────────────────────────────────────────────────────────────

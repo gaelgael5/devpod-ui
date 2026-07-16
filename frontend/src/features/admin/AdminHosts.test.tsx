@@ -121,6 +121,28 @@ describe('AdminHosts', () => {
     expect(rows.find((r) => r.textContent?.includes('backup-srv'))).toBeUndefined()
   })
 
+  it('propose une clé SSH (certs ssh-* uniquement) pour un host ssh', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<AdminHosts />)
+    await waitFor(() => expect(screen.getByText('pve1')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /add host|ajouter un h[oô]te/i }))
+
+    // Basculer le type sur ssh.
+    const typeSelects = screen.getAllByRole('combobox')
+    await user.click(typeSelects[0])
+    await user.click(await screen.findByRole('option', { name: 'ssh' }))
+
+    // Le sélecteur de clé SSH apparaît ; il liste le cert ssh-* mais pas le tls-*.
+    expect(await screen.findByText(/ssh key|clé ssh/i)).toBeInTheDocument()
+    const selects = screen.getAllByRole('combobox')
+    const keySelect = selects.find((s) =>
+      s.textContent?.match(/keep current key|conserver la clé actuelle/i))
+    expect(keySelect).toBeDefined()
+    await user.click(keySelect!)
+    expect(await screen.findAllByText(/Gitea SSH/)).not.toHaveLength(0)
+    expect(screen.queryByText(/Docker node1/)).not.toBeInTheDocument()
+  })
+
   it('propose le certificat mTLS (certs tls-* uniquement) pour un host docker-tls', async () => {
     const user = userEvent.setup()
     renderWithProviders(<AdminHosts />)

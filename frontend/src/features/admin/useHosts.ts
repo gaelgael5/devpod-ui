@@ -32,6 +32,7 @@ export interface HostCreatePayload {
   vmid?: string
   ci_password?: string
   docker_cert_slug?: string
+  ssh_cert_slug?: string
   usage?: 'workspaces' | 'tests' | 'portail' | 'ressources' | 'autres'
 }
 

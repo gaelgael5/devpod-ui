@@ -43,6 +43,7 @@ const EMPTY: HostCreatePayload = {
   vmid: '',
   ci_password: '',
   docker_cert_slug: '',
+  ssh_cert_slug: '',
   usage: 'workspaces',
 }
 
@@ -83,6 +84,42 @@ function DockerCertSelect({
         </SelectContent>
       </Select>
       <p className="text-xs text-muted-foreground">{t('admin.form.dockerCertHint')}</p>
+    </div>
+  )
+}
+
+// ─── Sélecteur de clé SSH (host ssh) ─────────────────────────────────────────
+
+function SshCertSelect({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (slug: string) => void
+}) {
+  const { t } = useTranslation()
+  // Monté uniquement quand type=ssh.
+  const { data: certs } = useCertificates()
+  const sshCerts = (certs ?? []).filter((c) => c.cert_type.startsWith('ssh-'))
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>{t('admin.form.sshCert')}</Label>
+      <Select
+        value={value || NO_CERT}
+        onValueChange={(v) => onChange(v === NO_CERT ? '' : v)}
+      >
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_CERT}>{t('admin.form.sshCertNone')}</SelectItem>
+          {sshCerts.map((c) => (
+            <SelectItem key={c.slug} value={c.slug}>
+              {c.label} <span className="font-mono text-xs opacity-60">({c.slug})</span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">{t('admin.form.sshCertHint')}</p>
     </div>
   )
 }
@@ -608,6 +645,9 @@ export default function AdminHosts() {
       vmid: host.vmid ?? '',
       ci_password: '',  // toujours vide en édition (secret non visible)
       docker_cert_slug: host.docker_cert_slug ?? '',
+      // Le slug du gestionnaire n'est pas persisté (host_cert_slug = cert système) :
+      // vide = « conserver la clé actuelle », choisir en (re)pose une nouvelle.
+      ssh_cert_slug: '',
       usage: host.usage ?? 'workspaces',
     })
     setMode('edit'); setShowCert(false); setOpen(true)
@@ -626,6 +666,8 @@ export default function AdminHosts() {
       ci_password: form.ci_password ?? '',
       // Sur un host ssh le champ n'a pas de sens : dissociation explicite.
       docker_cert_slug: form.type === 'docker-tls' ? (form.docker_cert_slug ?? '') : '',
+      // Clé SSH seulement pour un host ssh ('' = ne rien changer côté backend).
+      ssh_cert_slug: form.type === 'ssh' ? (form.ssh_cert_slug ?? '') : '',
       usage: form.usage ?? 'workspaces',
     }
     const mutation = mode === 'edit' ? updateHost : addHost
@@ -644,6 +686,7 @@ export default function AdminHosts() {
       vmid: config.vmid ?? '',
       ci_password: ciPassword ?? '',
       docker_cert_slug: config.docker_cert_slug ?? '',
+      ssh_cert_slug: '',
       usage: config.usage ?? 'workspaces',
     })
     setMode('add'); setShowCert(false); setOpen(true)
@@ -849,12 +892,18 @@ export default function AdminHosts() {
               </>
             )}
             {form.type === 'ssh' && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="h-address">{t('admin.form.address')}</Label>
-                <Input id="h-address" value={form.address ?? ''}
-                  onChange={(e) => set('address', e.target.value)}
-                  placeholder="user@192.168.1.50" />
-              </div>
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="h-address">{t('admin.form.address')}</Label>
+                  <Input id="h-address" value={form.address ?? ''}
+                    onChange={(e) => set('address', e.target.value)}
+                    placeholder="user@192.168.1.50" />
+                </div>
+                <SshCertSelect
+                  value={form.ssh_cert_slug ?? ''}
+                  onChange={(slug) => set('ssh_cert_slug', slug)}
+                />
+              </>
             )}
             <div className="flex flex-col gap-1.5">
               <Label>{t('admin.form.usage')}</Label>

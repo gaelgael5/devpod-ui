@@ -76,18 +76,21 @@ class HostCreateRequest(BaseModel):
     # Cert client mTLS (docker-tls) : slug d'une entrée tls-* du gestionnaire de
     # certificats. None = préservé à l'update, "" = dissocier (répertoire partagé).
     docker_cert_slug: str | None = None
+    # Clé SSH (ssh) : slug d'une entrée ssh-* du gestionnaire de certificats à
+    # utiliser pour la connexion. La clé publique doit déjà être autorisée sur
+    # l'hôte (alternative au bootstrap). None/"" = ne rien changer (host_cert_slug
+    # préservé, posé par bootstrap).
+    ssh_cert_slug: str | None = None
     # None = défaut à la création ("workspaces"), valeur existante préservée à l'update.
     # ressources (spec 33) : service partagé permanent, sans workspace propriétaire.
     usage: Literal["workspaces", "tests", "portail", "ressources", "autres"] | None = None
 
-    @field_validator("docker_cert_slug")
+    @field_validator("docker_cert_slug", "ssh_cert_slug")
     @classmethod
-    def validate_docker_cert_slug(cls, v: str | None) -> str | None:
+    def validate_cert_slug(cls, v: str | None) -> str | None:
         # Même format que les slugs du gestionnaire de certificats (routes/certificates.py).
         if v and not re.fullmatch(r"^[a-z0-9][a-z0-9_-]{0,62}$", v):
-            raise ValueError(
-                "docker_cert_slug: lowercase alphanum + tirets/underscores, 1-63 chars"
-            )
+            raise ValueError("cert slug: lowercase alphanum + tirets/underscores, 1-63 chars")
         return v
 
 
@@ -710,6 +713,53 @@ async def _materialize_docker_cert(
     _log.info("host_docker_cert_associated", host=host_name, slug=slug, by=login)
 
 
+async def _materialize_ssh_cert(
+    login: str, session_id: str, host_name: str, slug: str, conn: AsyncConnection
+) -> str:
+    """Matérialise une clé SSH du gestionnaire comme cert système `host.<name>.cert`.
+
+    Alternative au bootstrap : la clé publique choisie doit déjà être autorisée sur
+    l'hôte (aucune installation distante ici). Exige un cert ssh-* dont l'admin est
+    propriétaire (le reveal passe par sa session vault). Retourne le slug système.
+    """
+    row = await get_certificate(login, slug, conn)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Certificat {slug!r} introuvable")
+    if not str(row["cert_type"]).startswith("ssh-"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Certificat {slug!r} : type {row['cert_type']} — une clé ssh-* est requise",
+        )
+    if not row["is_own"]:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Certificat {slug!r} : appartient à {row['owner_login']} — seule une clé "
+                "dont vous êtes propriétaire peut être associée (clé privée à matérialiser)"
+            ),
+        )
+    try:
+        private_pem = await reveal_private_key(login, session_id, slug, conn)
+    except VaultLocked as exc:
+        raise HTTPException(status_code=403, detail="vault_locked") from exc
+    except CertNotFound as exc:
+        raise HTTPException(status_code=404, detail=f"Clé privée de {slug!r} inaccessible") from exc
+
+    system_slug = f"host.{host_name}.cert"
+    await store_system_cert(
+        slug=system_slug,
+        label=f"SSH key — {host_name}",
+        private_pem=private_pem,
+        public_key=str(row["public_key"] or ""),
+        cert_type=str(row["cert_type"]),
+        storage_type="local",
+        vault_identifier="",
+        conn=conn,
+    )
+    _log.info("host_ssh_cert_associated", host=host_name, slug=slug, by=login)
+    return system_slug
+
+
 @router.get("/hosts")
 async def list_hosts(user: UserInfo = Depends(require_admin)) -> list[dict[str, object]]:
     cfg = load_global()
@@ -739,6 +789,14 @@ async def add_host(
             conn=conn,
         )
 
+    session_id = str(request.session.get("session_id", ""))
+    # Clé SSH choisie dans le gestionnaire → matérialisée comme cert système du host.
+    host_cert_slug = ""
+    if body.type == "ssh" and body.ssh_cert_slug:
+        host_cert_slug = await _materialize_ssh_cert(
+            user.login, session_id, body.name, body.ssh_cert_slug, conn
+        )
+
     host = HostConfig(
         name=body.name,
         default=body.default,
@@ -748,7 +806,7 @@ async def add_host(
         proxmox_node=body.proxmox_node,
         vmid=body.vmid,
         ci_password_secret_slug=ci_slug,
-        host_cert_slug="",
+        host_cert_slug=host_cert_slug,
         docker_cert_slug=body.docker_cert_slug or "",
         storage_type="local",
         vault_identifier="",
@@ -757,7 +815,6 @@ async def add_host(
     # Bundle mTLS matérialisé AVANT persistance : une association invalide
     # (cert sans CA, vault verrouillé…) ne doit pas laisser un host à moitié câblé.
     if host.type == "docker-tls" and host.docker_cert_slug:
-        session_id = str(request.session.get("session_id", ""))
         await _materialize_docker_cert(
             user.login, session_id, host.name, host.docker_cert_slug, conn
         )
@@ -798,6 +855,15 @@ async def update_host(
             conn=conn,
         )
 
+    session_id = str(request.session.get("session_id", ""))
+    # Nouvelle clé SSH choisie → rematérialisée comme cert système ; sinon on conserve
+    # host_cert_slug tel quel (posé par bootstrap ou une association précédente).
+    host_cert_slug = existing.host_cert_slug
+    if body.type == "ssh" and body.ssh_cert_slug:
+        host_cert_slug = await _materialize_ssh_cert(
+            user.login, session_id, body.name, body.ssh_cert_slug, conn
+        )
+
     host = HostConfig(
         name=body.name,
         default=body.default,
@@ -807,7 +873,7 @@ async def update_host(
         proxmox_node=body.proxmox_node,
         vmid=body.vmid,
         ci_password_secret_slug=ci_slug,
-        host_cert_slug=existing.host_cert_slug,  # conservé
+        host_cert_slug=host_cert_slug,
         # None = préservé (client qui n'envoie pas le champ), "" = dissocier explicitement.
         docker_cert_slug=(
             existing.docker_cert_slug if body.docker_cert_slug is None else body.docker_cert_slug
@@ -820,7 +886,6 @@ async def update_host(
     # ne doit pas exiger le vault déverrouillé) ; "" = dissociation → purge du bundle.
     if host.docker_cert_slug != existing.docker_cert_slug:
         if host.docker_cert_slug:
-            session_id = str(request.session.get("session_id", ""))
             await _materialize_docker_cert(
                 user.login, session_id, host.name, host.docker_cert_slug, conn
             )
