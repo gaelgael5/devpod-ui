@@ -29,6 +29,7 @@ function openHostSsh(name: string): void {
 }
 import { useDeployments } from '@/features/compose/hooks/useCompose'
 import HostServicesBlock from '@/features/compose/components/HostServicesBlock'
+import { useCertificates } from '@/features/certificates/api'
 
 const USAGE_VALUES = ['workspaces', 'tests', 'portail', 'ressources'] as const
 
@@ -41,10 +42,50 @@ const EMPTY: HostCreatePayload = {
   proxmox_node: '',
   vmid: '',
   ci_password: '',
+  docker_cert_slug: '',
   usage: 'workspaces',
 }
 
 type DialogMode = 'add' | 'edit'
+
+// ─── Sélecteur de certificat mTLS (docker-tls) ───────────────────────────────
+
+// Radix Select interdit la valeur '' sur un item → sentinelle pour « aucun ».
+const NO_CERT = '__none__'
+
+function DockerCertSelect({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (slug: string) => void
+}) {
+  const { t } = useTranslation()
+  // Monté uniquement quand type=docker-tls : pas de fetch inutile ailleurs.
+  const { data: certs } = useCertificates()
+  const tlsCerts = (certs ?? []).filter((c) => c.cert_type.startsWith('tls-'))
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>{t('admin.form.dockerCert')}</Label>
+      <Select
+        value={value || NO_CERT}
+        onValueChange={(v) => onChange(v === NO_CERT ? '' : v)}
+      >
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_CERT}>{t('admin.form.dockerCertNone')}</SelectItem>
+          {tlsCerts.map((c) => (
+            <SelectItem key={c.slug} value={c.slug}>
+              {c.label} <span className="font-mono text-xs opacity-60">({c.slug})</span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">{t('admin.form.dockerCertHint')}</p>
+    </div>
+  )
+}
 
 // ─── Cert viewer ─────────────────────────────────────────────────────────────
 
@@ -508,6 +549,7 @@ export default function AdminHosts() {
       proxmox_node: host.proxmox_node ?? '',
       vmid: host.vmid ?? '',
       ci_password: '',  // toujours vide en édition (secret non visible)
+      docker_cert_slug: host.docker_cert_slug ?? '',
       usage: host.usage ?? 'workspaces',
     })
     setMode('edit'); setShowCert(false); setOpen(true)
@@ -524,6 +566,8 @@ export default function AdminHosts() {
       proxmox_node: form.proxmox_node,
       vmid: form.vmid,
       ci_password: form.ci_password ?? '',
+      // Sur un host ssh le champ n'a pas de sens : dissociation explicite.
+      docker_cert_slug: form.type === 'docker-tls' ? (form.docker_cert_slug ?? '') : '',
       usage: form.usage ?? 'workspaces',
     }
     const mutation = mode === 'edit' ? updateHost : addHost
@@ -541,6 +585,7 @@ export default function AdminHosts() {
       proxmox_node: config.proxmox_node ?? '',
       vmid: config.vmid ?? '',
       ci_password: ciPassword ?? '',
+      docker_cert_slug: config.docker_cert_slug ?? '',
       usage: config.usage ?? 'workspaces',
     })
     setMode('add'); setShowCert(false); setOpen(true)
@@ -728,12 +773,18 @@ export default function AdminHosts() {
               </Select>
             </div>
             {form.type === 'docker-tls' && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="h-docker">{t('admin.form.dockerHost')}</Label>
-                <Input id="h-docker" value={form.docker_host ?? ''}
-                  onChange={(e) => set('docker_host', e.target.value)}
-                  placeholder="tcp://192.168.1.50:2376" />
-              </div>
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="h-docker">{t('admin.form.dockerHost')}</Label>
+                  <Input id="h-docker" value={form.docker_host ?? ''}
+                    onChange={(e) => set('docker_host', e.target.value)}
+                    placeholder="tcp://192.168.1.50:2376" />
+                </div>
+                <DockerCertSelect
+                  value={form.docker_cert_slug ?? ''}
+                  onChange={(slug) => set('docker_cert_slug', slug)}
+                />
+              </>
             )}
             {form.type === 'ssh' && (
               <div className="flex flex-col gap-1.5">

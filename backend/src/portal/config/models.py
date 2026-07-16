@@ -158,6 +158,9 @@ class HostConfig(BaseModel):
     # Références vers harpo_* (slugs)
     ci_password_secret_slug: str = ""
     host_cert_slug: str = ""
+    # Certificat client mTLS (docker-tls) : slug d'une entrée tls-* du
+    # gestionnaire de certificats. Vide = répertoire partagé (client_cert_path).
+    docker_cert_slug: str = ""
     # Préférences de stockage des secrets
     storage_type: Literal["local", "harpocrate"] = "local"
     vault_identifier: str = ""

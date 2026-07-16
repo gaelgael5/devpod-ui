@@ -9,16 +9,23 @@ import httpx
 import structlog
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
+from ..certificates.docker_bundle import (
+    host_bundle_dir,
+    materialize_host_bundle,
+    remove_host_bundle,
+)
+from ..certificates.service import CertNotFound, VaultLocked, reveal_private_key
 from ..config.env_file import update_env_file
 from ..config.models import GlobalConfig, HostConfig, Hypervisor, validate_network
 from ..config.store import _data_root, load_global
+from ..db.certificates import get_certificate
 from ..db.engine import get_conn
 from ..db.global_config import save_global_db, set_cached_global
 from ..db.tables import harpo_certificates
@@ -66,9 +73,22 @@ class HostCreateRequest(BaseModel):
     proxmox_node: str = ""
     vmid: str = ""
     ci_password: str = ""  # valeur brute, stockée dans harpo au CREATE/UPDATE
+    # Cert client mTLS (docker-tls) : slug d'une entrée tls-* du gestionnaire de
+    # certificats. None = préservé à l'update, "" = dissocier (répertoire partagé).
+    docker_cert_slug: str | None = None
     # None = défaut à la création ("workspaces"), valeur existante préservée à l'update.
     # ressources (spec 33) : service partagé permanent, sans workspace propriétaire.
     usage: Literal["workspaces", "tests", "portail", "ressources"] | None = None
+
+    @field_validator("docker_cert_slug")
+    @classmethod
+    def validate_docker_cert_slug(cls, v: str | None) -> str | None:
+        # Même format que les slugs du gestionnaire de certificats (routes/certificates.py).
+        if v and not re.fullmatch(r"^[a-z0-9][a-z0-9_-]{0,62}$", v):
+            raise ValueError(
+                "docker_cert_slug: lowercase alphanum + tirets/underscores, 1-63 chars"
+            )
+        return v
 
 
 class BootstrapSshRequest(BaseModel):
@@ -640,6 +660,56 @@ async def resolve_workspace_host(
 # ─── Hosts CRUD ──────────────────────────────────────────────────────────────
 
 
+async def _materialize_docker_cert(
+    login: str, session_id: str, host_name: str, slug: str, conn: AsyncConnection
+) -> None:
+    """Matérialise le bundle mTLS d'un host depuis le gestionnaire de certificats.
+
+    Exige un cert tls-* IMPORTÉ (X.509, pas une paire de clés générée), avec CA,
+    dont l'admin est propriétaire (le reveal de la clé passe par sa session vault).
+    Toute condition non remplie = erreur explicite, jamais de bundle partiel.
+    """
+    row = await get_certificate(login, slug, conn)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Certificat {slug!r} introuvable")
+    if not str(row["cert_type"]).startswith("tls-"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Certificat {slug!r} : type {row['cert_type']} — un cert tls-* est requis",
+        )
+    if not row["is_own"]:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Certificat {slug!r} : appartient à {row['owner_login']} — seul un cert "
+                "dont vous êtes propriétaire peut être associé (clé privée à matérialiser)"
+            ),
+        )
+    cert_pem = str(row["public_key"] or "")
+    if "-----BEGIN CERTIFICATE-----" not in cert_pem:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Certificat {slug!r} : la partie publique n'est pas un certificat X.509 "
+                "(entrée générée = paire de clés) — importez un bundle cert client + clé + CA"
+            ),
+        )
+    ca_pem = str(row["ca_pem"] or "")
+    if not ca_pem:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Certificat {slug!r} : CA manquant — le mTLS docker exige ca.pem",
+        )
+    try:
+        key_pem = await reveal_private_key(login, session_id, slug, conn)
+    except VaultLocked as exc:
+        raise HTTPException(status_code=403, detail="vault_locked") from exc
+    except CertNotFound as exc:
+        raise HTTPException(status_code=404, detail=f"Clé privée de {slug!r} inaccessible") from exc
+    await materialize_host_bundle(host_name, ca_pem=ca_pem, cert_pem=cert_pem, key_pem=key_pem)
+    _log.info("host_docker_cert_associated", host=host_name, slug=slug, by=login)
+
+
 @router.get("/hosts")
 async def list_hosts(user: UserInfo = Depends(require_admin)) -> list[dict[str, object]]:
     cfg = load_global()
@@ -649,6 +719,7 @@ async def list_hosts(user: UserInfo = Depends(require_admin)) -> list[dict[str, 
 @router.post("/hosts", status_code=201)
 async def add_host(
     body: HostCreateRequest,
+    request: Request,
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, object]:
@@ -678,10 +749,18 @@ async def add_host(
         vmid=body.vmid,
         ci_password_secret_slug=ci_slug,
         host_cert_slug="",
+        docker_cert_slug=body.docker_cert_slug or "",
         storage_type="local",
         vault_identifier="",
         usage=body.usage or "workspaces",
     )
+    # Bundle mTLS matérialisé AVANT persistance : une association invalide
+    # (cert sans CA, vault verrouillé…) ne doit pas laisser un host à moitié câblé.
+    if host.type == "docker-tls" and host.docker_cert_slug:
+        session_id = str(request.session.get("session_id", ""))
+        await _materialize_docker_cert(
+            user.login, session_id, host.name, host.docker_cert_slug, conn
+        )
     cfg.hosts.append(host)
     await save_global_db(cfg, conn)
     set_cached_global(cfg)
@@ -693,6 +772,7 @@ async def add_host(
 async def update_host(
     name: str,
     body: HostCreateRequest,
+    request: Request,
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, object]:
@@ -728,10 +808,24 @@ async def update_host(
         vmid=body.vmid,
         ci_password_secret_slug=ci_slug,
         host_cert_slug=existing.host_cert_slug,  # conservé
+        # None = préservé (client qui n'envoie pas le champ), "" = dissocier explicitement.
+        docker_cert_slug=(
+            existing.docker_cert_slug if body.docker_cert_slug is None else body.docker_cert_slug
+        ),
         storage_type=existing.storage_type,  # conservé (l'update ne doit rien réinitialiser)
         vault_identifier=existing.vault_identifier,  # conservé
         usage=body.usage if body.usage is not None else existing.usage,
     )
+    # Bundle mTLS : rematérialisé uniquement si le slug CHANGE (un update sans rapport
+    # ne doit pas exiger le vault déverrouillé) ; "" = dissociation → purge du bundle.
+    if host.docker_cert_slug != existing.docker_cert_slug:
+        if host.docker_cert_slug:
+            session_id = str(request.session.get("session_id", ""))
+            await _materialize_docker_cert(
+                user.login, session_id, host.name, host.docker_cert_slug, conn
+            )
+        else:
+            await remove_host_bundle(host.name)
     cfg.hosts[idx] = host
     await save_global_db(cfg, conn)
     set_cached_global(cfg)
@@ -796,6 +890,8 @@ async def delete_host(
         await delete_system_secret(host_cfg.ci_password_secret_slug, conn)
     if host_cfg.host_cert_slug:
         await delete_system_cert(host_cfg.host_cert_slug, conn)
+    if host_cfg.docker_cert_slug:
+        await remove_host_bundle(host_cfg.name)
 
     # 4. Retirer le host de la config
     cfg.hosts = [h for h in cfg.hosts if h.name != name]
@@ -1095,8 +1191,12 @@ async def get_host_cert(
             raise HTTPException(status_code=404, detail="Cert introuvable en base")
         return {"public_key": str(row["public_key"]), "cert_type": str(row["cert_type"])}
 
-    # docker-tls : lire depuis le répertoire de certs global
-    raw_path = cfg.devpod.client_cert_path
+    # docker-tls : bundle par host si un cert du gestionnaire est associé,
+    # sinon répertoire de certs partagé du portail.
+    if host.docker_cert_slug:
+        raw_path = str(host_bundle_dir(host.name))
+    else:
+        raw_path = cfg.devpod.client_cert_path
     if not raw_path:
         raise HTTPException(status_code=422, detail="client_cert_path non configuré")
 

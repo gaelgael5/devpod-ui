@@ -14,6 +14,9 @@ export interface HostConfig {
   // Références harpo_* (lecture seule — jamais de secret brut)
   ci_password_secret_slug?: string
   host_cert_slug?: string
+  // Cert client mTLS (docker-tls) : slug d'une entrée tls-* du gestionnaire de
+  // certificats. Vide = répertoire partagé du portail.
+  docker_cert_slug?: string
   // Destination : workspaces, tests, portail (machine du portail), ou
   // ressources (service partagé permanent, sans workspace propriétaire — spec 33).
   usage?: 'workspaces' | 'tests' | 'portail' | 'ressources'
@@ -28,6 +31,7 @@ export interface HostCreatePayload {
   proxmox_node?: string
   vmid?: string
   ci_password?: string
+  docker_cert_slug?: string
   usage?: 'workspaces' | 'tests' | 'portail' | 'ressources'
 }
 

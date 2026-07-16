@@ -45,6 +45,18 @@ export const handlers = [
     ])
   ),
   http.get('/me/git/branches', () => HttpResponse.json({ branches: [] })),
+  http.get('/me/certificates', () =>
+    HttpResponse.json([
+      { slug: 'docker-node1', label: 'Docker node1', description: '', cert_type: 'tls-rsa-4096',
+        public_key: '-----BEGIN CERTIFICATE-----', ca_pem: '-----BEGIN CERTIFICATE-----',
+        storage_type: 'local', vault_identifier: null, owner_login: 'alice', is_public: false,
+        is_own: true, created_at: '2026-07-16T00:00:00Z' },
+      { slug: 'gitea-ssh', label: 'Gitea SSH', description: '', cert_type: 'ssh-ed25519',
+        public_key: 'ssh-ed25519 AAAA', ca_pem: null,
+        storage_type: 'local', vault_identifier: null, owner_login: 'alice', is_public: false,
+        is_own: true, created_at: '2026-07-16T00:00:00Z' },
+    ])
+  ),
   http.get('/admin/hosts/:name/workspaces', () => HttpResponse.json([])),
   http.get('/admin/hosts/:name/deployments', () => HttpResponse.json([])),
   http.get('/admin/hypervisor-types', () => HttpResponse.json([])),

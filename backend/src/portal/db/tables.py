@@ -122,6 +122,8 @@ hosts = Table(
     Column("vmid", Text, nullable=False, server_default=""),
     Column("ci_password_secret_slug", Text, nullable=False, server_default=""),
     Column("host_cert_slug", Text, nullable=False, server_default=""),
+    # Cert client mTLS (docker-tls) : slug harpo_certificates tls-* (migration 071).
+    Column("docker_cert_slug", Text, nullable=False, server_default=""),
     Column("storage_type", Text, nullable=False, server_default="local"),
     Column("vault_identifier", Text, nullable=False, server_default=""),
     Column("usage", Text, nullable=False, server_default="workspaces"),

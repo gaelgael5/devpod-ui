@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it, beforeEach, vi } from 'vitest'
+import { beforeAll, describe, expect, it, beforeEach, vi } from 'vitest'
 import { server } from '@/test/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
 import { useUserStore } from '@/store/user'
@@ -21,6 +21,12 @@ vi.mock('@xterm/addon-fit', () => ({
     return { fit: vi.fn(), dispose: vi.fn() }
   }),
 }))
+
+// jsdom ne supporte pas hasPointerCapture/scrollIntoView (utilisés par Radix Select).
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn()
+  Element.prototype.scrollIntoView = vi.fn()
+})
 
 describe('AdminHosts', () => {
   beforeEach(() => {
@@ -97,5 +103,25 @@ describe('AdminHosts', () => {
     await waitFor(() => expect(screen.getByText('pve1')).toBeInTheDocument())
     await user.click(screen.getByRole('button', { name: /add host|ajouter un h[oô]te/i }))
     expect(await screen.findByText(/^purpose$|^destination$/i)).toBeInTheDocument()
+  })
+
+  it('propose le certificat mTLS (certs tls-* uniquement) pour un host docker-tls', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<AdminHosts />)
+    await waitFor(() => expect(screen.getByText('pve1')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /add host|ajouter un h[oô]te/i }))
+
+    // Type par défaut = docker-tls → le sélecteur de cert est visible.
+    expect(await screen.findByText(/mtls certificate|certificat mtls/i)).toBeInTheDocument()
+
+    // Ouvrir le select : le cert tls-* est listé, le cert ssh non.
+    const selects = screen.getAllByRole('combobox')
+    const certSelect = selects.find((s) =>
+      s.textContent?.match(/shared portal certificate|certificat partagé du portail/i))
+    expect(certSelect).toBeDefined()
+    await user.click(certSelect!)
+    // Radix rend l'item + une <option> native miroir → findAll.
+    expect(await screen.findAllByText(/Docker node1/)).not.toHaveLength(0)
+    expect(screen.queryByText(/Gitea SSH/)).not.toBeInTheDocument()
   })
 })

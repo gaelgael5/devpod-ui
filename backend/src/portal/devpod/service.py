@@ -34,7 +34,7 @@ from ..exposure import _WS_ID_RE
 from ..messages import db as _msg_db
 from ..profiles.models import Profile
 from ..recipes.models import RecipeMeta
-from .env import HostNotReadyError, _find_host, build_env
+from .env import HostNotReadyError, _find_host, build_env, docker_cert_dir
 from .provider import ensure_provider
 from .runner import kill_if_running, run_subprocess
 from .shelve import shelve_if_pending
@@ -493,7 +493,7 @@ class DevPodService:
             if host_cfg.type == "docker-tls":
                 tunnel_env["DOCKER_HOST"] = host_cfg.docker_host
                 tunnel_env["DOCKER_TLS_VERIFY"] = "1"
-                tunnel_env["DOCKER_CERT_PATH"] = global_cfg.devpod.client_cert_path
+                tunnel_env["DOCKER_CERT_PATH"] = docker_cert_dir(host_cfg, global_cfg)
             tmp_key_path = ""
             pf_ok = False
             try:

@@ -121,7 +121,7 @@ async def workspace_env(login: str, ws_id: str) -> dict[str, str]:
     name = ws_id[len(login) + 1 :] if ws_id.startswith(f"{login}-") else ws_id
     try:
         from ..config.store import load_user
-        from .env import _find_host
+        from .env import _find_host, docker_cert_dir
 
         cfg = load_global()
         user_cfg = await load_user(login)
@@ -133,7 +133,7 @@ async def workspace_env(login: str, ws_id: str) -> dict[str, str]:
     if host.type == "docker-tls":
         env["DOCKER_HOST"] = host.docker_host
         env["DOCKER_TLS_VERIFY"] = "1"
-        env["DOCKER_CERT_PATH"] = cfg.devpod.client_cert_path
+        env["DOCKER_CERT_PATH"] = docker_cert_dir(host, cfg)
     return env
 
 

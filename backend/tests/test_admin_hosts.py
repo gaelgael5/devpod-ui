@@ -20,6 +20,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
+
+def _req(session_id: str = "sid-1") -> MagicMock:
+    """Request factice portant une session (vault) pour add/update host."""
+    request = MagicMock()
+    request.session = {"session_id": session_id}
+    return request
+
+
 # ─── HostCreateRequest ────────────────────────────────────────────────────────
 
 
@@ -43,6 +51,25 @@ def test_host_create_request_minimal_ssh() -> None:
     assert req.name == "my-host"
     assert req.type == "ssh"
     assert req.ci_password == ""
+
+
+def test_host_create_request_docker_cert_slug_invalid() -> None:
+    """docker_cert_slug doit respecter le format slug du gestionnaire de certificats."""
+    from portal.routes.admin import HostCreateRequest
+
+    with pytest.raises(ValidationError):
+        HostCreateRequest(
+            name="node1",
+            type="docker-tls",
+            docker_cert_slug="../etc/passwd",
+        )
+
+
+def test_host_create_request_docker_cert_slug_valid() -> None:
+    from portal.routes.admin import HostCreateRequest
+
+    req = HostCreateRequest(name="node1", type="docker-tls", docker_cert_slug="docker-node1")
+    assert req.docker_cert_slug == "docker-node1"
 
 
 def test_host_create_request_with_ci_password() -> None:
@@ -92,7 +119,7 @@ async def test_add_host_stores_ci_password_slug() -> None:
         patch("portal.routes.admin.store_system_secret", new_callable=AsyncMock) as mock_store,
         patch("portal.routes.admin.save_global_db", new_callable=AsyncMock) as mock_save,
     ):
-        result = await add_host(body=body, user=user, conn=conn)
+        result = await add_host(request=_req(), body=body, user=user, conn=conn)
 
     # Le slug est présent, le mot de passe brut n'est PAS dans la réponse
     assert result["ci_password_secret_slug"] == "host.test-vm-01.ci-password"
@@ -138,7 +165,7 @@ async def test_add_host_without_ci_password() -> None:
         patch("portal.routes.admin.store_system_secret", new_callable=AsyncMock) as mock_store,
         patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
     ):
-        result = await add_host(body=body, user=user, conn=conn)
+        result = await add_host(request=_req(), body=body, user=user, conn=conn)
 
     assert result["ci_password_secret_slug"] == ""
     assert result["host_cert_slug"] == ""
@@ -171,9 +198,139 @@ async def test_add_host_conflict_409() -> None:
         patch("portal.routes.admin.load_global", return_value=cfg),
         pytest.raises(HTTPException) as exc_info,
     ):
-        await add_host(body=body, user=user, conn=conn)
+        await add_host(request=_req(), body=body, user=user, conn=conn)
 
     assert exc_info.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_add_host_stores_docker_cert_slug() -> None:
+    """add_host avec docker_cert_slug enregistre la référence sur le host."""
+    from portal.auth.rbac import UserInfo
+    from portal.config.models import AuthConfig, GlobalConfig, OidcConfig, ServerConfig
+    from portal.routes.admin import HostCreateRequest, add_host
+
+    cfg = GlobalConfig(
+        version="1",
+        server=ServerConfig(base_domain="", external_url=""),
+        auth=AuthConfig(oidc=OidcConfig(issuer="", client_id="", client_secret="")),
+    )
+
+    conn = AsyncMock()
+    user = UserInfo(login="admin", roles=["admin"])
+    body = HostCreateRequest(
+        name="node1",
+        type="docker-tls",
+        docker_host="tcp://192.168.1.50:2376",
+        docker_cert_slug="docker-node1",
+    )
+
+    with (
+        patch("portal.routes.admin.load_global", return_value=cfg),
+        patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
+        patch("portal.routes.admin._materialize_docker_cert", new_callable=AsyncMock) as mock_mat,
+    ):
+        result = await add_host(request=_req("sid-42"), body=body, user=user, conn=conn)
+
+    assert result["docker_cert_slug"] == "docker-node1"
+    # Le bundle est matérialisé à l'association, avec la session admin.
+    mock_mat.assert_awaited_once_with("admin", "sid-42", "node1", "docker-node1", conn)
+
+
+# ─── _materialize_docker_cert ────────────────────────────────────────────────
+
+
+def _cert_row(**overrides: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "slug": "docker-node1",
+        "label": "Docker node1",
+        "cert_type": "tls-rsa-4096",
+        "public_key": "-----BEGIN CERTIFICATE-----\nCLIENT\n-----END CERTIFICATE-----\n",
+        "ca_pem": "-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----\n",
+        "owner_login": "admin",
+        "is_own": True,
+    }
+    row.update(overrides)
+    return row
+
+
+@pytest.mark.asyncio
+async def test_materialize_docker_cert_writes_bundle() -> None:
+    """Cas nominal : cert tls-* importé avec CA → bundle matérialisé."""
+    from portal.routes.admin import _materialize_docker_cert
+
+    conn = AsyncMock()
+    with (
+        patch("portal.routes.admin.get_certificate", new_callable=AsyncMock) as mock_get,
+        patch("portal.routes.admin.reveal_private_key", new_callable=AsyncMock) as mock_reveal,
+        patch("portal.routes.admin.materialize_host_bundle", new_callable=AsyncMock) as mock_bundle,
+    ):
+        mock_get.return_value = _cert_row()
+        mock_reveal.return_value = "-----BEGIN PRIVATE KEY-----\nK\n-----END PRIVATE KEY-----\n"
+        await _materialize_docker_cert("admin", "sid-1", "node1", "docker-node1", conn)
+
+    mock_reveal.assert_awaited_once_with("admin", "sid-1", "docker-node1", conn)
+    mock_bundle.assert_awaited_once_with(
+        "node1",
+        ca_pem=_cert_row()["ca_pem"],
+        cert_pem=_cert_row()["public_key"],
+        key_pem="-----BEGIN PRIVATE KEY-----\nK\n-----END PRIVATE KEY-----\n",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("row", "status"),
+    [
+        (None, 404),  # cert introuvable
+        (_cert_row(cert_type="ssh-ed25519"), 422),  # pas un cert TLS
+        (_cert_row(is_own=False, owner_login="bob"), 422),  # cert public d'un autre user
+        (_cert_row(public_key="ssh-rsa AAAA"), 422),  # entrée générée = pas un X.509
+        (_cert_row(ca_pem=None), 422),  # CA manquant
+    ],
+)
+async def test_materialize_docker_cert_rejects_unusable_cert(
+    row: dict[str, object] | None, status: int
+) -> None:
+    from fastapi import HTTPException
+
+    from portal.routes.admin import _materialize_docker_cert
+
+    conn = AsyncMock()
+    with (
+        patch("portal.routes.admin.get_certificate", new_callable=AsyncMock) as mock_get,
+        patch("portal.routes.admin.materialize_host_bundle", new_callable=AsyncMock) as mock_bundle,
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        mock_get.return_value = row
+        await _materialize_docker_cert("admin", "sid-1", "node1", "docker-node1", conn)
+
+    assert exc_info.value.status_code == status
+    mock_bundle.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_materialize_docker_cert_vault_locked_403() -> None:
+    """Vault verrouillé au reveal → 403 vault_locked (pas de bundle écrit)."""
+    from fastapi import HTTPException
+
+    from portal.certificates.service import VaultLocked
+    from portal.routes.admin import _materialize_docker_cert
+
+    conn = AsyncMock()
+    with (
+        patch("portal.routes.admin.get_certificate", new_callable=AsyncMock) as mock_get,
+        patch("portal.routes.admin.reveal_private_key", new_callable=AsyncMock) as mock_reveal,
+        patch("portal.routes.admin.materialize_host_bundle", new_callable=AsyncMock) as mock_bundle,
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        mock_get.return_value = _cert_row()
+        mock_reveal.side_effect = VaultLocked("locked")
+        await _materialize_docker_cert("admin", "sid-1", "node1", "docker-node1", conn)
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "vault_locked"
+    mock_bundle.assert_not_called()
 
 
 # ─── update_host ──────────────────────────────────────────────────────────────
@@ -209,7 +366,7 @@ async def test_update_host_stores_new_ci_password() -> None:
         patch("portal.routes.admin.store_system_secret", new_callable=AsyncMock) as mock_store,
         patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
     ):
-        result = await update_host(name="vm-01", body=body, user=user, conn=conn)
+        result = await update_host(request=_req(), name="vm-01", body=body, user=user, conn=conn)
 
     mock_store.assert_called_once()
     assert result["ci_password_secret_slug"] == "host.vm-01.ci-password"
@@ -223,7 +380,9 @@ async def test_update_host_preserves_slug_without_ci_password() -> None:
     from portal.routes.admin import HostCreateRequest, update_host
 
     existing = HostConfig(
-        name="vm-01", type="ssh", ci_password_secret_slug="host.vm-01.ci-password",
+        name="vm-01",
+        type="ssh",
+        ci_password_secret_slug="host.vm-01.ci-password",
         host_cert_slug="host.vm-01.cert",
     )
     cfg = GlobalConfig(
@@ -247,11 +406,108 @@ async def test_update_host_preserves_slug_without_ci_password() -> None:
         patch("portal.routes.admin.store_system_secret", new_callable=AsyncMock) as mock_store,
         patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
     ):
-        result = await update_host(name="vm-01", body=body, user=user, conn=conn)
+        result = await update_host(request=_req(), name="vm-01", body=body, user=user, conn=conn)
 
     mock_store.assert_not_called()
     assert result["ci_password_secret_slug"] == "host.vm-01.ci-password"
     assert result["host_cert_slug"] == "host.vm-01.cert"
+
+
+@pytest.mark.asyncio
+async def test_update_host_docker_cert_slug_set_and_clear() -> None:
+    """update_host prend docker_cert_slug du body ('' = dissocier, None = préservé)."""
+    from portal.auth.rbac import UserInfo
+    from portal.config.models import AuthConfig, GlobalConfig, HostConfig, OidcConfig, ServerConfig
+    from portal.routes.admin import HostCreateRequest, update_host
+
+    existing = HostConfig(
+        name="node1",
+        type="docker-tls",
+        docker_host="tcp://192.168.1.50:2376",
+        docker_cert_slug="old-cert",
+    )
+    cfg = GlobalConfig(
+        version="1",
+        server=ServerConfig(base_domain="", external_url=""),
+        auth=AuthConfig(oidc=OidcConfig(issuer="", client_id="", client_secret="")),
+        hosts=[existing],
+    )
+
+    conn = AsyncMock()
+    user = UserInfo(login="admin", roles=["admin"])
+
+    with (
+        patch("portal.routes.admin.load_global", return_value=cfg),
+        patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
+        patch("portal.routes.admin._materialize_docker_cert", new_callable=AsyncMock) as mock_mat,
+        patch("portal.routes.admin.remove_host_bundle", new_callable=AsyncMock) as mock_rm,
+    ):
+        # Nouveau slug → remplacé, bundle rematérialisé
+        body = HostCreateRequest(
+            name="node1",
+            type="docker-tls",
+            docker_host="tcp://192.168.1.50:2376",
+            docker_cert_slug="new-cert",
+        )
+        result = await update_host(request=_req(), name="node1", body=body, user=user, conn=conn)
+        assert result["docker_cert_slug"] == "new-cert"
+        mock_mat.assert_awaited_once_with("admin", "sid-1", "node1", "new-cert", conn)
+        mock_rm.assert_not_called()
+
+        # "" explicite → dissocié, bundle supprimé
+        mock_mat.reset_mock()
+        body = HostCreateRequest(
+            name="node1",
+            type="docker-tls",
+            docker_host="tcp://192.168.1.50:2376",
+            docker_cert_slug="",
+        )
+        result = await update_host(request=_req(), name="node1", body=body, user=user, conn=conn)
+        assert result["docker_cert_slug"] == ""
+        mock_mat.assert_not_called()
+        mock_rm.assert_awaited_once_with("node1")
+
+
+@pytest.mark.asyncio
+async def test_update_host_docker_cert_slug_preserved_when_absent() -> None:
+    """update_host sans docker_cert_slug (None) conserve la valeur existante."""
+    from portal.auth.rbac import UserInfo
+    from portal.config.models import AuthConfig, GlobalConfig, HostConfig, OidcConfig, ServerConfig
+    from portal.routes.admin import HostCreateRequest, update_host
+
+    existing = HostConfig(
+        name="node1",
+        type="docker-tls",
+        docker_host="tcp://192.168.1.50:2376",
+        docker_cert_slug="kept-cert",
+    )
+    cfg = GlobalConfig(
+        version="1",
+        server=ServerConfig(base_domain="", external_url=""),
+        auth=AuthConfig(oidc=OidcConfig(issuer="", client_id="", client_secret="")),
+        hosts=[existing],
+    )
+
+    conn = AsyncMock()
+    user = UserInfo(login="admin", roles=["admin"])
+    body = HostCreateRequest(
+        name="node1",
+        type="docker-tls",
+        docker_host="tcp://192.168.1.50:2376",
+    )
+
+    with (
+        patch("portal.routes.admin.load_global", return_value=cfg),
+        patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
+        patch("portal.routes.admin._materialize_docker_cert", new_callable=AsyncMock) as mock_mat,
+        patch("portal.routes.admin.remove_host_bundle", new_callable=AsyncMock) as mock_rm,
+    ):
+        result = await update_host(request=_req(), name="node1", body=body, user=user, conn=conn)
+
+    assert result["docker_cert_slug"] == "kept-cert"
+    # Slug inchangé : ni rematérialisation (exigerait le vault déverrouillé), ni purge.
+    mock_mat.assert_not_called()
+    mock_rm.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -267,7 +523,7 @@ async def test_update_host_name_mismatch_422() -> None:
     body = HostCreateRequest(name="other-name", type="ssh")
 
     with pytest.raises(HTTPException) as exc_info:
-        await update_host(name="vm-01", body=body, user=user, conn=conn)
+        await update_host(request=_req(), name="vm-01", body=body, user=user, conn=conn)
 
     assert exc_info.value.status_code == 422
 
@@ -347,6 +603,43 @@ async def test_delete_host_no_slugs_no_harpo_calls() -> None:
 
     mock_del_sec.assert_not_called()
     mock_del_cert.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_host_removes_docker_bundle() -> None:
+    """delete_host purge le bundle mTLS par host si docker_cert_slug présent."""
+    from portal.auth.rbac import UserInfo
+    from portal.config.models import AuthConfig, GlobalConfig, HostConfig, OidcConfig, ServerConfig
+    from portal.routes.admin import delete_host
+
+    existing = HostConfig(
+        name="node1",
+        type="docker-tls",
+        docker_host="tcp://192.168.1.50:2376",
+        docker_cert_slug="docker-node1",
+    )
+    cfg = GlobalConfig(
+        version="1",
+        server=ServerConfig(base_domain="", external_url=""),
+        auth=AuthConfig(oidc=OidcConfig(issuer="", client_id="", client_secret="")),
+        hosts=[existing],
+    )
+
+    conn = AsyncMock()
+    rows_result = MagicMock()
+    rows_result.mappings.return_value.all.return_value = []
+    conn.execute.return_value = rows_result
+    user = UserInfo(login="admin", roles=["admin"])
+
+    with (
+        patch("portal.routes.admin.load_global", return_value=cfg),
+        patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
+        patch("portal.routes.proxmox._run_destroy_script", new_callable=AsyncMock),
+        patch("portal.routes.admin.remove_host_bundle", new_callable=AsyncMock) as mock_rm,
+    ):
+        await delete_host(name="node1", user=user, conn=conn)
+
+    mock_rm.assert_awaited_once_with("node1")
 
 
 # ─── bootstrap-ssh ────────────────────────────────────────────────────────────
@@ -509,7 +802,9 @@ async def test_get_host_cert_ssh_returns_public_key() -> None:
     from portal.routes.admin import get_host_cert
 
     host = HostConfig(
-        name="vm-01", type="ssh", host_cert_slug="host.vm-01.cert",
+        name="vm-01",
+        type="ssh",
+        host_cert_slug="host.vm-01.cert",
     )
     cfg = GlobalConfig(
         version="1",
