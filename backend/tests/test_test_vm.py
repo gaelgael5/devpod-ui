@@ -165,3 +165,11 @@ def test_host_cert_ready_false_when_slug_missing() -> None:
 
 def test_host_cert_ready_false_when_host_unknown() -> None:
     assert host_cert_ready([_ssh_host("h1")], "unknown") is False
+
+
+def test_testhost_ssh_command_wraps_tmux() -> None:
+    """Le rebond test ouvre une session tmux persistante sur la VM (fallback bash)."""
+    cmd = build_testhost_ssh_command("host-test-114-1", ["host-test-114-1"], [_ssh_host()])
+    assert cmd is not None
+    assert "tmux new-session -A -s main" in cmd
+    assert "bash -l" in cmd  # tmux absent → shell simple, pas d'échec

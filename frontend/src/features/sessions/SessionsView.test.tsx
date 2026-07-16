@@ -135,4 +135,35 @@ describe('SessionsView', () => {
     await user.click(screen.getAllByRole('button', { name: 'Close' })[0])
     expect(body).toEqual({ family: 'host', target: 'node1', owner: 'admin', session: null })
   })
+
+  it('host : ouvre la session tmux ciblée (?session=) et peut fermer même détachée', async () => {
+    useUserStore.setState({ user: { login: 'root', roles: ['admin'], is_admin: true } })
+    const hostSessions = [
+      { family: 'host', target: 'node1', owner: 'admin', host: 'node1', session: 'ops', attached: false },
+    ]
+    let body: unknown = null
+    server.use(
+      http.get('/sessions', () => HttpResponse.json(hostSessions)),
+      http.post('/sessions/close', async ({ request }) => {
+        body = await request.json()
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    const user = userEvent.setup()
+    renderWithProviders(<SessionsView />)
+
+    await screen.findByText('ops')
+    await user.click(screen.getByRole('button', { name: 'Open' }))
+    expect(open).toHaveBeenCalledWith(
+      expect.stringContaining(encodeURIComponent('/admin/hosts/node1/ssh?session=ops')),
+      '_blank',
+      'noopener',
+    )
+    open.mockRestore()
+
+    // Détachée mais tmux vivant → fermeture (tue la session distante).
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    expect(body).toEqual({ family: 'host', target: 'node1', owner: 'admin', session: 'ops' })
+  })
 })

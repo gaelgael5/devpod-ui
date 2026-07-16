@@ -56,6 +56,7 @@
 ## [tests]
 - `TestClient` : tout appel (`client.get(...)`) fait APRÈS la sortie du bloc `with TestClient(app) as client:` s'exécute post-lifespan-shutdown (`dispose_engine()` déjà passé) → reconnexion d'engine liée à une event loop mourante, fuite vers le test suivant (`attached to a different loop`). Toujours garder les appels DANS le `with`.
 - Avant de chasser un test rouge : vérifier s'il teste un comportement disparu (signature changée, champ renommé) plutôt que de le réparer mécaniquement — grep le code réel d'abord.
+- WebSocket TestClient : la session injectée doit poser `auth_time` (sinon `session_within_max_age` → 4001 avant toute validation) ; la sortie du `with websocket_connect` ANNULE le handler — provoquer l'étape à tester (ex. écho reçu) avant de fermer. Pont PTY : le tester avec un subprocess réel inerte (`sleep`) qui tient le slave — l'écho vient du tty, un fake à pipes donne un EOF immédiat.
 
 ## [git]
 - Tout le code va sur `dev`, jamais `main` (même si "committe"/"pousse" sans préciser). Vérifier `git branch --show-current` avant tout commit. Ne jamais proposer `git checkout -b feat/...`.

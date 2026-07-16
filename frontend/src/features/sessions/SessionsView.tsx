@@ -43,15 +43,19 @@ function canOpen(e: SessionEntry, login: string, isAdmin: boolean): boolean {
   return owns(e, login, isAdmin) // test
 }
 
-/** Fermeture possible : host/test seulement si attaché (rien à détacher sinon). */
+/** Fermeture possible : une session tmux (workspace/host) se tue même détachée ;
+ *  test seulement si attaché (rien à détacher sinon). */
 function canClose(e: SessionEntry, login: string, isAdmin: boolean): boolean {
   if (e.family === 'workspace') return owns(e, login, isAdmin) && !!e.session
-  if (e.family === 'host') return isAdmin && e.attached
+  if (e.family === 'host') return isAdmin && (e.attached || !!e.session)
   return owns(e, login, isAdmin) && e.attached // test
 }
 
 function openUrl(e: SessionEntry, login: string): string {
-  if (e.family === 'host') return `/admin/hosts/${encodeURIComponent(e.target)}/ssh`
+  if (e.family === 'host') {
+    const sessionParam = e.session ? `?session=${encodeURIComponent(e.session)}` : ''
+    return `/admin/hosts/${encodeURIComponent(e.target)}/ssh${sessionParam}`
+  }
   const name = wsNameOf(e)
   // Vue admin sur le conteneur d'un autre : le backend résout le ws_id sur ?owner=.
   const ownerParam = e.owner !== login ? `&owner=${encodeURIComponent(e.owner)}` : ''

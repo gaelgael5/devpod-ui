@@ -28,6 +28,19 @@ def tmux(args: str) -> str:
     return f'{TMUX_SOCK_DETECT}; tmux ${{TMUX_SOCK:+-S "$TMUX_SOCK"}} {args}'
 
 
+def remote_tmux_command(session: str) -> str:
+    """Commande shell distante : session tmux persistante, fallback shell simple.
+
+    Pour un host/VM (socket tmux par défaut de l'utilisateur SSH — pas de
+    détection de socket, réservée aux devcontainers). `new-session -A` attache
+    si la session existe, crée sinon. tmux absent → bash, avec un mot d'excuse.
+    """
+    return (
+        f"command -v tmux >/dev/null 2>&1 && exec tmux new-session -A -s {shlex.quote(session)}"
+        " || { echo '[portal] tmux absent : session non persistante'; exec bash -l; }"
+    )
+
+
 async def ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0) -> tuple[int, str]:
     """Exécute une commande non-interactive dans le devcontainer via SSH.
 

@@ -21,11 +21,11 @@ function renderAt(path: string) {
 }
 
 describe('TerminalPage', () => {
-  it('rend le terminal host (resize désactivé)', () => {
+  it('rend le terminal host (resize activé — tmux derrière un PTY)', () => {
     renderAt('/terminal?ws=%2Fadmin%2Fhosts%2Fh1%2Fssh&title=h1')
     const term = screen.getByTestId('term')
     expect(term).toHaveAttribute('data-ws', '/admin/hosts/h1/ssh')
-    expect(term).toHaveAttribute('data-resize', 'false')
+    expect(term).toHaveAttribute('data-resize', 'true')
   })
 
   it('rend le terminal workspace (resize activé)', () => {

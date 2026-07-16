@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -43,6 +44,8 @@ def _inject_admin_session(app) -> TestClient:
     @test_router.post("/_test/login")
     async def _test_login(request: Request):
         request.session["user"] = {"login": "admin", "roles": ["admin"]}
+        # Sans auth_time, session_within_max_age rejette (4001) avant toute validation.
+        request.session["auth_time"] = int(time.time())
         return {"ok": True}
 
     app.include_router(test_router)
@@ -190,73 +193,41 @@ def test_ws_rejects_bad_origin(tmp_data_root: Path, monkeypatch: pytest.MonkeyPa
 # ── Tests du proxy nominal ────────────────────────────────────────────────────
 
 
-class _FakeProcess:
-    """Simule asyncio.subprocess.Process pour les tests proxy."""
+class _ExecSpy:
+    """Remplace `create_subprocess_exec` par un vrai process inerte (`sleep`).
 
-    def __init__(self, echo: bool = True) -> None:
-        self.returncode: int | None = None
-        self._killed = False
-        self._echo = echo
-        self.stdin = _FakeStdin(self)
-        self.stdout = _FakeStdout()
+    Le pont exige un process qui TIENT le côté slave du PTY (sinon EOF immédiat) ;
+    l'écho vient de la discipline de ligne du tty, pas du process. `sleep` couvre
+    aussi le précheck (`communicate` sur pipes DEVNULL). Les argv sont capturés
+    pour inspecter la commande SSH construite.
+    """
 
-    def kill(self) -> None:
-        self._killed = True
-        self.returncode = -9
-        # Débloquer le lecteur stdout (envoyer EOF)
-        self.stdout._close()
-
-    async def wait(self) -> int:
-        return self.returncode or 0
-
-
-class _FakeStdin:
-    def __init__(self, proc: _FakeProcess) -> None:
-        self._proc = proc
-
-    def is_closing(self) -> bool:
-        return self._proc.returncode is not None
-
-    def write(self, data: bytes) -> None:
-        if self._proc._echo:
-            self._proc.stdout._feed(data)
-
-    async def drain(self) -> None:
-        pass
-
-
-class _FakeStdout:
     def __init__(self) -> None:
-        self._queue: asyncio.Queue[bytes] = asyncio.Queue()
-        self._closed = False
+        self.calls: list[list[str]] = []
+        self.procs: list[asyncio.subprocess.Process] = []
+        self._real = asyncio.create_subprocess_exec
 
-    def _feed(self, data: bytes) -> None:
-        self._queue.put_nowait(data)
-
-    def _close(self) -> None:
-        self._closed = True
-        self._queue.put_nowait(b"")  # sentinelle EOF
-
-    async def read(self, n: int) -> bytes:
-        if self._closed and self._queue.empty():
-            return b""
-        chunk = await self._queue.get()
-        return chunk
+    async def __call__(self, *args: object, **kwargs: object) -> asyncio.subprocess.Process:
+        self.calls.append([str(a) for a in args])
+        spawn_kwargs = {k: v for k, v in kwargs.items() if k in ("stdin", "stdout", "stderr")}
+        # Précheck (stdin=DEVNULL, attendu par communicate) → sortie immédiate ;
+        # pont PTY → process qui tient le slave sans lire (l'écho vient du tty).
+        argv = ("true",) if kwargs.get("stdin") == asyncio.subprocess.DEVNULL else ("sleep", "30")
+        proc = await self._real(*argv, **spawn_kwargs)
+        self.procs.append(proc)
+        return proc
 
 
 def test_ws_proxy_echoes_data(
     admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Le subprocess SSH factice (echo) remet les bytes sur le WebSocket."""
-    fake_proc = _FakeProcess(echo=True)
-
-    async def _fake_exec(*args: object, **kwargs: object) -> _FakeProcess:
-        return fake_proc
+    """Les octets envoyés reviennent par l'écho du PTY local (process inerte)."""
+    spy = _ExecSpy()
 
     fd, fake_key_path = tempfile.mkstemp(suffix=".pem", prefix="devpod-host-")
     os.close(fd)
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spy)
 
     mock_cfg = _make_global_cfg([_SSH_HOST, _DOCKER_HOST])
     with (
@@ -272,19 +243,16 @@ def test_ws_proxy_echoes_data(
         assert data == b"hello"
 
 
-def test_ws_close_kills_subprocess(
+def test_ws_proxy_opens_tmux_session(
     admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Fermer le WebSocket tue le subprocess SSH."""
-    fake_proc = _FakeProcess(echo=False)
-
-    async def _fake_exec(*args: object, **kwargs: object) -> _FakeProcess:
-        return fake_proc
+    """Le terminal host tourne dans tmux (session `main` par défaut, `?session=` sinon)."""
+    spy = _ExecSpy()
 
     fd, fake_key_path = tempfile.mkstemp(suffix=".pem", prefix="devpod-host-")
     os.close(fd)
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spy)
 
     mock_cfg = _make_global_cfg([_SSH_HOST, _DOCKER_HOST])
     with (
@@ -293,8 +261,54 @@ def test_ws_close_kills_subprocess(
             "portal.routes.ssh_proxy._materialize_system_cert",
             new=AsyncMock(return_value=fake_key_path),
         ),
-        admin_client.websocket_connect("/admin/hosts/ssh-dev/ssh"),
+        admin_client.websocket_connect("/admin/hosts/ssh-dev/ssh?session=ops") as ws,
     ):
-        pass  # ferme immédiatement le WS
+        ws.send_bytes(b"x")
+        ws.receive_bytes()
 
-    assert fake_proc._killed, "Le subprocess doit être killed après fermeture WS"
+    # Dernier subprocess = le pont SSH interactif ; il embarque la commande tmux.
+    bridge_cmd = " ".join(spy.calls[-1])
+    assert "tmux new-session -A -s ops" in bridge_cmd
+    assert "bash -l" in bridge_cmd  # fallback si tmux absent sur le host
+
+
+def test_ws_proxy_rejects_invalid_session_name(admin_client: TestClient) -> None:
+    mock_cfg = _make_global_cfg([_SSH_HOST, _DOCKER_HOST])
+    with patch("portal.routes.ssh_proxy.load_global", return_value=mock_cfg):
+        _assert_ws_closes_with(admin_client, "/admin/hosts/ssh-dev/ssh?session=BAD;rm", 4022)
+
+
+def test_ws_close_kills_subprocess(
+    admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fermer le WebSocket tue le subprocess SSH."""
+    spy = _ExecSpy()
+
+    fd, fake_key_path = tempfile.mkstemp(suffix=".pem", prefix="devpod-host-")
+    os.close(fd)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spy)
+
+    mock_cfg = _make_global_cfg([_SSH_HOST, _DOCKER_HOST])
+    with (
+        patch("portal.routes.ssh_proxy.load_global", return_value=mock_cfg),
+        patch(
+            "portal.routes.ssh_proxy._materialize_system_cert",
+            new=AsyncMock(return_value=fake_key_path),
+        ),
+        admin_client.websocket_connect("/admin/hosts/ssh-dev/ssh") as ws,
+    ):
+        # S'assurer que le pont est établi (écho reçu) avant de fermer :
+        # sinon le TestClient annule le handler avant même le spawn du pont.
+        ws.send_bytes(b"x")
+        ws.receive_bytes()
+
+    # Le pont (dernier process, `sleep` inerte) a été tué au teardown (SIGKILL).
+    # Le teardown du handler s'achève après la sortie du `with` → courte attente.
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if len(spy.procs) >= 2 and spy.procs[-1].returncode is not None:
+            break
+        time.sleep(0.05)
+    assert len(spy.procs) >= 2, "Le pont SSH doit avoir été lancé"
+    assert spy.procs[-1].returncode == -9, "Le subprocess doit être killed après fermeture WS"

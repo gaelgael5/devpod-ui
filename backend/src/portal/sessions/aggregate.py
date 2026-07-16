@@ -20,6 +20,7 @@ from ..db.user_config import list_workspace_refs
 from ..db.workspace_status import list_all_status_db, list_by_login_db
 from ..devpod.exec import tmux as _tmux
 from ..devpod.exec import warm_tunnel, ws_exec
+from ..devpod.host_exec import run_host_command
 from .registry import AttachKey, attached_index
 
 _log = structlog.get_logger(__name__)
@@ -104,29 +105,67 @@ async def _workspace_sessions(
     return [entry for batch in batches for entry in batch]
 
 
-def _host_sessions(attached: set[AttachKey]) -> list[dict[str, Any]]:
+async def _probe_host_tmux(host: Any) -> list[str] | None:
+    """Sessions tmux d'un host admin, ou None si la sonde est impossible.
+
+    Best-effort court : host sans SSH portail (pas d'adresse/cert), injoignable
+    ou sans tmux → None, l'appelant retombe sur l'entrée statique historique.
+    """
+    if not getattr(host, "address", "") or not getattr(host, "host_cert_slug", ""):
+        return None
+    try:
+        rc, out, _err = await run_host_command(
+            host, "tmux list-sessions -F '#{session_name}' 2>/dev/null || true", timeout=8.0
+        )
+    except Exception:
+        _log.info("sessions_host_probe_failed", host=host.name)
+        return None
+    if rc != 0:
+        return None
+    return [s for s in out.strip().splitlines() if s]
+
+
+async def _host_sessions(attached: set[AttachKey]) -> list[dict[str, Any]]:
     """Nœuds admin joignables en terminal (type ssh) — vue admin uniquement.
 
+    Les terminaux host tournent dans tmux : chaque host est sondé (concurrence,
+    best-effort) et expose une entrée par session tmux vivante. Sonde impossible
+    → entrée statique (le host reste ouvrable, session `main` créée à l'attache).
     Exclut les VM de test (`usage="tests"`) : ce sont aussi des hosts ssh, mais
     elles sont déjà couvertes par la famille `test` — sans ce filtre elles
     apparaîtraient en double (famille `host` + famille `test`).
     """
     from ..config.store import load_global
 
+    hosts = [h for h in load_global().hosts if h.type == "ssh" and h.usage != "tests"]
+    probed = await asyncio.gather(*(_probe_host_tmux(h) for h in hosts))
+
     out: list[dict[str, Any]] = []
-    for host in load_global().hosts:
-        if host.type != "ssh" or host.usage == "tests":
-            continue
-        out.append(
-            {
-                "family": "host",
-                "target": host.name,
-                "owner": "admin",
-                "host": host.name,
-                "session": None,
-                "attached": ("host", host.name, None) in attached,
-            }
-        )
+    for host, sessions in zip(hosts, probed, strict=True):
+        if sessions:
+            out.extend(
+                {
+                    "family": "host",
+                    "target": host.name,
+                    "owner": "admin",
+                    "host": host.name,
+                    "session": name,
+                    "attached": ("host", host.name, name) in attached,
+                }
+                for name in sessions
+            )
+        else:
+            out.append(
+                {
+                    "family": "host",
+                    "target": host.name,
+                    "owner": "admin",
+                    "host": host.name,
+                    "session": None,
+                    # Sonde muette mais pont ouvert (n'importe quelle session) → attaché.
+                    "attached": any(k[0] == "host" and k[1] == host.name for k in attached),
+                }
+            )
     return out
 
 
@@ -197,6 +236,6 @@ async def list_sessions(*, login: str, is_admin: bool) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     result.extend(await _workspace_sessions(refs, status_map, attached))
     if is_admin:
-        result.extend(_host_sessions(attached))
+        result.extend(await _host_sessions(attached))
     result.extend(_test_sessions(test_rows, attached))
     return result

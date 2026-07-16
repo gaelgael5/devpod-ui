@@ -11,6 +11,7 @@ import shlex
 from collections.abc import Iterable
 
 from ..config.models import HostConfig
+from .exec import remote_tmux_command
 
 _VAR_RE = re.compile(r"<([^<>]+)>")
 
@@ -102,9 +103,11 @@ def build_testhost_ssh_command(
     dest = shlex.quote(f"root@{ip}")
     # VM de test éphémère (DHCP, recréée) → la clé d'hôte change légitimement ; pas de
     # known_hosts persistant côté container (évite "host key changed" au rebond).
+    # Le terminal ouvre une session tmux persistante sur la VM (réattachable après
+    # déconnexion) ; la commande distante est quotée pour le shell du container.
     return (
         "exec ssh -t -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
-        f"-o ConnectTimeout=15 {dest}"
+        f"-o ConnectTimeout=15 {dest} {shlex.quote(remote_tmux_command('main'))}"
     )
 
 

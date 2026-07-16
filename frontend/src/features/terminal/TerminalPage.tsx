@@ -7,9 +7,8 @@ import FullscreenTerminal from './FullscreenTerminal'
  * passée en `?ws=<chemin WebSocket>` (+ `?title=`). Le chemin est validé
  * (same-origin, préfixe autorisé) pour éviter toute injection d'hôte.
  *
- * `resize` : seul l'endpoint workspace (tmux) interprète les messages de
- * redimensionnement ; l'endpoint host les traiterait comme du stdin — on ne les
- * envoie donc que pour `/me/workspaces/…`.
+ * `resize` : les endpoints workspace ET host tournent dans tmux derrière un PTY
+ * (pont mutualisé) et interprètent les messages de redimensionnement.
  */
 function isSafeWsPath(ws: string): boolean {
   // Chemin absolu same-origin uniquement (pas de `//host`, pas de scheme).
@@ -31,7 +30,7 @@ export default function TerminalPage() {
     )
   }
 
-  const resize = ws.startsWith('/me/workspaces/')
+  const resize = ws.startsWith('/me/workspaces/') || ws.startsWith('/admin/hosts/')
 
   return (
     <div className="relative h-screen w-screen bg-[#0d0d1a]">
