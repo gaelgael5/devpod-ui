@@ -1,4 +1,7 @@
 {
+  "terminal": {
+    "invalidTarget": "Cible de terminal invalide."
+  },
   "groups": {
     "new": "Nouveau groupe",
     "manage": "Gérer les groupes",

@@ -1,4 +1,7 @@
 {
+  "terminal": {
+    "invalidTarget": "Invalid terminal target."
+  },
   "groups": {
     "new": "New group",
     "manage": "Manage groups",

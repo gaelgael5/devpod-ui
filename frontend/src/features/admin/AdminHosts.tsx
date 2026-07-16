@@ -21,7 +21,12 @@ import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDes
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import TestHostParamsDialog from './TestHostParamsDialog'
-import SshTerminalWindow from './SshTerminalWindow'
+import { openTerminalTab } from '@/features/terminal/openTerminalTab'
+
+/** Ouvre le terminal SSH d'un host Docker dans un onglet plein écran. */
+function openHostSsh(name: string): void {
+  openTerminalTab(`/admin/hosts/${encodeURIComponent(name)}/ssh`, name)
+}
 import { useDeployments } from '@/features/compose/hooks/useCompose'
 import HostServicesBlock from '@/features/compose/components/HostServicesBlock'
 
@@ -475,7 +480,6 @@ export default function AdminHosts() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [destroyTarget, setDestroyTarget] = useState<HostConfig | null>(null)
   const [form, setForm] = useState<HostCreatePayload>(EMPTY)
-  const [sshTarget, setSshTarget] = useState<HostConfig | null>(null)
   const [bootstrapTarget, setBootstrapTarget] = useState<HostConfig | null>(null)
   const destroyVm = useDestroyVm()
   const destroyStartedRef = useRef(false)
@@ -608,7 +612,7 @@ export default function AdminHosts() {
         const hostActions: HostActions = {
           onEdit: openEdit,
           onDelete: confirmDelete,
-          onSsh: setSshTarget,
+          onSsh: (h) => openHostSsh(h.name),
           onBootstrap: setBootstrapTarget,
         }
         return (
@@ -660,7 +664,7 @@ export default function AdminHosts() {
                                   {h.host_cert_slug && (
                                     <Button size="sm" variant="outline"
                                       className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
-                                      onClick={() => setSshTarget(h)}>
+                                      onClick={() => openHostSsh(h.name)}>
                                       {t('admin.sshTerminal.openBtn')}
                                     </Button>
                                   )}
@@ -845,10 +849,6 @@ export default function AdminHosts() {
           open={bootstrapTarget !== null}
           onClose={() => setBootstrapTarget(null)}
         />
-      )}
-
-      {sshTarget && (
-        <SshTerminalWindow host={sshTarget} onClose={() => setSshTarget(null)} />
       )}
     </div>
   )

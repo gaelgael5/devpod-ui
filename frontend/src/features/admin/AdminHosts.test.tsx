@@ -49,14 +49,20 @@ describe('AdminHosts', () => {
     expect(pve1Row!.querySelector('[data-ssh]')).toBeNull()
   })
 
-  it('affiche le bouton SSH sur une ligne ssh et ouvre la fenêtre au clic', async () => {
+  it('affiche le bouton SSH sur une ligne ssh et ouvre un onglet terminal au clic', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
     renderWithProviders(<AdminHosts />)
     await waitFor(() => expect(screen.getByText('ssh-dev')).toBeInTheDocument())
     const sshBtn = screen.getByRole('button', { name: /^SSH$/i })
     expect(sshBtn).toBeInTheDocument()
     await userEvent.click(sshBtn)
-    // L'adresse apparaît deux fois : cellule du tableau + bandeau de la fenêtre SSH ouverte.
-    expect(screen.getAllByText(/debian@192\.168\.10\.175/)).toHaveLength(2)
+    // Ouverture en onglet (plus de fenêtre flottante) vers le terminal host.
+    expect(open).toHaveBeenCalledWith(
+      '/terminal?ws=%2Fadmin%2Fhosts%2Fssh-dev%2Fssh&title=ssh-dev',
+      '_blank',
+      'noopener',
+    )
+    open.mockRestore()
   })
 
   it("affiche la section hosts ressources vide quand aucun host n'a usage=ressources", async () => {

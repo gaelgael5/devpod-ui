@@ -11,6 +11,7 @@ import AuthCallbackPage from '@/features/auth/AuthCallbackPage'
 const WorkspaceList = lazy(() => import('@/features/workspaces/WorkspaceList'))
 const WorkspaceCreate = lazy(() => import('@/features/workspaces/WorkspaceCreate'))
 const WorkspaceTerminals = lazy(() => import('@/features/workspaces/WorkspaceTerminals'))
+const TerminalPage = lazy(() => import('@/features/terminal/TerminalPage'))
 const RecipeCatalog = lazy(() => import('@/features/recipes/RecipeCatalog'))
 const AdminHosts = lazy(() => import('@/features/admin/AdminHosts'))
 const AdminRecipes = lazy(() => import('@/features/admin/AdminRecipes'))
@@ -63,6 +64,18 @@ export const router = createBrowserRouter([
       <RequireAuth>
         <Wrap>
           <WorkspaceTerminals />
+        </Wrap>
+      </RequireAuth>
+    ),
+  },
+  {
+    // Terminal SSH générique plein écran (host Docker, shell workspace, VM de
+    // test) ouvert en onglet — hors AppShell. Cible via ?ws=<chemin WebSocket>.
+    path: '/terminal',
+    element: (
+      <RequireAuth>
+        <Wrap>
+          <TerminalPage />
         </Wrap>
       </RequireAuth>
     ),

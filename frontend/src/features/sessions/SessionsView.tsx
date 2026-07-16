@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useUserStore } from '@/store/user'
 import { useCreateSession } from '@/features/workspaces/useWorkspaceSessions'
-import SessionTerminalWindow from './SessionTerminalWindow'
+import { openTerminalTab } from '@/features/terminal/openTerminalTab'
 import { useCloseSession, useSessions, type SessionEntry } from './useSessions'
 
 type Filter = 'all' | SessionEntry['family']
@@ -70,7 +70,6 @@ export default function SessionsView() {
   const closeSession = useCloseSession()
 
   const [filter, setFilter] = useState<Filter>('all')
-  const [term, setTerm] = useState<{ wsUrl: string; title: string } | null>(null)
   const [newWs, setNewWs] = useState('')
   const [newName, setNewName] = useState('')
 
@@ -91,7 +90,7 @@ export default function SessionsView() {
   function open(e: SessionEntry) {
     const family = t(`sessions.family.${e.family}`)
     const label = e.session ? `${wsNameOf(e)} · ${e.session}` : e.target
-    setTerm({ wsUrl: openUrl(e, login), title: `${family} — ${label}` })
+    openTerminalTab(openUrl(e, login), `${family} — ${label}`)
   }
 
   function close(e: SessionEntry) {
@@ -115,10 +114,10 @@ export default function SessionsView() {
       {
         onSuccess: () => {
           toast.success(t('sessions.created', { name: newName.trim() }))
-          setTerm({
-            wsUrl: `/me/workspaces/${encodeURIComponent(ws)}/ssh?session=${encodeURIComponent(newName.trim())}`,
-            title: `${t('sessions.family.workspace')} — ${ws} · ${newName.trim()}`,
-          })
+          openTerminalTab(
+            `/me/workspaces/${encodeURIComponent(ws)}/ssh?session=${encodeURIComponent(newName.trim())}`,
+            `${t('sessions.family.workspace')} — ${ws} · ${newName.trim()}`,
+          )
           setNewName('')
           refetch()
         },
@@ -269,9 +268,6 @@ export default function SessionsView() {
         </div>
       )}
 
-      {term && (
-        <SessionTerminalWindow wsUrl={term.wsUrl} title={term.title} onClose={() => setTerm(null)} />
-      )}
     </div>
   )
 }

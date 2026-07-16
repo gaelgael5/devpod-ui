@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 import type { WorkspaceSpec, WorkspaceStatus, WorkspaceStatusValue } from './types'
 import SshKeyDialog from './SshKeyDialog'
 import LogDialog from './LogDialog'
-import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
+import { openTerminalTab } from '@/features/terminal/openTerminalTab'
 import WorkspaceActionsMenu from './WorkspaceActionsMenu'
 import { CreateSessionDialogHost } from './CreateSessionDialog'
 import WorkspaceSkillsDialog from '@/features/skills/WorkspaceSkillsDialog'
@@ -62,9 +62,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const [messagesOpen, setMessagesOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [recreateOpen, setRecreateOpen] = useState(false)
-  const [shellOpen, setShellOpen] = useState(false)
   const [addVmOpen, setAddVmOpen] = useState(false)
-  const [sshTestHost, setSshTestHost] = useState<TestHost | null>(null)
   const [agentMsgOpen, setAgentMsgOpen] = useState(false)
   const [addSessionOpen, setAddSessionOpen] = useState(false)
   const [skillsOpen, setSkillsOpen] = useState(false)
@@ -85,6 +83,15 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
       'noopener'
     )
   }
+  // Shell direct et SSH d'une VM de test s'ouvrent aussi en onglet (comme les
+  // sessions), via le terminal plein écran générique.
+  const openShellTab = () =>
+    openTerminalTab(`/me/workspaces/${encodeURIComponent(spec.name)}/ssh?shell=1`, `${spec.name} — shell`)
+  const openTestHostTab = (host: TestHost) =>
+    openTerminalTab(
+      `/me/workspaces/${encodeURIComponent(spec.name)}/ssh?ssh_test=${encodeURIComponent(host.name)}`,
+      host.alias,
+    )
   const { data: pendingCounts } = usePendingCounts()
   const pendingCount = pendingCounts?.[spec.name] ?? 0
   const s = status.status
@@ -245,7 +252,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             running={s === 'running'}
             agents={spec.agents ?? []}
             onAddVm={() => setAddVmOpen(true)}
-            onOpenShell={() => setShellOpen(true)}
+            onOpenShell={openShellTab}
             onShowSshKey={spec.ssh_key ? () => setSshKeyOpen(true) : undefined}
             onOpenMessages={() => setMessagesOpen(true)}
             onOpenLogs={() => setLogsOpen(true)}
@@ -255,20 +262,13 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         </div>
       </div>
 
-      <HostServicesSection wsName={spec.name} enabled={s === 'running'} onOpenSsh={setSshTestHost} />
+      <HostServicesSection wsName={spec.name} enabled={s === 'running'} onOpenSsh={openTestHostTab} />
 
       {spec.ssh_key && (
         <SshKeyDialog
           workspaceName={spec.name}
           open={sshKeyOpen}
           onOpenChange={setSshKeyOpen}
-        />
-      )}
-      {shellOpen && (
-        <WorkspaceSshTerminalWindow
-          wsName={spec.name}
-          shell
-          onClose={() => setShellOpen(false)}
         />
       )}
       {addSessionOpen && (
@@ -315,13 +315,6 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {sshTestHost && (
-        <WorkspaceSshTerminalWindow
-          wsName={spec.name}
-          testHost={{ name: sshTestHost.name, alias: sshTestHost.alias }}
-          onClose={() => setSshTestHost(null)}
-        />
-      )}
       <AddTestVmDialog
         wsName={spec.name}
         open={addVmOpen}

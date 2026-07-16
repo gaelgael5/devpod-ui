@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll } from 'vitest'
 import { server } from './server'
 import { useUserStore } from '@/store/user'
 
-// jsdom ne fournit pas ResizeObserver — mock minimal pour les composants qui l'utilisent (ex. SshTerminalWindow via xterm FitAddon)
+// jsdom ne fournit pas ResizeObserver — mock minimal pour les composants qui l'utilisent (ex. FullscreenTerminal via xterm FitAddon)
 globalThis.ResizeObserver = class ResizeObserver {
   observe() {}
   unobserve() {}
