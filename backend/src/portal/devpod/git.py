@@ -7,7 +7,7 @@ import os
 import shutil
 import socket as _socket
 import tempfile
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import structlog
 from fastapi import HTTPException
@@ -15,6 +15,29 @@ from fastapi import HTTPException
 from ..config.store import load_user
 
 _log = structlog.get_logger(__name__)
+
+
+def _canonical_http_git_url(url: str) -> str:
+    """Force le suffixe `.git` sur une URL git http(s) (slash final retiré).
+
+    GitLab self-hosted renvoie 301 sur le chemin web nu (`.../projet`) vers
+    l'endpoint git (`.../projet.git`) ; avec `http.followRedirects=false`, git
+    échoue (`error: 301`). On canonicalise donc en amont. GitHub sert les deux
+    formes → inchangé. Les URLs ssh/git@ ne sont pas concernées.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return url
+    path = parsed.path.rstrip("/")
+    # Azure DevOps expose les dépôts en `/_git/<repo>` (sans `.git`) : ne pas
+    # suffixer, sous peine de casser un provider qui n'utilise pas la convention.
+    if "/_git/" in path:
+        return url if path == parsed.path else urlunparse(parsed._replace(path=path))
+    if path and not path.endswith(".git"):
+        path += ".git"
+    if path == parsed.path:
+        return url
+    return urlunparse(parsed._replace(path=path))
 
 
 def _check_git_ssrf(url: str) -> None:
@@ -69,6 +92,10 @@ async def run_git_ls_remote(
         raise HTTPException(status_code=422, detail="url is required")
     if not git_url.startswith(("http://", "https://", "git@", "ssh://")):
         git_url = f"https://{git_url}"
+
+    # Canonicalise en `.git` (le frontend retire `.git` pour lister les branches ;
+    # GitLab 301-redirige alors le chemin web nu, que git refuse de suivre).
+    git_url = _canonical_http_git_url(git_url)
 
     _check_git_ssrf(git_url)
 
