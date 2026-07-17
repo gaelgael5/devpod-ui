@@ -205,9 +205,13 @@ async def probe_git_credential(credential_name: str, host: str, login: str) -> t
         return False, str(exc.detail)
 
     message = stderr.decode("utf-8", errors="replace").strip()
+    # Succès = le remote a authentifié (le dépôt sondé n'existe simplement pas).
+    # On ne renvoie PAS la sortie brute de git ("fatal: repository not found") :
+    # affichée sous un toast vert, elle est trompeuse. Le titre « Connexion
+    # réussie » (i18n frontend) suffit. La sortie brute n'est utile qu'en échec.
     if returncode == 0:
-        return True, message
+        return True, ""
     lowered = message.lower()
     if any(marker in lowered for marker in _NOT_FOUND_MARKERS):
-        return True, message
+        return True, ""
     return False, message
