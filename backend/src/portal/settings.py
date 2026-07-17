@@ -35,8 +35,11 @@ class AppSettings(BaseSettings):
     # sessions inactives : sans lui, un utilisateur actif conserverait indéfiniment des
     # rôles figés au login, même après révocation Keycloak (bug 032). À l'expiration,
     # un re-login OIDC est forcé, ce qui rafraîchit les rôles depuis l'IdP.
-    # Défaut : 3600 s (1 h). Env : SESSION_MAX_AGE.
-    session_max_age: int = 3600
+    # Ce plafond gouverne AUSSI la coupure des proxies interactifs (terminal SSH,
+    # vue VS Code) : trop court, il déconnecte un utilisateur en plein travail.
+    # Défaut : 7200 s (2 h) — compromis entre confort (sessions longues) et latence
+    # de propagation d'une révocation de rôle. Env : SESSION_MAX_AGE.
+    session_max_age: int = 7200
 
     # OIDC
     oidc_issuer: str = ""
