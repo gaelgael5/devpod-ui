@@ -73,10 +73,16 @@ def resync_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         running = calls["running"]
         return True if running is None else ws_id in running
 
+    async def fake_unchanged(**kwargs: Any) -> bool:
+        # Par défaut la config est considérée changée (push) ; les tests
+        # d'idempotence surchargent `unchanged_ws` (set de ws_id inchangés).
+        return kwargs["ws_id"] in calls.get("unchanged_ws", ())
+
     monkeypatch.setattr(mod, "load_user", fake_load_user)
     monkeypatch.setattr(mod, "load_global", lambda: calls["cfg"])
     monkeypatch.setattr(mod, "push_agent_files", fake_push)
     monkeypatch.setattr(mod, "_ws_running", fake_running)
+    monkeypatch.setattr(mod, "_config_unchanged", fake_unchanged)
     return calls
 
 
@@ -90,7 +96,7 @@ async def test_resync_pushes_into_agent_workspaces(resync_env: dict[str, Any]) -
         ]
     )
     results = await resync_owner_workspaces("alice")
-    assert results == {"synced": ["alice-api"], "skipped": [], "failed": []}
+    assert results == {"synced": ["alice-api"], "unchanged": [], "skipped": [], "failed": []}
     call = resync_env["push"][0]
     assert call["login"] == "alice"
     assert call["ws_id"] == "alice-api"
@@ -121,7 +127,7 @@ async def test_resync_skips_docker_tls_host(resync_env: dict[str, Any]) -> None:
         [WorkspaceSpec(name="api", source="", host="node-tls", agents=["claude"])]
     )
     results = await resync_owner_workspaces("alice")
-    assert results == {"synced": [], "skipped": ["alice-api"], "failed": []}
+    assert results == {"synced": [], "unchanged": [], "skipped": ["alice-api"], "failed": []}
 
 
 async def test_resync_skips_stopped_workspace(resync_env: dict[str, Any]) -> None:
@@ -136,7 +142,54 @@ async def test_resync_skips_stopped_workspace(resync_env: dict[str, Any]) -> Non
     resync_env["running"] = {"alice-doc"}
     results = await resync_owner_workspaces("alice")
     # Arrêté = sauté (le prochain up poussera), jamais compté en échec.
-    assert results == {"synced": ["alice-doc"], "skipped": ["alice-api"], "failed": []}
+    assert results == {
+        "synced": ["alice-doc"],
+        "unchanged": [],
+        "skipped": ["alice-api"],
+        "failed": [],
+    }
+
+
+async def test_resync_skips_unchanged_config_no_push(resync_env: dict[str, Any]) -> None:
+    """Config inchangée → aucun push (donc aucune rotation de clef → pas de ré-auth)."""
+    from portal.agents.resync import resync_owner_workspaces
+
+    resync_env["user"] = _user_cfg(
+        [
+            WorkspaceSpec(name="api", source="", host="node-ssh", agents=["claude"]),
+            WorkspaceSpec(name="doc", source="", host="node-ssh", agents=["claude"]),
+        ]
+    )
+    resync_env["unchanged_ws"] = {"alice-api"}  # api inchangé, doc modifié
+    results = await resync_owner_workspaces("alice")
+    assert results == {
+        "synced": ["alice-doc"],
+        "unchanged": ["alice-api"],
+        "skipped": [],
+        "failed": [],
+    }
+    # api n'a JAMAIS été poussé → sa clef n'a pas tourné.
+    assert [c["ws_id"] for c in resync_env["push"]] == ["alice-doc"]
+
+
+async def test_boot_reconcile_unchanged_does_not_rotate(
+    resync_env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le boot du portail ne rotationne pas les clefs des workspaces inchangés."""
+    import portal.agents.resync as mod
+    from portal.agents.resync import reconcile_agents_on_boot
+
+    resync_env["user"] = _user_cfg(
+        [WorkspaceSpec(name="api", source="", host="node-ssh", agents=["claude"])]
+    )
+    resync_env["unchanged_ws"] = {"alice-api"}
+
+    async def fake_list_running() -> list[dict[str, Any]]:
+        return [{"ws_id": "alice-api", "login": "alice"}]
+
+    monkeypatch.setattr(mod, "_list_running", fake_list_running)
+    await reconcile_agents_on_boot(throttle_s=0)
+    assert resync_env["push"] == []  # aucun push au boot → aucune ré-auth
 
 
 async def test_resync_failure_isolated_per_workspace(resync_env: dict[str, Any]) -> None:

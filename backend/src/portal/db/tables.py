@@ -382,6 +382,16 @@ workspace_status = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
+# Empreinte de la dernière config agents livrée (migration 072) : le resync ne
+# rotationne/réécrit que si elle change → moins de ré-authentifications MCP.
+workspace_agent_sync = Table(
+    "workspace_agent_sync",
+    metadata,
+    Column("ws_id", Text, primary_key=True),
+    Column("config_hash", Text, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 # ─── Tour 5 : Profiles ────────────────────────────────────────────────────────
 
 profiles = Table(

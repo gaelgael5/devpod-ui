@@ -90,7 +90,12 @@ class _Channel:
         return 0, ""
 
 
-def _wire(monkeypatch: pytest.MonkeyPatch, ch: _Channel, rows: list[dict[str, object]]) -> None:
+def _wire(
+    monkeypatch: pytest.MonkeyPatch,
+    ch: _Channel,
+    rows: list[dict[str, object]],
+    recorded: list[tuple[str, str, str]] | None = None,
+) -> None:
     async def _load(agents: list[str]) -> list[dict[str, object]]:
         return rows
 
@@ -101,8 +106,13 @@ def _wire(monkeypatch: pytest.MonkeyPatch, ch: _Channel, rows: list[dict[str, ob
             )
         ]
 
+    async def _record(login: str, ws_id: str, fp: str) -> None:
+        if recorded is not None:
+            recorded.append((login, ws_id, fp))
+
     monkeypatch.setattr(push, "_load_requested_agent_types", _load)
     monkeypatch.setattr(push, "_rotate_keys", _rotate)
+    monkeypatch.setattr(push, "_record_config_hash", _record)
     monkeypatch.setattr(push, "read_container_file", ch.read)
     monkeypatch.setattr(push, "write_container_file", ch.write)
     monkeypatch.setattr(push, "ws_exec", ch.ws_exec)
@@ -134,6 +144,31 @@ async def test_replace_writes_full_file_into_container(monkeypatch: pytest.Monke
     assert "mcpk_TESTTOKEN" in out
     assert "https://portal.example.org/mcp/" in out
     assert '"claude-code"' in out  # slug de "Claude code"
+
+
+async def test_push_records_config_fingerprint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Après livraison, l'empreinte de config est enregistrée (base du resync idempotent)."""
+    from portal.agents.sync_state import compute_agent_fingerprint
+
+    ch = _Channel()
+    recorded: list[tuple[str, str, str]] = []
+    rows = [_row()]
+    _wire(monkeypatch, ch, rows, recorded=recorded)
+
+    await _run(ch)
+
+    assert len(recorded) == 1
+    login, ws_id, fp = recorded[0]
+    assert (login, ws_id) == ("bob", "bob-app")
+    assert fp == compute_agent_fingerprint(
+        agent_rows=rows,
+        profiles=[("p1", "Claude code")],
+        mcp_url="https://portal.example.org/mcp/",
+        project_root="/workspaces/bob-app",
+        ws_name="app",
+        owner="bob",
+        ws_id="bob-app",
+    )
 
 
 async def test_replace_target_under_repo_adds_git_exclude(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -235,8 +270,12 @@ async def test_unknown_agent_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _load(agents: list[str]) -> list[dict[str, object]]:
         raise AgentProvisionError("type d'agent inconnu : 'nope'")
 
+    async def _record(login: str, ws_id: str, fp: str) -> None:
+        return None
+
     monkeypatch.setattr(push, "_load_requested_agent_types", _load)
     monkeypatch.setattr(push, "_rotate_keys", _noop_rotate)
+    monkeypatch.setattr(push, "_record_config_hash", _record)
     monkeypatch.setattr(push, "read_container_file", ch.read)
     monkeypatch.setattr(push, "write_container_file", ch.write)
     monkeypatch.setattr(push, "ws_exec", ch.ws_exec)

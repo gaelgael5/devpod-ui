@@ -23,6 +23,7 @@ from .keys import WorkspaceKey, rotate_workspace_keys
 from .merge import Format, merge_config
 from .provisioning import AgentProvisionError, _load_requested_agent_types
 from .renderer import AgentRenderError, build_render_context, render_agent_file
+from .sync_state import compute_agent_fingerprint
 
 _log = structlog.get_logger(__name__)
 
@@ -81,8 +82,30 @@ async def push_agent_files(
             await _git_exclude(login, ws_id, project_root, target)
         written.append(str(row["id"]))
 
+    # Empreinte de la config livrée (hors token) : le resync ne re-livrera que si
+    # elle change → plus de rotation/ré-auth gratuite au boot du portail (spec 35b).
+    fingerprint = compute_agent_fingerprint(
+        agent_rows=agent_rows,
+        profiles=[(k.profile_id, k.profile_name) for k in keys],
+        mcp_url=mcp_url,
+        project_root=project_root,
+        ws_name=ws_name,
+        owner=login,
+        ws_id=ws_id,
+    )
+    await _record_config_hash(login, ws_id, fingerprint)
+
     _log.info("agent_files_pushed", ws_id=ws_id, agents=written)
     return written
+
+
+async def _record_config_hash(login: str, ws_id: str, fingerprint: str) -> None:
+    """Persiste l'empreinte livrée (isolé pour être mockable en test)."""
+    from ..db.agent_sync import upsert_config_hash
+    from ..db.engine import _get_engine
+
+    async with _get_engine().begin() as conn:
+        await upsert_config_hash(conn, ws_id, fingerprint)
 
 
 async def _rotate_keys(login: str, ws_id: str) -> list[WorkspaceKey]:

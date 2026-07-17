@@ -69,7 +69,11 @@ async def rotate_workspace_keys(
 
 async def revoke_workspace_keys(conn: AsyncConnection, owner_login: str, ws_id: str) -> int:
     """Révoque toutes les clefs du workspace (suppression du workspace)."""
+    from ..db.agent_sync import delete_config_hash
+
     n = await db.revoke_workspace_apikeys(conn, owner_login, ws_id)
+    # Oublie l'empreinte : un ws_id réutilisé doit re-livrer (pas de skip fantôme).
+    await delete_config_hash(conn, ws_id)
     _log.info("workspace_keys_revoked", login=owner_login, ws_id=ws_id, revoked=n)
     return n
 
