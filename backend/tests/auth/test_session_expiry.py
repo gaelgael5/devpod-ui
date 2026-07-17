@@ -31,7 +31,7 @@ def test_stale_auth_time_expires_session() -> None:
     from portal.auth.rbac import get_current_user
     from portal.settings import get_settings
 
-    max_age = get_settings().session_max_age
+    max_age = get_settings().session_absolute_max_age
     stale = int(time.time()) - max_age - 1
     req = _make_request({"user": {"login": "bob", "roles": ["admin"]}, "auth_time": stale})
     assert get_current_user(req) is None
@@ -65,7 +65,7 @@ async def test_require_admin_rejects_stale_admin_session() -> None:
     from portal.auth.rbac import require_admin
     from portal.settings import get_settings
 
-    stale = int(time.time()) - get_settings().session_max_age - 1
+    stale = int(time.time()) - get_settings().session_absolute_max_age - 1
     req = _make_request({"user": {"login": "bob", "roles": ["admin"]}, "auth_time": stale})
     with pytest.raises(HTTPException) as exc_info:
         await require_admin(req)
@@ -77,7 +77,7 @@ async def test_require_user_rejects_stale_session() -> None:
     from portal.auth.rbac import require_user
     from portal.settings import get_settings
 
-    stale = int(time.time()) - get_settings().session_max_age - 1
+    stale = int(time.time()) - get_settings().session_absolute_max_age - 1
     req = _make_request({"user": {"login": "alice", "roles": ["dev"]}, "auth_time": stale})
     with pytest.raises(HTTPException) as exc_info:
         await require_user(req)
@@ -121,14 +121,29 @@ async def test_api_key_path_ignores_auth_time(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_session_within_max_age_helper() -> None:
-    """Le helper partagé : fail-closed sans auth_time, borné par session_max_age."""
+    """Le helper partagé : fail-closed sans auth_time, borné par session_absolute_max_age."""
     from portal.auth.rbac import session_within_max_age
     from portal.settings import get_settings
 
-    max_age = get_settings().session_max_age
+    max_age = get_settings().session_absolute_max_age
     assert session_within_max_age({"auth_time": int(time.time())}) is True
     assert session_within_max_age({"auth_time": int(time.time()) - max_age - 1}) is False
     assert session_within_max_age({}) is False  # legacy / absent → expiré
+
+
+def test_active_session_past_idle_window_still_valid() -> None:
+    """Le plafond absolu est DÉCOUPLÉ de l'idle : une session active au-delà de
+    session_max_age (idle glissant, géré par le cookie) reste valide tant qu'elle
+    est sous session_absolute_max_age — l'utilisateur en plein travail n'est pas
+    coupé à 2 h."""
+    from portal.auth.rbac import session_within_max_age
+    from portal.settings import get_settings
+
+    s = get_settings()
+    assert s.session_absolute_max_age > s.session_max_age  # le plafond doit être + large
+    # auth_time entre l'idle (2 h) et le plafond absolu (12 h) → toujours valide.
+    between = int(time.time()) - s.session_max_age - 60
+    assert session_within_max_age({"auth_time": between}) is True
 
 
 def test_vscode_proxy_session_login_enforces_absolute_cap() -> None:
@@ -140,7 +155,7 @@ def test_vscode_proxy_session_login_enforces_absolute_cap() -> None:
     fresh = _make_request({"user": {"login": "alice"}, "auth_time": int(time.time())})
     assert _session_login(fresh) == "alice"
 
-    stale_ts = int(time.time()) - get_settings().session_max_age - 1
+    stale_ts = int(time.time()) - get_settings().session_absolute_max_age - 1
     stale = _make_request({"user": {"login": "alice"}, "auth_time": stale_ts})
     assert _session_login(stale) is None
 

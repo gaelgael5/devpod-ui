@@ -27,19 +27,21 @@ class AppSettings(BaseSettings):
     # Session (cookie signé)
     session_secret_key: str = ""
 
-    # Durée de vie de la session (secondes). Sert à la FOIS de :
-    #  - idle timeout : max_age du cookie Starlette, glissant (réémis à chaque réponse) ;
-    #  - plafond d'âge ABSOLU depuis le login (rbac.get_current_user compare
-    #    now - session["auth_time"]).
-    # Le plafond absolu est indispensable car le cookie glissant ne déconnecte que les
-    # sessions inactives : sans lui, un utilisateur actif conserverait indéfiniment des
-    # rôles figés au login, même après révocation Keycloak (bug 032). À l'expiration,
-    # un re-login OIDC est forcé, ce qui rafraîchit les rôles depuis l'IdP.
-    # Ce plafond gouverne AUSSI la coupure des proxies interactifs (terminal SSH,
-    # vue VS Code) : trop court, il déconnecte un utilisateur en plein travail.
-    # Défaut : 7200 s (2 h) — compromis entre confort (sessions longues) et latence
-    # de propagation d'une révocation de rôle. Env : SESSION_MAX_AGE.
+    # Idle timeout GLISSANT (secondes) : max_age du cookie Starlette, réémis à
+    # chaque réponse. Une session inactive plus longtemps est déconnectée ; toute
+    # activité la prolonge (glissant depuis la DERNIÈRE requête). C'est ce qui
+    # gouverne le confort terminal SSH / vue VS Code : tant que tu travailles, tu
+    # n'es pas coupé. Défaut : 7200 s (2 h). Env : SESSION_MAX_AGE.
     session_max_age: int = 7200
+
+    # Plafond d'âge ABSOLU depuis le login (secondes) — DÉCOUPLÉ de l'idle ci-dessus
+    # (bug 032). Borne supérieure indépendante de l'activité : au-delà, un re-login
+    # OIDC est forcé pour rafraîchir les rôles Keycloak (une révocation se propage
+    # donc en au plus cette durée). Vérifié par rbac.session_within_max_age, appliqué
+    # aussi aux proxies interactifs (VS Code, SSH). Volontairement LARGE pour ne pas
+    # couper un utilisateur actif — le confort est déjà géré par l'idle glissant.
+    # Défaut : 43200 s (12 h). Env : SESSION_ABSOLUTE_MAX_AGE.
+    session_absolute_max_age: int = 43200
 
     # OIDC
     oidc_issuer: str = ""
