@@ -301,6 +301,7 @@ class DevPodService:
 
             # Résolution du credential git pour l'injection dans devpod up
             git_ssh_key_path = ""
+            git_cred_home = ""  # HOME temporaire du credential store PAT (nettoyé après l'up)
             effective_source = ws_spec.source
             if ws_spec.git_credential and ws_spec.source:
                 try:
@@ -322,6 +323,23 @@ class DevPodService:
                                 login=login,
                                 source=effective_source,
                             )
+                    elif (
+                        cred
+                        and cred.kind == "token"
+                        and cred.token
+                        and effective_source.startswith(("https://", "http://"))
+                    ):
+                        # PAT HTTPS : devpod forwarde `git credential fill` au git côté
+                        # portail lors du clone → on lui fournit le token via un store
+                        # temporaire (l'URL reste HTTPS, pas de conversion SSH).
+                        from .git import write_token_credential_store
+
+                        host = urlparse(effective_source).hostname or cred.host
+                        git_cred_home, cred_env = write_token_credential_store(
+                            host, cred.username or "oauth2", cred.token
+                        )
+                        subprocess_env.update(cred_env)
+                        _log.info("devpod_git_token_store_prepared", login=login, host=host)
                 except Exception:
                     _log.warning("git_credential_lookup_failed", login=login, exc_info=True)
 
@@ -366,6 +384,7 @@ class DevPodService:
                     workspace_folder=workspace_folder,
                     host_name=host_cfg.name,
                     git_ssh_key_path=git_ssh_key_path,
+                    git_cred_home=git_cred_home,
                     lifecycle_event=lifecycle_event,
                     agents=agent_ids,
                     mcp_url=agents_mcp_url,
@@ -388,6 +407,10 @@ class DevPodService:
             if not task_created and tmp_key_path and tmp_key_path.startswith(tempfile.gettempdir()):
                 with contextlib.suppress(OSError):
                     os.unlink(tmp_key_path)
+            if not task_created and git_cred_home:
+                # La tâche n'a jamais démarré → son finally ne nettoiera pas le store.
+                with contextlib.suppress(Exception):
+                    shutil.rmtree(git_cred_home, ignore_errors=True)
             if not task_created and host_port is not None and self._exposure is not None:
                 # Le port a été réservé en mémoire (allocate_port) mais _run_up_task
                 # n'a jamais démarré : jamais persisté en DB, il faut le relâcher
@@ -1138,6 +1161,7 @@ class DevPodService:
         workspace_folder: str = "",
         host_name: str = "",
         git_ssh_key_path: str = "",
+        git_cred_home: str = "",
         lifecycle_event: str = "workspace.created",
         agents: list[str] | None = None,
         mcp_url: str = "",
@@ -1326,3 +1350,8 @@ class DevPodService:
             if ssh_key_path and ssh_key_path.startswith(tempfile.gettempdir()):
                 with contextlib.suppress(OSError):
                     os.unlink(ssh_key_path)
+            if git_cred_home and git_cred_home.startswith(tempfile.gettempdir()):
+                # Store PAT temporaire : supprimé quoi qu'il arrive (le token ne
+                # survit jamais au clone).
+                with contextlib.suppress(Exception):
+                    shutil.rmtree(git_cred_home, ignore_errors=True)

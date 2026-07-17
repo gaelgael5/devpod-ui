@@ -7,7 +7,7 @@ import os
 import shutil
 import socket as _socket
 import tempfile
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import quote, urlparse, urlunparse
 
 import structlog
 from fastapi import HTTPException
@@ -15,6 +15,40 @@ from fastapi import HTTPException
 from ..config.store import load_user
 
 _log = structlog.get_logger(__name__)
+
+
+def write_token_credential_store(
+    host: str, username: str, token: str
+) -> tuple[str, dict[str, str]]:
+    """Écrit un `git credential store` temporaire pour un PAT HTTPS.
+
+    DevPod ne prend pas de `--git-token` : il forwarde `git credential fill` au git
+    côté portail lors du clone. On lui fournit donc le token via un helper `store`
+    (fichier 0600), et on redirige la config globale git du subprocess devpod vers
+    lui. Retourne `(home_dir, env_overlay)` — le token n'est jamais dans argv ni
+    loggé. **L'appelant DOIT `shutil.rmtree(home_dir)` après l'up.**
+    """
+    home = tempfile.mkdtemp(prefix="portal-gitcred-")
+    os.chmod(home, 0o700)
+    creds_path = os.path.join(home, ".git-credentials")
+    # user/token percent-encodés : un '@' ou '/' non échappé casserait l'URL du store.
+    line = f"https://{quote(username, safe='')}:{quote(token, safe='')}@{host}\n"
+    with open(creds_path, "w") as fh:
+        fh.write(line)
+    os.chmod(creds_path, 0o600)
+    gitconfig = os.path.join(home, ".gitconfig")
+    with open(gitconfig, "w") as fh:
+        fh.write(f"[credential]\n\thelper = store --file={creds_path}\n")
+    os.chmod(gitconfig, 0o600)
+    env = {
+        # GIT_CONFIG_GLOBAL (git ≥ 2.32) redirige la config globale sans toucher à
+        # HOME (que devpod utilise pour son SSH vers le nœud) ; NOSYSTEM ignore
+        # /etc/gitconfig ; pas de prompt interactif.
+        "GIT_CONFIG_GLOBAL": gitconfig,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+    return home, env
 
 
 def _canonical_http_git_url(url: str) -> str:
