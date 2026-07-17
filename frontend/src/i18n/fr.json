@@ -672,6 +672,19 @@
     },
     "otherHosts": {
       "sectionTitle": "Autres serveurs"
+    },
+    "sessions": {
+      "navLabel": "Sessions",
+      "title": "Durées de session",
+      "intro": "Temps avant déconnexion des sessions (terminal SSH et vue VS Code). Modifiable à chaud, sans redémarrage.",
+      "idleMaxAge": "Inactivité avant déconnexion (minutes)",
+      "idleMaxAgeHint": "Fenêtre GLISSANTE : remise à zéro à chaque activité. Tant que tu travailles, tu n'es pas déconnecté. Défaut : 120 min (2 h).",
+      "absoluteMaxAge": "Durée de vie maximale d'une session (minutes)",
+      "absoluteMaxAgeHint": "Plafond ABSOLU depuis la connexion, indépendant de l'activité : au-delà, une reconnexion OIDC est demandée (rafraîchit les rôles). Volontairement large. Défaut : 720 min (12 h).",
+      "save": "Enregistrer",
+      "saved": "Durées de session mises à jour.",
+      "invalid": "Durées invalides (minimum 1 minute).",
+      "absoluteBelowIdle": "La durée maximale doit être ≥ à l'inactivité."
     }
   },
   "errors": {

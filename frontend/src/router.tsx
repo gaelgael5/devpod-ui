@@ -20,6 +20,7 @@ const AdminHypervisorTypes = lazy(() => import('@/features/admin/AdminHypervisor
 const AdminAgentTypes = lazy(() => import('@/features/admin/AdminAgentTypes'))
 const AdminOidc = lazy(() => import('@/features/admin/AdminOidc'))
 const AdminNetwork = lazy(() => import('@/features/admin/AdminNetwork'))
+const AdminSessions = lazy(() => import('@/features/admin/AdminSessions'))
 const AdminLogs = lazy(() => import('@/features/admin/AdminLogs'))
 const AdminWorkflow = lazy(() => import('@/features/admin/AdminWorkflow'))
 const SessionsView = lazy(() => import('@/features/sessions/SessionsView'))
@@ -169,6 +170,10 @@ export const router = createBrowserRouter([
       {
         path: '/admin/network',
         element: <AdminGuard><Wrap><AdminNetwork /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/sessions',
+        element: <AdminGuard><Wrap><AdminSessions /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/logs',

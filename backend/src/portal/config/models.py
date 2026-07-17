@@ -39,6 +39,11 @@ class ServerConfig(BaseModel):
     # workspaces VS Code n'ont qu'un ancêtre commun (dev.yoops.org + vs-dev.yoops.org).
     # Vide → base_domain est utilisé par défaut.
     cookie_domain: str = ""
+    # Durées de session paramétrables depuis l'admin (secondes). 0 = hériter du défaut
+    # (settings/env). session_max_age = idle GLISSANT du cookie ; session_absolute_max_age
+    # = plafond absolu depuis le login (refresh des rôles). Cf. auth/rbac + app.py.
+    session_max_age: int = 0
+    session_absolute_max_age: int = 0
     log: LogConfig = Field(default_factory=LogConfig)
 
 

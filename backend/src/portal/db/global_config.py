@@ -122,6 +122,8 @@ def _build_global_config(
             "local_domain": row["local_domain"],
             "vs_proxy_domain": row["vs_proxy_domain"],
             "cookie_domain": row["cookie_domain"],
+            "session_max_age": row["session_max_age"],
+            "session_absolute_max_age": row["session_absolute_max_age"],
             "log": {
                 "level": row["log_level"],
                 "format": row["log_format"],
@@ -271,6 +273,8 @@ def _cfg_to_scalars(cfg: GlobalConfig) -> dict[str, Any]:
         "local_domain": cfg.server.local_domain,
         "vs_proxy_domain": cfg.server.vs_proxy_domain,
         "cookie_domain": cfg.server.cookie_domain,
+        "session_max_age": cfg.server.session_max_age,
+        "session_absolute_max_age": cfg.server.session_absolute_max_age,
         "log_level": cfg.server.log.level,
         "log_format": cfg.server.log.format,
         "log_output": cfg.server.log.output,

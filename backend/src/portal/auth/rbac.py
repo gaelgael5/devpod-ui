@@ -87,10 +87,12 @@ def session_within_max_age(session: Mapping[str, object]) -> bool:
     lisent la session hors du dep RBAC : ces derniers DOIVENT aussi appliquer le
     plafond, sinon l'accès VS Code/SSH survivrait à l'expiration (fail-closed).
     """
+    from ..config.store import effective_session_absolute_max_age
+
     auth_time = session.get("auth_time")
     if not isinstance(auth_time, int):
         return False
-    return int(time.time()) - auth_time <= get_settings().session_absolute_max_age
+    return int(time.time()) - auth_time <= effective_session_absolute_max_age()
 
 
 def get_current_user(request: Request) -> UserInfo | None:

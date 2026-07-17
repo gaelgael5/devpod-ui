@@ -672,6 +672,19 @@
     },
     "otherHosts": {
       "sectionTitle": "Other servers"
+    },
+    "sessions": {
+      "navLabel": "Sessions",
+      "title": "Session durations",
+      "intro": "Time before sessions disconnect (SSH terminal and VS Code view). Applied instantly, no restart.",
+      "idleMaxAge": "Idle before disconnect (minutes)",
+      "idleMaxAgeHint": "SLIDING window: reset on every activity. As long as you work, you stay connected. Default: 120 min (2 h).",
+      "absoluteMaxAge": "Maximum session lifetime (minutes)",
+      "absoluteMaxAgeHint": "ABSOLUTE cap from login, regardless of activity: past it, an OIDC re-login is required (refreshes roles). Intentionally large. Default: 720 min (12 h).",
+      "save": "Save",
+      "saved": "Session durations updated.",
+      "invalid": "Invalid durations (minimum 1 minute).",
+      "absoluteBelowIdle": "The maximum lifetime must be ≥ the idle timeout."
     }
   },
   "errors": {

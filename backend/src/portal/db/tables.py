@@ -40,6 +40,9 @@ global_config = Table(
     Column("local_domain", Text, nullable=False, server_default=""),
     Column("vs_proxy_domain", Text, nullable=False, server_default=""),
     Column("cookie_domain", Text, nullable=False, server_default=""),
+    # Durées de session éditables en admin (0 = hériter du défaut settings/env), migration 073.
+    Column("session_max_age", Integer, nullable=False, server_default="0"),
+    Column("session_absolute_max_age", Integer, nullable=False, server_default="0"),
     # LogConfig
     Column("log_level", Text, nullable=False, server_default="info"),
     Column("log_format", Text, nullable=False, server_default="text"),

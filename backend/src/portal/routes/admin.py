@@ -634,6 +634,64 @@ class ResolveHostRequest(BaseModel):
     host: str = ""
 
 
+class SessionDurationsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Secondes. 0 interdit ici (l'admin doit poser une valeur explicite ; pour
+    # « hériter du défaut » on ne passe simplement pas par cette route).
+    session_max_age: int = Field(ge=60, le=86400)
+    session_absolute_max_age: int = Field(ge=60, le=604800)
+
+    @field_validator("session_absolute_max_age")
+    @classmethod
+    def _absolute_ge_idle(cls, v: int, info: Any) -> int:
+        idle = info.data.get("session_max_age")
+        if isinstance(idle, int) and v < idle:
+            raise ValueError("le plafond absolu doit être ≥ à l'idle glissant")
+        return v
+
+
+@router.get("/sessions")
+async def get_sessions_config(user: UserInfo = Depends(require_admin)) -> dict[str, int]:
+    """Durées de session EFFECTIVES (override admin sinon défaut settings/env)."""
+    from ..config.store import effective_session_absolute_max_age, effective_session_max_age
+
+    return {
+        "session_max_age": effective_session_max_age(),
+        "session_absolute_max_age": effective_session_absolute_max_age(),
+    }
+
+
+@router.put("/sessions")
+async def put_sessions_config(
+    body: SessionDurationsRequest,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, int]:
+    """Écrit les durées de session (idle glissant + plafond absolu). Effet immédiat,
+    sans redémarrage : le cookie relit `session_max_age` à l'émission et rbac relit
+    le plafond à chaque requête."""
+    cfg = load_global()
+    cfg.server = cfg.server.model_copy(
+        update={
+            "session_max_age": body.session_max_age,
+            "session_absolute_max_age": body.session_absolute_max_age,
+        }
+    )
+    await save_global_db(cfg, conn)
+    set_cached_global(cfg)  # après commit réussi seulement (bug 034)
+    _log.info(
+        "session_durations_updated",
+        by=user.login,
+        session_max_age=body.session_max_age,
+        session_absolute_max_age=body.session_absolute_max_age,
+    )
+    return {
+        "session_max_age": body.session_max_age,
+        "session_absolute_max_age": body.session_absolute_max_age,
+    }
+
+
 @router.post("/network/resolve-workspace-host")
 async def resolve_workspace_host(
     body: ResolveHostRequest, user: UserInfo = Depends(require_admin)

@@ -80,15 +80,30 @@ _log = structlog.get_logger(__name__)
 
 
 class _PortalSessionMiddleware(SessionMiddleware):
-    """SessionMiddleware qui injecte l'attribut Domain au moment du Set-Cookie.
+    """SessionMiddleware qui injecte le Domain ET l'idle max_age dynamiquement.
 
-    Starlette fige les attributs du cookie (security_flags, dont domain=) à
-    l'init du middleware : un domaine lu dynamiquement doit donc être ajouté à
-    l'émission de la réponse. get_effective_cookie_domain() est relu à chaque
-    Set-Cookie — modifiable via /admin/network sans redémarrage — et sans
-    Domain le cookie resterait host-only : jamais transmis à vs_proxy_domain
-    (proxy VS Code) ni aux sous-domaines workspaces (forward_auth).
+    Starlette fige les attributs du cookie (domain=) et le `max_age` à l'init du
+    middleware : pour les modifier via l'admin sans redémarrage, on les relit à
+    l'émission. `get_effective_cookie_domain()` (Domain) et `max_age` (property
+    ci-dessous, → effective_session_max_age()) sont donc lus à chaque Set-Cookie.
+    Sans Domain le cookie resterait host-only (jamais transmis à vs_proxy_domain
+    ni aux sous-domaines workspaces) ; le max_age gouverne l'idle glissant de la
+    session (confort terminal/VS Code).
     """
+
+    @property
+    def max_age(self) -> int:
+        # Lu à chaque requête par Starlette (Set-Cookie + vérification de l'âge du
+        # cookie signé) → un changement admin s'applique sans redémarrage.
+        from .config.store import effective_session_max_age
+
+        return effective_session_max_age()
+
+    @max_age.setter
+    def max_age(self, value: int) -> None:
+        # Starlette.__init__ fait `self.max_age = max_age` : on l'absorbe (la valeur
+        # d'init n'est plus la source de vérité, effective_session_max_age l'est).
+        self._init_max_age = value
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         async def send_with_domain(message: Message) -> None:

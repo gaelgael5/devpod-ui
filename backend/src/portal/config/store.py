@@ -99,6 +99,20 @@ def load_global() -> GlobalConfig:
         )
 
 
+def effective_session_max_age() -> int:
+    """Idle glissant effectif (s) : override admin (GlobalConfig) sinon défaut settings/env."""
+    from ..settings import get_settings
+
+    return load_global().server.session_max_age or get_settings().session_max_age
+
+
+def effective_session_absolute_max_age() -> int:
+    """Plafond absolu effectif (s) : override admin (GlobalConfig) sinon défaut settings/env."""
+    from ..settings import get_settings
+
+    return load_global().server.session_absolute_max_age or get_settings().session_absolute_max_age
+
+
 async def load_user(login: str) -> UserConfig:
     from portal.db.engine import _get_engine
     from portal.db.user_config import load_user_db
