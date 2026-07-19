@@ -40,6 +40,33 @@ describe('SessionsView', () => {
     expect(screen.getAllByRole('button', { name: 'Open' }).length).toBeGreaterThan(0)
   })
 
+  it('mobile : rend des cartes (pas de tableau) sous le breakpoint md', async () => {
+    // matchMedia est stubbé matches:false par le setup → on force le mode mobile.
+    const orig = window.matchMedia
+    window.matchMedia = ((q: string) => ({
+      matches: true,
+      media: q,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia
+    try {
+      server.use(http.get('/sessions', () => HttpResponse.json(SESSIONS)))
+      renderWithProviders(<SessionsView />)
+
+      expect(await screen.findByText('alice-proj')).toBeInTheDocument()
+      // Variante mobile : aucune <table>, chaque cible n'apparaît qu'une fois.
+      expect(document.querySelector('table')).toBeNull()
+      expect(screen.getAllByText('alice-proj')).toHaveLength(1)
+      expect(screen.getAllByRole('button', { name: 'Open' }).length).toBeGreaterThan(0)
+    } finally {
+      window.matchMedia = orig
+    }
+  })
+
   it('badge « orphan » sur une session vivante hors registre', async () => {
     const orphan = [
       {

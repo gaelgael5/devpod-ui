@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { useUserStore } from '@/store/user'
 import { useCreateSession } from '@/features/workspaces/useWorkspaceSessions'
 import { openTerminalTab } from '@/features/terminal/openTerminalTab'
+import { useIsMobile } from '@/shared/hooks/useMediaQuery'
 import { useCloseSession, useSessions, type SessionEntry } from './useSessions'
 
 type Filter = 'all' | SessionEntry['family']
@@ -69,6 +70,7 @@ export default function SessionsView() {
   const { t } = useTranslation()
   const login = useUserStore((s) => s.user?.login ?? '')
   const isAdmin = useUserStore((s) => s.isAdmin())
+  const isMobile = useIsMobile()
   const { data, isLoading, isError, refetch } = useSessions()
   const createSession = useCreateSession()
   const closeSession = useCloseSession()
@@ -190,7 +192,79 @@ export default function SessionsView() {
         <p className="text-sm text-muted-foreground">{t('sessions.empty')}</p>
       )}
 
-      {data && shown.length > 0 && (
+      {/* Mobile (< md) : cartes empilées — un tableau à 6 colonnes est illisible sur téléphone. */}
+      {data && shown.length > 0 && isMobile && (
+        <div className="flex flex-col gap-3">
+          {groups.map((g) => (
+            <div key={g.host ?? '__unknown__'} className="rounded-md border">
+              <div className="border-b bg-muted/40 px-3 py-1.5 text-xs font-semibold">
+                {g.host ?? t('sessions.hostUnknown')}
+                <span className="ml-2 font-normal text-muted-foreground">
+                  {t('sessions.count', { n: g.entries.length })}
+                </span>
+              </div>
+              <div className="divide-y">
+                {g.entries.map((e, i) => (
+                  <div key={`${e.family}-${e.target}-${e.session ?? ''}-${i}`} className="p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase">
+                            {t(`sessions.family.${e.family}`)}
+                          </span>
+                          <span className="truncate font-mono text-xs">{e.target}</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                          {e.session && <span className="font-mono">{e.session}</span>}
+                          {isAdmin && <span>· {e.owner}</span>}
+                          {e.unreachable && (
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">
+                              {t('sessions.unreachable')}
+                            </span>
+                          )}
+                          {e.orphan && (
+                            <span className="rounded bg-orange-100 px-1.5 py-0.5 text-orange-800">
+                              {t('sessions.orphan')}
+                            </span>
+                          )}
+                          {e.attached && (
+                            <span className="rounded bg-green-100 px-1.5 py-0.5 text-green-800">
+                              {t('sessions.attached')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 flex-col gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={!canOpen(e, login, isAdmin)}
+                          onClick={() => open(e)}
+                        >
+                          {t('sessions.open')}
+                        </Button>
+                        {canClose(e, login, isAdmin) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={closeSession.isPending}
+                            onClick={() => close(e)}
+                          >
+                            {t('sessions.close')}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Desktop (>= md) : tableau dense. */}
+      {data && shown.length > 0 && !isMobile && (
         <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
             <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">

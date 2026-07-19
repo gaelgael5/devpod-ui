@@ -53,10 +53,12 @@ export default function TerminalKeybar({ onSend, getSelection }: Props) {
     }
   }
 
+  // Cibles tactiles confortables sur mobile (min 36px), plus compactes en desktop.
   const btn =
-    'inline-flex items-center gap-1 rounded border border-white/15 bg-white/5 ' +
-    'px-2.5 py-1 text-xs text-white/80 transition-colors hover:bg-white/15 ' +
-    'active:bg-white/25 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/40'
+    'inline-flex min-h-9 min-w-9 items-center justify-center gap-1 rounded border ' +
+    'border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white/80 transition-colors ' +
+    'hover:bg-white/15 active:bg-white/25 focus:outline-none focus-visible:ring-1 ' +
+    'focus-visible:ring-white/40 sm:min-h-0 sm:min-w-0 sm:px-2.5 sm:py-1 sm:text-xs'
 
   return (
     <div
