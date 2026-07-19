@@ -14,17 +14,21 @@ export default function CredentialsPage() {
   const { t } = useTranslation()
   return (
     <Tabs defaultValue="vault" className="flex flex-col gap-4">
-      <TabsList className="self-start">
-        <TabsTrigger value="vault">{t('vault.tabLabel')}</TabsTrigger>
-        <TabsTrigger value="certificates">{t('certificates.tabLabel')}</TabsTrigger>
-        <TabsTrigger value="secrets">{t('secrets.tabLabel')}</TabsTrigger>
-        <TabsTrigger value="git">{t('gitCredentials.title')}</TabsTrigger>
-        <TabsTrigger value="mcp">{t('mcp.tabLabel')}</TabsTrigger>
-        <TabsTrigger value="skills">{t('skills.tabLabel')}</TabsTrigger>
-        <TabsTrigger value="services">{t('services.tabLabel')}</TabsTrigger>
-        <TabsTrigger value="rules">{t('rules.tabLabel')}</TabsTrigger>
-        <TabsTrigger value="events">{t('appEvents.tabLabel')}</TabsTrigger>
-      </TabsList>
+      {/* 9 onglets : barre scrollable horizontalement sur mobile (sinon débordement
+          de la page). Sur desktop la pile tient et reste calée à gauche (w-max). */}
+      <div className="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0">
+        <TabsList className="w-max">
+          <TabsTrigger value="vault">{t('vault.tabLabel')}</TabsTrigger>
+          <TabsTrigger value="certificates">{t('certificates.tabLabel')}</TabsTrigger>
+          <TabsTrigger value="secrets">{t('secrets.tabLabel')}</TabsTrigger>
+          <TabsTrigger value="git">{t('gitCredentials.title')}</TabsTrigger>
+          <TabsTrigger value="mcp">{t('mcp.tabLabel')}</TabsTrigger>
+          <TabsTrigger value="skills">{t('skills.tabLabel')}</TabsTrigger>
+          <TabsTrigger value="services">{t('services.tabLabel')}</TabsTrigger>
+          <TabsTrigger value="rules">{t('rules.tabLabel')}</TabsTrigger>
+          <TabsTrigger value="events">{t('appEvents.tabLabel')}</TabsTrigger>
+        </TabsList>
+      </div>
       <TabsContent value="vault" className="mt-0"><VaultTab /></TabsContent>
       <TabsContent value="certificates" className="mt-0"><CertificatesTab /></TabsContent>
       <TabsContent value="secrets" className="mt-0"><SecretsTab /></TabsContent>

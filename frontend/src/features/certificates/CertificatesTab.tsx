@@ -465,7 +465,7 @@ function CertRow({ cert }: { cert: Certificate }) {
       )}
 
       {/* Actions */}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {cert.storage_type === 'local' && cert.is_own && (
           <Button
             size="sm"
