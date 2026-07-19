@@ -122,7 +122,11 @@
         "copy": "Copier",
         "copyTitle": "Copier la sélection du terminal",
         "copyEmpty": "Aucune sélection à copier",
-        "copied": "Sélection copiée"
+        "copied": "Sélection copiée",
+        "arrowUp": "Flèche haut",
+        "arrowDown": "Flèche bas",
+        "arrowLeft": "Flèche gauche",
+        "arrowRight": "Flèche droite"
       }
     },
     "initializers": {

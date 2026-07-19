@@ -1,5 +1,14 @@
 import { useTranslation } from 'react-i18next'
-import { CornerDownLeft, ClipboardPaste, Copy, OctagonX } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ClipboardPaste,
+  Copy,
+  CornerDownLeft,
+  OctagonX,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Props {
@@ -63,6 +72,27 @@ export default function TerminalKeybar({ onSend, getSelection }: Props) {
         <CornerDownLeft className="h-3.5 w-3.5" />
         {t('workspaces.terminals.keybar.esc')}
       </button>
+      {/* Flèches : séquences ANSI CSI (mode curseur normal) — navigation dans les
+          menus/CLI interactifs depuis un écran tactile. */}
+      {(
+        [
+          ['\x1b[A', 'arrowUp', ArrowUp],
+          ['\x1b[B', 'arrowDown', ArrowDown],
+          ['\x1b[C', 'arrowRight', ArrowRight],
+          ['\x1b[D', 'arrowLeft', ArrowLeft],
+        ] as const
+      ).map(([seq, key, Icon]) => (
+        <button
+          key={key}
+          type="button"
+          className={btn}
+          onClick={() => onSend(seq)}
+          title={t(`workspaces.terminals.keybar.${key}`)}
+          aria-label={t(`workspaces.terminals.keybar.${key}`)}
+        >
+          <Icon className="h-3.5 w-3.5" />
+        </button>
+      ))}
       <button
         type="button"
         className={btn}

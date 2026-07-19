@@ -37,6 +37,21 @@ describe('TerminalKeybar', () => {
     expect(onSend).toHaveBeenCalledWith('\x03')
   })
 
+  it('envoie les séquences ANSI des flèches dans le stdin', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn()
+    renderWithProviders(<TerminalKeybar onSend={onSend} getSelection={() => ''} />)
+
+    await user.click(screen.getByRole('button', { name: /flèche haut|arrow up/i }))
+    expect(onSend).toHaveBeenCalledWith('\x1b[A')
+    await user.click(screen.getByRole('button', { name: /flèche bas|arrow down/i }))
+    expect(onSend).toHaveBeenCalledWith('\x1b[B')
+    await user.click(screen.getByRole('button', { name: /flèche droite|arrow right/i }))
+    expect(onSend).toHaveBeenCalledWith('\x1b[C')
+    await user.click(screen.getByRole('button', { name: /flèche gauche|arrow left/i }))
+    expect(onSend).toHaveBeenCalledWith('\x1b[D')
+  })
+
   it('colle le presse-papier dans le stdin', async () => {
     const user = userEvent.setup()
     const onSend = vi.fn()

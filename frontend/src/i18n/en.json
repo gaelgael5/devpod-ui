@@ -122,7 +122,11 @@
         "copy": "Copy",
         "copyTitle": "Copy the terminal selection",
         "copyEmpty": "No selection to copy",
-        "copied": "Selection copied"
+        "copied": "Selection copied",
+        "arrowUp": "Arrow up",
+        "arrowDown": "Arrow down",
+        "arrowLeft": "Arrow left",
+        "arrowRight": "Arrow right"
       }
     },
     "initializers": {
