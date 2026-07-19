@@ -3,13 +3,17 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, insert, or_, select, update
+from sqlalchemy import and_, delete, func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .tables import mcp_apikey, mcp_audit_log, mcp_backend, mcp_backend_key
 
 # Rétention des clés API révoquées : supprimées ce délai après leur révocation.
 REVOKED_APIKEY_RETENTION_HOURS = 24
+
+# Fenêtre de grâce à la rotation d'une clé workspace : l'ancienne génération reste
+# valide ce délai (l'agent en cours garde son token, pas de ré-auth), puis expire.
+WORKSPACE_KEY_ROTATION_GRACE_S = 900
 
 _BACKEND_COLS = [
     mcp_backend.c.id,
@@ -339,6 +343,37 @@ async def revoke_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str)
     return (await conn.execute(q)).first() is not None
 
 
+async def expire_workspace_apikeys(
+    conn: AsyncConnection,
+    owner_login: str,
+    workspace_ref: str,
+    *,
+    grace_seconds: int = WORKSPACE_KEY_ROTATION_GRACE_S,
+) -> int:
+    """Pose une échéance de grâce sur les clefs actives d'un workspace (rotation).
+
+    Contrairement à `revoke_workspace_apikeys` (fail-closed immédiat : suppression
+    de workspace, décochage de profil), la rotation laisse l'ancienne génération
+    valide `grace_seconds` — la session agent en cours n'est pas coupée, la
+    nouvelle clé est déjà dans les fichiers pour la prochaine. Ne RALLONGE jamais
+    une échéance déjà plus proche. `find_apikey_by_hash` filtre sur `expires_at`.
+    Retourne le nombre de clefs mises en grâce.
+    """
+    deadline = datetime.now(UTC) + timedelta(seconds=grace_seconds)
+    q = (
+        update(mcp_apikey)
+        .where(
+            mcp_apikey.c.owner_login == owner_login,
+            mcp_apikey.c.workspace_ref == workspace_ref,
+            mcp_apikey.c.revoked.is_(False),
+            or_(mcp_apikey.c.expires_at.is_(None), mcp_apikey.c.expires_at > deadline),
+        )
+        .values(expires_at=deadline)
+        .returning(mcp_apikey.c.id)
+    )
+    return len((await conn.execute(q)).all())
+
+
 async def revoke_workspace_apikeys(
     conn: AsyncConnection, owner_login: str, workspace_ref: str
 ) -> int:
@@ -388,19 +423,26 @@ async def delete_apikey(conn: AsyncConnection, owner_login: str, apikey_id: str)
 async def purge_revoked_apikeys(
     conn: AsyncConnection, *, max_age_hours: int = REVOKED_APIKEY_RETENTION_HOURS
 ) -> int:
-    """Supprime définitivement les clés révoquées depuis plus de `max_age_hours`.
+    """Supprime définitivement les clés révoquées OU expirées depuis `max_age_hours`.
 
-    L'ancienneté se mesure à l'instant de révocation (`revoked_at`). Les clés
-    révoquées avant l'ajout de la colonne ont `revoked_at` NULL : on retombe sur
-    `created_at` (COALESCE) — elles sont alors éligibles selon leur âge de création.
-    Ne touche jamais une clé active (`revoked=false`), tous kinds confondus
-    (apikey comme oauth). Retourne le nombre de lignes supprimées.
+    L'ancienneté se mesure à l'instant de révocation (`revoked_at`, COALESCE sur
+    `created_at` pour les lignes d'avant la colonne) ou d'expiration (`expires_at`,
+    clés en grâce de rotation — jamais revoked, elles s'accumuleraient sinon).
+    Ne touche jamais une clé encore valide. Retourne le nombre de lignes supprimées.
     """
     cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
     result = await conn.execute(
         delete(mcp_apikey).where(
-            mcp_apikey.c.revoked.is_(True),
-            func.coalesce(mcp_apikey.c.revoked_at, mcp_apikey.c.created_at) < cutoff,
+            or_(
+                and_(
+                    mcp_apikey.c.revoked.is_(True),
+                    func.coalesce(mcp_apikey.c.revoked_at, mcp_apikey.c.created_at) < cutoff,
+                ),
+                and_(
+                    mcp_apikey.c.expires_at.isnot(None),
+                    mcp_apikey.c.expires_at < cutoff,
+                ),
+            )
         )
     )
     return int(result.rowcount or 0)

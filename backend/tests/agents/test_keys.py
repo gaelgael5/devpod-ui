@@ -48,20 +48,87 @@ async def test_rotate_creates_one_key_per_exposed_profile(db_conn: AsyncConnecti
     assert row["label"] == "ws:alice-api/lecture"
 
 
-async def test_rotate_revokes_previous_generation(db_conn: AsyncConnection) -> None:
+async def test_rotate_keeps_previous_generation_during_grace(db_conn: AsyncConnection) -> None:
+    """Rotation = grâce, pas révocation : l'agent en cours garde son token le temps
+    de la fenêtre (sinon toute rotation légitime coupe les sessions MCP actives)."""
+    from sqlalchemy import select
+
+    from portal.db.tables import mcp_apikey
+
     await _user(db_conn)
     await _exposed_profile(db_conn, "alice", "p1")
 
     gen1 = await rotate_workspace_keys(db_conn, "alice", "alice-api")
     gen2 = await rotate_workspace_keys(db_conn, "alice", "alice-api")
 
-    assert await find_apikey_by_hash(db_conn, token_hash(gen1[0].token)) is None
+    # L'ancienne génération reste VALIDE pendant la grâce…
+    assert await find_apikey_by_hash(db_conn, token_hash(gen1[0].token)) is not None
     assert await find_apikey_by_hash(db_conn, token_hash(gen2[0].token)) is not None
+    # …mais porte une échéance (expires_at posé) ; la nouvelle n'en a pas.
+    rows = {
+        r.token_hash: r.expires_at
+        for r in (
+            await db_conn.execute(
+                select(mcp_apikey.c.token_hash, mcp_apikey.c.expires_at).where(
+                    mcp_apikey.c.workspace_ref == "alice-api"
+                )
+            )
+        ).all()
+    }
+    assert rows[token_hash(gen1[0].token)] is not None
+    assert rows[token_hash(gen2[0].token)] is None
 
 
-async def test_rotate_without_exposed_profiles_revokes_and_returns_empty(
+async def test_expire_workspace_apikeys_zero_grace_invalidates(db_conn: AsyncConnection) -> None:
+    """grace=0 → échéance immédiate : find_apikey_by_hash ne résout plus."""
+    from portal.db.mcp import expire_workspace_apikeys
+
+    await _user(db_conn)
+    await _exposed_profile(db_conn, "alice", "p1")
+    gen1 = await rotate_workspace_keys(db_conn, "alice", "alice-api")
+
+    n = await expire_workspace_apikeys(db_conn, "alice", "alice-api", grace_seconds=0)
+    assert n == 1
+    assert await find_apikey_by_hash(db_conn, token_hash(gen1[0].token)) is None
+
+
+async def test_expire_does_not_extend_shorter_expiry(db_conn: AsyncConnection) -> None:
+    """Une clé qui expire déjà plus tôt n'est jamais RALLONGÉE par une rotation."""
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select, update
+
+    from portal.db.mcp import expire_workspace_apikeys
+    from portal.db.tables import mcp_apikey
+
+    await _user(db_conn)
+    await _exposed_profile(db_conn, "alice", "p1")
+    gen1 = await rotate_workspace_keys(db_conn, "alice", "alice-api")
+
+    sooner = datetime.now(UTC) + timedelta(seconds=30)
+    await db_conn.execute(
+        update(mcp_apikey)
+        .where(mcp_apikey.c.token_hash == token_hash(gen1[0].token))
+        .values(expires_at=sooner)
+    )
+    await expire_workspace_apikeys(db_conn, "alice", "alice-api", grace_seconds=900)
+    kept = (
+        await db_conn.execute(
+            select(mcp_apikey.c.expires_at).where(
+                mcp_apikey.c.token_hash == token_hash(gen1[0].token)
+            )
+        )
+    ).scalar_one()
+    assert kept == sooner
+
+
+async def test_rotate_without_exposed_profiles_expires_and_returns_empty(
     db_conn: AsyncConnection,
 ) -> None:
+    from sqlalchemy import select
+
+    from portal.db.tables import mcp_apikey
+
     await _user(db_conn)
     await _exposed_profile(db_conn, "alice", "p1")
     gen1 = await rotate_workspace_keys(db_conn, "alice", "alice-api")
@@ -69,7 +136,16 @@ async def test_rotate_without_exposed_profiles_revokes_and_returns_empty(
     await set_profile_exposed(db_conn, "alice", "p1", exposed=False)
     keys = await rotate_workspace_keys(db_conn, "alice", "alice-api")
     assert keys == []
-    assert await find_apikey_by_hash(db_conn, token_hash(gen1[0].token)) is None
+    # L'ancienne clé est en grâce (échéance posée) — le décochage d'un profil,
+    # lui, reste fail-closed immédiat via revoke_profile_workspace_keys.
+    expires = (
+        await db_conn.execute(
+            select(mcp_apikey.c.expires_at).where(
+                mcp_apikey.c.token_hash == token_hash(gen1[0].token)
+            )
+        )
+    ).scalar_one()
+    assert expires is not None
 
 
 async def test_revoke_workspace_keys(db_conn: AsyncConnection) -> None:
