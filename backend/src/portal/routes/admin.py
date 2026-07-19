@@ -52,6 +52,10 @@ from ..secrets.system import (
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
+
+# Tâches de fond de ce module (resync des collecteurs…) : référencées pour ne pas
+# être ramassées par le GC avant d'avoir fini (asyncio ne retient pas les tasks).
+_BG_TASKS: set[asyncio.Task[None]] = set()
 router = APIRouter(tags=["admin"])
 
 # user@host : user alphanum+_- (max 32), host alphanum+._- (max 253) — aucun apostrophe
@@ -258,6 +262,21 @@ async def put_admin_logs_config(
     await save_global_db(cfg, conn)
     set_cached_global(cfg)
     _log.info("logs_config_updated", by=user.login, enabled=body.enabled)
+    # Réaligne les collecteurs Alloy déjà déployés (leur .env LOKI_URL est figé au
+    # déploiement — sans resync ils pousseraient vers l'ancienne cible à jamais).
+    from ..compose.service import resync_collector_deployments
+    from ..db.engine import _get_engine
+
+    async def _resync_bg() -> None:
+        try:
+            async with _get_engine().begin() as bg_conn:
+                await resync_collector_deployments(bg_conn)
+        except Exception:
+            _log.warning("collector_resync_bg_failed", exc_info=True)
+
+    task = asyncio.create_task(_resync_bg())
+    _BG_TASKS.add(task)
+    task.add_done_callback(_BG_TASKS.discard)
     return _logs_config_out(cfg)
 
 

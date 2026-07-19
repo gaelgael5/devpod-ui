@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import structlog
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -154,3 +156,25 @@ async def _upsert_alloy_collector(conn: AsyncConnection) -> None:
     elif existing.version != tpl.version:
         await cdb.update_template(conn, tpl)
         _log.info("builtin_template_updated", template_id=tpl_id, version=tpl.version)
+        # Les déploiements existants portent l'ancienne config (fichiers figés au
+        # déploiement) : resync en tâche de fond, best-effort, sans bloquer le boot.
+        _schedule_collector_resync()
+
+
+_BG_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _schedule_collector_resync() -> None:
+    from ..db.engine import _get_engine
+    from .service import resync_collector_deployments
+
+    async def _resync_bg() -> None:
+        try:
+            async with _get_engine().begin() as conn:
+                await resync_collector_deployments(conn)
+        except Exception:
+            _log.warning("collector_resync_boot_failed", exc_info=True)
+
+    task = asyncio.create_task(_resync_bg())
+    _BG_TASKS.add(task)
+    task.add_done_callback(_BG_TASKS.discard)

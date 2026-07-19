@@ -213,6 +213,15 @@ async def update_deployment_status(
     )
 
 
+async def update_deployment_template_version(conn: AsyncConnection, uid: str, version: str) -> None:
+    """Trace la version de template effectivement déployée (resync des collecteurs)."""
+    await conn.execute(
+        update(compose_deployment)
+        .where(compose_deployment.c.uid == uid)
+        .values(template_version=version, updated_at=func.now())
+    )
+
+
 async def update_deployment_message_id(
     conn: AsyncConnection, uid: str, message_id: int | None
 ) -> None:

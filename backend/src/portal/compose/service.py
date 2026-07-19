@@ -29,9 +29,11 @@ from .db import (
     get_deployment_by_name_node,
     get_template,
     list_auto_start_for_user,
+    list_deployments,
     persist_op_log,
     update_deployment_message_id,
     update_deployment_status,
+    update_deployment_template_version,
 )
 from .env_builder import render_env_file, resolve_env_values
 from .models import ComposeDeployment, ComposeTemplate, DeploymentStatus
@@ -714,6 +716,70 @@ async def refresh_status(conn: AsyncConnection, uid: str) -> str:
     status = _parse_ps_status(out) if rc == 0 else "error"
     await update_deployment_status(conn, uid, status)
     return status
+
+
+# Template builtin du collecteur de logs (compose_bootstrap) — seul template dont
+# le portail pilote lui-même le contenu ET l'env : il est resynchronisable.
+ALLOY_TEMPLATE_ID = "alloy-collector"
+
+
+async def resync_collector_deployments(conn: AsyncConnection) -> dict[str, list[str]]:
+    """Réaligne les collecteurs Alloy déployés sur la config Logs et le template courants.
+
+    L'env (.env : LOKI_URL…) et les fichiers (config.alloy) sont figés au déploiement :
+    un changement de `loki_push_url` (IP qui dérive) ou un bump du template builtin ne
+    les atteint jamais — les collecteurs poussent alors dans le vide jusqu'à un
+    redéploiement manuel. Ce resync réécrit .env + fichiers + compose sur chaque host
+    et force la recréation (`--force-recreate` : un bind mount modifié ne déclenche
+    pas de recreate). Best-effort par déploiement ; no-op (skip) si les logs sont
+    désactivés — on ne casse pas un collecteur qui tourne en lui retirant sa cible.
+    Déclenché par PUT /admin/logs-config et par le bump de version au boot.
+    """
+    results: dict[str, list[str]] = {"synced": [], "failed": [], "skipped": []}
+    tpl = await get_template(conn, ALLOY_TEMPLATE_ID)
+    if tpl is None:
+        return results
+    deployments = [
+        d
+        for d in await list_deployments(conn, owner_login=None)
+        if d.template_id == ALLOY_TEMPLATE_ID
+    ]
+    if not deployments:
+        return results
+
+    cfg = load_global()
+    if not cfg.logs.enabled or not cfg.logs.loki_push_url:
+        results["skipped"] = [d.uid for d in deployments]
+        _log.info("collector_resync_skipped_logs_disabled", count=len(deployments))
+        return results
+
+    for dep in deployments:
+        try:
+            host = _host_for_node(dep.node_id)
+            user_cfg = await load_user(dep.owner_login)
+            resolved = resolve_env_values(dep.owner_login, user_cfg.secret_ns, dep.env_values)
+            rdir = _remote_dir(dep.id)
+            await write_host_file(host, f"{rdir}/docker-compose.yml", tpl.compose_content)
+            for fname, fcontent in tpl.extra_files.items():
+                await write_host_file(host, f"{rdir}/{fname}", fcontent)
+            await write_host_file(
+                host, f"{rdir}/.env", render_env_file(resolved, _log_context_vars(host))
+            )
+            rc, _out, err = await run_host_command(
+                host,
+                f"cd {shlex.quote(rdir)} && docker compose -p {shlex.quote(dep.id)} "
+                "up -d --force-recreate",
+                timeout=300.0,
+            )
+            if rc != 0:
+                raise ComposeServiceError(f"compose up rc={rc}: {err[:300]}")
+            await update_deployment_template_version(conn, dep.uid, tpl.version)
+            results["synced"].append(dep.uid)
+            _log.info("collector_resynced", uid=dep.uid, node=dep.node_id, version=tpl.version)
+        except Exception as exc:
+            results["failed"].append(dep.uid)
+            _log.warning("collector_resync_failed", uid=dep.uid, node=dep.node_id, error=str(exc))
+    return results
 
 
 async def deploy_auto_start_templates(
