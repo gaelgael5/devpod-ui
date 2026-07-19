@@ -11,7 +11,7 @@ from .validation import TemplateValidationError, validate_template
 
 _log = structlog.get_logger(__name__)
 
-_ALLOY_VERSION = "2"
+_ALLOY_VERSION = "3"  # v3 : journald lu depuis /var/log/journal (persistant Debian)
 
 _ALLOY_COMPOSE = """\
 services:
@@ -87,7 +87,9 @@ discovery.relabel "journal" {
 }
 
 loki.source.journal "system" {
-  path          = "/run/log/journal"
+  // Debian : journal PERSISTANT dans /var/log/journal (Storage=auto + dossier présent).
+  // /run/log/journal ne sert qu'au journal volatile → source vide sur nos hosts.
+  path          = "/var/log/journal"
   forward_to    = [loki.write.central.receiver]
   relabel_rules = discovery.relabel.journal.rules
 
