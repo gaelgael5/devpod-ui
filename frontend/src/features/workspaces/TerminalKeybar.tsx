@@ -7,6 +7,7 @@ import {
   ClipboardPaste,
   Copy,
   CornerDownLeft,
+  IndentIncrease,
   OctagonX,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -93,6 +94,15 @@ export default function TerminalKeybar({ onSend, getSelection }: Props) {
           <Icon className="h-3.5 w-3.5" />
         </button>
       ))}
+      <button
+        type="button"
+        className={btn}
+        onClick={() => onSend('\t')}
+        title={t('workspaces.terminals.keybar.tabTitle')}
+      >
+        <IndentIncrease className="h-3.5 w-3.5" />
+        {t('workspaces.terminals.keybar.tab')}
+      </button>
       <button
         type="button"
         className={btn}

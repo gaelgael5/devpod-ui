@@ -126,7 +126,9 @@
         "arrowUp": "Flèche haut",
         "arrowDown": "Flèche bas",
         "arrowLeft": "Flèche gauche",
-        "arrowRight": "Flèche droite"
+        "arrowRight": "Flèche droite",
+        "tab": "Tab",
+        "tabTitle": "Envoyer la touche Tab (complétion)"
       }
     },
     "initializers": {

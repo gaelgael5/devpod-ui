@@ -52,6 +52,15 @@ describe('TerminalKeybar', () => {
     expect(onSend).toHaveBeenCalledWith('\x1b[D')
   })
 
+  it('envoie \\t (Tab) dans le stdin', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn()
+    renderWithProviders(<TerminalKeybar onSend={onSend} getSelection={() => ''} />)
+
+    await user.click(screen.getByRole('button', { name: /^tab$/i }))
+    expect(onSend).toHaveBeenCalledWith('\t')
+  })
+
   it('colle le presse-papier dans le stdin', async () => {
     const user = userEvent.setup()
     const onSend = vi.fn()

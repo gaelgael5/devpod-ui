@@ -126,7 +126,9 @@
         "arrowUp": "Arrow up",
         "arrowDown": "Arrow down",
         "arrowLeft": "Arrow left",
-        "arrowRight": "Arrow right"
+        "arrowRight": "Arrow right",
+        "tab": "Tab",
+        "tabTitle": "Send the Tab key (completion)"
       }
     },
     "initializers": {
