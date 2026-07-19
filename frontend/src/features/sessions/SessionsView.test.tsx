@@ -136,6 +136,32 @@ describe('SessionsView', () => {
     expect(body).toEqual({ family: 'host', target: 'node1', owner: 'admin', session: null })
   })
 
+  it('signale en bas de page les hosts sans tmux (sessions non persistantes)', async () => {
+    useUserStore.setState({ user: { login: 'root', roles: ['admin'], is_admin: true } })
+    const entries = [
+      { family: 'host', target: 'workflow', owner: 'admin', host: 'workflow', session: null, attached: false, no_tmux: true },
+      { family: 'host', target: 'node1', owner: 'admin', host: 'node1', session: 'main', attached: false },
+    ]
+    server.use(http.get('/sessions', () => HttpResponse.json(entries)))
+    renderWithProviders(<SessionsView />)
+
+    const notice = await screen.findByText(/tmux/i)
+    expect(notice.textContent).toContain('workflow')
+    expect(notice.textContent).not.toContain('node1')
+  })
+
+  it("pas de bannière tmux quand tous les hosts l'ont", async () => {
+    useUserStore.setState({ user: { login: 'root', roles: ['admin'], is_admin: true } })
+    const entries = [
+      { family: 'host', target: 'node1', owner: 'admin', host: 'node1', session: 'main', attached: false },
+    ]
+    server.use(http.get('/sessions', () => HttpResponse.json(entries)))
+    renderWithProviders(<SessionsView />)
+
+    await screen.findAllByText('node1')
+    expect(screen.queryByText(/tmux n'est pas installé|tmux is not installed/i)).not.toBeInTheDocument()
+  })
+
   it('host : ouvre la session tmux ciblée (?session=) et peut fermer même détachée', async () => {
     useUserStore.setState({ user: { login: 'root', roles: ['admin'], is_admin: true } })
     const hostSessions = [

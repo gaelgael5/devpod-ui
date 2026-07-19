@@ -10,7 +10,7 @@ workspace qui n'est PAS suivi `running` (ex. statut `unknown`) est marquée
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 
@@ -105,23 +105,33 @@ async def _workspace_sessions(
     return [entry for batch in batches for entry in batch]
 
 
-async def _probe_host_tmux(host: Any) -> list[str] | None:
-    """Sessions tmux d'un host admin, ou None si la sonde est impossible.
+# Marqueur imprimé par la sonde quand tmux n'est pas installé sur le host —
+# distinct de « aucune session » (l'UI affiche alors « non persistant, installez tmux »).
+_NO_TMUX_MARKER = "__PORTAL_NO_TMUX__"
 
-    Best-effort court : host sans SSH portail (pas d'adresse/cert), injoignable
-    ou sans tmux → None, l'appelant retombe sur l'entrée statique historique.
+
+async def _probe_host_tmux(host: Any) -> list[str] | Literal["no-tmux"] | None:
+    """Sessions tmux d'un host admin, "no-tmux" si tmux absent, None si sonde impossible.
+
+    Best-effort court : host sans SSH portail (pas d'adresse/cert) ou injoignable
+    → None, l'appelant retombe sur l'entrée statique historique.
     """
     if not getattr(host, "address", "") or not getattr(host, "host_cert_slug", ""):
         return None
+    probe = (
+        "if command -v tmux >/dev/null 2>&1; "
+        "then tmux list-sessions -F '#{session_name}' 2>/dev/null || true; "
+        f"else echo {_NO_TMUX_MARKER}; fi"
+    )
     try:
-        rc, out, _err = await run_host_command(
-            host, "tmux list-sessions -F '#{session_name}' 2>/dev/null || true", timeout=8.0
-        )
+        rc, out, _err = await run_host_command(host, probe, timeout=8.0)
     except Exception:
         _log.info("sessions_host_probe_failed", host=host.name)
         return None
     if rc != 0:
         return None
+    if _NO_TMUX_MARKER in out:
+        return "no-tmux"
     return [s for s in out.strip().splitlines() if s]
 
 
@@ -142,7 +152,7 @@ async def _host_sessions(attached: set[AttachKey]) -> list[dict[str, Any]]:
 
     out: list[dict[str, Any]] = []
     for host, sessions in zip(hosts, probed, strict=True):
-        if sessions:
+        if isinstance(sessions, list) and sessions:
             out.extend(
                 {
                     "family": "host",
@@ -164,6 +174,8 @@ async def _host_sessions(attached: set[AttachKey]) -> list[dict[str, Any]]:
                     "session": None,
                     # Sonde muette mais pont ouvert (n'importe quelle session) → attaché.
                     "attached": any(k[0] == "host" and k[1] == host.name for k in attached),
+                    # tmux absent sur le host → l'UI prévient (session non persistante).
+                    "no_tmux": sessions == "no-tmux",
                 }
             )
     return out

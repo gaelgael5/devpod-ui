@@ -61,7 +61,8 @@
       "owner": "Owner",
       "state": "State",
       "actions": "Actions"
-    }
+    },
+    "noTmux": "tmux is not installed on: {{hosts}}. Terminals there run a plain shell, NOT persistent (a disconnect loses the session). Install tmux on the machine (e.g. sudo apt-get install -y tmux) then reopen the terminal."
   },
   "workspaces": {
     "title": "Workspaces",

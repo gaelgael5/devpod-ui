@@ -61,7 +61,8 @@
       "owner": "Propriétaire",
       "state": "État",
       "actions": "Actions"
-    }
+    },
+    "noTmux": "tmux n'est pas installé sur : {{hosts}}. Les terminaux y sont en shell simple, NON persistants (une déconnexion perd la session). Installez tmux sur la machine (ex. sudo apt-get install -y tmux) puis rouvrez le terminal."
   },
   "workspaces": {
     "title": "Workspaces",

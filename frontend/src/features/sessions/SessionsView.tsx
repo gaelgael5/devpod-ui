@@ -272,6 +272,16 @@ export default function SessionsView() {
         </div>
       )}
 
+      {/* tmux absent sur certains hosts : sessions non persistantes — prévenir. */}
+      {(() => {
+        const noTmuxHosts = [...new Set(shown.filter((e) => e.no_tmux).map((e) => e.target))]
+        if (noTmuxHosts.length === 0) return null
+        return (
+          <p className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {t('sessions.noTmux', { hosts: noTmuxHosts.join(', ') })}
+          </p>
+        )
+      })()}
     </div>
   )
 }

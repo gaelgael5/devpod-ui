@@ -394,3 +394,33 @@ async def test_host_probe_failure_falls_back_to_static_entry(
     assert len(hosts) == 1
     assert hosts[0]["target"] == "node1"
     assert hosts[0]["session"] is None
+
+
+@pytest.mark.asyncio
+async def test_host_without_tmux_flagged(monkeypatch: pytest.MonkeyPatch, patch_common) -> None:
+    """tmux absent sur le host → entrée statique marquée no_tmux (info UI :
+    sessions non persistantes, installer tmux)."""
+
+    async def _no_refs(login, conn):
+        return []
+
+    async def _all_tests(conn: Any):
+        return []
+
+    async def _probe(host: Any, command: str, timeout: float = 8.0):
+        return 0, "__PORTAL_NO_TMUX__\n", ""
+
+    class _Cfg:
+        hosts = [_SshHost("node1")]
+
+    monkeypatch.setattr(aggregate, "list_workspace_refs", _no_refs)
+    monkeypatch.setattr(aggregate, "list_all_status_db", _statuses())
+    monkeypatch.setattr(aggregate, "list_all_test_hosts", _all_tests)
+    monkeypatch.setattr(aggregate, "run_host_command", _probe)
+    monkeypatch.setattr("portal.config.store.load_global", lambda: _Cfg())
+
+    result = await aggregate.list_sessions(login="root", is_admin=True)
+    hosts = [r for r in result if r["family"] == "host"]
+    assert len(hosts) == 1
+    assert hosts[0]["session"] is None
+    assert hosts[0]["no_tmux"] is True
