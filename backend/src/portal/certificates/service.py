@@ -63,6 +63,14 @@ async def register_certificate(
 ) -> None:
     master_key = _require_master_key(session_id)
 
+    # PEM collés (import) : CRLF Windows / newline final manquant font échouer
+    # OpenSSH (« error in libcrypto ») et parfois TLS — normalisés au stockage.
+    from .pem import normalize_pem
+
+    private_key_pem = normalize_pem(private_key_pem)
+    if ca_pem:
+        ca_pem = normalize_pem(ca_pem)
+
     if storage_type == "local":
         encrypted = encrypt_token(private_key_pem, master_key)
         vault_ref = None

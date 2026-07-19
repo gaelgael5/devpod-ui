@@ -387,7 +387,11 @@ async def test_materialize_ssh_cert_stores_system_cert() -> None:
         patch("portal.routes.admin.store_system_cert", new_callable=AsyncMock) as mock_store,
     ):
         mock_get.return_value = _ssh_cert_row()
-        mock_reveal.return_value = "-----BEGIN OPENSSH PRIVATE KEY-----\nK\n-----END..."
+        # Clé collée depuis Windows : CRLF + pas de newline final → doit être
+        # normalisée au stockage (sinon « error in libcrypto » côté ssh).
+        mock_reveal.return_value = (
+            "-----BEGIN OPENSSH PRIVATE KEY-----\r\nK\r\n-----END OPENSSH PRIVATE KEY-----"
+        )
         slug = await _materialize_ssh_cert("admin", "sid-9", "vm-01", "my-key", conn)
 
     assert slug == "host.vm-01.cert"
@@ -397,7 +401,9 @@ async def test_materialize_ssh_cert_stores_system_cert() -> None:
     assert kw["slug"] == "host.vm-01.cert"
     assert kw["cert_type"] == "ssh-ed25519"
     assert kw["public_key"] == "ssh-ed25519 AAAAC3Nz... user@host"
-    assert kw["private_pem"] == "-----BEGIN OPENSSH PRIVATE KEY-----\nK\n-----END..."
+    assert kw["private_pem"] == (
+        "-----BEGIN OPENSSH PRIVATE KEY-----\nK\n-----END OPENSSH PRIVATE KEY-----\n"
+    )
     assert kw["storage_type"] == "local"
 
 

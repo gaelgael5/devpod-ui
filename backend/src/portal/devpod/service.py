@@ -49,10 +49,14 @@ async def _materialize_system_cert(slug: str, login: str = "") -> str:
     Le chemin stable évite que ProxyCommand (devpod ssh --stdio) trouve une clé
     manquante après un rebuild du conteneur portail.
     """
+    from ..certificates.pem import normalize_pem
     from ..secrets.system import reveal_system_cert
 
     async with _get_engine().begin() as conn:
-        pem = await reveal_system_cert(slug, conn)
+        # Normalisation systématique : une clé importée/collée (CRLF Windows, newline
+        # final manquant) ferait échouer ssh avec « error in libcrypto ». Répare aussi
+        # les entrées déjà stockées sales, sans migration.
+        pem = normalize_pem(await reveal_system_cert(slug, conn))
 
     if login:
         keys_dir = safe_user_path(login, "devpod") / "keys"

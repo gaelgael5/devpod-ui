@@ -21,6 +21,7 @@ from ..certificates.docker_bundle import (
     materialize_host_bundle,
     remove_host_bundle,
 )
+from ..certificates.pem import normalize_pem
 from ..certificates.service import CertNotFound, VaultLocked, reveal_private_key
 from ..config.env_file import update_env_file
 from ..config.models import GlobalConfig, HostConfig, Hypervisor, validate_network
@@ -767,7 +768,13 @@ async def _materialize_docker_cert(
         raise HTTPException(status_code=403, detail="vault_locked") from exc
     except CertNotFound as exc:
         raise HTTPException(status_code=404, detail=f"Clé privée de {slug!r} inaccessible") from exc
-    await materialize_host_bundle(host_name, ca_pem=ca_pem, cert_pem=cert_pem, key_pem=key_pem)
+    # Normalisation (CRLF/newline final d'un bundle collé) — sinon TLS/SSH le rejettent.
+    await materialize_host_bundle(
+        host_name,
+        ca_pem=normalize_pem(ca_pem),
+        cert_pem=normalize_pem(cert_pem),
+        key_pem=normalize_pem(key_pem),
+    )
     _log.info("host_docker_cert_associated", host=host_name, slug=slug, by=login)
 
 
@@ -807,7 +814,8 @@ async def _materialize_ssh_cert(
     await store_system_cert(
         slug=system_slug,
         label=f"SSH key — {host_name}",
-        private_pem=private_pem,
+        # Clé souvent collée depuis Windows (CRLF) → « error in libcrypto » côté ssh.
+        private_pem=normalize_pem(private_pem),
         public_key=str(row["public_key"] or ""),
         cert_type=str(row["cert_type"]),
         storage_type="local",
@@ -1191,7 +1199,8 @@ async def bootstrap_host_ssh(
         await store_system_cert(
             slug=cert_slug,
             label=f"SSH key — {name}",
-            private_pem=private_pem,
+            # Clé souvent collée depuis Windows (CRLF) → « error in libcrypto » côté ssh.
+        private_pem=normalize_pem(private_pem),
             public_key=public_key,
             cert_type="ssh-ed25519",
             storage_type="local",
