@@ -136,12 +136,14 @@ async def monitor_backend_once(
     session_fn = open_session_fn if open_session_fn is not None else open_session
     backend_id = backend_row["id"]
     transport = backend_row.get("transport", "streamable_http")
+    auth_scheme = backend_row.get("auth_scheme", "bearer")
     url = backend_row["url"]
     _log.info(
         "mcp_monitor_probe_start",
         backend_id=backend_id,
         url=url,
         transport=transport,
+        auth_scheme=auth_scheme,
     )
     if conn is not None:
         bearer = await _resolve_monitor_bearer(conn, backend_id)
@@ -153,7 +155,9 @@ async def monitor_backend_once(
     # la santé conserve sa dernière valeur connue plutôt que d'afficher un faux "down".
     try:
         async with asyncio.timeout(_PROBE_TIMEOUT_S):
-            async with session_fn(url, transport=transport, bearer=bearer) as session:
+            async with session_fn(
+                url, transport=transport, auth_scheme=auth_scheme, bearer=bearer
+            ) as session:
                 # I/O réseau seule ici — aucune connexion DB tenue ouverte (bug 026).
                 primitives, kinds = await fetch_backend_catalog(session)
         async with _conn_or_begin(conn) as c:
@@ -227,10 +231,13 @@ async def probe_backend_key(
     session_fn = open_session_fn if open_session_fn is not None else open_session
     url = backend_row["url"]
     transport = backend_row.get("transport", "streamable_http")
+    auth_scheme = backend_row.get("auth_scheme", "bearer")
     _log.info("mcp_key_probe_start", backend_id=backend_id, key_id=key_id, url=url)
     try:
         async with asyncio.timeout(_PROBE_TIMEOUT_S):
-            async with session_fn(url, transport=transport, bearer=secret.reveal()) as session:
+            async with session_fn(
+                url, transport=transport, auth_scheme=auth_scheme, bearer=secret.reveal()
+            ) as session:
                 await fetch_backend_catalog(session)
         result = KeyProbeResult(status="ok")
     except TimeoutError:

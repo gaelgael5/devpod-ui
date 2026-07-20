@@ -105,9 +105,62 @@ async def test_sse_settle_defaults_to_settings(monkeypatch) -> None:
     """Sans paramètre explicite, le settle vient de mcp_sse_init_settle_s."""
     calls: list[str] = []
     _patch_transports(monkeypatch, calls=calls)
-    monkeypatch.setattr(
-        "portal.mcp.connections._sse_init_settle_s", lambda: 0.25
-    )
+    monkeypatch.setattr("portal.mcp.connections._sse_init_settle_s", lambda: 0.25)
     async with open_session("http://x/sse", transport="sse"):
         pass
     assert calls == ["initialize", "sleep:0.25"]
+
+
+# ---------------------------------------------------------------------------
+# Schéma d'authentification : header injecté selon auth_scheme
+# ---------------------------------------------------------------------------
+
+
+def _capture_http_headers(monkeypatch) -> dict[str, dict[str, str] | None]:
+    """Patche le transport streamable_http et capture le header d'auth transmis."""
+    from contextlib import asynccontextmanager
+
+    import portal.mcp.connections as mod
+
+    captured: dict[str, dict[str, str] | None] = {}
+
+    def fake_create_http_client(**kw):
+        captured["headers"] = kw.get("headers")
+        return _NullAsyncCtx()
+
+    @asynccontextmanager
+    async def fake_http(url, **kw):
+        yield ("r", "w", lambda: None)
+
+    monkeypatch.setattr(mod, "create_mcp_http_client", fake_create_http_client)
+    monkeypatch.setattr(mod, "streamable_http_client", fake_http)
+    monkeypatch.setattr(mod, "ClientSession", lambda read, write: _FakeSession())
+    return captured
+
+
+async def test_auth_scheme_bearer_sends_authorization_header(monkeypatch) -> None:
+    captured = _capture_http_headers(monkeypatch)
+    async with open_session("http://x/mcp", bearer="s3cr3t", auth_scheme="bearer"):
+        pass
+    assert captured["headers"] == {"Authorization": "Bearer s3cr3t"}
+
+
+async def test_auth_scheme_x_api_key_sends_x_api_key_header(monkeypatch) -> None:
+    captured = _capture_http_headers(monkeypatch)
+    async with open_session("http://x/mcp", bearer="s3cr3t", auth_scheme="x_api_key"):
+        pass
+    assert captured["headers"] == {"X-API-Key": "s3cr3t"}
+
+
+async def test_auth_scheme_defaults_to_bearer(monkeypatch) -> None:
+    captured = _capture_http_headers(monkeypatch)
+    async with open_session("http://x/mcp", bearer="s3cr3t"):
+        pass
+    assert captured["headers"] == {"Authorization": "Bearer s3cr3t"}
+
+
+async def test_no_bearer_sends_no_auth_header(monkeypatch) -> None:
+    captured = _capture_http_headers(monkeypatch)
+    async with open_session("http://x/mcp", auth_scheme="x_api_key"):
+        pass
+    assert captured["headers"] is None

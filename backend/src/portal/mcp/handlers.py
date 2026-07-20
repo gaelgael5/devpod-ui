@@ -80,9 +80,7 @@ async def build_tool_descriptors(
     return tools
 
 
-async def _gateway_list_backends(
-    conn: AsyncConnection, owner_login: str
-) -> types.CallToolResult:
+async def _gateway_list_backends(conn: AsyncConnection, owner_login: str) -> types.CallToolResult:
     """Retourne la liste des backends MCP de l'owner sous forme de CallToolResult JSON."""
     backends = await list_backends(conn, owner_login)
     payload = [
@@ -118,20 +116,28 @@ async def execute_tool_call(
     n'apparaît pas dans `mcp_tool_call_received`, il n'a jamais atteint la
     passerelle (blocage en amont, côté client/connecteur).
     """
-    log.info(
-        "mcp_tool_call_received", tool=name, apikey_id=apikey_id, owner=owner_login
-    )
+    log.info("mcp_tool_call_received", tool=name, apikey_id=apikey_id, owner=owner_login)
     session_fn = open_session_fn if open_session_fn is not None else open_session
     if name == GATEWAY_LIST_BACKENDS:
         result = await _gateway_list_backends(conn, owner_login)
         await audit_record(
-            conn, apikey_id=apikey_id, owner_login=owner_login,
-            namespaced_name=name, backend_id=None, backend_key_id=None,
-            latency_ms=None, status="ok", error=None,
+            conn,
+            apikey_id=apikey_id,
+            owner_login=owner_login,
+            namespaced_name=name,
+            backend_id=None,
+            backend_key_id=None,
+            latency_ms=None,
+            status="ok",
+            error=None,
         )
         log.info(
-            "mcp_tool_call_decision", tool=name, apikey_id=apikey_id,
-            decision="dispatched", backend_id=None, reason="outil natif gateway",
+            "mcp_tool_call_decision",
+            tool=name,
+            apikey_id=apikey_id,
+            decision="dispatched",
+            backend_id=None,
+            reason="outil natif gateway",
         )
         return result
 
@@ -141,13 +147,22 @@ async def execute_tool_call(
         )
     except PrimitiveQuarantined as exc:
         await audit_record(
-            conn, apikey_id=apikey_id, owner_login=owner_login,
-            namespaced_name=name, backend_id=exc.backend_id, backend_key_id=None,
-            latency_ms=None, status="denied", error="quarantined",
+            conn,
+            apikey_id=apikey_id,
+            owner_login=owner_login,
+            namespaced_name=name,
+            backend_id=exc.backend_id,
+            backend_key_id=None,
+            latency_ms=None,
+            status="denied",
+            error="quarantined",
         )
         log.warning(
-            "mcp_tool_call_decision", tool=name, apikey_id=apikey_id,
-            decision="quarantined", backend_id=exc.backend_id,
+            "mcp_tool_call_decision",
+            tool=name,
+            apikey_id=apikey_id,
+            decision="quarantined",
+            backend_id=exc.backend_id,
             reason="redéfinition détectée, en attente d'approbation",
         )
         raise McpError(
@@ -158,20 +173,33 @@ async def execute_tool_call(
         ) from exc
     if target is None:
         await audit_record(
-            conn, apikey_id=apikey_id, owner_login=owner_login,
-            namespaced_name=name, backend_id=None, backend_key_id=None,
-            latency_ms=None, status="denied", error=None,
+            conn,
+            apikey_id=apikey_id,
+            owner_login=owner_login,
+            namespaced_name=name,
+            backend_id=None,
+            backend_key_id=None,
+            latency_ms=None,
+            status="denied",
+            error=None,
         )
         log.warning(
-            "mcp_tool_call_decision", tool=name, apikey_id=apikey_id,
-            decision="unknown_tool", backend_id=None,
+            "mcp_tool_call_decision",
+            tool=name,
+            apikey_id=apikey_id,
+            decision="unknown_tool",
+            backend_id=None,
             reason="absent du catalogue ou non autorisé par le profil (deny-by-default)",
         )
         raise McpError(ErrorData(code=METHOD_NOT_FOUND, message="unknown tool"))
 
     log.info(
-        "mcp_tool_call_decision", tool=name, apikey_id=apikey_id,
-        decision="dispatched", backend_id=target.backend_id, reason=None,
+        "mcp_tool_call_decision",
+        tool=name,
+        apikey_id=apikey_id,
+        decision="dispatched",
+        backend_id=target.backend_id,
+        reason=None,
     )
     bearer = await resolve_bearer(
         conn, target, name=name, apikey_id=apikey_id, owner_login=owner_login
@@ -196,18 +224,31 @@ async def execute_tool_call(
                 secret=bearer,
             )
         else:
-            async with session_fn(target.url, transport=target.transport, bearer=bearer) as session:
+            async with session_fn(
+                target.url,
+                transport=target.transport,
+                auth_scheme=target.auth_scheme,
+                bearer=bearer,
+            ) as session:
                 result = await call_backend_tool(session, target.original_name, arguments)
     except BackendUnavailable as exc:
         await audit_record(
-            conn, apikey_id=apikey_id, owner_login=owner_login,
-            namespaced_name=name, backend_id=target.backend_id,
-            backend_key_id=target.backend_key_id, latency_ms=None,
-            status="timeout", error=str(exc),
+            conn,
+            apikey_id=apikey_id,
+            owner_login=owner_login,
+            namespaced_name=name,
+            backend_id=target.backend_id,
+            backend_key_id=target.backend_key_id,
+            latency_ms=None,
+            status="timeout",
+            error=str(exc),
         )
         log.warning(
-            "mcp_tool_call_backend_unavailable", tool=name, apikey_id=apikey_id,
-            backend_id=target.backend_id, reason=str(exc),
+            "mcp_tool_call_backend_unavailable",
+            tool=name,
+            apikey_id=apikey_id,
+            backend_id=target.backend_id,
+            reason=str(exc),
         )
         raise McpError(
             ErrorData(code=INTERNAL_ERROR, message=f"backend unavailable: {target.backend_id}")
@@ -215,9 +256,13 @@ async def execute_tool_call(
 
     latency_ms = int((time.perf_counter() - started) * 1000)
     await audit_record(
-        conn, apikey_id=apikey_id, owner_login=owner_login,
-        namespaced_name=name, backend_id=target.backend_id,
-        backend_key_id=target.backend_key_id, latency_ms=latency_ms,
+        conn,
+        apikey_id=apikey_id,
+        owner_login=owner_login,
+        namespaced_name=name,
+        backend_id=target.backend_id,
+        backend_key_id=target.backend_key_id,
+        latency_ms=latency_ms,
         status="error" if result.isError else "ok",
         error=None,
     )
@@ -258,9 +303,15 @@ async def execute_prompt_get(
         )
     except PrimitiveQuarantined as exc:
         await audit_record(
-            conn, apikey_id=apikey_id, owner_login=owner_login,
-            namespaced_name=name, backend_id=exc.backend_id, backend_key_id=None,
-            latency_ms=None, status="denied", error="quarantined",
+            conn,
+            apikey_id=apikey_id,
+            owner_login=owner_login,
+            namespaced_name=name,
+            backend_id=exc.backend_id,
+            backend_key_id=None,
+            latency_ms=None,
+            status="denied",
+            error="quarantined",
         )
         raise McpError(
             ErrorData(
@@ -270,9 +321,15 @@ async def execute_prompt_get(
         ) from exc
     if target is None:
         await audit_record(
-            conn, apikey_id=apikey_id, owner_login=owner_login,
-            namespaced_name=name, backend_id=None, backend_key_id=None,
-            latency_ms=None, status="denied", error=None,
+            conn,
+            apikey_id=apikey_id,
+            owner_login=owner_login,
+            namespaced_name=name,
+            backend_id=None,
+            backend_key_id=None,
+            latency_ms=None,
+            status="denied",
+            error=None,
         )
         raise McpError(ErrorData(code=METHOD_NOT_FOUND, message="unknown prompt"))
 
@@ -282,24 +339,35 @@ async def execute_prompt_get(
 
     started = time.perf_counter()
     try:
-        async with session_fn(target.url, transport=target.transport, bearer=bearer) as session:
+        async with session_fn(
+            target.url, transport=target.transport, auth_scheme=target.auth_scheme, bearer=bearer
+        ) as session:
             result = await get_backend_prompt(session, target.original_name, arguments)
     except BackendUnavailable as exc:
         await audit_record(
-            conn, apikey_id=apikey_id, owner_login=owner_login,
-            namespaced_name=name, backend_id=target.backend_id,
-            backend_key_id=target.backend_key_id, latency_ms=None,
-            status="timeout", error=str(exc),
+            conn,
+            apikey_id=apikey_id,
+            owner_login=owner_login,
+            namespaced_name=name,
+            backend_id=target.backend_id,
+            backend_key_id=target.backend_key_id,
+            latency_ms=None,
+            status="timeout",
+            error=str(exc),
         )
         raise McpError(
             ErrorData(code=INTERNAL_ERROR, message=f"backend unavailable: {target.backend_id}")
         ) from exc
 
     await audit_record(
-        conn, apikey_id=apikey_id, owner_login=owner_login,
-        namespaced_name=name, backend_id=target.backend_id,
+        conn,
+        apikey_id=apikey_id,
+        owner_login=owner_login,
+        namespaced_name=name,
+        backend_id=target.backend_id,
         backend_key_id=target.backend_key_id,
         latency_ms=int((time.perf_counter() - started) * 1000),
-        status="ok", error=None,
+        status="ok",
+        error=None,
     )
     return result

@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
 export type Transport = 'streamable_http' | 'sse' | 'stdio' | 'internal'
+// Schéma d'auth vers le backend : Bearer (standard MCP) ou header X-API-Key.
+export type AuthScheme = 'bearer' | 'x_api_key'
 export type StorageType = 'local' | 'harpocrate'
 
 export type BackendHealth = 'up' | 'down' | 'unknown'
@@ -13,6 +15,8 @@ export interface MCPBackend {
   name: string
   url: string
   transport: Transport
+  // Header d'auth utilisé vers le backend (cf. AuthScheme).
+  auth_scheme: AuthScheme
   enabled: boolean
   // URL web optionnelle de l'application (lien « ouvrir » dans la liste). '' = aucun.
   app_url: string
@@ -88,6 +92,7 @@ export interface BackendCreateBody {
   name: string
   url: string
   transport: Transport
+  auth_scheme: AuthScheme
   app_url: string
 }
 
@@ -96,6 +101,7 @@ export interface BackendUpdateBody {
   url: string
   transport: Transport
   enabled: boolean
+  auth_scheme: AuthScheme
   app_url: string
   quarantine_disabled: boolean
 }

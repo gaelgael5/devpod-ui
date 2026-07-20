@@ -503,6 +503,10 @@ mcp_backend = Table(
     Column("name", Text, nullable=False),
     Column("url", Text, nullable=False),
     Column("transport", Text, nullable=False, server_default="streamable_http"),
+    # Schéma d'authentification porté vers le backend : "bearer" (Authorization:
+    # Bearer <clé>, défaut, standard MCP) ou "x_api_key" (X-API-Key: <clé>, pour
+    # les serveurs non conformes qui exigent ce header, ex. gateway agflow).
+    Column("auth_scheme", Text, nullable=False, server_default="bearer"),
     Column("enabled", Boolean, nullable=False, server_default="true"),
     # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
     Column("app_url", Text, nullable=False, server_default=""),

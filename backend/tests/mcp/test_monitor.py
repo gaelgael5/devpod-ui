@@ -73,11 +73,26 @@ async def _seed_backend(conn: AsyncConnection) -> dict:
     await conn.execute(
         insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
     )
-    await conn.execute(insert(mcp_backend).values(
-        id="b1", owner_login="alice", namespace="rag", name="RAG",
-        url="https://rag/mcp", transport="streamable_http", enabled=True))
-    return {"id": "b1", "owner_login": "alice", "namespace": "rag", "name": "RAG",
-            "url": "https://rag/mcp", "transport": "streamable_http", "enabled": True}
+    await conn.execute(
+        insert(mcp_backend).values(
+            id="b1",
+            owner_login="alice",
+            namespace="rag",
+            name="RAG",
+            url="https://rag/mcp",
+            transport="streamable_http",
+            enabled=True,
+        )
+    )
+    return {
+        "id": "b1",
+        "owner_login": "alice",
+        "namespace": "rag",
+        "name": "RAG",
+        "url": "https://rag/mcp",
+        "transport": "streamable_http",
+        "enabled": True,
+    }
 
 
 async def test_monitor_backend_once_up(db_conn: AsyncConnection) -> None:
@@ -90,6 +105,7 @@ async def test_monitor_backend_once_up(db_conn: AsyncConnection) -> None:
     assert get_health("b1").status == "up"
     # le catalogue a été synchronisé
     from portal.db.mcp_catalog import list_primitives
+
     assert len(await list_primitives(db_conn, "b1", "tool")) == 1
 
 
@@ -101,8 +117,13 @@ async def test_monitor_backend_once_internal_resyncs_catalog(db_conn: AsyncConne
         insert(users).values(login="alice", version="1", secret_ns=str(uuid.uuid4()))
     )
     backend = {
-        "id": "devpod-alice", "owner_login": "alice", "namespace": "devpod",
-        "name": "DevPod workspaces", "url": "", "transport": "internal", "enabled": True,
+        "id": "devpod-alice",
+        "owner_login": "alice",
+        "namespace": "devpod",
+        "name": "DevPod workspaces",
+        "url": "",
+        "transport": "internal",
+        "enabled": True,
     }
     await db_conn.execute(insert(mcp_backend).values(**backend))
 
@@ -110,6 +131,7 @@ async def test_monitor_backend_once_internal_resyncs_catalog(db_conn: AsyncConne
 
     assert health.status == "up"
     from portal.db.mcp_catalog import list_primitives
+
     assert len(await list_primitives(db_conn, "devpod-alice", "tool")) > 0
 
 
@@ -140,14 +162,24 @@ async def _seed_two_backends(engine: AsyncEngine) -> None:
         )
         await conn.execute(
             insert(mcp_backend).values(
-                id="b1", owner_login="alice", namespace="rag", name="RAG",
-                url="https://rag/mcp", transport="streamable_http", enabled=True,
+                id="b1",
+                owner_login="alice",
+                namespace="rag",
+                name="RAG",
+                url="https://rag/mcp",
+                transport="streamable_http",
+                enabled=True,
             )
         )
         await conn.execute(
             insert(mcp_backend).values(
-                id="b2", owner_login="alice", namespace="search", name="Search",
-                url="https://search/mcp", transport="streamable_http", enabled=True,
+                id="b2",
+                owner_login="alice",
+                namespace="search",
+                name="Search",
+                url="https://search/mcp",
+                transport="streamable_http",
+                enabled=True,
             )
         )
 
@@ -277,21 +309,34 @@ async def test_monitor_backend_once_no_conn_never_holds_db_during_network(
     monkeypatch.setattr(monitor_mod, "_resolve_monitor_bearer", fake_resolve_bearer)
 
     @asynccontextmanager
-    async def fake_open_session(url: str, *, transport: str, bearer: str | None = None):
+    async def fake_open_session(
+        url: str, *, transport: str, bearer: str | None = None, **kw: object
+    ):
         events.append("network_enter")
         yield _FakeSession()
         events.append("network_exit")
 
     reset_health()
     backend = {
-        "id": "b1", "owner_login": "alice", "namespace": "rag", "name": "RAG",
-        "url": "https://rag/mcp", "transport": "streamable_http", "enabled": True,
+        "id": "b1",
+        "owner_login": "alice",
+        "namespace": "rag",
+        "name": "RAG",
+        "url": "https://rag/mcp",
+        "transport": "streamable_http",
+        "enabled": True,
     }
     health = await monitor_backend_once(None, backend, open_session_fn=fake_open_session)
 
     assert health.status == "up"
-    assert events == ["connect_enter", "connect_exit", "network_enter", "network_exit",
-                       "begin_enter", "begin_exit"]
+    assert events == [
+        "connect_enter",
+        "connect_exit",
+        "network_enter",
+        "network_exit",
+        "begin_enter",
+        "begin_exit",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -359,9 +404,7 @@ async def test_probe_backend_key_connection_refused(monkeypatch) -> None:
         raise BackendUnavailable("HTTP 401 Unauthorized")
         yield  # pragma: no cover
 
-    result = await monitor_mod.probe_backend_key(
-        None, _KEY_BACKEND, "k1", open_session_fn=_refuse
-    )
+    result = await monitor_mod.probe_backend_key(None, _KEY_BACKEND, "k1", open_session_fn=_refuse)
     assert result.status == "failed"
     assert "401" in (result.error or "")
 

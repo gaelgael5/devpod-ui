@@ -40,6 +40,7 @@ import {
   type MCPBackendKey,
   type StorageType,
   type Transport,
+  type AuthScheme,
 } from './api'
 
 function AddBackendDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -49,16 +50,18 @@ function AddBackendDialog({ open, onClose }: { open: boolean; onClose: () => voi
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [transport, setTransport] = useState<Transport>('streamable_http')
+  const [authScheme, setAuthScheme] = useState<AuthScheme>('bearer')
   const [appUrl, setAppUrl] = useState('')
 
   function close() {
-    setNamespace(''); setName(''); setUrl(''); setTransport('streamable_http'); setAppUrl('')
+    setNamespace(''); setName(''); setUrl(''); setTransport('streamable_http')
+    setAuthScheme('bearer'); setAppUrl('')
     create.reset(); onClose()
   }
 
   function submit() {
     create.mutate(
-      { namespace, name, url, transport, app_url: appUrl.trim() },
+      { namespace, name, url, transport, auth_scheme: authScheme, app_url: appUrl.trim() },
       { onSuccess: close, onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) },
     )
   }
@@ -97,6 +100,17 @@ function AddBackendDialog({ open, onClose }: { open: boolean; onClose: () => voi
             </Select>
           </div>
           <div className="flex flex-col gap-1.5">
+            <Label>{t('mcp.backends.authScheme')}</Label>
+            <Select value={authScheme} onValueChange={(v) => setAuthScheme(v as AuthScheme)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="bearer">{t('mcp.backends.authSchemeBearer')}</SelectItem>
+                <SelectItem value="x_api_key">{t('mcp.backends.authSchemeApiKey')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-xs text-muted-foreground">{t('mcp.backends.authSchemeHint')}</span>
+          </div>
+          <div className="flex flex-col gap-1.5">
             <Label>{t('mcp.backends.appUrl')}</Label>
             <Input
               type="url"
@@ -133,6 +147,7 @@ function EditBackendDialog({ backend, open, onClose }: { backend: MCPBackend; op
   const [name, setName] = useState(backend.name)
   const [url, setUrl] = useState(backend.url)
   const [transport, setTransport] = useState<Transport>(backend.transport)
+  const [authScheme, setAuthScheme] = useState<AuthScheme>(backend.auth_scheme)
   const [appUrl, setAppUrl] = useState(backend.app_url)
   const [enabled, setEnabled] = useState(backend.enabled)
   const [quarantineDisabled, setQuarantineDisabled] = useState(backend.quarantine_disabled)
@@ -140,7 +155,7 @@ function EditBackendDialog({ backend, open, onClose }: { backend: MCPBackend; op
   function submit() {
     update.mutate(
       {
-        id: backend.id, name, url, transport, enabled,
+        id: backend.id, name, url, transport, enabled, auth_scheme: authScheme,
         app_url: appUrl.trim(), quarantine_disabled: quarantineDisabled,
       },
       { onSuccess: onClose, onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) },
@@ -187,6 +202,19 @@ function EditBackendDialog({ backend, open, onClose }: { backend: MCPBackend; op
               </SelectContent>
             </Select>
           </div>
+          {!isDevpod && (
+            <div className="flex flex-col gap-1.5">
+              <Label>{t('mcp.backends.authScheme')}</Label>
+              <Select value={authScheme} onValueChange={(v) => setAuthScheme(v as AuthScheme)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="bearer">{t('mcp.backends.authSchemeBearer')}</SelectItem>
+                  <SelectItem value="x_api_key">{t('mcp.backends.authSchemeApiKey')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground">{t('mcp.backends.authSchemeHint')}</span>
+            </div>
+          )}
           {!isDevpod && (
             <div className="flex flex-col gap-1.5">
               <Label>{t('mcp.backends.appUrl')}</Label>

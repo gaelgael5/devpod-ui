@@ -22,6 +22,7 @@ _BACKEND_COLS = [
     mcp_backend.c.name,
     mcp_backend.c.url,
     mcp_backend.c.transport,
+    mcp_backend.c.auth_scheme,
     mcp_backend.c.enabled,
     mcp_backend.c.app_url,
     mcp_backend.c.quarantine_disabled,
@@ -39,6 +40,7 @@ async def insert_backend(
     name: str,
     url: str,
     transport: str,
+    auth_scheme: str = "bearer",
     app_url: str = "",
     quarantine_disabled: bool = False,
 ) -> None:
@@ -50,6 +52,7 @@ async def insert_backend(
             name=name,
             url=url,
             transport=transport,
+            auth_scheme=auth_scheme,
             app_url=app_url,
             quarantine_disabled=quarantine_disabled,
         )
@@ -68,6 +71,7 @@ async def list_all_enabled_backends(conn: AsyncConnection) -> list[dict[str, Any
                     mcp_backend.c.name,
                     mcp_backend.c.url,
                     mcp_backend.c.transport,
+                    mcp_backend.c.auth_scheme,
                     mcp_backend.c.enabled,
                     mcp_backend.c.quarantine_disabled,
                 ).where(mcp_backend.c.enabled.is_(True))
@@ -114,6 +118,7 @@ async def update_backend(
     url: str,
     transport: str,
     enabled: bool,
+    auth_scheme: str = "bearer",
     app_url: str = "",
     quarantine_disabled: bool = False,
 ) -> bool:
@@ -125,6 +130,7 @@ async def update_backend(
             url=url,
             transport=transport,
             enabled=enabled,
+            auth_scheme=auth_scheme,
             app_url=app_url,
             quarantine_disabled=quarantine_disabled,
             updated_at=func.now(),

@@ -11,6 +11,9 @@ NAMESPACE_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 
 Transport = Literal["streamable_http", "sse", "stdio", "rest"]
+# Schéma d'authentification vers le backend : "bearer" (standard MCP) ou
+# "x_api_key" (header X-API-Key, pour les serveurs non conformes).
+AuthScheme = Literal["bearer", "x_api_key"]
 
 
 def _validate_namespace(v: str) -> str:
@@ -34,6 +37,8 @@ class BackendCreate(BaseModel):
     name: str
     url: str
     transport: Transport = "streamable_http"
+    # Header d'authentification à utiliser vers le backend (cf. AuthScheme).
+    auth_scheme: AuthScheme = "bearer"
     # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
     app_url: str = ""
     # « Ne pas appliquer la protection des primitives par quarantaine » —
@@ -80,6 +85,7 @@ class BackendUpdate(BaseModel):
     url: str
     transport: Transport
     enabled: bool
+    auth_scheme: AuthScheme = "bearer"
     app_url: str = ""
     # cf. BackendCreate — l'activer lève immédiatement les quarantaines du backend.
     quarantine_disabled: bool = False
