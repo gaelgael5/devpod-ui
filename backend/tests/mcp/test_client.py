@@ -53,6 +53,55 @@ def test_hash_definition_stable_and_order_independent() -> None:
     assert a != hash_definition({"name": "x", "v": 2})
 
 
+def test_hash_definition_required_order_independent() -> None:
+    """`required` est un ensemble : réordonner ne doit pas re-quarantiner l'outil."""
+    schema = {"type": "object", "required": ["a", "b", "c"]}
+    reordered = {"type": "object", "required": ["c", "a", "b"]}
+    assert hash_definition(schema) == hash_definition(reordered)
+
+
+def test_hash_definition_enum_order_independent() -> None:
+    """`enum` (valeurs autorisées, types mixtes) : ordre non significatif."""
+    a = {"enum": ["z", 1, "a", True, None]}
+    b = {"enum": [None, "a", True, "z", 1]}
+    assert hash_definition(a) == hash_definition(b)
+
+
+def test_hash_definition_type_union_order_independent() -> None:
+    assert hash_definition({"type": ["string", "null"]}) == hash_definition(
+        {"type": ["null", "string"]}
+    )
+
+
+def test_hash_definition_nested_required_order_independent() -> None:
+    """La canonicalisation descend dans les sous-schémas (properties, items…)."""
+    a = {
+        "type": "object",
+        "properties": {"cfg": {"type": "object", "required": ["x", "y"]}},
+    }
+    b = {
+        "type": "object",
+        "properties": {"cfg": {"type": "object", "required": ["y", "x"]}},
+    }
+    assert hash_definition(a) == hash_definition(b)
+
+
+def test_hash_definition_order_significant_array_still_matters() -> None:
+    """Un tableau dont l'ordre porte du sens (default, examples) reste discriminant :
+    la protection anti rug-pull ne doit pas être affaiblie."""
+    assert hash_definition({"default": [1, 2, 3]}) != hash_definition({"default": [3, 2, 1]})
+
+
+def test_hash_definition_real_change_still_detected() -> None:
+    base = {"type": "object", "required": ["a"], "properties": {"a": {"type": "string"}}}
+    added = {
+        "type": "object",
+        "required": ["a"],
+        "properties": {"a": {"type": "string"}, "b": {"type": "number"}},
+    }
+    assert hash_definition(base) != hash_definition(added)
+
+
 async def test_fetch_primitives_normalizes_all_kinds() -> None:
     # create_connected_server_and_client_session calls initialize() internally —
     # no explicit initialize() needed here.
