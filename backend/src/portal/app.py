@@ -24,7 +24,6 @@ from .routes.admin import router as admin_router
 from .routes.agent_messages import router as agent_messages_router
 from .routes.agent_types import admin_router as agent_types_admin_router
 from .routes.agent_types import me_router as agent_types_me_router
-from .routes.app_events import router as app_events_router
 from .routes.applications import router as applications_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
@@ -53,14 +52,12 @@ from .routes.recipes import router_public as recipes_public_router
 from .routes.resource_hosts import me_router as resource_hosts_me_router
 from .routes.secrets import router_admin as secrets_admin_router
 from .routes.secrets import router_me as secrets_me_router
-from .routes.services import router as services_router
 from .routes.sessions import router as sessions_router
 from .routes.skill_placements import router as skill_placements_router
 from .routes.skills import router as skills_router
 from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
 from .routes.test_vm import router as test_vm_router
-from .routes.user_rules import router as user_rules_router
 from .routes.vault import router as vault_router
 from .routes.vscode_proxy import router as vscode_proxy_router
 from .routes.workspace_groups import router as workspace_groups_router
@@ -181,7 +178,6 @@ async def _maintenance_sweep_loop(interval_s: float = 3600.0) -> None:
     Chaque entretien a son propre try/except : l'échec de l'un ne prive pas
     les autres de leur passage.
     """
-    from .db.app_events import purge_old_events
     from .db.engine import _get_engine
     from .db.mcp import purge_revoked_apikeys
     from .messages.service import sweep_orphans
@@ -193,13 +189,6 @@ async def _maintenance_sweep_loop(interval_s: float = 3600.0) -> None:
                 await sweep_orphans(conn)
         except Exception:
             _log.warning("message_sweep_failed", exc_info=True)
-        try:
-            async with _get_engine().begin() as conn:
-                purged = await purge_old_events(conn)
-            if purged:
-                _log.info("app_events_purged", count=purged)
-        except Exception:
-            _log.warning("app_event_purge_failed", exc_info=True)
         try:
             async with _get_engine().begin() as conn:
                 purged_keys = await purge_revoked_apikeys(conn)
@@ -251,13 +240,6 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         # Pas de synchro automatique des recettes : c'est l'admin qui choisit quoi
         # synchroniser, via POST /admin/recipes/sync.
-
-        # Bus d'événements applicatifs : écouteurs d'automatisation (règles
-        # déterministes sonde → condition → action). DB requise (journal).
-        from .automation.runtime import register_automation
-        from .events.bus import get_bus
-
-        register_automation(get_bus())
 
         # Producteur d'events workflow (feature d'adoption) : relais egress signé
         # HMAC des events applicatifs vers le module workflow, selon la config
@@ -406,9 +388,6 @@ def create_app() -> FastAPI:
     app.include_router(workspace_groups_router, prefix="/me")
     app.include_router(workspace_sessions_router, prefix="/me")
     app.include_router(agent_messages_router, prefix="/me")
-    app.include_router(services_router, prefix="/me")
-    app.include_router(app_events_router, prefix="/me")
-    app.include_router(user_rules_router, prefix="/me")
     app.include_router(test_vm_router, prefix="/me")
     app.include_router(plugins_router)
     app.include_router(recipes_public_router)

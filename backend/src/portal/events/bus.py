@@ -1,9 +1,10 @@
-"""Bus d'événements in-process : journal d'abord, dispatch asynchrone.
+"""Bus d'événements in-process : dispatch asynchrone vers les abonnés.
 
-Sémantique : at-least-once, écouteurs idempotents par construction (règles
-« ensure »). `emit()` ne lève JAMAIS vers l'appelant — ni un journal en panne
-ni un écouteur qui plante ne doivent faire échouer l'opération métier émettrice.
-Chaque livraison est tracée dans app_event_delivery (ok/error).
+Sémantique : at-least-once, écouteurs idempotents par construction. `emit()` ne
+lève JAMAIS vers l'appelant — un écouteur qui plante ne doit pas faire échouer
+l'opération métier émettrice. Le seul abonné aujourd'hui est le producteur
+workflow (`events/egress.enqueue_event`), qui persiste dans son propre outbox.
+Le journal local (tables app_event*) a été retiré avec les onglets Rules/Events.
 """
 
 from __future__ import annotations
@@ -19,39 +20,8 @@ from .models import EVENT_TYPES, AppEvent
 
 _log = structlog.get_logger(__name__)
 
-# Un handler peut retourner un détail structuré (JSON-sérialisable) : il est
-# journalisé avec la livraison. En cas d'exception, l'attribut delivery_detail
-# de l'exception (s'il existe) est journalisé de la même façon.
+# Un handler peut retourner un détail structuré (JSON-sérialisable) — logué en cas d'échec.
 Handler = Callable[[AppEvent], Awaitable[Any]]
-
-
-async def _persist_event(event: AppEvent) -> None:
-    from ..db.app_events import insert_event
-    from ..db.engine import _get_engine
-
-    async with _get_engine().begin() as conn:
-        await insert_event(
-            conn,
-            event_id=event.event_id,
-            event_type=event.type,
-            actor=event.actor,
-            workspace=event.workspace,
-            subject=event.subject,
-            correlation_id=event.correlation_id,
-            occurred_at=event.occurred_at,
-        )
-
-
-async def _persist_delivery(
-    event_id: str, listener: str, status: str, error: str | None, detail: Any = None
-) -> None:
-    from ..db.app_events import insert_delivery
-    from ..db.engine import _get_engine
-
-    async with _get_engine().begin() as conn:
-        await insert_delivery(
-            conn, event_id=event_id, listener=listener, status=status, error=error, detail=detail
-        )
 
 
 @dataclass(frozen=True)
@@ -85,55 +55,23 @@ class EventBus:
         return any(s.name == name for s in self._subs)
 
     async def emit(self, event: AppEvent) -> None:
-        """Journalise puis planifie la livraison en tâche de fond. Ne lève jamais."""
-        try:
-            await _persist_event(event)
-        except Exception:
-            _log.error(
-                "event_journal_failed",
-                event_type=event.type,
-                event_id=event.event_id,
-                exc_info=True,
-            )
+        """Planifie la livraison aux abonnés en tâche de fond. Ne lève jamais."""
         task = asyncio.create_task(self._dispatch(event))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
     async def _dispatch(self, event: AppEvent) -> None:
         for sub in [s for s in self._subs if event.type in s.event_types]:
-            status, error, detail = "ok", None, None
             try:
-                detail = await sub.handler(event)
+                await sub.handler(event)
             except Exception as exc:
-                status, error = "error", f"{type(exc).__name__}: {exc}"
-                detail = getattr(exc, "delivery_detail", None)
                 _log.error(
                     "event_listener_failed",
                     listener=sub.name,
                     event_type=event.type,
                     event_id=event.event_id,
-                    error=error,
+                    error=f"{type(exc).__name__}: {exc}",
                 )
-            try:
-                await _persist_delivery(event.event_id, sub.name, status, error, detail)
-            except Exception:
-                _log.error(
-                    "event_delivery_journal_failed",
-                    listener=sub.name,
-                    event_id=event.event_id,
-                    exc_info=True,
-                )
-
-    async def redeliver(self, event: AppEvent) -> None:
-        """Rejoue les livraisons d'un événement déjà journalisé (replay).
-
-        L'événement n'est PAS réinséré dans app_event ; les nouvelles livraisons
-        s'ajoutent à l'historique dans app_event_delivery. Sûr par construction :
-        les écouteurs sont des règles « ensure » idempotentes.
-        """
-        task = asyncio.create_task(self._dispatch(event))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
 
     async def drain(self) -> None:
         """Attend la fin des livraisons en cours (tests, arrêt propre)."""
