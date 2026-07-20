@@ -21,6 +21,16 @@ initializeFaro({
   instrumentations: [...getWebInstrumentations({ captureConsole: true })],
 })
 
+// Onglet périmé après un redéploiement : une route lazy demande un chunk hashé
+// (/assets/*-HASH.js) qui n'existe plus → le serveur répond 404 et Vite émet
+// `vite:preloadError`. On recharge UNE fois pour récupérer l'index.html à jour
+// (garde sessionStorage anti-boucle si le problème persistait vraiment).
+window.addEventListener('vite:preloadError', () => {
+  if (sessionStorage.getItem('spaPreloadReloaded')) return
+  sessionStorage.setItem('spaPreloadReloaded', '1')
+  window.location.reload()
+})
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { staleTime: 0, retry: 1 },
