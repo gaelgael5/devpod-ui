@@ -38,6 +38,7 @@ async def open_session(
     transport: str = "streamable_http",
     bearer: str | None = None,
     auth_scheme: str = "bearer",
+    extra_headers: dict[str, str] | None = None,
     timeout_s: float = 30.0,
     sse_read_timeout_s: float = 300.0,
     sse_init_settle_s: float | None = None,
@@ -64,12 +65,16 @@ async def open_session(
             if auth_scheme == "x_api_key"
             else {"Authorization": f"Bearer {bearer}"}
         )
+    if extra_headers:
+        # En-têtes applicatifs (ex. on-behalf-of signé) : fusionnés après l'auth.
+        headers = {**(headers or {}), **extra_headers}
     _log.debug(
         "mcp_open_session_start",
         url=url,
         transport=transport,
         auth_scheme=auth_scheme,
         has_bearer=bearer is not None,
+        extra_headers=sorted(extra_headers) if extra_headers else None,
     )
     try:
         if transport == "sse":

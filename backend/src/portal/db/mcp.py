@@ -23,6 +23,7 @@ _BACKEND_COLS = [
     mcp_backend.c.url,
     mcp_backend.c.transport,
     mcp_backend.c.auth_scheme,
+    mcp_backend.c.forward_identity,
     mcp_backend.c.enabled,
     mcp_backend.c.app_url,
     mcp_backend.c.quarantine_disabled,
@@ -41,6 +42,7 @@ async def insert_backend(
     url: str,
     transport: str,
     auth_scheme: str = "bearer",
+    forward_identity: bool = False,
     app_url: str = "",
     quarantine_disabled: bool = False,
 ) -> None:
@@ -53,6 +55,7 @@ async def insert_backend(
             url=url,
             transport=transport,
             auth_scheme=auth_scheme,
+            forward_identity=forward_identity,
             app_url=app_url,
             quarantine_disabled=quarantine_disabled,
         )
@@ -119,6 +122,7 @@ async def update_backend(
     transport: str,
     enabled: bool,
     auth_scheme: str = "bearer",
+    forward_identity: bool = False,
     app_url: str = "",
     quarantine_disabled: bool = False,
 ) -> bool:
@@ -131,6 +135,7 @@ async def update_backend(
             transport=transport,
             enabled=enabled,
             auth_scheme=auth_scheme,
+            forward_identity=forward_identity,
             app_url=app_url,
             quarantine_disabled=quarantine_disabled,
             updated_at=func.now(),

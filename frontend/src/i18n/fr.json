@@ -1146,6 +1146,8 @@
       "authSchemeBearer": "Bearer (standard MCP)",
       "authSchemeApiKey": "En-tête X-API-Key",
       "authSchemeHint": "Comment la clé est transmise au serveur. « Bearer » (Authorization: Bearer) par défaut ; « X-API-Key » pour les serveurs qui l'exigent.",
+      "forwardIdentityLabel": "Propager mon identité (on-behalf-of)",
+      "forwardIdentityHint": "Ajoute aux appels une identité signée de l'utilisateur connecté (en-têtes x-portal-actor*). À n'activer que pour un service de confiance qui sait la vérifier (docflow, rag, workflow). Nécessite une clé.",
       "keysTitle": "Clés d'authentification",
       "addKey": "Ajouter une clé",
       "noKeys": "Aucune clé.",

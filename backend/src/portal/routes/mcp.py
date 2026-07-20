@@ -100,7 +100,7 @@ async def update_backend_route(
     ok = await db.update_backend(
         conn, user.login, backend_id,
         name=body.name, url=body.url, transport=body.transport, enabled=body.enabled,
-        auth_scheme=body.auth_scheme,
+        auth_scheme=body.auth_scheme, forward_identity=body.forward_identity,
         app_url=body.app_url, quarantine_disabled=body.quarantine_disabled,
     )
     if not ok:

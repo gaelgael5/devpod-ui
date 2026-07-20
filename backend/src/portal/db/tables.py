@@ -507,6 +507,10 @@ mcp_backend = Table(
     # Bearer <clé>, défaut, standard MCP) ou "x_api_key" (X-API-Key: <clé>, pour
     # les serveurs non conformes qui exigent ce header, ex. gateway agflow).
     Column("auth_scheme", Text, nullable=False, server_default="bearer"),
+    # Propager l'identité humaine (on-behalf-of signé) aux appels sortants. false
+    # par défaut : on ne diffuse l'utilisateur qu'aux backends first-party de confiance
+    # qui savent vérifier la signature (cf. mcp/obo). Requiert une clé (secret de signature).
+    Column("forward_identity", Boolean, nullable=False, server_default="false"),
     Column("enabled", Boolean, nullable=False, server_default="true"),
     # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
     Column("app_url", Text, nullable=False, server_default=""),

@@ -26,7 +26,7 @@ from portal.mcp.aggregator import (
 )
 from portal.mcp.client import read_backend_resource
 from portal.mcp.connections import BackendUnavailable, open_session
-from portal.mcp.dispatch_common import resolve_bearer
+from portal.mcp.dispatch_common import obo_headers_for, resolve_bearer
 
 log = structlog.get_logger(__name__)
 
@@ -122,7 +122,11 @@ async def execute_resource_read(
     started = time.perf_counter()
     try:
         async with session_fn(
-            target.url, transport=target.transport, auth_scheme=target.auth_scheme, bearer=bearer
+            target.url,
+            transport=target.transport,
+            auth_scheme=target.auth_scheme,
+            bearer=bearer,
+            extra_headers=await obo_headers_for(conn, target, owner_login, bearer),
         ) as session:
             original_uri = _ANYURL.validate_python(target.original_name)
             result = await read_backend_resource(session, original_uri)

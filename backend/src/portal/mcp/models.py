@@ -39,6 +39,8 @@ class BackendCreate(BaseModel):
     transport: Transport = "streamable_http"
     # Header d'authentification à utiliser vers le backend (cf. AuthScheme).
     auth_scheme: AuthScheme = "bearer"
+    # Propager l'identité humaine (on-behalf-of signé) aux appels sortants.
+    forward_identity: bool = False
     # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
     app_url: str = ""
     # « Ne pas appliquer la protection des primitives par quarantaine » —
@@ -86,6 +88,7 @@ class BackendUpdate(BaseModel):
     transport: Transport
     enabled: bool
     auth_scheme: AuthScheme = "bearer"
+    forward_identity: bool = False
     app_url: str = ""
     # cf. BackendCreate — l'activer lève immédiatement les quarantaines du backend.
     quarantine_disabled: bool = False

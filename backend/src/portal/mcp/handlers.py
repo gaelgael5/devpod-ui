@@ -24,7 +24,7 @@ from portal.mcp.aggregator import (
 from portal.mcp.client import call_backend_tool, get_backend_prompt
 from portal.mcp.connections import BackendUnavailable, open_session
 from portal.mcp.devpod_tools import execute_internal_tool
-from portal.mcp.dispatch_common import resolve_bearer
+from portal.mcp.dispatch_common import obo_headers_for, resolve_bearer
 from portal.mcp.monitor import get_health
 from portal.mcp.rest_adapter import dispatch_rest_tool
 
@@ -229,6 +229,7 @@ async def execute_tool_call(
                 transport=target.transport,
                 auth_scheme=target.auth_scheme,
                 bearer=bearer,
+                extra_headers=await obo_headers_for(conn, target, owner_login, bearer),
             ) as session:
                 result = await call_backend_tool(session, target.original_name, arguments)
     except BackendUnavailable as exc:
@@ -340,7 +341,11 @@ async def execute_prompt_get(
     started = time.perf_counter()
     try:
         async with session_fn(
-            target.url, transport=target.transport, auth_scheme=target.auth_scheme, bearer=bearer
+            target.url,
+            transport=target.transport,
+            auth_scheme=target.auth_scheme,
+            bearer=bearer,
+            extra_headers=await obo_headers_for(conn, target, owner_login, bearer),
         ) as session:
             result = await get_backend_prompt(session, target.original_name, arguments)
     except BackendUnavailable as exc:

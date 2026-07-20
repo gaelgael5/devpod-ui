@@ -164,3 +164,23 @@ async def test_no_bearer_sends_no_auth_header(monkeypatch) -> None:
     async with open_session("http://x/mcp", auth_scheme="x_api_key"):
         pass
     assert captured["headers"] is None
+
+
+async def test_extra_headers_merged_with_auth(monkeypatch) -> None:
+    """Les en-têtes on-behalf-of s'ajoutent à l'auth, sans l'écraser."""
+    captured = _capture_http_headers(monkeypatch)
+    async with open_session(
+        "http://x/mcp", bearer="s3cr3t", extra_headers={"x-portal-actor": "alice"}
+    ):
+        pass
+    assert captured["headers"] == {
+        "Authorization": "Bearer s3cr3t",
+        "x-portal-actor": "alice",
+    }
+
+
+async def test_extra_headers_without_bearer(monkeypatch) -> None:
+    captured = _capture_http_headers(monkeypatch)
+    async with open_session("http://x/mcp", extra_headers={"x-portal-actor": "alice"}):
+        pass
+    assert captured["headers"] == {"x-portal-actor": "alice"}

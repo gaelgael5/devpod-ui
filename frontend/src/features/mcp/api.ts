@@ -17,6 +17,8 @@ export interface MCPBackend {
   transport: Transport
   // Header d'auth utilisé vers le backend (cf. AuthScheme).
   auth_scheme: AuthScheme
+  // Propager l'identité humaine (on-behalf-of signé) aux appels sortants.
+  forward_identity: boolean
   enabled: boolean
   // URL web optionnelle de l'application (lien « ouvrir » dans la liste). '' = aucun.
   app_url: string
@@ -93,6 +95,7 @@ export interface BackendCreateBody {
   url: string
   transport: Transport
   auth_scheme: AuthScheme
+  forward_identity: boolean
   app_url: string
 }
 
@@ -102,6 +105,7 @@ export interface BackendUpdateBody {
   transport: Transport
   enabled: boolean
   auth_scheme: AuthScheme
+  forward_identity: boolean
   app_url: string
   quarantine_disabled: boolean
 }

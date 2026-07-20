@@ -41,6 +41,15 @@ class UserNotProvisionedError(Exception):
         self.login = login
 
 
+async def get_user_sub(login: str, conn: AsyncConnection) -> str | None:
+    """Sujet OIDC (`users.sub`) de l'utilisateur : ancre d'identité stable.
+
+    None si l'utilisateur n'a pas encore de sub (compte legacy jamais passé par
+    un login OIDC) — l'appelant OBO n'émet alors aucune identité (fail-safe)."""
+    row = (await conn.execute(select(users.c.sub).where(users.c.login == login))).first()
+    return row[0] if row else None
+
+
 async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
     """Garantit l'existence de la row users — idempotent.
 

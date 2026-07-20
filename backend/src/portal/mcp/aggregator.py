@@ -59,6 +59,7 @@ class CallTarget(BaseModel):
     url: str
     transport: str
     auth_scheme: str = "bearer"
+    forward_identity: bool = False
     backend_key_id: str | None
 
 
@@ -266,6 +267,7 @@ async def _resolve_target_entries(
             url=backend["url"],
             transport=backend["transport"],
             auth_scheme=backend.get("auth_scheme", "bearer"),
+            forward_identity=backend.get("forward_identity", False),
             backend_key_id=backend_key_id,
         )
     return None
