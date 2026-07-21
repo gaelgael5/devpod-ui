@@ -27,11 +27,11 @@ backend), **trois en-têtes HTTP** sont ajoutés, **en plus** de l'authentificat
 
 | En-tête | Contenu |
 |---|---|
-| `x-portal-actor` | le principal humain — **le sub OIDC** (`users.sub`, claim `sub` de Keycloak) : ancre d'identité **stable et immuable**, contrairement au login/email qui peuvent changer. Opaque. |
+| `x-portal-actor` | l'**identité portail** de l'humain : `users.identity`, un **GUID** défini par l'utilisateur dans son profil portail. **GUID-only : pas de repli sur le `sub`.** Opaque, stable, unique. Jamais le login/email. |
 | `x-portal-actor-timestamp` | instant d'émission, **unix secondes** (entier, en clair) |
 | `x-portal-actor-signature` | `HMAC-SHA256` **hex** de la charge canonique, avec le secret partagé |
 
-> Le `sub` est l'identifiant **stable** choisi exprès (login et email sont mutables → jamais utilisés comme clé d'identité). Comme workflow/rag/docflow sont derrière le **même Keycloak** que le portail, ce `sub` est une clé d'identité **partagée** entre tous : chaque service mappe `x-portal-actor` sur son utilisateur **par le même sub OIDC**.
+> **GUID-only.** Modèle uniforme OIDC/local : chaque utilisateur pose **le même GUID** dans son profil portail ET dans son profil du service. Vous mappez `x-portal-actor` sur l'utilisateur **dont le champ identité = cette valeur**. Un utilisateur sans GUID n'est pas propagé (attribution machine). Le `sub` n'intervient plus.
 
 **Charge canonique signée (octets exacts) :**
 
@@ -80,10 +80,9 @@ Si votre implémentation reproduit cette signature avec ce secret, vous êtes co
    - `require_authenticated` (ou équivalent) expose cet `actor` comme utilisateur courant ;
    - à la création (`context_create`, `def_create`, création de document…), inscrire **`actor`**
      comme membre `owner`, **au lieu de** `mcp-agent`.
-5. **Mapper l'identité.** `actor` = le **sub OIDC** (claim `sub` Keycloak). Le rapprocher de votre
-   référentiel utilisateur **par le même sub** (vous êtes derrière le même Keycloak). Créer
-   l'utilisateur à la volée si absent, ou refuser proprement selon votre politique. **Ne jamais**
-   mapper sur le login/email (mutables).
+5. **Mapper l'identité.** `actor` = **GUID** opaque. Le rapprocher du **champ identité** de votre
+   user (le même GUID, posé côté service). Prévoir donc une page profil où l'utilisateur saisit/génère
+   son GUID (unique). Pas de match → attribution machine. **Ne jamais** mapper sur login/email/sub.
 
 ### Invariants de sécurité (non négociables)
 

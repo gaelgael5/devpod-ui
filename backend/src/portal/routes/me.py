@@ -8,6 +8,7 @@ from typing import Literal
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
@@ -30,6 +31,9 @@ _CRED_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}[a-z0-9]$")
 # On ne vise pas la conformité RFC 5322 complète (inexploitable), juste un garde-fou
 # contre les saisies manifestement invalides. Chaîne vide autorisée = efface l'email.
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Identité OBO : charset sûr (part dans un en-tête HTTP → pas de CR/LF ni contrôle).
+# Couvre les UUID et identifiants usuels des services. Vide efface (retombe sur le sub).
+_IDENTITY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
 
 # Champs de UserConfig modifiables par l'utilisateur via PUT /me/config (bug 008).
 # secret_ns/version/workspaces/git_credentials/harpocrate sont exclus : ils ont leurs
@@ -52,21 +56,36 @@ class _ProfilePatch(BaseModel):
 
     display_name: str | None = None
     email: str | None = None
+    # Identité propagée aux services MCP (on-behalf-of). "" = effacer (retombe sur le sub).
+    identity: str | None = None
 
 
 async def _read_profile(conn: AsyncConnection, login: str) -> dict[str, object]:
     from sqlalchemy import select
 
     row = (
-        await conn.execute(
-            select(users.c.login, users.c.email, users.c.display_name).where(
-                users.c.login == login
+        (
+            await conn.execute(
+                select(
+                    users.c.login,
+                    users.c.email,
+                    users.c.display_name,
+                    users.c.identity,
+                ).where(users.c.login == login)
             )
         )
-    ).mappings().one_or_none()
+        .mappings()
+        .one_or_none()
+    )
     if row is None:
-        return {"login": login, "email": "", "display_name": ""}
-    return {"login": row["login"], "email": row["email"], "display_name": row["display_name"]}
+        return {"login": login, "email": "", "display_name": "", "identity": ""}
+    return {
+        "login": row["login"],
+        "email": row["email"],
+        "display_name": row["display_name"],
+        # Identité propagée aux services MCP (GUID). Vide = rien propagé (guid-only).
+        "identity": row["identity"] or "",
+    }
 
 
 @router.get("/profile")
@@ -85,7 +104,7 @@ async def patch_profile(
 ) -> dict[str, object]:
     from sqlalchemy import update
 
-    values: dict[str, str] = {}
+    values: dict[str, str | None] = {}
 
     if body.display_name is not None:
         display_name = body.display_name.strip()
@@ -101,10 +120,31 @@ async def patch_profile(
             raise HTTPException(status_code=422, detail="email is not a valid address")
         values["email"] = email
 
+    if body.identity is not None:
+        ident = body.identity.strip()
+        if ident:
+            # Charset restreint : cette valeur part telle quelle dans un en-tête HTTP
+            # (x-portal-actor) → interdire tout ce qui permettrait une injection d'en-tête.
+            if len(ident) > 200 or not _IDENTITY_RE.fullmatch(ident):
+                raise HTTPException(
+                    status_code=422,
+                    detail="identity: 1 à 200 caractères parmi [A-Za-z0-9._:-]",
+                )
+            identity_value: str | None = ident
+        else:
+            identity_value = None  # vide = effacer → retombe sur le sub
+        values["identity"] = identity_value
+
     if not values:
         raise HTTPException(status_code=422, detail="no profile field to update")
 
-    await conn.execute(update(users).where(users.c.login == user.login).values(**values))
+    try:
+        await conn.execute(update(users).where(users.c.login == user.login).values(**values))
+    except IntegrityError as exc:
+        # Seule contrainte unique touchée ici : uq_users_identity.
+        raise HTTPException(
+            status_code=409, detail="identity déjà utilisée par un autre compte"
+        ) from exc
     _log.info("user_profile_updated", login=user.login, fields=sorted(values))
     # On relit la ligne pour renvoyer le profil complet (login, email, display_name) :
     # le frontend rafraîchit son cache avec cette réponse, elle doit être cohérente.
@@ -359,9 +399,7 @@ async def add_git_credential(
     async with user_config_lock(user.login):
         cfg = await load_user(user.login)
         if any(c.name == body.name for c in cfg.git_credentials):
-            raise HTTPException(
-                status_code=409, detail=f"Credential {body.name!r} already exists"
-            )
+            raise HTTPException(status_code=409, detail=f"Credential {body.name!r} already exists")
         cfg.git_credentials.append(new_cred)
         await save_user(user.login, cfg)
     _log.info("git_credential_added", login=user.login, name=body.name, kind=body.kind)
@@ -485,9 +523,7 @@ async def patch_git_credential(
         cfg = await load_user(user.login)
         if not any(c.name == name for c in cfg.git_credentials):
             raise HTTPException(status_code=404, detail=f"Credential {name!r} not found")
-        if effective_name != name and any(
-            c.name == effective_name for c in cfg.git_credentials
-        ):
+        if effective_name != name and any(c.name == effective_name for c in cfg.git_credentials):
             raise HTTPException(
                 status_code=409, detail=f"Credential {effective_name!r} already exists"
             )

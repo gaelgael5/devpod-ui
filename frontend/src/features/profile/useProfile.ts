@@ -5,6 +5,8 @@ export interface UserProfile {
   login: string
   email: string
   display_name: string
+  // Identité (GUID) propagée aux services MCP (on-behalf-of). '' = non définie → rien propagé.
+  identity: string
 }
 
 export function useProfile() {
@@ -15,7 +17,7 @@ export function useProfile() {
   })
 }
 
-export type ProfileUpdate = { display_name: string; email: string }
+export type ProfileUpdate = { display_name?: string; email?: string; identity?: string }
 
 export function useUpdateProfile() {
   const qc = useQueryClient()

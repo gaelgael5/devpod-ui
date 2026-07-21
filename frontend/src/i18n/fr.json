@@ -1372,6 +1372,10 @@
     "emailPlaceholder": "vous@exemple.org",
     "displayName": "Nom d'affichage",
     "displayNamePlaceholder": "Votre nom affiché",
+    "identity": "Identité (services MCP)",
+    "identityPlaceholder": "GUID d'identité",
+    "identityGenerate": "Générer",
+    "identityHint": "GUID propagé aux services (workflow, rag, doc) quand un backend a « Propager mon identité » activé, pour vous attribuer les objets créés par vos agents. Générez-le (ou saisissez-en un) et posez la MÊME valeur côté service. Laissé vide : aucune identité propagée.",
     "save": "Enregistrer",
     "saved": "Modifications enregistrées.",
     "saveError": "Erreur lors de la sauvegarde."

@@ -1372,6 +1372,10 @@
     "emailPlaceholder": "you@example.org",
     "displayName": "Display name",
     "displayNamePlaceholder": "Your display name",
+    "identity": "Identity (MCP services)",
+    "identityPlaceholder": "Identity GUID",
+    "identityGenerate": "Generate",
+    "identityHint": "GUID forwarded to services (workflow, rag, doc) when a backend has \"Forward my identity\" enabled, to attribute objects created by your agents to you. Generate one (or enter one) and set the SAME value on the service side. Left empty: no identity forwarded.",
     "save": "Save",
     "saved": "Changes saved.",
     "saveError": "Failed to save changes."

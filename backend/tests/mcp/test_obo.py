@@ -55,19 +55,19 @@ def _target(*, forward_identity: bool) -> CallTarget:
     )
 
 
-async def test_obo_headers_for_propagates_sub_not_login(monkeypatch) -> None:
-    async def fake_sub(login: str, conn: object) -> str:
+async def test_obo_headers_for_propagates_actor_not_login(monkeypatch) -> None:
+    async def fake_actor(login: str, conn: object) -> str:
         assert login == "gael"  # on résout bien par login…
-        return "oidc-sub-guid"  # …mais on propage le sub
+        return "portable-identity-guid"  # …mais on propage l'identité (identity or sub)
 
-    monkeypatch.setattr(dc, "get_user_sub", fake_sub)
+    monkeypatch.setattr(dc, "get_user_actor", fake_actor)
     headers = await dc.obo_headers_for(object(), _target(forward_identity=True), "gael", "key")
     assert headers is not None
-    assert headers[ACTOR_HEADER] == "oidc-sub-guid"
+    assert headers[ACTOR_HEADER] == "portable-identity-guid"
 
 
 async def test_obo_headers_for_none_when_not_opt_in(monkeypatch) -> None:
-    monkeypatch.setattr(dc, "get_user_sub", lambda login, conn: "s")  # ne doit pas être appelé
+    monkeypatch.setattr(dc, "get_user_actor", lambda login, conn: "s")  # ne doit pas être appelé
     assert (
         await dc.obo_headers_for(object(), _target(forward_identity=False), "gael", "key") is None
     )
@@ -77,9 +77,9 @@ async def test_obo_headers_for_none_without_bearer() -> None:
     assert await dc.obo_headers_for(object(), _target(forward_identity=True), "gael", None) is None
 
 
-async def test_obo_headers_for_none_when_user_has_no_sub(monkeypatch) -> None:
-    async def no_sub(login: str, conn: object) -> None:
+async def test_obo_headers_for_none_when_user_has_no_actor(monkeypatch) -> None:
+    async def no_actor(login: str, conn: object) -> None:
         return None
 
-    monkeypatch.setattr(dc, "get_user_sub", no_sub)
+    monkeypatch.setattr(dc, "get_user_actor", no_actor)
     assert await dc.obo_headers_for(object(), _target(forward_identity=True), "gael", "key") is None

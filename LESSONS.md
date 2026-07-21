@@ -102,3 +102,6 @@
 
 ## [events]
 - Ajouter un type dans `EVENT_TYPES` (models.py) impose 3 synchronisations sinon crash à l'import (garde `schemas.py`) : dataSchema dans `events/schemas.py`, plus les tests figés `tests/events/test_models.py` et `tests/routes/test_event_schemas.py` (préférer dériver d'`EVENT_TYPES` que coder le compte en dur).
+
+## [auth]
+- Le portail N'EST PAS OIDC-only : `allow_local_auth` + `local_user`/`local_password_hash` (bcrypt) donnent un login local (première connexion / bootstrap admin, et fallback si OIDC absent). Conséquence OBO : un user local n'a PAS de `users.sub` → aucune identité à propager. Ne pas supposer qu'un user a un sub.

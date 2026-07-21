@@ -12,19 +12,21 @@ export default function ProfilePage() {
 
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
+  const [identity, setIdentity] = useState('')
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     if (profile) {
       setDisplayName(profile.display_name)
       setEmail(profile.email)
+      setIdentity(profile.identity)
     }
   }, [profile])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaved(false)
-    await update.mutateAsync({ display_name: displayName, email })
+    await update.mutateAsync({ display_name: displayName, email, identity })
     setSaved(true)
   }
 
@@ -64,6 +66,28 @@ export default function ProfilePage() {
           />
         </div>
 
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="identity">{t('profile.identity')}</Label>
+          <div className="flex gap-2">
+            <Input
+              id="identity"
+              value={identity}
+              onChange={(e) => { setIdentity(e.target.value); setSaved(false) }}
+              placeholder={t('profile.identityPlaceholder')}
+              maxLength={200}
+              className="font-mono text-sm"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { setIdentity(crypto.randomUUID()); setSaved(false) }}
+            >
+              {t('profile.identityGenerate')}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">{t('profile.identityHint')}</p>
+        </div>
+
         <div className="flex items-center gap-3">
           <Button type="submit" disabled={update.isPending}>
             {t('profile.save')}
@@ -72,7 +96,9 @@ export default function ProfilePage() {
             <span className="text-sm text-green-600">{t('profile.saved')}</span>
           )}
           {update.isError && (
-            <span className="text-sm text-destructive">{t('profile.saveError')}</span>
+            <span className="text-sm text-destructive">
+              {update.error instanceof Error ? update.error.message : t('profile.saveError')}
+            </span>
           )}
         </div>
       </form>

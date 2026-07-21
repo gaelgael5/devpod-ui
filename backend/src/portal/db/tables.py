@@ -188,6 +188,11 @@ users = Table(
     # Nullable : les comptes existants n'en ont pas encore — backfillé au 1er
     # login OIDC (migration 068). UNIQUE : un sub ↔ au plus un login.
     Column("sub", Text, nullable=True, unique=True),
+    # Identité propagée aux services MCP (on-behalf-of, cf. mcp/obo) : GUID éditable
+    # par l'utilisateur dans son profil. Défaut effectif = `sub` OIDC quand vide (voir
+    # get_user_actor). Nécessaire pour les comptes LOCAUX (sans sub), qui peuvent ainsi
+    # se donner un identifiant portable aligné sur les services. UNIQUE (anti-collision).
+    Column("identity", Text, nullable=True, unique=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )

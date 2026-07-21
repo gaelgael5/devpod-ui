@@ -41,13 +41,18 @@ class UserNotProvisionedError(Exception):
         self.login = login
 
 
-async def get_user_sub(login: str, conn: AsyncConnection) -> str | None:
-    """Sujet OIDC (`users.sub`) de l'utilisateur : ancre d'identité stable.
+async def get_user_actor(login: str, conn: AsyncConnection) -> str | None:
+    """Identité propagée aux services MCP (on-behalf-of) : `users.identity` (GUID).
 
-    None si l'utilisateur n'a pas encore de sub (compte legacy jamais passé par
-    un login OIDC) — l'appelant OBO n'émet alors aucune identité (fail-safe)."""
-    row = (await conn.execute(select(users.c.sub).where(users.c.login == login))).first()
-    return row[0] if row else None
+    GUID-only : on ne retombe PAS sur le `sub`. None si l'identité n'est pas définie —
+    l'appelant OBO n'émet alors aucune identité (fail-safe : l'objet reste attribué à la
+    clé). L'utilisateur doit donc renseigner son identité dans son profil pour être
+    propagé (bouton « Générer » ou saisie libre)."""
+    row = (await conn.execute(select(users.c.identity).where(users.c.login == login))).first()
+    if row is None:
+        return None
+    identity: str | None = row[0]
+    return identity
 
 
 async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
