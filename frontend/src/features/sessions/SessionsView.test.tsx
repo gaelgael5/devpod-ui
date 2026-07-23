@@ -26,6 +26,13 @@ const SESSIONS = [
   },
 ]
 
+/** Les groupes serveurs sont repliés par défaut : on déplie tout avant d'ass.
+ *  `findAllByRole(..., {expanded:false})` attend aussi le chargement des données. */
+async function expandGroups(user: ReturnType<typeof userEvent.setup>) {
+  const headers = await screen.findAllByRole('button', { expanded: false })
+  for (const h of headers) await user.click(h)
+}
+
 describe('SessionsView', () => {
   beforeEach(() => {
     useUserStore.setState({ user: { login: 'alice', roles: [], is_admin: false } })
@@ -33,8 +40,10 @@ describe('SessionsView', () => {
 
   it('liste les sessions et propose Ouvrir', async () => {
     server.use(http.get('/sessions', () => HttpResponse.json(SESSIONS)))
+    const user = userEvent.setup()
     renderWithProviders(<SessionsView />)
 
+    await expandGroups(user)
     expect(await screen.findByText('alice-proj')).toBeInTheDocument()
     expect(screen.getAllByText('testvm-1').length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Open' }).length).toBeGreaterThan(0)
@@ -55,8 +64,10 @@ describe('SessionsView', () => {
     })) as typeof window.matchMedia
     try {
       server.use(http.get('/sessions', () => HttpResponse.json(SESSIONS)))
+      const user = userEvent.setup()
       renderWithProviders(<SessionsView />)
 
+      await expandGroups(user)
       expect(await screen.findByText('alice-proj')).toBeInTheDocument()
       // Variante mobile : aucune <table>, chaque cible n'apparaît qu'une fois.
       expect(document.querySelector('table')).toBeNull()
@@ -80,20 +91,22 @@ describe('SessionsView', () => {
       },
     ]
     server.use(http.get('/sessions', () => HttpResponse.json(orphan)))
+    const user = userEvent.setup()
     renderWithProviders(<SessionsView />)
 
+    // Le groupe par host est visible même replié ; on déplie pour voir le badge.
+    expect(await screen.findByRole('rowheader', { name: /host-dev-01/ })).toBeInTheDocument()
+    await expandGroups(user)
     expect(await screen.findByText('orphan')).toBeInTheDocument()
-    // Le badge coexiste avec le groupe par host.
-    expect(screen.getByRole('rowheader', { name: /host-dev-01/ })).toBeInTheDocument()
   })
 
   it('regroupe les sessions par host', async () => {
     server.use(http.get('/sessions', () => HttpResponse.json(SESSIONS)))
     renderWithProviders(<SessionsView />)
 
-    await screen.findByText('alice-proj')
     // Un en-tête de groupe par nœud : le conteneur sous node2, la VM sous elle-même.
-    expect(screen.getByRole('rowheader', { name: /node2/ })).toBeInTheDocument()
+    // Les en-têtes sont visibles même repliés (pas besoin de déplier).
+    expect(await screen.findByRole('rowheader', { name: /node2/ })).toBeInTheDocument()
     expect(screen.getByRole('rowheader', { name: /testvm-1/ })).toBeInTheDocument()
   })
 
@@ -102,10 +115,11 @@ describe('SessionsView', () => {
     const user = userEvent.setup()
     renderWithProviders(<SessionsView />)
 
-    await screen.findByText('alice-proj')
+    await screen.findByRole('rowheader', { name: /node2/ })
     await user.click(screen.getByRole('button', { name: 'Test' }))
-    expect(screen.getAllByText('testvm-1').length).toBeGreaterThan(0)
-    expect(screen.queryByText('alice-proj')).not.toBeInTheDocument()
+    // testvm-1 reste (son groupe) ; le groupe node2 (alice-proj) disparaît.
+    expect(screen.getByRole('rowheader', { name: /testvm-1/ })).toBeInTheDocument()
+    expect(screen.queryByRole('rowheader', { name: /node2/ })).not.toBeInTheDocument()
   })
 
   it('ferme une session workspace via POST /sessions/close', async () => {
@@ -120,6 +134,7 @@ describe('SessionsView', () => {
     const user = userEvent.setup()
     renderWithProviders(<SessionsView />)
 
+    await expandGroups(user)
     await screen.findByText('alice-proj')
     await user.click(screen.getAllByRole('button', { name: 'Close' })[0])
     expect(body).toEqual({
@@ -153,6 +168,7 @@ describe('SessionsView', () => {
     const user = userEvent.setup()
     renderWithProviders(<SessionsView />)
 
+    await expandGroups(user)
     // Le workspace d'un autre user est ouvrable par l'admin.
     await screen.findByText('bob-proj')
     const openButtons = screen.getAllByRole('button', { name: 'Open' })
@@ -202,18 +218,19 @@ describe('SessionsView', () => {
         return new HttpResponse(null, { status: 204 })
       }),
     )
-    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
     const user = userEvent.setup()
     renderWithProviders(<SessionsView />)
 
+    await expandGroups(user)
     await screen.findByText('ops')
     await user.click(screen.getByRole('button', { name: 'Open' }))
-    expect(open).toHaveBeenCalledWith(
+    expect(openSpy).toHaveBeenCalledWith(
       expect.stringContaining(encodeURIComponent('/admin/hosts/node1/ssh?session=ops')),
       '_blank',
       'noopener',
     )
-    open.mockRestore()
+    openSpy.mockRestore()
 
     // Détachée mais tmux vivant → fermeture (tue la session distante).
     await user.click(screen.getByRole('button', { name: 'Close' }))

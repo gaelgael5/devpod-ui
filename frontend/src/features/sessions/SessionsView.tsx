@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -78,6 +79,16 @@ export default function SessionsView() {
   const [filter, setFilter] = useState<Filter>('all')
   const [newWs, setNewWs] = useState('')
   const [newName, setNewName] = useState('')
+  // Groupes serveurs repliés par défaut : l'ensemble ne contient que les groupes DÉPLIÉS.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const isExpanded = (key: string) => expanded.has(key)
+  const toggleGroup = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
 
   const entries = data ?? []
   const shown = filter === 'all' ? entries : entries.filter((e) => e.family === filter)
@@ -195,14 +206,24 @@ export default function SessionsView() {
       {/* Mobile (< md) : cartes empilées — un tableau à 6 colonnes est illisible sur téléphone. */}
       {data && shown.length > 0 && isMobile && (
         <div className="flex flex-col gap-3">
-          {groups.map((g) => (
-            <div key={g.host ?? '__unknown__'} className="rounded-md border">
-              <div className="border-b bg-muted/40 px-3 py-1.5 text-xs font-semibold">
+          {groups.map((g) => {
+            const key = g.host ?? '__unknown__'
+            const groupOpen = isExpanded(key)
+            return (
+            <div key={key} className="rounded-md border">
+              <button
+                type="button"
+                onClick={() => toggleGroup(key)}
+                className="flex w-full items-center gap-1.5 border-b bg-muted/40 px-3 py-2 text-left text-xs font-semibold"
+                aria-expanded={groupOpen}
+              >
+                {groupOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                 {g.host ?? t('sessions.hostUnknown')}
-                <span className="ml-2 font-normal text-muted-foreground">
+                <span className="font-normal text-muted-foreground">
                   {t('sessions.count', { n: g.entries.length })}
                 </span>
-              </div>
+              </button>
+              {groupOpen && (
               <div className="divide-y">
                 {g.entries.map((e, i) => (
                   <div key={`${e.family}-${e.target}-${e.session ?? ''}-${i}`} className="p-3">
@@ -258,8 +279,10 @@ export default function SessionsView() {
                   </div>
                 ))}
               </div>
+              )}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -277,21 +300,28 @@ export default function SessionsView() {
                 <th className="px-3 py-2 text-right">{t('sessions.col.actions')}</th>
               </tr>
             </thead>
-            {groups.map((g) => (
-              <tbody key={g.host ?? '__unknown__'}>
+            {groups.map((g) => {
+              const key = g.host ?? '__unknown__'
+              const groupOpen = isExpanded(key)
+              return (
+              <tbody key={key}>
                 <tr className="border-t bg-muted/40">
-                  <th
-                    scope="row"
-                    colSpan={colCount}
-                    className="px-3 py-1.5 text-left text-xs font-semibold"
-                  >
-                    {g.host ?? t('sessions.hostUnknown')}
-                    <span className="ml-2 font-normal text-muted-foreground">
-                      {t('sessions.count', { n: g.entries.length })}
-                    </span>
+                  <th scope="row" colSpan={colCount} className="p-0 text-left">
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(key)}
+                      className="flex w-full items-center gap-1.5 px-3 py-1.5 text-xs font-semibold"
+                      aria-expanded={groupOpen}
+                    >
+                      {groupOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                      {g.host ?? t('sessions.hostUnknown')}
+                      <span className="font-normal text-muted-foreground">
+                        {t('sessions.count', { n: g.entries.length })}
+                      </span>
+                    </button>
                   </th>
                 </tr>
-                {g.entries.map((e, i) => (
+                {groupOpen && g.entries.map((e, i) => (
                   <tr key={`${e.family}-${e.target}-${e.session ?? ''}-${i}`} className="border-t">
                     <td className="px-3 py-2 font-mono text-xs">
                       {t(`sessions.family.${e.family}`)}
@@ -341,7 +371,8 @@ export default function SessionsView() {
                   </tr>
                 ))}
               </tbody>
-            ))}
+              )
+            })}
           </table>
         </div>
       )}
