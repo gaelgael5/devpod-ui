@@ -102,6 +102,13 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         <div>
           <div className="font-semibold text-foreground">{spec.name}</div>
           <div className="text-xs text-muted-foreground">{spec.source}</div>
+          {/* Sources git additionnelles (extra_sources) : sinon un workspace multi-repo
+              n'affiche que sa source principale (le 2e dépôt semblait « perdu »). */}
+          {spec.extra_sources?.map((s, i) => (
+            <div key={`${s.url}-${i}`} className="text-xs text-muted-foreground/80">
+              + {s.url}
+            </div>
+          ))}
           {spec.host && (
             <div className="text-xs text-muted-foreground/70 font-mono">{spec.host}</div>
           )}
