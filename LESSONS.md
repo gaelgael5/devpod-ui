@@ -33,6 +33,7 @@
 - Tout `devpod ssh --stdio` exige `DEVPOD_HOME` + `DOCKER_*` — utiliser `workspace_env()`, jamais un env minimal.
 - devcontainer.json : le champ est `appPort`, pas `appPorts` — un champ inconnu est ignoré en silence par DevPod, vérifier contre la spec avant usage.
 - Un bind mount / `postCreateCommand` ne s'applique qu'à la CONSTRUCTION du conteneur : `devpod up` par défaut réutilise le conteneur existant (`--recreate` requis pour reconstruire). Toute config qui doit s'appliquer sur un simple `restart` doit être ÉCRITE dans le conteneur (`ws_exec`/`devpod ssh`), pas livrée par mount. Ne jamais proposer delete+recreate quand la contrainte utilisateur est « restart maximum » (spec 35b : livraison par écriture conteneur).
+- Un `git clone` HTTPS exigeant une auth dans le `postCreateCommand` fait PANIQUER le serveur git-credentials de devpod v0.6.15 (`tunnelserver.GitCredentials`, `workspace` nil en phase setup) → tout le workspace tombe en `failed`. Cloner ces sources POST-readiness via `ws_exec` (auth par `http.extraHeader`, jamais le tunnel devpod) ; pour les clones qui restent en postCreate, désactiver le helper (`GIT_ASKPASS=/bin/false -c credential.helper=`) pour un échec propre au lieu du panic.
 
 ## [mcp]
 - Backends `transport=internal` (devpod) : leur catalogue n'était resync qu'au bootstrap/nouveau user, jamais par le monitor périodique ni le bouton probe — un no-op déguisé en "toujours up". `monitor_backend_once` doit aussi resync les internes (`ensure_devpod_backend`), pas juste renvoyer `up`.

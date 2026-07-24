@@ -169,4 +169,6 @@ def test_write_devcontainer_agent_post_create_appended_after_clones(
     )
     content = json.loads(dc_path.read_text(encoding="utf-8"))
     pc = content["postCreateCommand"]
-    assert pc.index("git clone") < pc.index("ln -sfn a b")
+    # Le clone est durci (credential.helper vide) mais reste avant le symlink agent.
+    assert "clone" in pc
+    assert pc.index("clone") < pc.index("ln -sfn a b")
