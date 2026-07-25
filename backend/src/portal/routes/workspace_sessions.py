@@ -15,9 +15,9 @@ from ..auth.rbac import UserInfo, require_user
 from ..config.store import _data_root, safe_user_path
 from ..db.engine import get_conn
 from ..db.recipes import load_recipes_as_dict
+from ..devpod.exec import NO_TMUX_SERVER_RCS, ws_exec
 from ..devpod.exec import TMUX_SOCK_DETECT as _TMUX_SOCK_DETECT
 from ..devpod.exec import tmux as _tmux
-from ..devpod.exec import ws_exec
 from ..events.bus import emit_event
 from ..recipes.models import _RECIPE_ID_RE
 
@@ -62,14 +62,19 @@ async def _ssh(ws_id: str, login: str, command: str, timeout: float = 30.0) -> t
 async def list_sessions(name: str, user: UserInfo = Depends(require_user)) -> list[str]:
     _validate_ws_name(name)
     ws_id = f"{user.login}-{name}"
+    # Pas de `|| true` : le rc de tmux différencie « aucun serveur » (1/127, état
+    # normal → liste vide) d'un workspace injoignable (255/timeout → 503 ; le front
+    # conserve alors la dernière liste connue au lieu d'afficher « aucune session »).
     rc, output = await _ssh(
         ws_id,
         user.login,
-        _tmux("list-sessions -F '#{session_name}' 2>/dev/null || true"),
+        _tmux("list-sessions -F '#{session_name}' 2>/dev/null"),
     )
-    if rc != 0:
-        _log.warning("list_sessions_ssh_failed", ws_id=ws_id, output=output)
+    if rc in NO_TMUX_SERVER_RCS:
         return []
+    if rc != 0:
+        _log.warning("list_sessions_unreachable", ws_id=ws_id, rc=rc, output=output)
+        raise HTTPException(status_code=503, detail=f"Workspace {name} injoignable (rc={rc})")
     return [s for s in output.strip().splitlines() if s]
 
 

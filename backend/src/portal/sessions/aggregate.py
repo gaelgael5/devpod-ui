@@ -18,32 +18,43 @@ from ..db.engine import _get_engine
 from ..db.test_hosts import list_all_test_hosts, list_test_hosts_for_login
 from ..db.user_config import list_workspace_refs
 from ..db.workspace_status import list_all_status_db, list_by_login_db
+from ..devpod.exec import NO_TMUX_SERVER_RCS, TIMEOUT_RC, warm_tunnel, ws_exec
 from ..devpod.exec import tmux as _tmux
-from ..devpod.exec import warm_tunnel, ws_exec
 from ..devpod.host_exec import run_host_command
 from .registry import AttachKey, attached_index
 
 _log = structlog.get_logger(__name__)
 
 
-async def _list_tmux_sessions(login: str, ws_id: str) -> tuple[list[str], bool]:
+async def _list_tmux_sessions(login: str, ws_id: str, host: str | None) -> tuple[list[str], bool]:
     """Sessions tmux d'un workspace via SSH non-interactif.
 
-    Réutilise la même commande que `routes/workspace_sessions.list_sessions`.
-    Retourne `(sessions, reachable)`. `reachable=False` sur timeout/échec SSH —
-    l'appelant décide alors s'il marque `unreachable` ou ignore silencieusement.
+    Retourne `(sessions, reachable)`. Le rc de tmux n'est PAS masqué (pas de
+    `|| true`) : c'est lui qui différencie les états (bug 807fed1c) —
+    - 0 → sessions listées ;
+    - 1/127 (aucun serveur tmux / tmux absent) → joignable, zéro session (normal) ;
+    - 255 (transport SSH) ou TIMEOUT_RC → workspace injoignable, `reachable=False`.
     """
     try:
         rc, output = await ws_exec(
             login,
             ws_id,
-            _tmux("list-sessions -F '#{session_name}' 2>/dev/null || true"),
+            _tmux("list-sessions -F '#{session_name}' 2>/dev/null"),
         )
     except Exception:
-        _log.warning("sessions_tmux_list_failed", ws_id=ws_id, exc_info=True)
+        _log.warning("sessions_tmux_list_failed", ws_id=ws_id, host=host, exc_info=True)
         return [], False
+    if rc in NO_TMUX_SERVER_RCS:
+        _log.debug("sessions_tmux_no_server", ws_id=ws_id, host=host, rc=rc)
+        return [], True
     if rc != 0:
-        _log.info("sessions_tmux_list_rc", ws_id=ws_id, rc=rc)
+        _log.warning(
+            "sessions_probe_unreachable",
+            ws_id=ws_id,
+            host=host,
+            rc=rc,
+            reason="timeout" if rc == TIMEOUT_RC else "ssh_transport",
+        )
         return [], False
     return [s for s in output.strip().splitlines() if s], True
 
@@ -66,7 +77,7 @@ async def _workspace_entry(
     if status == "stopped":
         return []
 
-    sessions, reachable = await _list_tmux_sessions(login, ws_id)
+    sessions, reachable = await _list_tmux_sessions(login, ws_id, host)
     if not reachable:
         if status == "running":
             return [
