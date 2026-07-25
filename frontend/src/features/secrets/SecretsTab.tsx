@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { KeyRound, Plus, Eye, EyeOff, Copy, Check, Pencil, ExternalLink } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -266,34 +266,28 @@ interface EditDialogProps {
 }
 
 function EditDialog({ secret, onClose }: EditDialogProps) {
+  // Coquille : le formulaire (et son état, mutation comprise) est monté à chaque
+  // ouverture, keyed par slug — initialisation via useState, pas d'effet.
+  return (
+    <Dialog open={secret !== null} onOpenChange={(o) => { if (!o) onClose() }}>
+      {secret && <EditDialogForm key={secret.slug} secret={secret} onClose={onClose} />}
+    </Dialog>
+  )
+}
+
+function EditDialogForm({ secret, onClose }: { secret: Secret; onClose: () => void }) {
   const { t } = useTranslation()
   const edit = useEditSecret()
 
-  const [label, setLabel] = useState(secret?.label ?? '')
-  const [description, setDescription] = useState(secret?.description ?? '')
+  const [label, setLabel] = useState(secret.label)
+  const [description, setDescription] = useState(secret.description)
   const [newValue, setNewValue] = useState('')
 
-  // Sync fields when the target secret changes (new edit opens)
-  useEffect(() => {
-    if (secret) {
-      setLabel(secret.label)
-      setDescription(secret.description)
-      setNewValue('')
-      edit.reset()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [secret?.slug])
-
   function close() {
-    setLabel('')
-    setDescription('')
-    setNewValue('')
-    edit.reset()
     onClose()
   }
 
   function handleSubmit() {
-    if (!secret) return
     edit.mutate(
       {
         slug: secret.slug,
@@ -308,7 +302,6 @@ function EditDialog({ secret, onClose }: EditDialogProps) {
   const canSubmit = !!label.trim() && !edit.isPending
 
   return (
-    <Dialog open={secret !== null} onOpenChange={(o) => { if (!o) close() }}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{t('secrets.dialogEditTitle')}</DialogTitle>
@@ -364,7 +357,6 @@ function EditDialog({ secret, onClose }: EditDialogProps) {
           </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
   )
 }
 

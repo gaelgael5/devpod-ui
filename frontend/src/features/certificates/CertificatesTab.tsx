@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { KeyRound, Plus, Eye, EyeOff, Copy, Check, Pencil } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -329,25 +329,24 @@ interface EditDialogProps {
 }
 
 function EditDialog({ cert, onClose }: EditDialogProps) {
+  // Coquille : le formulaire (et son état, mutation comprise) est monté à chaque
+  // ouverture, keyed par slug — initialisation via useState, pas d'effet.
+  return (
+    <Dialog open={!!cert} onOpenChange={(o) => { if (!o) onClose() }}>
+      {cert && <EditDialogForm key={cert.slug} cert={cert} onClose={onClose} />}
+    </Dialog>
+  )
+}
+
+function EditDialogForm({ cert, onClose }: { cert: Certificate; onClose: () => void }) {
   const { t } = useTranslation()
   const update = useUpdateCertificate()
-  const [label, setLabel] = useState('')
-  const [description, setDescription] = useState('')
+  const [label, setLabel] = useState(cert.label)
+  const [description, setDescription] = useState(cert.description)
   const [newPubKey, setNewPubKey] = useState('')
   const [newPrivKey, setNewPrivKey] = useState('')
 
-  useEffect(() => {
-    if (cert) {
-      setLabel(cert.label)
-      setDescription(cert.description)
-      setNewPubKey('')
-      setNewPrivKey('')
-      update.reset()
-    }
-  }, [cert?.slug]) // eslint-disable-line react-hooks/exhaustive-deps
-
   function handleSave() {
-    if (!cert) return
     const body: EditCertBody & { slug: string } = {
       slug: cert.slug,
       label,
@@ -361,8 +360,7 @@ function EditDialog({ cert, onClose }: EditDialogProps) {
   const canSave = !!label.trim() && !update.isPending
 
   return (
-    <Dialog open={!!cert} onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="max-w-lg">
+    <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{t('certificates.dialogEditTitle')}</DialogTitle>
         </DialogHeader>
@@ -398,7 +396,6 @@ function EditDialog({ cert, onClose }: EditDialogProps) {
           </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
   )
 }
 

@@ -322,7 +322,8 @@ function TestHostsGroupedSection({
   function toggleCollapse(login: string) {
     setCollapsed((prev) => {
       const next = new Set(prev)
-      next.has(login) ? next.delete(login) : next.add(login)
+      if (next.has(login)) next.delete(login)
+      else next.add(login)
       return next
     })
   }
@@ -618,7 +619,10 @@ export default function AdminHosts() {
   const [form, setForm] = useState<HostCreatePayload>(EMPTY)
   const [bootstrapTarget, setBootstrapTarget] = useState<HostConfig | null>(null)
   const destroyVm = useDestroyVm()
-  const destroyStartedRef = useRef(false)
+  // Garde d'identité : quel target a déjà lancé son destroy. Remplace un flag
+  // booléen écrit par les handlers — react-hooks/refs l'interdit pour une
+  // fonction référencée hors JSX — le reset vit dans l'effet (target → null).
+  const destroyStartedFor = useRef<HostConfig | null>(null)
 
   function set<K extends keyof HostCreatePayload>(k: K, v: HostCreatePayload[K]) {
     setForm((f) => ({ ...f, [k]: v }))
@@ -695,7 +699,6 @@ export default function AdminHosts() {
   function confirmDelete(h: HostConfig) {
     if (h.vmid && h.proxmox_node) {
       destroyVm.reset()
-      destroyStartedRef.current = false
       setDestroyTarget(h)
     } else {
       setDeleteTarget(h.name)
@@ -709,7 +712,6 @@ export default function AdminHosts() {
   function cancelDestroy() {
     setDestroyTarget(null)
     destroyVm.reset()
-    destroyStartedRef.current = false
   }
   function doDestroyAndDelete() {
     if (!destroyTarget) return
@@ -717,17 +719,25 @@ export default function AdminHosts() {
       onSuccess: () => {
         setDestroyTarget(null)
         destroyVm.reset()
-        destroyStartedRef.current = false
       },
     })
   }
 
+  const { execute: executeDestroy } = destroyVm
   useEffect(() => {
-    if (destroyTarget && destroyTarget.proxmox_node && destroyTarget.vmid && !destroyStartedRef.current) {
-      destroyStartedRef.current = true
-      void destroyVm.execute(destroyTarget.proxmox_node, destroyTarget.vmid)
+    if (!destroyTarget) {
+      destroyStartedFor.current = null
+      return
     }
-  }, [destroyTarget, destroyVm.execute])
+    if (
+      destroyTarget.proxmox_node &&
+      destroyTarget.vmid &&
+      destroyStartedFor.current !== destroyTarget
+    ) {
+      destroyStartedFor.current = destroyTarget
+      void executeDestroy(destroyTarget.proxmox_node, destroyTarget.vmid)
+    }
+  }, [destroyTarget, executeDestroy])
 
   const isPending = addHost.isPending || updateHost.isPending
 

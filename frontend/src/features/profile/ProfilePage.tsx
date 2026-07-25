@@ -1,27 +1,28 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useProfile, useUpdateProfile } from './useProfile'
+import type { UserProfile } from './useProfile'
 
+/** Attend le profil puis monte le formulaire : l'état est initialisé au montage
+ (pas d'hydratation par effet — la saisie est la source de vérité, un refetch en
+ arrière-plan ne l'écrase pas). */
 export default function ProfilePage() {
-  const { t } = useTranslation()
   const { data: profile, isLoading } = useProfile()
+  if (isLoading || !profile) return <p className="text-muted-foreground">…</p>
+  return <ProfileForm profile={profile} />
+}
+
+function ProfileForm({ profile }: { profile: UserProfile }) {
+  const { t } = useTranslation()
   const update = useUpdateProfile()
 
-  const [displayName, setDisplayName] = useState('')
-  const [email, setEmail] = useState('')
-  const [identity, setIdentity] = useState('')
+  const [displayName, setDisplayName] = useState(profile.display_name)
+  const [email, setEmail] = useState(profile.email)
+  const [identity, setIdentity] = useState(profile.identity)
   const [saved, setSaved] = useState(false)
-
-  useEffect(() => {
-    if (profile) {
-      setDisplayName(profile.display_name)
-      setEmail(profile.email)
-      setIdentity(profile.identity)
-    }
-  }, [profile])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -30,8 +31,6 @@ export default function ProfilePage() {
     setSaved(true)
   }
 
-  if (isLoading) return <p className="text-muted-foreground">…</p>
-
   return (
     <div className="max-w-lg">
       <h1 className="mb-6 text-2xl font-semibold">{t('profile.title')}</h1>
@@ -39,7 +38,7 @@ export default function ProfilePage() {
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="login">{t('profile.login')}</Label>
-          <Input id="login" value={profile?.login ?? ''} readOnly className="opacity-60" />
+          <Input id="login" value={profile.login} readOnly className="opacity-60" />
           <p className="text-xs text-muted-foreground">{t('profile.loginHint')}</p>
         </div>
 

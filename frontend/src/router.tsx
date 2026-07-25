@@ -1,48 +1,44 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
-import { lazy, Suspense } from 'react'
-import type { ReactNode } from 'react'
 import AppShell from '@/shared/layouts/AppShell'
 import AdminGuard from '@/shared/layouts/AdminGuard'
 import VaultGuard from '@/shared/layouts/VaultGuard'
 import RequireAuth from '@/features/auth/RequireAuth'
 import LoginPage from '@/features/auth/LoginPage'
 import AuthCallbackPage from '@/features/auth/AuthCallbackPage'
-
-const WorkspaceList = lazy(() => import('@/features/workspaces/WorkspaceList'))
-const WorkspaceCreate = lazy(() => import('@/features/workspaces/WorkspaceCreate'))
-const WorkspaceTerminals = lazy(() => import('@/features/workspaces/WorkspaceTerminals'))
-const TerminalPage = lazy(() => import('@/features/terminal/TerminalPage'))
-const RecipeCatalog = lazy(() => import('@/features/recipes/RecipeCatalog'))
-const AdminHosts = lazy(() => import('@/features/admin/AdminHosts'))
-const AdminRecipes = lazy(() => import('@/features/admin/AdminRecipes'))
-const AdminProxmox = lazy(() => import('@/features/admin/AdminProxmox'))
-const AdminHypervisorTypes = lazy(() => import('@/features/admin/AdminHypervisorTypes'))
-const AdminAgentTypes = lazy(() => import('@/features/admin/AdminAgentTypes'))
-const AdminOidc = lazy(() => import('@/features/admin/AdminOidc'))
-const AdminNetwork = lazy(() => import('@/features/admin/AdminNetwork'))
-const AdminSessions = lazy(() => import('@/features/admin/AdminSessions'))
-const AdminLogs = lazy(() => import('@/features/admin/AdminLogs'))
-const AdminWorkflow = lazy(() => import('@/features/admin/AdminWorkflow'))
-const SessionsView = lazy(() => import('@/features/sessions/SessionsView'))
-const ProfileList = lazy(() => import('@/features/profiles/ProfileList'))
-const ProfileEditor = lazy(() => import('@/features/profiles/ProfileEditor'))
-const AdminProfileEditor = lazy(() => import('@/features/admin/AdminProfileEditor'))
-const AdminProfileSources = lazy(() => import('@/features/admin/AdminProfileSources'))
-const CredentialsPage = lazy(() => import('@/features/git-credentials/CredentialsPage'))
-const VaultSetup = lazy(() => import('@/features/vault/VaultSetup'))
-const VaultUnlock = lazy(() => import('@/features/vault/VaultUnlock'))
-const VaultRecover = lazy(() => import('@/features/vault/VaultRecover'))
-const VaultKeys = lazy(() => import('@/features/vault/VaultKeys'))
-const ConsentPage = lazy(() => import('@/features/oauth/ConsentPage'))
-const ComposeGallery = lazy(() => import('@/features/compose/ComposeGallery'))
-const ApplicationsPage = lazy(() => import('@/features/applications/ApplicationsPage'))
-const AdminCompose = lazy(() => import('@/features/compose/AdminCompose'))
-const AdminJinjaTemplates = lazy(() => import('@/features/admin/AdminJinjaTemplates'))
-const ProfilePage = lazy(() => import('@/features/profile/ProfilePage'))
-
-function Wrap({ children }: { children: ReactNode }) {
-  return <Suspense fallback={null}>{children}</Suspense>
-}
+import {
+  AdminAgentTypes,
+  AdminCompose,
+  AdminHosts,
+  AdminHypervisorTypes,
+  AdminJinjaTemplates,
+  AdminLogs,
+  AdminNetwork,
+  AdminOidc,
+  AdminProfileEditor,
+  AdminProfileSources,
+  AdminProxmox,
+  AdminRecipes,
+  AdminSessions,
+  AdminWorkflow,
+  ApplicationsPage,
+  ComposeGallery,
+  ConsentPage,
+  CredentialsPage,
+  ProfileEditor,
+  ProfileList,
+  ProfilePage,
+  RecipeCatalog,
+  SessionsView,
+  TerminalPage,
+  VaultKeys,
+  VaultRecover,
+  VaultSetup,
+  VaultUnlock,
+  WorkspaceCreate,
+  WorkspaceList,
+  WorkspaceTerminals,
+  Wrap,
+} from '@/router-pages'
 
 export const router = createBrowserRouter([
   { path: '/auth/login', element: <LoginPage /> },

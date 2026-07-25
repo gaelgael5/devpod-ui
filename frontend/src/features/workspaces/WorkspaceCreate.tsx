@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
@@ -90,9 +90,6 @@ export default function WorkspaceCreate() {
     [recipes, selectedRecipes],
   )
 
-  useEffect(() => {
-    setVolumeRecipes(prev => prev.filter(id => selectedRecipes.includes(id)))
-  }, [selectedRecipes])
   const recipesByKey = useMemo(() => {
     const map = new Map<string, typeof recipes[number]>()
     for (const r of recipes) map.set(r.key, r)
@@ -319,7 +316,13 @@ export default function WorkspaceCreate() {
               <OrderedRecipePicker
                 recipes={recipes}
                 selected={selectedRecipes}
-                onChange={setSelectedRecipes}
+                onChange={(ids) => {
+                  setSelectedRecipes(ids)
+                  // Une recette décochée emporte son volume mémoire — purge au
+                  // point de changement (pas d'effet de synchro). L'autre
+                  // écrivain (profil) ne fait qu'ajouter des recettes.
+                  setVolumeRecipes(prev => prev.filter(id => ids.includes(id)))
+                }}
               />
             </div>
           </div>

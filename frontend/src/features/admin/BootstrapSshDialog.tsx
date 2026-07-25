@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,12 +27,10 @@ export default function BootstrapSshDialog({ host, open, onClose }: Props) {
   const { data: nodes = [] } = useProxmoxNodes()
   const [proxmoxNode, setProxmoxNode] = useState(host.proxmox_node ?? '')
 
-  // Auto-sélection si un seul nœud disponible et nœud non encore connu
-  useEffect(() => {
-    if (!pveKnown && nodes.length === 1 && !proxmoxNode) {
-      setProxmoxNode(nodes[0].name)
-    }
-  }, [nodes, pveKnown, proxmoxNode])
+  // Auto-sélection si un seul nœud disponible et nœud non encore connu —
+  // dérivée au rendu (pas d'effet) : le state ne garde que le choix explicite.
+  const autoNode = !pveKnown && nodes.length === 1 ? nodes[0].name : ''
+  const effectiveNode = proxmoxNode || autoNode
 
   function handleClose() {
     setAddress(host.address ?? '')
@@ -44,12 +42,12 @@ export default function BootstrapSshDialog({ host, open, onClose }: Props) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     bootstrap.mutate(
-      { name: host.name, payload: { address, proxmox_node: proxmoxNode } },
+      { name: host.name, payload: { address, proxmox_node: effectiveNode } },
       { onSuccess: handleClose }
     )
   }
 
-  const canSubmit = Boolean(address && proxmoxNode) && !bootstrap.isPending
+  const canSubmit = Boolean(address && effectiveNode) && !bootstrap.isPending
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>

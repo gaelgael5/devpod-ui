@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -31,15 +31,18 @@ export function PluginBrowser({ selectedIds, onToggle }: Props) {
 
   const items = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data])
 
-  // Alimente le cache à chaque page de résultats chargée
-  useEffect(() => {
-    if (!items.length) return
+  // Alimente le cache avec les pages chargées — ajusté PENDANT le rendu
+  // (pattern react.dev « adjust state when props change ») : converge en un
+  // re-rendu (après le set, chaque id du résultat pointe l'objet courant) et
+  // les résumés déjà vus restent résolvables quand la recherche change.
+  const missingFromCache = items.filter((p) => summaryCache.get(p.id) !== p)
+  if (missingFromCache.length > 0) {
     setSummaryCache((prev) => {
       const next = new Map(prev)
-      items.forEach((p) => next.set(p.id, p))
+      missingFromCache.forEach((p) => next.set(p.id, p))
       return next
     })
-  }, [items])
+  }
 
   const { knownSelected, unknownSelectedIds } = useMemo(() => {
     const known: PluginSummary[] = []

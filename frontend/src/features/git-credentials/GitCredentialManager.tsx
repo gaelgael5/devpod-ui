@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, KeyRound, Pencil, PlugZap, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -151,10 +151,8 @@ export default function GitCredentialManager() {
 
   const credentialList: GitCredentialSummary[] = credentials ?? []
 
-  // Réinitialiser les slugs quand le kind change
-  useEffect(() => {
-    setForm(f => ({ ...f, cert_slug: '', secret_slug: '' }))
-  }, [form.kind])
+  // Le reset des slugs au changement de kind vit dans le onValueChange du
+  // Select « kind » (seul écrivain de form.kind) — pas d'effet de synchro.
 
   function resetForm() {
     setForm(EMPTY_FORM)

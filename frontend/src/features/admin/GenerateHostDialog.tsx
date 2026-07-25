@@ -14,7 +14,7 @@ import {
 import { useAdminProxmox, type HypervisorConfig } from './useAdminProxmox'
 import {
   useScriptSpec, useExecuteScript, extractLastJson, flattenArgs,
-  type ScriptArg, type ScriptSubArg, type ScriptArgOrSub,
+  type ScriptArg, type ScriptSpec, type ScriptSubArg, type ScriptArgOrSub,
 } from './useProxmoxScript'
 import { apiFetch } from '@/shared/api/client'
 import type { HostConfig } from './useHosts'
@@ -133,13 +133,51 @@ function StepParams({
 }) {
   const { t } = useTranslation()
   const { data: spec, isLoading, isError, error } = useScriptSpec(node.name)
-  const [values, setValues] = useState<Record<string, string>>({})
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>{t('admin.generate.paramTitle')} — {node.name}</DialogTitle>
+      </DialogHeader>
+
+      {isLoading && <p className="text-sm text-muted-foreground py-4 text-center">…</p>}
+      {isError && (
+        <p className="text-sm text-destructive py-2">
+          {error instanceof Error ? error.message : t('errors.generic')}
+        </p>
+      )}
+
+      {spec && (
+        <StepParamsForm node={node} spec={spec} onExecute={onExecute} onBack={onBack} />
+      )}
+
+      {!spec && !isLoading && (
+        <DialogFooter>
+          <Button variant="outline" onClick={onBack}>{t('admin.generate.back')}</Button>
+        </DialogFooter>
+      )}
+    </>
+  )
+}
+
+// Formulaire monté une fois le spec chargé : `values` est initialisé au montage
+// via useState (pas d'hydratation par effet — la saisie n'est plus écrasée par
+// un refetch du spec).
+function StepParamsForm({
+  node,
+  spec,
+  onExecute,
+  onBack,
+}: {
+  node: HypervisorConfig
+  spec: ScriptSpec
+  onExecute: (args: Record<string, string>) => void
+  onBack: () => void
+}) {
+  const { t } = useTranslation()
+  const [values, setValues] = useState<Record<string, string>>(() => initValues(spec.args))
   const [argErrors, setArgErrors] = useState<Record<string, string>>({})
   const [validatingArgs, setValidatingArgs] = useState<Set<string>>(new Set())
-
-  useEffect(() => {
-    if (spec) setValues(initValues(spec.args))
-  }, [spec])
 
   function set(key: string, value: string) {
     setValues(v => ({ ...v, [key]: value }))
@@ -173,7 +211,7 @@ function StepParams({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     void (async () => {
-      const argsWithTest = flattenArgs(spec!.args).filter(a => a.test_script)
+      const argsWithTest = flattenArgs(spec.args).filter(a => a.test_script)
       if (argsWithTest.length > 0) {
         const results = await Promise.all(argsWithTest.map(a => validateArgApi(a, values)))
         if (results.some(r => !r)) return
@@ -186,60 +224,39 @@ function StepParams({
   const hasErrors = Object.values(argErrors).some(e => !!e)
 
   return (
-    <>
-      <DialogHeader>
-        <DialogTitle>{t('admin.generate.paramTitle')} — {node.name}</DialogTitle>
-      </DialogHeader>
-
-      {isLoading && <p className="text-sm text-muted-foreground py-4 text-center">…</p>}
-      {isError && (
-        <p className="text-sm text-destructive py-2">
-          {error instanceof Error ? error.message : t('errors.generic')}
-        </p>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      {spec.args.map((arg: ScriptArgOrSub, i: number) =>
+        arg.type === 'sub'
+          ? (
+            <SubGroup
+              key={i}
+              sub={arg}
+              values={values}
+              onChange={set}
+              onBlurArg={a => { void validateArgApi(a, values) }}
+              argErrors={argErrors}
+              validatingArgs={validatingArgs}
+            />
+          )
+          : (
+            <ArgField
+              key={arg.arg}
+              arg={arg}
+              value={values[arg.arg] ?? ''}
+              onChange={v => set(arg.arg, v)}
+              onBlur={arg.test_script ? () => { void validateArgApi(arg, values) } : undefined}
+              validationError={argErrors[arg.arg]}
+              validating={validatingArgs.has(arg.arg)}
+            />
+          )
       )}
-
-      {spec && (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          {spec.args.map((arg: ScriptArgOrSub, i: number) =>
-            arg.type === 'sub'
-              ? (
-                <SubGroup
-                  key={i}
-                  sub={arg}
-                  values={values}
-                  onChange={set}
-                  onBlurArg={a => { void validateArgApi(a, values) }}
-                  argErrors={argErrors}
-                  validatingArgs={validatingArgs}
-                />
-              )
-              : (
-                <ArgField
-                  key={arg.arg}
-                  arg={arg}
-                  value={values[arg.arg] ?? ''}
-                  onChange={v => set(arg.arg, v)}
-                  onBlur={arg.test_script ? () => { void validateArgApi(arg, values) } : undefined}
-                  validationError={argErrors[arg.arg]}
-                  validating={validatingArgs.has(arg.arg)}
-                />
-              )
-          )}
-          <DialogFooter className="mt-2">
-            <Button type="button" variant="outline" onClick={onBack}>{t('admin.generate.back')}</Button>
-            <Button type="submit" disabled={isValidating || hasErrors}>
-              {isValidating ? <Loader2 className="h-4 w-4 animate-spin" /> : t('admin.generate.execute')}
-            </Button>
-          </DialogFooter>
-        </form>
-      )}
-
-      {!spec && !isLoading && (
-        <DialogFooter>
-          <Button variant="outline" onClick={onBack}>{t('admin.generate.back')}</Button>
-        </DialogFooter>
-      )}
-    </>
+      <DialogFooter className="mt-2">
+        <Button type="button" variant="outline" onClick={onBack}>{t('admin.generate.back')}</Button>
+        <Button type="submit" disabled={isValidating || hasErrors}>
+          {isValidating ? <Loader2 className="h-4 w-4 animate-spin" /> : t('admin.generate.execute')}
+        </Button>
+      </DialogFooter>
+    </form>
   )
 }
 
