@@ -143,3 +143,27 @@ async def test_stream_host_command_kills_process_on_early_disconnect(monkeypatch
 
     assert proc.killed is True
     assert proc.waited is True
+
+
+# ─── Multiplexage SSH des commandes host (enabler be1112a5) ───────────────────
+
+
+def test_argv_includes_control_master_options(tmp_path) -> None:
+    """Chaque appel host ne doit plus payer un handshake complet : ControlMaster
+    mutualise la connexion (l'incident du 24/07 = 10 500 scopes systemd)."""
+    argv = host_exec._argv("/tmp/k", "root@10.0.0.1", "true", tmp_path / "kh")
+    joined = " ".join(argv)
+    assert "ControlMaster=auto" in joined
+    assert "ControlPath=" in joined
+    assert "ControlPersist=" in joined
+
+
+def test_control_path_is_stable_per_host_and_distinct_between_hosts(tmp_path) -> None:
+    def path_of(address: str) -> str:
+        argv = host_exec._argv("/tmp/k", address, "true", tmp_path / "kh")
+        return next(a for a in argv if a.startswith("ControlPath="))
+
+    assert path_of("root@10.0.0.1") == path_of("root@10.0.0.1")
+    assert path_of("root@10.0.0.1") != path_of("debian@10.0.0.2")
+    # Distinct aussi des masters workspaces (répertoire commun) : préfixe dédié.
+    assert "host-" in path_of("root@10.0.0.1")

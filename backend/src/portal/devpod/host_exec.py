@@ -18,6 +18,7 @@ import structlog
 from ..config.models import HostConfig
 from ..config.store import _data_root
 from .service import _materialize_system_cert
+from .ssh_exec import host_control_ssh_args
 
 _log = structlog.get_logger(__name__)
 
@@ -62,6 +63,9 @@ def _argv(key_path: str, address: str, command: str, known_hosts: Path) -> list[
         f"UserKnownHostsFile={known_hosts}",
         "-o",
         "ConnectTimeout=15",
+        # Multiplexage : sans master, chaque sonde/poll paie un handshake complet
+        # et un scope systemd sur le nœud (saturation du 24/07, enabler be1112a5).
+        *host_control_ssh_args(address),
         address,
         command,
     ]
