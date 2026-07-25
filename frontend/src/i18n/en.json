@@ -73,7 +73,8 @@
       "stopped": "stopped",
       "provisioning": "provisioning",
       "failed": "failed",
-      "unknown": "unknown"
+      "unknown": "unknown",
+      "disconnected": "unreachable"
     },
     "actions": {
       "open": "Open",

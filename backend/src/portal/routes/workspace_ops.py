@@ -546,7 +546,16 @@ async def workspace_status(
     _validate_name(name)
     ws_id = f"{user.login}-{name}"
     svc = _get_service()
-    return await svc.status(login=user.login, ws_id=ws_id)
+    st = await svc.status(login=user.login, ws_id=ws_id)
+    # Bug 2846f916 : « running » est déclaratif (dernier état connu en base). On y
+    # superpose un verdict de réachabilité dérivé des sondes (jamais bloquant,
+    # jamais écrit en base) : l'UI peut afficher « injoignable » au lieu d'un
+    # faux « tout va bien » quand le host est tombé.
+    if st.get("status") == "running":
+        from ..sessions.aggregate import reachability_hint
+
+        st["reachable"] = reachability_hint(user.login, ws_id)
+    return st
 
 
 def _read_ssh_public_key(pub_path: Path) -> str | None:

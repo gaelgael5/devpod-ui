@@ -38,6 +38,10 @@ export interface WorkspaceStatus {
   host_port?: number
   returncode?: number
   login?: string
+  /** Verdict de réachabilité dérivé des sondes (running uniquement) :
+   false = host injoignable — le statut `running` est alors déclaratif, pas réel
+   (bug 2846f916). null/absent = pas de verdict récent. */
+  reachable?: boolean | null
 }
 
 export const TRANSIENT: ReadonlySet<WorkspaceStatusValue> = new Set([

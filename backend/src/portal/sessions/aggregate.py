@@ -267,6 +267,39 @@ async def probe_workspace_sessions(login: str, ws_id: str) -> tuple[int, list[st
         return result
 
 
+# Fenêtre de validité du verdict de réachabilité pour l'AFFICHAGE (bug 2846f916) —
+# plus longue que le TTL de sonde : un verdict vieux de 30 s reste un signal utile.
+_REACHABILITY_WINDOW_S = 60.0
+# Références fortes des sondes de fond (une tâche asyncio non référencée peut
+# être ramassée par le GC avant de s'exécuter).
+_background_probes: set[asyncio.Task[Any]] = set()
+
+
+def reachability_hint(login: str, ws_id: str) -> bool | None:
+    """Verdict de réachabilité d'un workspace, dérivé de la dernière sonde tmux.
+
+    True = joignable, False = injoignable (transport SSH / timeout), None = pas de
+    verdict récent. N'attend JAMAIS une sonde : lit le cache, et si le verdict est
+    absent ou périmé, déclenche une sonde en arrière-plan (dédupliquée par le
+    verrou + cache de probe_workspace_sessions) — le prochain poll de statut la
+    verra. Surcouche d'affichage uniquement : n'écrit jamais le statut en base
+    (bug 2846f916 : « running » ne doit plus masquer un host injoignable).
+    """
+    hit = _ws_probe_cache.get(ws_id)
+    now = time.monotonic()
+    verdict: bool | None = None
+    if hit is not None:
+        probed_at = hit[0] - _WS_PROBE_TTL_S
+        if now - probed_at <= _REACHABILITY_WINDOW_S:
+            rc = hit[1][0]
+            verdict = rc == 0 or rc in NO_TMUX_SERVER_RCS
+    if hit is None or hit[0] <= now:
+        task = asyncio.create_task(probe_workspace_sessions(login, ws_id))
+        _background_probes.add(task)
+        task.add_done_callback(_background_probes.discard)
+    return verdict
+
+
 def invalidate_sessions_cache() -> None:
     """Vide les caches : la prochaine lecture re-sonde (appelé après toute mutation)."""
     _cache.clear()

@@ -8,6 +8,7 @@ une action.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from typing import Any
 
@@ -153,3 +154,61 @@ async def test_ws_probe_invalidated_on_mutation(monkeypatch: pytest.MonkeyPatch)
     aggregate.invalidate_sessions_cache()
     await aggregate.probe_workspace_sessions("alice", "alice-ws")
     assert len(calls) == 2
+
+
+# ─── Réachabilité dérivée pour l'affichage (bug 2846f916) ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_reachability_hint_true_after_ok_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0):
+        return 0, "main\n"
+
+    monkeypatch.setattr(aggregate, "ws_exec", _ws_exec)
+    await aggregate.probe_workspace_sessions("alice", "alice-ws")
+    assert aggregate.reachability_hint("alice", "alice-ws") is True
+
+
+@pytest.mark.asyncio
+async def test_reachability_hint_false_after_transport_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0):
+        return 255, ""
+
+    monkeypatch.setattr(aggregate, "ws_exec", _ws_exec)
+    await aggregate.probe_workspace_sessions("alice", "alice-ws")
+    assert aggregate.reachability_hint("alice", "alice-ws") is False
+
+
+@pytest.mark.asyncio
+async def test_reachability_hint_no_tmux_server_is_reachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """rc=1 (aucun serveur tmux) = joignable : pas de faux « injoignable »."""
+
+    async def _ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0):
+        return 1, ""
+
+    monkeypatch.setattr(aggregate, "ws_exec", _ws_exec)
+    await aggregate.probe_workspace_sessions("alice", "alice-ws")
+    assert aggregate.reachability_hint("alice", "alice-ws") is True
+
+
+@pytest.mark.asyncio
+async def test_reachability_hint_unknown_kicks_background_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sans verdict : None immédiat (jamais bloquant) + sonde lancée en fond."""
+    probed: list[str] = []
+
+    async def _ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0):
+        probed.append(ws_id)
+        return 0, ""
+
+    monkeypatch.setattr(aggregate, "ws_exec", _ws_exec)
+    assert aggregate.reachability_hint("alice", "alice-ws") is None
+    await asyncio.sleep(0.01)  # laisser la tâche de fond s'exécuter
+    assert probed == ["alice-ws"]
+    # Le verdict est disponible pour le poll suivant.
+    assert aggregate.reachability_hint("alice", "alice-ws") is True

@@ -127,9 +127,17 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
           )}
           <Badge
             variant="outline"
-            className={cn('text-xs', STATUS_CLASS[s])}
+            className={cn(
+              'text-xs',
+              s === 'running' && status.reachable === false
+                ? STATUS_TONE_CLASS.error
+                : STATUS_CLASS[s],
+            )}
           >
-            {s === 'provisioning' && '⟳ '}{t(`workspaces.status.${s}`)}
+            {s === 'provisioning' && '⟳ '}
+            {s === 'running' && status.reachable === false
+              ? t('workspaces.status.disconnected')
+              : t(`workspaces.status.${s}`)}
           </Badge>
         </div>
       </div>

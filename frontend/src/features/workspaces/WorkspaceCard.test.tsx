@@ -39,6 +39,17 @@ describe('WorkspaceCard', () => {
     expect(screen.getByText('github.com/org/myapp')).toBeInTheDocument()
   })
 
+  it('affiche « injoignable » quand running mais reachable=false (bug 2846f916)', () => {
+    const ws: WorkspaceStatus = {
+      ws_id: 'alice-myapp', status: 'running', url: 'https://x', reachable: false,
+    }
+    renderWithProviders(
+      <WorkspaceCard spec={SPEC} status={ws} onStop={vi.fn()} onDelete={vi.fn()} />,
+    )
+    expect(screen.getByText(/unreachable|injoignable/i)).toBeInTheDocument()
+    expect(screen.queryByText(/^(running|en cours)$/i)).not.toBeInTheDocument()
+  })
+
   it('affiche le badge "running" et le bouton Ouvrir', () => {
     renderWithProviders(card('running', 'https://alice-myapp.dev.yoops.org'))
     expect(screen.getByText(/running|en cours/i)).toBeInTheDocument()
