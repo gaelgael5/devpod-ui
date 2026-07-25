@@ -1213,7 +1213,12 @@
       "connectedAt": "Connecté :",
       "lastCall": "Dernier appel :",
       "workspaceBadge": "workspace",
-      "workspaceHint": "Clef générée par le portail pour ce workspace — profil géré automatiquement, révocation seule."
+      "workspaceHint": "Clef générée par le portail pour ce workspace — profil géré automatiquement, révocation seule.",
+      "rotate": "Roter",
+      "rotateNeedsRunning": "Démarrez le workspace pour roter sa clef (le nouveau token y est réinjecté).",
+      "rotatedTitle": "Clef rotée",
+      "rotatedWarning": "L'ancienne clef est révoquée. Copiez la nouvelle maintenant — elle ne sera plus affichée.",
+      "rotatedReinjected": "Clef rotée et réinjectée dans le workspace {{ws}} — l'ancienne génération expire après la fenêtre de grâce."
     },
     "saving": "Enregistrement…",
     "save": "Enregistrer"

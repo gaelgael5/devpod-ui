@@ -302,6 +302,25 @@ export function useSetApikeyProfile() {
   })
 }
 
+/** Réponse de rotation : token one-time (clef bearer) OU réinjection (clef workspace). */
+export interface RotatedApikey {
+  id: string
+  token?: string
+  workspace?: string
+  reinjected?: boolean
+}
+
+export function useRotateApikey() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetchJson<RotatedApikey>(`/me/mcp/apikeys/${encodeURIComponent(id)}/rotate`, {
+        method: 'POST',
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.apikeys() }),
+  })
+}
+
 export function useRevokeApikey() {
   const qc = useQueryClient()
   return useMutation({

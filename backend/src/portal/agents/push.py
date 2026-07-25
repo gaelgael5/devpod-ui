@@ -213,3 +213,64 @@ async def _git_exclude(login: str, ws_id: str, project_root: str, target: str) -
         f'printf \'%s\\n\' "{rel}" >> "{exclude}"; }}; fi'
     )
     await ws_exec(login, ws_id, cmd)
+
+
+# ─── Rotation explicite d'un workspace (bouton Rotate — ticket 716556e8) ──────
+
+
+async def _workspace_status(login: str, ws_id: str) -> dict[str, Any]:
+    """Statut du workspace (isolé pour être mockable en test)."""
+    from ..routes.workspace_ops import _get_service
+
+    return await _get_service().status(login=login, ws_id=ws_id)
+
+
+async def _forget_config_hash(ws_id: str) -> None:
+    """Oublie l'empreinte de livraison → la prochaine livraison est forcée."""
+    from ..db.agent_sync import delete_config_hash
+    from ..db.engine import _get_engine
+
+    async with _get_engine().begin() as conn:
+        await delete_config_hash(conn, ws_id)
+
+
+async def _workspace_push_params(login: str, ws_id: str) -> dict[str, Any]:
+    """Paramètres de livraison du workspace (miroir du hook post-up du service)."""
+    from ..config.store import load_global, load_user
+
+    ws_name = ws_id.removeprefix(f"{login}-")
+    user_cfg = await load_user(login)
+    spec = next((s for s in user_cfg.workspaces if s.name == ws_name), None)
+    mcp_url = load_global().server.external_url.rstrip("/") + "/mcp/"
+    return {
+        "agents": list(spec.agents) if spec is not None else [],
+        "mcp_url": mcp_url,
+        "ws_name": ws_name,
+        "project_root": f"/workspaces/{ws_id}",
+    }
+
+
+async def rotate_workspace_and_push(login: str, ws_id: str) -> list[str]:
+    """Rotation des clefs d'un workspace + réinjection immédiate de sa config.
+
+    Chemin du bouton « Rotate » d'une clef workspace : exige un workspace
+    `running` (le nouveau token doit être écrit dans le conteneur — jamais
+    affiché), oublie l'empreinte de livraison pour forcer le passage même à
+    config inchangée, puis rejoue la livraison standard (rotation incluse :
+    l'ancienne génération passe en grâce, cf. rotate_workspace_keys).
+    """
+    st = await _workspace_status(login, ws_id)
+    if st.get("status") != "running":
+        raise AgentProvisionError(
+            f"le workspace doit être running pour roter sa clef (statut : "
+            f"{st.get('status', 'unknown')!r})"
+        )
+    params = await _workspace_push_params(login, ws_id)
+    if not params["agents"]:
+        raise AgentProvisionError(
+            "aucun agent configuré sur ce workspace — rien ne consommerait le nouveau token"
+        )
+    await _forget_config_hash(ws_id)
+    pushed = await push_agent_files(login=login, ws_id=ws_id, **params)
+    _log.info("workspace_key_rotation_pushed", login=login, ws_id=ws_id, agents=pushed)
+    return pushed

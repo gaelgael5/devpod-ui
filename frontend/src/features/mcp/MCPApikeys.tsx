@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Key, Plus, Copy, Check, Ban, Clock } from 'lucide-react'
+import { Key, Plus, Copy, Check, Ban, Clock, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
+import { useSession } from '@/features/auth/useSession'
+import { useWorkspaceStatus } from '@/features/workspaces/useWorkspaceStatus'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -25,6 +27,7 @@ import {
   useApikeys,
   useCreateApikey,
   useRevokeApikey,
+  useRotateApikey,
   useDeleteApikey,
   useSetApikeyProfile,
   useProfiles,
@@ -144,17 +147,91 @@ function CreateApikeyDialog({ open, onClose }: { open: boolean; onClose: () => v
   )
 }
 
+/** Dialog one-time reveal du token issu d'une rotation (clefs bearer uniquement). */
+function RotatedTokenDialog({ token, onClose }: { token: string; onClose: () => void }) {
+  const { t } = useTranslation()
+  const [copied, setCopied] = useState(false)
+
+  function copy() {
+    void navigator.clipboard.writeText(token)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t('mcp.apikeys.rotatedTitle')}</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          <Alert>
+            <AlertDescription>{t('mcp.apikeys.rotatedWarning')}</AlertDescription>
+          </Alert>
+          <div className="flex items-center gap-1 rounded bg-muted/50 p-2">
+            <code className="flex-1 break-all text-xs select-all">{token}</code>
+            <Button size="sm" variant="ghost" onClick={copy}>
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button onClick={onClose}>{t('common.close')}</Button>
+          </DialogFooter>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Bouton Rotate d'une clef WORKSPACE (Claude Code) : le token est réinjecté dans
+ le conteneur, jamais affiché — actif seulement si le workspace est running. */
+function WorkspaceRotateButton({ apikey, wsName }: { apikey: MCPApikey; wsName: string }) {
+  const { t } = useTranslation()
+  const rotate = useRotateApikey()
+  const { data: status } = useWorkspaceStatus(wsName)
+  const running = status?.status === 'running'
+
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={!running || rotate.isPending}
+      title={running ? undefined : t('mcp.apikeys.rotateNeedsRunning')}
+      onClick={() =>
+        rotate.mutate(apikey.id, {
+          onSuccess: () => toast.success(t('mcp.apikeys.rotatedReinjected', { ws: wsName })),
+          onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
+        })
+      }
+    >
+      <RefreshCw className={`mr-1 h-3.5 w-3.5 ${rotate.isPending ? 'animate-spin' : ''}`} />
+      {t('mcp.apikeys.rotate')}
+    </Button>
+  )
+}
+
 function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
   const { t } = useTranslation()
   const revoke = useRevokeApikey()
+  const rotate = useRotateApikey()
   const del = useDeleteApikey()
   const setProfile = useSetApikeyProfile()
   const { data: profiles = [] } = useProfiles()
+  const { data: me } = useSession()
   const [confirmDel, setConfirmDel] = useState(false)
+  const [rotatedToken, setRotatedToken] = useState<string | null>(null)
 
   const profileName = apikey.profile_id
     ? profiles.find((p) => p.id === apikey.profile_id)?.name ?? apikey.profile_id
     : null
+
+  // Nom du workspace derrière une clef Claude Code (ws_id = `${login}-${name}`).
+  const wsName =
+    apikey.workspace_ref && me?.login && apikey.workspace_ref.startsWith(`${me.login}-`)
+      ? apikey.workspace_ref.slice(me.login.length + 1)
+      : null
+
+  const isOauth = (apikey.kind ?? 'apikey') !== 'apikey'
 
   return (
     <div className="rounded-lg border bg-card p-3">
@@ -169,19 +246,40 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
         )}
         {apikey.revoked && <Badge variant="secondary">{t('mcp.apikeys.revoked')}</Badge>}
         {!apikey.revoked && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto"
-            onClick={() =>
-              revoke.mutate(apikey.id, {
-                onError: (e) =>
-                  toast.error(e instanceof Error ? e.message : t('errors.generic')),
-              })
-            }
-          >
-            <Ban className="mr-1 h-3.5 w-3.5" />{t('mcp.apikeys.revoke')}
-          </Button>
+          <div className="ml-auto flex gap-1">
+            {wsName && <WorkspaceRotateButton apikey={apikey} wsName={wsName} />}
+            {!apikey.workspace_ref && !isOauth && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={rotate.isPending}
+                onClick={() =>
+                  rotate.mutate(apikey.id, {
+                    onSuccess: (r) => { if (r.token) setRotatedToken(r.token) },
+                    onError: (e) =>
+                      toast.error(e instanceof Error ? e.message : t('errors.generic')),
+                  })
+                }
+              >
+                <RefreshCw
+                  className={`mr-1 h-3.5 w-3.5 ${rotate.isPending ? 'animate-spin' : ''}`}
+                />
+                {t('mcp.apikeys.rotate')}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                revoke.mutate(apikey.id, {
+                  onError: (e) =>
+                    toast.error(e instanceof Error ? e.message : t('errors.generic')),
+                })
+              }
+            >
+              <Ban className="mr-1 h-3.5 w-3.5" />{t('mcp.apikeys.revoke')}
+            </Button>
+          </div>
         )}
         {/* Clef workspace active : cycle de vie géré par le portail (rotation au up,
             purge au delete du workspace) — révocation seule, pas de suppression manuelle. */}
@@ -267,6 +365,10 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
           {t('mcp.apikeys.lastCall')} {fmtDate(apikey.last_used_at)}
         </span>
       </div>
+
+      {rotatedToken && (
+        <RotatedTokenDialog token={rotatedToken} onClose={() => setRotatedToken(null)} />
+      )}
     </div>
   )
 }
