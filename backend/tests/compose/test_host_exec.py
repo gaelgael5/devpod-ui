@@ -167,3 +167,92 @@ def test_control_path_is_stable_per_host_and_distinct_between_hosts(tmp_path) ->
     assert path_of("root@10.0.0.1") != path_of("debian@10.0.0.2")
     # Distinct aussi des masters workspaces (répertoire commun) : préfixe dédié.
     assert "host-" in path_of("root@10.0.0.1")
+
+
+# ─── Sémaphore fail-fast par nœud (enabler be1112a5) ─────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _clear_semaphores():
+    host_exec.clear_host_semaphores()
+    yield
+    host_exec.clear_host_semaphores()
+
+
+def _patch_exec_deps(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(host_exec, "_data_root", lambda: tmp_path)
+    monkeypatch.setattr(host_exec, "_materialize_system_cert", AsyncMock(return_value="/tmp/k"))
+
+
+@pytest.mark.asyncio
+async def test_run_host_command_fails_fast_when_host_saturated(monkeypatch, tmp_path) -> None:
+    """Slots pleins → HostExecError rapide, pas d'empilement de sous-process."""
+    _patch_exec_deps(monkeypatch, tmp_path)
+    monkeypatch.setattr(host_exec, "HOST_EXEC_ACQUIRE_TIMEOUT_S", 0.05)
+    release = asyncio.Event()
+
+    async def slow_capture(argv, **kw):
+        await release.wait()
+        return (0, "ok", "")
+
+    monkeypatch.setattr(host_exec, "_ssh_capture", slow_capture)
+    host = _ssh_host()
+    tasks = [
+        asyncio.create_task(host_exec.run_host_command(host, "true"))
+        for _ in range(host_exec.HOST_EXEC_MAX_CONCURRENT)
+    ]
+    await asyncio.sleep(0.01)  # laisser les tâches acquérir leurs slots
+
+    with pytest.raises(host_exec.HostExecError, match="satur"):
+        await host_exec.run_host_command(host, "true")
+
+    release.set()
+    results = await asyncio.gather(*tasks)
+    assert all(rc == 0 for rc, _, _ in results)
+
+
+@pytest.mark.asyncio
+async def test_host_saturation_does_not_block_other_hosts(monkeypatch, tmp_path) -> None:
+    """La borne est PAR nœud : un host saturé ne bloque pas les autres."""
+    _patch_exec_deps(monkeypatch, tmp_path)
+    monkeypatch.setattr(host_exec, "HOST_EXEC_ACQUIRE_TIMEOUT_S", 0.05)
+    release = asyncio.Event()
+    calls: list[str] = []
+
+    async def capture(argv, **kw):
+        calls.append(argv[-2])
+        if "10.0.0.1" in argv[-2]:
+            await release.wait()
+        return (0, "ok", "")
+
+    monkeypatch.setattr(host_exec, "_ssh_capture", capture)
+    slow = _ssh_host()
+    fast = SimpleNamespace(
+        name="n3", type="ssh", address="debian@10.0.0.3", host_cert_slug="host.n3.cert"
+    )
+    tasks = [
+        asyncio.create_task(host_exec.run_host_command(slow, "true"))
+        for _ in range(host_exec.HOST_EXEC_MAX_CONCURRENT)
+    ]
+    await asyncio.sleep(0.01)
+
+    rc, out, _err = await host_exec.run_host_command(fast, "true")
+    assert (rc, out) == (0, "ok")
+
+    release.set()
+    await asyncio.gather(*tasks)
+
+
+@pytest.mark.asyncio
+async def test_slots_released_after_completion(monkeypatch, tmp_path) -> None:
+    """Les slots se libèrent : N+2 appels séquentiels passent tous."""
+    _patch_exec_deps(monkeypatch, tmp_path)
+
+    async def fake_capture(argv, **kw):
+        return (0, "ok", "")
+
+    monkeypatch.setattr(host_exec, "_ssh_capture", fake_capture)
+    host = _ssh_host()
+    for _ in range(host_exec.HOST_EXEC_MAX_CONCURRENT + 2):
+        rc, _out, _err = await host_exec.run_host_command(host, "true")
+        assert rc == 0
