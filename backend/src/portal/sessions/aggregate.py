@@ -37,11 +37,7 @@ async def _list_tmux_sessions(login: str, ws_id: str, host: str | None) -> tuple
     - 255 (transport SSH) ou TIMEOUT_RC → workspace injoignable, `reachable=False`.
     """
     try:
-        rc, output = await ws_exec(
-            login,
-            ws_id,
-            _tmux("list-sessions -F '#{session_name}' 2>/dev/null"),
-        )
+        rc, sessions = await probe_workspace_sessions(login, ws_id)
     except Exception:
         _log.warning("sessions_tmux_list_failed", ws_id=ws_id, host=host, exc_info=True)
         return [], False
@@ -57,7 +53,7 @@ async def _list_tmux_sessions(login: str, ws_id: str, host: str | None) -> tuple
             reason="timeout" if rc == TIMEOUT_RC else "ssh_transport",
         )
         return [], False
-    return [s for s in output.strip().splitlines() if s], True
+    return sessions, True
 
 
 async def _workspace_entry(
@@ -238,15 +234,51 @@ _cache: dict[tuple[str, bool], tuple[float, list[dict[str, Any]]]] = {}
 _cache_locks: dict[tuple[str, bool], asyncio.Lock] = {}
 
 
+# Cache par-workspace de la sonde tmux brute — GET /me/workspaces/{name}/sessions
+# est pollé toutes les 5 s par CHAQUE onglet terminal ouvert ; l'agrégat /sessions
+# sonde les mêmes workspaces. Une seule sonde par ws_id et par TTL pour tous.
+_WS_PROBE_TTL_S = 4.0
+_ws_probe_cache: dict[str, tuple[float, tuple[int, list[str]]]] = {}
+_ws_probe_locks: dict[str, asyncio.Lock] = {}
+
+
+async def probe_workspace_sessions(login: str, ws_id: str) -> tuple[int, list[str]]:
+    """(rc brut, sessions) de la sonde tmux d'un workspace, caché TTL court.
+
+    Le rc n'est pas interprété ici (voir NO_TMUX_SERVER_RCS / TIMEOUT_RC côté
+    appelants) ; un rc d'échec est aussi caché — pas de marteau sur un host mort.
+    """
+    hit = _ws_probe_cache.get(ws_id)
+    if hit and hit[0] > time.monotonic():
+        return hit[1]
+    lock = _ws_probe_locks.setdefault(ws_id, asyncio.Lock())
+    async with lock:
+        hit = _ws_probe_cache.get(ws_id)  # un refresh concurrent a pu aboutir
+        if hit and hit[0] > time.monotonic():
+            return hit[1]
+        rc, output = await ws_exec(
+            login,
+            ws_id,
+            _tmux("list-sessions -F '#{session_name}' 2>/dev/null"),
+        )
+        sessions = [s for s in output.strip().splitlines() if s] if rc == 0 else []
+        result = (rc, sessions)
+        _ws_probe_cache[ws_id] = (time.monotonic() + _WS_PROBE_TTL_S, result)
+        return result
+
+
 def invalidate_sessions_cache() -> None:
-    """Vide le cache : la prochaine lecture re-sonde (appelé après toute mutation)."""
+    """Vide les caches : la prochaine lecture re-sonde (appelé après toute mutation)."""
     _cache.clear()
+    _ws_probe_cache.clear()
 
 
 def clear_sessions_cache() -> None:
-    """Purge cache ET verrous. Usage tests uniquement (locks liés à l'event loop)."""
+    """Purge caches ET verrous. Usage tests uniquement (locks liés à l'event loop)."""
     _cache.clear()
     _cache_locks.clear()
+    _ws_probe_cache.clear()
+    _ws_probe_locks.clear()
 
 
 async def list_sessions(*, login: str, is_admin: bool) -> list[dict[str, Any]]:

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import shlex
+import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import Literal
@@ -103,9 +105,7 @@ def foreign_env_keys(template: ComposeTemplate, env_values: dict[str, str]) -> l
 def _reject_foreign_env_keys(template: ComposeTemplate, env_values: dict[str, str]) -> None:
     foreign = foreign_env_keys(template, env_values)
     if foreign:
-        raise ComposeServiceError(
-            f"clés env_values non déclarées par le template: {foreign}"
-        )
+        raise ComposeServiceError(f"clés env_values non déclarées par le template: {foreign}")
 
 
 def _validate_secret_refs(template: ComposeTemplate, env_values: dict[str, str]) -> None:
@@ -184,6 +184,45 @@ def _parse_compose_ls(out: str) -> list[dict[str, str]]:
     return sorted(stacks, key=lambda s: s["name"])
 
 
+# Découplage polling front / SSH réel (enabler be1112a5, même pattern que
+# sessions.aggregate) : l'état docker LIVE d'un nœud (/test-hosts/*/stacks,
+# pollé ~10 s) est servi depuis un cache court, anti-dogpile, invalidé par nœud
+# à chaque mutation compose. C'est le chemin de l'incident du 24/07 (10 500
+# scopes systemd sur host-test-105-2).
+_HOST_STATE_TTL_S = 10.0
+_host_state_cache: dict[str, tuple[float, dict[str, list[dict[str, str]]]]] = {}
+_host_state_locks: dict[str, asyncio.Lock] = {}
+
+
+async def get_host_state(node_id: str) -> dict[str, list[dict[str, str]]]:
+    """Stacks + conteneurs hors compose d'un nœud, cachés TTL court."""
+    hit = _host_state_cache.get(node_id)
+    if hit and hit[0] > time.monotonic():
+        return hit[1]
+    lock = _host_state_locks.setdefault(node_id, asyncio.Lock())
+    async with lock:
+        hit = _host_state_cache.get(node_id)  # un refresh concurrent a pu aboutir
+        if hit and hit[0] > time.monotonic():
+            return hit[1]
+        state = {
+            "stacks": await list_host_stacks(node_id),
+            "containers": await list_host_containers(node_id),
+        }
+        _host_state_cache[node_id] = (time.monotonic() + _HOST_STATE_TTL_S, state)
+        return state
+
+
+def invalidate_host_state(node_id: str) -> None:
+    """Purge le cache d'état d'un nœud (appelé après toute mutation compose)."""
+    _host_state_cache.pop(node_id, None)
+
+
+def clear_host_state_cache() -> None:
+    """Purge cache ET verrous. Usage tests uniquement (locks liés à l'event loop)."""
+    _host_state_cache.clear()
+    _host_state_locks.clear()
+
+
 async def list_host_stacks(node_id: str) -> list[dict[str, str]]:
     """Stacks docker-compose réellement présentes sur la machine (`docker compose ls`).
 
@@ -247,9 +286,7 @@ async def list_host_containers(node_id: str) -> list[dict[str, str]]:
     listés par `list_host_stacks`)."""
     host = _host_for_node(node_id)
     try:
-        rc, out, err = await run_host_command(
-            host, "docker ps --all --format json", timeout=30.0
-        )
+        rc, out, err = await run_host_command(host, "docker ps --all --format json", timeout=30.0)
     except HostExecError as exc:
         _log.info("host_containers_unavailable", node=node_id, error=str(exc))
         return []
@@ -358,6 +395,7 @@ async def deploy(
         status=status,
         last_error=None if rc == 0 else (err or out)[:2000],
     )
+    invalidate_host_state(node_id)
     await update_deployment_status(conn, uid, status, dep.last_error)
     await persist_op_log(conn, uid, "up", out + ("\n" + err if err else ""))
     if status == "running":
@@ -550,6 +588,7 @@ async def deploy_stream(
         status=status,
         last_error=None if status == "running" else (last_err or compose_out)[:2000],
     )
+    invalidate_host_state(node_id)
     async with _get_engine().begin() as conn:
         # Finalise la ligne de réservation insérée par prepare_deployment (bug 015).
         await update_deployment_status(conn, uid, status, dep.last_error)
@@ -638,6 +677,7 @@ async def lifecycle(
         )
     except HostExecError as exc:
         raise ComposeServiceError(str(exc)) from exc
+    invalidate_host_state(dep.node_id)
     await persist_op_log(conn, uid, action, out + ("\n" + err if err else ""))
     if rc != 0:
         # rc≠0 → statut persisté en "error" et on retourne normalement (la row existe)
@@ -668,6 +708,7 @@ async def teardown(conn: AsyncConnection, uid: str) -> None:
         )
     except HostExecError as exc:
         raise ComposeServiceError(str(exc)) from exc
+    invalidate_host_state(dep.node_id)
     await persist_op_log(conn, uid, "down", out + ("\n" + err if err else ""))
     if rc != 0:
         _log.warning("compose_teardown_failed", uid=uid, name=dep.id, rc=rc)

@@ -558,11 +558,11 @@ async def list_test_host_stacks(
             status_code=404, detail=f"Test host {host_name!r} not attached to {ws!r}"
         )
     try:
-        stacks = await csvc.list_host_stacks(host_name)
-        containers = await csvc.list_host_containers(host_name)
+        # Cache TTL court côté service (be1112a5) : le polling du front ne
+        # déclenche plus deux SSH par requête.
+        return await csvc.get_host_state(host_name)
     except csvc.ComposeServiceError:
         return {"stacks": [], "containers": []}
-    return {"stacks": stacks, "containers": containers}
 
 
 # ─── Partage d'une VM de test vers d'autres workspaces (menu ⋮ « Partager ») ──

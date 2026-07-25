@@ -20,7 +20,7 @@ from ..devpod.exec import TMUX_SOCK_DETECT as _TMUX_SOCK_DETECT
 from ..devpod.exec import tmux as _tmux
 from ..events.bus import emit_event
 from ..recipes.models import _RECIPE_ID_RE
-from ..sessions.aggregate import invalidate_sessions_cache
+from ..sessions.aggregate import invalidate_sessions_cache, probe_workspace_sessions
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-sessions"])
@@ -63,20 +63,18 @@ async def _ssh(ws_id: str, login: str, command: str, timeout: float = 30.0) -> t
 async def list_sessions(name: str, user: UserInfo = Depends(require_user)) -> list[str]:
     _validate_ws_name(name)
     ws_id = f"{user.login}-{name}"
-    # Pas de `|| true` : le rc de tmux différencie « aucun serveur » (1/127, état
-    # normal → liste vide) d'un workspace injoignable (255/timeout → 503 ; le front
-    # conserve alors la dernière liste connue au lieu d'afficher « aucune session »).
-    rc, output = await _ssh(
-        ws_id,
-        user.login,
-        _tmux("list-sessions -F '#{session_name}' 2>/dev/null"),
-    )
+    # Sonde partagée et cachée (TTL court, be1112a5) : chaque onglet terminal
+    # polle toutes les 5 s, une seule sonde SSH par ws et par TTL. Le rc de tmux
+    # différencie « aucun serveur » (1/127, état normal → liste vide) d'un
+    # workspace injoignable (255/timeout → 503 ; le front conserve alors la
+    # dernière liste connue au lieu d'afficher « aucune session »).
+    rc, sessions = await probe_workspace_sessions(user.login, ws_id)
     if rc in NO_TMUX_SERVER_RCS:
         return []
     if rc != 0:
-        _log.warning("list_sessions_unreachable", ws_id=ws_id, rc=rc, output=output)
+        _log.warning("list_sessions_unreachable", ws_id=ws_id, rc=rc)
         raise HTTPException(status_code=503, detail=f"Workspace {name} injoignable (rc={rc})")
-    return [s for s in output.strip().splitlines() if s]
+    return sessions
 
 
 class CreateSessionRequest(BaseModel):

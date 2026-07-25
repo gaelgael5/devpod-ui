@@ -83,14 +83,73 @@ async def test_invalidate_forces_fresh_probe(probe_counter: list[str]) -> None:
 async def test_ttl_expiry_reprobes(
     monkeypatch: pytest.MonkeyPatch, probe_counter: list[str]
 ) -> None:
+    # Neutralise AUSSI le cache par-ws sous-jacent : on observe le cache agrégat.
     monkeypatch.setattr(aggregate, "_CACHE_TTL_S", 0.0)
+    monkeypatch.setattr(aggregate, "_WS_PROBE_TTL_S", 0.0)
     await aggregate.list_sessions(login="alice", is_admin=False)
     await aggregate.list_sessions(login="alice", is_admin=False)
     assert len(probe_counter) == 2
 
 
 @pytest.mark.asyncio
-async def test_cache_key_isolates_logins(probe_counter: list[str]) -> None:
+async def test_cache_key_isolates_logins(
+    monkeypatch: pytest.MonkeyPatch, probe_counter: list[str]
+) -> None:
+    """Le cache AGRÉGAT est par login (pas de fuite du résultat d'alice vers bob).
+
+    La sonde par-ws sous-jacente est neutralisée : elle est volontairement
+    partagée par ws_id, ce qui masquerait l'observation.
+    """
+    monkeypatch.setattr(aggregate, "_WS_PROBE_TTL_S", 0.0)
     await aggregate.list_sessions(login="alice", is_admin=False)
     await aggregate.list_sessions(login="bob", is_admin=False)
-    assert len(probe_counter) == 2  # pas de fuite du cache d'alice vers bob
+    assert len(probe_counter) == 2
+
+
+# ─── Sonde par-workspace (route GET /me/workspaces/{name}/sessions) ──────────
+
+
+@pytest.mark.asyncio
+async def test_ws_probe_cached_within_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    async def _ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0):
+        calls.append(ws_id)
+        return 0, "s1\ns2\n"
+
+    monkeypatch.setattr(aggregate, "ws_exec", _ws_exec)
+    r1 = await aggregate.probe_workspace_sessions("alice", "alice-ws")
+    r2 = await aggregate.probe_workspace_sessions("alice", "alice-ws")
+    assert r1 == r2 == (0, ["s1", "s2"])
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_ws_probe_caches_failures_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un rc d'échec est aussi caché : pas de marteau SSH sur un host mort."""
+    calls: list[str] = []
+
+    async def _ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0):
+        calls.append(ws_id)
+        return 255, "connexion refusée"
+
+    monkeypatch.setattr(aggregate, "ws_exec", _ws_exec)
+    r1 = await aggregate.probe_workspace_sessions("alice", "alice-ws")
+    r2 = await aggregate.probe_workspace_sessions("alice", "alice-ws")
+    assert r1 == r2 == (255, [])
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_ws_probe_invalidated_on_mutation(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    async def _ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0):
+        calls.append(ws_id)
+        return 0, "main\n"
+
+    monkeypatch.setattr(aggregate, "ws_exec", _ws_exec)
+    await aggregate.probe_workspace_sessions("alice", "alice-ws")
+    aggregate.invalidate_sessions_cache()
+    await aggregate.probe_workspace_sessions("alice", "alice-ws")
+    assert len(calls) == 2
