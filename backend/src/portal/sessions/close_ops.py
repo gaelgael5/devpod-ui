@@ -19,6 +19,7 @@ from ..devpod.exec import tmux as _tmux
 from ..devpod.exec import ws_exec
 from ..devpod.host_exec import run_host_command
 from ..events.bus import emit_event
+from .aggregate import invalidate_sessions_cache
 
 _log = structlog.get_logger(__name__)
 
@@ -34,6 +35,7 @@ async def kill_tmux_session(*, owner: str, name: str, session_name: str, actor: 
     rc, output = await ws_exec(owner, ws_id, _tmux(f"kill-session -t {shlex.quote(session_name)}"))
     if rc != 0:
         raise HTTPException(status_code=502, detail=f"Failed to kill tmux session: {output}")
+    invalidate_sessions_cache()
     _log.info("session_closed_via_sessions", ws_id=ws_id, session=session_name, actor=actor)
     await emit_event(
         "session.closed", actor=actor, workspace=name, subject={"session": session_name}
@@ -62,6 +64,7 @@ async def kill_host_tmux_session(*, host_name: str, session_name: str, actor: st
         ) from exc
     if rc != 0:
         raise HTTPException(status_code=502, detail=f"Failed to kill host tmux session: {err}")
+    invalidate_sessions_cache()
     _log.info("host_session_closed_via_sessions", host=host_name, session=session_name, actor=actor)
     await emit_event(
         "session.closed", actor=actor, subject={"host": host_name, "session": session_name}

@@ -572,6 +572,9 @@ async def _session_open(conn: AsyncConnection, args: dict[str, Any], owner_login
     if rc != 0:
         raise DevpodToolError(out)
     if _SESSION_CREATED_MARKER in out:
+        from ...sessions.aggregate import invalidate_sessions_cache
+
+        invalidate_sessions_cache()
         await emit_event(
             "session.created",
             actor=owner_login,
@@ -636,6 +639,9 @@ async def _session_close(conn: AsyncConnection, args: dict[str, Any], owner_logi
     )
     if rc != 0:
         raise DevpodToolError(out)
+    from ...sessions.aggregate import invalidate_sessions_cache
+
+    invalidate_sessions_cache()
     await emit_event(
         "session.closed", actor=owner_login, workspace=name, subject={"session": sess}
     )

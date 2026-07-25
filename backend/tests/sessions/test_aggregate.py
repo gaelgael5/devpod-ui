@@ -13,8 +13,10 @@ from portal.sessions.registry import LiveTerminal
 @pytest.fixture(autouse=True)
 def _clean_registry() -> None:
     registry.clear()
+    aggregate.clear_sessions_cache()
     yield
     registry.clear()
+    aggregate.clear_sessions_cache()
 
 
 class _FakeEngine:

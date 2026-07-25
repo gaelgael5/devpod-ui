@@ -21,8 +21,10 @@ from portal.sessions import aggregate, registry
 @pytest.fixture(autouse=True)
 def _clean_registry() -> None:
     registry.clear()
+    aggregate.clear_sessions_cache()
     yield
     registry.clear()
+    aggregate.clear_sessions_cache()
 
 
 class _FakeEngine:

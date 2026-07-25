@@ -10,6 +10,7 @@ workspace qui n'est PAS suivi `running` (ex. statut `unknown`) est marquée
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Literal
 
 import structlog
@@ -228,8 +229,44 @@ def _warm_running_tunnels(
         asyncio.create_task(warm_tunnel(ref["login"], ws_id))
 
 
+# Découplage polling front / sonde réelle (enabler be1112a5) : le front peut
+# poller à volonté, la sonde SSH ne repart qu'à l'expiration du TTL. Anti-dogpile :
+# un seul refresh concurrent par clé (login, is_admin), les lectures simultanées
+# attendent le même résultat. Invalidé sur mutation (création/fermeture).
+_CACHE_TTL_S = 5.0
+_cache: dict[tuple[str, bool], tuple[float, list[dict[str, Any]]]] = {}
+_cache_locks: dict[tuple[str, bool], asyncio.Lock] = {}
+
+
+def invalidate_sessions_cache() -> None:
+    """Vide le cache : la prochaine lecture re-sonde (appelé après toute mutation)."""
+    _cache.clear()
+
+
+def clear_sessions_cache() -> None:
+    """Purge cache ET verrous. Usage tests uniquement (locks liés à l'event loop)."""
+    _cache.clear()
+    _cache_locks.clear()
+
+
 async def list_sessions(*, login: str, is_admin: bool) -> list[dict[str, Any]]:
-    """Agrège toutes les sessions visibles par l'appelant.
+    """Agrège les sessions visibles par l'appelant, avec cache court (TTL 5 s)."""
+    key = (login, is_admin)
+    hit = _cache.get(key)
+    if hit and hit[0] > time.monotonic():
+        return hit[1]
+    lock = _cache_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        hit = _cache.get(key)  # un refresh concurrent vient peut-être d'aboutir
+        if hit and hit[0] > time.monotonic():
+            return hit[1]
+        result = await _list_sessions_live(login=login, is_admin=is_admin)
+        _cache[key] = (time.monotonic() + _CACHE_TTL_S, result)
+        return result
+
+
+async def _list_sessions_live(*, login: str, is_admin: bool) -> list[dict[str, Any]]:
+    """Agrège toutes les sessions visibles par l'appelant (sonde réelle).
 
     - conteneurs : workspaces **déclarés** de `login` (tous les users si admin),
       sondés tmux en direct — une session vivante hors statut `running` est
