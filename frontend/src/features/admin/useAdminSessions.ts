@@ -29,3 +29,30 @@ export function useSaveSessions() {
     onError: (err: Error) => toast.error(err.message),
   })
 }
+
+// Défauts workspaces (enabler 59864c37) : limite mémoire par défaut des conteneurs.
+export interface WorkspaceDefaults {
+  memory_limit: string
+}
+
+export function useWorkspaceDefaults() {
+  return useQuery<WorkspaceDefaults>({
+    queryKey: ['admin', 'workspace-defaults'],
+    queryFn: () => apiFetchJson<WorkspaceDefaults>('/admin/workspace-defaults'),
+    staleTime: 60_000,
+  })
+}
+
+export function useSaveWorkspaceDefaults() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: WorkspaceDefaults) =>
+      apiFetchJson<WorkspaceDefaults>('/admin/workspace-defaults', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'workspace-defaults'] }),
+    onError: (err: Error) => toast.error(err.message),
+  })
+}

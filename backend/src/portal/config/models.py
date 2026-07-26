@@ -155,9 +155,10 @@ class DevpodDefaults(BaseModel):
     idle_timeout: str = "2h"
     dotfiles: str = ""
     # Limite mémoire par défaut des conteneurs workspace (enabler 59864c37) :
-    # docker --memory, appliquée à la (re)construction du conteneur. "" = aucune
-    # limite (le choix de la valeur est une décision d'exploitation).
-    memory_limit: str = ""
+    # docker --memory, appliquée à la (re)construction du conteneur. 900m par
+    # décision d'exploitation (2026-07-26) ; surchargeable globalement (admin)
+    # et par workspace. "" = aucune limite.
+    memory_limit: str = "900m"
 
     @field_validator("memory_limit")
     @classmethod

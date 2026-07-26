@@ -4,7 +4,14 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useAdminSessions, useSaveSessions, type SessionDurations } from './useAdminSessions'
+import {
+  useAdminSessions,
+  useSaveSessions,
+  useSaveWorkspaceDefaults,
+  useWorkspaceDefaults,
+  type SessionDurations,
+  type WorkspaceDefaults,
+} from './useAdminSessions'
 
 const toMinutes = (seconds: number) => Math.round(seconds / 60)
 const toSeconds = (minutes: number) => Math.round(minutes * 60)
@@ -68,9 +75,57 @@ function SessionsForm({ initial }: { initial: SessionDurations }) {
   )
 }
 
+/** Limite mémoire par défaut des conteneurs workspace (enabler 59864c37). */
+function WorkspaceDefaultsForm({ initial }: { initial: WorkspaceDefaults }) {
+  const { t } = useTranslation()
+  const save = useSaveWorkspaceDefaults()
+  const [memoryLimit, setMemoryLimit] = useState(initial.memory_limit)
+
+  function handleSave() {
+    const value = memoryLimit.trim().toLowerCase()
+    if (value && !/^[0-9]+[bkmg]?$/.test(value)) {
+      toast.error(t('admin.workspaceDefaults.invalid', 'Format attendu : entier + unité b/k/m/g (ex. 900m, 4g)'))
+      return
+    }
+    save.mutate(
+      { memory_limit: value },
+      { onSuccess: () => toast.success(t('admin.workspaceDefaults.saved', 'Défauts workspaces enregistrés')) },
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="ws-default-memory">
+          {t('admin.workspaceDefaults.memoryLimit', 'Limite mémoire par défaut des conteneurs')}
+        </Label>
+        <Input
+          id="ws-default-memory"
+          value={memoryLimit}
+          onChange={(e) => setMemoryLimit(e.target.value)}
+          placeholder="900m"
+          className="max-w-40"
+        />
+        <p className="text-xs text-muted-foreground">
+          {t(
+            'admin.workspaceDefaults.memoryLimitHint',
+            'docker --memory : un dépassement tue le conteneur, pas le host. Vide = aucune limite. Surchargeable par workspace ; appliquée au prochain démarrage/recreate.',
+          )}
+        </p>
+      </div>
+      <div>
+        <Button onClick={handleSave} disabled={save.isPending}>
+          {save.isPending ? '…' : t('admin.sessions.save')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export default function AdminSessions() {
   const { t } = useTranslation()
   const { data, isLoading, isError } = useAdminSessions()
+  const wsDefaults = useWorkspaceDefaults()
 
   return (
     <div className="mx-auto max-w-lg">
@@ -79,6 +134,14 @@ export default function AdminSessions() {
       {isLoading && <p className="text-muted-foreground">…</p>}
       {isError && <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>}
       {data && <SessionsForm initial={data} />}
+
+      <h2 className="mb-2 mt-10 text-lg font-semibold">
+        {t('admin.workspaceDefaults.title', 'Workspaces — défauts')}
+      </h2>
+      {wsDefaults.isError && (
+        <p className="text-sm text-destructive">{t('errors.loadFailed')}</p>
+      )}
+      {wsDefaults.data && <WorkspaceDefaultsForm initial={wsDefaults.data} />}
     </div>
   )
 }

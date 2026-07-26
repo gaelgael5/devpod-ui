@@ -712,6 +712,46 @@ async def put_sessions_config(
     }
 
 
+# ─── Défauts workspaces (enabler 59864c37) ───────────────────────────────────
+
+
+class WorkspaceDefaultsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Limite mémoire par défaut des conteneurs workspace (docker --memory).
+    # "" = aucune limite. Appliquée à la (re)construction du conteneur.
+    memory_limit: str = ""
+
+    @field_validator("memory_limit")
+    @classmethod
+    def _validate_memory_limit(cls, v: str) -> str:
+        from ..config.models import _validate_memory_limit
+
+        return _validate_memory_limit(v)
+
+
+@router.get("/workspace-defaults")
+async def get_workspace_defaults(user: UserInfo = Depends(require_admin)) -> dict[str, str]:
+    return {"memory_limit": load_global().devpod.defaults.memory_limit}
+
+
+@router.put("/workspace-defaults")
+async def put_workspace_defaults(
+    body: WorkspaceDefaultsRequest,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str]:
+    """Écrit la limite mémoire par défaut. Prend effet au prochain up/recreate
+    de chaque workspace (runArgs --memory dans le devcontainer généré)."""
+    cfg = load_global()
+    new_defaults = cfg.devpod.defaults.model_copy(update={"memory_limit": body.memory_limit})
+    cfg.devpod = cfg.devpod.model_copy(update={"defaults": new_defaults})
+    await save_global_db(cfg, conn)
+    set_cached_global(cfg)  # après commit réussi seulement (bug 034)
+    _log.info("workspace_defaults_updated", by=user.login, memory_limit=body.memory_limit)
+    return {"memory_limit": body.memory_limit}
+
+
 @router.post("/network/resolve-workspace-host")
 async def resolve_workspace_host(
     body: ResolveHostRequest, user: UserInfo = Depends(require_admin)

@@ -66,3 +66,58 @@ describe('AdminSessions', () => {
     expect(called).toBe(false)
   })
 })
+
+describe('AdminSessions — défauts workspaces (59864c37)', () => {
+  it('affiche la limite mémoire par défaut et l’enregistre normalisée', async () => {
+    let sent: unknown = null
+    server.use(
+      http.get('/admin/sessions', () =>
+        HttpResponse.json({ session_max_age: 7200, session_absolute_max_age: 43200 }),
+      ),
+      http.get('/admin/workspace-defaults', () =>
+        HttpResponse.json({ memory_limit: '900m' }),
+      ),
+      http.put('/admin/workspace-defaults', async ({ request }) => {
+        sent = await request.json()
+        return HttpResponse.json(sent)
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<AdminSessions />)
+
+    const input = await screen.findByDisplayValue('900m')
+    await user.clear(input)
+    await user.type(input, '2G')
+    // Deux boutons Enregistrer (sessions + workspaces) : prendre le dernier.
+    const saves = screen.getAllByRole('button', { name: /save|enregistrer/i })
+    await user.click(saves[saves.length - 1])
+
+    await waitFor(() => expect(sent).toEqual({ memory_limit: '2g' }))
+  })
+
+  it('refuse un format invalide sans appel backend', async () => {
+    let called = false
+    server.use(
+      http.get('/admin/sessions', () =>
+        HttpResponse.json({ session_max_age: 7200, session_absolute_max_age: 43200 }),
+      ),
+      http.get('/admin/workspace-defaults', () =>
+        HttpResponse.json({ memory_limit: '900m' }),
+      ),
+      http.put('/admin/workspace-defaults', () => {
+        called = true
+        return HttpResponse.json({})
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<AdminSessions />)
+
+    const input = await screen.findByDisplayValue('900m')
+    await user.clear(input)
+    await user.type(input, 'beaucoup')
+    const saves = screen.getAllByRole('button', { name: /save|enregistrer/i })
+    await user.click(saves[saves.length - 1])
+
+    expect(called).toBe(false)
+  })
+})

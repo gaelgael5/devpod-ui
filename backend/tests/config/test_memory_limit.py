@@ -18,8 +18,11 @@ def test_memory_limit_invalid_formats_rejected(value: str) -> None:
         WorkspaceSpec(name="dev", source="github.com/o/r", memory_limit=value)
 
 
-def test_devpod_defaults_memory_limit_validated_and_empty_by_default() -> None:
-    assert DevpodDefaults().memory_limit == ""
+def test_devpod_defaults_memory_limit_900m_and_validated() -> None:
+    # Décision d'exploitation du 2026-07-26 : 900 Mo par défaut, paramétrable
+    # (PUT /admin/workspace-defaults + surcharge par workspace).
+    assert DevpodDefaults().memory_limit == "900m"
     assert DevpodDefaults(memory_limit="6G").memory_limit == "6g"
+    assert DevpodDefaults(memory_limit="").memory_limit == ""
     with pytest.raises(ValueError):
         DevpodDefaults(memory_limit="beaucoup")
