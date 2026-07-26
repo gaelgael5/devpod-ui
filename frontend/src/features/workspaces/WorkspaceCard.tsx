@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, Code2, Loader2, Mail, Play, Plus, Square, SquareTerminal, Trash2 } from 'lucide-react'
+import { ChevronDown, Code2, Loader2, Mail, MoonStar, Pin, Play, Plus, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -35,6 +35,18 @@ import AgentMessagesPanel from './AgentMessagesPanel'
 import { usePendingCounts } from './useAgentMessages'
 import { STATUS_TONE_CLASS } from './statusTone'
 import type { TestHost } from './useTestVm'
+import { useWorkspaceOps } from './useWorkspaceOps'
+
+/** Durée lisible depuis un ISO : "3 h", "45 min", "2 j". */
+function idleDurationLabel(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return ''
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 48) return `${hours} h`
+  return `${Math.floor(hours / 24)} j`
+}
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
   running: STATUS_TONE_CLASS.running,
@@ -94,7 +106,12 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
     )
   const { data: pendingCounts } = usePendingCounts()
   const pendingCount = pendingCounts?.[spec.name] ?? 0
+  const { setKeepActive } = useWorkspaceOps()
   const s = status.status
+  // Suggestion d'arrêt pour inactivité (6016436b) : proposée, JAMAIS automatique.
+  // L'arrêt détruit le serveur tmux — le libellé le dit honnêtement.
+  const showIdleSuggestion =
+    s === 'running' && status.stop_suggested === true && status.keep_active !== true
 
   return (
     <div className="rounded-lg border bg-card p-4" data-testid={`workspace-card-${spec.name}`}>
@@ -162,6 +179,39 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
       {(s === 'provisioning' || isStarting) && (
         <div className="mb-3 h-1 overflow-hidden rounded-full bg-muted">
           <div className="h-full w-1/2 animate-pulse rounded-full bg-primary" />
+        </div>
+      )}
+
+      {showIdleSuggestion && (
+        <div
+          className="mb-3 rounded-md border border-amber-500/50 bg-amber-50 p-2.5 text-xs text-amber-800"
+          data-testid="idle-suggestion"
+        >
+          <div className="flex items-center gap-1.5 font-medium">
+            <MoonStar className="h-3.5 w-3.5 shrink-0" />
+            {t('workspaces.idle.title', {
+              duration: status.idle_since ? idleDurationLabel(status.idle_since) : '',
+              defaultValue: 'Inactif depuis {{duration}} — l’arrêter ?',
+            })}
+          </div>
+          <p className="mt-1 text-amber-700/90">
+            {t(
+              'workspaces.idle.hint',
+              'Rien ne tourne dans ses sessions. L’arrêt libère la RAM mais détruit le serveur tmux (sessions perdues).',
+            )}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" className="h-7 border-amber-600 text-amber-800 hover:bg-amber-100"
+              onClick={() => onStop(spec.name)}>
+              <Square className="mr-1.5 h-3.5 w-3.5" />
+              {t('workspaces.actions.stop')}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 text-amber-800 hover:bg-amber-100"
+              onClick={() => setKeepActive.mutate({ name: spec.name, keepActive: true })}>
+              <Pin className="mr-1.5 h-3.5 w-3.5" />
+              {t('workspaces.idle.keep', 'Garder actif')}
+            </Button>
+          </div>
         </div>
       )}
 
@@ -273,6 +323,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             onOpenLogs={() => setLogsOpen(true)}
             onManageGroups={onManageGroups}
             onManageSkills={() => setSkillsOpen(true)}
+            keepActive={status.keep_active === true}
           />
         </div>
       </div>

@@ -809,17 +809,32 @@ async def _node_list(conn: AsyncConnection, args: dict[str, Any], owner_login: s
         )
         dep_counts = {r["node_id"]: r["cnt"] for r in dep_rows}
 
+    # Vivacité posée par la sonde TCP périodique (nodes/liveness.py, enabler
+    # 727ee81d). Host absent de la table = jamais sondé (ex. usage=tests).
+    from ...db.host_health import get_all as _health_get_all
+
+    health_rows = await _health_get_all(conn)
+
     rows = []
     for h in cfg.hosts:
         node_id = h.name
         is_test = h.usage == "tests"
         link = host_links.get(node_id)
+        health = health_rows.get(node_id)
+        reachable = health["reachable"] if health else None
+        last_seen = health["last_seen"] if health else None
 
         entry: dict[str, Any] = {
             "node_id": node_id,
             "role": "test" if is_test else "dev",
             "host": h.address or h.docker_host or None,
-            "health": {"reachable": None, "status": "configured", "last_seen": None},
+            "health": {
+                "reachable": reachable,
+                "status": (
+                    "configured" if reachable is None else "up" if reachable else "down"
+                ),
+                "last_seen": last_seen.isoformat() if last_seen else None,
+            },
             "lifecycle": {
                 "origin": "generated" if is_test else "enrolled",
                 "ephemeral": is_test,

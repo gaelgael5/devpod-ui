@@ -78,6 +78,20 @@ class AppSettings(BaseSettings):
     # MCP : intervalle de la boucle de monitoring des backends (secondes).
     mcp_monitor_interval_s: float = 300.0
 
+    # Sonde de vivacité des hosts (enabler 727ee81d) : intervalle de la boucle
+    # dédiée (découplée du polling front) et nombre d'échecs consécutifs avant
+    # de basculer un host en `unreachable` (hystérésis anti-hoquet).
+    # 15 s × 3 échecs ≈ 35-50 s de détection : l'alerte Grafana (éval. 30 s)
+    # reste sous la minute exigée par le ticket.
+    host_liveness_interval_s: float = 15.0
+    host_liveness_failures: int = 3
+
+    # Suggestion d'arrêt des workspaces inactifs (enabler 6016436b) : seuil d'idle
+    # avant suggestion (0 = feature désactivée) et intervalle de la passe de
+    # détection. Détection + alerte SEULEMENT — jamais d'arrêt automatique.
+    workspace_idle_threshold_h: float = 3.0
+    workspace_idle_interval_s: float = 300.0
+
     # skills.sh : URL de base de l'API tierce (surchargée en test/mock).
     skills_sh_base_url: str = "https://skills.sh"
     # Contenu canonique des SKILL.md (même source que `npx skills add`).

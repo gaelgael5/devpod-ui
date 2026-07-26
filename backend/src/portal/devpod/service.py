@@ -358,8 +358,16 @@ class DevPodService:
             # Pour SSH : le fichier est généré localement puis uploadé sur la VM distante via
             #   tar|ssh avant devpod up ; le chemin absolu distant est passé à --devcontainer-path.
             dc_path: Path | None = None
+            # Bornage mémoire (enabler 59864c37) : surcharge workspace, sinon
+            # défaut global. "" = pas de limite.
+            memory_limit = ws_spec.memory_limit or global_cfg.devpod.defaults.memory_limit
             needs_devcontainer = bool(
-                recipes or feature_env or inline_sources or profile or ws_spec.recipe_volumes
+                recipes
+                or feature_env
+                or inline_sources
+                or profile
+                or ws_spec.recipe_volumes
+                or memory_limit
             )
             if needs_devcontainer:
                 # mkdtemp/copytree/write_text sont bloquants (plusieurs répertoires de
@@ -373,6 +381,7 @@ class DevPodService:
                     extra_sources=inline_sources or None,
                     profile=profile,
                     recipe_volumes=ws_spec.recipe_volumes or None,
+                    memory_limit=memory_limit or None,
                 )
 
             # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
@@ -839,6 +848,7 @@ class DevPodService:
         recipe_volumes: list[str] | None = None,
         extra_mounts: list[str] | None = None,
         extra_post_create: list[str] | None = None,
+        memory_limit: str | None = None,
     ) -> Path:
         """Écrit devcontainer.json + Feature dirs dans un tmpdir. Retourne le chemin du JSON."""
         user_dir = safe_user_path(login, "devpod")
@@ -938,6 +948,12 @@ class DevPodService:
                         **(vscode.get("settings") or {}),
                         **frag["settings"],
                     }
+
+            # Bornage mémoire (enabler 59864c37) : un agent emballé tue SON
+            # conteneur, pas le host. runArgs vérifié contre devpod v0.6.15
+            # (struct devcontainer config) ; appliqué à la (re)construction.
+            if memory_limit:
+                content["runArgs"] = [f"--memory={memory_limit}"]
 
             mounts: list[str] = []
             if recipe_volumes and recipes:

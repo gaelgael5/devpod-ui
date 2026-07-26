@@ -82,6 +82,23 @@ export function useDeleteHost() {
   })
 }
 
+// Révélation du mot de passe console (gardée par PIN — enabler 6e3d5f3a).
+// Pas d'invalidation de cache : la valeur est éphémère, jamais stockée en query.
+export function useRevealCiPassword() {
+  return useMutation({
+    mutationFn: ({ name, pin }: { name: string; pin: string }) =>
+      apiFetchJson<{ value: string }>(
+        `/admin/hosts/${encodeURIComponent(name)}/ci-password/reveal`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin }),
+        },
+      ),
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
+
 export function useHostCert(name: string, enabled: boolean) {
   return useQuery<Record<string, string>>({
     queryKey: ['admin', 'hosts', name, 'cert'],

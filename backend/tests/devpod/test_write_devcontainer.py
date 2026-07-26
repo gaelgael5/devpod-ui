@@ -172,3 +172,28 @@ def test_write_devcontainer_agent_post_create_appended_after_clones(
     # Le clone est durci (credential.helper vide) mais reste avant le symlink agent.
     assert "clone" in pc
     assert pc.index("clone") < pc.index("ln -sfn a b")
+
+
+# ─── Bornage mémoire (enabler 59864c37) ──────────────────────────────────────
+
+
+def test_write_devcontainer_memory_limit_becomes_run_args(
+    tmp_data_root: Path, global_cfg
+) -> None:
+    from portal.devpod.service import DevPodService
+
+    svc = DevPodService(global_cfg=global_cfg)
+    dc_path = svc._write_devcontainer("alice", "alice-myapp", memory_limit="4g")
+    content = json.loads(dc_path.read_text(encoding="utf-8"))
+    assert content["runArgs"] == ["--memory=4g"]
+
+
+def test_write_devcontainer_without_memory_limit_has_no_run_args(
+    tmp_data_root: Path, global_cfg
+) -> None:
+    from portal.devpod.service import DevPodService
+
+    svc = DevPodService(global_cfg=global_cfg)
+    dc_path = svc._write_devcontainer("alice", "alice-myapp")
+    content = json.loads(dc_path.read_text(encoding="utf-8"))
+    assert "runArgs" not in content

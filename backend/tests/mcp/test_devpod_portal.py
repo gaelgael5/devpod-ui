@@ -54,7 +54,7 @@ async def test_portal_reload_node_unreachable(monkeypatch: pytest.MonkeyPatch) -
 
 def test_registry_and_impls_match() -> None:
     assert set(DEVPOD_PRIMITIVES) == set(devpod_tools._IMPLS)
-    assert len(DEVPOD_PRIMITIVES) == 48
+    assert len(DEVPOD_PRIMITIVES) == 53
 
 
 def test_every_primitive_has_valid_scope_and_schema() -> None:

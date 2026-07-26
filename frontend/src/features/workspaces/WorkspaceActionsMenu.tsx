@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
-  Bot, FileText, FolderOpen, Key, MessageSquare, MoreVertical, PlusCircle, Sparkles, TerminalSquare,
+  Bot, FileText, FolderOpen, Key, MessageSquare, MoreVertical, Pin, PlusCircle, Sparkles, TerminalSquare,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -35,18 +35,20 @@ interface Props {
   onManageGroups?: () => void
   /** Gestion des skills placées dans le workspace (running uniquement). */
   onManageSkills?: () => void
+  /** Épingle « garder actif » (6016436b) : exempte des suggestions d'arrêt. */
+  keepActive?: boolean
 }
 
 /** Menu "⋮" du workspace : SSH, messages, logs, groupes, initializers, VM de test, agents MCP. */
 export default function WorkspaceActionsMenu({
   wsName, running, agents = [], onAddVm, onOpenShell, onShowSshKey,
-  onOpenMessages, onOpenLogs, onManageGroups, onManageSkills,
+  onOpenMessages, onOpenLogs, onManageGroups, onManageSkills, keepActive = false,
 }: Props) {
   const { t } = useTranslation()
   const { data: initializers = [] } = useWorkspaceInitializers(running ? wsName : undefined)
   const { handleRun } = useRunInitializerWithToast(wsName)
   const { data: agentTypes = [] } = useAgentTypes()
-  const { updateWorkspaceAgents } = useWorkspaceOps()
+  const { updateWorkspaceAgents, setKeepActive } = useWorkspaceOps()
 
   const toggleAgent = (agentId: string, checked: boolean) => {
     const next = checked
@@ -110,6 +112,17 @@ export default function WorkspaceActionsMenu({
             {t('groups.manage')}
           </DropdownMenuItem>
         )}
+        <DropdownMenuCheckboxItem
+          className="gap-2"
+          checked={keepActive}
+          onSelect={(e) => e.preventDefault()}
+          onCheckedChange={(checked) =>
+            setKeepActive.mutate({ name: wsName, keepActive: checked })
+          }
+        >
+          <Pin className="h-3.5 w-3.5" />
+          {t('workspaces.keepActive.toggle', 'Garder actif (jamais de suggestion d’arrêt)')}
+        </DropdownMenuCheckboxItem>
         {agentTypes.length > 0 && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="gap-2">

@@ -238,6 +238,12 @@ workspaces = Table(
     Column("groups", ARRAY(Text), nullable=False, server_default="{}"),
     # Spec 35 : types d'agents à configurer (accès MCP direct).
     Column("agents", ARRAY(Text), nullable=False, server_default="{}"),
+    # Épingle « garder actif » (enabler 6016436b, migration 080) : jamais de
+    # suggestion d'arrêt pour inactivité sur ce workspace.
+    Column("keep_active", Boolean, nullable=False, server_default="false"),
+    # Surcharge de la limite mémoire du conteneur (enabler 59864c37, migration
+    # 081) : docker --memory ; "" = hériter du défaut global.
+    Column("memory_limit", Text, nullable=False, server_default=""),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("login", "name", name="uq_workspaces_login_name"),
@@ -388,6 +394,32 @@ workspace_status = Table(
     Column("returncode", Integer, nullable=True),
     Column("error", Text, nullable=True),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Inactivité des workspaces (enabler 6016436b, migration 080) : période d'idle
+# continue observée par sessions/idle.py. Une ligne = un workspace actuellement
+# inactif ; supprimée dès qu'une activité reprend (ou pin / stop). alerted_at
+# non nul = l'alerte de cette période a déjà été émise (une seule par période).
+workspace_idle = Table(
+    "workspace_idle",
+    metadata,
+    Column("ws_id", Text, primary_key=True),
+    Column("login", Text, nullable=False),
+    Column("idle_since", DateTime(timezone=True), nullable=False),
+    Column("last_activity", DateTime(timezone=True), nullable=True),
+    Column("alerted_at", DateTime(timezone=True), nullable=True),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Vivacité des hosts (enabler 727ee81d, migration 079) : posée par la sonde TCP
+# périodique (nodes/liveness.py), lue par node_list. reachable NULL = jamais sondé.
+host_health = Table(
+    "host_health",
+    metadata,
+    Column("name", Text, primary_key=True),
+    Column("reachable", Boolean, nullable=True),
+    Column("last_seen", DateTime(timezone=True), nullable=True),
+    Column("changed_at", DateTime(timezone=True), nullable=True),
 )
 
 # Empreinte de la dernière config agents livrée (migration 072) : le resync ne

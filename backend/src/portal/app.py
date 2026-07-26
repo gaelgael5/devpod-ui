@@ -29,6 +29,7 @@ from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
 from .routes.event_schemas import router as event_schemas_router
+from .routes.host_secrets import router as host_secrets_router
 from .routes.jinja_template_sources import router_admin as jinja_sources_admin_router
 from .routes.jinja_templates import router as jinja_templates_router
 from .routes.mcp import router as mcp_router
@@ -268,11 +269,23 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             _sweep_task: asyncio.Task[None] | None = None
             _agent_reconcile_task: asyncio.Task[None] | None = None
             _outbox_task: asyncio.Task[None] | None = None
+            _liveness_task: asyncio.Task[None] | None = None
+            _idle_task: asyncio.Task[None] | None = None
             if settings_obj.database_url:
                 _monitor_task = asyncio.create_task(
                     monitor_loop(settings_obj.mcp_monitor_interval_s)
                 )
                 _sweep_task = asyncio.create_task(_maintenance_sweep_loop())
+                # Sonde de vivacité des hosts (enabler 727ee81d) : boucle TCP
+                # dédiée, découplée du polling front — alerte sur transition.
+                from .nodes.liveness import liveness_loop
+
+                _liveness_task = asyncio.create_task(liveness_loop())
+                # Suggestion d'arrêt des workspaces inactifs (enabler 6016436b) :
+                # détection + alerte, jamais d'arrêt automatique.
+                from .sessions.idle import idle_suggestions_loop
+
+                _idle_task = asyncio.create_task(idle_suggestions_loop())
                 # Worker de fond de l'outbox workflow : livre les events mis en file
                 # par l'écouteur du bus (POST signé HMAC + retry/backoff).
                 from .events.egress import outbox_worker_loop
@@ -292,6 +305,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     _sweep_task,
                     _agent_reconcile_task,
                     _outbox_task,
+                    _liveness_task,
+                    _idle_task,
                 ):
                     if _task is not None:
                         _task.cancel()
@@ -394,6 +409,7 @@ def create_app() -> FastAPI:
     app.include_router(event_schemas_router)
     app.include_router(recipes_me_router, prefix="/me")
     app.include_router(admin_router, prefix="/admin")
+    app.include_router(host_secrets_router, prefix="/admin")
     app.include_router(nodes_router, prefix="/admin")
     app.include_router(proxmox_router, prefix="/admin")
     app.include_router(recipes_admin_router, prefix="/admin")

@@ -22,6 +22,10 @@ export interface WorkspaceSpec {
   groups?: string[]
   // Ids de types d'agents IA avec accès MCP direct (spec 35).
   agents?: string[]
+  // Épingle « garder actif » : jamais de suggestion d'arrêt pour inactivité (6016436b).
+  keep_active?: boolean
+  // Surcharge de la limite mémoire du conteneur (59864c37), "" = défaut global.
+  memory_limit?: string
 }
 
 export type WorkspaceStatusValue =
@@ -42,6 +46,12 @@ export interface WorkspaceStatus {
    false = host injoignable — le statut `running` est alors déclaratif, pas réel
    (bug 2846f916). null/absent = pas de verdict récent. */
   reachable?: boolean | null
+  /** Épingle « garder actif » (6016436b) : jamais de suggestion d'arrêt. */
+  keep_active?: boolean
+  /** Début de la période d'inactivité continue observée (ISO). */
+  idle_since?: string
+  /** Inactif au-delà du seuil : proposer l'arrêt (jamais automatique). */
+  stop_suggested?: boolean
 }
 
 export const TRANSIENT: ReadonlySet<WorkspaceStatusValue> = new Set([

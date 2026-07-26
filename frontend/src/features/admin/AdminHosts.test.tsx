@@ -143,6 +143,52 @@ describe('AdminHosts', () => {
     expect(screen.queryByText(/Docker node1/)).not.toBeInTheDocument()
   })
 
+  it('révèle le mot de passe console après saisie du PIN (édition, slug présent)', async () => {
+    let sentPin = ''
+    server.use(
+      http.get('/admin/hosts', () =>
+        HttpResponse.json([
+          { name: 'pve1', type: 'docker-tls', default: true, docker_host: 'tcp://192.168.1.50:2376', ci_password_secret_slug: 'host.pve1.ci-password' },
+        ])),
+      http.post('/admin/hosts/pve1/ci-password/reveal', async ({ request }) => {
+        const body = (await request.json()) as { pin: string }
+        sentPin = body.pin
+        return HttpResponse.json({ value: 'sup3r-c0nsole' })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<AdminHosts />)
+    await waitFor(() => expect(screen.getByText('pve1')).toBeInTheDocument())
+
+    // Ouvrir l'édition (premier bouton icône de la ligne = crayon).
+    const pve1Row = screen.getAllByRole('row').find((r) => r.textContent?.includes('pve1'))!
+    await user.click(pve1Row.querySelectorAll('button')[0])
+
+    // Le bouton révéler n'apparaît qu'en édition d'un host qui a un secret stocké.
+    const revealBtn = await screen.findByRole('button', { name: /révéler|reveal/i })
+    await user.click(revealBtn)
+
+    // Saisie du PIN puis confirmation → la valeur s'affiche, le PIN est parti au backend.
+    await user.type(screen.getByPlaceholderText(/pin/i), '123456')
+    await user.click(screen.getByRole('button', { name: /^révéler$|^reveal$/i }))
+    expect(await screen.findByDisplayValue('sup3r-c0nsole')).toBeInTheDocument()
+    expect(sentPin).toBe('123456')
+
+    // « Masquer » re-masque immédiatement.
+    await user.click(screen.getByRole('button', { name: /masquer|hide/i }))
+    expect(screen.queryByDisplayValue('sup3r-c0nsole')).not.toBeInTheDocument()
+  })
+
+  it("n'affiche pas le bouton révéler pour un host sans mot de passe console", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<AdminHosts />)
+    await waitFor(() => expect(screen.getByText('pve1')).toBeInTheDocument())
+    const pve1Row = screen.getAllByRole('row').find((r) => r.textContent?.includes('pve1'))!
+    await user.click(pve1Row.querySelectorAll('button')[0])
+    expect(await screen.findByLabelText(/mot de passe console|console password/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /révéler|reveal/i })).not.toBeInTheDocument()
+  })
+
   it('propose le certificat mTLS (certs tls-* uniquement) pour un host docker-tls', async () => {
     const user = userEvent.setup()
     renderWithProviders(<AdminHosts />)

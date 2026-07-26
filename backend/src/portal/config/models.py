@@ -134,12 +134,35 @@ class SecretsConfig(BaseModel):
     harpocrate: HarpocrateGlobalConfig = Field(default_factory=HarpocrateGlobalConfig)
 
 
+# Format docker : entier + unité b/k/m/g optionnelle (ex. 4g, 512m). La casse
+# est normalisée en minuscule avant validation.
+_MEMORY_LIMIT_RE = re.compile(r"^[0-9]+[bkmg]?$")
+
+
+def _validate_memory_limit(v: str) -> str:
+    v = v.strip().lower()
+    if v and not _MEMORY_LIMIT_RE.fullmatch(v):
+        raise ValueError(
+            f"memory limit {v!r} invalide — entier + unité optionnelle b/k/m/g (ex. 4g, 512m)"
+        )
+    return v
+
+
 class DevpodDefaults(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     ide: str = "openvscode"
     idle_timeout: str = "2h"
     dotfiles: str = ""
+    # Limite mémoire par défaut des conteneurs workspace (enabler 59864c37) :
+    # docker --memory, appliquée à la (re)construction du conteneur. "" = aucune
+    # limite (le choix de la valeur est une décision d'exploitation).
+    memory_limit: str = ""
+
+    @field_validator("memory_limit")
+    @classmethod
+    def validate_memory_limit(cls, v: str) -> str:
+        return _validate_memory_limit(v)
 
 
 class DevpodConfig(BaseModel):
@@ -375,6 +398,17 @@ class WorkspaceSpec(BaseModel):
     groups: list[str] = Field(default_factory=list)
     # Spec 35 : types d'agents à configurer dans le workspace (accès direct MCP).
     agents: list[str] = Field(default_factory=list)
+    # Épingle « garder actif » (enabler 6016436b) : exempte le workspace de toute
+    # suggestion d'arrêt pour inactivité, quel que soit son idle.
+    keep_active: bool = False
+    # Surcharge ponctuelle de la limite mémoire du conteneur (enabler 59864c37) :
+    # "" = hériter de devpod.defaults.memory_limit.
+    memory_limit: str = ""
+
+    @field_validator("memory_limit")
+    @classmethod
+    def validate_memory_limit(cls, v: str) -> str:
+        return _validate_memory_limit(v)
 
     @field_validator("agents")
     @classmethod

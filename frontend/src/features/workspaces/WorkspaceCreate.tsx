@@ -103,6 +103,8 @@ export default function WorkspaceCreate() {
   const [newStartSaving, setNewStartSaving] = useState(false)
   const [generateSshKey, setGenerateSshKey] = useState(false)
   const [profile, setProfile] = useState('')
+  // Surcharge de la limite mémoire du conteneur (59864c37) — vide = défaut global.
+  const [memoryLimit, setMemoryLimit] = useState('')
   const [nameError, setNameError] = useState('')
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({})
   const [serverError, setServerError] = useState('')
@@ -224,6 +226,7 @@ export default function WorkspaceCreate() {
         volumeRecipes,
         initRecipes: selectedInitRecipes,
         agents: selectedAgents,
+        memoryLimit: memoryLimit.trim().toLowerCase(),
       })
       navigate('/workspaces')
     } catch (err) {
@@ -507,6 +510,25 @@ export default function WorkspaceCreate() {
         )}
 
         <ProfileSelector profiles={profiles} value={profile} onChange={setProfile} />
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ws-memory-limit">
+            {t('workspaces.form.memoryLimit', 'Limite mémoire du conteneur (optionnel)')}
+          </Label>
+          <Input
+            id="ws-memory-limit"
+            value={memoryLimit}
+            onChange={(e) => setMemoryLimit(e.target.value)}
+            placeholder={t('workspaces.form.memoryLimitPlaceholder', 'défaut global — ex. 4g, 512m')}
+            pattern="^\s*([0-9]+[bkmgBKMG]?)?\s*$"
+          />
+          <p className="text-xs text-muted-foreground">
+            {t(
+              'workspaces.form.memoryLimitHint',
+              'Un dépassement tue ce conteneur, pas le host. Appliquée à la (re)construction.',
+            )}
+          </p>
+        </div>
 
         <div className="flex items-center gap-2">
           <input

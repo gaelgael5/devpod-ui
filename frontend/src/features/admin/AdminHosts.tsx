@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, Copy, KeyRound, MoreVertical, Pencil, PlayCircle, Trash2 } from 'lucide-react'
+import { ChevronRight, Copy, Eye, KeyRound, MoreVertical, Pencil, PlayCircle, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useTestHostsSummary, type HostConfig, type HostCreatePayload, type HostUserWorkspaces, type UserTestGroup } from './useHosts'
+import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useRevealCiPassword, useTestHostsSummary, type HostConfig, type HostCreatePayload, type HostUserWorkspaces, type UserTestGroup } from './useHosts'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import TestHostParamsDialog from './TestHostParamsDialog'
@@ -165,6 +165,80 @@ function CertViewer({ name }: { name: string }) {
           />
         </div>
       ))}
+    </div>
+  )
+}
+
+// ─── Révélation du mot de passe console (PIN requis) ─────────────────────────
+
+/** Bouton « révéler » du mot de passe console : PIN vault exigé avant tout
+ *  déchiffrement, valeur affichée de façon éphémère (re-masquée après 30 s,
+ *  jamais persistée côté front). Enabler 6e3d5f3a. */
+function CiPasswordReveal({ hostName }: { hostName: string }) {
+  const { t } = useTranslation()
+  const reveal = useRevealCiPassword()
+  const [pinOpen, setPinOpen] = useState(false)
+  const [pin, setPin] = useState('')
+  const [value, setValue] = useState<string | null>(null)
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current) }, [])
+
+  function submit() {
+    reveal.mutate({ name: hostName, pin }, {
+      onSuccess: (res) => {
+        setPin(''); setPinOpen(false); setValue(res.value)
+        if (hideTimer.current) clearTimeout(hideTimer.current)
+        hideTimer.current = setTimeout(() => setValue(null), 30_000)
+      },
+    })
+  }
+
+  if (value !== null) {
+    return (
+      <div className="flex items-center gap-2">
+        <Input readOnly value={value} className="font-mono" onFocus={(e) => e.target.select()} />
+        <Button type="button" variant="ghost" size="sm"
+          onClick={() => navigator.clipboard.writeText(value).catch(() => {})}>
+          <Copy className="h-3.5 w-3.5" />
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => setValue(null)}>
+          {t('hosts.form.ci_password_hide', 'Masquer')}
+        </Button>
+      </div>
+    )
+  }
+
+  if (!pinOpen) {
+    return (
+      <Button type="button" variant="outline" size="sm" className="self-start"
+        onClick={() => setPinOpen(true)}>
+        <Eye className="h-3.5 w-3.5 mr-1.5" />
+        {t('hosts.form.ci_password_reveal', 'Révéler (PIN requis)')}
+      </Button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Input
+        type="password"
+        inputMode="numeric"
+        maxLength={6}
+        autoFocus
+        value={pin}
+        onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (pin.length === 6) submit() } }}
+        placeholder={t('hosts.form.ci_password_pin', 'PIN à 6 chiffres')}
+        className="w-40"
+      />
+      <Button type="button" size="sm" disabled={pin.length !== 6 || reveal.isPending} onClick={submit}>
+        {t('hosts.form.ci_password_confirm', 'Révéler')}
+      </Button>
+      <Button type="button" variant="ghost" size="sm"
+        onClick={() => { setPinOpen(false); setPin('') }}>
+        {t('workspaces.confirm.cancel')}
+      </Button>
     </div>
   )
 }
@@ -936,6 +1010,10 @@ export default function AdminHosts() {
                 placeholder={mode === 'edit' ? t('hosts.form.ci_password_keep', '(conserver le mot de passe existant)') : ''}
                 autoComplete="new-password"
               />
+              {mode === 'edit' &&
+                hosts?.find((h) => h.name === form.name)?.ci_password_secret_slug && (
+                  <CiPasswordReveal hostName={form.name} />
+                )}
             </div>
 
             <label className="flex items-center gap-2 text-sm">
