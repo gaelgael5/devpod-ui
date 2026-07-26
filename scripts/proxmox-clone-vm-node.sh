@@ -647,6 +647,25 @@ REMOTE
     echo "    Swapfile actif et persistant (fstab + sysctl.d)."
 fi
 
+# ─── A.10c — Résilience réseau (enabler 59864c37) ────────────────────────────
+# networkd protégé de l'OOM killer, KeepConfiguration=yes (un échec DHCP ne
+# flush plus l'adresse — incident du 24/07), timer de reprise automatique.
+# Script mutualisé avec le durcissement des VM existantes (harden-networkd.sh).
+HARDEN_URL="https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/harden-networkd.sh"
+echo ""
+echo "==> A.10c — Résilience réseau (networkd)..."
+HARDEN_TMP=$(mktemp /tmp/harden-networkd-XXXXXX.sh)
+if curl -fsSL "$HARDEN_URL" -o "$HARDEN_TMP" 2>/dev/null; then
+    if ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" "${SUDO} bash -s" < "$HARDEN_TMP"; then
+        echo "    Résilience réseau appliquée (OOM shield + KeepConfiguration + timer)."
+    else
+        echo "AVERTISSEMENT : harden-networkd.sh a échoué sur la VM — à rejouer à la main." >&2
+    fi
+else
+    echo "AVERTISSEMENT : $HARDEN_URL introuvable — étape A.10c ignorée." >&2
+fi
+rm -f "$HARDEN_TMP"
+
 # ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
 echo ""
 echo "==> A.11 — Vérification du hostname et de /etc/hosts..."
