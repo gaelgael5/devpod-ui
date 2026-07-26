@@ -29,6 +29,7 @@
 #   --extra-sshkey FICH   Clé publique supplémentaire à injecter (ex. clé Windows)
 #   --ciuser USER         Utilisateur cloud-init      (défaut : debian)
 #   --cpu MODELE          Modèle CPU QEMU             (défaut : x86-64-v3)
+#   --swap PCT            Swapfile en % de la RAM     (défaut : 25 ; 0 = désactivé)
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -53,6 +54,13 @@ CPU_TYPE="x86-64-v3"
 PORTAL_URL=""
 PORTAL_TOKEN=""
 PORTAL_PVE_NODE=""
+# Swapfile d'urgence (enabler 74ad4fdf) : sans swap, un pic mémoire transitoire
+# déclenche l'OOM killer immédiatement (incident du 23/07 : networkd tué, host
+# injoignable). 25 % de la RAM, borné, swappiness bas = airbag, pas matelas.
+SWAP_PERCENT=25
+SWAP_MIN_MB=512
+SWAP_MAX_MB=8192
+SWAPPINESS=10
 
 # ─── Arguments positionnels obligatoires ─────────────────────────────────────
 if [[ $# -lt 2 ]]; then
@@ -82,9 +90,10 @@ while [[ $# -gt 0 ]]; do
         --portal-url)      PORTAL_URL="$2";      shift 2 ;;
         --portal-token)    PORTAL_TOKEN="$2";    shift 2 ;;
         --portal-pve-node) PORTAL_PVE_NODE="$2"; shift 2 ;;
+        --swap)            SWAP_PERCENT="$2";    shift 2 ;;
         *)
             echo "ERREUR : option inconnue : $1" >&2
-            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --cpu --sshkey --extra-sshkey --ciuser --portal-url --portal-token --portal-pve-node" >&2
+            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --cpu --sshkey --extra-sshkey --ciuser --swap --portal-url --portal-token --portal-pve-node" >&2
             exit 1
             ;;
     esac
@@ -136,6 +145,17 @@ fi
 
 # Ajouter le préfixe '+' au montant disque si absent (ex. 40G -> +40G)
 [[ "$DISK_EXTRA" == +* ]] || DISK_EXTRA="+${DISK_EXTRA}"
+
+# Swap : % entier de 0 à 100 ; taille dérivée de la RAM effective, bornée
+[[ "$SWAP_PERCENT" =~ ^[0-9]+$ ]] && [[ "$SWAP_PERCENT" -le 100 ]] || {
+    echo "ERREUR : --swap '$SWAP_PERCENT' invalide — entier 0..100 (%% de la RAM)." >&2
+    exit 1
+}
+SWAP_MB=$(( MEMORY * SWAP_PERCENT / 100 ))
+if [[ "$SWAP_PERCENT" -gt 0 ]]; then
+    [[ "$SWAP_MB" -lt "$SWAP_MIN_MB" ]] && SWAP_MB="$SWAP_MIN_MB"
+    [[ "$SWAP_MB" -gt "$SWAP_MAX_MB" ]] && SWAP_MB="$SWAP_MAX_MB"
+fi
 
 # Valeur 'auto' passée par l'interface → traité comme vide (détection automatique)
 [[ "$STORAGE" == "auto" ]] && STORAGE=""
@@ -251,6 +271,11 @@ echo "    DNS            : $DNS"
 echo "    vCPU / RAM     : ${CORES} cores / ${MEMORY} Mo"
 echo "    Modèle CPU     : $CPU_TYPE"
 echo "    Disque ajouté  : $DISK_EXTRA"
+if [[ "$SWAP_PERCENT" -gt 0 ]]; then
+echo "    Swapfile       : ${SWAP_MB} Mo (${SWAP_PERCENT}% RAM, swappiness ${SWAPPINESS})"
+else
+echo "    Swapfile       : désactivé (--swap 0)"
+fi
 echo "    Clé SSH        : $SSH_KEY_FILE"
 [[ -n "$EXTRA_SSH_KEY_FILE" ]] && \
 echo "    Clé SSH extra  : $EXTRA_SSH_KEY_FILE"
@@ -589,6 +614,38 @@ REMOTE
 echo "    Paquets installés (git, openssl, docker CE + compose v2)."
 echo "    Utilisateur '${CI_USER}' ajouté au groupe docker."
 echo "    Builder 'devpod-builder' (docker-container) configuré."
+
+# ─── A.10b — Swapfile d'urgence (enabler 74ad4fdf) ───────────────────────────
+# Posé ici (provisioning SSH, comme A.10/A.11) plutôt que via un snippet
+# cloud-init `cicustom` : sur Proxmox, `cicustom user=` REMPLACE tout le
+# user-data généré et ferait sauter --sshkeys/--cipassword posés en A.3.
+# Idempotent : re-run du script → aucune duplication.
+if [[ "$SWAP_PERCENT" -gt 0 ]]; then
+    echo ""
+    echo "==> A.10b — Swapfile ${SWAP_MB} Mo (${SWAP_PERCENT}% RAM, swappiness ${SWAPPINESS})..."
+
+    ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
+set -e
+if ! ${SUDO} test -f /swapfile; then
+    # fallocate est instantané ; dd en secours (systèmes de fichiers sans support)
+    ${SUDO} fallocate -l ${SWAP_MB}M /swapfile 2>/dev/null \
+        || ${SUDO} dd if=/dev/zero of=/swapfile bs=1M count=${SWAP_MB} status=none
+    ${SUDO} chmod 600 /swapfile
+    ${SUDO} mkswap /swapfile > /dev/null
+fi
+# Activer si pas déjà actif (re-run) ; fstab pour la persistance au reboot
+${SUDO} swapon --show=NAME --noheadings 2>/dev/null | grep -qx /swapfile \
+    || ${SUDO} swapon /swapfile
+grep -q '^/swapfile' /etc/fstab \
+    || echo '/swapfile none swap sw 0 0' | ${SUDO} tee -a /etc/fstab > /dev/null
+# Swap d'URGENCE : inerte tant que la RAM suffit (défaut 60 = swap proactif qui
+# fait ramer les conteneurs actifs d'un host Docker)
+printf 'vm.swappiness=${SWAPPINESS}\n' | ${SUDO} tee /etc/sysctl.d/99-swappiness.conf > /dev/null
+${SUDO} sysctl -q -p /etc/sysctl.d/99-swappiness.conf
+REMOTE
+
+    echo "    Swapfile actif et persistant (fstab + sysctl.d)."
+fi
 
 # ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
 echo ""

@@ -152,6 +152,18 @@
           "type": "string",
           "required": false,
           "default": "+40G"
+        },
+        {
+          "arg": "SWAP_PERCENT",
+          "label_fr": "Swapfile (% de la RAM)",
+          "label_en": "Swapfile (% of RAM)",
+          "description_fr": "Swap d'urgence posé au provisioning (swappiness bas, borné 512 Mo–8 Go). 0 = désactivé.",
+          "description_en": "Emergency swapfile created at provisioning (low swappiness, clamped 512 MB–8 GB). 0 = disabled.",
+          "type": "integer",
+          "required": false,
+          "default": 25,
+          "min": 0,
+          "max": 100
         }
 
       ]
@@ -162,7 +174,7 @@
   "commands": [
     "curl -fsSL -o /tmp/proxmox-clone-vm-node.sh https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/proxmox-clone-vm-node.sh",
     "chmod +x /tmp/proxmox-clone-vm-node.sh",
-    "/tmp/proxmox-clone-vm-node.sh {NEW_VMID} '{NODE_NAME}' --ip '{IP_CIDR}' --gw '{GATEWAY}' --template '{TEMPLATE_VMID}' --storage '{STORAGE}' --dns '{DNS}' --memory {MEMORY} --cores {CORES} --disk '{DISK_EXTRA}' --ciuser '{CI_USER}' --portal-url '{PORTAL_URL}' --portal-token '{PORTAL_TOKEN}' --portal-pve-node '{PORTAL_PVE_NODE}'"
+    "/tmp/proxmox-clone-vm-node.sh {NEW_VMID} '{NODE_NAME}' --ip '{IP_CIDR}' --gw '{GATEWAY}' --template '{TEMPLATE_VMID}' --storage '{STORAGE}' --dns '{DNS}' --memory {MEMORY} --cores {CORES} --disk '{DISK_EXTRA}' --swap {SWAP_PERCENT} --ciuser '{CI_USER}' --portal-url '{PORTAL_URL}' --portal-token '{PORTAL_TOKEN}' --portal-pve-node '{PORTAL_PVE_NODE}'"
   ],
   "tags": ["create_vm"]
 }
