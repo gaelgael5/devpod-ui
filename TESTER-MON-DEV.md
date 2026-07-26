@@ -2,23 +2,25 @@
 
 ## Environnement de test disponible
 
-### Machine test1 (`192.168.10.196`)
+### Machine de test (alias SSH `test2`, actuellement `192.168.10.219`)
 
-> ⚠️ Les VMs de test sont éphémères : l'IP peut changer d'une session à l'autre.
-> L'alias SSH `test1` (~/.ssh/config) est la source de vérité — l'utiliser partout.
-
-Alias SSH `test1` (défini dans `~/.ssh/config`). VM dédiée aux tests du portail, accessible en SSH depuis le devpod.
+> ⚠️ Les VMs de test sont éphémères : l'IP ET le nom d'alias peuvent changer d'une
+> session à l'autre (l'ancienne `test1`/192.168.10.196 n'existe plus). L'alias SSH
+> présent dans `~/.ssh/config` est la source de vérité — l'utiliser partout.
+> État au 2026-07-26 : la stack dev n'est PAS installée sur test2 (VM liée au
+> workspace `ruleportal`) — suivre « Première installation » avant tout test,
+> ou demander à l'utilisateur quelle VM utiliser.
 
 Répertoire du projet : `/opt/workspace-portal-dev` (branche `dev`, clonée manuellement la première fois).
 
-**Stack dev active sur test1 :**
+**Stack dev une fois déployée (remplacer l'IP par celle de l'alias) :**
 
 | Service | Accès | Rôle |
 |---------|-------|------|
-| Portal  | `http://192.168.10.196:8080` | Portail complet (bypass Caddy) |
-| Caddy   | `http://192.168.10.196:8090` | Reverse proxy dev |
-| PostgreSQL | `192.168.10.196:5432` | Base de données |
-| Browserless | `http://192.168.10.196:3000` | Chromium headless — tests UI autonomes |
+| Portal  | `http://<test-vm>:8080` | Portail complet (bypass Caddy) |
+| Caddy   | `http://<test-vm>:8090` | Reverse proxy dev |
+| PostgreSQL | `<test-vm>:5432` | Base de données |
+| Browserless | `http://<test-vm>:3000` | Chromium headless — tests UI autonomes |
 
 ### Browserless v2 (`ghcr.io/browserless/chromium`)
 
