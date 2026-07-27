@@ -1,0 +1,102 @@
+# Règles d'alerte du portail — provisionnées avec la stack (dev ET prod montent
+# ce répertoire). Elles se branchent sur la politique de notification par défaut
+# → contact point existant de l'instance ; rien à cliquer.
+#
+# Les logs du portail sont au format console structlog (PAS JSON) : les requêtes
+# utilisent des filtres de ligne, robustes au format.
+#
+# - host injoignable  (enabler 727ee81d) : émis sur TRANSITION par la sonde TCP
+#   (hystérésis 3 × 15 s côté portail) → éval 30 s, pas de pending. Budget < 1 min.
+# - workspace inactif (enabler 6016436b) : émis UNE fois par période d'inactivité
+#   continue → fenêtre 10 min, éval 1 min. Informative (l'UI porte déjà l'action).
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: portal-hosts
+    folder: Portail
+    interval: 30s
+    rules:
+      - uid: portal-host-unreachable
+        title: Host injoignable (sonde portail)
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+          source: portal-liveness
+        annotations:
+          summary: "Un host du portail ne répond plus (sonde TCP, enabler 727ee81d)."
+          description: "Transition host_reachability_changed state=unreachable détectée. Diagnostic : docs/alerte-vivacite-hosts.md."
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 180
+              to: 0
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: range
+              expr: sum(count_over_time({compose_service="portal"} |= `host_reachability_changed` |= `state=unreachable` [3m]))
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+
+  - orgId: 1
+    name: portal-workspaces
+    folder: Portail
+    interval: 1m
+    rules:
+      - uid: portal-workspace-idle
+        title: Workspace inactif — arrêt suggéré
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+          source: portal-idle
+        annotations:
+          summary: "Un workspace est inactif au-delà du seuil (enabler 6016436b) — arrêt proposé, jamais automatique."
+          description: "Log workspace_idle_detected (une occurrence par période d'inactivité continue). L'arrêt en un clic est dans l'UI du portail."
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: range
+              expr: sum(count_over_time({compose_service="portal"} |= `workspace_idle_detected` [10m]))
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]

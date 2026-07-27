@@ -23,33 +23,31 @@ host_reachability_changed host=<name> state=unreachable consecutive_failures=3  
 host_reachability_changed host=<name> state=reachable                            (niveau info)
 ```
 
-## Règle d'alerte Grafana (à poser sur la stack existante)
+## Règle d'alerte Grafana — provisionnée avec la stack
 
-Le contact point existe déjà — il n'y a qu'une règle à créer, branchée sur les
-logs du portail dans Loki.
+**Rien à cliquer** : la règle est livrée en provisioning as-code dans
+`deploy/grafana-provisioning/alerting/portal-alerts.yaml` (le compose dev ET
+prod montent ce répertoire) — elle apparaît dans Grafana au prochain (re)démarrage
+du conteneur grafana, branchée sur la politique de notification par défaut
+→ contact point existant.
 
-- **Requête (Loki)** :
+⚠️ Les logs du portail sont au format **console structlog, pas JSON** (Loki les
+marque `JSONParserErr` si on tente `| json`) : la requête utilise des filtres de
+ligne, robustes au format :
 
-  ```logql
-  sum by (host) (
-    count_over_time(
-      {compose_service="portal"}
-        | json
-        | event = "host_reachability_changed"
-        | state = "unreachable" [2m]
-    )
-  )
-  ```
+```logql
+sum(count_over_time(
+  {compose_service="portal"}
+    |= `host_reachability_changed`
+    |= `state=unreachable` [3m]
+))
+```
 
-- **Condition** : `> 0` — le log n'est émis que sur transition, la fenêtre 2 min
+- **Condition** : `> 0` — le log n'est émis que sur transition, la fenêtre
   n'accumule donc pas de bruit.
-- **Évaluation** : toutes les 30 s, pending period `0s` (la débounce est déjà
-  faite par l'hystérésis côté portail).
-- **Résolution auto** : la même requête avec `state = "reachable"` peut servir
-  de règle de rétablissement, ou laisser l'alerte se résoudre quand la condition
-  repasse à 0 après la fenêtre.
-- **Notification** : contact point existant.
-- **Libellé suggéré** : `Host {{ $labels.host }} injoignable (sonde portail)`.
+- **Évaluation** : toutes les 30 s, pending `0s` (la débounce est déjà faite par
+  l'hystérésis côté portail).
+- **Notification** : politique par défaut → contact point existant.
 
 Budget temps : 3 × 15 s de sonde + évaluation 30 s → alerte **< 1 minute** après
 la disparition du host (critère du ticket).
@@ -63,14 +61,10 @@ fois par période d'inactivité continue — la ligne :
 workspace_idle_detected ws_id=<login-name> login=<login> idle_since=<iso> idle_hours=<n>
 ```
 
-Règle Grafana optionnelle (l'UI porte déjà la suggestion avec bouton stop) :
-
-```logql
-{compose_service="portal"} | json | event = "workspace_idle_detected" [10m]
-```
-
-Condition `count > 0`, éval 5 min, contact point existant. **Aucune action
-automatique** : l'alerte propose, l'humain arrête depuis le portail.
+Règle **provisionnée elle aussi** (`portal-alerts.yaml`, groupe
+`portal-workspaces`) — filtre de ligne `|= workspace_idle_detected`, fenêtre
+10 min, éval 1 min, sévérité warning. **Aucune action automatique** : l'alerte
+propose, l'humain arrête depuis le portail.
 
 ## Vérification (sur l'infra réelle)
 
