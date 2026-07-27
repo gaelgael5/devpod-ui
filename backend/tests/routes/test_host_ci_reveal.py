@@ -31,7 +31,21 @@ def audit_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     async def _record(conn: Any, **kwargs: Any) -> None:
         calls.append(kwargs)
 
+    # Les refus s'écrivent sur une transaction dédiée (le 4xx fait rollback de
+    # celle de la requête) : on court-circuite l'acquisition d'engine du chemin
+    # denied en le rebranchant sur le même enregistreur.
+    async def _denied(login: str, host: str, error: str) -> None:
+        calls.append(
+            {
+                "owner_login": login,
+                "backend_id": host,
+                "status": "denied",
+                "error": error,
+            }
+        )
+
     monkeypatch.setattr(host_secrets, "_audit_record", _record)
+    monkeypatch.setattr(host_secrets, "_audit_denied", _denied)
     return calls
 
 

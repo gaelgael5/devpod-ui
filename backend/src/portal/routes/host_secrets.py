@@ -65,6 +65,23 @@ async def _audit(
     )
 
 
+async def _audit_denied(login: str, host: str, error: str) -> None:
+    """Trace un refus dans une transaction DÉDIÉE.
+
+    La HTTPException levée juste après fait ROLLBACK de la connexion de la
+    requête (`get_conn` = `engine.begin()`) : écrit sur cette connexion, l'audit
+    denied disparaissait silencieusement (constaté sur la stack dev, 27/07).
+    Best-effort : un échec d'audit ne doit pas masquer le refus lui-même.
+    """
+    from ..db.engine import _get_engine
+
+    try:
+        async with _get_engine().begin() as conn:
+            await _audit(conn, login, host, "denied", error)
+    except Exception:
+        _log.warning("host_ci_reveal_audit_failed", host=host, exc_info=True)
+
+
 @router.post("/hosts/{name}/ci-password/reveal")
 async def reveal_host_ci_password(
     name: str,
@@ -92,7 +109,7 @@ async def reveal_host_ci_password(
     except VaultDisabledError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except PinLockedError as exc:
-        await _audit(conn, user.login, name, "denied", "pin_locked")
+        await _audit_denied(user.login, name, "pin_locked")
         raise HTTPException(
             status_code=423,
             detail={
@@ -101,7 +118,7 @@ async def reveal_host_ci_password(
             },
         ) from exc
     except PinWrongError as exc:
-        await _audit(conn, user.login, name, "denied", "pin_wrong")
+        await _audit_denied(user.login, name, "pin_wrong")
         _log.warning("host_ci_password_reveal_denied", host=name, by=user.login)
         raise HTTPException(status_code=403, detail="Incorrect PIN") from exc
     except PinNotSetupError as exc:
