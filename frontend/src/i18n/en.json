@@ -1,4 +1,7 @@
 {
+  "terminal": {
+    "invalidTarget": "Invalid terminal target."
+  },
   "groups": {
     "new": "New group",
     "manage": "Manage groups",
@@ -40,8 +43,17 @@
     "hostUnknown": "unknown node",
     "created": "Session “{{name}}” created",
     "closed": "Session “{{name}}” closed",
-    "filter": { "all": "All", "workspace": "Containers", "host": "Hosts", "test": "Test" },
-    "family": { "workspace": "container", "host": "host", "test": "test" },
+    "filter": {
+      "all": "All",
+      "workspace": "Containers",
+      "host": "Hosts",
+      "test": "Test"
+    },
+    "family": {
+      "workspace": "container",
+      "host": "host",
+      "test": "test"
+    },
     "col": {
       "kind": "Kind",
       "target": "Target",
@@ -49,7 +61,8 @@
       "owner": "Owner",
       "state": "State",
       "actions": "Actions"
-    }
+    },
+    "noTmux": "tmux is not installed on: {{hosts}}. Terminals there run a plain shell, NOT persistent (a disconnect loses the session). Install tmux on the machine (e.g. sudo apt-get install -y tmux) then reopen the terminal."
   },
   "workspaces": {
     "title": "Workspaces",
@@ -60,7 +73,8 @@
       "stopped": "stopped",
       "provisioning": "provisioning",
       "failed": "failed",
-      "unknown": "unknown"
+      "unknown": "unknown",
+      "disconnected": "unreachable"
     },
     "actions": {
       "open": "Open",
@@ -79,10 +93,8 @@
       "closeLabel": "Close SSH session"
     },
     "terminals": {
-      "title": "Sessions",
-      "open": "Terminal",
-      "back": "Workspaces",
       "newSession": "New session",
+      "sessionsMenu": "Sessions ({{count}})",
       "noSession": "No active session",
       "noSessionAction": "Create a session",
       "createTitle": "New session",
@@ -93,10 +105,32 @@
       "startRecipeNone": "— none —",
       "create": "Create",
       "cancel": "Cancel",
-      "deleteSession": "Delete session",
-      "reconnectSession": "Reconnect session",
-      "hideSidebar": "Hide panel",
-      "showSidebar": "Show panel"
+      "disconnected": "Session disconnected.",
+      "reconnect": "Reconnect",
+      "deleteSession": "Delete session {{name}}",
+      "deleteTitle": "Delete session?",
+      "deleteDescription": "Session “{{name}}” and its tmux will be closed — any running process (including an agent) will be interrupted.",
+      "confirmDelete": "Delete",
+      "deleted": "Session “{{name}}” deleted.",
+      "keybar": {
+        "esc": "Esc",
+        "escTitle": "Send the Escape key",
+        "interrupt": "Interrupt",
+        "interruptTitle": "Interrupt the foreground process (SIGINT)",
+        "paste": "Paste",
+        "pasteTitle": "Paste the clipboard into the session",
+        "pasteError": "Clipboard unavailable",
+        "copy": "Copy",
+        "copyTitle": "Copy the terminal selection",
+        "copyEmpty": "No selection to copy",
+        "copied": "Selection copied",
+        "arrowUp": "Arrow up",
+        "arrowDown": "Arrow down",
+        "arrowLeft": "Arrow left",
+        "arrowRight": "Arrow right",
+        "tab": "Tab",
+        "tabTitle": "Send the Tab key (completion)"
+      }
     },
     "initializers": {
       "button": "Initialize",
@@ -162,6 +196,23 @@
       "copied": "URL copied",
       "copyFailed": "Failed to copy URL",
       "saveFailed": "Failed to save link"
+    },
+    "testHostStacks": {
+      "stacksTitle": "Other Docker stacks on the machine",
+      "containersTitle": "Non-compose containers"
+    },
+    "testHostShare": {
+      "menu": "Share…",
+      "title": "Share {{alias}}",
+      "description": "Make this test machine reachable over SSH from other running workspaces. Each checked workspace gets access (ssh) and a message for its agent; unchecking removes access.",
+      "loading": "Loading…",
+      "empty": "No other running workspace to share with.",
+      "notRunning": "stopped",
+      "sharedBadge": "Shared by {{from}}",
+      "save": "Save",
+      "saving": "Applying share…",
+      "saved": "Sharing updated",
+      "saveFailed": "Failed to update sharing"
     },
     "form": {
       "name": "Name",
@@ -241,7 +292,8 @@
       "loading": "Loading…",
       "copy": "Copy",
       "copied": "Copied!"
-    }
+    },
+    "skillsMenu": "Workspace skills…"
   },
   "recipes": {
     "title": "Recipes",
@@ -536,6 +588,9 @@
       "hostName": "Name",
       "hostType": "Type",
       "dockerHost": "Docker socket URL",
+      "dockerCert": "mTLS certificate",
+      "dockerCertNone": "— shared portal certificate —",
+      "dockerCertHint": "tls-* entry from the certificate manager (Security). An imported bundle with a CA is required for Docker mTLS.",
       "address": "Address",
       "keyPath": "TLS cert directory",
       "makeDefault": "Default host",
@@ -577,8 +632,12 @@
         "workspaces": "Workspaces",
         "tests": "Test machine",
         "portail": "Portal",
-        "ressources": "Shared resources"
-      }
+        "ressources": "Shared resources",
+        "autres": "Other"
+      },
+      "sshCert": "SSH key",
+      "sshCertNone": "— keep current key —",
+      "sshCertHint": "ssh-* key from the certificate manager (Security) to use for the connection. Its public key must already be authorized on the host (otherwise use \"Bootstrap SSH\")."
     },
     "deleteHost": "Delete host",
     "deleteHostTitle": "Delete host",
@@ -618,6 +677,22 @@
       "selectNode": "Select a node…",
       "configure": "Configure",
       "configuring": "Configuring…"
+    },
+    "otherHosts": {
+      "sectionTitle": "Other servers"
+    },
+    "sessions": {
+      "navLabel": "Sessions",
+      "title": "Session durations",
+      "intro": "Time before sessions disconnect (SSH terminal and VS Code view). Applied instantly, no restart.",
+      "idleMaxAge": "Idle before disconnect (minutes)",
+      "idleMaxAgeHint": "SLIDING window: reset on every activity. As long as you work, you stay connected. Default: 120 min (2 h).",
+      "absoluteMaxAge": "Maximum session lifetime (minutes)",
+      "absoluteMaxAgeHint": "ABSOLUTE cap from login, regardless of activity: past it, an OIDC re-login is required (refreshes roles). Intentionally large. Default: 720 min (12 h).",
+      "save": "Save",
+      "saved": "Session durations updated.",
+      "invalid": "Invalid durations (minimum 1 minute).",
+      "absoluteBelowIdle": "The maximum lifetime must be ≥ the idle timeout."
     }
   },
   "errors": {
@@ -821,6 +896,8 @@
       "storageHarpocrate": "Harpocrate Wallet",
       "vaultWallet": "Wallet",
       "privateKey": "Private key (PEM)",
+      "caPem": "CA (PEM) — optional, for docker-tls mTLS",
+      "caPemHint": "ca.pem of the authority that signed the daemon certificate (required for the docker-tls connection)",
       "publicKey": "Public key",
       "pasteMode": "Paste",
       "generateMode": "Generate",
@@ -867,7 +944,8 @@
       "PAT_GITLAB": "Personal Access Token — GitLab",
       "PAT_AZURE": "Personal Access Token — Azure DevOps",
       "API_KEY": "Generic API Key",
-      "MCP_DISCOVERY": "MCP Discovery Service"
+      "MCP_DISCOVERY": "MCP Discovery Service",
+      "SKILLS_SH": "skills.sh API key"
     },
     "patHelp": {
       "title": "How do I get a Personal Access Token (PAT)?",
@@ -1036,7 +1114,6 @@
       "added": "Source “{{label}}” added",
       "deleted": "Source “{{label}}” removed",
       "delete": "Remove source",
-      "sourcesTitle": "Configured sources",
       "searchTitle": "Search a service",
       "sourceLabel": "Source",
       "searchPlaceholder": "Search the catalog…",
@@ -1050,7 +1127,11 @@
       "stars": "{{count}} ★",
       "prev": "Previous",
       "next": "Next",
-      "pageOf": "Page {{page}}"
+      "pageOf": "Page {{page}}",
+      "addSource": "Add source",
+      "addTitle": "New discovery source",
+      "cancel": "Cancel",
+      "noSources": "No source configured — add one to search a catalog."
     },
     "backends": {
       "sectionTitle": "MCP Servers",
@@ -1062,6 +1143,12 @@
       "name": "Name",
       "url": "URL",
       "transport": "Transport",
+      "authScheme": "Authentication",
+      "authSchemeBearer": "Bearer (MCP standard)",
+      "authSchemeApiKey": "X-API-Key header",
+      "authSchemeHint": "How the key is sent to the server. \"Bearer\" (Authorization: Bearer) by default; \"X-API-Key\" for servers that require it.",
+      "forwardIdentityLabel": "Forward my identity (on-behalf-of)",
+      "forwardIdentityHint": "Adds a signed identity of the logged-in user to calls (x-portal-actor* headers). Enable only for a trusted service that verifies it (docflow, rag, workflow). Requires a key.",
       "keysTitle": "Authentication keys",
       "addKey": "Add a key",
       "noKeys": "No key.",
@@ -1127,7 +1214,12 @@
       "connectedAt": "Connected:",
       "lastCall": "Last call:",
       "workspaceBadge": "workspace",
-      "workspaceHint": "Key generated by the portal for this workspace — profile managed automatically, revoke only."
+      "workspaceHint": "Key generated by the portal for this workspace — profile managed automatically, revoke only.",
+      "rotate": "Rotate",
+      "rotateNeedsRunning": "Start the workspace to rotate its key (the new token is re-injected into it).",
+      "rotatedTitle": "Key rotated",
+      "rotatedWarning": "The old key is revoked. Copy the new one now — it will not be shown again.",
+      "rotatedReinjected": "Key rotated and re-injected into workspace {{ws}} — the previous generation expires after the grace window."
     },
     "saving": "Saving…",
     "save": "Save"
@@ -1283,8 +1375,13 @@
     "login": "Login",
     "loginHint": "Your login cannot be changed.",
     "email": "Email address",
+    "emailPlaceholder": "you@example.org",
     "displayName": "Display name",
     "displayNamePlaceholder": "Your display name",
+    "identity": "Identity (MCP services)",
+    "identityPlaceholder": "Identity GUID",
+    "identityGenerate": "Generate",
+    "identityHint": "GUID forwarded to services (workflow, rag, doc) when a backend has \"Forward my identity\" enabled, to attribute objects created by your agents to you. Generate one (or enter one) and set the SAME value on the service side. Left empty: no identity forwarded.",
     "save": "Save",
     "saved": "Changes saved.",
     "saveError": "Failed to save changes."
@@ -1313,101 +1410,86 @@
   "servicesSecurity": {
     "navLabel": "Services & Security"
   },
-  "services": {
-    "tabLabel": "Services",
-    "sectionTitle": "Registered services",
-    "create": "Add a service",
-    "createTitle": "New service",
-    "editTitle": "Edit service",
-    "name": "Name",
-    "namePlaceholder": "e.g. Grafana",
-    "url": "URL",
-    "mcpProfile": "MCP profile",
-    "mcpProfilePlaceholder": "Pick a profile…",
-    "noProfileHint": "No MCP profile available — create one in the MCP tab.",
-    "noProfile": "No profile",
-    "empty": "No registered service.",
-    "confirmDelete": "Confirm deletion"
+  "applications": {
+    "title": "Applications",
+    "intro": "Your important applications, one click away.",
+    "addButton": "Add",
+    "addTitle": "Add an application",
+    "editTitle": "Edit application",
+    "save": "Save",
+    "edit": "Edit {{name}}",
+    "iconLabel": "Icon",
+    "iconPlaceholder": "📚 or https://…/icon.png",
+    "iconHint": "An emoji, or an https image URL. Auto-detected from the URL when possible.",
+    "iconDetecting": "Looking for the favicon…",
+    "nameLabel": "Name",
+    "namePlaceholder": "Doc",
+    "urlLabel": "URL",
+    "urlPlaceholder": "https://doc.yoops.org",
+    "urlHint": "URL must start with http:// or https://",
+    "add": "Add",
+    "cancel": "Cancel",
+    "empty": "No application yet. Click “Add” to create your first shortcut.",
+    "emptyUser": "No application has been published by an administrator yet.",
+    "remove": "Remove {{name}}"
   },
-  "rules": {
-    "tabLabel": "Rules",
-    "sectionTitle": "Automation rules",
-    "intro": "A rule reacts to an event: each condition calls an MCP method of a service (probe) and tests the return — all must be true (AND). Actions then run in order, followed by the chained rule if any. Variables available in parameters: {workspace}, {actor}, {subject[key]}.",
-    "create": "Add a rule",
-    "createTitle": "New rule",
-    "editTitle": "Edit rule",
-    "name": "Name",
-    "namePlaceholder": "e.g. Create the docflow workspace",
-    "event": "Trigger event",
-    "eventPlaceholder": "Pick an event…",
-    "conditionsLegend": "Conditions (AND)",
-    "conditionsHint": "All conditions must be true; evaluated in order, stop at the first false. No condition = actions run on every event.",
-    "conditionN": "Condition {{n}}",
-    "addCondition": "Add a condition",
-    "removeCondition": "Remove condition",
-    "actionsLegend": "Actions (in order)",
-    "actionsHint": "Run when all conditions are true; the first error stops the rest.",
-    "actionN": "Action {{n}}",
-    "addAction": "Add an action",
-    "removeAction": "Remove action",
-    "service": "Service",
-    "servicePlaceholder": "Pick a service…",
-    "tool": "MCP method",
-    "toolPlaceholder": "Pick a method…",
-    "args": "Parameters (JSON)",
-    "argsInvalid": "Invalid JSON (object expected).",
-    "testCall": "Test",
-    "testCallSent": "Sent:",
-    "variablesHint": "Variables: {workspace} · {actor} · {event} · {subject[key]}",
-    "variablesTitle": "{workspace} = workspace name of the event · {actor} = user login · {event} = event type · {subject[key]} = field of the event subject (e.g. {subject[ws_id]})",
-    "testWorkspaceEmptyWarning": "{workspace} will be replaced by an EMPTY value for this run — fill in \"Test workspace\" at the top of the form.",
-    "formTestWorkspace": "Test workspace (Test buttons)",
-    "formTestWorkspaceHint": "Value injected into {workspace} by the Test buttons of probes and actions — the call really executes.",
-    "conditionPath": "Extraction path",
-    "conditionOperator": "Operator",
-    "conditionValue": "Compared value",
-    "op": {
-      "eq": "equals (=)",
-      "neq": "not equal (≠)",
-      "contains": "contains",
-      "not_contains": "does not contain"
+  "skills": {
+    "tabLabel": "Skills",
+    "title": "Skills (skills.sh)",
+    "subtitle": "Search skills for your agents. “Add” creates a validation request — no skill is ever usable without explicit human validation.",
+    "secretLabel": "API key (rate limit)",
+    "noSecret": "— no key —",
+    "searchPlaceholder": "Search a skill…",
+    "searchBtn": "Search",
+    "searching": "Searching…",
+    "resultsCount": "{{total}} result(s)",
+    "noResults": "No result for “{{q}}”.",
+    "add": "Add",
+    "viewOnSkillsSh": "View on skills.sh",
+    "requested": "Validation request created for “{{name}}”",
+    "status": {
+      "requested": "Requested",
+      "pending": "Pending validation",
+      "granted": "Granted",
+      "paused": "Paused",
+      "revoked": "Revoked"
     },
-    "chain": "Then chain with",
-    "chainNone": "— none —",
-    "chainHint": "Launch order: the next rule always runs, even when the conditions were false. Max depth 5, cycles detected.",
-    "clone": "Clone",
-    "copySuffix": " (copy)",
-    "cloned": "Rule cloned.",
-    "chainedTo": "then \"{{name}}\"",
-    "chainStopped": "Chain stopped:",
-    "summary": "{{conditions}} condition(s) · {{actions}} action(s)",
-    "empty": "No rule yet. Add one to react to events.",
-    "disabled": "disabled",
-    "serviceMissing": "missing service",
-    "confirmDelete": "Confirm deletion",
-    "play": "Play",
-    "testTitle": "Play \"{{name}}\"",
-    "testWorkspace": "Test workspace",
-    "testWorkspaceHint": "Value injected into {workspace} for this run. Actions really execute when the conditions are true.",
-    "conditionOk": "true",
-    "conditionKo": "false",
-    "traceVerdict": "Verdict",
-    "traceMatched": "true — actions executed",
-    "traceNotMatched": "false — no action",
-    "traceError": "Error"
-  },
-  "appEvents": {
-    "tabLabel": "Events",
-    "sectionTitle": "Event log",
-    "empty": "No event recorded.",
-    "refresh": "Refresh",
-    "replay": "Replay",
-    "replayRequested": "Replay requested — listeners will run again.",
-    "noListener": "No listener",
-    "workspaceLabel": "workspace",
-    "ruleMatched": "{{count}} action(s) executed",
-    "ruleNotMatched": "conditions false — no action",
-    "ruleChainStopped": "chain stopped:",
-    "retentionHint": "(history kept for 24 h)"
+    "validationsTitle": "Validations",
+    "noGrants": "No request or granted skill yet.",
+    "review": "Review",
+    "approve": "Approve",
+    "revoke": "Revoke",
+    "pause": "Pause",
+    "resume": "Resume",
+    "revalidation": "Re-validation (hash drifted)",
+    "currentHash": "Current hash",
+    "approvedHash": "Approved hash",
+    "hashDrifted": "content changed since validation",
+    "actionDone": {
+      "approve": "Skill approved — approved hash pinned.",
+      "revoke": "Grant revoked — routing cut on all placements.",
+      "pause": "Skill paused.",
+      "resume": "Skill resumed."
+    },
+    "ws": {
+      "title": "Skills of workspace {{name}}",
+      "empty": "No skill installed in this workspace.",
+      "installLabel": "Install a granted skill",
+      "selectPlaceholder": "— pick a skill —",
+      "noGranted": "— no granted skill available —",
+      "install": "Install",
+      "installing": "Installing…",
+      "installed": "Skill installed and verified — routable.",
+      "installedUnverified": "Installed but NOT verified (content drifted) — re-validation required, no routing.",
+      "remove": "Remove {{name}}",
+      "removed": "Skill removed from workspace (grant remains valid).",
+      "hint": "Installation pulls the current version (npx skills add, no key). If content drifted from the approved hash, the skill is marked unverified and not routed.",
+      "placement": {
+        "requested": "requested",
+        "placed": "placed",
+        "verified": "verified",
+        "unverified": "unverified"
+      }
+    }
   }
 }

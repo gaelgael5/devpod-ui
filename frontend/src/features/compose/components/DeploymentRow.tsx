@@ -47,8 +47,15 @@ function DeploymentLogsDialog({
   )
 }
 
-/** Ligne d'un déploiement compose : statut, ports, actions start/stop/restart/logs/delete. */
-export default function DeploymentRow({ dep }: { dep: ComposeDeployment }) {
+/** Ligne d'un déploiement compose : statut, ports, actions start/stop/restart/logs/delete.
+ *  `readOnly` (ex. VM partagée-vers ce workspace) masque toutes les actions. */
+export default function DeploymentRow({
+  dep,
+  readOnly = false,
+}: {
+  dep: ComposeDeployment
+  readOnly?: boolean
+}) {
   const { t } = useTranslation()
   const action = useDeploymentAction()
   const del = useDeleteDeployment()
@@ -67,6 +74,7 @@ export default function DeploymentRow({ dep }: { dep: ComposeDeployment }) {
             :{dep.host_ports.join(', :')}
           </span>
         )}
+        {!readOnly && (
         <div className="flex gap-1 shrink-0">
           {dep.status === 'stopped' ? (
             <Button
@@ -121,6 +129,7 @@ export default function DeploymentRow({ dep }: { dep: ComposeDeployment }) {
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
+        )}
       </div>
       <DeploymentLogsDialog uid={dep.uid} id={dep.id} open={logsOpen} onOpenChange={setLogsOpen} />
     </>

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
@@ -90,9 +90,6 @@ export default function WorkspaceCreate() {
     [recipes, selectedRecipes],
   )
 
-  useEffect(() => {
-    setVolumeRecipes(prev => prev.filter(id => selectedRecipes.includes(id)))
-  }, [selectedRecipes])
   const recipesByKey = useMemo(() => {
     const map = new Map<string, typeof recipes[number]>()
     for (const r of recipes) map.set(r.key, r)
@@ -106,6 +103,8 @@ export default function WorkspaceCreate() {
   const [newStartSaving, setNewStartSaving] = useState(false)
   const [generateSshKey, setGenerateSshKey] = useState(false)
   const [profile, setProfile] = useState('')
+  // Surcharge de la limite mémoire du conteneur (59864c37) — vide = défaut global.
+  const [memoryLimit, setMemoryLimit] = useState('')
   const [nameError, setNameError] = useState('')
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({})
   const [serverError, setServerError] = useState('')
@@ -227,6 +226,7 @@ export default function WorkspaceCreate() {
         volumeRecipes,
         initRecipes: selectedInitRecipes,
         agents: selectedAgents,
+        memoryLimit: memoryLimit.trim().toLowerCase(),
       })
       navigate('/workspaces')
     } catch (err) {
@@ -319,7 +319,13 @@ export default function WorkspaceCreate() {
               <OrderedRecipePicker
                 recipes={recipes}
                 selected={selectedRecipes}
-                onChange={setSelectedRecipes}
+                onChange={(ids) => {
+                  setSelectedRecipes(ids)
+                  // Une recette décochée emporte son volume mémoire — purge au
+                  // point de changement (pas d'effet de synchro). L'autre
+                  // écrivain (profil) ne fait qu'ajouter des recettes.
+                  setVolumeRecipes(prev => prev.filter(id => ids.includes(id)))
+                }}
               />
             </div>
           </div>
@@ -504,6 +510,25 @@ export default function WorkspaceCreate() {
         )}
 
         <ProfileSelector profiles={profiles} value={profile} onChange={setProfile} />
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ws-memory-limit">
+            {t('workspaces.form.memoryLimit', 'Limite mémoire du conteneur (optionnel)')}
+          </Label>
+          <Input
+            id="ws-memory-limit"
+            value={memoryLimit}
+            onChange={(e) => setMemoryLimit(e.target.value)}
+            placeholder={t('workspaces.form.memoryLimitPlaceholder', 'défaut global — ex. 4g, 512m')}
+            pattern="^\s*([0-9]+[bkmgBKMG]?)?\s*$"
+          />
+          <p className="text-xs text-muted-foreground">
+            {t(
+              'workspaces.form.memoryLimitHint',
+              'Un dépassement tue ce conteneur, pas le host. Appliquée à la (re)construction.',
+            )}
+          </p>
+        </div>
 
         <div className="flex items-center gap-2">
           <input

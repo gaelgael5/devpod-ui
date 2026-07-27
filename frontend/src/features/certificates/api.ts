@@ -11,6 +11,8 @@ export interface Certificate {
   description: string
   cert_type: CertType
   public_key: string
+  /** CA optionnel (bundle mTLS docker-tls importé). */
+  ca_pem?: string | null
   storage_type: 'local' | 'harpocrate'
   vault_identifier: string | null
   owner_login: string
@@ -31,6 +33,8 @@ export interface GenerateBody {
 export interface RegisterBody extends GenerateBody {
   public_key: string
   private_key_pem: string
+  /** CA optionnel (bundle mTLS docker-tls : cert client + clé + CA). */
+  ca_pem?: string | null
 }
 
 const QK = {

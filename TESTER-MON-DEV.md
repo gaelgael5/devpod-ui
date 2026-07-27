@@ -2,23 +2,36 @@
 
 ## Environnement de test disponible
 
-### Machine test1 (`192.168.10.196`)
+### Machine de test (alias SSH `test2`, actuellement `192.168.10.219`)
 
-> ⚠️ Les VMs de test sont éphémères : l'IP peut changer d'une session à l'autre.
-> L'alias SSH `test1` (~/.ssh/config) est la source de vérité — l'utiliser partout.
+> ⚠️ Les VMs de test sont éphémères : l'IP ET le nom d'alias peuvent changer d'une
+> session à l'autre (l'ancienne `test1`/192.168.10.196 n'existe plus). L'alias SSH
+> présent dans `~/.ssh/config` est la source de vérité — l'utiliser partout.
 
-Alias SSH `test1` (défini dans `~/.ssh/config`). VM dédiée aux tests du portail, accessible en SSH depuis le devpod.
+**test2 est une VM PARTAGÉE** (elle héberge aussi ruleportal, agflow et le
+Browserless) : la stack dev y tourne **isolée** sous le projet compose
+`wsportal-dev`, avec `DATA_ROOT=/data-portal-dev` et des ports décalés
+(variables `*_DEV_PORT` du compose dev, posées dans `/data-portal-dev/.env`
+avec `COMPOSE_PROJECT_NAME`). **Ne jamais toucher `/data` sur cette VM** —
+il appartient à ruleportal.
 
-Répertoire du projet : `/opt/workspace-portal-dev` (branche `dev`, clonée manuellement la première fois).
+Répertoire du projet : `/opt/workspace-portal-dev` (branche `dev`).
 
-**Stack dev active sur test1 :**
+**Stack dev sur test2 (déployée 2026-07-27) :**
 
 | Service | Accès | Rôle |
 |---------|-------|------|
-| Portal  | `http://192.168.10.196:8080` | Portail complet (bypass Caddy) |
-| Caddy   | `http://192.168.10.196:8090` | Reverse proxy dev |
-| PostgreSQL | `192.168.10.196:5432` | Base de données |
-| Browserless | `http://192.168.10.196:3000` | Chromium headless — tests UI autonomes |
+| Portal  | `http://192.168.10.219:8081` | Portail complet (bypass Caddy) |
+| Caddy   | `http://192.168.10.219:8091` | Reverse proxy dev |
+| PostgreSQL | `192.168.10.219:5433` | Base de données |
+| Grafana | `http://192.168.10.219:3001` | Alertes provisionnées + Loki (3100) |
+| Browserless | `http://192.168.10.219:3000` | Chromium headless (service partagé de la VM) |
+
+⚠️ Les cookies de session portent le domaine `yoops.org` : pour l'API en curl,
+utiliser `--resolve dev.yoops.org:8081:192.168.10.219` et l'URL
+`http://dev.yoops.org:8081` (un curl sur l'IP ne renverra jamais le cookie).
+Auth locale : `LOCAL_USER`/`LOCAL_PASSWORD` de `/data-portal-dev/.env` via
+`POST /auth/local-login` ; PIN vault dev : `VAULT_DEV_PIN` du même fichier.
 
 ### Browserless v2 (`ghcr.io/browserless/chromium`)
 
@@ -28,13 +41,13 @@ Permet de tester l'UI de façon autonome sans intervention humaine : naviguer, r
 
 ```bash
 # Screenshot d'une page
-curl -s -X POST http://192.168.10.196:3000/screenshot \
+curl -s -X POST http://192.168.10.219:3000/screenshot \
   -H "Content-Type: application/json" \
-  -d '{"url": "http://192.168.10.196:8080/health"}' \
+  -d '{"url": "http://192.168.10.219:8081/health"}' \
   -o /tmp/screen.png
 
 # Vérifier que Browserless répond
-curl -s http://192.168.10.196:3000/config | head -5
+curl -s http://192.168.10.219:3000/config | head -5
 ```
 
 L'image Browserless peut aussi exécuter du JavaScript arbitraire via `POST /function` — utile pour simuler des clics, remplir des formulaires, attendre des éléments.
@@ -47,12 +60,13 @@ Le `docker-compose.dev.yml` peut accueillir des services supplémentaires si le 
 
 ## Cycle standard : écrire → tester → corriger
 
-### Première installation sur test1 (une seule fois)
+### Première installation sur la VM de test (une seule fois)
 
 ```bash
-ssh test1
+ssh test2
 git clone -b dev https://github.com/gaelgael5/devpod-ui.git /opt/workspace-portal-dev
-APP_DIR=/opt/workspace-portal-dev bash /opt/workspace-portal-dev/scripts/dev-deploy.sh dev
+export DATA_ROOT=/data-portal-dev COMPOSE_PROJECT_NAME=wsportal-dev PORTAL_DEV_PORT=8081 POSTGRES_DEV_PORT=5433 CADDY_DEV_PORT=8091 APP_DIR=/opt/workspace-portal-dev
+bash /opt/workspace-portal-dev/scripts/dev-deploy.sh dev
 ```
 
 ### Cycle normal (toutes les fois suivantes)
@@ -64,17 +78,18 @@ cd backend && uv run ruff check src/ && uv run mypy src/
 # 2. Pousser sur dev
 git push origin dev
 
-# 3. Déployer sur test1 — le script fait git pull + build + restart + migrations
-ssh test1 "APP_DIR=/opt/workspace-portal-dev bash /opt/workspace-portal-dev/scripts/dev-deploy.sh dev"
+# 3. Déployer sur la VM de test — le script fait git pull + build + restart + migrations
+ssh test2 "export DATA_ROOT=/data-portal-dev COMPOSE_PROJECT_NAME=wsportal-dev PORTAL_DEV_PORT=8081 POSTGRES_DEV_PORT=5433 CADDY_DEV_PORT=8091 APP_DIR=/opt/workspace-portal-dev
+bash /opt/workspace-portal-dev/scripts/dev-deploy.sh dev"
 
 # 4. Lire les logs du portail
-ssh test1 "docker compose -f /opt/workspace-portal-dev/deploy/docker-compose.dev.yml logs portal --tail=100"
+ssh test2 "docker logs wsportal-dev-portal-1 --tail=100"
 
 # 5. Tester via Browserless ou curl
-curl -s http://192.168.10.196:8080/health
+curl -s http://192.168.10.219:8081/health
 ```
 
-`dev-deploy.sh` est **idempotent** et **auto-mise à jour** (il se ré-exécute lui-même si le script a changé dans le pull). Ne jamais faire `git pull` manuellement sur test1 — le script le fait.
+`dev-deploy.sh` est un shim qui délègue à `scripts/deploy-portal.sh` (script de déploiement **unique** : pull, install.sh, .env, build, **migrations Alembic**, smoke) avec le compose de dev. Il est **idempotent** et **auto-mise à jour** (ré-exécution si le dépôt a changé au pull). Ne jamais faire `git pull` manuellement sur la VM — le script le fait.
 
 ---
 
@@ -93,7 +108,7 @@ Le seul environnement de référence, c'est la stack lancée par `dev-deploy.sh`
 ### 1. Lire les vrais logs en premier
 
 ```bash
-ssh test1 "docker compose -f /opt/workspace-portal-dev/deploy/docker-compose.dev.yml logs portal --tail=200 2>&1"
+ssh test2 "docker logs wsportal-dev-portal-1 --tail=200 2>&1"
 ```
 
 Si le traceback est présent : le bug est identifié, on passe à la correction.
@@ -115,10 +130,10 @@ Puis : **pousser → déployer → relire les logs**. Le dernier log avant le cr
 
 ```bash
 # Récupérer le PID du process Python dans le conteneur
-ssh test1 "docker compose -f /opt/workspace-portal-dev/deploy/docker-compose.dev.yml exec portal ps aux | grep python"
+ssh test2 "docker exec wsportal-dev-portal-1 ps aux | grep python"
 
 # Obtenir le stack trace de tous les threads
-ssh test1 "docker compose -f /opt/workspace-portal-dev/deploy/docker-compose.dev.yml exec portal py-spy dump --pid <PID>"
+ssh test2 "docker exec wsportal-dev-portal-1 py-spy dump --pid <PID>"
 ```
 
 `py-spy` donne immédiatement l'appel bloquant, sans modifier le code.
@@ -126,7 +141,7 @@ ssh test1 "docker compose -f /opt/workspace-portal-dev/deploy/docker-compose.dev
 ### 4. Pour inspecter l'état de la DB
 
 ```bash
-ssh test1 "docker compose -f /opt/workspace-portal-dev/deploy/docker-compose.dev.yml exec postgres psql -U \$POSTGRES_USER portal -c 'SELECT * FROM global_config;'"
+ssh test2 "docker exec wsportal-dev-postgres-1 psql -U \$POSTGRES_USER portal -c 'SELECT * FROM global_config;'"
 ```
 
 ---
@@ -136,11 +151,11 @@ ssh test1 "docker compose -f /opt/workspace-portal-dev/deploy/docker-compose.dev
 Browserless permet de tester l'interface sans intervention humaine. Utiliser `POST /function` pour exécuter du JavaScript dans Chromium :
 
 ```bash
-curl -s -X POST http://192.168.10.196:3000/function \
+curl -s -X POST http://192.168.10.219:3000/function \
   -H "Content-Type: application/json" \
   -d '{
     "code": "async ({ page }) => {
-      await page.goto(\"http://192.168.10.196:8080\");
+      await page.goto(\"http://192.168.10.219:8081\");
       await page.waitForSelector(\"#app\", { timeout: 5000 });
       return { title: await page.title(), url: page.url() };
     }"
@@ -150,10 +165,10 @@ curl -s -X POST http://192.168.10.196:3000/function \
 Pour un screenshot après interaction :
 
 ```bash
-curl -s -X POST http://192.168.10.196:3000/screenshot \
+curl -s -X POST http://192.168.10.219:3000/screenshot \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "http://192.168.10.196:8080",
+    "url": "http://192.168.10.219:8081",
     "options": { "fullPage": true }
   }' -o /tmp/screen.png
 ```

@@ -16,6 +16,7 @@ async def create_certificate(
     cert_type: str,
     public_key: str,
     *,
+    ca_pem: str | None = None,
     private_key_local: bytes | None,
     private_key_vault_ref: str | None,
     storage_type: str,
@@ -30,6 +31,7 @@ async def create_certificate(
             description=description,
             cert_type=cert_type,
             public_key=public_key,
+            ca_pem=ca_pem,
             private_key_local=private_key_local,
             private_key_vault_ref=private_key_vault_ref,
             storage_type=storage_type,
@@ -44,6 +46,7 @@ _PUBLIC_COLS = [
     harpo_certificates.c.description,
     harpo_certificates.c.cert_type,
     harpo_certificates.c.public_key,
+    harpo_certificates.c.ca_pem,
     harpo_certificates.c.storage_type,
     harpo_certificates.c.vault_identifier,
     harpo_certificates.c.owner_login,
@@ -127,11 +130,15 @@ async def update_certificate(
     public_key: str | None,
     private_key_local: bytes | None,
     private_key_vault_ref: str | None,
+    ca_pem: str | None = None,
     conn: AsyncConnection,
 ) -> bool:
     values: dict[str, Any] = {"label": label, "description": description}
     if public_key is not None:
         values["public_key"] = public_key
+    if ca_pem is not None:
+        # "" = retirer le CA, chaîne = remplacer.
+        values["ca_pem"] = ca_pem or None
     if private_key_local is not None:
         values["private_key_local"] = private_key_local
         values["private_key_vault_ref"] = None

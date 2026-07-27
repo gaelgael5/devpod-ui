@@ -479,8 +479,9 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
             "construire le modèle mental complet du fleet avant d'agir (logs, exec, déploiement). "
             "\n\nChaque entrée inclut : node_id (stable, cohérent avec compose_service_list "
             "et workspace_list), role ('dev'=host enrôlé | 'test'=machine éphémère générée), "
-            "host (adresse SSH/Docker), health (statut configuré ; reachable=null : probe live "
-            "non implémenté), lifecycle (origin, ephemeral, linked_workspace). "
+            "host (adresse SSH/Docker), health (sonde TCP périodique portée par le portail : "
+            "reachable true/false, last_seen = dernière sonde réussie ; null = jamais sondé, "
+            "ex. VM de test), lifecycle (origin, ephemeral, linked_workspace). "
             "\n\nParamètre optionnel `include` pour enrichir la réponse : "
             "- 'workload' : compteurs workspaces + compose_deployments par node ; "
             "- 'capacity', 'load', 'docker' : Vague B non collecté → null pour l'instant. "
@@ -1088,6 +1089,104 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
             },
         },
         "scope": "read",
+    },
+    # ── Skills (skills.sh) ────────────────────────────────────────────────────
+    # La surface MCP pétitionne et restreint, elle n'accorde jamais.
+    "skills_search": {
+        "description": (
+            "Recherche des skills sur skills.sh (via l'adaptateur du portail). "
+            "Impact: read-only — aucune mutation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string", "description": "Termes de recherche."},
+                "search_type": {
+                    "type": "string",
+                    "enum": ["fuzzy", "semantic"],
+                    "default": "fuzzy",
+                    "description": "fuzzy (1 mot) ou semantic (multi-mots).",
+                },
+            },
+        },
+        "scope": "read",
+    },
+    "skills_request_approval": {
+        "description": (
+            "Demande la validation d'une skill : crée un grant en attente "
+            "(pending) qui devra être validé par un HUMAIN. Ne valide jamais, "
+            "n'installe rien. Impact: write-safe — crée une demande, aucun accès accordé."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["skill_id"],
+            "properties": {
+                "skill_id": {
+                    "type": "string",
+                    "description": (
+                        "Identifiant complet source/skillId "
+                        "(ex. github/awesome-copilot/git-commit)."
+                    ),
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Justification de la demande (affichée à l'humain).",
+                },
+            },
+        },
+        "scope": "write",
+    },
+    "skills_place": {
+        "description": (
+            "Installe dans un workspace une skill DÉJÀ validée (grant granted). "
+            "Échoue si la skill n'est pas validée. Impact: write-safe — installe "
+            "des fichiers dans le workspace, ne touche pas au conteneur."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "skill_id"],
+            "properties": {
+                "workspace": {"type": "string", "description": "Nom du workspace cible."},
+                "skill_id": {"type": "string", "description": "Identifiant source/skillId."},
+            },
+        },
+        "scope": "write",
+    },
+    "skills_remove": {
+        "description": (
+            "Retire une skill d'un workspace (fichiers + placement). Le grant "
+            "reste valide. Impact: write-safe — supprime des fichiers du workspace."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace", "skill_id"],
+            "properties": {
+                "workspace": {"type": "string", "description": "Nom du workspace."},
+                "skill_id": {"type": "string", "description": "Identifiant source/skillId."},
+            },
+        },
+        "scope": "write",
+    },
+    "skills_pause": {
+        "description": (
+            "Met en pause une skill validée (suspend le routage). La remise en "
+            "service est réservée à un humain — aucune primitive resume côté MCP. "
+            "Impact: write-safe — restreint un accès existant."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["skill_id"],
+            "properties": {
+                "skill_id": {"type": "string", "description": "Identifiant source/skillId."},
+            },
+        },
+        "scope": "write",
     },
 }
 

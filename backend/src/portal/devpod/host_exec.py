@@ -18,12 +18,31 @@ import structlog
 from ..config.models import HostConfig
 from ..config.store import _data_root
 from .service import _materialize_system_cert
+from .ssh_exec import host_control_ssh_args
 
 _log = structlog.get_logger(__name__)
 
 
 class HostExecError(Exception):
     """Échec d'exécution sur un nœud (FR)."""
+
+
+# Borne de concurrence PAR nœud (enabler be1112a5) : sous saturation on échoue
+# vite plutôt que d'empiler des sous-process ssh (timeouts en cascade du 24/07).
+# stream_host_command n'est PAS borné : les actions utilisateur longues (deploy,
+# compose up) restent isolées du chemin de lecture pollé qui sature.
+HOST_EXEC_MAX_CONCURRENT = 4
+HOST_EXEC_ACQUIRE_TIMEOUT_S = 2.0
+_host_semaphores: dict[str, asyncio.Semaphore] = {}
+
+
+def _get_host_semaphore(address: str) -> asyncio.Semaphore:
+    return _host_semaphores.setdefault(address, asyncio.Semaphore(HOST_EXEC_MAX_CONCURRENT))
+
+
+def clear_host_semaphores() -> None:
+    """Vide le registre de sémaphores. Usage tests uniquement (liés à l'event loop)."""
+    _host_semaphores.clear()
 
 
 def _require_ssh_host(host: HostConfig) -> None:
@@ -62,6 +81,9 @@ def _argv(key_path: str, address: str, command: str, known_hosts: Path) -> list[
         f"UserKnownHostsFile={known_hosts}",
         "-o",
         "ConnectTimeout=15",
+        # Multiplexage : sans master, chaque sonde/poll paie un handshake complet
+        # et un scope systemd sur le nœud (saturation du 24/07, enabler be1112a5).
+        *host_control_ssh_args(address),
         address,
         command,
     ]
@@ -100,9 +122,23 @@ async def run_host_command(
     _require_ssh_host(host)
     known = _data_root() / "keys" / "hosts_known"
     await asyncio.to_thread(known.parent.mkdir, parents=True, exist_ok=True)
+    # Cert matérialisé HORS du slot : le sémaphore ne borne que le ssh lui-même.
     key_path = await _materialize_system_cert(host.host_cert_slug)
     argv = _argv(key_path, host.address, command, known)
-    rc, out, err = await _ssh_capture(argv, timeout=timeout)
+
+    sem = _get_host_semaphore(host.address)
+    try:
+        await asyncio.wait_for(sem.acquire(), timeout=HOST_EXEC_ACQUIRE_TIMEOUT_S)
+    except TimeoutError:
+        _log.warning("host_exec_saturated", host=host.name, address=host.address)
+        raise HostExecError(
+            f"nœud {host.name!r} saturé ({HOST_EXEC_MAX_CONCURRENT} commandes en cours) "
+            "— réessayez dans quelques secondes"
+        ) from None
+    try:
+        rc, out, err = await _ssh_capture(argv, timeout=timeout)
+    finally:
+        sem.release()
     _check_host_key_changed(host, err)
     return rc, out, err
 

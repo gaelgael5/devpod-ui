@@ -38,11 +38,29 @@ def control_ssh_args(ws_id: str) -> list[str]:
     """
     _CONTROL_DIR.mkdir(mode=0o700, exist_ok=True)
     digest = hashlib.sha256(ws_id.encode()).hexdigest()[:16]
+    return _control_args(str(_CONTROL_DIR / digest))
+
+
+def host_control_ssh_args(address: str) -> list[str]:
+    """Options de multiplexage SSH pour un nœud (un master par `user@host`).
+
+    Même mécanique que `control_ssh_args` mais pour `run_host_command` : sans
+    master, chaque sonde/poll du front ouvrait une connexion complète (handshake
+    + scope systemd) — 10 500 scopes et des timeouts en cascade le 24/07
+    (enabler be1112a5). Préfixe `host-` : répertoire partagé avec les masters
+    workspaces, espaces de clés disjoints par construction.
+    """
+    _CONTROL_DIR.mkdir(mode=0o700, exist_ok=True)
+    digest = hashlib.sha256(address.encode()).hexdigest()[:16]
+    return _control_args(str(_CONTROL_DIR / f"host-{digest}"))
+
+
+def _control_args(control_path: str) -> list[str]:
     return [
         "-o",
         "ControlMaster=auto",
         "-o",
-        f"ControlPath={_CONTROL_DIR / digest}",
+        f"ControlPath={control_path}",
         "-o",
         f"ControlPersist={SSH_CONTROL_PERSIST}",
     ]
@@ -121,7 +139,7 @@ async def workspace_env(login: str, ws_id: str) -> dict[str, str]:
     name = ws_id[len(login) + 1 :] if ws_id.startswith(f"{login}-") else ws_id
     try:
         from ..config.store import load_user
-        from .env import _find_host
+        from .env import _find_host, docker_cert_dir
 
         cfg = load_global()
         user_cfg = await load_user(login)
@@ -133,7 +151,7 @@ async def workspace_env(login: str, ws_id: str) -> dict[str, str]:
     if host.type == "docker-tls":
         env["DOCKER_HOST"] = host.docker_host
         env["DOCKER_TLS_VERIFY"] = "1"
-        env["DOCKER_CERT_PATH"] = cfg.devpod.client_cert_path
+        env["DOCKER_CERT_PATH"] = docker_cert_dir(host, cfg)
     return env
 
 

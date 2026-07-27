@@ -27,16 +27,21 @@ class AppSettings(BaseSettings):
     # Session (cookie signé)
     session_secret_key: str = ""
 
-    # Durée de vie de la session (secondes). Sert à la FOIS de :
-    #  - idle timeout : max_age du cookie Starlette, glissant (réémis à chaque réponse) ;
-    #  - plafond d'âge ABSOLU depuis le login (rbac.get_current_user compare
-    #    now - session["auth_time"]).
-    # Le plafond absolu est indispensable car le cookie glissant ne déconnecte que les
-    # sessions inactives : sans lui, un utilisateur actif conserverait indéfiniment des
-    # rôles figés au login, même après révocation Keycloak (bug 032). À l'expiration,
-    # un re-login OIDC est forcé, ce qui rafraîchit les rôles depuis l'IdP.
-    # Défaut : 3600 s (1 h). Env : SESSION_MAX_AGE.
-    session_max_age: int = 3600
+    # Idle timeout GLISSANT (secondes) : max_age du cookie Starlette, réémis à
+    # chaque réponse. Une session inactive plus longtemps est déconnectée ; toute
+    # activité la prolonge (glissant depuis la DERNIÈRE requête). C'est ce qui
+    # gouverne le confort terminal SSH / vue VS Code : tant que tu travailles, tu
+    # n'es pas coupé. Défaut : 7200 s (2 h). Env : SESSION_MAX_AGE.
+    session_max_age: int = 7200
+
+    # Plafond d'âge ABSOLU depuis le login (secondes) — DÉCOUPLÉ de l'idle ci-dessus
+    # (bug 032). Borne supérieure indépendante de l'activité : au-delà, un re-login
+    # OIDC est forcé pour rafraîchir les rôles Keycloak (une révocation se propage
+    # donc en au plus cette durée). Vérifié par rbac.session_within_max_age, appliqué
+    # aussi aux proxies interactifs (VS Code, SSH). Volontairement LARGE pour ne pas
+    # couper un utilisateur actif — le confort est déjà géré par l'idle glissant.
+    # Défaut : 43200 s (12 h). Env : SESSION_ABSOLUTE_MAX_AGE.
+    session_absolute_max_age: int = 43200
 
     # OIDC
     oidc_issuer: str = ""
@@ -72,6 +77,25 @@ class AppSettings(BaseSettings):
 
     # MCP : intervalle de la boucle de monitoring des backends (secondes).
     mcp_monitor_interval_s: float = 300.0
+
+    # Sonde de vivacité des hosts (enabler 727ee81d) : intervalle de la boucle
+    # dédiée (découplée du polling front) et nombre d'échecs consécutifs avant
+    # de basculer un host en `unreachable` (hystérésis anti-hoquet).
+    # 15 s × 3 échecs ≈ 35-50 s de détection : l'alerte Grafana (éval. 30 s)
+    # reste sous la minute exigée par le ticket.
+    host_liveness_interval_s: float = 15.0
+    host_liveness_failures: int = 3
+
+    # Suggestion d'arrêt des workspaces inactifs (enabler 6016436b) : seuil d'idle
+    # avant suggestion (0 = feature désactivée) et intervalle de la passe de
+    # détection. Détection + alerte SEULEMENT — jamais d'arrêt automatique.
+    workspace_idle_threshold_h: float = 3.0
+    workspace_idle_interval_s: float = 300.0
+
+    # skills.sh : URL de base de l'API tierce (surchargée en test/mock).
+    skills_sh_base_url: str = "https://skills.sh"
+    # Contenu canonique des SKILL.md (même source que `npx skills add`).
+    skills_raw_base_url: str = "https://raw.githubusercontent.com"
 
     # MCP transport SSE : délai de stabilisation entre `initialize` et le premier
     # message applicatif. Certains serveurs SSE (ex. docflow) n'ont pas encore

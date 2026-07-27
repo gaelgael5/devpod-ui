@@ -7,7 +7,7 @@ import ProfileEditor from '../ProfileEditor'
 
 describe('ProfileEditor — création', () => {
   beforeEach(() => {
-    useUserStore.setState({ user: { login: 'alice', roles: ['dev'] } })
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev'], is_admin: false } })
   })
 
   it('affiche les champs name et description vides', () => {
@@ -41,7 +41,7 @@ describe('ProfileEditor — création', () => {
 
 describe('ProfileEditor — édition', () => {
   beforeEach(() => {
-    useUserStore.setState({ user: { login: 'alice', roles: ['dev'] } })
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev'], is_admin: false } })
   })
 
   it('préremplie le nom et la description depuis le profil existant', async () => {

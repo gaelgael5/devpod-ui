@@ -1,8 +1,15 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Compass, ExternalLink, Search, Trash2 } from 'lucide-react'
+import { Compass, ExternalLink, Plus, Search, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useSecrets } from '@/features/secrets/api'
 import {
@@ -26,16 +33,46 @@ function slugify(label: string): string {
 }
 
 /**
- * Bloc « MCP Explore » — configure les sources de découverte (instances
- * mcp-manager) : label, slug, URL, secret MCP_DISCOVERY, avec un bouton de test.
- * La recherche puis l'ajout de services viendront aux étapes suivantes.
+ * Bloc « MCP Explore » — l'ajout d'une source de découverte (instance
+ * mcp-manager) est packagé dans un dialog ; le bloc ne montre que la
+ * sélection de source et la recherche dans son catalogue.
  */
 export default function MCPExplore() {
   const { t } = useTranslation()
-  const { data: secrets = [] } = useSecrets('MCP_DISCOVERY')
   const { data: sources = [] } = useDiscoverySources()
+  const [addOpen, setAddOpen] = useState(false)
+
+  return (
+    <div className="flex flex-col gap-4 rounded-lg border bg-muted/40 p-5">
+      <div className="flex items-center gap-2">
+        <Compass className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-sm font-semibold">{t('mcp.explore.title')}</h2>
+        <Button size="sm" variant="outline" className="ml-auto" onClick={() => setAddOpen(true)}>
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          {t('mcp.explore.addSource')}
+        </Button>
+      </div>
+      <p className="text-sm text-muted-foreground">{t('mcp.explore.subtitle')}</p>
+
+      {sources.length === 0 ? (
+        <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+          {t('mcp.explore.noSources')}
+        </p>
+      ) : (
+        <MCPSearch sources={sources} />
+      )}
+
+      {addOpen && <AddSourceDialog onClose={() => setAddOpen(false)} />}
+    </div>
+  )
+}
+
+/** Dialog d'ajout d'une source de découverte : label, slug auto-dérivé, URL,
+ secret MCP_DISCOVERY, bouton de test. */
+function AddSourceDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation()
+  const { data: secrets = [] } = useSecrets('MCP_DISCOVERY')
   const create = useCreateDiscoverySource()
-  const del = useDeleteDiscoverySource()
   const probe = useProbeDiscoverySource()
 
   const [label, setLabel] = useState('')
@@ -69,11 +106,7 @@ export default function MCPExplore() {
       {
         onSuccess: () => {
           toast.success(t('mcp.explore.added', { label: label.trim() }))
-          setLabel('')
-          setSlug('')
-          setSlugTouched(false)
-          setUrl('')
-          setSecretSlug('')
+          onClose()
         },
         onError: (e: Error) => toast.error(e.message),
       },
@@ -81,104 +114,72 @@ export default function MCPExplore() {
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-lg border bg-muted/40 p-5">
-      <div className="flex items-center gap-2">
-        <Compass className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">{t('mcp.explore.title')}</h2>
-      </div>
-      <p className="text-sm text-muted-foreground">{t('mcp.explore.subtitle')}</p>
-
-      {/* Formulaire d'ajout de source */}
-      <div className="grid gap-2 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-xs">
-          {t('mcp.explore.labelLabel')}
-          <Input value={label} onChange={(e) => onLabel(e.target.value)} className="h-9" />
-        </label>
-        <label className="flex flex-col gap-1 text-xs">
-          {t('mcp.explore.slugLabel')}
-          <Input
-            value={effectiveSlug}
-            onChange={(e) => {
-              setSlugTouched(true)
-              setSlug(e.target.value)
-            }}
-            className="h-9 font-mono"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs">
-          {t('mcp.explore.urlLabel')}
-          <Input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder={t('mcp.explore.urlPlaceholder')}
-            className="h-9"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs">
-          {t('mcp.explore.secretLabel')}
-          <select
-            value={secretSlug}
-            onChange={(e) => setSecretSlug(e.target.value)}
-            className="h-9 rounded-md border bg-background px-2 text-sm"
-          >
-            <option value="">{t('mcp.explore.noSecret')}</option>
-            {secrets.map((s) => (
-              <option key={s.slug} value={s.slug}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={url.trim() === '' || probe.isPending}
-          onClick={test}
-        >
-          {probe.isPending ? '…' : t('mcp.explore.test')}
-        </Button>
-        <Button size="sm" disabled={!canSubmit || create.isPending} onClick={add}>
-          {t('mcp.explore.add')}
-        </Button>
-      </div>
-
-      {/* Liste des sources configurées */}
-      {sources.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-semibold uppercase text-muted-foreground">
-            {t('mcp.explore.sourcesTitle')}
-          </span>
-          {sources.map((s) => (
-            <div
-              key={s.id}
-              className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm"
+    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('mcp.explore.addTitle')}</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-3 py-2 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-xs">
+            {t('mcp.explore.labelLabel')}
+            <Input value={label} onChange={(e) => onLabel(e.target.value)} className="h-9" autoFocus />
+          </label>
+          <label className="flex flex-col gap-1 text-xs">
+            {t('mcp.explore.slugLabel')}
+            <Input
+              value={effectiveSlug}
+              onChange={(e) => {
+                setSlugTouched(true)
+                setSlug(e.target.value)
+              }}
+              className="h-9 font-mono"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs">
+            {t('mcp.explore.urlLabel')}
+            <Input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder={t('mcp.explore.urlPlaceholder')}
+              className="h-9"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs">
+            {t('mcp.explore.secretLabel')}
+            <select
+              value={secretSlug}
+              onChange={(e) => setSecretSlug(e.target.value)}
+              className="h-9 rounded-md border bg-background px-2 text-sm"
             >
-              <span className="font-medium">{s.label}</span>
-              <code className="truncate text-xs text-muted-foreground">{s.url}</code>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="ml-auto h-6 w-6 text-destructive hover:text-destructive"
-                onClick={() =>
-                  del.mutate(s.id, {
-                    onSuccess: () => toast.success(t('mcp.explore.deleted', { label: s.label })),
-                    onError: (e: Error) => toast.error(e.message),
-                  })
-                }
-                aria-label={t('mcp.explore.delete')}
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
-            </div>
-          ))}
+              <option value="">{t('mcp.explore.noSecret')}</option>
+              {secrets.map((s) => (
+                <option key={s.slug} value={s.slug}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
-      )}
-
-      <MCPSearch sources={sources} />
-    </div>
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={url.trim() === '' || probe.isPending}
+            onClick={test}
+          >
+            {probe.isPending ? '…' : t('mcp.explore.test')}
+          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              {t('mcp.explore.cancel')}
+            </Button>
+            <Button size="sm" disabled={!canSubmit || create.isPending} onClick={add}>
+              {t('mcp.explore.add')}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -188,13 +189,14 @@ function transportLabel(transport: string): string {
 }
 
 /**
- * Recherche dans le catalogue d'une source : sélecteur de source, champ de
- * requête, résultats paginés. Chaque résultat affiche nom, description,
- * transport, étoiles/statut du dépôt et les liens dépôt/doc. L'ajout comme
- * serveur MCP arrivera à l'étape 4.
+ * Recherche dans le catalogue d'une source : sélecteur de source (avec
+ * suppression de la source sélectionnée), champ de requête, résultats paginés.
+ * Chaque résultat affiche nom, description, transport, étoiles/statut du dépôt
+ * et les liens dépôt/doc. L'ajout comme serveur MCP arrivera à l'étape 4.
  */
 function MCPSearch({ sources }: { sources: DiscoverySource[] }) {
   const { t } = useTranslation()
+  const del = useDeleteDiscoverySource()
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
   const [query, setQuery] = useState('')
@@ -206,6 +208,7 @@ function MCPSearch({ sources }: { sources: DiscoverySource[] }) {
     selectedId !== null && sources.some((s) => s.id === selectedId)
       ? selectedId
       : (sources[0]?.id ?? null)
+  const source = sources.find((s) => s.id === sourceId)
 
   const perPage = 10
   const search = useDiscoverySearch(sourceId, query, page, perPage)
@@ -216,7 +219,13 @@ function MCPSearch({ sources }: { sources: DiscoverySource[] }) {
     setPage(1)
   }
 
-  if (sources.length === 0) return null
+  function deleteSource() {
+    if (!source) return
+    del.mutate(source.id, {
+      onSuccess: () => toast.success(t('mcp.explore.deleted', { label: source.label })),
+      onError: (e: Error) => toast.error(e.message),
+    })
+  }
 
   const totalPages = result ? Math.max(1, Math.ceil(result.total / result.per_page)) : 1
 
@@ -228,9 +237,9 @@ function MCPSearch({ sources }: { sources: DiscoverySource[] }) {
       </div>
 
       <div className="flex flex-wrap items-end gap-2">
-        {sources.length > 1 && (
-          <label className="flex flex-col gap-1 text-xs">
-            {t('mcp.explore.sourceLabel')}
+        <label className="flex flex-col gap-1 text-xs">
+          {t('mcp.explore.sourceLabel')}
+          <div className="flex items-center gap-1">
             <select
               value={sourceId ?? ''}
               onChange={(e) => {
@@ -240,6 +249,7 @@ function MCPSearch({ sources }: { sources: DiscoverySource[] }) {
                 setPage(1)
               }}
               className="h-9 rounded-md border bg-background px-2 text-sm"
+              title={source?.url ?? ''}
             >
               {sources.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -247,8 +257,18 @@ function MCPSearch({ sources }: { sources: DiscoverySource[] }) {
                 </option>
               ))}
             </select>
-          </label>
-        )}
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9 text-muted-foreground hover:text-destructive"
+              onClick={deleteSource}
+              disabled={!source || del.isPending}
+              aria-label={t('mcp.explore.delete')}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </label>
         <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

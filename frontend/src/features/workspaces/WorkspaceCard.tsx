@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
-import { Code2, Loader2, Mail, Play, Square } from 'lucide-react'
+import { ChevronDown, Code2, Loader2, Mail, MoonStar, Pin, Play, Plus, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,8 +16,18 @@ import { cn } from '@/lib/utils'
 import type { WorkspaceSpec, WorkspaceStatus, WorkspaceStatusValue } from './types'
 import SshKeyDialog from './SshKeyDialog'
 import LogDialog from './LogDialog'
-import WorkspaceSshTerminalWindow from './WorkspaceSshTerminalWindow'
+import { openTerminalTab } from '@/features/terminal/openTerminalTab'
 import WorkspaceActionsMenu from './WorkspaceActionsMenu'
+import { CreateSessionDialogHost } from './CreateSessionDialog'
+import WorkspaceSkillsDialog from '@/features/skills/WorkspaceSkillsDialog'
+import { useWorkspaceSessions, useDeleteSession } from './useWorkspaceSessions'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import AddTestVmDialog from './AddTestVmDialog'
 import HostServicesSection from './HostServicesSection'
 import WorkspaceMessagesDialog from './WorkspaceMessagesDialog'
@@ -25,6 +35,18 @@ import AgentMessagesPanel from './AgentMessagesPanel'
 import { usePendingCounts } from './useAgentMessages'
 import { STATUS_TONE_CLASS } from './statusTone'
 import type { TestHost } from './useTestVm'
+import { useWorkspaceOps } from './useWorkspaceOps'
+
+/** Durée lisible depuis un ISO : "3 h", "45 min", "2 j". */
+function idleDurationLabel(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return ''
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 48) return `${hours} h`
+  return `${Math.floor(hours / 24)} j`
+}
 
 const STATUS_CLASS: Record<WorkspaceStatusValue, string> = {
   running: STATUS_TONE_CLASS.running,
@@ -52,20 +74,58 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const [messagesOpen, setMessagesOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [recreateOpen, setRecreateOpen] = useState(false)
-  const [shellOpen, setShellOpen] = useState(false)
   const [addVmOpen, setAddVmOpen] = useState(false)
-  const [sshTestHost, setSshTestHost] = useState<TestHost | null>(null)
   const [agentMsgOpen, setAgentMsgOpen] = useState(false)
+  const [addSessionOpen, setAddSessionOpen] = useState(false)
+  const [skillsOpen, setSkillsOpen] = useState(false)
+  // Confirmation de suppression d'une session (le tmux et ses agents meurent) :
+  // on ne supprime jamais sur simple clic dans le menu.
+  const [sessionToDelete, setSessionToDelete] = useState<string | null>(null)
+  const deleteSession = useDeleteSession()
+  // Sessions actives (polling léger, uniquement workspace running) : alimente
+  // le libellé « Sessions (N) » et la liste du menu déroulant.
+  const { data: sessions = [] } = useWorkspaceSessions(
+    status.status === 'running' ? spec.name : undefined
+  )
+
+  function openSessionTab(session: string) {
+    window.open(
+      `/workspaces/${encodeURIComponent(spec.name)}/terminals?session=${encodeURIComponent(session)}`,
+      '_blank',
+      'noopener'
+    )
+  }
+  // Shell direct et SSH d'une VM de test s'ouvrent aussi en onglet (comme les
+  // sessions), via le terminal plein écran générique.
+  const openShellTab = () =>
+    openTerminalTab(`/me/workspaces/${encodeURIComponent(spec.name)}/ssh?shell=1`, `${spec.name} — shell`)
+  const openTestHostTab = (host: TestHost) =>
+    openTerminalTab(
+      `/me/workspaces/${encodeURIComponent(spec.name)}/ssh?ssh_test=${encodeURIComponent(host.name)}`,
+      host.alias,
+    )
   const { data: pendingCounts } = usePendingCounts()
   const pendingCount = pendingCounts?.[spec.name] ?? 0
+  const { setKeepActive } = useWorkspaceOps()
   const s = status.status
+  // Suggestion d'arrêt pour inactivité (6016436b) : proposée, JAMAIS automatique.
+  // L'arrêt détruit le serveur tmux — le libellé le dit honnêtement.
+  const showIdleSuggestion =
+    s === 'running' && status.stop_suggested === true && status.keep_active !== true
 
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <div className="rounded-lg border bg-card p-4" data-testid={`workspace-card-${spec.name}`}>
       <div className="mb-2 flex items-start justify-between gap-2">
         <div>
           <div className="font-semibold text-foreground">{spec.name}</div>
           <div className="text-xs text-muted-foreground">{spec.source}</div>
+          {/* Sources git additionnelles (extra_sources) : sinon un workspace multi-repo
+              n'affiche que sa source principale (le 2e dépôt semblait « perdu »). */}
+          {spec.extra_sources?.map((s, i) => (
+            <div key={`${s.url}-${i}`} className="text-xs text-muted-foreground/80">
+              + {s.url}
+            </div>
+          ))}
           {spec.host && (
             <div className="text-xs text-muted-foreground/70 font-mono">{spec.host}</div>
           )}
@@ -84,9 +144,17 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
           )}
           <Badge
             variant="outline"
-            className={cn('text-xs', STATUS_CLASS[s])}
+            className={cn(
+              'text-xs',
+              s === 'running' && status.reachable === false
+                ? STATUS_TONE_CLASS.error
+                : STATUS_CLASS[s],
+            )}
           >
-            {s === 'provisioning' && '⟳ '}{t(`workspaces.status.${s}`)}
+            {s === 'provisioning' && '⟳ '}
+            {s === 'running' && status.reachable === false
+              ? t('workspaces.status.disconnected')
+              : t(`workspaces.status.${s}`)}
           </Badge>
         </div>
       </div>
@@ -114,6 +182,39 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         </div>
       )}
 
+      {showIdleSuggestion && (
+        <div
+          className="mb-3 rounded-md border border-amber-500/50 bg-amber-50 p-2.5 text-xs text-amber-800"
+          data-testid="idle-suggestion"
+        >
+          <div className="flex items-center gap-1.5 font-medium">
+            <MoonStar className="h-3.5 w-3.5 shrink-0" />
+            {t('workspaces.idle.title', {
+              duration: status.idle_since ? idleDurationLabel(status.idle_since) : '',
+              defaultValue: 'Inactif depuis {{duration}} — l’arrêter ?',
+            })}
+          </div>
+          <p className="mt-1 text-amber-700/90">
+            {t(
+              'workspaces.idle.hint',
+              'Rien ne tourne dans ses sessions. L’arrêt libère la RAM mais détruit le serveur tmux (sessions perdues).',
+            )}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" className="h-7 border-amber-600 text-amber-800 hover:bg-amber-100"
+              onClick={() => onStop(spec.name)}>
+              <Square className="mr-1.5 h-3.5 w-3.5" />
+              {t('workspaces.actions.stop')}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 text-amber-800 hover:bg-amber-100"
+              onClick={() => setKeepActive.mutate({ name: spec.name, keepActive: true })}>
+              <Pin className="mr-1.5 h-3.5 w-3.5" />
+              {t('workspaces.idle.keep', 'Garder actif')}
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         {s === 'running' && status.url && (
           <Button size="sm" asChild aria-label={t('workspaces.actions.openVscode')}>
@@ -133,11 +234,39 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
           </Button>
         )}
         {s === 'running' && (
-          <Button size="sm" variant="outline" asChild>
-            <Link to={`/workspaces/${spec.name}/terminals`}>
-              {t('workspaces.terminals.open')}
-            </Link>
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline">
+                {t('workspaces.terminals.sessionsMenu', { count: sessions.length })}
+                <ChevronDown className="ml-1 h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onSelect={() => setAddSessionOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                {t('workspaces.terminals.newSession')}
+              </DropdownMenuItem>
+              {sessions.length > 0 && <DropdownMenuSeparator />}
+              {sessions.map((session) => (
+                <DropdownMenuItem
+                  key={session}
+                  onSelect={() => openSessionTab(session)}
+                  className="group/session gap-2"
+                >
+                  <SquareTerminal className="h-4 w-4" />
+                  <span className="flex-1 truncate">{session}</span>
+                  <button
+                    type="button"
+                    aria-label={t('workspaces.terminals.deleteSession', { name: session })}
+                    className="rounded p-0.5 text-muted-foreground opacity-0 hover:text-destructive group-hover/session:opacity-100"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSessionToDelete(session) }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
         {s === 'stopped' && (
           <Button
@@ -188,16 +317,18 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             running={s === 'running'}
             agents={spec.agents ?? []}
             onAddVm={() => setAddVmOpen(true)}
-            onOpenShell={() => setShellOpen(true)}
+            onOpenShell={openShellTab}
             onShowSshKey={spec.ssh_key ? () => setSshKeyOpen(true) : undefined}
             onOpenMessages={() => setMessagesOpen(true)}
             onOpenLogs={() => setLogsOpen(true)}
             onManageGroups={onManageGroups}
+            onManageSkills={() => setSkillsOpen(true)}
+            keepActive={status.keep_active === true}
           />
         </div>
       </div>
 
-      <HostServicesSection wsName={spec.name} enabled={s === 'running'} onOpenSsh={setSshTestHost} />
+      <HostServicesSection wsName={spec.name} enabled={s === 'running'} onOpenSsh={openTestHostTab} />
 
       {spec.ssh_key && (
         <SshKeyDialog
@@ -206,20 +337,50 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
           onOpenChange={setSshKeyOpen}
         />
       )}
-      {shellOpen && (
-        <WorkspaceSshTerminalWindow
+      {addSessionOpen && (
+        <CreateSessionDialogHost
           wsName={spec.name}
-          shell
-          onClose={() => setShellOpen(false)}
+          onClose={() => setAddSessionOpen(false)}
+          onCreate={openSessionTab}
         />
       )}
-      {sshTestHost && (
-        <WorkspaceSshTerminalWindow
-          wsName={spec.name}
-          testHost={{ name: sshTestHost.name, alias: sshTestHost.alias }}
-          onClose={() => setSshTestHost(null)}
-        />
+      {skillsOpen && (
+        <WorkspaceSkillsDialog wsName={spec.name} onClose={() => setSkillsOpen(false)} />
       )}
+      <Dialog open={sessionToDelete !== null} onOpenChange={(o) => { if (!o) setSessionToDelete(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('workspaces.terminals.deleteTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('workspaces.terminals.deleteDescription', { name: sessionToDelete ?? '' })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button variant="ghost" size="sm" onClick={() => setSessionToDelete(null)}>
+              {t('workspaces.confirm.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={deleteSession.isPending}
+              onClick={() => {
+                const name = sessionToDelete
+                if (!name) return
+                deleteSession.mutate(
+                  { wsName: spec.name, sessionName: name },
+                  {
+                    onSuccess: () => toast.success(t('workspaces.terminals.deleted', { name })),
+                    onError: (e) => toast.error(e.message),
+                  },
+                )
+                setSessionToDelete(null)
+              }}
+            >
+              {t('workspaces.terminals.confirmDelete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <AddTestVmDialog
         wsName={spec.name}
         open={addVmOpen}

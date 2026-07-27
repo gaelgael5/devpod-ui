@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it, beforeEach, vi } from 'vitest'
+import { beforeAll, describe, expect, it, beforeEach, vi } from 'vitest'
 import { server } from '@/test/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
 import { useUserStore } from '@/store/user'
@@ -22,9 +22,15 @@ vi.mock('@xterm/addon-fit', () => ({
   }),
 }))
 
+// jsdom ne supporte pas hasPointerCapture/scrollIntoView (utilisés par Radix Select).
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn()
+  Element.prototype.scrollIntoView = vi.fn()
+})
+
 describe('AdminHosts', () => {
   beforeEach(() => {
-    useUserStore.setState({ user: { login: 'alice', roles: ['dev', 'admin'] } })
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev', 'admin'], is_admin: true } })
   })
 
   it('affiche le titre', () => {
@@ -49,14 +55,20 @@ describe('AdminHosts', () => {
     expect(pve1Row!.querySelector('[data-ssh]')).toBeNull()
   })
 
-  it('affiche le bouton SSH sur une ligne ssh et ouvre la fenêtre au clic', async () => {
+  it('affiche le bouton SSH sur une ligne ssh et ouvre un onglet terminal au clic', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
     renderWithProviders(<AdminHosts />)
     await waitFor(() => expect(screen.getByText('ssh-dev')).toBeInTheDocument())
     const sshBtn = screen.getByRole('button', { name: /^SSH$/i })
     expect(sshBtn).toBeInTheDocument()
     await userEvent.click(sshBtn)
-    // L'adresse apparaît deux fois : cellule du tableau + bandeau de la fenêtre SSH ouverte.
-    expect(screen.getAllByText(/debian@192\.168\.10\.175/)).toHaveLength(2)
+    // Ouverture en onglet (plus de fenêtre flottante) vers le terminal host.
+    expect(open).toHaveBeenCalledWith(
+      '/terminal?ws=%2Fadmin%2Fhosts%2Fssh-dev%2Fssh&title=ssh-dev',
+      '_blank',
+      'noopener',
+    )
+    open.mockRestore()
   })
 
   it("affiche la section hosts ressources vide quand aucun host n'a usage=ressources", async () => {
@@ -91,5 +103,109 @@ describe('AdminHosts', () => {
     await waitFor(() => expect(screen.getByText('pve1')).toBeInTheDocument())
     await user.click(screen.getByRole('button', { name: /add host|ajouter un h[oô]te/i }))
     expect(await screen.findByText(/^purpose$|^destination$/i)).toBeInTheDocument()
+  })
+
+  it("liste un host usage=autres dans la section « Autres serveurs », hors table workspaces", async () => {
+    server.use(
+      http.get('/admin/hosts', () =>
+        HttpResponse.json([
+          { name: 'pve1', type: 'docker-tls', default: true, docker_host: 'tcp://192.168.1.50:2376', usage: 'workspaces' },
+          { name: 'backup-srv', type: 'ssh', default: false, address: 'debian@192.168.10.190', usage: 'autres' },
+        ])),
+    )
+    renderWithProviders(<AdminHosts />)
+    await waitFor(() => expect(screen.getByText('backup-srv')).toBeInTheDocument())
+    expect(screen.getByText(/other servers|autres serveurs/i)).toBeInTheDocument()
+    // Pas dans la table workspaces : backup-srv n'est pas dans une ligne <tr>
+    const rows = screen.queryAllByRole('row')
+    expect(rows.find((r) => r.textContent?.includes('backup-srv'))).toBeUndefined()
+  })
+
+  it('propose une clé SSH (certs ssh-* uniquement) pour un host ssh', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<AdminHosts />)
+    await waitFor(() => expect(screen.getByText('pve1')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /add host|ajouter un h[oô]te/i }))
+
+    // Basculer le type sur ssh.
+    const typeSelects = screen.getAllByRole('combobox')
+    await user.click(typeSelects[0])
+    await user.click(await screen.findByRole('option', { name: 'ssh' }))
+
+    // Le sélecteur de clé SSH apparaît ; il liste le cert ssh-* mais pas le tls-*.
+    expect(await screen.findByText(/ssh key|clé ssh/i)).toBeInTheDocument()
+    const selects = screen.getAllByRole('combobox')
+    const keySelect = selects.find((s) =>
+      s.textContent?.match(/keep current key|conserver la clé actuelle/i))
+    expect(keySelect).toBeDefined()
+    await user.click(keySelect!)
+    expect(await screen.findAllByText(/Gitea SSH/)).not.toHaveLength(0)
+    expect(screen.queryByText(/Docker node1/)).not.toBeInTheDocument()
+  })
+
+  it('révèle le mot de passe console après saisie du PIN (édition, slug présent)', async () => {
+    let sentPin = ''
+    server.use(
+      http.get('/admin/hosts', () =>
+        HttpResponse.json([
+          { name: 'pve1', type: 'docker-tls', default: true, docker_host: 'tcp://192.168.1.50:2376', ci_password_secret_slug: 'host.pve1.ci-password' },
+        ])),
+      http.post('/admin/hosts/pve1/ci-password/reveal', async ({ request }) => {
+        const body = (await request.json()) as { pin: string }
+        sentPin = body.pin
+        return HttpResponse.json({ value: 'sup3r-c0nsole' })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<AdminHosts />)
+    await waitFor(() => expect(screen.getByText('pve1')).toBeInTheDocument())
+
+    // Ouvrir l'édition (premier bouton icône de la ligne = crayon).
+    const pve1Row = screen.getAllByRole('row').find((r) => r.textContent?.includes('pve1'))!
+    await user.click(pve1Row.querySelectorAll('button')[0])
+
+    // Le bouton révéler n'apparaît qu'en édition d'un host qui a un secret stocké.
+    const revealBtn = await screen.findByRole('button', { name: /révéler|reveal/i })
+    await user.click(revealBtn)
+
+    // Saisie du PIN puis confirmation → la valeur s'affiche, le PIN est parti au backend.
+    await user.type(screen.getByPlaceholderText(/pin/i), '123456')
+    await user.click(screen.getByRole('button', { name: /^révéler$|^reveal$/i }))
+    expect(await screen.findByDisplayValue('sup3r-c0nsole')).toBeInTheDocument()
+    expect(sentPin).toBe('123456')
+
+    // « Masquer » re-masque immédiatement.
+    await user.click(screen.getByRole('button', { name: /masquer|hide/i }))
+    expect(screen.queryByDisplayValue('sup3r-c0nsole')).not.toBeInTheDocument()
+  })
+
+  it("n'affiche pas le bouton révéler pour un host sans mot de passe console", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<AdminHosts />)
+    await waitFor(() => expect(screen.getByText('pve1')).toBeInTheDocument())
+    const pve1Row = screen.getAllByRole('row').find((r) => r.textContent?.includes('pve1'))!
+    await user.click(pve1Row.querySelectorAll('button')[0])
+    expect(await screen.findByLabelText(/mot de passe console|console password/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /révéler|reveal/i })).not.toBeInTheDocument()
+  })
+
+  it('propose le certificat mTLS (certs tls-* uniquement) pour un host docker-tls', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<AdminHosts />)
+    await waitFor(() => expect(screen.getByText('pve1')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /add host|ajouter un h[oô]te/i }))
+
+    // Type par défaut = docker-tls → le sélecteur de cert est visible.
+    expect(await screen.findByText(/mtls certificate|certificat mtls/i)).toBeInTheDocument()
+
+    // Ouvrir le select : le cert tls-* est listé, le cert ssh non.
+    const selects = screen.getAllByRole('combobox')
+    const certSelect = selects.find((s) =>
+      s.textContent?.match(/shared portal certificate|certificat partagé du portail/i))
+    expect(certSelect).toBeDefined()
+    await user.click(certSelect!)
+    // Radix rend l'item + une <option> native miroir → findAll.
+    expect(await screen.findAllByText(/Docker node1/)).not.toHaveLength(0)
+    expect(screen.queryByText(/Gitea SSH/)).not.toBeInTheDocument()
   })
 })

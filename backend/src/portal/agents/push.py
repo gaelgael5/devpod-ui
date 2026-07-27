@@ -23,6 +23,7 @@ from .keys import WorkspaceKey, rotate_workspace_keys
 from .merge import Format, merge_config
 from .provisioning import AgentProvisionError, _load_requested_agent_types
 from .renderer import AgentRenderError, build_render_context, render_agent_file
+from .sync_state import compute_agent_fingerprint
 
 _log = structlog.get_logger(__name__)
 
@@ -55,8 +56,31 @@ async def push_agent_files(
     if not agent_rows:
         return []
 
-    keys = await _rotate_keys(login, ws_id)
     resolved_home = home if home is not None else await resolve_container_home(login, ws_id)
+    ws_meta = {"id": ws_id, "name": ws_name, "owner": login}
+    # Cibles calculées AVANT toute rotation (le target ne dépend pas du token).
+    targets = [_resolve_target(row, project_root, resolved_home, ws_meta) for row in agent_rows]
+
+    # Empreinte de la config rendue (hors token/home). Si elle est identique à la
+    # dernière livrée ET que les fichiers sont toujours dans le conteneur, on ne
+    # rotationne pas les clefs et on ne réécrit rien : l'agent en cours garde son
+    # token (plus de ré-auth gratuite au boot/reconnexion du portail — spec 35b).
+    # Fichiers absents (conteneur recréé) ou empreinte différente → livraison.
+    fingerprint = compute_agent_fingerprint(
+        agent_rows=agent_rows,
+        profiles=await _exposed_profiles(login),
+        mcp_url=mcp_url,
+        project_root=project_root,
+        ws_name=ws_name,
+        owner=login,
+        ws_id=ws_id,
+    )
+    stored = await _stored_config_hash(login, ws_id)
+    if stored == fingerprint and await _targets_present(login, ws_id, targets):
+        _log.info("agent_files_unchanged", ws_id=ws_id, agents=[str(r["id"]) for r in agent_rows])
+        return []
+
+    keys = await _rotate_keys(login, ws_id)
     context = build_render_context(
         keys=keys,
         mcp_url=mcp_url,
@@ -66,12 +90,10 @@ async def push_agent_files(
         home=resolved_home,
         project_root=project_root,
     )
-    ws_meta = {"id": ws_id, "name": ws_name, "owner": login}
 
     written: list[str] = []
-    for row in agent_rows:
+    for row, target in zip(agent_rows, targets, strict=True):
         content = _render(row, context)
-        target = _resolve_target(row, project_root, resolved_home, ws_meta)
         if str(row["mode"]) == "merge":
             fmt, servers_key = _merge_params(target)
             existing = await read_container_file(login, ws_id, target)
@@ -81,8 +103,51 @@ async def push_agent_files(
             await _git_exclude(login, ws_id, project_root, target)
         written.append(str(row["id"]))
 
+    await _record_config_hash(login, ws_id, fingerprint)
     _log.info("agent_files_pushed", ws_id=ws_id, agents=written)
     return written
+
+
+async def _exposed_profiles(login: str) -> list[tuple[str, str]]:
+    """Profils (id, nom) exposés aux workspaces — entrée de l'empreinte. Mockable."""
+    from ..db.engine import _get_engine
+    from ..db.mcp_profiles import list_exposed_profiles
+
+    async with _get_engine().connect() as conn:
+        return [(str(p["id"]), str(p["name"])) for p in await list_exposed_profiles(conn, login)]
+
+
+async def _stored_config_hash(login: str, ws_id: str) -> str | None:
+    """Empreinte de la dernière livraison (None si jamais livré). Mockable."""
+    from ..db.agent_sync import get_config_hash
+    from ..db.engine import _get_engine
+
+    async with _get_engine().connect() as conn:
+        return await get_config_hash(conn, ws_id)
+
+
+async def _targets_present(login: str, ws_id: str, targets: list[str]) -> bool:
+    """True si TOUS les fichiers cibles existent dans le conteneur (sinon → livraison).
+
+    Discrimine un conteneur recréé (fichiers perdus → livrer) d'une simple
+    reconnexion (fichiers présents → skip possible). Une seule commande shell.
+    """
+    if not targets:
+        return True
+    import shlex
+
+    test = " && ".join(f"test -f {shlex.quote(t)}" for t in targets)
+    rc, _out = await ws_exec(login, ws_id, test)
+    return rc == 0
+
+
+async def _record_config_hash(login: str, ws_id: str, fingerprint: str) -> None:
+    """Persiste l'empreinte livrée (isolé pour être mockable en test)."""
+    from ..db.agent_sync import upsert_config_hash
+    from ..db.engine import _get_engine
+
+    async with _get_engine().begin() as conn:
+        await upsert_config_hash(conn, ws_id, fingerprint)
 
 
 async def _rotate_keys(login: str, ws_id: str) -> list[WorkspaceKey]:
@@ -148,3 +213,64 @@ async def _git_exclude(login: str, ws_id: str, project_root: str, target: str) -
         f'printf \'%s\\n\' "{rel}" >> "{exclude}"; }}; fi'
     )
     await ws_exec(login, ws_id, cmd)
+
+
+# ─── Rotation explicite d'un workspace (bouton Rotate — ticket 716556e8) ──────
+
+
+async def _workspace_status(login: str, ws_id: str) -> dict[str, Any]:
+    """Statut du workspace (isolé pour être mockable en test)."""
+    from ..routes.workspace_ops import _get_service
+
+    return await _get_service().status(login=login, ws_id=ws_id)
+
+
+async def _forget_config_hash(ws_id: str) -> None:
+    """Oublie l'empreinte de livraison → la prochaine livraison est forcée."""
+    from ..db.agent_sync import delete_config_hash
+    from ..db.engine import _get_engine
+
+    async with _get_engine().begin() as conn:
+        await delete_config_hash(conn, ws_id)
+
+
+async def _workspace_push_params(login: str, ws_id: str) -> dict[str, Any]:
+    """Paramètres de livraison du workspace (miroir du hook post-up du service)."""
+    from ..config.store import load_global, load_user
+
+    ws_name = ws_id.removeprefix(f"{login}-")
+    user_cfg = await load_user(login)
+    spec = next((s for s in user_cfg.workspaces if s.name == ws_name), None)
+    mcp_url = load_global().server.external_url.rstrip("/") + "/mcp/"
+    return {
+        "agents": list(spec.agents) if spec is not None else [],
+        "mcp_url": mcp_url,
+        "ws_name": ws_name,
+        "project_root": f"/workspaces/{ws_id}",
+    }
+
+
+async def rotate_workspace_and_push(login: str, ws_id: str) -> list[str]:
+    """Rotation des clefs d'un workspace + réinjection immédiate de sa config.
+
+    Chemin du bouton « Rotate » d'une clef workspace : exige un workspace
+    `running` (le nouveau token doit être écrit dans le conteneur — jamais
+    affiché), oublie l'empreinte de livraison pour forcer le passage même à
+    config inchangée, puis rejoue la livraison standard (rotation incluse :
+    l'ancienne génération passe en grâce, cf. rotate_workspace_keys).
+    """
+    st = await _workspace_status(login, ws_id)
+    if st.get("status") != "running":
+        raise AgentProvisionError(
+            f"le workspace doit être running pour roter sa clef (statut : "
+            f"{st.get('status', 'unknown')!r})"
+        )
+    params = await _workspace_push_params(login, ws_id)
+    if not params["agents"]:
+        raise AgentProvisionError(
+            "aucun agent configuré sur ce workspace — rien ne consommerait le nouveau token"
+        )
+    await _forget_config_hash(ws_id)
+    pushed = await push_agent_files(login=login, ws_id=ws_id, **params)
+    _log.info("workspace_key_rotation_pushed", login=login, ws_id=ws_id, agents=pushed)
+    return pushed

@@ -41,7 +41,7 @@ export default function AdminCompose() {
   const { data: previewData, isFetching: isLoadingGallery, refetch: refetchGallery } = previewQuery
 
   const sources = sourcesData?.sources ?? []
-  const galleryTemplates = previewData?.templates ?? []
+  const galleryTemplates = useMemo(() => previewData?.templates ?? [], [previewData])
 
   const filteredGallery = useMemo(() => {
     const q = galleryFilter.trim().toLowerCase()

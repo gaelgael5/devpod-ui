@@ -34,8 +34,14 @@ class WorkspaceKey:
 async def rotate_workspace_keys(
     conn: AsyncConnection, owner_login: str, ws_id: str
 ) -> list[WorkspaceKey]:
-    """Révoque la génération précédente et crée une clef par profil exposé."""
-    revoked = await db.revoke_workspace_apikeys(conn, owner_login, ws_id)
+    """Met la génération précédente en grâce et crée une clef par profil exposé.
+
+    Grâce (expire_workspace_apikeys) plutôt que révocation : une session agent en
+    cours garde son token le temps de la fenêtre — une rotation légitime (recreate,
+    resync) ne coupe plus les connexions MCP actives. Les chemins sécurité
+    (suppression du workspace, décochage d'un profil) restent en révocation immédiate.
+    """
+    expired = await db.expire_workspace_apikeys(conn, owner_login, ws_id)
     keys: list[WorkspaceKey] = []
     for profile in await list_exposed_profiles(conn, owner_login):
         clear = APIKEY_PREFIX + _secrets.token_urlsafe(32)
@@ -61,7 +67,7 @@ async def rotate_workspace_keys(
         "workspace_keys_rotated",
         login=owner_login,
         ws_id=ws_id,
-        revoked=revoked,
+        graced=expired,
         created=len(keys),
     )
     return keys
@@ -69,7 +75,11 @@ async def rotate_workspace_keys(
 
 async def revoke_workspace_keys(conn: AsyncConnection, owner_login: str, ws_id: str) -> int:
     """Révoque toutes les clefs du workspace (suppression du workspace)."""
+    from ..db.agent_sync import delete_config_hash
+
     n = await db.revoke_workspace_apikeys(conn, owner_login, ws_id)
+    # Oublie l'empreinte : un ws_id réutilisé doit re-livrer (pas de skip fantôme).
+    await delete_config_hash(conn, ws_id)
     _log.info("workspace_keys_revoked", login=owner_login, ws_id=ws_id, revoked=n)
     return n
 

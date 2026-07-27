@@ -61,7 +61,7 @@ export default function AdminRecipes() {
     useState<'all' | 'install' | 'start' | 'initialize'>('all')
 
   const sources = sourcesData?.sources ?? []
-  const galleryRecipes = previewData?.recipes ?? []
+  const galleryRecipes = useMemo(() => previewData?.recipes ?? [], [previewData])
   const filteredGallery = useMemo(() => {
     const q = galleryFilter.trim().toLowerCase()
     return galleryRecipes.filter((r: RemoteRecipe) => {

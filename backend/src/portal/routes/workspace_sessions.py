@@ -15,11 +15,12 @@ from ..auth.rbac import UserInfo, require_user
 from ..config.store import _data_root, safe_user_path
 from ..db.engine import get_conn
 from ..db.recipes import load_recipes_as_dict
+from ..devpod.exec import NO_TMUX_SERVER_RCS, ws_exec
 from ..devpod.exec import TMUX_SOCK_DETECT as _TMUX_SOCK_DETECT
 from ..devpod.exec import tmux as _tmux
-from ..devpod.exec import ws_exec
 from ..events.bus import emit_event
 from ..recipes.models import _RECIPE_ID_RE
+from ..sessions.aggregate import invalidate_sessions_cache, probe_workspace_sessions
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-sessions"])
@@ -62,15 +63,18 @@ async def _ssh(ws_id: str, login: str, command: str, timeout: float = 30.0) -> t
 async def list_sessions(name: str, user: UserInfo = Depends(require_user)) -> list[str]:
     _validate_ws_name(name)
     ws_id = f"{user.login}-{name}"
-    rc, output = await _ssh(
-        ws_id,
-        user.login,
-        _tmux("list-sessions -F '#{session_name}' 2>/dev/null || true"),
-    )
-    if rc != 0:
-        _log.warning("list_sessions_ssh_failed", ws_id=ws_id, output=output)
+    # Sonde partagée et cachée (TTL court, be1112a5) : chaque onglet terminal
+    # polle toutes les 5 s, une seule sonde SSH par ws et par TTL. Le rc de tmux
+    # différencie « aucun serveur » (1/127, état normal → liste vide) d'un
+    # workspace injoignable (255/timeout → 503 ; le front conserve alors la
+    # dernière liste connue au lieu d'afficher « aucune session »).
+    rc, sessions = await probe_workspace_sessions(user.login, ws_id)
+    if rc in NO_TMUX_SERVER_RCS:
         return []
-    return [s for s in output.strip().splitlines() if s]
+    if rc != 0:
+        _log.warning("list_sessions_unreachable", ws_id=ws_id, rc=rc)
+        raise HTTPException(status_code=503, detail=f"Workspace {name} injoignable (rc={rc})")
+    return sessions
 
 
 class CreateSessionRequest(BaseModel):
@@ -164,6 +168,7 @@ async def create_session(
     if rc != 0:
         raise HTTPException(status_code=502, detail=f"Failed to create tmux session: {output}")
 
+    invalidate_sessions_cache()
     _log.info("session_created", ws_id=ws_id, session=req.name, start_recipe=req.start_recipe)
     # new-session échoue si la session existe déjà : succès ⇒ création réelle.
     await emit_event(
@@ -192,6 +197,7 @@ async def delete_session(
     )
     if rc != 0:
         raise HTTPException(status_code=502, detail=f"Failed to kill tmux session: {output}")
+    invalidate_sessions_cache()
     _log.info("session_deleted", ws_id=ws_id, session=session_name)
     await emit_event(
         "session.closed", actor=user.login, workspace=name, subject={"session": session_name}

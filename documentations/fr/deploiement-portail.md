@@ -86,7 +86,9 @@ Renseigner au minimum : `REMOTE_HOST`, `OIDC_CLIENT_SECRET`.
 ```
 
 Le script `deploy-portal.sh` exécuté sur la VM effectue dans l'ordre :
-git pull/clone → `install.sh` (CA, config.yaml, .env) → `docker compose build && up -d` → smoke `/health`.
+git pull/clone (avec ré-exécution si le dépôt a changé) → `install.sh` (CA, config.yaml,
+.env) → complétion des credentials `.env` → `docker compose build && up -d` →
+migrations Alembic → smoke `/health`.
 
 **Si le script suffit, passer directement à l'[Étape suivante — Enrôler les nœuds](#étape-suivante--enrôler-les-nœuds-docker).**
 Les étapes 1 à 8 ci-dessous détaillent chaque action pour comprendre, déboguer ou adapter.

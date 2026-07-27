@@ -98,7 +98,9 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
     request.session["auth_time"] = int(time.time())
     request.session["user"] = {
         "login": settings.local_user,
-        "roles": [load_global().auth.oidc.admin_role],
+        # Source de vérité unique du nom de rôle admin = settings (comme tout le
+        # RBAC : rbac.py, sessions.py, compose.py, ssh_proxy.py, ownership.py).
+        "roles": [settings.oidc_admin_role],
         "sub": "local",
     }
     _log.info("local_login_success", login=settings.local_user)
@@ -138,6 +140,29 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     sub = str(claims.get("sub", ""))
     email = str(claims.get("email", ""))
 
+    # Le sub OIDC est l'ancre d'identité. OIDC le garantit ; son absence est
+    # anormale → fail closed (impossible d'ancrer de façon stable).
+    if not sub:
+        _log.warning("oidc_missing_sub", login=login_name)
+        raise HTTPException(status_code=403, detail="OIDC token has no subject (sub)")
+
+    # 1) Ancrage : un compte porte déjà ce sub → c'est l'identité canonique,
+    #    quel que soit le preferred_username (qui a pu changer côté IdP).
+    anchored = await resolve_login_by_sub(sub)
+    if anchored is not None:
+        if anchored != login_name:
+            _log.info("oidc_login_matched_by_sub", derived=login_name, matched=anchored)
+        login_name = anchored
+    else:
+        # 2) Sinon, rapprochement par email (1er login d'un compte pré-créé) ;
+        #    3) sinon on garde le login dérivé du preferred_username.
+        matched = await resolve_login_by_email(
+            email, email_verified=claims.get("email_verified")
+        )
+        if matched is not None and matched != login_name:
+            _log.info("oidc_login_matched_by_email", derived=login_name, matched=matched)
+            login_name = matched
+
     await provision_user(login=login_name, sub=sub, data_root=_data_root(), email=email)
 
     request.session.setdefault("session_id", str(uuid.uuid4()))
@@ -164,6 +189,59 @@ async def logout(request: Request) -> RedirectResponse:
     # COOKIE_DOMAIN) ; le SessionMiddleware, lui, ne supprime que celui sur son domaine.
     resp.delete_cookie("portal_session", path="/")
     return resp
+
+
+async def resolve_login_by_sub(sub: str) -> str | None:
+    """Login du compte ancré sur ce sujet OIDC, ou None si aucun (ni ancre en DB
+    ni DB configurée). Ancre stable : insensible aux changements de
+    preferred_username / email."""
+    if not sub or not get_settings().database_url:
+        return None
+    from sqlalchemy import select
+
+    from ..db.engine import _get_engine
+    from ..db.tables import users
+
+    async with _get_engine().connect() as conn:
+        return (
+            await conn.execute(select(users.c.login).where(users.c.sub == sub))
+        ).scalar_one_or_none()
+
+
+async def resolve_login_by_email(email: str, email_verified: object = None) -> str | None:
+    """Rapproche un login OIDC d'un compte existant portant le même email.
+
+    Un compte existant avec cet email = la même personne : on réutilise son login
+    au lieu d'en dériver un nouveau du preferred_username (évite les doublons).
+    Fail-closed sur les cas ambigus :
+    - email absent, ou email_verified explicitement False (anti-usurpation) → None ;
+    - plusieurs comptes partagent l'email → 403 (on ne choisit pas au hasard) ;
+    - aucun match → None (flux de provisioning normal).
+    """
+    if not email or not get_settings().database_url:
+        return None
+    if email_verified is False:
+        _log.warning("oidc_email_not_verified_skip_match", email=email)
+        return None
+
+    from sqlalchemy import select
+
+    from ..db.engine import _get_engine
+    from ..db.tables import users
+
+    async with _get_engine().connect() as conn:
+        logins = (
+            (await conn.execute(select(users.c.login).where(users.c.email == email)))
+            .scalars()
+            .all()
+        )
+    if len(logins) > 1:
+        _log.warning("oidc_email_ambiguous", email=email, logins=list(logins))
+        raise HTTPException(
+            status_code=403,
+            detail="Multiple accounts share this email — contact an administrator",
+        )
+    return logins[0] if logins else None
 
 
 async def provision_user(login: str, sub: str, data_root: Path, email: str = "") -> None:
@@ -202,7 +280,7 @@ async def provision_user(login: str, sub: str, data_root: Path, email: str = "")
     # Upsert dans la table users (nécessaire pour les FK vault, workspaces, etc.)
     settings = get_settings()
     if settings.database_url:
-        from sqlalchemy import update
+        from sqlalchemy import select, update
         from sqlalchemy.dialects.postgresql import insert as pg_insert
 
         from ..db.engine import _get_engine
@@ -212,9 +290,12 @@ async def provision_user(login: str, sub: str, data_root: Path, email: str = "")
             # INSERT atomique (même famille que bug 010) : deux callbacks de
             # login concurrents du même user ne doivent pas lever UniqueViolation.
             # DO NOTHING préserve la ligne existante (et son secret_ns).
+            values = {"login": login, "version": "1", "secret_ns": secret_ns_str, "email": email}
+            if sub:
+                values["sub"] = sub
             result = await conn.execute(
                 pg_insert(users)
-                .values(login=login, version="1", secret_ns=secret_ns_str, email=email)
+                .values(**values)
                 .on_conflict_do_nothing(index_elements=[users.c.login])
             )
             if (result.rowcount or 0) > 0:
@@ -222,10 +303,35 @@ async def provision_user(login: str, sub: str, data_root: Path, email: str = "")
                 from ..mcp.devpod_bootstrap import ensure_devpod_backend
 
                 await ensure_devpod_backend(conn, login)
-            elif email:
-                await conn.execute(
-                    update(users).where(users.c.login == login).values(email=email)
-                )
+            else:
+                if email:
+                    await conn.execute(
+                        update(users).where(users.c.login == login).values(email=email)
+                    )
+                # Ancrage de la ligne existante sur le sub : backfill si absent
+                # (1er login OIDC d'un compte pré-existant), collision si un AUTRE
+                # sub y est déjà lié (deux personnes, même login dérivé).
+                if sub:
+                    current = (
+                        await conn.execute(
+                            select(users.c.sub).where(users.c.login == login)
+                        )
+                    ).scalar_one()
+                    if current is None:
+                        await conn.execute(
+                            update(users)
+                            .where(users.c.login == login, users.c.sub.is_(None))
+                            .values(sub=sub)
+                        )
+                        _log.info("user_sub_backfilled", login=login)
+                    elif current != sub:
+                        _log.warning(
+                            "oidc_login_sub_collision", login=login, existing_sub=current
+                        )
+                        raise HTTPException(
+                            status_code=403,
+                            detail="login already bound to another identity",
+                        )
 
 
 @router.get("/caddy/verify")

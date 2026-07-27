@@ -60,6 +60,8 @@ async def create_backend(conn: AsyncConnection, owner_login: str, body: BackendC
             name=body.name,
             url=body.url,
             transport=body.transport,
+            auth_scheme=body.auth_scheme,
+            forward_identity=body.forward_identity,
             app_url=body.app_url,
             quarantine_disabled=body.quarantine_disabled,
         )
@@ -148,6 +150,44 @@ async def create_apikey(
         profile_id=body.profile_id,
     )
     _log.info("mcp_apikey_created", login=owner_login, apikey_id=aid)
+    return aid, clear
+
+
+async def rotate_apikey(
+    conn: AsyncConnection, owner_login: str, apikey_id: str
+) -> tuple[str, str]:
+    """Rotation d'une clef manuelle : révoque l'ancienne, en émet une nouvelle.
+
+    Même label et même profil ; l'ancien token est hors d'usage immédiatement
+    (révocation, pas de grâce — la rotation est un geste de sécurité explicite).
+    Réservé aux clefs bearer manuelles : les clefs workspace ont leur propre
+    cycle (rotation + réinjection via agents.push.rotate_workspace_and_push) et
+    les identités OAuth ne portent pas de token à roter.
+    Retourne (nouvel_id, token_clair) — le clair n'est montré qu'une fois.
+    """
+    row = await db.get_apikey(conn, owner_login, apikey_id)
+    if row is None:
+        raise NotFound(f"apikey '{apikey_id}' introuvable")
+    if row.get("workspace_ref"):
+        raise InvalidReference(
+            "clef workspace : rotation via la réinjection du workspace, pas ici"
+        )
+    if row.get("revoked"):
+        raise InvalidReference("clef déjà révoquée — créez-en une nouvelle")
+    if (row.get("kind") or "apikey") != "apikey":
+        raise InvalidReference("seules les clefs bearer se rotent")
+    await db.revoke_apikey(conn, owner_login, apikey_id)
+    clear = APIKEY_PREFIX + _secrets.token_urlsafe(32)
+    aid = new_id()
+    await db.insert_apikey(
+        conn,
+        id=aid,
+        owner_login=owner_login,
+        token_hash=token_hash(clear),
+        label=str(row.get("label") or ""),
+        profile_id=row.get("profile_id"),
+    )
+    _log.info("mcp_apikey_rotated", login=owner_login, old_id=apikey_id, new_id=aid)
     return aid, clear
 
 

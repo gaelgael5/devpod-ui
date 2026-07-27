@@ -37,6 +37,8 @@ async def open_session(
     *,
     transport: str = "streamable_http",
     bearer: str | None = None,
+    auth_scheme: str = "bearer",
+    extra_headers: dict[str, str] | None = None,
     timeout_s: float = 30.0,
     sse_read_timeout_s: float = 300.0,
     sse_init_settle_s: float | None = None,
@@ -44,8 +46,10 @@ async def open_session(
     """Ouvre une session MCP vers un backend selon son transport, initialisée.
 
     Supporte `streamable_http` (défaut) et `sse` (protocole legacy).
-    Injecte un bearer token si fourni. Toute erreur de connexion ou
-    d'initialisation est convertie en BackendUnavailable.
+    Injecte la clé si fournie, selon `auth_scheme` : "bearer" (défaut, standard
+    MCP → `Authorization: Bearer <clé>`) ou "x_api_key" (`X-API-Key: <clé>`, pour
+    les serveurs non conformes). Toute erreur de connexion ou d'initialisation est
+    convertie en BackendUnavailable.
 
     Transport `sse` uniquement : après `initialize`, un court settle laisse le
     serveur démarrer sa boucle de dispatch avant le premier message applicatif.
@@ -54,9 +58,23 @@ async def open_session(
     et le backend apparaît Offline alors que l'auth et l'URL sont correctes.
     Durée via settings (`mcp_sse_init_settle_s`), surchargée par le paramètre.
     """
-    headers: dict[str, str] | None = {"Authorization": f"Bearer {bearer}"} if bearer else None
+    headers: dict[str, str] | None = None
+    if bearer:
+        headers = (
+            {"X-API-Key": bearer}
+            if auth_scheme == "x_api_key"
+            else {"Authorization": f"Bearer {bearer}"}
+        )
+    if extra_headers:
+        # En-têtes applicatifs (ex. on-behalf-of signé) : fusionnés après l'auth.
+        headers = {**(headers or {}), **extra_headers}
     _log.debug(
-        "mcp_open_session_start", url=url, transport=transport, has_bearer=bearer is not None
+        "mcp_open_session_start",
+        url=url,
+        transport=transport,
+        auth_scheme=auth_scheme,
+        has_bearer=bearer is not None,
+        extra_headers=sorted(extra_headers) if extra_headers else None,
     )
     try:
         if transport == "sse":

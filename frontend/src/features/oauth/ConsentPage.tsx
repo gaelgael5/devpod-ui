@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -20,10 +20,10 @@ export default function ConsentPage() {
   const { data: backends = [] } = useBackends()
   const { data: profiles = [] } = useProfiles()
 
-  const [profileId, setProfileId] = useState<string>('')
-  useEffect(() => {
-    if (profiles.length === 1 && !profileId) setProfileId(profiles[0].id)
-  }, [profiles, profileId])
+  // Choix explicite en state ; le profil unique est auto-sélectionné par
+  // dérivation au rendu (pas d'effet).
+  const [selectedProfileId, setSelectedProfileId] = useState<string>('')
+  const profileId = selectedProfileId || (profiles.length === 1 ? profiles[0].id : '')
 
   const { data: profileDetail } = useProfileDetail(profileId || null)
 
@@ -72,7 +72,7 @@ export default function ConsentPage() {
             {t('oauth.consent.profile')}
           </span>
           {profiles.length > 0 ? (
-            <Select value={profileId} onValueChange={setProfileId}>
+            <Select value={profileId} onValueChange={setSelectedProfileId}>
               <SelectTrigger>
                 <SelectValue placeholder={t('oauth.consent.profileNone')} />
               </SelectTrigger>

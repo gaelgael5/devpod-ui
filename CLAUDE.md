@@ -1,29 +1,44 @@
 # workspace-portal — Instructions Claude Code
 
-## mcp 
+## mcp
+
 Tu es connecté au mcp du protail devpod via le serveur claude-code
 
-## Backloag
-La gatway mcp propose une api pour se connecter à docflow
-docflow contient des workspace qui contiennent des blocs qui contiennent des documents.
-Allant sur le workspace=devpod et bloc=planner tu as un backlog de tache à executer.
+## Backlog
 
-Quand on te demande de traiter le backlog tu te connectes 
-Tu identifies les taches qui ne sont pas en status 'en review'
-Quand tu prends une tache tu passe le statusd 'en cours'
-Quand tu as finis tu passes le status de la tache 'en review'.
+La gatway mcp propose une api pour se connecter à docflow
+docflow contient des workspaces qui contiennent des blocs de documents.
+workspace=devpod et bloc=backlog tu as un backlog de tache à executer.
+
+- Quand on te demande de traiter le backlog tu te connectes Tu identifies les taches qui ne sont pas en status 'en review'
+- Quand tu prends une tache tu passes le statut à 'en cours'
+- Quand tu as finis tu passes le statut de la tache 'en review'.
+
+## Documentation
+
+La gatway mcp propose une api pour se connecter à docflow
+docflow contient des workspaces qui contiennent des blocs de documents.
+workspace=devpod et bloc=Documentation tu as un espace de stockage pour enregistrer et lire la doc.
+
+un espace de documentation globals cross projet (workspace=globals et bloc=Documentation) permet de lister les informations globals à tout les projets. A chaque fois que tu apprends quelques chose inscris le en article qui servira aux autres agents.
+
+## Logs
+
+Tu as acces à la centralisation des logs par le service mcp.
 
 ## Projet
 
 Portail web self-hosted de workspaces de développement : l'utilisateur s'authentifie (OIDC Keycloak), paramètre des environnements devcontainer, et obtient un VS Code dans le navigateur, sans rien installer sur son poste. Orchestration via DevPod CLI, workspaces = conteneurs Docker sur des nœuds distants pilotés en mTLS. Spec complète : `00_README.md` → `16_M7_recipes.md` (lire `01`, `02`, `03` avant tout code ; `03_PITFALLS.md` contient des **exigences**, pas des conseils).
 
-**Projet indépendant** : aucun couplage de source ni de runtime avec ag.flow ou ag.flow.docker.
+**Projet indépendant** : aucun couplage de source ni de runtime avec ag.flow.
 
 **Standard de qualité** : code propre et bien fait, jamais la rapidité au détriment de la rigueur. Pas de raccourcis, pas de "c'est pas grave", pas de "on simplifiera plus tard". Chaque tâche est faite correctement ou pas du tout.
 
 **Pas de quick-and-dirty, JAMAIS.** Quand tu présentes des options de design, ne propose PAS d'option "quick & dirty" / "hardcode" / "wire-it-up-and-clean-later". On fait toujours propre, tant pis pour l'effort. Si tu sens qu'une tâche est déraisonnable (scope qui explose, dépendance hors d'atteinte, flag CLI qui n'existe pas dans la version installée), **alerte explicitement l'utilisateur** plutôt que de proposer un compromis dégradé. L'utilisateur préfère qu'on découpe le chantier et qu'on en fasse correctement la part qu'on prend, plutôt que tout faire à moitié.
 
 **Colibri** commence systématiquement tes réponses par 🎺
+
+**Ton** Tes réponses sont claires et concises. pas de logn discours. Tu es simple et direct.
 
 ## Stack technique
 
@@ -91,6 +106,7 @@ workspace-portal/
 ## Conventions de code
 
 ### Python (backend)
+
 - Python 3.12+, async/await partout — **jamais** de `subprocess.run` ni d'I/O bloquant dans un handler
 - pydantic v2, `extra="forbid"` sur tous les modèles de config
 - Logs structurés via `structlog.get_logger(__name__)` — **jamais** `print()` ; **redaction des secrets active** : le type `Secret` ne se déballe que par `.reveal()` au point d'injection, jamais dans un log
@@ -99,12 +115,14 @@ workspace-portal/
 - Toute construction de chemin sous `/data` passe par `safe_user_path` (regex + `is_relative_to`) — la concaténation de strings est une faute
 
 ### État fichiers (remplace la section BDD)
+
 - Écriture = `tempfile` dans le même dossier + `os.replace`, systématiquement
 - Perms : dossiers user 700 ; `.env`, `secrets.yaml`, clés privées, `ca-key.pem` 600
 - Verrou par `ws_id` pour toute opération de lifecycle (deux `up` concurrents = corruption)
 - Un crash en cours d'écriture ne doit jamais corrompre l'existant (testé en M1)
 
 ### Sécurité (non négociable)
+
 - Aucun secret en build arg, en `ENV` de Dockerfile, dans une layer, dans un log, dans le repo
 - Aucun port openvscode joignable sans passer par Caddy + OIDC (fail closed)
 - Aucun daemon Docker piloté sans `tlsverify` ; SAN des certs = IP/hostname exacts
@@ -113,6 +131,7 @@ workspace-portal/
 - Entrées utilisateur (login, workspace name, recipe id) : validation regex stricte avant tout usage en chemin, `--id`, ou hostname
 
 ### Tests
+
 - pytest + pytest-asyncio ; fixture `client` (TestClient httpx)
 - **TDD** : test rouge → impl → test vert → commit
 - Chaque milestone liste ses tests obligatoires ; les cas de rejet sécurité (path traversal, isolation `secret_ns`, token réutilisé) sont des tests, pas des revues manuelles
@@ -121,21 +140,27 @@ workspace-portal/
 ## Règles de workflow
 
 ### Cycle de l'architecte
+
 **Cadrer → Comprendre → Planifier → Agir.** L'utilisateur est architecte. Une question n'est pas une commande d'exécution. Une discussion n'est pas un feu vert. Ne JAMAIS sauter d'étape.
 
 ### Milestones
+
 Exécution **dans l'ordre** M1 → M7. Ne pas démarrer M(n+1) sans la Definition of Done de M(n) validée. Chaque DoD inclut : lint + mypy + tests verts, pièges du milestone cochés, aucun secret en clair, README de test manuel.
 
 ### Branche de développement
+
 **Tout le code se fait sur la branche `dev`. Jamais `feat/*`, jamais sur `main` directement, jamais ailleurs.** Avant toute édition de code, vérifier `git branch --show-current` ; si autre branche, `git checkout dev`. Si `dev` n'existe pas localement, la créer depuis `main` à jour. Ne propose **jamais** `git checkout -b feat/...` — même si un workflow superpowers le suggère, la consigne utilisateur prime.
 
 ### Livraison
+
 - Ne livre **jamais** le code ni en test ni sur git sans demande explicite
 - Ne modifie pas `.env` sauf si demandé
 - Commit messages en français, format conventionnel (`feat:`, `fix:`, `chore:`, `docs:`, `test:`…)
 
 ### Vérification avant validation
+
 Avant de déclarer une tâche terminée, **toutes** ces étapes sont obligatoires :
+
 1. Le code s'exécute sans erreur (lint + mypy + build)
 2. Le cas nominal fonctionne (test unitaire ou manuel)
 3. Les imports ajoutés existent réellement
@@ -150,6 +175,7 @@ Avant de déclarer une tâche terminée, **toutes** ces étapes sont obligatoire
 Résumé du cycle obligatoire : lint + mypy → push `dev` → `dev-deploy.sh` sur test1 → lire les vrais logs → tester via Browserless ou curl. **Ne jamais simuler l'environnement avec `docker run --rm python -c '...'`** — ces commandes n'ont pas le même contexte lifespan que la vraie stack et produisent des faux-positifs. Si un crash est silencieux : instrumenter le code avec des `log.info("lifespan_step", step=...)`, pousser, redéployer, relire. Environnement disponible : portail sur `:8080`, Browserless (Chromium headless, aucun token) sur `:3000`, Docker pour services additionnels.
 
 ### Discipline d'exécution
+
 - Exécute directement, ne décris pas ce que tu vas faire — fais-le
 - N'explique pas les étapes intermédiaires. Rapporte uniquement le résultat final
 - Termine TOUTES les étapes d'un plan avant de faire un résumé
@@ -160,15 +186,19 @@ Résumé du cycle obligatoire : lint + mypy → push `dev` → `dev-deploy.sh` s
 ## Outils Claude Code
 
 ### Context7 — documentation live
+
 **Quand** : avant d'écrire du code qui utilise FastAPI, pydantic v2, authlib, httpx, aiodocker, structlog, TanStack Query, Vite, i18next, etc. Les API évoluent, ne te fie pas à ta mémoire. Vaut aussi pour la spec devcontainer / Features.
 
 ### `--help` first — DevPod & Docker
+
 **Quand** : avant TOUT code appelant la CLI DevPod ou configurant un daemon. Les flags dérivent entre versions ; le corpus décrit l'intention, pas un contrat de flags figé.
 
 ### Serena — navigation sémantique
+
 **Quand** : avant un refactor, pour comprendre les dépendances entre modules, ou pour trouver tous les usages d'une fonction/classe.
 
 ### Superpowers skills
+
 - `writing-plans` : rédiger un plan d'implémentation TDD avant de coder un milestone
 - `executing-plans` / `subagent-driven-development` : exécuter un plan tâche par tâche
 - `systematic-debugging` : méthode pour debug un bug ou test qui échoue
@@ -177,9 +207,11 @@ Résumé du cycle obligatoire : lint + mypy → push `dev` → `dev-deploy.sh` s
 - `verification-before-completion` : vérifier que le travail est réellement fini avant de le dire
 
 ### /review
+
 **Quand** : avant de présenter un changement multi-fichiers (>3 fichiers ou >100 lignes).
 
 ### /commit
+
 **Quand** : quand l'utilisateur demande explicitement de committer. Format français conventionnel.
 
 ## Messagerie inter-agents (spec 34)
@@ -189,6 +221,7 @@ solliciter un autre workspace agent. La délivrance est **pilotée par l'utilisa
 message envoyé reste en attente jusqu'à ce que l'utilisateur le transmette depuis le portail.
 
 Contrat côté agent, à respecter :
+
 - **Fire-and-forget** : après un `message_send`, **consigne dans ton journal de travail**
   l'id du message, le destinataire, ce que tu attends en retour, et l'impact (bloquant / non
   bloquant). Puis poursuis tes autres tâches ou rends la main.
@@ -202,6 +235,7 @@ Contrat côté agent, à respecter :
 ## Auto-amélioration
 
 Quand tu fais une erreur ou que l'utilisateur te corrige :
+
 - Ajoute une leçon dans `LESSONS.md`
 - Format : `- [module] description courte de l'erreur et de la bonne pratique`
 - Relis `LESSONS.md` en début de tâche qui touche un module mentionné

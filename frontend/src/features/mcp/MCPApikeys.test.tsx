@@ -92,4 +92,101 @@ describe('MCPApikeys', () => {
     // La révocation reste disponible.
     expect(screen.getByRole('button', { name: /revoke/i })).toBeInTheDocument()
   })
+
+  it('rote une clef bearer : ancienne révoquée, nouveau token affiché une fois', async () => {
+    const { server } = await import('@/test/server')
+    let rotated = false
+    server.use(
+      http.get('/me/mcp/apikeys', () =>
+        HttpResponse.json([
+          {
+            id: 'ak1', owner_login: 'alice', label: 'Laptop', profile_id: null,
+            revoked: false, created_at: '', last_used_at: null,
+          },
+        ]),
+      ),
+      http.get('/me/mcp/profiles', () => HttpResponse.json([])),
+      http.post('/me/mcp/apikeys/ak1/rotate', () => {
+        rotated = true
+        return HttpResponse.json({ id: 'ak2', token: 'mcpk_new_secret' })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<MCPApikeys />)
+
+    await user.click(await screen.findByRole('button', { name: /rotate/i }))
+
+    await waitFor(() => expect(screen.getByText('mcpk_new_secret')).toBeInTheDocument())
+    expect(rotated).toBe(true)
+    expect(screen.getByText(/old key is revoked/i)).toBeInTheDocument()
+  })
+
+  it('clef workspace + workspace running : Rotate actif, réinjection sans reveal', async () => {
+    const { server } = await import('@/test/server')
+    let rotated = false
+    server.use(
+      http.get('/me', () =>
+        HttpResponse.json({ login: 'alice', roles: [], is_admin: false }),
+      ),
+      http.get('/me/workspaces/myapp/status', () =>
+        HttpResponse.json({ status: 'running' }),
+      ),
+      http.get('/me/mcp/apikeys', () =>
+        HttpResponse.json([
+          {
+            id: 'wk1', owner_login: 'alice', label: 'ws claude', profile_id: null,
+            revoked: false, created_at: '', last_used_at: null,
+            workspace_ref: 'alice-myapp',
+          },
+        ]),
+      ),
+      http.get('/me/mcp/profiles', () => HttpResponse.json([])),
+      http.post('/me/mcp/apikeys/wk1/rotate', () => {
+        rotated = true
+        return HttpResponse.json({
+          id: 'wk1', workspace: 'alice-myapp', reinjected: true, agents: ['claude'],
+        })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<MCPApikeys />)
+
+    const btn = await screen.findByRole('button', { name: /rotate/i })
+    await waitFor(() => expect(btn).toBeEnabled())
+    await user.click(btn)
+
+    await waitFor(() => expect(rotated).toBe(true))
+    // Jamais de reveal pour une clef workspace : le token est réinjecté.
+    expect(screen.queryByText(/mcpk_/)).not.toBeInTheDocument()
+  })
+
+  it('clef workspace + workspace arrêté : Rotate désactivé', async () => {
+    const { server } = await import('@/test/server')
+    server.use(
+      http.get('/me', () =>
+        HttpResponse.json({ login: 'alice', roles: [], is_admin: false }),
+      ),
+      http.get('/me/workspaces/myapp/status', () =>
+        HttpResponse.json({ status: 'stopped' }),
+      ),
+      http.get('/me/mcp/apikeys', () =>
+        HttpResponse.json([
+          {
+            id: 'wk1', owner_login: 'alice', label: 'ws claude', profile_id: null,
+            revoked: false, created_at: '', last_used_at: null,
+            workspace_ref: 'alice-myapp',
+          },
+        ]),
+      ),
+      http.get('/me/mcp/profiles', () => HttpResponse.json([])),
+    )
+    renderWithProviders(<MCPApikeys />)
+
+    const btn = await screen.findByRole('button', { name: /rotate/i })
+    // Statut chargé → toujours désactivé (workspace non running).
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /rotate/i })).toBeDisabled(),
+    )
+    expect(btn).toBeDisabled()
+  })
 })

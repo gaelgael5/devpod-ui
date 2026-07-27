@@ -100,6 +100,7 @@ async def update_backend_route(
     ok = await db.update_backend(
         conn, user.login, backend_id,
         name=body.name, url=body.url, transport=body.transport, enabled=body.enabled,
+        auth_scheme=body.auth_scheme, forward_identity=body.forward_identity,
         app_url=body.app_url, quarantine_disabled=body.quarantine_disabled,
     )
     if not ok:
@@ -226,6 +227,42 @@ async def create_apikey_route(
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
     aid, clear = await service.create_apikey(conn, user.login, body)
+    return {"id": aid, "token": clear}
+
+
+@router.post("/mcp/apikeys/{apikey_id}/rotate")
+async def rotate_apikey_route(
+    apikey_id: _UuidId,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Rotation d'une clef (ticket 716556e8), selon son type :
+
+    - clef workspace (Claude Code) : rotation + réinjection dans le conteneur —
+      le token n'est JAMAIS retourné ; exige un workspace running (409 sinon) ;
+    - clef bearer manuelle : révocation immédiate + nouvelle clef même
+      label/profil, token clair retourné UNE fois (one-time reveal).
+    """
+    row = await db.get_apikey(conn, user.login, apikey_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="apikey introuvable")
+    ws_ref = row.get("workspace_ref")
+    if ws_ref:
+        from ..agents.provisioning import AgentProvisionError
+        from ..agents.push import rotate_workspace_and_push
+
+        if row.get("revoked"):
+            raise HTTPException(status_code=409, detail="clef déjà révoquée")
+        try:
+            pushed = await rotate_workspace_and_push(user.login, str(ws_ref))
+        except AgentProvisionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"id": apikey_id, "workspace": ws_ref, "reinjected": True, "agents": pushed}
+    try:
+        aid, clear = await service.rotate_apikey(conn, user.login, apikey_id)
+    except Exception as exc:
+        _map_error(exc)
+        raise
     return {"id": aid, "token": clear}
 
 

@@ -1,21 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 import base64
-import contextlib
-import fcntl
-import json
-import os
-import pty
 import re
 import shlex
-import struct
-import termios
 from urllib.parse import urlparse
 
 import structlog
 from fastapi import APIRouter, WebSocket
-from starlette.websockets import WebSocketDisconnect
 
 from ..auth.rbac import UsernameError, session_within_max_age
 from ..config.store import load_global
@@ -27,6 +18,7 @@ from ..devpod.ssh_exec import devpod_ssh_key as _devpod_ssh_key
 from ..devpod.test_vm import build_testhost_ssh_command
 from ..sessions import registry
 from ..sessions.ownership import OwnershipDenied, resolve_owner
+from ..sessions.pty_bridge import run_pty_bridge
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -134,6 +126,8 @@ async def workspace_ssh_terminal(
         tmux_cmd = testhost_cmd
         term_family = "test"
         term_target = ssh_test
+        # Le rebond ouvre une session tmux persistante sur la VM (cf. test_vm).
+        session_name = "main"
     elif shell:
         # Mode shell brut : bash interactif sans tmux — utile pour le debug.
         tmux_cmd = "exec bash -l"
@@ -225,110 +219,13 @@ async def workspace_ssh_terminal(
         ssh_test=ssh_test,
     )
 
-    # PTY local : SSH reçoit un vrai terminal → SIGWINCH propagé correctement.
-    # Avec stdin=PIPE, SSH ne peut pas détecter les changements de taille et
-    # tmux reste à 80 colonnes même si la fenêtre du navigateur est plus large.
-    master_fd, slave_fd = pty.openpty()
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=slave_fd,
-            stdout=slave_fd,
-            stderr=slave_fd,
-            env=devpod_env,
-        )
-    finally:
-        os.close(slave_fd)  # le parent n'a besoin que du master
-
-    # Enregistrement du terminal vivant (vue centralisée des sessions).
+    # Enregistrement du terminal vivant (vue centralisée des sessions) ; le pont
+    # PTY (resize, stdin, teardown) est mutualisé dans sessions/pty_bridge.
     live_term = registry.new_terminal(
         family=term_family, target=term_target, owner=effective_owner, session=session_name
     )
+    returncode = await run_pty_bridge(
+        websocket, cmd, devpod_env, live_term, log_label="ws_workspace_ssh"
+    )
 
-    def _pty_resize(cols: int, rows: int) -> None:
-        with contextlib.suppress(OSError):
-            fcntl.ioctl(
-                master_fd,
-                termios.TIOCSWINSZ,
-                struct.pack("HHHH", rows, cols, 0, 0),
-            )
-
-    async def _ws_to_ssh() -> None:
-        try:
-            while True:
-                message = await websocket.receive()
-                if message["type"] == "websocket.disconnect":
-                    break
-                text: str | None = message.get("text")
-                raw: bytes | None = message.get("bytes")
-                if text:
-                    # Trame texte = message de contrôle (resize)
-                    with contextlib.suppress(Exception):
-                        msg = json.loads(text)
-                        if msg.get("type") == "resize":
-                            _pty_resize(
-                                max(1, int(msg.get("cols", 80))),
-                                max(1, int(msg.get("rows", 24))),
-                            )
-                elif raw:
-                    with contextlib.suppress(OSError):
-                        os.write(master_fd, raw)
-        except (WebSocketDisconnect, OSError):
-            pass
-        except Exception as exc:
-            _log.warning("ws_workspace_ssh_ws_to_ssh_error", exc_type=type(exc).__name__)
-
-    async def _ssh_to_ws() -> None:
-        loop = asyncio.get_event_loop()
-        q: asyncio.Queue[bytes | None] = asyncio.Queue()
-
-        def _on_readable() -> None:
-            try:
-                data = os.read(master_fd, 4096)
-                q.put_nowait(data or None)
-            except OSError:
-                q.put_nowait(None)
-                loop.remove_reader(master_fd)
-
-        loop.add_reader(master_fd, _on_readable)
-        try:
-            while True:
-                chunk = await q.get()
-                if chunk is None:
-                    break
-                await websocket.send_bytes(chunk)
-        except (WebSocketDisconnect, OSError):
-            pass
-        except Exception as exc:
-            _log.warning("ws_workspace_ssh_ssh_to_ws_error", exc_type=type(exc).__name__)
-        finally:
-            loop.remove_reader(master_fd)
-
-    tasks = [
-        asyncio.create_task(_ws_to_ssh()),
-        asyncio.create_task(_ssh_to_ws()),
-    ]
-
-    # Closer : `POST /sessions/close` annule le pont ; le `finally` ci-dessous
-    # tue alors le process et ferme le websocket (téardown identique à une
-    # déconnexion navigateur).
-    def _closer() -> None:
-        for t in tasks:
-            t.cancel()
-
-    registry.register(live_term, closer=_closer)
-    try:
-        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-    finally:
-        registry.unregister(live_term.id)
-        for t in tasks:
-            t.cancel()
-        if proc.returncode is None:
-            proc.kill()
-            await proc.wait()
-        with contextlib.suppress(OSError):
-            os.close(master_fd)
-        with contextlib.suppress(Exception):
-            await websocket.close()
-
-    _log.info("ws_workspace_ssh_closed", ws_id=ws_id, returncode=proc.returncode)
+    _log.info("ws_workspace_ssh_closed", ws_id=ws_id, returncode=returncode)

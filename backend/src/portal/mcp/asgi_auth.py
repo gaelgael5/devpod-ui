@@ -9,9 +9,14 @@ from __future__ import annotations
 
 from typing import Any
 
+import structlog
+
 from ..config.store import load_global
 from ..db.engine import _get_engine
 from .dispatch_common import extract_bearer, resolve_tenant
+from .service import token_hash
+
+_log = structlog.get_logger(__name__)
 
 
 class BearerGate:
@@ -38,6 +43,15 @@ class BearerGate:
         async with _get_engine().connect() as conn:
             tenant = await resolve_tenant(conn, token)
         if tenant is None:
+            # Jamais le token clair : préfixe du hash (corrélable à mcp_apikey.token_hash)
+            # — sans ce log, un 401 gateway est indiagnosticable (clé révoquée ? expirée ?
+            # inconnue ?), vu au débug des ré-auth agents.
+            _log.warning(
+                "mcp_bearer_rejected",
+                path=scope.get("path", ""),
+                has_token=bool(token),
+                token_hash_prefix=token_hash(token)[:12] if token else None,
+            )
             await self._unauthorized(send)
             return
         await self._app(scope, receive, send)

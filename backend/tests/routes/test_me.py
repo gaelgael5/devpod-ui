@@ -46,6 +46,7 @@ def test_get_me_returns_login_and_roles(tmp_path: Path) -> None:
     data = resp.json()
     assert data["login"] == "alice"
     assert data["roles"] == ["dev"]
+    assert data["is_admin"] is False
 
 
 def test_get_me_admin_returns_admin_role(tmp_path: Path) -> None:
@@ -55,6 +56,8 @@ def test_get_me_admin_returns_admin_role(tmp_path: Path) -> None:
         resp = client.get("/me")
     assert resp.status_code == 200
     assert "admin" in resp.json()["roles"]
+    # is_admin est calculé côté serveur contre settings.oidc_admin_role.
+    assert resp.json()["is_admin"] is True
 
 
 def test_get_me_config_returns_user_config(tmp_path: Path) -> None:
@@ -120,6 +123,87 @@ def test_put_me_config_allows_culture_field(tmp_path: Path) -> None:
     finally:
         os.environ.pop("DEV_MODE", None)
         mod._settings = None
+
+
+def _profile_app(tmp_path: Path):
+    """App en DEV_MODE (vault désactivé) pour les tests /me/profile touchant la table users."""
+    import portal.settings as mod
+
+    os.environ["DEV_MODE"] = "true"
+    mod._settings = None
+    _provision_alice(tmp_path)
+    return _make_app(tmp_path)
+
+
+def test_patch_profile_updates_email(tmp_path: Path) -> None:
+    app = _profile_app(tmp_path)
+    try:
+        with TestClient(app) as client:
+            resp = client.patch("/me/profile", json={"email": "gaelgael5@gmail.com"})
+            assert resp.status_code == 200
+            assert resp.json()["email"] == "gaelgael5@gmail.com"
+            # Persisté : un GET ultérieur renvoie la même valeur.
+            assert client.get("/me/profile").json()["email"] == "gaelgael5@gmail.com"
+    finally:
+        os.environ.pop("DEV_MODE", None)
+
+
+def test_patch_profile_rejects_invalid_email(tmp_path: Path) -> None:
+    app = _profile_app(tmp_path)
+    try:
+        with TestClient(app) as client:
+            resp = client.patch("/me/profile", json={"email": "pas-un-email"})
+        assert resp.status_code == 422
+        assert "email" in resp.json()["detail"]
+    finally:
+        os.environ.pop("DEV_MODE", None)
+
+
+def test_patch_profile_updates_email_and_display_name(tmp_path: Path) -> None:
+    app = _profile_app(tmp_path)
+    try:
+        with TestClient(app) as client:
+            resp = client.patch(
+                "/me/profile",
+                json={"email": "a@b.io", "display_name": "Gaël"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["email"] == "a@b.io"
+        assert body["display_name"] == "Gaël"
+    finally:
+        os.environ.pop("DEV_MODE", None)
+
+
+def test_patch_profile_allows_clearing_email(tmp_path: Path) -> None:
+    """Chaîne vide = efface l'email (pas de validation de format sur le vide)."""
+    app = _profile_app(tmp_path)
+    try:
+        with TestClient(app) as client:
+            assert client.patch("/me/profile", json={"email": ""}).status_code == 200
+    finally:
+        os.environ.pop("DEV_MODE", None)
+
+
+def test_patch_profile_rejects_login_field(tmp_path: Path) -> None:
+    """Le login est immuable : extra='forbid' rejette toute tentative de le modifier."""
+    app = _profile_app(tmp_path)
+    try:
+        with TestClient(app) as client:
+            resp = client.patch("/me/profile", json={"login": "someone-else"})
+        assert resp.status_code == 422
+    finally:
+        os.environ.pop("DEV_MODE", None)
+
+
+def test_patch_profile_rejects_empty_patch(tmp_path: Path) -> None:
+    app = _profile_app(tmp_path)
+    try:
+        with TestClient(app) as client:
+            resp = client.patch("/me/profile", json={})
+        assert resp.status_code == 422
+    finally:
+        os.environ.pop("DEV_MODE", None)
 
 
 def test_get_me_workspaces_returns_empty_list(tmp_path: Path) -> None:

@@ -52,6 +52,58 @@ def test_parse_ps_status_stopped_when_empty() -> None:
     assert service._parse_ps_status("") == "stopped"
 
 
+def test_parse_compose_ls_json_array() -> None:
+    out = (
+        '[{"Name":"chromium","Status":"running(1)","ConfigFiles":"/opt/a/docker-compose.yml"},'
+        '{"Name":"alloy","Status":"running(1)","ConfigFiles":"/opt/b/compose.yml"}]'
+    )
+    stacks = service._parse_compose_ls(out)
+    assert stacks == [
+        {"name": "alloy", "status": "running(1)", "configFiles": "/opt/b/compose.yml"},
+        {"name": "chromium", "status": "running(1)", "configFiles": "/opt/a/docker-compose.yml"},
+    ]
+
+
+def test_parse_compose_ls_json_lines() -> None:
+    out = (
+        '{"Name":"proj","Status":"exited(2)","ConfigFiles":"/x/docker-compose.yml"}\n'
+        '\n'
+        '{"Name":"","Status":"running"}\n'  # sans nom → ignoré
+    )
+    assert service._parse_compose_ls(out) == [
+        {"name": "proj", "status": "exited(2)", "configFiles": "/x/docker-compose.yml"}
+    ]
+
+
+def test_parse_compose_ls_empty_and_garbage() -> None:
+    assert service._parse_compose_ls("") == []
+    assert service._parse_compose_ls("not json at all") == []
+
+
+def test_parse_docker_ps_excludes_compose_containers() -> None:
+    out = (
+        '{"Names":"standalone-db","Image":"postgres:16","State":"running",'
+        '"Status":"Up 3h","Labels":"foo=bar"}\n'
+        '{"Names":"chromium-svc","Image":"browserless","State":"running","Status":"Up 1h",'
+        '"Labels":"com.docker.compose.project=chromium,other=x"}\n'
+    )
+    containers = service._parse_docker_ps_standalone(out)
+    # Le conteneur compose est exclu ; le standalone est conservé.
+    assert containers == [
+        {
+            "name": "standalone-db",
+            "image": "postgres:16",
+            "state": "running",
+            "status": "Up 3h",
+        }
+    ]
+
+
+def test_parse_docker_ps_empty_and_garbage() -> None:
+    assert service._parse_docker_ps_standalone("") == []
+    assert service._parse_docker_ps_standalone("garbage\n{bad json}") == []
+
+
 def _tpl() -> ComposeTemplate:
     return ComposeTemplate(
         id="browserless", name="B", version="1",
@@ -195,13 +247,16 @@ async def test_deploy_rejects_plaintext_secret(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_lifecycle_restart(monkeypatch) -> None:
     host = SimpleNamespace(name="n1", type="ssh", address="root@x", host_cert_slug="s")
-    dep = SimpleNamespace(node_id="n1")
+    dep = SimpleNamespace(
+        node_id="n1", id="dep1", owner_login="alice", template_id="tpl", message_id=None
+    )
     monkeypatch.setattr(service, "_host_for_node", lambda node_id: host)
     monkeypatch.setattr(service, "get_deployment", AsyncMock(return_value=dep))
     monkeypatch.setattr(service, "run_host_command", AsyncMock(return_value=(0, "", "")))
     monkeypatch.setattr(service, "persist_op_log", AsyncMock())
     monkeypatch.setattr(service, "update_deployment_status", AsyncMock())
     monkeypatch.setattr(service, "refresh_status", AsyncMock(return_value="running"))
+    monkeypatch.setattr(service, "emit_event", AsyncMock())
 
     await service.lifecycle(None, "dep1", "restart")
 
@@ -213,7 +268,7 @@ async def test_lifecycle_restart(monkeypatch) -> None:
 async def test_lifecycle_failure_records_error(monkeypatch) -> None:
     """rc≠0 → statut mis à 'error' et retour normal (pas d'exception)."""
     host = SimpleNamespace(name="n1", type="ssh", address="root@x", host_cert_slug="s")
-    dep = SimpleNamespace(node_id="n1")
+    dep = SimpleNamespace(node_id="n1", id="dep1")
     monkeypatch.setattr(service, "_host_for_node", lambda node_id: host)
     monkeypatch.setattr(service, "get_deployment", AsyncMock(return_value=dep))
     monkeypatch.setattr(service, "run_host_command", AsyncMock(return_value=(1, "", "boom")))

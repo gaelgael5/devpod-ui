@@ -13,8 +13,10 @@ from portal.sessions.registry import LiveTerminal
 @pytest.fixture(autouse=True)
 def _clean_registry() -> None:
     registry.clear()
+    aggregate.clear_sessions_cache()
     yield
     registry.clear()
+    aggregate.clear_sessions_cache()
 
 
 class _FakeEngine:
@@ -311,3 +313,116 @@ async def test_admin_includes_all_ws_hosts_and_tests(
     assert tests[0]["target"] == "testvm-1"
     assert tests[0]["owner"] == "bob"
     assert tests[0]["workspace"] == "bob-ws"
+
+
+# ─── Sessions tmux des hosts admin (sonde SSH) ────────────────────────────────
+
+
+class _SshHost:
+    """Host ssh sondable (address + host_cert_slug posés)."""
+
+    def __init__(self, name: str, usage: str = "workspaces") -> None:
+        self.name = name
+        self.type = "ssh"
+        self.usage = usage
+        self.address = f"debian@{name}.lan"
+        self.host_cert_slug = f"host.{name}.cert"
+
+
+@pytest.mark.asyncio
+async def test_host_sessions_enumerated_via_tmux_probe(
+    monkeypatch: pytest.MonkeyPatch, patch_common
+) -> None:
+    """Un host ssh sondable liste ses sessions tmux (une entrée par session)."""
+    registry.register(
+        LiveTerminal(
+            id="h1", family="host", target="node1", owner="root", session="main", since=1.0
+        )
+    )
+
+    async def _no_refs(login, conn):
+        return []
+
+    async def _all_tests(conn: Any):
+        return []
+
+    async def _probe(host: Any, command: str, timeout: float = 8.0):
+        assert "list-sessions" in command
+        return 0, "main\nops\n", ""
+
+    class _Cfg:
+        hosts = [_SshHost("node1")]
+
+    monkeypatch.setattr(aggregate, "list_workspace_refs", _no_refs)
+    monkeypatch.setattr(aggregate, "list_all_status_db", _statuses())
+    monkeypatch.setattr(aggregate, "list_all_test_hosts", _all_tests)
+    monkeypatch.setattr(aggregate, "run_host_command", _probe)
+    monkeypatch.setattr("portal.config.store.load_global", lambda: _Cfg())
+
+    result = await aggregate.list_sessions(login="root", is_admin=True)
+    hosts = [r for r in result if r["family"] == "host"]
+    assert {r["session"] for r in hosts} == {"main", "ops"}
+    by_session = {r["session"]: r for r in hosts}
+    assert by_session["main"]["attached"] is True
+    assert by_session["ops"]["attached"] is False
+
+
+@pytest.mark.asyncio
+async def test_host_probe_failure_falls_back_to_static_entry(
+    monkeypatch: pytest.MonkeyPatch, patch_common
+) -> None:
+    """Host injoignable (ou sans tmux listable) → entrée statique comme avant."""
+
+    async def _no_refs(login, conn):
+        return []
+
+    async def _all_tests(conn: Any):
+        return []
+
+    async def _probe(host: Any, command: str, timeout: float = 8.0):
+        raise RuntimeError("ssh boom")
+
+    class _Cfg:
+        hosts = [_SshHost("node1")]
+
+    monkeypatch.setattr(aggregate, "list_workspace_refs", _no_refs)
+    monkeypatch.setattr(aggregate, "list_all_status_db", _statuses())
+    monkeypatch.setattr(aggregate, "list_all_test_hosts", _all_tests)
+    monkeypatch.setattr(aggregate, "run_host_command", _probe)
+    monkeypatch.setattr("portal.config.store.load_global", lambda: _Cfg())
+
+    result = await aggregate.list_sessions(login="root", is_admin=True)
+    hosts = [r for r in result if r["family"] == "host"]
+    assert len(hosts) == 1
+    assert hosts[0]["target"] == "node1"
+    assert hosts[0]["session"] is None
+
+
+@pytest.mark.asyncio
+async def test_host_without_tmux_flagged(monkeypatch: pytest.MonkeyPatch, patch_common) -> None:
+    """tmux absent sur le host → entrée statique marquée no_tmux (info UI :
+    sessions non persistantes, installer tmux)."""
+
+    async def _no_refs(login, conn):
+        return []
+
+    async def _all_tests(conn: Any):
+        return []
+
+    async def _probe(host: Any, command: str, timeout: float = 8.0):
+        return 0, "__PORTAL_NO_TMUX__\n", ""
+
+    class _Cfg:
+        hosts = [_SshHost("node1")]
+
+    monkeypatch.setattr(aggregate, "list_workspace_refs", _no_refs)
+    monkeypatch.setattr(aggregate, "list_all_status_db", _statuses())
+    monkeypatch.setattr(aggregate, "list_all_test_hosts", _all_tests)
+    monkeypatch.setattr(aggregate, "run_host_command", _probe)
+    monkeypatch.setattr("portal.config.store.load_global", lambda: _Cfg())
+
+    result = await aggregate.list_sessions(login="root", is_admin=True)
+    hosts = [r for r in result if r["family"] == "host"]
+    assert len(hosts) == 1
+    assert hosts[0]["session"] is None
+    assert hosts[0]["no_tmux"] is True

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import json
 import os
@@ -15,12 +16,13 @@ from urllib.parse import urlparse
 import structlog
 
 from ..agents.keys import revoke_workspace_keys
-from ..config.models import GlobalConfig, SourceSpec, WorkspaceSpec
+from ..config.models import GitCredential, GlobalConfig, SourceSpec, WorkspaceSpec
 from ..config.store import _data_root, load_global, load_user, safe_login_path, safe_user_path
 from ..db.engine import _get_engine
 from ..db.log_blobs import persist_log_blob_from_file
 from ..db.workspace_status import (
     delete_status_db,
+    fail_stale_provisioning_db,
     get_status_db,
     list_by_login_db,
     list_running_db,
@@ -33,7 +35,7 @@ from ..exposure import _WS_ID_RE
 from ..messages import db as _msg_db
 from ..profiles.models import Profile
 from ..recipes.models import RecipeMeta
-from .env import HostNotReadyError, _find_host, build_env
+from .env import HostNotReadyError, _find_host, build_env, docker_cert_dir
 from .provider import ensure_provider
 from .runner import kill_if_running, run_subprocess
 from .shelve import shelve_if_pending
@@ -48,10 +50,14 @@ async def _materialize_system_cert(slug: str, login: str = "") -> str:
     Le chemin stable évite que ProxyCommand (devpod ssh --stdio) trouve une clé
     manquante après un rebuild du conteneur portail.
     """
+    from ..certificates.pem import normalize_pem
     from ..secrets.system import reveal_system_cert
 
     async with _get_engine().begin() as conn:
-        pem = await reveal_system_cert(slug, conn)
+        # Normalisation systématique : une clé importée/collée (CRLF Windows, newline
+        # final manquant) ferait échouer ssh avec « error in libcrypto ». Répare aussi
+        # les entrées déjà stockées sales, sans migration.
+        pem = normalize_pem(await reveal_system_cert(slug, conn))
 
     if login:
         keys_dir = safe_user_path(login, "devpod") / "keys"
@@ -127,6 +133,68 @@ def _normalize_clone_url(url: str) -> str:
     if m:
         return f"git@github.com:{m.group('path')}.git"
     return url
+
+
+def _reject_dash(url: str, branch: str) -> None:
+    """Rejette une URL/branche commençant par '-' (argument injection git)."""
+    if url.startswith("-"):
+        raise ValueError(f"Source URL must not start with '-': {url!r}")
+    if branch and branch.startswith("-"):
+        raise ValueError(f"Branch must not start with '-': {branch!r}")
+
+
+def _deferred_clone_command(url: str, branch: str, username: str, token: str) -> str:
+    """Commande shell de clone post-readiness d'une source additionnelle en PAT HTTPS.
+
+    L'auth passe par `http.extraHeader` (Authorization Basic), comme run_git_ls_remote :
+    git n'émet jamais de requête credential, donc le serveur git-credentials de devpod
+    (panic v0.6.15 en phase setup, workspace nil) n'est pas sollicité. Le token n'est ni
+    dans l'URL clonée ni dans le remote enregistré — seulement dans l'en-tête HTTP.
+    Idempotent : skip si la cible existe déjà (re-up de réconciliation).
+    """
+    from .git import _canonical_http_git_url
+
+    canon = _canonical_http_git_url(url.strip())
+    _reject_dash(canon, branch)
+    target = f"/workspaces/{_repo_name_from_url(canon)}"
+    b64 = base64.b64encode(f"{username}:{token}".encode()).decode()
+    branch_arg = f"-b {shlex.quote(branch)} " if branch else ""
+    return (
+        f"if [ -e {shlex.quote(target)} ]; then exit 0; fi; "
+        "GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false "
+        f'git -c http.extraHeader="Authorization: Basic {b64}" '
+        "-c credential.helper= "
+        f"clone {branch_arg}-- {shlex.quote(canon)} {shlex.quote(target)}"
+    )
+
+
+def _deferred_ssh_clone_command(url: str, branch: str, key_pem: str) -> str:
+    """Commande shell de clone post-readiness d'une source additionnelle via clé SSH.
+
+    Pour une source authentifiée par un credential ssh sur un host ≠ source principale :
+    l'agent SSH forwardé pendant `up` ne porte que la clé de la source principale. On
+    matérialise donc la clé de déploiement dans un fichier 0600 éphémère du conteneur
+    (effacé par `trap`, jamais loggé), et on l'utilise via `GIT_SSH_COMMAND`. Une URL
+    https:// est convertie en `git@host:path` pour que la clé soit effective. Idempotent.
+    """
+    src = url.strip()
+    _reject_dash(src, branch)
+    parsed = urlparse(src)
+    if parsed.scheme in ("https", "http"):
+        ssh_url = f"git@{parsed.hostname}:{parsed.path.lstrip('/')}"
+    else:
+        ssh_url = src  # déjà git@host:path ou ssh://
+    target = f"/workspaces/{_repo_name_from_url(ssh_url)}"
+    branch_arg = f"-b {shlex.quote(branch)} " if branch else ""
+    key_body = shlex.quote(key_pem.strip() + "\n")
+    return (
+        f"if [ -e {shlex.quote(target)} ]; then exit 0; fi; "
+        'KF=$(mktemp); chmod 600 "$KF"; trap \'rm -f "$KF"\' EXIT; '
+        f'printf %s {key_body} > "$KF"; '
+        "GIT_TERMINAL_PROMPT=0 "
+        'GIT_SSH_COMMAND="ssh -i $KF -o StrictHostKeyChecking=no -o BatchMode=yes" '
+        f"git clone {branch_arg}-- {shlex.quote(ssh_url)} {shlex.quote(target)}"
+    )
 
 
 class DevPodService:
@@ -273,12 +341,33 @@ class DevPodService:
                     )
                 agent_ids = list(ws_spec.agents)
 
+            # Initialisés AVANT tout await susceptible d'échouer : le `finally` de ce
+            # bloc les lit pour le nettoyage, et les laisser non liés masquerait l'erreur
+            # réelle par un UnboundLocalError.
+            git_ssh_key_path = ""
+            git_cred_home = ""  # HOME temporaire du credential store PAT (nettoyé après l'up)
+
+            # Sources additionnelles : celles authentifiées par PAT sont clonées
+            # post-readiness (via ws_exec) pour éviter le panic du serveur git-credentials
+            # de devpod (v0.6.15). Les autres restent dans le postCreateCommand.
+            inline_sources, deferred_sources = await self._split_extra_sources(
+                login, ws_spec.extra_sources
+            )
+
             # Pour docker-tls : devcontainer.json généré localement, chemin absolu local valide.
             # Pour SSH : le fichier est généré localement puis uploadé sur la VM distante via
             #   tar|ssh avant devpod up ; le chemin absolu distant est passé à --devcontainer-path.
             dc_path: Path | None = None
+            # Bornage mémoire (enabler 59864c37) : surcharge workspace, sinon
+            # défaut global. "" = pas de limite.
+            memory_limit = ws_spec.memory_limit or global_cfg.devpod.defaults.memory_limit
             needs_devcontainer = bool(
-                recipes or feature_env or ws_spec.extra_sources or profile or ws_spec.recipe_volumes
+                recipes
+                or feature_env
+                or inline_sources
+                or profile
+                or ws_spec.recipe_volumes
+                or memory_limit
             )
             if needs_devcontainer:
                 # mkdtemp/copytree/write_text sont bloquants (plusieurs répertoires de
@@ -289,9 +378,10 @@ class DevPodService:
                     ws_id,
                     recipes=recipes,
                     feature_env=feature_env,
-                    extra_sources=ws_spec.extra_sources if ws_spec.extra_sources else None,
+                    extra_sources=inline_sources or None,
                     profile=profile,
                     recipe_volumes=ws_spec.recipe_volumes or None,
+                    memory_limit=memory_limit or None,
                 )
 
             # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
@@ -299,7 +389,6 @@ class DevPodService:
             subprocess_env = {**base_env, **ws_spec.env}
 
             # Résolution du credential git pour l'injection dans devpod up
-            git_ssh_key_path = ""
             effective_source = ws_spec.source
             if ws_spec.git_credential and ws_spec.source:
                 try:
@@ -321,6 +410,23 @@ class DevPodService:
                                 login=login,
                                 source=effective_source,
                             )
+                    elif (
+                        cred
+                        and cred.kind == "token"
+                        and cred.token
+                        and effective_source.startswith(("https://", "http://"))
+                    ):
+                        # PAT HTTPS : devpod forwarde `git credential fill` au git côté
+                        # portail lors du clone → on lui fournit le token via un store
+                        # temporaire (l'URL reste HTTPS, pas de conversion SSH).
+                        from .git import write_token_credential_store
+
+                        host = urlparse(effective_source).hostname or cred.host
+                        git_cred_home, cred_env = write_token_credential_store(
+                            host, cred.username or "oauth2", cred.token
+                        )
+                        subprocess_env.update(cred_env)
+                        _log.info("devpod_git_token_store_prepared", login=login, host=host)
                 except Exception:
                     _log.warning("git_credential_lookup_failed", login=login, exc_info=True)
 
@@ -365,10 +471,12 @@ class DevPodService:
                     workspace_folder=workspace_folder,
                     host_name=host_cfg.name,
                     git_ssh_key_path=git_ssh_key_path,
+                    git_cred_home=git_cred_home,
                     lifecycle_event=lifecycle_event,
                     agents=agent_ids,
                     mcp_url=agents_mcp_url,
                     project_root=f"/workspaces/{ws_id}",
+                    deferred_sources=deferred_sources,
                 )
             )
             self._background_tasks.add(task)
@@ -387,6 +495,10 @@ class DevPodService:
             if not task_created and tmp_key_path and tmp_key_path.startswith(tempfile.gettempdir()):
                 with contextlib.suppress(OSError):
                     os.unlink(tmp_key_path)
+            if not task_created and git_cred_home:
+                # La tâche n'a jamais démarré → son finally ne nettoiera pas le store.
+                with contextlib.suppress(Exception):
+                    shutil.rmtree(git_cred_home, ignore_errors=True)
             if not task_created and host_port is not None and self._exposure is not None:
                 # Le port a été réservé en mémoire (allocate_port) mais _run_up_task
                 # n'a jamais démarré : jamais persisté en DB, il faut le relâcher
@@ -426,6 +538,19 @@ class DevPodService:
             _log.warning("reconcile_ws_spec_not_found", ws_id=ws_id, login=login)
         except Exception as exc:
             _log.warning("reconcile_reconnect_failed", ws_id=ws_id, error=str(exc))
+
+    async def fail_stale_provisioning(self) -> None:
+        """Au démarrage : bascule en `failed` les lignes `provisioning` orphelines.
+
+        La transition provisioning → running/failed est écrite exclusivement par
+        la tâche asyncio du `devpod up` (_run_up_task), qui meurt avec le process.
+        Après un restart, toute ligne encore `provisioning` est donc orpheline et
+        resterait bloquée à vie sans ce balayage.
+        """
+        async with _get_engine().begin() as conn:
+            failed_ids = await fail_stale_provisioning_db(conn)
+        if failed_ids:
+            _log.warning("stale_provisioning_failed", ws_ids=failed_ids, count=len(failed_ids))
 
     async def reconcile_port_forwards(self) -> None:
         """Au démarrage, relance les tunnels SSH et recrée les routes Caddy des workspaces running.
@@ -477,7 +602,7 @@ class DevPodService:
             if host_cfg.type == "docker-tls":
                 tunnel_env["DOCKER_HOST"] = host_cfg.docker_host
                 tunnel_env["DOCKER_TLS_VERIFY"] = "1"
-                tunnel_env["DOCKER_CERT_PATH"] = global_cfg.devpod.client_cert_path
+                tunnel_env["DOCKER_CERT_PATH"] = docker_cert_dir(host_cfg, global_cfg)
             tmp_key_path = ""
             pf_ok = False
             try:
@@ -723,6 +848,7 @@ class DevPodService:
         recipe_volumes: list[str] | None = None,
         extra_mounts: list[str] | None = None,
         extra_post_create: list[str] | None = None,
+        memory_limit: str | None = None,
     ) -> Path:
         """Écrit devcontainer.json + Feature dirs dans un tmpdir. Retourne le chemin du JSON."""
         user_dir = safe_user_path(login, "devpod")
@@ -784,14 +910,25 @@ class DevPodService:
                     url = _normalize_clone_url(url)
                     repo_name = _repo_name_from_url(url)
                     target = f"/workspaces/{repo_name}"
+                    # Désactive le credential helper de devpod : sur un dépôt HTTPS
+                    # exigeant une auth, git interrogerait le serveur git-credentials
+                    # de devpod qui panique en phase setup (workspace nil, v0.6.15) et
+                    # ferait échouer TOUT le workspace. Avec askpass=/bin/false +
+                    # credential.helper vide, git échoue proprement (auth refusée) sans
+                    # jamais solliciter ce tunnel. Inerte pour les URLs ssh (git@).
+                    prefix = (
+                        "GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false git -c credential.helper="
+                    )
                     # '--' empêche git d'interpréter l'URL comme un flag.
                     if src.branch:
                         clone_cmds.append(
-                            f"git clone -b {shlex.quote(src.branch)} -- "
+                            f"{prefix} clone -b {shlex.quote(src.branch)} -- "
                             f"{shlex.quote(url)} {shlex.quote(target)}"
                         )
                     else:
-                        clone_cmds.append(f"git clone -- {shlex.quote(url)} {shlex.quote(target)}")
+                        clone_cmds.append(
+                            f"{prefix} clone -- {shlex.quote(url)} {shlex.quote(target)}"
+                        )
                 if clone_cmds:
                     content["postCreateCommand"] = " && ".join(clone_cmds)
 
@@ -811,6 +948,12 @@ class DevPodService:
                         **(vscode.get("settings") or {}),
                         **frag["settings"],
                     }
+
+            # Bornage mémoire (enabler 59864c37) : un agent emballé tue SON
+            # conteneur, pas le host. runArgs vérifié contre devpod v0.6.15
+            # (struct devcontainer config) ; appliqué à la (re)construction.
+            if memory_limit:
+                content["runArgs"] = [f"--memory={memory_limit}"]
 
             mounts: list[str] = []
             if recipe_volumes and recipes:
@@ -915,24 +1058,46 @@ class DevPodService:
             assert tar_proc.stdout is not None
             assert ssh_proc.stdin is not None
             try:
+                # drain() DANS la boucle : backpressure réel (sinon tout le tar
+                # est bufferisé en mémoire avant la première écriture réseau).
                 while chunk := await tar_proc.stdout.read(65536):
                     ssh_proc.stdin.write(chunk)
-                await ssh_proc.stdin.drain()
+                    await ssh_proc.stdin.drain()
+            except (BrokenPipeError, ConnectionResetError, RuntimeError):
+                # ssh mort ou stdin fermé pendant l'écriture : on arrête de
+                # pomper sans lever — l'échec réel est rapporté par le
+                # returncode ssh ci-dessous (avec son stderr). On DRAINE alors
+                # tar jusqu'à EOF pour le laisser se terminer : sans lecteur il
+                # bloquerait sur son pipe plein, et un kill() laisserait un
+                # zombie que Process.wait() d'asyncio ne récolte pas (pipe
+                # stdout non consommé) — vérifié : wait() pendait indéfiniment.
+                with contextlib.suppress(Exception):
+                    while await tar_proc.stdout.read(65536):
+                        pass
             finally:
-                ssh_proc.stdin.close()
+                with contextlib.suppress(Exception):
+                    ssh_proc.stdin.close()
 
+        # PAS de ssh_proc.communicate() ici : communicate() sans input ferme
+        # immédiatement stdin, en pleine course avec le pump qui y écrit —
+        # flux tronqué (« gzip: unexpected end of file » côté distant) et
+        # RuntimeError « handler is closed » côté portail (bug vu au boot).
         pump_task = asyncio.create_task(_pump())
-        _, ssh_err = await ssh_proc.communicate()
+        assert ssh_proc.stderr is not None
+        ssh_err = await ssh_proc.stderr.read()
         await pump_task
+        await ssh_proc.wait()
         await tar_proc.wait()
 
-        if tar_proc.returncode != 0:
-            raise RuntimeError(f"tar devcontainer échoué (code {tar_proc.returncode})")
+        # ssh d'abord : si le pump a avorté (ssh mort), tar a été tué (-9) et
+        # son returncode ne doit pas masquer l'erreur ssh réelle (avec stderr).
         if ssh_proc.returncode != 0:
             raise RuntimeError(
                 f"Upload SSH devcontainer vers {remote_dir!r} échoué : "
                 f"{ssh_err.decode(errors='replace').strip()}"
             )
+        if tar_proc.returncode != 0:
+            raise RuntimeError(f"tar devcontainer échoué (code {tar_proc.returncode})")
         _log.info("devcontainer_uploaded_ssh", remote_dir=remote_dir, path=devcontainer_path)
         return devcontainer_path, remote_dir
 
@@ -1048,6 +1213,68 @@ class DevPodService:
                 await asyncio.wait_for(proc.wait(), timeout=5.0)
         _log.info("port_forward_stopped", ws_id=ws_id)
 
+    async def _split_extra_sources(
+        self, login: str, extra_sources: list[SourceSpec]
+    ) -> tuple[list[SourceSpec], list[tuple[SourceSpec, GitCredential]]]:
+        """Répartit les sources additionnelles : clone in-devcontainer vs post-readiness.
+
+        Une source AUTHENTIFIÉE (credential token OU ssh résolu) est différée : son clone
+        a lieu post-readiness via ws_exec, hors du tunnel git-credentials de devpod qui
+        panique en phase setup (v0.6.15) et sans dépendre de l'agent SSH forwardé (qui ne
+        porte que la clé de la source principale). Les sources publiques restent inline.
+        """
+        if not extra_sources:
+            return [], []
+        user_cfg = await load_user(login)
+        by_name = {c.name: c for c in user_cfg.git_credentials}
+        inline: list[SourceSpec] = []
+        deferred: list[tuple[SourceSpec, GitCredential]] = []
+        for src in extra_sources:
+            cred = by_name.get(src.git_credential) if src.git_credential else None
+            usable = cred is not None and (
+                (cred.kind == "token" and bool(cred.token))
+                or (cred.kind == "ssh" and bool(cred.key_path))
+            )
+            if usable and cred is not None:
+                deferred.append((src, cred))
+            else:
+                inline.append(src)
+        return inline, deferred
+
+    async def _clone_deferred_sources(
+        self, login: str, ws_id: str, deferred: list[tuple[SourceSpec, GitCredential]]
+    ) -> None:
+        """Clone les sources additionnelles authentifiées (token ou ssh), post-readiness.
+
+        Best-effort : un échec laisse le workspace `running` et est logué (rc seul, jamais
+        le token, la clé ni la sortie git). Voir _deferred_clone_command /
+        _deferred_ssh_clone_command pour le contournement du panic devpod."""
+        from .exec import ws_exec
+
+        for src, cred in deferred:
+            repo = _repo_name_from_url(src.url.strip())
+            try:
+                command = await self._build_deferred_command(src, cred)
+            except (ValueError, OSError):
+                _log.warning("extra_source_clone_rejected", ws_id=ws_id, repo=repo, exc_info=True)
+                continue
+            try:
+                rc, _out = await ws_exec(login, ws_id, command, timeout=300.0)
+            except Exception:
+                _log.warning("extra_source_clone_failed", ws_id=ws_id, repo=repo, exc_info=True)
+                continue
+            if rc == 0:
+                _log.info("extra_source_cloned", ws_id=ws_id, repo=repo)
+            else:
+                _log.warning("extra_source_clone_rc", ws_id=ws_id, repo=repo, rc=rc)
+
+    async def _build_deferred_command(self, src: SourceSpec, cred: GitCredential) -> str:
+        """Construit la commande de clone post-readiness selon le type de credential."""
+        if cred.kind == "ssh":
+            key_pem = await asyncio.to_thread(Path(cred.key_path).read_text, encoding="utf-8")
+            return _deferred_ssh_clone_command(src.url, src.branch, key_pem)
+        return _deferred_clone_command(src.url, src.branch, cred.username or "oauth2", cred.token)
+
     async def _push_agent_files_safe(
         self, login: str, ws_id: str, agents: list[str], mcp_url: str, project_root: str
     ) -> None:
@@ -1100,10 +1327,12 @@ class DevPodService:
         workspace_folder: str = "",
         host_name: str = "",
         git_ssh_key_path: str = "",
+        git_cred_home: str = "",
         lifecycle_event: str = "workspace.created",
         agents: list[str] | None = None,
         mcp_url: str = "",
         project_root: str = "",
+        deferred_sources: list[tuple[SourceSpec, GitCredential]] | None = None,
     ) -> None:
         """Exécute devpod up, expose le workspace si running. Détient déjà le verrou."""
         # Copie de l'env pour y injecter SSH_AUTH_SOCK sans muter le dict partagé
@@ -1247,6 +1476,10 @@ class DevPodService:
                 _log.warning("workspace_up_failed", ws_id=ws_id, returncode=returncode)
             else:
                 _log.info("workspace_up_done", ws_id=ws_id, login=login)
+                # Sources additionnelles en PAT : clonées ici, conteneur prêt (ws_exec
+                # joignable), hors du tunnel git-credentials devpod qui panique en setup.
+                if deferred_sources:
+                    await self._clone_deferred_sources(login, ws_id, deferred_sources)
                 # Spec 35b : livraison des fichiers agents PAR ÉCRITURE conteneur,
                 # une fois le conteneur prêt (ws_exec joignable). Aucun bind mount,
                 # aucun recreate — rejoué à chaque up, donc un restart suffit.
@@ -1288,3 +1521,8 @@ class DevPodService:
             if ssh_key_path and ssh_key_path.startswith(tempfile.gettempdir()):
                 with contextlib.suppress(OSError):
                     os.unlink(ssh_key_path)
+            if git_cred_home and git_cred_home.startswith(tempfile.gettempdir()):
+                # Store PAT temporaire : supprimé quoi qu'il arrive (le token ne
+                # survit jamais au clone).
+                with contextlib.suppress(Exception):
+                    shutil.rmtree(git_cred_home, ignore_errors=True)

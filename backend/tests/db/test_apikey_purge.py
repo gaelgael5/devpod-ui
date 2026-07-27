@@ -93,3 +93,23 @@ async def test_purge_legacy_revoked_uses_created_at(db_conn: AsyncConnection) ->
 
     assert await purge_revoked_apikeys(db_conn) == 1
     assert await _ids(db_conn) == set()
+
+
+async def test_purge_removes_grace_expired_keys(db_conn: AsyncConnection) -> None:
+    """Les clés en grâce de rotation (expirées, jamais revoked) sont purgées après
+    rétention — sinon elles s'accumuleraient indéfiniment."""
+    await _user(db_conn)
+    await _key(db_conn, "k-old-expired")
+    await _key(db_conn, "k-fresh-expired")
+    await _key(db_conn, "k-active")
+    now = datetime.now(UTC)
+    await _set(db_conn, "k-old-expired", expires_at=now - timedelta(hours=25))
+    await _set(db_conn, "k-fresh-expired", expires_at=now - timedelta(minutes=10))
+
+    n = await purge_revoked_apikeys(db_conn)
+
+    assert n == 1
+    ids = await _ids(db_conn)
+    assert "k-old-expired" not in ids  # expirée depuis > 24h → purgée
+    assert "k-fresh-expired" in ids  # expirée récemment → conservée (rétention)
+    assert "k-active" in ids  # jamais touchée

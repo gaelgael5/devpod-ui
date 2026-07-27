@@ -161,3 +161,36 @@ def test_close_workspace_target_owner_mismatch_rejected(tmp_path, monkeypatch):
         json={"family": "workspace", "target": "alice-proj", "owner": "bob", "session": "main"},
     )
     assert resp.status_code == 422
+
+
+def test_close_host_session_kills_remote_tmux(tmp_path, monkeypatch):
+    """Fermer une session tmux d'un host tue la session distante (parité workspace)."""
+    calls = _register("host", "node1", "root", "main")
+
+    killed: list[tuple[str, str]] = []
+
+    async def _fake_kill(*, host_name, session_name, actor):
+        killed.append((host_name, session_name))
+
+    monkeypatch.setattr("portal.routes.sessions.kill_host_tmux_session", _fake_kill)
+
+    client = _make_client(tmp_path, monkeypatch, login="root", roles=["dev", "admin"])
+    resp = client.post(
+        "/sessions/close",
+        json={"family": "host", "target": "node1", "owner": "root", "session": "main"},
+    )
+    assert resp.status_code == 204
+    assert calls == ["host-node1-main"]
+    assert killed == [("node1", "main")]
+
+
+def test_close_host_family_requires_admin(tmp_path, monkeypatch):
+    """Les terminaux host sont une primitive admin : un dev ne peut pas les fermer."""
+    calls = _register("host", "node1", "alice", "main")
+    client = _make_client(tmp_path, monkeypatch, login="alice", roles=["dev"])
+    resp = client.post(
+        "/sessions/close",
+        json={"family": "host", "target": "node1", "owner": "alice", "session": "main"},
+    )
+    assert resp.status_code == 403
+    assert calls == []

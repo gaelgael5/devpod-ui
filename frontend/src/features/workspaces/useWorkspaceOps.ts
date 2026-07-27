@@ -22,6 +22,8 @@ interface CreateInput {
   volumeRecipes?: string[]
   initRecipes?: string[]
   agents?: string[]
+  /** Surcharge de la limite mémoire du conteneur (59864c37), ex. "4g". */
+  memoryLimit?: string
 }
 
 function toSourceSpec(entry: SourceEntry): SourceSpec {
@@ -33,7 +35,7 @@ export function useWorkspaceOps() {
   const { t } = useTranslation()
 
   const createWorkspace = useMutation({
-    mutationFn: async ({ name, sources, host, recipes, generateSshKey, profile, startRecipes, defaultStart, volumeRecipes, initRecipes, agents }: CreateInput) => {
+    mutationFn: async ({ name, sources, host, recipes, generateSshKey, profile, startRecipes, defaultStart, volumeRecipes, initRecipes, agents, memoryLimit }: CreateInput) => {
       const primary = sources[0] ?? { url: '', branch: '', credential: '' }
       const extra = sources.slice(1).map(toSourceSpec)
 
@@ -53,6 +55,7 @@ export function useWorkspaceOps() {
         recipe_volumes: volumeRecipes ?? [],
         init_recipes: initRecipes ?? [],
         agents: agents ?? [],
+        memory_limit: memoryLimit ?? '',
       }
       // Add to config (ignore 409 — already exists)
       const addRes = await apiFetch('/me/workspaces', {
@@ -193,6 +196,24 @@ export function useWorkspaceOps() {
     onError: (err: Error) => toast.error(err.message),
   })
 
+  // Épingle « garder actif » (6016436b) : exempte des suggestions d'arrêt.
+  const setKeepActive = useMutation({
+    mutationFn: ({ name, keepActive }: { name: string; keepActive: boolean }) =>
+      apiFetchJson<{ name: string; keep_active: boolean }>(
+        `/me/workspaces/${name}/keep-active`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keep_active: keepActive }),
+        },
+      ),
+    onSuccess: (_data, { name }) => {
+      qc.invalidateQueries({ queryKey: ['workspaces'] })
+      qc.invalidateQueries({ queryKey: ['workspace-status', name] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
   return {
     createWorkspace,
     startWorkspace,
@@ -200,5 +221,6 @@ export function useWorkspaceOps() {
     deleteWorkspace,
     recreateWorkspace,
     updateWorkspaceAgents,
+    setKeepActive,
   }
 }

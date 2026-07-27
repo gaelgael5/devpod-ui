@@ -26,7 +26,8 @@ async def test_success_when_repository_not_found_after_auth(monkeypatch) -> None
     )
     ok, msg = await probe_git_credential("cred1", "github.com", "alice")
     assert ok is True
-    assert "not found" in msg.lower()
+    # Sur succès, pas de sortie git brute (trompeuse sous un toast vert).
+    assert msg == ""
 
 
 @pytest.mark.asyncio

@@ -661,7 +661,7 @@
 - **Scope** : `read`
 - **Description** : Liste TOUS les hosts Docker de l'infra (enrôlés et machines de test générées), qualifiés par leur rôle. Outil de découverte d'infra : un seul appel suffit pour construire le modèle mental complet du fleet avant d'agir (logs, exec, déploiement). 
 
-Chaque entrée inclut : node_id (stable, cohérent avec compose_service_list et workspace_list), role ('dev'=host enrôlé | 'test'=machine éphémère générée), host (adresse SSH/Docker), health (statut configuré ; reachable=null : probe live non implémenté), lifecycle (origin, ephemeral, linked_workspace). 
+Chaque entrée inclut : node_id (stable, cohérent avec compose_service_list et workspace_list), role ('dev'=host enrôlé | 'test'=machine éphémère générée), host (adresse SSH/Docker), health (sonde TCP périodique portée par le portail : reachable true/false, last_seen = dernière sonde réussie ; null = jamais sondé, ex. VM de test), lifecycle (origin, ephemeral, linked_workspace). 
 
 Paramètre optionnel `include` pour enrichir la réponse : - 'workload' : compteurs workspaces + compose_deployments par node ; - 'capacity', 'load', 'docker' : Vague B non collecté → null pour l'instant. Pour le modèle mental complet : include=['workload']. Impact: read-only — aucune mutation.
 - **Schéma d'entrée** :
@@ -1439,6 +1439,139 @@ Paramètre optionnel `include` pour enrichir la réponse : - 'workload' : compte
       "minimum": 1,
       "maximum": 100,
       "description": "Nombre max de messages."
+    }
+  }
+}
+```
+
+## `devpod__skills_search`
+
+- **Scope** : `read`
+- **Description** : Recherche des skills sur skills.sh (via l'adaptateur du portail). Impact: read-only — aucune mutation.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "query"
+  ],
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Termes de recherche."
+    },
+    "search_type": {
+      "type": "string",
+      "enum": [
+        "fuzzy",
+        "semantic"
+      ],
+      "default": "fuzzy",
+      "description": "fuzzy (1 mot) ou semantic (multi-mots)."
+    }
+  }
+}
+```
+
+## `devpod__skills_request_approval`
+
+- **Scope** : `write`
+- **Description** : Demande la validation d'une skill : crée un grant en attente (pending) qui devra être validé par un HUMAIN. Ne valide jamais, n'installe rien. Impact: write-safe — crée une demande, aucun accès accordé.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "skill_id"
+  ],
+  "properties": {
+    "skill_id": {
+      "type": "string",
+      "description": "Identifiant complet source/skillId (ex. github/awesome-copilot/git-commit)."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Justification de la demande (affichée à l'humain)."
+    }
+  }
+}
+```
+
+## `devpod__skills_place`
+
+- **Scope** : `write`
+- **Description** : Installe dans un workspace une skill DÉJÀ validée (grant granted). Échoue si la skill n'est pas validée. Impact: write-safe — installe des fichiers dans le workspace, ne touche pas au conteneur.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace",
+    "skill_id"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string",
+      "description": "Nom du workspace cible."
+    },
+    "skill_id": {
+      "type": "string",
+      "description": "Identifiant source/skillId."
+    }
+  }
+}
+```
+
+## `devpod__skills_remove`
+
+- **Scope** : `write`
+- **Description** : Retire une skill d'un workspace (fichiers + placement). Le grant reste valide. Impact: write-safe — supprime des fichiers du workspace.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace",
+    "skill_id"
+  ],
+  "properties": {
+    "workspace": {
+      "type": "string",
+      "description": "Nom du workspace."
+    },
+    "skill_id": {
+      "type": "string",
+      "description": "Identifiant source/skillId."
+    }
+  }
+}
+```
+
+## `devpod__skills_pause`
+
+- **Scope** : `write`
+- **Description** : Met en pause une skill validée (suspend le routage). La remise en service est réservée à un humain — aucune primitive resume côté MCP. Impact: write-safe — restreint un accès existant.
+- **Schéma d'entrée** :
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "skill_id"
+  ],
+  "properties": {
+    "skill_id": {
+      "type": "string",
+      "description": "Identifiant source/skillId."
     }
   }
 }

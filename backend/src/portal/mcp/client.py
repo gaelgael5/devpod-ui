@@ -27,9 +27,41 @@ def advertised_kinds(caps: ServerCapabilities | None) -> tuple[str, ...]:
     return tuple(kind for kind, attr in _CAP_KINDS if getattr(caps, attr) is not None)
 
 
+# Mots-clés JSON Schema dont la valeur liste est un ENSEMBLE : l'ordre n'a aucune
+# signification. On les trie avant de hasher pour qu'un serveur qui les renvoie dans
+# un ordre instable ne re-quarantine pas un outil inchangé (spec 23). Tout autre
+# tableau (default, examples, prefixItems…) garde son ordre : il peut porter du sens,
+# et l'aplatir affaiblirait la détection de redéfinition.
+_SET_ARRAY_KEYS = frozenset({"required", "enum", "type"})
+
+
+def _canonicalize(node: Any, *, parent_key: str | None = None) -> Any:
+    """Copie normalisée d'une définition : trie les tableaux-ensembles, récursivement."""
+    if isinstance(node, dict):
+        return {k: _canonicalize(v, parent_key=k) for k, v in node.items()}
+    if isinstance(node, list):
+        items = [_canonicalize(v) for v in node]
+        if parent_key in _SET_ARRAY_KEYS:
+            # Clé de tri = JSON canonique de l'élément → déterministe même pour des
+            # types mixtes (str/int/bool/None) ou des éléments imbriqués.
+            return sorted(
+                items,
+                key=lambda e: json.dumps(e, sort_keys=True, ensure_ascii=False),
+            )
+        return items
+    return node
+
+
 def hash_definition(definition: dict[str, Any]) -> str:
-    """Calcule le sha256 du JSON canonique d'une définition de primitive MCP."""
-    canonical = json.dumps(definition, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    """Calcule le sha256 du JSON canonique d'une définition de primitive MCP.
+
+    Canonicalisation : ordre des clés d'objet neutralisé (sort_keys) ET ordre des
+    tableaux-ensembles (`required`/`enum`/`type`) neutralisé — sinon un serveur qui
+    les renvoie dans un ordre variable re-quarantine des outils pourtant identiques.
+    """
+    canonical = json.dumps(
+        _canonicalize(definition), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 

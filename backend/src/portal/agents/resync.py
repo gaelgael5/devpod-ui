@@ -57,7 +57,7 @@ async def resync_owner_workspaces(
     only_ws_ids : restreint aux ws_id donnés (ex. ceux affectés par un décochage) ;
     None = tous les workspaces du spec qui déclarent des agents.
     """
-    results: dict[str, list[str]] = {"synced": [], "skipped": [], "failed": []}
+    results: dict[str, list[str]] = {"synced": [], "unchanged": [], "skipped": [], "failed": []}
     user_cfg = await load_user(login)
     global_cfg = load_global()
     mcp_url = global_cfg.server.external_url.rstrip("/") + "/mcp/"
@@ -66,6 +66,7 @@ async def resync_owner_workspaces(
         ws_id = f"{login}-{spec.name}"
         if not spec.agents or (only_ws_ids is not None and ws_id not in only_ws_ids):
             continue
+        project_root = f"/workspaces/{ws_id}"
         try:
             if not _host_supported(spec, global_cfg):
                 results["skipped"].append(ws_id)
@@ -75,15 +76,22 @@ async def resync_owner_workspaces(
                 results["skipped"].append(ws_id)
                 _log.info("agent_resync_skipped_stopped", ws_id=ws_id)
                 continue
-            await push_agent_files(
+            # push_agent_files est idempotent : config inchangée + fichiers présents
+            # → il ne rotationne rien et retourne [] (l'agent garde son token). Une
+            # liste vide ici = livraison inutile évitée.
+            pushed = await push_agent_files(
                 login=login,
                 ws_id=ws_id,
                 ws_name=spec.name,
                 agents=list(spec.agents),
                 mcp_url=mcp_url,
-                project_root=f"/workspaces/{ws_id}",
+                project_root=project_root,
             )
-            results["synced"].append(ws_id)
+            if pushed:
+                results["synced"].append(ws_id)
+            else:
+                results["unchanged"].append(ws_id)
+                _log.info("agent_resync_unchanged", ws_id=ws_id)
         except Exception as exc:
             results["failed"].append(ws_id)
             _log.warning(

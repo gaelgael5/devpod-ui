@@ -15,7 +15,7 @@ def test_type_inconnu_rejete() -> None:
         AppEvent(type="workspace.exploded", actor="alice")
 
 
-def test_registre_contient_les_douze_types() -> None:
+def test_registre_contient_les_types_attendus() -> None:
     assert {
         "workspace.created",
         "workspace.deleted",
@@ -27,6 +27,7 @@ def test_registre_contient_les_douze_types() -> None:
         "test_server.deleted",
         "compose_service.started",
         "compose_service.stopped",
+        "skill.available",
     } == EVENT_TYPES
 
 

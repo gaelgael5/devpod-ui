@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -64,28 +64,13 @@ export default function SourceRow({
     return true
   })
 
-  // Ref pour éviter le stale closure sur entry dans les effets
-  const entryRef = useRef(entry)
-  entryRef.current = entry
-
-  // Auto-remplir la branche par défaut quand committed change ou quand les données arrivent.
-  // On dépend de committed.credential pour re-déclencher même si default reste 'main'.
+  // Auto-remplir la branche par défaut à l'arrivée des données de branches.
+  // Convergent : une fois la branche posée (ou saisie), `!entry.branch` coupe.
   useEffect(() => {
-    const e = entryRef.current
-    if (gitBranches?.default && !e.branch) {
-      onChange({ ...e, branch: gitBranches.default })
+    if (gitBranches?.default && !entry.branch) {
+      onChange({ ...entry, branch: gitBranches.default })
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [committed.url, committed.credential, gitBranches?.default])
-
-  // Quand le credential change (après que committed.url est défini), relancer la requête
-  useEffect(() => {
-    if (!committed.url) return
-    if (entry.credential !== committed.credential) {
-      setCommitted(prev => ({ ...prev, credential: entry.credential }))
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry.credential])
+  }, [gitBranches?.default, entry, onChange])
 
   function handleBranchFocus() {
     const url = entry.url.trim().replace(/\.git$/, '')
@@ -148,7 +133,13 @@ export default function SourceRow({
           <Label className="text-xs">{t('workspaces.form.credential')}</Label>
           <Select
             value={entry.credential || CRED_NONE}
-            onValueChange={v => onChange({ ...entry, credential: v === CRED_NONE ? '' : v, branch: '' })}
+            onValueChange={v => {
+              const credential = v === CRED_NONE ? '' : v
+              onChange({ ...entry, credential, branch: '' })
+              // Relance la requête de branches au point de changement (l'effet
+              // de synchro sur entry.credential a été retiré).
+              if (committed.url) setCommitted(prev => ({ ...prev, credential }))
+            }}
           >
             <SelectTrigger className="mt-1">
               <SelectValue />

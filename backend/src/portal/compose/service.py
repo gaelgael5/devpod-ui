@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import shlex
+import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import Literal
@@ -29,9 +31,11 @@ from .db import (
     get_deployment_by_name_node,
     get_template,
     list_auto_start_for_user,
+    list_deployments,
     persist_op_log,
     update_deployment_message_id,
     update_deployment_status,
+    update_deployment_template_version,
 )
 from .env_builder import render_env_file, resolve_env_values
 from .models import ComposeDeployment, ComposeTemplate, DeploymentStatus
@@ -101,9 +105,7 @@ def foreign_env_keys(template: ComposeTemplate, env_values: dict[str, str]) -> l
 def _reject_foreign_env_keys(template: ComposeTemplate, env_values: dict[str, str]) -> None:
     foreign = foreign_env_keys(template, env_values)
     if foreign:
-        raise ComposeServiceError(
-            f"clés env_values non déclarées par le template: {foreign}"
-        )
+        raise ComposeServiceError(f"clés env_values non déclarées par le template: {foreign}")
 
 
 def _validate_secret_refs(template: ComposeTemplate, env_values: dict[str, str]) -> None:
@@ -145,6 +147,153 @@ def _parse_ps_status(ps_json: str) -> str:
     if any(s == "running" for s in states):
         return "partial"
     return "stopped"
+
+
+def _parse_compose_ls(out: str) -> list[dict[str, str]]:
+    """Parse `docker compose ls --format json` — tableau JSON ou JSON-lines."""
+    text = out.strip()
+    if not text:
+        return []
+    items: list[object] = []
+    try:
+        parsed = json.loads(text)
+        items = parsed if isinstance(parsed, list) else [parsed]
+    except json.JSONDecodeError:
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                items.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    stacks: list[dict[str, str]] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        name = str(it.get("Name", "")).strip()
+        if not name:
+            continue
+        stacks.append(
+            {
+                "name": name,
+                "status": str(it.get("Status", "")),
+                "configFiles": str(it.get("ConfigFiles", "")),
+            }
+        )
+    return sorted(stacks, key=lambda s: s["name"])
+
+
+# Découplage polling front / SSH réel (enabler be1112a5, même pattern que
+# sessions.aggregate) : l'état docker LIVE d'un nœud (/test-hosts/*/stacks,
+# pollé ~10 s) est servi depuis un cache court, anti-dogpile, invalidé par nœud
+# à chaque mutation compose. C'est le chemin de l'incident du 24/07 (10 500
+# scopes systemd sur host-test-105-2).
+_HOST_STATE_TTL_S = 10.0
+_host_state_cache: dict[str, tuple[float, dict[str, list[dict[str, str]]]]] = {}
+_host_state_locks: dict[str, asyncio.Lock] = {}
+
+
+async def get_host_state(node_id: str) -> dict[str, list[dict[str, str]]]:
+    """Stacks + conteneurs hors compose d'un nœud, cachés TTL court."""
+    hit = _host_state_cache.get(node_id)
+    if hit and hit[0] > time.monotonic():
+        return hit[1]
+    lock = _host_state_locks.setdefault(node_id, asyncio.Lock())
+    async with lock:
+        hit = _host_state_cache.get(node_id)  # un refresh concurrent a pu aboutir
+        if hit and hit[0] > time.monotonic():
+            return hit[1]
+        state = {
+            "stacks": await list_host_stacks(node_id),
+            "containers": await list_host_containers(node_id),
+        }
+        _host_state_cache[node_id] = (time.monotonic() + _HOST_STATE_TTL_S, state)
+        return state
+
+
+def invalidate_host_state(node_id: str) -> None:
+    """Purge le cache d'état d'un nœud (appelé après toute mutation compose)."""
+    _host_state_cache.pop(node_id, None)
+
+
+def clear_host_state_cache() -> None:
+    """Purge cache ET verrous. Usage tests uniquement (locks liés à l'event loop)."""
+    _host_state_cache.clear()
+    _host_state_locks.clear()
+
+
+async def list_host_stacks(node_id: str) -> list[dict[str, str]]:
+    """Stacks docker-compose réellement présentes sur la machine (`docker compose ls`).
+
+    Vue LIVE via le docker de l'hôte (SSH + CLI), indépendante des déploiements
+    trackés par le portail. Best-effort : docker/compose absent ou hôte injoignable
+    → liste vide (c'est informationnel, pas une erreur bloquante).
+    """
+    host = _host_for_node(node_id)
+    try:
+        rc, out, err = await run_host_command(
+            host, "docker compose ls --all --format json", timeout=30.0
+        )
+    except HostExecError as exc:
+        _log.info("host_stacks_unavailable", node=node_id, error=str(exc))
+        return []
+    if rc != 0:
+        _log.info("host_stacks_ls_failed", node=node_id, rc=rc, err=err[:200])
+        return []
+    return _parse_compose_ls(out)
+
+
+_COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
+
+
+def _parse_docker_ps_standalone(out: str) -> list[dict[str, str]]:
+    """Parse `docker ps --format json` (JSON-lines) et NE garde que les conteneurs
+    HORS compose (sans le label de projet compose — les autres sont déjà couverts
+    par les stacks)."""
+    containers: list[dict[str, str]] = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if _COMPOSE_PROJECT_LABEL in str(obj.get("Labels", "")):
+            continue
+        name = str(obj.get("Names", "")).strip()
+        if not name:
+            continue
+        containers.append(
+            {
+                "name": name,
+                "image": str(obj.get("Image", "")),
+                "state": str(obj.get("State", "")),
+                "status": str(obj.get("Status", "")),
+            }
+        )
+    return sorted(containers, key=lambda c: c["name"])
+
+
+async def list_host_containers(node_id: str) -> list[dict[str, str]]:
+    """Conteneurs docker HORS compose en cours sur la machine (`docker ps`).
+
+    Vue LIVE via le docker de l'hôte, best-effort (docker absent/injoignable →
+    liste vide). Les conteneurs appartenant à une stack compose sont exclus (déjà
+    listés par `list_host_stacks`)."""
+    host = _host_for_node(node_id)
+    try:
+        rc, out, err = await run_host_command(host, "docker ps --all --format json", timeout=30.0)
+    except HostExecError as exc:
+        _log.info("host_containers_unavailable", node=node_id, error=str(exc))
+        return []
+    if rc != 0:
+        _log.info("host_containers_ps_failed", node=node_id, rc=rc, err=err[:200])
+        return []
+    return _parse_docker_ps_standalone(out)
 
 
 async def deploy(
@@ -246,6 +395,7 @@ async def deploy(
         status=status,
         last_error=None if rc == 0 else (err or out)[:2000],
     )
+    invalidate_host_state(node_id)
     await update_deployment_status(conn, uid, status, dep.last_error)
     await persist_op_log(conn, uid, "up", out + ("\n" + err if err else ""))
     if status == "running":
@@ -438,6 +588,7 @@ async def deploy_stream(
         status=status,
         last_error=None if status == "running" else (last_err or compose_out)[:2000],
     )
+    invalidate_host_state(node_id)
     async with _get_engine().begin() as conn:
         # Finalise la ligne de réservation insérée par prepare_deployment (bug 015).
         await update_deployment_status(conn, uid, status, dep.last_error)
@@ -526,6 +677,7 @@ async def lifecycle(
         )
     except HostExecError as exc:
         raise ComposeServiceError(str(exc)) from exc
+    invalidate_host_state(dep.node_id)
     await persist_op_log(conn, uid, action, out + ("\n" + err if err else ""))
     if rc != 0:
         # rc≠0 → statut persisté en "error" et on retourne normalement (la row existe)
@@ -556,6 +708,7 @@ async def teardown(conn: AsyncConnection, uid: str) -> None:
         )
     except HostExecError as exc:
         raise ComposeServiceError(str(exc)) from exc
+    invalidate_host_state(dep.node_id)
     await persist_op_log(conn, uid, "down", out + ("\n" + err if err else ""))
     if rc != 0:
         _log.warning("compose_teardown_failed", uid=uid, name=dep.id, rc=rc)
@@ -604,6 +757,70 @@ async def refresh_status(conn: AsyncConnection, uid: str) -> str:
     status = _parse_ps_status(out) if rc == 0 else "error"
     await update_deployment_status(conn, uid, status)
     return status
+
+
+# Template builtin du collecteur de logs (compose_bootstrap) — seul template dont
+# le portail pilote lui-même le contenu ET l'env : il est resynchronisable.
+ALLOY_TEMPLATE_ID = "alloy-collector"
+
+
+async def resync_collector_deployments(conn: AsyncConnection) -> dict[str, list[str]]:
+    """Réaligne les collecteurs Alloy déployés sur la config Logs et le template courants.
+
+    L'env (.env : LOKI_URL…) et les fichiers (config.alloy) sont figés au déploiement :
+    un changement de `loki_push_url` (IP qui dérive) ou un bump du template builtin ne
+    les atteint jamais — les collecteurs poussent alors dans le vide jusqu'à un
+    redéploiement manuel. Ce resync réécrit .env + fichiers + compose sur chaque host
+    et force la recréation (`--force-recreate` : un bind mount modifié ne déclenche
+    pas de recreate). Best-effort par déploiement ; no-op (skip) si les logs sont
+    désactivés — on ne casse pas un collecteur qui tourne en lui retirant sa cible.
+    Déclenché par PUT /admin/logs-config et par le bump de version au boot.
+    """
+    results: dict[str, list[str]] = {"synced": [], "failed": [], "skipped": []}
+    tpl = await get_template(conn, ALLOY_TEMPLATE_ID)
+    if tpl is None:
+        return results
+    deployments = [
+        d
+        for d in await list_deployments(conn, owner_login=None)
+        if d.template_id == ALLOY_TEMPLATE_ID
+    ]
+    if not deployments:
+        return results
+
+    cfg = load_global()
+    if not cfg.logs.enabled or not cfg.logs.loki_push_url:
+        results["skipped"] = [d.uid for d in deployments]
+        _log.info("collector_resync_skipped_logs_disabled", count=len(deployments))
+        return results
+
+    for dep in deployments:
+        try:
+            host = _host_for_node(dep.node_id)
+            user_cfg = await load_user(dep.owner_login)
+            resolved = resolve_env_values(dep.owner_login, user_cfg.secret_ns, dep.env_values)
+            rdir = _remote_dir(dep.id)
+            await write_host_file(host, f"{rdir}/docker-compose.yml", tpl.compose_content)
+            for fname, fcontent in tpl.extra_files.items():
+                await write_host_file(host, f"{rdir}/{fname}", fcontent)
+            await write_host_file(
+                host, f"{rdir}/.env", render_env_file(resolved, _log_context_vars(host))
+            )
+            rc, _out, err = await run_host_command(
+                host,
+                f"cd {shlex.quote(rdir)} && docker compose -p {shlex.quote(dep.id)} "
+                "up -d --force-recreate",
+                timeout=300.0,
+            )
+            if rc != 0:
+                raise ComposeServiceError(f"compose up rc={rc}: {err[:300]}")
+            await update_deployment_template_version(conn, dep.uid, tpl.version)
+            results["synced"].append(dep.uid)
+            _log.info("collector_resynced", uid=dep.uid, node=dep.node_id, version=tpl.version)
+        except Exception as exc:
+            results["failed"].append(dep.uid)
+            _log.warning("collector_resync_failed", uid=dep.uid, node=dep.node_id, error=str(exc))
+    return results
 
 
 async def deploy_auto_start_templates(

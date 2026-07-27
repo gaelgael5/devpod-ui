@@ -145,7 +145,8 @@ def _is_admin(user: UserInfo) -> bool:
 
 
 def _eligible_hosts(hosts: list[HostConfig]) -> list[HostConfig]:
-    return [h for h in hosts if h.type == "ssh"]
+    # usage="autres" = inventaire simple : jamais une cible de déploiement compose.
+    return [h for h in hosts if h.type == "ssh" and h.usage != "autres"]
 
 
 async def _require_owned(

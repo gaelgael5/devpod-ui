@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, Copy, KeyRound, MoreVertical, Pencil, PlayCircle, Trash2 } from 'lucide-react'
+import { ChevronRight, Copy, Eye, KeyRound, MoreVertical, Pencil, PlayCircle, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -17,15 +17,21 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useTestHostsSummary, type HostConfig, type HostCreatePayload, type HostUserWorkspaces, type UserTestGroup } from './useHosts'
+import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useRevealCiPassword, useTestHostsSummary, type HostConfig, type HostCreatePayload, type HostUserWorkspaces, type UserTestGroup } from './useHosts'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import TestHostParamsDialog from './TestHostParamsDialog'
-import SshTerminalWindow from './SshTerminalWindow'
+import { openTerminalTab } from '@/features/terminal/openTerminalTab'
+
+/** Ouvre le terminal SSH d'un host Docker dans un onglet plein écran. */
+function openHostSsh(name: string): void {
+  openTerminalTab(`/admin/hosts/${encodeURIComponent(name)}/ssh`, name)
+}
 import { useDeployments } from '@/features/compose/hooks/useCompose'
 import HostServicesBlock from '@/features/compose/components/HostServicesBlock'
+import { useCertificates } from '@/features/certificates/api'
 
-const USAGE_VALUES = ['workspaces', 'tests', 'portail', 'ressources'] as const
+const USAGE_VALUES = ['workspaces', 'tests', 'portail', 'ressources', 'autres'] as const
 
 const EMPTY: HostCreatePayload = {
   name: '',
@@ -36,10 +42,87 @@ const EMPTY: HostCreatePayload = {
   proxmox_node: '',
   vmid: '',
   ci_password: '',
+  docker_cert_slug: '',
+  ssh_cert_slug: '',
   usage: 'workspaces',
 }
 
 type DialogMode = 'add' | 'edit'
+
+// ─── Sélecteur de certificat mTLS (docker-tls) ───────────────────────────────
+
+// Radix Select interdit la valeur '' sur un item → sentinelle pour « aucun ».
+const NO_CERT = '__none__'
+
+function DockerCertSelect({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (slug: string) => void
+}) {
+  const { t } = useTranslation()
+  // Monté uniquement quand type=docker-tls : pas de fetch inutile ailleurs.
+  const { data: certs } = useCertificates()
+  const tlsCerts = (certs ?? []).filter((c) => c.cert_type.startsWith('tls-'))
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>{t('admin.form.dockerCert')}</Label>
+      <Select
+        value={value || NO_CERT}
+        onValueChange={(v) => onChange(v === NO_CERT ? '' : v)}
+      >
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_CERT}>{t('admin.form.dockerCertNone')}</SelectItem>
+          {tlsCerts.map((c) => (
+            <SelectItem key={c.slug} value={c.slug}>
+              {c.label} <span className="font-mono text-xs opacity-60">({c.slug})</span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">{t('admin.form.dockerCertHint')}</p>
+    </div>
+  )
+}
+
+// ─── Sélecteur de clé SSH (host ssh) ─────────────────────────────────────────
+
+function SshCertSelect({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (slug: string) => void
+}) {
+  const { t } = useTranslation()
+  // Monté uniquement quand type=ssh.
+  const { data: certs } = useCertificates()
+  const sshCerts = (certs ?? []).filter((c) => c.cert_type.startsWith('ssh-'))
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>{t('admin.form.sshCert')}</Label>
+      <Select
+        value={value || NO_CERT}
+        onValueChange={(v) => onChange(v === NO_CERT ? '' : v)}
+      >
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_CERT}>{t('admin.form.sshCertNone')}</SelectItem>
+          {sshCerts.map((c) => (
+            <SelectItem key={c.slug} value={c.slug}>
+              {c.label} <span className="font-mono text-xs opacity-60">({c.slug})</span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">{t('admin.form.sshCertHint')}</p>
+    </div>
+  )
+}
 
 // ─── Cert viewer ─────────────────────────────────────────────────────────────
 
@@ -82,6 +165,80 @@ function CertViewer({ name }: { name: string }) {
           />
         </div>
       ))}
+    </div>
+  )
+}
+
+// ─── Révélation du mot de passe console (PIN requis) ─────────────────────────
+
+/** Bouton « révéler » du mot de passe console : PIN vault exigé avant tout
+ *  déchiffrement, valeur affichée de façon éphémère (re-masquée après 30 s,
+ *  jamais persistée côté front). Enabler 6e3d5f3a. */
+function CiPasswordReveal({ hostName }: { hostName: string }) {
+  const { t } = useTranslation()
+  const reveal = useRevealCiPassword()
+  const [pinOpen, setPinOpen] = useState(false)
+  const [pin, setPin] = useState('')
+  const [value, setValue] = useState<string | null>(null)
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current) }, [])
+
+  function submit() {
+    reveal.mutate({ name: hostName, pin }, {
+      onSuccess: (res) => {
+        setPin(''); setPinOpen(false); setValue(res.value)
+        if (hideTimer.current) clearTimeout(hideTimer.current)
+        hideTimer.current = setTimeout(() => setValue(null), 30_000)
+      },
+    })
+  }
+
+  if (value !== null) {
+    return (
+      <div className="flex items-center gap-2">
+        <Input readOnly value={value} className="font-mono" onFocus={(e) => e.target.select()} />
+        <Button type="button" variant="ghost" size="sm"
+          onClick={() => navigator.clipboard.writeText(value).catch(() => {})}>
+          <Copy className="h-3.5 w-3.5" />
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => setValue(null)}>
+          {t('hosts.form.ci_password_hide', 'Masquer')}
+        </Button>
+      </div>
+    )
+  }
+
+  if (!pinOpen) {
+    return (
+      <Button type="button" variant="outline" size="sm" className="self-start"
+        onClick={() => setPinOpen(true)}>
+        <Eye className="h-3.5 w-3.5 mr-1.5" />
+        {t('hosts.form.ci_password_reveal', 'Révéler (PIN requis)')}
+      </Button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Input
+        type="password"
+        inputMode="numeric"
+        maxLength={6}
+        autoFocus
+        value={pin}
+        onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (pin.length === 6) submit() } }}
+        placeholder={t('hosts.form.ci_password_pin', 'PIN à 6 chiffres')}
+        className="w-40"
+      />
+      <Button type="button" size="sm" disabled={pin.length !== 6 || reveal.isPending} onClick={submit}>
+        {t('hosts.form.ci_password_confirm', 'Révéler')}
+      </Button>
+      <Button type="button" variant="ghost" size="sm"
+        onClick={() => { setPinOpen(false); setPin('') }}>
+        {t('workspaces.confirm.cancel')}
+      </Button>
     </div>
   )
 }
@@ -239,7 +396,8 @@ function TestHostsGroupedSection({
   function toggleCollapse(login: string) {
     setCollapsed((prev) => {
       const next = new Set(prev)
-      next.has(login) ? next.delete(login) : next.add(login)
+      if (next.has(login)) next.delete(login)
+      else next.add(login)
       return next
     })
   }
@@ -370,6 +528,64 @@ function TestHostsGroupedSection({
   )
 }
 
+// ─── Section hosts de catégorie « autres » (inventaire simple) ────────────────
+
+function OtherHostsSection({
+  hosts,
+  actions,
+}: {
+  hosts: HostConfig[]
+  actions: HostActions
+}) {
+  const { t } = useTranslation()
+
+  // Inventaire facultatif : pas de section vide en permanence.
+  if (hosts.length === 0) return null
+
+  return (
+    <div className="mt-4 flex flex-col gap-3">
+      <h2 className="px-1 text-sm font-semibold text-muted-foreground">
+        {t('admin.otherHosts.sectionTitle')}
+      </h2>
+      {hosts.map((host) => (
+        <div
+          key={host.name}
+          className="flex items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2"
+        >
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="font-semibold text-sm truncate">{host.name}</span>
+            <span className="font-mono text-xs text-muted-foreground truncate">
+              {(host.type === 'ssh' ? host.address : host.docker_host) || '—'}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => actions.onEdit(host)}>
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => actions.onDelete(host)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+            {host.type === 'ssh' && !host.host_cert_slug && (
+              <Button size="sm" variant="outline"
+                className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
+                onClick={() => actions.onBootstrap(host)}>
+                {t('admin.bootstrap.btn')}
+              </Button>
+            )}
+            {host.type === 'ssh' && host.host_cert_slug && (
+              <Button size="sm" variant="outline"
+                className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
+                onClick={() => actions.onSsh(host)}>
+                {t('admin.sshTerminal.openBtn')}
+              </Button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── Section hosts de catégorie « ressources » (spec 33) ──────────────────────
 
 function ResourceHostsSection({
@@ -475,10 +691,12 @@ export default function AdminHosts() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [destroyTarget, setDestroyTarget] = useState<HostConfig | null>(null)
   const [form, setForm] = useState<HostCreatePayload>(EMPTY)
-  const [sshTarget, setSshTarget] = useState<HostConfig | null>(null)
   const [bootstrapTarget, setBootstrapTarget] = useState<HostConfig | null>(null)
   const destroyVm = useDestroyVm()
-  const destroyStartedRef = useRef(false)
+  // Garde d'identité : quel target a déjà lancé son destroy. Remplace un flag
+  // booléen écrit par les handlers — react-hooks/refs l'interdit pour une
+  // fonction référencée hors JSX — le reset vit dans l'effet (target → null).
+  const destroyStartedFor = useRef<HostConfig | null>(null)
 
   function set<K extends keyof HostCreatePayload>(k: K, v: HostCreatePayload[K]) {
     setForm((f) => ({ ...f, [k]: v }))
@@ -504,6 +722,10 @@ export default function AdminHosts() {
       proxmox_node: host.proxmox_node ?? '',
       vmid: host.vmid ?? '',
       ci_password: '',  // toujours vide en édition (secret non visible)
+      docker_cert_slug: host.docker_cert_slug ?? '',
+      // Le slug du gestionnaire n'est pas persisté (host_cert_slug = cert système) :
+      // vide = « conserver la clé actuelle », choisir en (re)pose une nouvelle.
+      ssh_cert_slug: '',
       usage: host.usage ?? 'workspaces',
     })
     setMode('edit'); setShowCert(false); setOpen(true)
@@ -520,6 +742,10 @@ export default function AdminHosts() {
       proxmox_node: form.proxmox_node,
       vmid: form.vmid,
       ci_password: form.ci_password ?? '',
+      // Sur un host ssh le champ n'a pas de sens : dissociation explicite.
+      docker_cert_slug: form.type === 'docker-tls' ? (form.docker_cert_slug ?? '') : '',
+      // Clé SSH seulement pour un host ssh ('' = ne rien changer côté backend).
+      ssh_cert_slug: form.type === 'ssh' ? (form.ssh_cert_slug ?? '') : '',
       usage: form.usage ?? 'workspaces',
     }
     const mutation = mode === 'edit' ? updateHost : addHost
@@ -537,6 +763,8 @@ export default function AdminHosts() {
       proxmox_node: config.proxmox_node ?? '',
       vmid: config.vmid ?? '',
       ci_password: ciPassword ?? '',
+      docker_cert_slug: config.docker_cert_slug ?? '',
+      ssh_cert_slug: '',
       usage: config.usage ?? 'workspaces',
     })
     setMode('add'); setShowCert(false); setOpen(true)
@@ -545,7 +773,6 @@ export default function AdminHosts() {
   function confirmDelete(h: HostConfig) {
     if (h.vmid && h.proxmox_node) {
       destroyVm.reset()
-      destroyStartedRef.current = false
       setDestroyTarget(h)
     } else {
       setDeleteTarget(h.name)
@@ -559,7 +786,6 @@ export default function AdminHosts() {
   function cancelDestroy() {
     setDestroyTarget(null)
     destroyVm.reset()
-    destroyStartedRef.current = false
   }
   function doDestroyAndDelete() {
     if (!destroyTarget) return
@@ -567,17 +793,25 @@ export default function AdminHosts() {
       onSuccess: () => {
         setDestroyTarget(null)
         destroyVm.reset()
-        destroyStartedRef.current = false
       },
     })
   }
 
+  const { execute: executeDestroy } = destroyVm
   useEffect(() => {
-    if (destroyTarget && destroyTarget.proxmox_node && destroyTarget.vmid && !destroyStartedRef.current) {
-      destroyStartedRef.current = true
-      void destroyVm.execute(destroyTarget.proxmox_node, destroyTarget.vmid)
+    if (!destroyTarget) {
+      destroyStartedFor.current = null
+      return
     }
-  }, [destroyTarget, destroyVm.execute])
+    if (
+      destroyTarget.proxmox_node &&
+      destroyTarget.vmid &&
+      destroyStartedFor.current !== destroyTarget
+    ) {
+      destroyStartedFor.current = destroyTarget
+      void executeDestroy(destroyTarget.proxmox_node, destroyTarget.vmid)
+    }
+  }, [destroyTarget, executeDestroy])
 
   const isPending = addHost.isPending || updateHost.isPending
 
@@ -602,13 +836,16 @@ export default function AdminHosts() {
         <p className="text-muted-foreground">{t('admin.hostsEmpty')}</p>
       )}
       {hosts && hosts.length > 0 && (() => {
-        const wsHosts = hosts.filter((h: HostConfig) => h.usage !== 'tests' && h.usage !== 'ressources')
+        const wsHosts = hosts.filter(
+          (h: HostConfig) => h.usage !== 'tests' && h.usage !== 'ressources' && h.usage !== 'autres',
+        )
         const testHosts = hosts.filter((h: HostConfig) => h.usage === 'tests')
         const resourceHosts = hosts.filter((h: HostConfig) => h.usage === 'ressources')
+        const otherHosts = hosts.filter((h: HostConfig) => h.usage === 'autres')
         const hostActions: HostActions = {
           onEdit: openEdit,
           onDelete: confirmDelete,
-          onSsh: setSshTarget,
+          onSsh: (h) => openHostSsh(h.name),
           onBootstrap: setBootstrapTarget,
         }
         return (
@@ -660,7 +897,7 @@ export default function AdminHosts() {
                                   {h.host_cert_slug && (
                                     <Button size="sm" variant="outline"
                                       className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
-                                      onClick={() => setSshTarget(h)}>
+                                      onClick={() => openHostSsh(h.name)}>
                                       {t('admin.sshTerminal.openBtn')}
                                     </Button>
                                   )}
@@ -682,6 +919,7 @@ export default function AdminHosts() {
             )}
             <TestHostsGroupedSection hosts={testHosts} actions={hostActions} />
             <ResourceHostsSection hosts={resourceHosts} actions={hostActions} />
+            <OtherHostsSection hosts={otherHosts} actions={hostActions} />
           </>
         )
       })()}
@@ -724,20 +962,32 @@ export default function AdminHosts() {
               </Select>
             </div>
             {form.type === 'docker-tls' && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="h-docker">{t('admin.form.dockerHost')}</Label>
-                <Input id="h-docker" value={form.docker_host ?? ''}
-                  onChange={(e) => set('docker_host', e.target.value)}
-                  placeholder="tcp://192.168.1.50:2376" />
-              </div>
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="h-docker">{t('admin.form.dockerHost')}</Label>
+                  <Input id="h-docker" value={form.docker_host ?? ''}
+                    onChange={(e) => set('docker_host', e.target.value)}
+                    placeholder="tcp://192.168.1.50:2376" />
+                </div>
+                <DockerCertSelect
+                  value={form.docker_cert_slug ?? ''}
+                  onChange={(slug) => set('docker_cert_slug', slug)}
+                />
+              </>
             )}
             {form.type === 'ssh' && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="h-address">{t('admin.form.address')}</Label>
-                <Input id="h-address" value={form.address ?? ''}
-                  onChange={(e) => set('address', e.target.value)}
-                  placeholder="user@192.168.1.50" />
-              </div>
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="h-address">{t('admin.form.address')}</Label>
+                  <Input id="h-address" value={form.address ?? ''}
+                    onChange={(e) => set('address', e.target.value)}
+                    placeholder="user@192.168.1.50" />
+                </div>
+                <SshCertSelect
+                  value={form.ssh_cert_slug ?? ''}
+                  onChange={(slug) => set('ssh_cert_slug', slug)}
+                />
+              </>
             )}
             <div className="flex flex-col gap-1.5">
               <Label>{t('admin.form.usage')}</Label>
@@ -760,6 +1010,10 @@ export default function AdminHosts() {
                 placeholder={mode === 'edit' ? t('hosts.form.ci_password_keep', '(conserver le mot de passe existant)') : ''}
                 autoComplete="new-password"
               />
+              {mode === 'edit' &&
+                hosts?.find((h) => h.name === form.name)?.ci_password_secret_slug && (
+                  <CiPasswordReveal hostName={form.name} />
+                )}
             </div>
 
             <label className="flex items-center gap-2 text-sm">
@@ -845,10 +1099,6 @@ export default function AdminHosts() {
           open={bootstrapTarget !== null}
           onClose={() => setBootstrapTarget(null)}
         />
-      )}
-
-      {sshTarget && (
-        <SshTerminalWindow host={sshTarget} onClose={() => setSshTarget(null)} />
       )}
     </div>
   )

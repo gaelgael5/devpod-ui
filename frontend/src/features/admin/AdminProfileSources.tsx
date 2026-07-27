@@ -33,7 +33,7 @@ export default function AdminProfileSources() {
   const [confirmRemove, setConfirmRemove] = useState<RemoteProfile | null>(null)
 
   const sources = sourcesData?.sources ?? []
-  const galleryProfiles = previewData?.profiles ?? []
+  const galleryProfiles = useMemo(() => previewData?.profiles ?? [], [previewData])
 
   const importedSlugs = useMemo(() => {
     const shared = (localProfiles ?? []).filter(p => p.scope === 'shared')

@@ -56,11 +56,20 @@ async def register_certificate(
     public_key: str,
     private_key_pem: str,
     *,
+    ca_pem: str | None = None,
     storage_type: str,
     vault_identifier: str | None,
     conn: AsyncConnection,
 ) -> None:
     master_key = _require_master_key(session_id)
+
+    # PEM collés (import) : CRLF Windows / newline final manquant font échouer
+    # OpenSSH (« error in libcrypto ») et parfois TLS — normalisés au stockage.
+    from .pem import normalize_pem
+
+    private_key_pem = normalize_pem(private_key_pem)
+    if ca_pem:
+        ca_pem = normalize_pem(ca_pem)
 
     if storage_type == "local":
         encrypted = encrypt_token(private_key_pem, master_key)
@@ -77,6 +86,7 @@ async def register_certificate(
     try:
         await create_certificate(
             login, slug, label, description, cert_type, public_key,
+            ca_pem=ca_pem or None,
             private_key_local=encrypted,
             private_key_vault_ref=vault_ref,
             storage_type=storage_type,

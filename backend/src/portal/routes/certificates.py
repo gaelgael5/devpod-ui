@@ -75,6 +75,8 @@ class GenerateBody(BaseModel):
 class RegisterBody(GenerateBody):
     public_key: str
     private_key_pem: str
+    # CA optionnel (import d'un bundle mTLS docker-tls : cert client + clé + CA).
+    ca_pem: str | None = None
 
 
 class VisibilityBody(BaseModel):
@@ -137,6 +139,7 @@ async def register_cert(
             body.cert_type,
             body.public_key,
             body.private_key_pem,
+            ca_pem=body.ca_pem,
             storage_type=body.storage_type,
             vault_identifier=body.vault_identifier,
             conn=conn,

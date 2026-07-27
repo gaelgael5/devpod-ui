@@ -42,7 +42,8 @@ export default function ProfileEditor() {
   const toggle = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
 
@@ -60,7 +61,7 @@ export default function ProfileEditor() {
   }, [image, selected, settingsJson])
 
   function onSave() {
-    let settings: Record<string, unknown> = {}
+    let settings: Record<string, unknown>
     try {
       settings = JSON.parse(settingsJson || '{}')
       setSettingsError(false)

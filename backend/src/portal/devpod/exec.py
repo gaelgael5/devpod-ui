@@ -17,6 +17,16 @@ from .ssh_exec import control_ssh_args, devpod_ssh_key
 
 _log = structlog.get_logger(__name__)
 
+# rc de timeout de ws_exec — 124 (convention GNU timeout), distinct des codes
+# porteurs de sens pour les sondes : 0 (ok), 1 (tmux sans serveur), 127 (commande
+# absente), 255 (échec de transport SSH). Un rc=1 de timeout serait indistinguable
+# d'un « aucun serveur tmux » (bug 807fed1c : injoignable confondu avec vide).
+TIMEOUT_RC = 124
+
+# rc de sonde tmux signifiant « joignable mais aucun serveur tmux » : 1 = pas de
+# serveur sur le socket, 127 = tmux non installé dans le conteneur.
+NO_TMUX_SERVER_RCS = (1, 127)
+
 # Détection du socket tmux (le devcontainer peut exposer un socket non standard).
 TMUX_SOCK_DETECT = (
     "TMUX_SOCK=$(find /tmp -maxdepth 2 -name default -path '*/tmux-*/*' 2>/dev/null | head -1)"
@@ -26,6 +36,19 @@ TMUX_SOCK_DETECT = (
 def tmux(args: str) -> str:
     """Préfixe une commande tmux de la détection de socket."""
     return f'{TMUX_SOCK_DETECT}; tmux ${{TMUX_SOCK:+-S "$TMUX_SOCK"}} {args}'
+
+
+def remote_tmux_command(session: str) -> str:
+    """Commande shell distante : session tmux persistante, fallback shell simple.
+
+    Pour un host/VM (socket tmux par défaut de l'utilisateur SSH — pas de
+    détection de socket, réservée aux devcontainers). `new-session -A` attache
+    si la session existe, crée sinon. tmux absent → bash, avec un mot d'excuse.
+    """
+    return (
+        f"command -v tmux >/dev/null 2>&1 && exec tmux new-session -A -s {shlex.quote(session)}"
+        " || { echo '[portal] tmux absent : session non persistante'; exec bash -l; }"
+    )
 
 
 async def ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0) -> tuple[int, str]:
@@ -72,7 +95,8 @@ async def ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0) -
     except TimeoutError:
         proc.kill()
         await proc.wait()
-        return 1, "SSH command timed out"
+        # Libellé = contrat : create_session détecte le timeout par sous-chaîne.
+        return TIMEOUT_RC, "SSH command timed out"
     output = (stdout.decode(errors="replace") + stderr.decode(errors="replace")).strip()
     return proc.returncode or 0, output
 

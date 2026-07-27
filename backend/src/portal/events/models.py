@@ -26,6 +26,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "test_server.deleted",
         "compose_service.started",
         "compose_service.stopped",
+        "skill.available",
     }
 )
 

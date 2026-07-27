@@ -5,6 +5,8 @@ export interface UserProfile {
   login: string
   email: string
   display_name: string
+  // Identité (GUID) propagée aux services MCP (on-behalf-of). '' = non définie → rien propagé.
+  identity: string
 }
 
 export function useProfile() {
@@ -15,14 +17,16 @@ export function useProfile() {
   })
 }
 
+export type ProfileUpdate = { display_name?: string; email?: string; identity?: string }
+
 export function useUpdateProfile() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (display_name: string) =>
+    mutationFn: (patch: ProfileUpdate) =>
       apiFetchJson<UserProfile>('/me/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ display_name }),
+        body: JSON.stringify(patch),
       }),
     onSuccess: (data) => {
       qc.setQueryData(['me-profile'], data)

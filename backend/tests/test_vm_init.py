@@ -4,6 +4,8 @@ from __future__ import annotations
 from portal.devpod.vm_init import (
     build_container_ssh_config_cmd,
     build_container_ssh_config_remove_cmd,
+    build_vm_authorized_key_add_script,
+    build_vm_authorized_key_remove_script,
     build_vm_root_inject_script,
     generate_root_password,
 )
@@ -35,6 +37,36 @@ def test_inject_script_quotes_dangerous_password() -> None:
     # La séquence dangereuse n'apparaît jamais hors d'une portion quotée :
     # shlex.quote enveloppe 'root:a;rm -rf /' d'apostrophes.
     assert "'root:a;rm -rf /'" in s
+
+
+def test_authorized_key_add_script_adds_key_without_password() -> None:
+    # Partage : ajoute la clé, mais NE réinitialise PAS le mot de passe root.
+    s = build_vm_authorized_key_add_script("ssh-ed25519 AAAAshare wsB", "debian@10.0.0.7")
+    assert "/root/.ssh/authorized_keys" in s
+    assert "ssh-ed25519 AAAAshare wsB" in s
+    assert "debian@10.0.0.7" in s
+    assert "sudo" in s
+    # Différence clé avec build_vm_root_inject_script : aucun chpasswd.
+    assert "chpasswd" not in s
+    # Idempotent : n'ajoute pas deux fois la même clé.
+    assert "grep -qxF" in s
+
+
+def test_authorized_key_remove_script_filters_key() -> None:
+    s = build_vm_authorized_key_remove_script("ssh-ed25519 AAAAshare wsB", "debian@10.0.0.7")
+    assert "grep -vxF" in s
+    assert "ssh-ed25519 AAAAshare wsB" in s
+    # Tolère le cas « clé unique » (grep -v sort en code 1) sans casser pipefail.
+    assert "|| true" in s
+    assert "chpasswd" not in s
+
+
+def test_authorized_key_scripts_quote_dangerous_pubkey() -> None:
+    # Une pubkey forgée avec des métacaractères ne doit pas s'échapper du quoting.
+    add = build_vm_authorized_key_add_script("k; rm -rf /", "u@h")
+    rm = build_vm_authorized_key_remove_script("k; rm -rf /", "u@h")
+    assert "'k; rm -rf /'" in add
+    assert "'k; rm -rf /'" in rm
 
 
 def test_container_ssh_config_cmd_builds_block() -> None:

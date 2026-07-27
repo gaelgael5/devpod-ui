@@ -7,13 +7,13 @@ import ComposeGallery from '../ComposeGallery'
 
 describe('ComposeGallery', () => {
   it('lists templates from the API', async () => {
-    useUserStore.setState({ user: { login: 'alice', roles: ['dev'] } })
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev'], is_admin: false } })
     const { findByText } = renderWithProviders(<ComposeGallery />, { route: '/compose' })
     expect(await findByText('Browserless')).toBeInTheDocument()
   })
 
   it('enables auto-start directly when the template has no required params', async () => {
-    useUserStore.setState({ user: { login: 'alice', roles: ['dev'] } })
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev'], is_admin: false } })
     let putBody: unknown = null
     server.use(
       http.put('/api/compose/templates/:id/auto-start', async ({ request }) => {
@@ -30,7 +30,7 @@ describe('ComposeGallery', () => {
   })
 
   it('disables auto-start directly (no dialog needed)', async () => {
-    useUserStore.setState({ user: { login: 'alice', roles: ['dev'] } })
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev'], is_admin: false } })
     server.use(
       http.get('/api/compose/templates', () =>
         HttpResponse.json([
@@ -55,7 +55,7 @@ describe('ComposeGallery', () => {
   })
 
   it('opens a dialog to collect required params before enabling auto-start', async () => {
-    useUserStore.setState({ user: { login: 'alice', roles: ['dev'] } })
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev'], is_admin: false } })
     server.use(
       http.get('/api/compose/templates', () =>
         HttpResponse.json([

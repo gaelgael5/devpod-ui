@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, KeyRound, Pencil, PlugZap, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -151,10 +151,8 @@ export default function GitCredentialManager() {
 
   const credentialList: GitCredentialSummary[] = credentials ?? []
 
-  // Réinitialiser les slugs quand le kind change
-  useEffect(() => {
-    setForm(f => ({ ...f, cert_slug: '', secret_slug: '' }))
-  }, [form.kind])
+  // Le reset des slugs au changement de kind vit dans le onValueChange du
+  // Select « kind » (seul écrivain de form.kind) — pas d'effet de synchro.
 
   function resetForm() {
     setForm(EMPTY_FORM)
@@ -428,19 +426,19 @@ export default function GitCredentialManager() {
         {credentialList.map((c: GitCredentialSummary) => (
           <div
             key={c.name}
-            className="flex items-center justify-between rounded-lg border bg-card px-4 py-3"
+            className="flex items-center justify-between gap-2 rounded-lg border bg-card px-3 py-3 sm:px-4"
           >
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <KeyRound className="h-4 w-4 text-muted-foreground shrink-0" />
-              <div>
-                <div className="font-medium text-sm">{c.name}</div>
-                <div className="text-xs text-muted-foreground">{c.host}</div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{c.name}</div>
+                <div className="truncate text-xs text-muted-foreground">{c.host}</div>
               </div>
-              <Badge variant="secondary" className="text-xs">
+              <Badge variant="secondary" className="shrink-0 text-xs">
                 {c.kind === 'token' ? 'PAT' : 'SSH'}
               </Badge>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
               <Button
                 size="icon"
                 variant="ghost"

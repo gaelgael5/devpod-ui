@@ -7,7 +7,7 @@ import os
 import shutil
 import socket as _socket
 import tempfile
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse, urlunparse
 
 import structlog
 from fastapi import HTTPException
@@ -15,6 +15,63 @@ from fastapi import HTTPException
 from ..config.store import load_user
 
 _log = structlog.get_logger(__name__)
+
+
+def write_token_credential_store(
+    host: str, username: str, token: str
+) -> tuple[str, dict[str, str]]:
+    """Écrit un `git credential store` temporaire pour un PAT HTTPS.
+
+    DevPod ne prend pas de `--git-token` : il forwarde `git credential fill` au git
+    côté portail lors du clone. On lui fournit donc le token via un helper `store`
+    (fichier 0600), et on redirige la config globale git du subprocess devpod vers
+    lui. Retourne `(home_dir, env_overlay)` — le token n'est jamais dans argv ni
+    loggé. **L'appelant DOIT `shutil.rmtree(home_dir)` après l'up.**
+    """
+    home = tempfile.mkdtemp(prefix="portal-gitcred-")
+    os.chmod(home, 0o700)
+    creds_path = os.path.join(home, ".git-credentials")
+    # user/token percent-encodés : un '@' ou '/' non échappé casserait l'URL du store.
+    line = f"https://{quote(username, safe='')}:{quote(token, safe='')}@{host}\n"
+    with open(creds_path, "w") as fh:
+        fh.write(line)
+    os.chmod(creds_path, 0o600)
+    gitconfig = os.path.join(home, ".gitconfig")
+    with open(gitconfig, "w") as fh:
+        fh.write(f"[credential]\n\thelper = store --file={creds_path}\n")
+    os.chmod(gitconfig, 0o600)
+    env = {
+        # GIT_CONFIG_GLOBAL (git ≥ 2.32) redirige la config globale sans toucher à
+        # HOME (que devpod utilise pour son SSH vers le nœud) ; NOSYSTEM ignore
+        # /etc/gitconfig ; pas de prompt interactif.
+        "GIT_CONFIG_GLOBAL": gitconfig,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+    return home, env
+
+
+def _canonical_http_git_url(url: str) -> str:
+    """Force le suffixe `.git` sur une URL git http(s) (slash final retiré).
+
+    GitLab self-hosted renvoie 301 sur le chemin web nu (`.../projet`) vers
+    l'endpoint git (`.../projet.git`) ; avec `http.followRedirects=false`, git
+    échoue (`error: 301`). On canonicalise donc en amont. GitHub sert les deux
+    formes → inchangé. Les URLs ssh/git@ ne sont pas concernées.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return url
+    path = parsed.path.rstrip("/")
+    # Azure DevOps expose les dépôts en `/_git/<repo>` (sans `.git`) : ne pas
+    # suffixer, sous peine de casser un provider qui n'utilise pas la convention.
+    if "/_git/" in path:
+        return url if path == parsed.path else urlunparse(parsed._replace(path=path))
+    if path and not path.endswith(".git"):
+        path += ".git"
+    if path == parsed.path:
+        return url
+    return urlunparse(parsed._replace(path=path))
 
 
 def _check_git_ssrf(url: str) -> None:
@@ -69,6 +126,10 @@ async def run_git_ls_remote(
         raise HTTPException(status_code=422, detail="url is required")
     if not git_url.startswith(("http://", "https://", "git@", "ssh://")):
         git_url = f"https://{git_url}"
+
+    # Canonicalise en `.git` (le frontend retire `.git` pour lister les branches ;
+    # GitLab 301-redirige alors le chemin web nu, que git refuse de suivre).
+    git_url = _canonical_http_git_url(git_url)
 
     _check_git_ssrf(git_url)
 
@@ -178,9 +239,13 @@ async def probe_git_credential(credential_name: str, host: str, login: str) -> t
         return False, str(exc.detail)
 
     message = stderr.decode("utf-8", errors="replace").strip()
+    # Succès = le remote a authentifié (le dépôt sondé n'existe simplement pas).
+    # On ne renvoie PAS la sortie brute de git ("fatal: repository not found") :
+    # affichée sous un toast vert, elle est trompeuse. Le titre « Connexion
+    # réussie » (i18n frontend) suffit. La sortie brute n'est utile qu'en échec.
     if returncode == 0:
-        return True, message
+        return True, ""
     lowered = message.lower()
     if any(marker in lowered for marker in _NOT_FOUND_MARKERS):
-        return True, message
+        return True, ""
     return False, message

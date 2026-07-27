@@ -7,6 +7,7 @@ import pytest
 
 from portal.db.workspace_status import (
     delete_status_db,
+    fail_stale_provisioning_db,
     get_status_db,
     list_by_login_db,
     list_running_db,
@@ -124,6 +125,30 @@ async def test_upsert_concurrent_meme_ws_id_sans_unique_violation(db_engine_conc
     assert row is not None
     assert row["status"] == "running"
     assert row["host_port"] == 41000
+
+
+@pytest.mark.asyncio
+async def test_fail_stale_provisioning_marks_only_provisioning(db_conn):
+    """Au boot, toute ligne `provisioning` est orpheline (la tâche up est morte
+    avec le process) → basculée en failed. Les autres statuts sont intouchés."""
+    await upsert_status_db("ws-prov", "provisioning", db_conn, login="alice")
+    await upsert_status_db("ws-prov2", "provisioning", db_conn, login="bob")
+    await upsert_status_db("ws-run", "running", db_conn, login="alice", host_port=41000)
+    await upsert_status_db("ws-stopped", "stopped", db_conn, login="alice")
+
+    failed_ids = await fail_stale_provisioning_db(db_conn)
+
+    assert sorted(failed_ids) == ["ws-prov", "ws-prov2"]
+    row = await get_status_db("ws-prov", db_conn)
+    assert row["status"] == "failed"
+    assert row["error"] == "portal restarted during provisioning"
+    assert (await get_status_db("ws-run", db_conn))["status"] == "running"
+    assert (await get_status_db("ws-stopped", db_conn))["status"] == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_fail_stale_provisioning_empty_table(db_conn):
+    assert await fail_stale_provisioning_db(db_conn) == []
 
 
 @pytest.mark.asyncio

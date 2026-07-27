@@ -40,6 +40,9 @@ global_config = Table(
     Column("local_domain", Text, nullable=False, server_default=""),
     Column("vs_proxy_domain", Text, nullable=False, server_default=""),
     Column("cookie_domain", Text, nullable=False, server_default=""),
+    # Durées de session éditables en admin (0 = hériter du défaut settings/env), migration 073.
+    Column("session_max_age", Integer, nullable=False, server_default="0"),
+    Column("session_absolute_max_age", Integer, nullable=False, server_default="0"),
     # LogConfig
     Column("log_level", Text, nullable=False, server_default="info"),
     Column("log_format", Text, nullable=False, server_default="text"),
@@ -122,6 +125,8 @@ hosts = Table(
     Column("vmid", Text, nullable=False, server_default=""),
     Column("ci_password_secret_slug", Text, nullable=False, server_default=""),
     Column("host_cert_slug", Text, nullable=False, server_default=""),
+    # Cert client mTLS (docker-tls) : slug harpo_certificates tls-* (migration 071).
+    Column("docker_cert_slug", Text, nullable=False, server_default=""),
     Column("storage_type", Text, nullable=False, server_default="local"),
     Column("vault_identifier", Text, nullable=False, server_default=""),
     Column("usage", Text, nullable=False, server_default="workspaces"),
@@ -178,6 +183,16 @@ users = Table(
     Column("culture", Text, nullable=False, server_default="fr"),
     Column("email", Text, nullable=False, server_default=""),
     Column("display_name", Text, nullable=False, server_default=""),
+    # Sujet OIDC (claim `sub`) : ancre d'identité STABLE, contrairement au
+    # preferred_username (dérive le login) et à l'email (peut changer/collision).
+    # Nullable : les comptes existants n'en ont pas encore — backfillé au 1er
+    # login OIDC (migration 068). UNIQUE : un sub ↔ au plus un login.
+    Column("sub", Text, nullable=True, unique=True),
+    # Identité propagée aux services MCP (on-behalf-of, cf. mcp/obo) : GUID éditable
+    # par l'utilisateur dans son profil. Défaut effectif = `sub` OIDC quand vide (voir
+    # get_user_actor). Nécessaire pour les comptes LOCAUX (sans sub), qui peuvent ainsi
+    # se donner un identifiant portable aligné sur les services. UNIQUE (anti-collision).
+    Column("identity", Text, nullable=True, unique=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
@@ -223,6 +238,12 @@ workspaces = Table(
     Column("groups", ARRAY(Text), nullable=False, server_default="{}"),
     # Spec 35 : types d'agents à configurer (accès MCP direct).
     Column("agents", ARRAY(Text), nullable=False, server_default="{}"),
+    # Épingle « garder actif » (enabler 6016436b, migration 080) : jamais de
+    # suggestion d'arrêt pour inactivité sur ce workspace.
+    Column("keep_active", Boolean, nullable=False, server_default="false"),
+    # Surcharge de la limite mémoire du conteneur (enabler 59864c37, migration
+    # 081) : docker --memory ; "" = hériter du défaut global.
+    Column("memory_limit", Text, nullable=False, server_default=""),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("login", "name", name="uq_workspaces_login_name"),
@@ -262,6 +283,9 @@ workspace_test_hosts = Table(
     # Alias court `testN` (par workspace), pour `ssh testN` dans le container.
     Column("alias", Text, nullable=True),
     Column("message_id", BigInteger, nullable=True),
+    # NULL = ligne du workspace PROPRIÉTAIRE (créateur de la VM, pilote son cycle
+    # de vie) ; non-NULL = ligne de PARTAGE, valeur = nom du workspace d'origine.
+    Column("shared_from_workspace", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("login", "workspace_name", "host_name", name="uq_wth_login_ws_host"),
 )
@@ -372,6 +396,42 @@ workspace_status = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
+# Inactivité des workspaces (enabler 6016436b, migration 080) : période d'idle
+# continue observée par sessions/idle.py. Une ligne = un workspace actuellement
+# inactif ; supprimée dès qu'une activité reprend (ou pin / stop). alerted_at
+# non nul = l'alerte de cette période a déjà été émise (une seule par période).
+workspace_idle = Table(
+    "workspace_idle",
+    metadata,
+    Column("ws_id", Text, primary_key=True),
+    Column("login", Text, nullable=False),
+    Column("idle_since", DateTime(timezone=True), nullable=False),
+    Column("last_activity", DateTime(timezone=True), nullable=True),
+    Column("alerted_at", DateTime(timezone=True), nullable=True),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Vivacité des hosts (enabler 727ee81d, migration 079) : posée par la sonde TCP
+# périodique (nodes/liveness.py), lue par node_list. reachable NULL = jamais sondé.
+host_health = Table(
+    "host_health",
+    metadata,
+    Column("name", Text, primary_key=True),
+    Column("reachable", Boolean, nullable=True),
+    Column("last_seen", DateTime(timezone=True), nullable=True),
+    Column("changed_at", DateTime(timezone=True), nullable=True),
+)
+
+# Empreinte de la dernière config agents livrée (migration 072) : le resync ne
+# rotationne/réécrit que si elle change → moins de ré-authentifications MCP.
+workspace_agent_sync = Table(
+    "workspace_agent_sync",
+    metadata,
+    Column("ws_id", Text, primary_key=True),
+    Column("config_hash", Text, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 # ─── Tour 5 : Profiles ────────────────────────────────────────────────────────
 
 profiles = Table(
@@ -435,6 +495,9 @@ harpo_certificates = Table(
     # tls-rsa-2048 | tls-rsa-4096 | tls-ec-p256 | tls-ec-p384
     Column("cert_type", Text, nullable=False),
     Column("public_key", Text, nullable=False),
+    # CA optionnel (public) : présent pour un bundle mTLS docker-tls importé
+    # (cert client = public_key, clé = private_key_*, autorité = ca_pem).
+    Column("ca_pem", Text, nullable=True),
     Column("private_key_local", LargeBinary, nullable=True),  # AES-GCM, master_key
     Column("private_key_vault_ref", Text, nullable=True),  # ${vault://id:certificats/slug/private}
     Column("storage_type", Text, nullable=False),  # local | harpocrate
@@ -477,6 +540,14 @@ mcp_backend = Table(
     Column("name", Text, nullable=False),
     Column("url", Text, nullable=False),
     Column("transport", Text, nullable=False, server_default="streamable_http"),
+    # Schéma d'authentification porté vers le backend : "bearer" (Authorization:
+    # Bearer <clé>, défaut, standard MCP) ou "x_api_key" (X-API-Key: <clé>, pour
+    # les serveurs non conformes qui exigent ce header, ex. gateway agflow).
+    Column("auth_scheme", Text, nullable=False, server_default="bearer"),
+    # Propager l'identité humaine (on-behalf-of signé) aux appels sortants. false
+    # par défaut : on ne diffuse l'utilisateur qu'aux backends first-party de confiance
+    # qui savent vérifier la signature (cf. mcp/obo). Requiert une clé (secret de signature).
+    Column("forward_identity", Boolean, nullable=False, server_default="false"),
     Column("enabled", Boolean, nullable=False, server_default="true"),
     # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
     Column("app_url", Text, nullable=False, server_default=""),
@@ -816,93 +887,6 @@ agent_message = Table(
 )
 
 
-# ─── Événements applicatifs (bus interne — journal + livraisons) ─────────────
-#
-# `actor` = login émetteur ou "system" — volontairement sans FK vers users :
-# le journal survit à la purge d'un utilisateur (audit).
-app_event = Table(
-    "app_event",
-    metadata,
-    Column("id", Text, primary_key=True),  # uuid4 hex généré côté Python
-    Column("type", Text, nullable=False),
-    Column("actor", Text, nullable=False),
-    Column("workspace", Text, nullable=True),
-    Column("subject", JSONB, nullable=False, server_default="{}"),
-    Column("correlation_id", Text, nullable=True),
-    Column("occurred_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
-    Index("idx_app_event_actor_time", "actor", "occurred_at"),
-)
-
-app_event_delivery = Table(
-    "app_event_delivery",
-    metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("event_id", Text, ForeignKey("app_event.id", ondelete="CASCADE"), nullable=False),
-    Column("listener", Text, nullable=False),
-    Column("status", Text, nullable=False),
-    Column("error", Text, nullable=True),
-    # Détail structuré retourné par l'écouteur (ex. user-rules : verdict et
-    # erreurs par règle déclenchée) — null si l'écouteur n'en fournit pas.
-    Column("detail", JSONB, nullable=True),
-    Column("finished_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
-    CheckConstraint("status IN ('ok', 'error')", name="ck_app_event_delivery_status"),
-    Index("idx_app_event_delivery_event", "event_id"),
-)
-
-# ─── Règles utilisateur (moteur sonde → condition → action) ───────────────────
-#
-# Écrites par l'utilisateur dans l'UI (bloc Rules). Une règle réagit à UN type
-# d'événement ; conditions (ET, chacune = sonde MCP + test) et actions
-# (ordonnées) sont des listes JSONB — les service_id qu'elles contiennent
-# référencent user_services SANS FK (JSONB) : un service supprimé rend la
-# règle inopérante, signalée à l'exécution et dans l'UI, jamais silencieuse.
-# next_rule_id : règle jouée à la suite quand les actions ont couru.
-user_rules = Table(
-    "user_rules",
-    metadata,
-    Column("id", Text, primary_key=True),  # uuid4 généré côté Python
-    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
-    Column("name", Text, nullable=False),
-    Column("enabled", Boolean, nullable=False, server_default="true"),
-    Column("event_type", Text, nullable=False),
-    # [{service_id, tool, args, path, operator, value}] — ET logique, ordre préservé
-    Column("conditions", JSONB, nullable=False, server_default="[]"),
-    # [{service_id, tool, args}] — exécutées dans l'ordre, arrêt à la 1re erreur
-    Column("actions", JSONB, nullable=False, server_default="[]"),
-    Column(
-        "next_rule_id",
-        Text,
-        ForeignKey("user_rules.id", ondelete="SET NULL"),
-        nullable=True,
-    ),
-    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
-    Column("updated_at", DateTime(timezone=True), nullable=True),
-    Index("idx_user_rules_owner_event", "owner_login", "event_type"),
-)
-
-# ─── Registre de services (hub Services & Security) ──────────────────────────
-#
-# Adresses de services externes utiles au travail de l'utilisateur, avec le
-# profil MCP permettant d'y accéder. mcp_profile_id nullable + SET NULL : la
-# suppression du profil ne doit jamais faire disparaître le service enregistré,
-# seulement son association (l'UI signale « aucun profil »).
-user_services = Table(
-    "user_services",
-    metadata,
-    Column("id", Text, primary_key=True),  # uuid4 généré côté Python
-    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
-    Column("name", Text, nullable=False),
-    Column("url", Text, nullable=False),
-    Column(
-        "mcp_profile_id",
-        Text,
-        ForeignKey("mcp_profile.id", ondelete="SET NULL"),
-        nullable=True,
-    ),
-    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
-    Column("updated_at", DateTime(timezone=True), nullable=True),
-)
-
 # ─── Outbox transactionnel du relais d'events workflow ───────────────────────
 #
 # Tampon durable entre l'écouteur du bus (qui n'y fait qu'insérer l'enveloppe,
@@ -946,6 +930,99 @@ user_preferences = Table(
         "value_type IN ('int', 'string', 'bool')", name="ck_user_preferences_value_type"
     ),
     UniqueConstraint("login", "pref_key", name="uq_user_preferences_login_key"),
+)
+
+
+# Kiosque d'applications : liens partagés (icône + nom + URL) affichés sur la
+# page /applications pour TOUS les utilisateurs. Gérés exclusivement par un
+# admin ; l'icône est libre : emoji/texte court ou URL d'image https.
+kiosk_applications = Table(
+    "kiosk_applications",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("name", Text, nullable=False, unique=True),
+    Column("url", Text, nullable=False),
+    Column("icon", Text, nullable=False, server_default=""),
+    Column("position", Integer, nullable=False, server_default="0"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+
+# Registre des skills (skills.sh) — DEUX cycles de vie distincts liés par FK,
+# à ne JAMAIS fusionner (spec epic skills) :
+# - skill_grants : AUTORISATION per-user, human-gated. Keyée user_subject (sub
+#   OIDC) — v1 single-principal, mais le subject rouvre le multi-principal sans
+#   réécriture. requested → pending → granted → (revoked | paused). Le grant
+#   porte sur (user, skill, approved_hash) : une dérive de hash retombe en
+#   pending SANS effacer approved_hash (comparaison à la re-validation).
+# - skill_placements : INSTALLATION per-workspace. requested → placed →
+#   verified | unverified. installed_hash figé à l'installation (pas de check
+#   continu).
+# INVARIANT de cascade : révoquer/pauser un grant coupe le routage de tous ses
+# placements — appliqué par la requête d'ensemble effectif (JOIN sur le statut
+# du grant), les lignes placements restent en base pour l'audit.
+skill_grants = Table(
+    "skill_grants",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("user_subject", Text, nullable=False),
+    Column("skill_id", Text, nullable=False),
+    Column("approved_hash", Text, nullable=True),
+    Column("statut", Text, nullable=False, server_default="pending"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("granted_at", DateTime(timezone=True), nullable=True),
+    Column("revoked_at", DateTime(timezone=True), nullable=True),
+    CheckConstraint(
+        "statut IN ('requested', 'pending', 'granted', 'paused', 'revoked')",
+        name="ck_skill_grants_statut",
+    ),
+    UniqueConstraint("user_subject", "skill_id", name="uq_skill_grants_subject_skill"),
+)
+
+
+skill_placements = Table(
+    "skill_placements",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column(
+        "grant_id",
+        BigInteger,
+        ForeignKey("skill_grants.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("workspace_id", Text, nullable=False),
+    Column("installed_hash", Text, nullable=True),
+    Column("statut", Text, nullable=False, server_default="requested"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "statut IN ('requested', 'placed', 'verified', 'unverified')",
+        name="ck_skill_placements_statut",
+    ),
+    UniqueConstraint("grant_id", "workspace_id", name="uq_skill_placements_grant_ws"),
+)
+
+
+# Délégation agent↔humain : l'agent est un acteur on-behalf-of, JAMAIS un
+# principal autonome (epic skills). L'autorisation résout l'agent vers son
+# principal délégant ; grants effectifs de l'agent = grants du principal,
+# jamais davantage. Révoquer la délégation = kill-switch indépendant des
+# grants. Source de vérité remplaçable plus tard par un token exchange
+# Keycloak sans changer la logique d'autorisation. Une seule délégation
+# ACTIVE par (agent_id, scope) — index unique partiel (revoked_at IS NULL)
+# posé par la migration 067 : une révoquée reste en base pour l'audit.
+agent_delegations = Table(
+    "agent_delegations",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("agent_id", Text, nullable=False),
+    Column("principal_subject", Text, nullable=False),
+    Column("scope", Text, nullable=False, server_default="skills"),
+    Column("granted_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("expires_at", DateTime(timezone=True), nullable=True),
+    Column("revoked_at", DateTime(timezone=True), nullable=True),
 )
 
 

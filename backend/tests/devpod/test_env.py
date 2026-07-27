@@ -93,7 +93,6 @@ def test_build_env_raises_when_no_default_host(tmp_data_root: Path) -> None:
                     "type": "docker-tls",
                     "docker_host": "tcp://localhost:2376",
                     "address": "",
-                    "key_path": "",
                 },
             ],
             "caddy": {"admin_api": "http://caddy:2019"},
@@ -103,3 +102,60 @@ def test_build_env_raises_when_no_default_host(tmp_data_root: Path) -> None:
     ws = WorkspaceSpec(name="myapp", source="git@github.com:user/repo.git")
     with pytest.raises(UnknownHostError, match="No default host"):
         build_env(login="alice", ws_spec=ws, global_cfg=cfg_without_default)
+
+
+# ─── DOCKER_CERT_PATH par host (docker_cert_slug, tranche 3) ─────────────────
+
+
+def _cfg_with_host(host) -> object:
+    from portal.config.models import AuthConfig, GlobalConfig, OidcConfig, ServerConfig
+
+    return GlobalConfig(
+        version="1",
+        server=ServerConfig(base_domain="", external_url=""),
+        auth=AuthConfig(oidc=OidcConfig(issuer="", client_id="", client_secret="")),
+        hosts=[host],
+    )
+
+
+def test_docker_cert_dir_shared_without_slug(tmp_data_root) -> None:
+    from portal.config.models import HostConfig
+    from portal.devpod.env import docker_cert_dir
+
+    host = HostConfig(
+        name="node1", default=True, type="docker-tls", docker_host="tcp://h:2376"
+    )
+    cfg = _cfg_with_host(host)
+    assert docker_cert_dir(host, cfg) == cfg.devpod.client_cert_path
+
+
+def test_docker_cert_dir_per_host_with_slug(tmp_data_root) -> None:
+    from portal.config.models import HostConfig
+    from portal.devpod.env import docker_cert_dir
+
+    host = HostConfig(
+        name="node1",
+        default=True,
+        type="docker-tls",
+        docker_host="tcp://h:2376",
+        docker_cert_slug="docker-node1",
+    )
+    cfg = _cfg_with_host(host)
+    assert docker_cert_dir(host, cfg) == str(tmp_data_root / "certs" / "hosts" / "node1")
+
+
+def test_build_env_uses_per_host_cert_path(tmp_data_root) -> None:
+    from portal.config.models import HostConfig, WorkspaceSpec
+    from portal.devpod.env import build_env
+
+    host = HostConfig(
+        name="node1",
+        default=True,
+        type="docker-tls",
+        docker_host="tcp://h:2376",
+        docker_cert_slug="docker-node1",
+    )
+    cfg = _cfg_with_host(host)
+    ws = WorkspaceSpec(name="myapp", source="git@github.com:user/repo.git", host="node1")
+    env = build_env(login="alice", ws_spec=ws, global_cfg=cfg)
+    assert env["DOCKER_CERT_PATH"] == str(tmp_data_root / "certs" / "hosts" / "node1")

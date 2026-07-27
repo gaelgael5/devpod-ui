@@ -14,9 +14,12 @@ export interface HostConfig {
   // Références harpo_* (lecture seule — jamais de secret brut)
   ci_password_secret_slug?: string
   host_cert_slug?: string
+  // Cert client mTLS (docker-tls) : slug d'une entrée tls-* du gestionnaire de
+  // certificats. Vide = répertoire partagé du portail.
+  docker_cert_slug?: string
   // Destination : workspaces, tests, portail (machine du portail), ou
   // ressources (service partagé permanent, sans workspace propriétaire — spec 33).
-  usage?: 'workspaces' | 'tests' | 'portail' | 'ressources'
+  usage?: 'workspaces' | 'tests' | 'portail' | 'ressources' | 'autres'
 }
 
 export interface HostCreatePayload {
@@ -28,7 +31,9 @@ export interface HostCreatePayload {
   proxmox_node?: string
   vmid?: string
   ci_password?: string
-  usage?: 'workspaces' | 'tests' | 'portail' | 'ressources'
+  docker_cert_slug?: string
+  ssh_cert_slug?: string
+  usage?: 'workspaces' | 'tests' | 'portail' | 'ressources' | 'autres'
 }
 
 export function useHosts() {
@@ -73,6 +78,23 @@ export function useDeleteHost() {
     mutationFn: (name: string) =>
       apiFetchVoid(`/admin/hosts/${encodeURIComponent(name)}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hosts'] }),
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
+
+// Révélation du mot de passe console (gardée par PIN — enabler 6e3d5f3a).
+// Pas d'invalidation de cache : la valeur est éphémère, jamais stockée en query.
+export function useRevealCiPassword() {
+  return useMutation({
+    mutationFn: ({ name, pin }: { name: string; pin: string }) =>
+      apiFetchJson<{ value: string }>(
+        `/admin/hosts/${encodeURIComponent(name)}/ci-password/reveal`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin }),
+        },
+      ),
     onError: (err: Error) => toast.error(err.message),
   })
 }

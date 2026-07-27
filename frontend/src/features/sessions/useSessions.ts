@@ -15,6 +15,8 @@ export interface SessionEntry {
   host?: string | null
   /** Session vivante alors que le workspace n'est PAS suivi « running » (oubliée du registre). */
   orphan?: boolean
+  /** tmux absent sur ce host : terminal en shell simple, session NON persistante. */
+  no_tmux?: boolean
 }
 
 /** Vue centralisée des sessions actives (conteneurs, hosts, VM de test).

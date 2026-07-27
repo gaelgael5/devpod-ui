@@ -44,6 +44,15 @@ async def spa_fallback(full_path: str) -> Response:
     if target.is_file():
         return FileResponse(target)
 
+    # Un asset versionné manquant (extension dans le dernier segment, ex.
+    # /assets/CredentialsPage-HASH.js) NE DOIT PAS retomber sur index.html : le
+    # navigateur attend un module JS/CSS et recevrait du HTML → « Failed to fetch
+    # dynamically imported module » (chunk périmé après redéploiement). Un 404 propre
+    # laisse le SPA se recharger. Le fallback index.html ne vaut que pour les routes
+    # de navigation (sans extension) — même critère que should_serve_spa.
+    if "." in full_path.rsplit("/", 1)[-1]:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
     index = _STATIC_DIR / "index.html"
     if index.is_file():
         return FileResponse(index)

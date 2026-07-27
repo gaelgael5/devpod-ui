@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
@@ -26,45 +26,44 @@ interface TemplateEditorProps {
 }
 
 export default function TemplateEditor({ template, open, onOpenChange }: TemplateEditorProps) {
+  // Coquille : le formulaire (et son état) est monté à chaque ouverture, keyed
+  // par template — initialisation via useState, pas d'hydratation par effet.
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {open && (
+        <TemplateEditorForm
+          key={template?.id ?? '__new__'}
+          template={template}
+          onOpenChange={onOpenChange}
+        />
+      )}
+    </Dialog>
+  )
+}
+
+function TemplateEditorForm({
+  template,
+  onOpenChange,
+}: {
+  template?: ComposeTemplate
+  onOpenChange: (open: boolean) => void
+}) {
   const { t } = useTranslation()
   const isCreate = !template
   const save = useSaveTemplate()
 
-  const [id, setId] = useState('')
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [tags, setTags] = useState('')
-  const [version, setVersion] = useState('1.0.0')
-  const [composeContent, setComposeContent] = useState('services: {}\n')
-  const [messageKey, setMessageKey] = useState<string>('')
-  const [parameters, setParameters] = useState<ComposeParam[]>([])
+  const [id, setId] = useState(template?.id ?? '')
+  const [name, setName] = useState(template?.name ?? '')
+  const [description, setDescription] = useState(template?.description ?? '')
+  const [tags, setTags] = useState(template ? template.tags.join(', ') : '')
+  const [version, setVersion] = useState(template?.version ?? '1.0.0')
+  const [composeContent, setComposeContent] = useState(
+    template?.compose_content ?? 'services: {}\n',
+  )
+  const [messageKey, setMessageKey] = useState<string>(template?.message_key ?? '')
+  const [parameters, setParameters] = useState<ComposeParam[]>(template?.parameters ?? [])
   const [serverError, setServerError] = useState<string | null>(null)
   const [idError, setIdError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    if (template) {
-      setId(template.id)
-      setName(template.name)
-      setDescription(template.description)
-      setTags(template.tags.join(', '))
-      setVersion(template.version)
-      setComposeContent(template.compose_content)
-      setMessageKey(template.message_key ?? '')
-      setParameters(template.parameters)
-    } else {
-      setId('')
-      setName('')
-      setDescription('')
-      setTags('')
-      setVersion('1.0.0')
-      setComposeContent('services: {}\n')
-      setMessageKey('')
-      setParameters([])
-    }
-    setServerError(null)
-    setIdError(null)
-  }, [open, template])
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -98,7 +97,6 @@ export default function TemplateEditor({ template, open, onOpenChange }: Templat
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
@@ -187,6 +185,5 @@ export default function TemplateEditor({ template, open, onOpenChange }: Templat
           </DialogFooter>
         </form>
       </DialogContent>
-    </Dialog>
   )
 }

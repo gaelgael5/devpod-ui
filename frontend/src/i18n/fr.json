@@ -1,4 +1,7 @@
 {
+  "terminal": {
+    "invalidTarget": "Cible de terminal invalide."
+  },
   "groups": {
     "new": "Nouveau groupe",
     "manage": "Gérer les groupes",
@@ -40,8 +43,17 @@
     "hostUnknown": "nœud inconnu",
     "created": "Session « {{name}} » créée",
     "closed": "Session « {{name}} » fermée",
-    "filter": { "all": "Toutes", "workspace": "Conteneurs", "host": "Hosts", "test": "Test" },
-    "family": { "workspace": "conteneur", "host": "host", "test": "test" },
+    "filter": {
+      "all": "Toutes",
+      "workspace": "Conteneurs",
+      "host": "Hosts",
+      "test": "Test"
+    },
+    "family": {
+      "workspace": "conteneur",
+      "host": "host",
+      "test": "test"
+    },
     "col": {
       "kind": "Type",
       "target": "Cible",
@@ -49,7 +61,8 @@
       "owner": "Propriétaire",
       "state": "État",
       "actions": "Actions"
-    }
+    },
+    "noTmux": "tmux n'est pas installé sur : {{hosts}}. Les terminaux y sont en shell simple, NON persistants (une déconnexion perd la session). Installez tmux sur la machine (ex. sudo apt-get install -y tmux) puis rouvrez le terminal."
   },
   "workspaces": {
     "title": "Workspaces",
@@ -60,7 +73,8 @@
       "stopped": "arrêté",
       "provisioning": "provisionnement",
       "failed": "échec",
-      "unknown": "inconnu"
+      "unknown": "inconnu",
+      "disconnected": "injoignable"
     },
     "actions": {
       "open": "Ouvrir",
@@ -79,10 +93,8 @@
       "closeLabel": "Fermer la session SSH"
     },
     "terminals": {
-      "title": "Sessions",
-      "open": "Terminal",
-      "back": "Workspaces",
       "newSession": "Nouvelle session",
+      "sessionsMenu": "Sessions ({{count}})",
       "noSession": "Aucune session active",
       "noSessionAction": "Créer une session",
       "createTitle": "Nouvelle session",
@@ -93,10 +105,32 @@
       "startRecipeNone": "— aucun —",
       "create": "Créer",
       "cancel": "Annuler",
-      "deleteSession": "Supprimer la session",
-      "reconnectSession": "Reconnecter la session",
-      "hideSidebar": "Masquer le panneau",
-      "showSidebar": "Afficher le panneau"
+      "disconnected": "Session déconnectée.",
+      "reconnect": "Reconnecter",
+      "deleteSession": "Supprimer la session {{name}}",
+      "deleteTitle": "Supprimer la session ?",
+      "deleteDescription": "La session « {{name}} » et son tmux seront fermés — tout processus en cours (dont un agent) sera interrompu.",
+      "confirmDelete": "Supprimer",
+      "deleted": "Session « {{name}} » supprimée.",
+      "keybar": {
+        "esc": "Échap",
+        "escTitle": "Envoyer la touche Échap",
+        "interrupt": "Interrompre",
+        "interruptTitle": "Interrompre le processus au premier plan (SIGINT)",
+        "paste": "Coller",
+        "pasteTitle": "Coller le presse-papier dans la session",
+        "pasteError": "Presse-papier inaccessible",
+        "copy": "Copier",
+        "copyTitle": "Copier la sélection du terminal",
+        "copyEmpty": "Aucune sélection à copier",
+        "copied": "Sélection copiée",
+        "arrowUp": "Flèche haut",
+        "arrowDown": "Flèche bas",
+        "arrowLeft": "Flèche gauche",
+        "arrowRight": "Flèche droite",
+        "tab": "Tab",
+        "tabTitle": "Envoyer la touche Tab (complétion)"
+      }
     },
     "initializers": {
       "button": "Initialiser",
@@ -162,6 +196,23 @@
       "copied": "URL copiée",
       "copyFailed": "Impossible de copier l'URL",
       "saveFailed": "Échec de l'enregistrement du lien"
+    },
+    "testHostStacks": {
+      "stacksTitle": "Autres stacks Docker sur la machine",
+      "containersTitle": "Conteneurs hors compose"
+    },
+    "testHostShare": {
+      "menu": "Partager…",
+      "title": "Partager {{alias}}",
+      "description": "Rendez cette machine de test accessible en SSH à d'autres workspaces démarrés. Chaque workspace coché reçoit l'accès (ssh) et un message à l'attention de son agent ; décocher retire l'accès.",
+      "loading": "Chargement…",
+      "empty": "Aucun autre workspace démarré à qui partager.",
+      "notRunning": "arrêté",
+      "sharedBadge": "Partagé par {{from}}",
+      "save": "Enregistrer",
+      "saving": "Application du partage…",
+      "saved": "Partage mis à jour",
+      "saveFailed": "Échec de la mise à jour du partage"
     },
     "form": {
       "name": "Nom",
@@ -241,7 +292,8 @@
       "loading": "Chargement…",
       "copy": "Copier",
       "copied": "Copié !"
-    }
+    },
+    "skillsMenu": "Skills du workspace…"
   },
   "recipes": {
     "title": "Recettes",
@@ -536,6 +588,9 @@
       "hostName": "Nom",
       "hostType": "Type",
       "dockerHost": "URL socket Docker",
+      "dockerCert": "Certificat mTLS",
+      "dockerCertNone": "— certificat partagé du portail —",
+      "dockerCertHint": "Entrée tls-* du gestionnaire de certificats (Sécurité). Un bundle importé avec CA est requis pour le mTLS Docker.",
       "address": "Adresse",
       "keyPath": "Répertoire des certs TLS",
       "makeDefault": "Hôte par défaut",
@@ -577,8 +632,12 @@
         "workspaces": "Workspaces",
         "tests": "Machine de test",
         "portail": "Portail",
-        "ressources": "Ressources partagées"
-      }
+        "ressources": "Ressources partagées",
+        "autres": "Autres"
+      },
+      "sshCert": "Clé SSH",
+      "sshCertNone": "— conserver la clé actuelle —",
+      "sshCertHint": "Clé ssh-* du gestionnaire de certificats (Sécurité) à utiliser pour la connexion. Sa clé publique doit déjà être autorisée sur l'hôte (sinon utilisez « Bootstrap SSH »)."
     },
     "deleteHost": "Supprimer l'hôte",
     "deleteHostTitle": "Supprimer l'hôte",
@@ -618,6 +677,22 @@
       "selectNode": "Sélectionner un nœud…",
       "configure": "Configurer",
       "configuring": "Configuration en cours…"
+    },
+    "otherHosts": {
+      "sectionTitle": "Autres serveurs"
+    },
+    "sessions": {
+      "navLabel": "Sessions",
+      "title": "Durées de session",
+      "intro": "Temps avant déconnexion des sessions (terminal SSH et vue VS Code). Modifiable à chaud, sans redémarrage.",
+      "idleMaxAge": "Inactivité avant déconnexion (minutes)",
+      "idleMaxAgeHint": "Fenêtre GLISSANTE : remise à zéro à chaque activité. Tant que tu travailles, tu n'es pas déconnecté. Défaut : 120 min (2 h).",
+      "absoluteMaxAge": "Durée de vie maximale d'une session (minutes)",
+      "absoluteMaxAgeHint": "Plafond ABSOLU depuis la connexion, indépendant de l'activité : au-delà, une reconnexion OIDC est demandée (rafraîchit les rôles). Volontairement large. Défaut : 720 min (12 h).",
+      "save": "Enregistrer",
+      "saved": "Durées de session mises à jour.",
+      "invalid": "Durées invalides (minimum 1 minute).",
+      "absoluteBelowIdle": "La durée maximale doit être ≥ à l'inactivité."
     }
   },
   "errors": {
@@ -821,6 +896,8 @@
       "storageHarpocrate": "Wallet Harpocrate",
       "vaultWallet": "Wallet",
       "privateKey": "Clé privée (PEM)",
+      "caPem": "CA (PEM) — optionnel, pour mTLS docker-tls",
+      "caPemHint": "ca.pem de l'autorité qui a signé le certificat du daemon (nécessaire à la connexion docker-tls)",
       "publicKey": "Clé publique",
       "pasteMode": "Coller",
       "generateMode": "Générer",
@@ -867,7 +944,8 @@
       "PAT_GITLAB": "Personal Access Token — GitLab",
       "PAT_AZURE": "Personal Access Token — Azure DevOps",
       "API_KEY": "Clé API générique",
-      "MCP_DISCOVERY": "Service de découverte MCP"
+      "MCP_DISCOVERY": "Service de découverte MCP",
+      "SKILLS_SH": "Clé API skills.sh"
     },
     "patHelp": {
       "title": "Comment obtenir un Personal Access Token (PAT) ?",
@@ -1036,7 +1114,6 @@
       "added": "Source « {{label}} » ajoutée",
       "deleted": "Source « {{label}} » supprimée",
       "delete": "Supprimer la source",
-      "sourcesTitle": "Sources configurées",
       "searchTitle": "Rechercher un service",
       "sourceLabel": "Source",
       "searchPlaceholder": "Rechercher dans le catalogue…",
@@ -1050,7 +1127,11 @@
       "stars": "{{count}} ★",
       "prev": "Précédent",
       "next": "Suivant",
-      "pageOf": "Page {{page}}"
+      "pageOf": "Page {{page}}",
+      "addSource": "Ajouter une source",
+      "addTitle": "Nouvelle source de découverte",
+      "cancel": "Annuler",
+      "noSources": "Aucune source configurée — ajoutez-en une pour rechercher dans un catalogue."
     },
     "backends": {
       "sectionTitle": "Serveurs MCP",
@@ -1062,6 +1143,12 @@
       "name": "Nom",
       "url": "URL",
       "transport": "Transport",
+      "authScheme": "Authentification",
+      "authSchemeBearer": "Bearer (standard MCP)",
+      "authSchemeApiKey": "En-tête X-API-Key",
+      "authSchemeHint": "Comment la clé est transmise au serveur. « Bearer » (Authorization: Bearer) par défaut ; « X-API-Key » pour les serveurs qui l'exigent.",
+      "forwardIdentityLabel": "Propager mon identité (on-behalf-of)",
+      "forwardIdentityHint": "Ajoute aux appels une identité signée de l'utilisateur connecté (en-têtes x-portal-actor*). À n'activer que pour un service de confiance qui sait la vérifier (docflow, rag, workflow). Nécessite une clé.",
       "keysTitle": "Clés d'authentification",
       "addKey": "Ajouter une clé",
       "noKeys": "Aucune clé.",
@@ -1127,7 +1214,12 @@
       "connectedAt": "Connecté :",
       "lastCall": "Dernier appel :",
       "workspaceBadge": "workspace",
-      "workspaceHint": "Clef générée par le portail pour ce workspace — profil géré automatiquement, révocation seule."
+      "workspaceHint": "Clef générée par le portail pour ce workspace — profil géré automatiquement, révocation seule.",
+      "rotate": "Roter",
+      "rotateNeedsRunning": "Démarrez le workspace pour roter sa clef (le nouveau token y est réinjecté).",
+      "rotatedTitle": "Clef rotée",
+      "rotatedWarning": "L'ancienne clef est révoquée. Copiez la nouvelle maintenant — elle ne sera plus affichée.",
+      "rotatedReinjected": "Clef rotée et réinjectée dans le workspace {{ws}} — l'ancienne génération expire après la fenêtre de grâce."
     },
     "saving": "Enregistrement…",
     "save": "Enregistrer"
@@ -1283,8 +1375,13 @@
     "login": "Identifiant",
     "loginHint": "L'identifiant est immuable.",
     "email": "Adresse email",
+    "emailPlaceholder": "vous@exemple.org",
     "displayName": "Nom d'affichage",
     "displayNamePlaceholder": "Votre nom affiché",
+    "identity": "Identité (services MCP)",
+    "identityPlaceholder": "GUID d'identité",
+    "identityGenerate": "Générer",
+    "identityHint": "GUID propagé aux services (workflow, rag, doc) quand un backend a « Propager mon identité » activé, pour vous attribuer les objets créés par vos agents. Générez-le (ou saisissez-en un) et posez la MÊME valeur côté service. Laissé vide : aucune identité propagée.",
     "save": "Enregistrer",
     "saved": "Modifications enregistrées.",
     "saveError": "Erreur lors de la sauvegarde."
@@ -1313,101 +1410,86 @@
   "servicesSecurity": {
     "navLabel": "Services & sécurité"
   },
-  "services": {
-    "tabLabel": "Services",
-    "sectionTitle": "Services enregistrés",
-    "create": "Ajouter un service",
-    "createTitle": "Nouveau service",
-    "editTitle": "Modifier le service",
-    "name": "Nom",
-    "namePlaceholder": "ex. Grafana",
-    "url": "URL",
-    "mcpProfile": "Profil MCP",
-    "mcpProfilePlaceholder": "Choisir un profil…",
-    "noProfileHint": "Aucun profil MCP disponible — créez-en un dans l'onglet MCP.",
-    "noProfile": "Aucun profil",
-    "empty": "Aucun service enregistré.",
-    "confirmDelete": "Confirmer la suppression"
+  "applications": {
+    "title": "Applications",
+    "intro": "Vos applications importantes, à portée de clic.",
+    "addButton": "Ajouter",
+    "addTitle": "Ajouter une application",
+    "editTitle": "Modifier l'application",
+    "save": "Enregistrer",
+    "edit": "Modifier {{name}}",
+    "iconLabel": "Icône",
+    "iconPlaceholder": "📚 ou https://…/icone.png",
+    "iconHint": "Un emoji, ou l'URL https d'une image. Détectée automatiquement depuis l'URL si possible.",
+    "iconDetecting": "Recherche du favicon…",
+    "nameLabel": "Nom",
+    "namePlaceholder": "Doc",
+    "urlLabel": "URL",
+    "urlPlaceholder": "https://doc.yoops.org",
+    "urlHint": "L'URL doit commencer par http:// ou https://",
+    "add": "Ajouter",
+    "cancel": "Annuler",
+    "empty": "Aucune application. Cliquez sur « Ajouter » pour créer votre premier raccourci.",
+    "emptyUser": "Aucune application n'a encore été publiée par un administrateur.",
+    "remove": "Supprimer {{name}}"
   },
-  "rules": {
-    "tabLabel": "Règles",
-    "sectionTitle": "Règles d'automatisation",
-    "intro": "Une règle réagit à un événement : chaque condition appelle une méthode MCP d'un service (sonde) et teste le retour — toutes doivent être vraies (ET). Les actions s'exécutent alors dans l'ordre, puis la règle chaînée le cas échéant. Variables disponibles dans les paramètres : {workspace}, {actor}, {subject[clé]}.",
-    "create": "Ajouter une règle",
-    "createTitle": "Nouvelle règle",
-    "editTitle": "Modifier la règle",
-    "name": "Nom",
-    "namePlaceholder": "ex. Créer le workspace docflow",
-    "event": "Événement déclencheur",
-    "eventPlaceholder": "Choisir un événement…",
-    "conditionsLegend": "Conditions (ET)",
-    "conditionsHint": "Toutes les conditions doivent être vraies ; évaluées dans l'ordre, arrêt au premier faux. Aucune condition = les actions courent à chaque événement.",
-    "conditionN": "Condition {{n}}",
-    "addCondition": "Ajouter une condition",
-    "removeCondition": "Retirer la condition",
-    "actionsLegend": "Actions (dans l'ordre)",
-    "actionsHint": "Exécutées quand toutes les conditions sont vraies ; la première erreur arrête la suite.",
-    "actionN": "Action {{n}}",
-    "addAction": "Ajouter une action",
-    "removeAction": "Retirer l'action",
-    "service": "Service",
-    "servicePlaceholder": "Choisir un service…",
-    "tool": "Méthode MCP",
-    "toolPlaceholder": "Choisir une méthode…",
-    "args": "Paramètres (JSON)",
-    "argsInvalid": "JSON invalide (objet attendu).",
-    "testCall": "Tester",
-    "testCallSent": "Envoyé :",
-    "variablesHint": "Variables : {workspace} · {actor} · {event} · {subject[clé]}",
-    "variablesTitle": "{workspace} = nom du workspace de l'événement · {actor} = login de l'utilisateur · {event} = type d'événement · {subject[clé]} = champ du sujet de l'événement (ex. {subject[ws_id]})",
-    "testWorkspaceEmptyWarning": "{workspace} sera remplacé par une valeur VIDE pour cet essai — renseignez « Workspace de test » en haut du formulaire.",
-    "formTestWorkspace": "Workspace de test (boutons Tester)",
-    "formTestWorkspaceHint": "Valeur injectée dans {workspace} par les boutons « Tester » des sondes et actions — l'appel est réellement exécuté.",
-    "conditionPath": "Chemin d'extraction",
-    "conditionOperator": "Opérateur",
-    "conditionValue": "Valeur comparée",
-    "op": {
-      "eq": "égal (=)",
-      "neq": "différent (≠)",
-      "contains": "contient",
-      "not_contains": "ne contient pas"
+  "skills": {
+    "tabLabel": "Skills",
+    "title": "Skills (skills.sh)",
+    "subtitle": "Recherchez des skills pour vos agents. « Ajouter » crée une demande de validation — aucune skill n'est utilisable sans validation humaine explicite.",
+    "secretLabel": "Clé API (débit)",
+    "noSecret": "— sans clé —",
+    "searchPlaceholder": "Rechercher une skill…",
+    "searchBtn": "Rechercher",
+    "searching": "Recherche…",
+    "resultsCount": "{{total}} résultat(s)",
+    "noResults": "Aucun résultat pour « {{q}} ».",
+    "add": "Ajouter",
+    "viewOnSkillsSh": "Voir sur skills.sh",
+    "requested": "Demande de validation créée pour « {{name}} »",
+    "status": {
+      "requested": "Demandée",
+      "pending": "En attente de validation",
+      "granted": "Validée",
+      "paused": "En pause",
+      "revoked": "Révoquée"
     },
-    "chain": "Puis enchaîner avec",
-    "chainNone": "— aucune —",
-    "chainHint": "Ordre de lancement : la règle suivante est jouée dans tous les cas, même si les conditions étaient fausses. Profondeur maximale 5, boucles détectées.",
-    "clone": "Cloner",
-    "copySuffix": " (copie)",
-    "cloned": "Règle clonée.",
-    "chainedTo": "puis « {{name}} »",
-    "chainStopped": "Enchaînement arrêté :",
-    "summary": "{{conditions}} condition(s) · {{actions}} action(s)",
-    "empty": "Aucune règle. Ajoutez-en une pour réagir aux événements.",
-    "disabled": "désactivée",
-    "serviceMissing": "service manquant",
-    "confirmDelete": "Confirmer la suppression",
-    "play": "Jouer",
-    "testTitle": "Jouer « {{name}} »",
-    "testWorkspace": "Workspace de test",
-    "testWorkspaceHint": "Valeur injectée dans {workspace} pour cet essai. Les actions sont réellement exécutées si les conditions sont vraies.",
-    "conditionOk": "vraie",
-    "conditionKo": "fausse",
-    "traceVerdict": "Verdict",
-    "traceMatched": "vrai — actions exécutées",
-    "traceNotMatched": "faux — pas d'action",
-    "traceError": "Erreur"
-  },
-  "appEvents": {
-    "tabLabel": "Événements",
-    "sectionTitle": "Journal des événements",
-    "empty": "Aucun événement enregistré.",
-    "refresh": "Actualiser",
-    "replay": "Rejouer",
-    "replayRequested": "Rejeu demandé — les écouteurs vont être réexécutés.",
-    "noListener": "Aucun écouteur",
-    "workspaceLabel": "workspace",
-    "ruleMatched": "{{count}} action(s) exécutée(s)",
-    "ruleNotMatched": "conditions fausses — pas d'action",
-    "ruleChainStopped": "enchaînement arrêté :",
-    "retentionHint": "(historique conservé 24 h)"
+    "validationsTitle": "Validations",
+    "noGrants": "Aucune demande ni skill validée.",
+    "review": "Examiner",
+    "approve": "Valider",
+    "revoke": "Révoquer",
+    "pause": "Mettre en pause",
+    "resume": "Remettre en service",
+    "revalidation": "Re-validation (hash dérivé)",
+    "currentHash": "Hash courant",
+    "approvedHash": "Hash approuvé",
+    "hashDrifted": "le contenu a changé depuis la validation",
+    "actionDone": {
+      "approve": "Skill validée — hash approuvé figé.",
+      "revoke": "Grant révoqué — routage coupé sur tous les placements.",
+      "pause": "Skill mise en pause.",
+      "resume": "Skill remise en service."
+    },
+    "ws": {
+      "title": "Skills du workspace {{name}}",
+      "empty": "Aucune skill installée dans ce workspace.",
+      "installLabel": "Installer une skill validée",
+      "selectPlaceholder": "— choisir une skill —",
+      "noGranted": "— aucune skill validée disponible —",
+      "install": "Installer",
+      "installing": "Installation…",
+      "installed": "Skill installée et vérifiée — routable.",
+      "installedUnverified": "Installée mais NON vérifiée (le contenu a dérivé) — re-validation requise, pas de routage.",
+      "remove": "Retirer {{name}}",
+      "removed": "Skill retirée du workspace (le grant reste valide).",
+      "hint": "L'installation tire la version courante (npx skills add, sans clé). Si le contenu a dérivé du hash approuvé, la skill est marquée unverified et n'est pas routée.",
+      "placement": {
+        "requested": "demandée",
+        "placed": "installée",
+        "verified": "vérifiée",
+        "unverified": "non vérifiée"
+      }
+    }
   }
 }

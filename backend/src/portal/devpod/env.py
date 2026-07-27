@@ -4,6 +4,7 @@ import os
 
 import structlog
 
+from ..certificates.docker_bundle import host_bundle_dir
 from ..config.models import GlobalConfig, HostConfig, WorkspaceSpec
 from ..config.store import safe_user_path
 
@@ -34,6 +35,17 @@ def _find_host(host_name: str, global_cfg: GlobalConfig) -> HostConfig:
     raise UnknownHostError(f"Host {host_name!r} not found in global config")
 
 
+def docker_cert_dir(host: HostConfig, global_cfg: GlobalConfig) -> str:
+    """DOCKER_CERT_PATH effectif d'un host docker-tls.
+
+    Bundle par host (matérialisé à l'association d'un cert du gestionnaire)
+    si `docker_cert_slug` est posé, sinon répertoire partagé `client_cert_path`.
+    """
+    if host.docker_cert_slug:
+        return str(host_bundle_dir(host.name))
+    return global_cfg.devpod.client_cert_path
+
+
 def build_env(
     login: str,
     ws_spec: WorkspaceSpec,
@@ -58,7 +70,7 @@ def build_env(
     if host.type == "docker-tls":
         env["DOCKER_HOST"] = host.docker_host
         env["DOCKER_TLS_VERIFY"] = "1"
-        env["DOCKER_CERT_PATH"] = global_cfg.devpod.client_cert_path
+        env["DOCKER_CERT_PATH"] = docker_cert_dir(host, global_cfg)
         _log.debug("devpod_env_docker_tls", login=login, docker_host=host.docker_host)
     else:
         # SSH : DevPod gère la connexion, supprimer les DOCKER_* si présents

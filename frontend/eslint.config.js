@@ -19,4 +19,20 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // Suite e2e Playwright : runner Node (process, fs…), pilote un navigateur.
+    // Pas de composants React ici → on retire les règles react-refresh/hooks et
+    // on fournit les globals Node + navigateur (page.evaluate).
+    files: ['e2e/**/*.ts'],
+    extends: [js.configs.recommended, tseslint.configs.recommended],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
+    },
+    rules: {
+      // Fixtures Playwright : `use` est le 2e paramètre injecté (pas un hook
+      // React), et `async ({}, use) =>` (pattern vide) est l'idiome officiel.
+      'react-hooks/rules-of-hooks': 'off',
+      'no-empty-pattern': 'off',
+    },
+  },
 ])

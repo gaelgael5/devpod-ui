@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from portal.events.models import EVENT_TYPES
 from portal.routes.event_schemas import router
 
 
@@ -21,7 +22,8 @@ def test_catalog_endpoint_is_public_and_lists_all_events() -> None:
     body = resp.json()
     assert body["specVersion"] == "1.0"
     assert body["revision"].startswith("sha256:")
-    assert len(body["events"]) == 10
+    # Couverture exhaustive du registre fermé (dérivé d'EVENT_TYPES, jamais figé).
+    assert len(body["events"]) == len(EVENT_TYPES)
 
 
 def test_schema_endpoint_returns_dataschema() -> None:

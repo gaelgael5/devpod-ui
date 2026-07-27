@@ -1,17 +1,28 @@
 #!/usr/bin/env bash
-# deploy-portal.sh — Déploiement du portail workspace sur une VM de dev/test.
-# À exécuter en root dans la VM (directement ou via remote-deploy.ps1).
+# deploy-portal.sh — Script de déploiement UNIQUE du portail workspace.
+# À exécuter en root sur la VM cible (directement, via ./dev-deploy.sh à la
+# racine, via scripts/dev-deploy.sh, ou via remote-deploy.ps1 — les deux
+# dev-deploy.sh sont des shims qui délèguent ici avec le compose de dev).
 # Idempotent : peut être relancé sans danger.
 #
 # Usage :
 #   ./scripts/deploy-portal.sh [BRANCH] [--resetdb]
+#   ./scripts/deploy-portal.sh --delete-user <login|email> [--yes]
+#   ex : ./scripts/deploy-portal.sh dev
 #   ex : ./scripts/deploy-portal.sh main --resetdb
+#   ex : ./scripts/deploy-portal.sh --delete-user gaelgael5
 #
-#   --resetdb  Arrête la stack, supprime les volumes DB et le fichier .env,
-#              puis repart de zéro (nouveaux credentials générés).
+#   --resetdb            Arrête la stack, supprime les volumes DB et le fichier
+#                        .env, puis repart de zéro (nouveaux credentials générés).
+#                        Ne touche PAS au reste de /data (CA, certs, recettes) :
+#                        install.sh ne régénère jamais la CA.
+#   --delete-user X      Supprime un compte (login OU email) et court-circuite le
+#                        déploiement. Destructif : DELETE users (CASCADE) + le
+#                        dossier <DATA_ROOT>/users/<login>. --yes saute la confirmation.
 #
 # Variables d'env reconnues (toutes optionnelles si /data déjà initialisé) :
 #   REPO_URL               URL git du repo        (défaut : HTTPS public gaelgael5/devpod-ui)
+#   APP_DIR                Répertoire du repo      (défaut : /opt/workspace-portal)
 #   DATA_ROOT              Racine /data            (défaut : /data)
 #   COMPOSE_FILE           Fichier compose cible   (défaut : deploy/docker-compose.yml)
 #   PORTAL_BASE_DOMAIN     Domaine wildcard        (défaut : dev.yoops.org)
@@ -27,22 +38,41 @@ IFS=$'\n\t'
 REPO_URL="${REPO_URL:-https://github.com/gaelgael5/devpod-ui.git}"
 APP_DIR="${APP_DIR:-/opt/workspace-portal}"
 DATA_ROOT="${DATA_ROOT:-/data}"
+# Exporté : le compose dev interpole ${DATA_ROOT} (env_file, volume) — VM partagée.
+export DATA_ROOT
 COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker-compose.yml}"
+ENV_FILE="${DATA_ROOT}/.env"
+# Le compose de dev active les commodités de VM éphémère (VAULT_DEV_PIN,
+# CADDY_DEV_PORT) ; jamais sur une instance réelle.
+_IS_DEV_COMPOSE=0
+[[ "$COMPOSE_FILE" == *docker-compose.dev.yml ]] && _IS_DEV_COMPOSE=1
 
 # ─── Arguments : branche cible + flags ───────────────────────────────────────
 TARGET_BRANCH=""
 RESETDB=0
-for arg in "$@"; do
-    case "$arg" in
+DELETE_USER=""
+ASSUME_YES=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --resetdb) RESETDB=1 ;;
-        --*) echo "ERREUR : flag inconnu : $arg" >&2; exit 1 ;;
+        --yes | -y) ASSUME_YES=1 ;;
+        --delete-user)
+            shift
+            if [[ $# -eq 0 || -z "$1" ]]; then
+                echo "ERREUR : --delete-user attend un login ou un email." >&2; exit 1
+            fi
+            DELETE_USER="$1"
+            ;;
+        --delete-user=*) DELETE_USER="${1#*=}" ;;
+        --*) echo "ERREUR : flag inconnu : $1" >&2; exit 1 ;;
         *)
             if [[ -n "$TARGET_BRANCH" ]]; then
                 echo "ERREUR : plusieurs branches passées en argument." >&2; exit 1
             fi
-            TARGET_BRANCH="$arg"
+            TARGET_BRANCH="$1"
             ;;
     esac
+    shift
 done
 
 # ─── 0) Prérequis ─────────────────────────────────────────────────────────────
@@ -69,47 +99,168 @@ fi
 
 echo "    Prérequis OK."
 
-# ─── 1) Positionnement dans le repo ───────────────────────────────────────────
+# ─── Fonctions utilitaires .env ───────────────────────────────────────────────
+
+# Lit la valeur d'une clé dans $ENV_FILE (retourne "" si absente ou vide).
+# tr -d '\r' protège contre les fichiers à fins de ligne CRLF (copie depuis Windows).
+_get_env() {
+    local key="$1"
+    grep -m1 "^${key}=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '\r' || true
+}
+
+# Écrit (ou remplace) une clé=valeur dans $ENV_FILE.
+_set_env() {
+    local key="$1" value="$2"
+    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+        sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+    else
+        echo "${key}=${value}" >> "$ENV_FILE"
+    fi
+}
+
+# ─── Mode admin : suppression d'un compte (login ou email) ────────────────────
+# Court-circuite tout déploiement (aucun clone/pull/build). Opération destructive :
+# supprime la ligne `users` — les FK ON DELETE CASCADE purgent workspaces, secrets,
+# sessions, mcp, compose… — puis le dossier <DATA_ROOT>/users/<login>. Les secrets
+# stockés dans Harpocrate (namespace secret_ns) NE sont PAS purgés (système externe).
+_ACCOUNT_LOGIN_RE='^[a-z0-9][a-z0-9._-]{0,38}[a-z0-9]$'
+
+_sql_lit() {
+    # Échappe une valeur pour un littéral SQL entre quotes simples : double les
+    # quotes. standard_conforming_strings=on (défaut Postgres) → le backslash est
+    # littéral, donc doubler les quotes suffit à neutraliser toute injection.
+    printf "%s" "${1//\'/\'\'}"
+}
+
+_psql_portal() {
+    # Exécute une requête SQL (valeurs déjà quotées via _sql_lit) dans le conteneur
+    # postgres. -tA : sortie brute (tuples-only, non alignée) ; ON_ERROR_STOP=1 :
+    # exit ≠ 0 sur erreur SQL.
+    local pguser
+    pguser="$(_get_env POSTGRES_USER)"
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T postgres \
+        psql -U "$pguser" -d portal -tA -v ON_ERROR_STOP=1 -c "$1"
+}
+
+delete_account() {
+    local ident="$1" assume_yes="$2" login="" confirm exists user_dir
+    local matches=()
+
+    if [[ ! -f "$ENV_FILE" ]]; then
+        echo "ERREUR : ${ENV_FILE} absent — stack non initialisée ?" >&2; exit 1
+    fi
+    if ! _psql_portal "SELECT 1;" >/dev/null 2>&1; then
+        echo "ERREUR : postgres injoignable (la stack est-elle démarrée ?)." >&2; exit 1
+    fi
+
+    local esc
+    esc="$(_sql_lit "$ident")"
+    if [[ "$ident" == *@* ]]; then
+        mapfile -t matches < <(_psql_portal "SELECT login FROM users WHERE email = '${esc}';")
+        if [[ "${#matches[@]}" -eq 0 || -z "${matches[0]}" ]]; then
+            echo "ERREUR : aucun compte avec l'email '${ident}'." >&2; exit 1
+        fi
+        if [[ "${#matches[@]}" -gt 1 ]]; then
+            echo "ERREUR : plusieurs comptes partagent l'email '${ident}' :" >&2
+            printf '  - %s\n' "${matches[@]}" >&2
+            echo "  → relance avec le login précis." >&2; exit 1
+        fi
+        login="${matches[0]}"
+    else
+        login="$ident"
+        exists="$(_psql_portal "SELECT 1 FROM users WHERE login = '${esc}';")"
+        if [[ -z "$exists" ]]; then
+            echo "ERREUR : aucun compte '${login}'." >&2; exit 1
+        fi
+    fi
+
+    # Garde-fou anti-traversal : le login résolu DOIT matcher la regex avant le rm.
+    if [[ ! "$login" =~ $_ACCOUNT_LOGIN_RE ]]; then
+        echo "ERREUR : login résolu '${login}' invalide — abandon." >&2; exit 1
+    fi
+
+    user_dir="${DATA_ROOT}/users/${login}"
+    echo "⚠️  Suppression du compte :"
+    echo "    login     : ${login}"
+    echo "    base      : DELETE users (CASCADE : workspaces, secrets, sessions, mcp, compose…)"
+    echo "    fichiers  : ${user_dir}"
+    echo "    NON purgé : secrets Harpocrate (namespace externe)"
+
+    if [[ "$assume_yes" != "1" ]]; then
+        read -r -p "Confirme en retapant le login (${login}) : " confirm
+        if [[ "$confirm" != "$login" ]]; then
+            echo "Abandon (saisie ≠ '${login}')." >&2; exit 1
+        fi
+    fi
+
+    _psql_portal "DELETE FROM users WHERE login = '$(_sql_lit "$login")';" >/dev/null
+    echo "    ✓ ligne users supprimée (CASCADE appliqué)"
+
+    if [[ -d "$user_dir" ]]; then
+        rm -rf "$user_dir"
+        echo "    ✓ ${user_dir} supprimé"
+    else
+        echo "    (dossier ${user_dir} déjà absent)"
+    fi
+    echo "==> Compte '${login}' supprimé."
+    exit 0
+}
+
+if [[ -n "$DELETE_USER" ]]; then
+    cd "$APP_DIR" 2>/dev/null || { echo "ERREUR : ${APP_DIR} introuvable." >&2; exit 1; }
+    delete_account "$DELETE_USER" "$ASSUME_YES"
+fi
+
+# ─── 1) Positionnement dans le repo + auto-mise à jour ───────────────────────
 echo ""
 if [[ -d "${APP_DIR}/.git" ]]; then
     if [[ -n "$TARGET_BRANCH" ]]; then
-        echo "==> [1/4] Repo présent — switch vers ${TARGET_BRANCH}..."
+        echo "==> [1/5] Repo présent — switch vers ${TARGET_BRANCH}..."
         git -C "$APP_DIR" fetch origin
         git -C "$APP_DIR" checkout "$TARGET_BRANCH"
-        git -C "$APP_DIR" pull --ff-only origin "$TARGET_BRANCH"
     else
-        CURRENT="$(git -C "$APP_DIR" branch --show-current)"
-        echo "==> [1/4] Repo présent — pull (${CURRENT})..."
-        git -C "$APP_DIR" pull --ff-only
+        TARGET_BRANCH="$(git -C "$APP_DIR" branch --show-current)"
+        echo "==> [1/5] Repo présent — pull (${TARGET_BRANCH})..."
+    fi
+    BEFORE="$(git -C "$APP_DIR" rev-parse HEAD)"
+    git -C "$APP_DIR" pull --ff-only origin "$TARGET_BRANCH"
+    AFTER="$(git -C "$APP_DIR" rev-parse HEAD)"
+    # Ré-exécution si le pull a changé quoi que ce soit : garantit que ce script
+    # (et install.sh, compose, Dockerfile) tournent dans leur version courante.
+    if [[ "$BEFORE" != "$AFTER" && -z "${_DEPLOY_REEXEC:-}" ]]; then
+        echo "    Dépôt mis à jour — ré-exécution du script..."
+        export _DEPLOY_REEXEC=1
+        exec "$APP_DIR/scripts/deploy-portal.sh" "$@"
     fi
 else
     TARGET_BRANCH="${TARGET_BRANCH:-main}"
-    echo "==> [1/4] Premier clone (branche ${TARGET_BRANCH})..."
+    echo "==> [1/5] Premier clone (branche ${TARGET_BRANCH})..."
     mkdir -p "$(dirname "$APP_DIR")"
     git clone --branch "$TARGET_BRANCH" "$REPO_URL" "$APP_DIR"
 fi
 
 cd "$APP_DIR"
 
-# ─── --resetdb : purge complète avant toute initialisation ────────────────────
+# ─── --resetdb : purge DB + credentials avant toute initialisation ───────────
 if [[ $RESETDB -eq 1 ]]; then
     echo ""
     echo "==> [--resetdb] Arrêt de la stack et suppression des volumes DB..."
     docker compose -f "$COMPOSE_FILE" down --volumes --remove-orphans 2>/dev/null || true
     echo "    Suppression des containers arrêtés résiduels..."
     docker container prune -f || true
-    ENV_FILE="${DATA_ROOT}/.env"
     if [[ -f "$ENV_FILE" ]]; then
         rm -f "$ENV_FILE"
         echo "    ${ENV_FILE} supprimé."
     fi
     echo "    Reset terminé — le .env et la DB seront recréés depuis zéro."
+    echo "    (CA, certs et recettes de ${DATA_ROOT} sont conservés — install.sh"
+    echo "     ne régénère jamais la CA ; purge manuelle si nécessaire.)"
     echo ""
 fi
 
-# ─── 2) Initialiser /data (install.sh — idempotent, §E-25) ──────────────────
+# ─── 2) Initialiser /data (install.sh — idempotent, §E-25) ────────────────────
 echo ""
-echo "==> [2/4] Initialisation de /data (install.sh)..."
+echo "==> [2/5] Initialisation de /data (install.sh)..."
 
 # Construire le préfixe d'env vars pour install.sh non-interactif
 INSTALL_VARS=()
@@ -122,105 +273,151 @@ env "${INSTALL_VARS[@]}" bash scripts/install.sh \
     --data-root    "$DATA_ROOT" \
     --compose-file "$APP_DIR/$COMPOSE_FILE"
 
-# Générer les credentials manquants après install.sh (crée le .env depuis
-# .env.example mais ne génère pas les secrets : postgres, session, local login).
-ENV_FILE="${DATA_ROOT}/.env"
-if [[ -f "$ENV_FILE" ]]; then
-    _get_env_val() { grep -m1 "^${1}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true; }
-
-    if [[ -z "$(_get_env_val POSTGRES_USER)" ]]; then
-        PG_USER="portal_$(openssl rand -hex 4)"
-        PG_PASS="$(openssl rand -hex 24)"
-        DB_URL="postgresql+asyncpg://${PG_USER}:${PG_PASS}@postgres/portal"
-        grep -q '^POSTGRES_USER='     "$ENV_FILE" && sed -i "s|^POSTGRES_USER=.*|POSTGRES_USER=${PG_USER}|"         "$ENV_FILE" || echo "POSTGRES_USER=${PG_USER}"     >> "$ENV_FILE"
-        grep -q '^POSTGRES_PASSWORD=' "$ENV_FILE" && sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${PG_PASS}|" "$ENV_FILE" || echo "POSTGRES_PASSWORD=${PG_PASS}" >> "$ENV_FILE"
-        grep -q '^DATABASE_URL='      "$ENV_FILE" && sed -i "s|^DATABASE_URL=.*|DATABASE_URL=${DB_URL}|"            "$ENV_FILE" || echo "DATABASE_URL=${DB_URL}"        >> "$ENV_FILE"
-        echo "    POSTGRES_USER généré : ${PG_USER}"
-    fi
-
-    if [[ -z "$(_get_env_val SESSION_SECRET_KEY)" ]]; then
-        SESSION_KEY="$(openssl rand -hex 32)"
-        grep -q '^SESSION_SECRET_KEY=' "$ENV_FILE" && sed -i "s|^SESSION_SECRET_KEY=.*|SESSION_SECRET_KEY=${SESSION_KEY}|" "$ENV_FILE" || echo "SESSION_SECRET_KEY=${SESSION_KEY}" >> "$ENV_FILE"
-        echo "    SESSION_SECRET_KEY généré"
-    fi
-
-    if [[ -z "$(_get_env_val LOCAL_PASSWORD)" ]]; then
-        command -v python3 &>/dev/null || apt-get install -y --no-install-recommends python3 >/dev/null 2>&1
-        python3 -c "import bcrypt" 2>/dev/null || apt-get install -y --no-install-recommends python3-bcrypt >/dev/null 2>&1
-        LOCAL_PASS="$(openssl rand -hex 12)"
-        LOCAL_HASH="$(PASS="$LOCAL_PASS" python3 -c \
-            "import bcrypt, os; print(bcrypt.hashpw(os.environ['PASS'].encode(), bcrypt.gensalt()).decode())")"
-        # Doubler $ → $$ : docker compose interpole $VAR dans les valeurs env_file.
-        LOCAL_HASH_ESCAPED="$(printf '%s' "$LOCAL_HASH" | sed 's/\$/\$\$/g')"
-        grep -q '^LOCAL_PASSWORD='      "$ENV_FILE" && sed -i "s|^LOCAL_PASSWORD=.*|LOCAL_PASSWORD=${LOCAL_PASS}|"             "$ENV_FILE" || echo "LOCAL_PASSWORD=${LOCAL_PASS}"             >> "$ENV_FILE"
-        grep -q '^LOCAL_PASSWORD_HASH=' "$ENV_FILE" && sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}|" "$ENV_FILE" || echo "LOCAL_PASSWORD_HASH=${LOCAL_HASH_ESCAPED}" >> "$ENV_FILE"
-        echo "    LOCAL_PASSWORD généré : ${LOCAL_PASS}"
-    else
-        # install.sh peut avoir stocké le hash sans doubler les $ (docker compose
-        # interpolerait $VAR → vide, hash corrompu dans le container).
-        # Si le hash ne commence pas par $$, on corrige l'escaping.
-        _CURRENT_HASH="$(_get_env_val LOCAL_PASSWORD_HASH)"
-        if [[ -n "$_CURRENT_HASH" ]] && [[ "$_CURRENT_HASH" != '$$'* ]]; then
-            _ESCAPED="$(printf '%s' "$_CURRENT_HASH" | sed 's/\$/\$\$/g')"
-            sed -i "s|^LOCAL_PASSWORD_HASH=.*|LOCAL_PASSWORD_HASH=${_ESCAPED}|" "$ENV_FILE"
-            echo "    LOCAL_PASSWORD_HASH : escaping \$→\$\$\$ appliqué"
-        fi
-        unset _CURRENT_HASH _ESCAPED
-    fi
-
-    if [[ -z "$(_get_env_val PORTAL_VAULT_KEK)" ]]; then
-        VAULT_KEK="$(openssl rand -hex 32)"
-        grep -q '^PORTAL_VAULT_KEK=' "$ENV_FILE" && sed -i "s|^PORTAL_VAULT_KEK=.*|PORTAL_VAULT_KEK=${VAULT_KEK}|" "$ENV_FILE" || echo "PORTAL_VAULT_KEK=${VAULT_KEK}" >> "$ENV_FILE"
-        echo "    PORTAL_VAULT_KEK généré"
-    fi
-
-    unset -f _get_env_val
-fi
-
-# Injecter OIDC_CLIENT_SECRET dans /data/.env si fourni
-if [[ -n "${OIDC_CLIENT_SECRET:-}" ]] && [[ -f "$ENV_FILE" ]]; then
-    EXISTING=$(grep -E '^OIDC_CLIENT_SECRET=.+' "$ENV_FILE" 2>/dev/null || true)
-    if [[ -z "$EXISTING" ]]; then
-        sed -i "s|^OIDC_CLIENT_SECRET=.*|OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}|" "$ENV_FILE"
-        echo "    OIDC_CLIENT_SECRET injecté dans ${ENV_FILE}."
-    else
-        echo "    OIDC_CLIENT_SECRET déjà renseigné — non écrasé."
-    fi
-fi
-
-# ─── 3) Build + démarrage de la stack ─────────────────────────────────────────
+# ─── 3) Complétion du .env : credentials manquants ────────────────────────────
+# install.sh crée le .env depuis .env.example mais ne génère pas les secrets.
 echo ""
-echo "==> [3/4] Build de l'image Docker (frontend + backend)..."
+echo "==> [3/5] Vérification de ${ENV_FILE}..."
+
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "    ${ENV_FILE} absent — copie depuis deploy/.env.example"
+    cp deploy/.env.example "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+fi
+
+# Normaliser les fins de ligne CRLF → LF (fichier potentiellement édité sur Windows)
+if grep -qP '\r' "$ENV_FILE" 2>/dev/null; then
+    sed -i 's/\r$//' "$ENV_FILE"
+    echo "    Fins de ligne CRLF converties en LF"
+fi
+
+if [[ -z "$(_get_env POSTGRES_USER)" ]]; then
+    PG_USER="portal_$(openssl rand -hex 4)"
+    _set_env POSTGRES_USER "$PG_USER"
+    echo "    POSTGRES_USER généré : ${PG_USER}"
+fi
+
+if [[ -z "$(_get_env POSTGRES_PASSWORD)" ]]; then
+    _set_env POSTGRES_PASSWORD "$(openssl rand -hex 24)"
+    echo "    POSTGRES_PASSWORD généré (48 chars hex)"
+fi
+
+if [[ -z "$(_get_env DATABASE_URL)" ]]; then
+    DB_URL="postgresql+asyncpg://$(_get_env POSTGRES_USER):$(_get_env POSTGRES_PASSWORD)@postgres/portal"
+    _set_env DATABASE_URL "$DB_URL"
+    echo "    DATABASE_URL construit"
+fi
+
+if [[ -z "$(_get_env SESSION_SECRET_KEY)" ]]; then
+    _set_env SESSION_SECRET_KEY "$(openssl rand -hex 32)"
+    echo "    SESSION_SECRET_KEY généré"
+fi
+
+# Requis hors dev_mode ; vault désactivé sinon.
+if [[ -z "$(_get_env PORTAL_VAULT_KEK)" ]]; then
+    _set_env PORTAL_VAULT_KEK "$(openssl rand -hex 32)"
+    echo "    PORTAL_VAULT_KEK généré"
+fi
+
+# VAULT_DEV_PIN : VM de test éphémère uniquement (compose dev) — le vault de
+# chaque utilisateur s'initialise/déverrouille automatiquement avec ce PIN
+# (dev_mode, cf. portal.vault.pin._dev_auto_unlock). Jamais sur instance réelle.
+if [[ $_IS_DEV_COMPOSE -eq 1 && -z "$(_get_env VAULT_DEV_PIN)" ]]; then
+    _set_env VAULT_DEV_PIN "$(printf '%06d' "$((RANDOM % 1000000))")"
+    echo "    VAULT_DEV_PIN généré"
+fi
+
+if [[ -z "$(_get_env LOCAL_PASSWORD)" ]]; then
+    command -v python3 &>/dev/null || apt-get install -y --no-install-recommends python3 >/dev/null 2>&1
+    python3 -c "import bcrypt" 2>/dev/null || apt-get install -y --no-install-recommends python3-bcrypt >/dev/null 2>&1
+    LOCAL_PASS="$(openssl rand -hex 12)"
+    LOCAL_HASH="$(PASS="$LOCAL_PASS" python3 -c \
+        "import bcrypt, os; print(bcrypt.hashpw(os.environ['PASS'].encode(), bcrypt.gensalt()).decode())")"
+    # docker compose et bash interprètent $VAR dans les env_file / source :
+    # doubler $ → $$ pour que le hash bcrypt ($2b$12$…) soit transmis intact.
+    LOCAL_HASH_ESCAPED="$(printf '%s' "$LOCAL_HASH" | sed 's/\$/\$\$/g')"
+    _set_env LOCAL_PASSWORD "$LOCAL_PASS"
+    _set_env LOCAL_PASSWORD_HASH "$LOCAL_HASH_ESCAPED"
+    echo "    LOCAL_PASSWORD généré : ${LOCAL_PASS}"
+else
+    # install.sh peut avoir stocké le hash sans doubler les $ (docker compose
+    # interpolerait $VAR → vide, hash corrompu dans le container).
+    _CURRENT_HASH="$(_get_env LOCAL_PASSWORD_HASH)"
+    if [[ -n "$_CURRENT_HASH" && "$_CURRENT_HASH" != '$$'* ]]; then
+        _set_env LOCAL_PASSWORD_HASH "$(printf '%s' "$_CURRENT_HASH" | sed 's/\$/\$\$/g')"
+        echo "    LOCAL_PASSWORD_HASH : escaping \$→\$\$ appliqué"
+    fi
+    unset _CURRENT_HASH
+fi
+
+# Injecter OIDC_CLIENT_SECRET si fourni en variable d'env (jamais écrasé)
+if [[ -n "${OIDC_CLIENT_SECRET:-}" && -z "$(_get_env OIDC_CLIENT_SECRET)" ]]; then
+    _set_env OIDC_CLIENT_SECRET "$OIDC_CLIENT_SECRET"
+    echo "    OIDC_CLIENT_SECRET injecté dans ${ENV_FILE}."
+fi
+
+# Validation : échouer explicitement si une variable critique est encore vide
+for _required_key in POSTGRES_USER POSTGRES_PASSWORD SESSION_SECRET_KEY; do
+    if [[ -z "$(_get_env "$_required_key")" ]]; then
+        echo "ERREUR : ${_required_key} vide dans ${ENV_FILE} après génération automatique." >&2
+        echo "  → Éditer manuellement ${ENV_FILE} et définir ${_required_key}." >&2
+        exit 1
+    fi
+done
+
+# Charger toutes les variables du .env dans l'environnement shell :
+# docker compose résout ${VAR} depuis l'env shell en priorité sur --env-file.
+# set +u requis : les hash bcrypt (LOCAL_PASSWORD_HASH=$2b$12$…) contiennent $2
+# que bash interprète comme paramètre positionnel → unbound variable avec set -u.
+set +u
+set -a
+# shellcheck source=/dev/null
+source "$ENV_FILE"
+set +a
+set -u
+
+# ─── 4) Build + redémarrage + migrations ──────────────────────────────────────
+echo ""
+echo "==> [4/5] Build de l'image Docker (frontend + backend)..."
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build
 
 echo ""
-echo "==> Arrêt de la stack en cours (si active)..."
+echo "==> Redémarrage de la stack..."
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down --remove-orphans || true
 
-# Détection du port 80 — si déjà utilisé, Caddy part sur 8090 pour éviter le conflit.
-if [[ -z "${CADDY_DEV_PORT:-}" ]]; then
+# Détection de conflit sur le port 80 (compose dev : Caddy mappe
+# ${CADDY_DEV_PORT:-80}:80) — bascule sur 8090 si :80 est déjà pris.
+# IMPÉRATIVEMENT APRÈS le down : sinon c'est notre PROPRE Caddy encore actif
+# qui est détecté comme conflit, et 8090 se persiste à tort dans .env
+# (le front du portail — tunnel → :80 — tombe alors dans le vide).
+if [[ $_IS_DEV_COMPOSE -eq 1 && -z "$(_get_env CADDY_DEV_PORT)" ]]; then
     if ss -tlnp 2>/dev/null | grep -q ':80 ' || \
        netstat -tlnp 2>/dev/null | grep -q ':80 '; then
+        _set_env CADDY_DEV_PORT "8090"
         export CADDY_DEV_PORT="8090"
-        echo "    Port 80 déjà utilisé → CADDY_DEV_PORT=8090"
+        echo "    Port 80 déjà utilisé par un service tiers → CADDY_DEV_PORT=8090"
     fi
 fi
 
-echo "==> Démarrage de la stack..."
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
 
 echo ""
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
 
-# ─── 4) Smoke /health ─────────────────────────────────────────────────────────
 echo ""
-echo "==> [4/4] Smoke /health (timeout 60s)..."
+echo "==> Migrations Alembic..."
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" \
+    exec -T portal uv run alembic upgrade head
+
+# ─── 5) Smoke /health ─────────────────────────────────────────────────────────
+echo ""
+echo "==> [5/5] Smoke /health (timeout 90s)..."
 SMOKE_OK=0
 ELAPSED=0
 PORTAL_ID="$(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps -q portal 2>/dev/null)"
 while [[ $ELAPSED -lt 90 ]]; do
-    STATUS="$(docker inspect --format='{{.State.Health.Status}}' "$PORTAL_ID" 2>/dev/null)"
-    if [[ "$STATUS" == "healthy" ]]; then
+    # Healthcheck du conteneur si disponible, sinon curl direct (fallback).
+    STATUS="$(docker inspect --format='{{.State.Health.Status}}' "$PORTAL_ID" 2>/dev/null || true)"
+    if [[ "$STATUS" == "healthy" ]] || curl -sf -m 3 "http://localhost:${PORTAL_DEV_PORT:-8080}/health" &>/dev/null; then
         SMOKE_OK=1; break
     fi
     sleep 5
@@ -229,10 +426,8 @@ done
 
 IP="$(ip -4 -o addr show scope global 2>/dev/null | awk 'NR==1 {print $4}' | cut -d/ -f1 || echo '?')"
 EXTERNAL="${PORTAL_EXTERNAL_URL:-http://${IP}}"
-
-# Lire les credentials locaux depuis .env (pour affichage uniquement)
-_LOCAL_USER="$(grep -E '^LOCAL_USER=' "${DATA_ROOT}/.env" 2>/dev/null | cut -d= -f2- || true)"
-_LOCAL_PASS="$(grep -E '^LOCAL_PASSWORD=' "${DATA_ROOT}/.env" 2>/dev/null | cut -d= -f2- || true)"
+_LOCAL_USER="$(_get_env LOCAL_USER)"
+_LOCAL_PASS="$(_get_env LOCAL_PASSWORD)"
 
 if [[ $SMOKE_OK -eq 1 ]]; then
     echo ""
@@ -242,21 +437,23 @@ if [[ $SMOKE_OK -eq 1 ]]; then
     echo "  Accès  : ${EXTERNAL}"
     if [[ -n "${_LOCAL_USER:-}" && -n "${_LOCAL_PASS:-}" && -t 1 ]]; then
         echo "  Login  : ${_LOCAL_USER} / ${_LOCAL_PASS}"
-        unset _LOCAL_PASS
     elif [[ -n "${_LOCAL_USER:-}" ]]; then
-        echo "  Login  : ${_LOCAL_USER}  (mot de passe dans ${DATA_ROOT}/.env)"
+        echo "  Login  : ${_LOCAL_USER}  (mot de passe dans ${ENV_FILE})"
     fi
+    unset _LOCAL_PASS
     echo "  Santé  : http://${IP}:8080/health"
-    echo "  Config : ${DATA_ROOT}/config.yaml"
-    echo "  Env    : ${DATA_ROOT}/.env"
+    echo "  Env    : ${ENV_FILE}"
     echo ""
     echo "  Logs   : docker compose -f ${COMPOSE_FILE} logs -f"
     echo "══════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "==> Logs (80 dernières lignes) :"
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs --tail=80
 else
     cat >&2 <<EOF
 
 ══════════════════════════════════════════════════════════════════
-  ✗ /health ne répond pas après 60s
+  ✗ /health ne répond pas après 90s
 
   Vérifier : docker compose -f ${COMPOSE_FILE} logs --tail=80 portal
 ══════════════════════════════════════════════════════════════════

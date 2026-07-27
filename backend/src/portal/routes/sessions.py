@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict
 from ..auth.rbac import UserInfo, UsernameError, require_user, validate_username
 from ..sessions import registry
 from ..sessions.aggregate import list_sessions
-from ..sessions.close_ops import kill_tmux_session
+from ..sessions.close_ops import kill_host_tmux_session, kill_tmux_session
 from ..settings import get_settings
 
 router = APIRouter(tags=["sessions"])
@@ -69,6 +69,9 @@ async def close_session(req: CloseSessionRequest, user: UserInfo = Depends(requi
         raise HTTPException(status_code=403, detail="Not allowed to close another user's session")
     if req.session is not None and not _SESSION_NAME_RE.fullmatch(req.session):
         raise HTTPException(status_code=422, detail=f"Invalid session name {req.session!r}")
+    # Les terminaux host sont une primitive admin (comme leur ouverture).
+    if req.family == "host" and not admin:
+        raise HTTPException(status_code=403, detail="Admin role required")
 
     # Détache le pont vivant (toutes familles). owner=None en vue admin → ferme
     # l'instance quel que soit son propriétaire ; sinon restreint au login.
@@ -79,9 +82,13 @@ async def close_session(req: CloseSessionRequest, user: UserInfo = Depends(requi
         owner=None if admin else user.login,
     )
 
-    # Workspace : tue aussi la session tmux sous-jacente (décision produit).
+    # Workspace/host : tue aussi la session tmux sous-jacente (décision produit).
     if req.family == "workspace" and req.session:
         name = _workspace_name(req.target, req.owner)
         await kill_tmux_session(
             owner=req.owner, name=name, session_name=req.session, actor=user.login
+        )
+    elif req.family == "host" and req.session:
+        await kill_host_tmux_session(
+            host_name=req.target, session_name=req.session, actor=user.login
         )

@@ -546,7 +546,98 @@ async def workspace_status(
     _validate_name(name)
     ws_id = f"{user.login}-{name}"
     svc = _get_service()
-    return await svc.status(login=user.login, ws_id=ws_id)
+    st = await svc.status(login=user.login, ws_id=ws_id)
+    # Bug 2846f916 : « running » est déclaratif (dernier état connu en base). On y
+    # superpose un verdict de réachabilité dérivé des sondes (jamais bloquant,
+    # jamais écrit en base) : l'UI peut afficher « injoignable » au lieu d'un
+    # faux « tout va bien » quand le host est tombé.
+    if st.get("status") == "running":
+        from ..sessions.aggregate import reachability_hint
+
+        st["reachable"] = reachability_hint(user.login, ws_id)
+    # Suggestion d'arrêt pour inactivité (enabler 6016436b) : dérivée de la table
+    # tenue par la passe de fond — jamais de sonde ici, jamais d'arrêt automatique.
+    # Best-effort : une surcouche d'affichage ne doit jamais faire échouer le statut.
+    try:
+        await _attach_idle_state(st, user.login, name, ws_id)
+    except Exception:
+        _log.debug("workspace_idle_state_unavailable", ws_id=ws_id, exc_info=True)
+    return st
+
+
+async def _attach_idle_state(
+    st: dict[str, Any], login: str, name: str, ws_id: str
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select
+
+    from ..db.engine import _get_engine
+    from ..db.tables import workspaces as _workspaces_table
+    from ..db.workspace_idle import get_for_ws
+    from ..settings import get_settings
+
+    threshold_h = get_settings().workspace_idle_threshold_h
+    async with _get_engine().connect() as conn:
+        keep = (
+            await conn.execute(
+                select(_workspaces_table.c.keep_active)
+                .where(_workspaces_table.c.login == login)
+                .where(_workspaces_table.c.name == name)
+            )
+        ).scalar_one_or_none()
+        st["keep_active"] = bool(keep)
+        st["stop_suggested"] = False
+        if keep or threshold_h <= 0 or st.get("status") != "running":
+            return
+        row = await get_for_ws(conn, ws_id)
+    if row is None:
+        return
+    st["idle_since"] = row["idle_since"].isoformat()
+    st["stop_suggested"] = (
+        datetime.now(UTC) - row["idle_since"] >= timedelta(hours=threshold_h)
+    )
+
+
+class KeepActiveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    keep_active: bool
+
+
+@router.put("/workspaces/{name}/keep-active")
+async def set_workspace_keep_active(
+    name: str,
+    body: KeepActiveRequest,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Épingle « garder actif » (enabler 6016436b) : exempte le workspace de
+    toute suggestion d'arrêt pour inactivité. Épingler purge la période d'idle
+    en cours (plus de suggestion affichée, alerte réarmée pour plus tard)."""
+    from sqlalchemy import update as sql_update
+
+    from ..db.tables import workspaces as _workspaces_table
+    from ..db.workspace_idle import clear as _clear_idle
+
+    _validate_name(name)
+    result = await conn.execute(
+        sql_update(_workspaces_table)
+        .where(_workspaces_table.c.login == user.login)
+        .where(_workspaces_table.c.name == name)
+        .values(keep_active=body.keep_active)
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail=f"Workspace {name!r} not found")
+    if body.keep_active:
+        await _clear_idle(conn, [f"{user.login}-{name}"])
+    _log.info(
+        "workspace_keep_active_set",
+        login=user.login,
+        name=name,
+        keep_active=body.keep_active,
+    )
+    return {"name": name, "keep_active": body.keep_active}
 
 
 def _read_ssh_public_key(pub_path: Path) -> str | None:

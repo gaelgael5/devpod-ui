@@ -67,6 +67,9 @@ def resync_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         if kwargs["ws_id"] in calls.get("fail_for", ()):
             raise RuntimeError("conteneur injoignable")
         calls["push"].append(kwargs)
+        # push idempotent : [] = livraison évitée (config inchangée + fichiers présents).
+        if kwargs["ws_id"] in calls.get("unchanged_ws", ()):
+            return []
         return list(kwargs["agents"])
 
     async def fake_running(ws_id: str) -> bool:
@@ -90,7 +93,7 @@ async def test_resync_pushes_into_agent_workspaces(resync_env: dict[str, Any]) -
         ]
     )
     results = await resync_owner_workspaces("alice")
-    assert results == {"synced": ["alice-api"], "skipped": [], "failed": []}
+    assert results == {"synced": ["alice-api"], "unchanged": [], "skipped": [], "failed": []}
     call = resync_env["push"][0]
     assert call["login"] == "alice"
     assert call["ws_id"] == "alice-api"
@@ -121,7 +124,7 @@ async def test_resync_skips_docker_tls_host(resync_env: dict[str, Any]) -> None:
         [WorkspaceSpec(name="api", source="", host="node-tls", agents=["claude"])]
     )
     results = await resync_owner_workspaces("alice")
-    assert results == {"synced": [], "skipped": ["alice-api"], "failed": []}
+    assert results == {"synced": [], "unchanged": [], "skipped": ["alice-api"], "failed": []}
 
 
 async def test_resync_skips_stopped_workspace(resync_env: dict[str, Any]) -> None:
@@ -136,7 +139,35 @@ async def test_resync_skips_stopped_workspace(resync_env: dict[str, Any]) -> Non
     resync_env["running"] = {"alice-doc"}
     results = await resync_owner_workspaces("alice")
     # Arrêté = sauté (le prochain up poussera), jamais compté en échec.
-    assert results == {"synced": ["alice-doc"], "skipped": ["alice-api"], "failed": []}
+    assert results == {
+        "synced": ["alice-doc"],
+        "unchanged": [],
+        "skipped": ["alice-api"],
+        "failed": [],
+    }
+
+
+async def test_resync_buckets_unchanged_from_empty_push(resync_env: dict[str, Any]) -> None:
+    """push idempotent renvoie [] (livraison évitée) → bucket `unchanged`, pas `synced`.
+
+    (La non-rotation effective est prouvée au niveau de push : test_push.)
+    """
+    from portal.agents.resync import resync_owner_workspaces
+
+    resync_env["user"] = _user_cfg(
+        [
+            WorkspaceSpec(name="api", source="", host="node-ssh", agents=["claude"]),
+            WorkspaceSpec(name="doc", source="", host="node-ssh", agents=["claude"]),
+        ]
+    )
+    resync_env["unchanged_ws"] = {"alice-api"}  # push renverra [] pour api
+    results = await resync_owner_workspaces("alice")
+    assert results == {
+        "synced": ["alice-doc"],
+        "unchanged": ["alice-api"],
+        "skipped": [],
+        "failed": [],
+    }
 
 
 async def test_resync_failure_isolated_per_workspace(resync_env: dict[str, Any]) -> None:

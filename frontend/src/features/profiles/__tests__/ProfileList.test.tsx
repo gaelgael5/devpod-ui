@@ -7,7 +7,7 @@ import ProfileList from '../ProfileList'
 
 describe('ProfileList', () => {
   beforeEach(() => {
-    useUserStore.setState({ user: { login: 'alice', roles: ['dev'] } })
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev'], is_admin: false } })
   })
 
   it('affiche les profils personnels', async () => {

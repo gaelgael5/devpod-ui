@@ -84,12 +84,17 @@ async def pinned_get(
     *,
     timeout: float = 5.0,
     pinned_ip: str | None = None,
+    max_bytes: int | None = None,
 ) -> httpx.Response:
     """GET épinglé sur l'IP validée (anti DNS rebinding, bug 022).
 
     ``pinned_ip`` permet de réutiliser une IP déjà résolue/validée par
     ``resolve_pinned`` (ex. validation avant même de construire le client) ;
     sinon la résolution+validation est faite ici.
+
+    ``max_bytes`` borne la lecture du corps (streaming) : indispensable quand
+    l'URL vient d'un utilisateur — sans borne, un GET charge le corps entier en
+    mémoire. La réponse retournée porte le corps tronqué à cette taille.
     """
     if pinned_ip is None:
         pinned_ip = await asyncio.to_thread(resolve_pinned, url)
@@ -103,10 +108,32 @@ async def pinned_get(
         host_header, netloc = f"{host_literal}:{parsed.port}", f"{ip_literal}:{parsed.port}"
     pinned_url = urlunparse(parsed._replace(netloc=netloc))
     extensions = {"sni_hostname": host} if parsed.scheme == "https" else {}
-    return await client.get(
+    if max_bytes is None:
+        return await client.get(
+            pinned_url,
+            headers={"Host": host_header},
+            extensions=extensions,
+            timeout=timeout,
+            follow_redirects=False,
+        )
+    request = client.build_request(
+        "GET",
         pinned_url,
         headers={"Host": host_header},
         extensions=extensions,
         timeout=timeout,
-        follow_redirects=False,
     )
+    response = await client.send(request, stream=True, follow_redirects=False)
+    try:
+        chunks: list[bytes] = []
+        read = 0
+        async for chunk in response.aiter_bytes():
+            chunks.append(chunk)
+            read += len(chunk)
+            if read >= max_bytes:
+                break
+        # Reconstitue un corps borné accessible via .content/.text.
+        response._content = b"".join(chunks)[:max_bytes]  # noqa: SLF001
+    finally:
+        await response.aclose()
+    return response

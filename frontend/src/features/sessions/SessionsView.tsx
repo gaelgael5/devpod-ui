@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useUserStore } from '@/store/user'
 import { useCreateSession } from '@/features/workspaces/useWorkspaceSessions'
-import SessionTerminalWindow from './SessionTerminalWindow'
+import { openTerminalTab } from '@/features/terminal/openTerminalTab'
+import { useIsMobile } from '@/shared/hooks/useMediaQuery'
 import { useCloseSession, useSessions, type SessionEntry } from './useSessions'
 
 type Filter = 'all' | SessionEntry['family']
@@ -43,15 +45,19 @@ function canOpen(e: SessionEntry, login: string, isAdmin: boolean): boolean {
   return owns(e, login, isAdmin) // test
 }
 
-/** Fermeture possible : host/test seulement si attaché (rien à détacher sinon). */
+/** Fermeture possible : une session tmux (workspace/host) se tue même détachée ;
+ *  test seulement si attaché (rien à détacher sinon). */
 function canClose(e: SessionEntry, login: string, isAdmin: boolean): boolean {
   if (e.family === 'workspace') return owns(e, login, isAdmin) && !!e.session
-  if (e.family === 'host') return isAdmin && e.attached
+  if (e.family === 'host') return isAdmin && (e.attached || !!e.session)
   return owns(e, login, isAdmin) && e.attached // test
 }
 
 function openUrl(e: SessionEntry, login: string): string {
-  if (e.family === 'host') return `/admin/hosts/${encodeURIComponent(e.target)}/ssh`
+  if (e.family === 'host') {
+    const sessionParam = e.session ? `?session=${encodeURIComponent(e.session)}` : ''
+    return `/admin/hosts/${encodeURIComponent(e.target)}/ssh${sessionParam}`
+  }
   const name = wsNameOf(e)
   // Vue admin sur le conteneur d'un autre : le backend résout le ws_id sur ?owner=.
   const ownerParam = e.owner !== login ? `&owner=${encodeURIComponent(e.owner)}` : ''
@@ -65,14 +71,24 @@ export default function SessionsView() {
   const { t } = useTranslation()
   const login = useUserStore((s) => s.user?.login ?? '')
   const isAdmin = useUserStore((s) => s.isAdmin())
+  const isMobile = useIsMobile()
   const { data, isLoading, isError, refetch } = useSessions()
   const createSession = useCreateSession()
   const closeSession = useCloseSession()
 
   const [filter, setFilter] = useState<Filter>('all')
-  const [term, setTerm] = useState<{ wsUrl: string; title: string } | null>(null)
   const [newWs, setNewWs] = useState('')
   const [newName, setNewName] = useState('')
+  // Groupes serveurs repliés par défaut : l'ensemble ne contient que les groupes DÉPLIÉS.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const isExpanded = (key: string) => expanded.has(key)
+  const toggleGroup = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
 
   const entries = data ?? []
   const shown = filter === 'all' ? entries : entries.filter((e) => e.family === filter)
@@ -91,7 +107,7 @@ export default function SessionsView() {
   function open(e: SessionEntry) {
     const family = t(`sessions.family.${e.family}`)
     const label = e.session ? `${wsNameOf(e)} · ${e.session}` : e.target
-    setTerm({ wsUrl: openUrl(e, login), title: `${family} — ${label}` })
+    openTerminalTab(openUrl(e, login), `${family} — ${label}`)
   }
 
   function close(e: SessionEntry) {
@@ -115,10 +131,10 @@ export default function SessionsView() {
       {
         onSuccess: () => {
           toast.success(t('sessions.created', { name: newName.trim() }))
-          setTerm({
-            wsUrl: `/me/workspaces/${encodeURIComponent(ws)}/ssh?session=${encodeURIComponent(newName.trim())}`,
-            title: `${t('sessions.family.workspace')} — ${ws} · ${newName.trim()}`,
-          })
+          openTerminalTab(
+            `/me/workspaces/${encodeURIComponent(ws)}/ssh?session=${encodeURIComponent(newName.trim())}`,
+            `${t('sessions.family.workspace')} — ${ws} · ${newName.trim()}`,
+          )
           setNewName('')
           refetch()
         },
@@ -187,7 +203,91 @@ export default function SessionsView() {
         <p className="text-sm text-muted-foreground">{t('sessions.empty')}</p>
       )}
 
-      {data && shown.length > 0 && (
+      {/* Mobile (< md) : cartes empilées — un tableau à 6 colonnes est illisible sur téléphone. */}
+      {data && shown.length > 0 && isMobile && (
+        <div className="flex flex-col gap-3">
+          {groups.map((g) => {
+            const key = g.host ?? '__unknown__'
+            const groupOpen = isExpanded(key)
+            return (
+            <div key={key} className="rounded-md border">
+              <button
+                type="button"
+                onClick={() => toggleGroup(key)}
+                className="flex w-full items-center gap-1.5 border-b bg-muted/40 px-3 py-2 text-left text-xs font-semibold"
+                aria-expanded={groupOpen}
+              >
+                {groupOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                {g.host ?? t('sessions.hostUnknown')}
+                <span className="font-normal text-muted-foreground">
+                  {t('sessions.count', { n: g.entries.length })}
+                </span>
+              </button>
+              {groupOpen && (
+              <div className="divide-y">
+                {g.entries.map((e, i) => (
+                  <div key={`${e.family}-${e.target}-${e.session ?? ''}-${i}`} className="p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase">
+                            {t(`sessions.family.${e.family}`)}
+                          </span>
+                          <span className="truncate font-mono text-xs">{e.target}</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                          {e.session && <span className="font-mono">{e.session}</span>}
+                          {isAdmin && <span>· {e.owner}</span>}
+                          {e.unreachable && (
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">
+                              {t('sessions.unreachable')}
+                            </span>
+                          )}
+                          {e.orphan && (
+                            <span className="rounded bg-orange-100 px-1.5 py-0.5 text-orange-800">
+                              {t('sessions.orphan')}
+                            </span>
+                          )}
+                          {e.attached && (
+                            <span className="rounded bg-green-100 px-1.5 py-0.5 text-green-800">
+                              {t('sessions.attached')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 flex-col gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={!canOpen(e, login, isAdmin)}
+                          onClick={() => open(e)}
+                        >
+                          {t('sessions.open')}
+                        </Button>
+                        {canClose(e, login, isAdmin) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={closeSession.isPending}
+                            onClick={() => close(e)}
+                          >
+                            {t('sessions.close')}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              )}
+            </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Desktop (>= md) : tableau dense. */}
+      {data && shown.length > 0 && !isMobile && (
         <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
             <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
@@ -200,21 +300,28 @@ export default function SessionsView() {
                 <th className="px-3 py-2 text-right">{t('sessions.col.actions')}</th>
               </tr>
             </thead>
-            {groups.map((g) => (
-              <tbody key={g.host ?? '__unknown__'}>
+            {groups.map((g) => {
+              const key = g.host ?? '__unknown__'
+              const groupOpen = isExpanded(key)
+              return (
+              <tbody key={key}>
                 <tr className="border-t bg-muted/40">
-                  <th
-                    scope="row"
-                    colSpan={colCount}
-                    className="px-3 py-1.5 text-left text-xs font-semibold"
-                  >
-                    {g.host ?? t('sessions.hostUnknown')}
-                    <span className="ml-2 font-normal text-muted-foreground">
-                      {t('sessions.count', { n: g.entries.length })}
-                    </span>
+                  <th scope="row" colSpan={colCount} className="p-0 text-left">
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(key)}
+                      className="flex w-full items-center gap-1.5 px-3 py-1.5 text-xs font-semibold"
+                      aria-expanded={groupOpen}
+                    >
+                      {groupOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                      {g.host ?? t('sessions.hostUnknown')}
+                      <span className="font-normal text-muted-foreground">
+                        {t('sessions.count', { n: g.entries.length })}
+                      </span>
+                    </button>
                   </th>
                 </tr>
-                {g.entries.map((e, i) => (
+                {groupOpen && g.entries.map((e, i) => (
                   <tr key={`${e.family}-${e.target}-${e.session ?? ''}-${i}`} className="border-t">
                     <td className="px-3 py-2 font-mono text-xs">
                       {t(`sessions.family.${e.family}`)}
@@ -264,14 +371,22 @@ export default function SessionsView() {
                   </tr>
                 ))}
               </tbody>
-            ))}
+              )
+            })}
           </table>
         </div>
       )}
 
-      {term && (
-        <SessionTerminalWindow wsUrl={term.wsUrl} title={term.title} onClose={() => setTerm(null)} />
-      )}
+      {/* tmux absent sur certains hosts : sessions non persistantes — prévenir. */}
+      {(() => {
+        const noTmuxHosts = [...new Set(shown.filter((e) => e.no_tmux).map((e) => e.target))]
+        if (noTmuxHosts.length === 0) return null
+        return (
+          <p className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {t('sessions.noTmux', { hosts: noTmuxHosts.join(', ') })}
+          </p>
+        )
+      })()}
     </div>
   )
 }

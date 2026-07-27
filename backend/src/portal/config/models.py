@@ -39,6 +39,11 @@ class ServerConfig(BaseModel):
     # workspaces VS Code n'ont qu'un ancêtre commun (dev.yoops.org + vs-dev.yoops.org).
     # Vide → base_domain est utilisé par défaut.
     cookie_domain: str = ""
+    # Durées de session paramétrables depuis l'admin (secondes). 0 = hériter du défaut
+    # (settings/env). session_max_age = idle GLISSANT du cookie ; session_absolute_max_age
+    # = plafond absolu depuis le login (refresh des rôles). Cf. auth/rbac + app.py.
+    session_max_age: int = 0
+    session_absolute_max_age: int = 0
     log: LogConfig = Field(default_factory=LogConfig)
 
 
@@ -129,12 +134,36 @@ class SecretsConfig(BaseModel):
     harpocrate: HarpocrateGlobalConfig = Field(default_factory=HarpocrateGlobalConfig)
 
 
+# Format docker : entier + unité b/k/m/g optionnelle (ex. 4g, 512m). La casse
+# est normalisée en minuscule avant validation.
+_MEMORY_LIMIT_RE = re.compile(r"^[0-9]+[bkmg]?$")
+
+
+def _validate_memory_limit(v: str) -> str:
+    v = v.strip().lower()
+    if v and not _MEMORY_LIMIT_RE.fullmatch(v):
+        raise ValueError(
+            f"memory limit {v!r} invalide — entier + unité optionnelle b/k/m/g (ex. 4g, 512m)"
+        )
+    return v
+
+
 class DevpodDefaults(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     ide: str = "openvscode"
     idle_timeout: str = "2h"
     dotfiles: str = ""
+    # Limite mémoire par défaut des conteneurs workspace (enabler 59864c37) :
+    # docker --memory, appliquée à la (re)construction du conteneur. 900m par
+    # décision d'exploitation (2026-07-26) ; surchargeable globalement (admin)
+    # et par workspace. "" = aucune limite.
+    memory_limit: str = "900m"
+
+    @field_validator("memory_limit")
+    @classmethod
+    def validate_memory_limit(cls, v: str) -> str:
+        return _validate_memory_limit(v)
 
 
 class DevpodConfig(BaseModel):
@@ -158,12 +187,16 @@ class HostConfig(BaseModel):
     # Références vers harpo_* (slugs)
     ci_password_secret_slug: str = ""
     host_cert_slug: str = ""
+    # Certificat client mTLS (docker-tls) : slug d'une entrée tls-* du
+    # gestionnaire de certificats. Vide = répertoire partagé (client_cert_path).
+    docker_cert_slug: str = ""
     # Préférences de stockage des secrets
     storage_type: Literal["local", "harpocrate"] = "local"
     vault_identifier: str = ""
-    # Destination du host : workspaces, tests, portail (machine du portail), ou
-    # ressources (service partagé permanent, sans workspace propriétaire — spec 33).
-    usage: Literal["workspaces", "tests", "portail", "ressources"] = "workspaces"
+    # Destination du host : workspaces, tests, portail (machine du portail),
+    # ressources (service partagé permanent, sans workspace propriétaire — spec 33),
+    # ou autres (inventaire simple : ni workspaces, ni services compose).
+    usage: Literal["workspaces", "tests", "portail", "ressources", "autres"] = "workspaces"
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
@@ -366,6 +399,17 @@ class WorkspaceSpec(BaseModel):
     groups: list[str] = Field(default_factory=list)
     # Spec 35 : types d'agents à configurer dans le workspace (accès direct MCP).
     agents: list[str] = Field(default_factory=list)
+    # Épingle « garder actif » (enabler 6016436b) : exempte le workspace de toute
+    # suggestion d'arrêt pour inactivité, quel que soit son idle.
+    keep_active: bool = False
+    # Surcharge ponctuelle de la limite mémoire du conteneur (enabler 59864c37) :
+    # "" = hériter de devpod.defaults.memory_limit.
+    memory_limit: str = ""
+
+    @field_validator("memory_limit")
+    @classmethod
+    def validate_memory_limit(cls, v: str) -> str:
+        return _validate_memory_limit(v)
 
     @field_validator("agents")
     @classmethod

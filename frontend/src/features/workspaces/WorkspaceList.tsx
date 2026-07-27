@@ -130,13 +130,16 @@ function GroupSection({
         )}
       </div>
       {!collapsed && workspaces.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        // Masonry (multi-colonnes CSS) : les cartes s'empilent et comblent les
+        // trous verticaux au lieu de s'aligner sur la hauteur de la carte la plus
+        // haute de la rangée. En étroit (aucune utilité `columns-*`) → une seule
+        // colonne, comportement normal. `break-inside-avoid` garde chaque carte
+        // entière dans sa colonne.
+        <div className="gap-x-4 sm:columns-2 lg:columns-3">
           {sorted.map((ws) => (
-            <WorkspaceRow
-              key={ws.name}
-              spec={ws}
-              onManageGroups={() => onManageGroups(ws)}
-            />
+            <div key={ws.name} className="mb-4 break-inside-avoid">
+              <WorkspaceRow spec={ws} onManageGroups={() => onManageGroups(ws)} />
+            </div>
           ))}
         </div>
       )}

@@ -41,6 +41,20 @@ class UserNotProvisionedError(Exception):
         self.login = login
 
 
+async def get_user_actor(login: str, conn: AsyncConnection) -> str | None:
+    """Identité propagée aux services MCP (on-behalf-of) : `users.identity` (GUID).
+
+    GUID-only : on ne retombe PAS sur le `sub`. None si l'identité n'est pas définie —
+    l'appelant OBO n'émet alors aucune identité (fail-safe : l'objet reste attribué à la
+    clé). L'utilisateur doit donc renseigner son identité dans son profil pour être
+    propagé (bouton « Générer » ou saisie libre)."""
+    row = (await conn.execute(select(users.c.identity).where(users.c.login == login))).first()
+    if row is None:
+        return None
+    identity: str | None = row[0]
+    return identity
+
+
 async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
     """Garantit l'existence de la row users — idempotent.
 
@@ -92,7 +106,9 @@ async def list_workspace_refs(login: str | None, conn: AsyncConnection) -> list[
     (un workspace déclaré mais sans ligne de statut « running » existe quand même).
     `login=None` → tous les users (vue admin) ; sinon restreint au login donné.
     """
-    stmt = select(workspaces.c.login, workspaces.c.name, workspaces.c.host)
+    stmt = select(
+        workspaces.c.login, workspaces.c.name, workspaces.c.host, workspaces.c.keep_active
+    )
     if login is not None:
         stmt = stmt.where(workspaces.c.login == login)
     rows = (
@@ -276,6 +292,8 @@ def _ws_row_to_model(row: dict[str, Any], extra_rows: list[Any]) -> WorkspaceSpe
         init_recipes=list(row["init_recipes"] or []),
         groups=list(row["groups"] or []),
         agents=list(row["agents"] or []),
+        keep_active=row["keep_active"],
+        memory_limit=row["memory_limit"],
         extra_sources=[
             SourceSpec(
                 url=e["url"],
@@ -311,4 +329,6 @@ def _ws_to_row(login: str, ws: WorkspaceSpec) -> dict[str, Any]:
         "init_recipes": list(ws.init_recipes),
         "groups": list(ws.groups),
         "agents": list(ws.agents),
+        "keep_active": ws.keep_active,
+        "memory_limit": ws.memory_limit,
     }

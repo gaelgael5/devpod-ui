@@ -35,8 +35,9 @@ describe('GitCredentialManager — test connection', () => {
   it('notifie un succès quand la connexion fonctionne', async () => {
     server.use(
       http.get('/me/git-credentials', () => HttpResponse.json(ONE_CREDENTIAL)),
+      // Le backend renvoie un message vide sur succès (plus de sortie git brute).
       http.post('/me/git-credentials/github/test', () =>
-        HttpResponse.json({ ok: true, message: 'remote: Repository not found.' }),
+        HttpResponse.json({ ok: true, message: '' }),
       ),
     )
     const user = userEvent.setup()
@@ -45,8 +46,9 @@ describe('GitCredentialManager — test connection', () => {
     await user.click(btn)
 
     await waitFor(() => expect(toast.success).toHaveBeenCalled())
+    // Message vide → pas de description trompeuse sous le toast vert.
     expect(vi.mocked(toast.success).mock.calls[0][1]).toMatchObject({
-      description: 'remote: Repository not found.',
+      description: undefined,
     })
   })
 

@@ -39,6 +39,53 @@ describe('WorkspaceCard', () => {
     expect(screen.getByText('github.com/org/myapp')).toBeInTheDocument()
   })
 
+  it('affiche « injoignable » quand running mais reachable=false (bug 2846f916)', () => {
+    const ws: WorkspaceStatus = {
+      ws_id: 'alice-myapp', status: 'running', url: 'https://x', reachable: false,
+    }
+    renderWithProviders(
+      <WorkspaceCard spec={SPEC} status={ws} onStop={vi.fn()} onDelete={vi.fn()} />,
+    )
+    expect(screen.getByText(/unreachable|injoignable/i)).toBeInTheDocument()
+    expect(screen.queryByText(/^(running|en cours)$/i)).not.toBeInTheDocument()
+  })
+
+  it("affiche la suggestion d'arrêt quand stop_suggested (6016436b) et déclenche onStop", async () => {
+    const onStop = vi.fn()
+    const ws: WorkspaceStatus = {
+      ws_id: 'alice-myapp', status: 'running', url: 'https://x',
+      stop_suggested: true, idle_since: new Date(Date.now() - 3 * 3600_000).toISOString(),
+    }
+    renderWithProviders(
+      <WorkspaceCard spec={SPEC} status={ws} onStop={onStop} onDelete={vi.fn()} />,
+    )
+    const banner = screen.getByTestId('idle-suggestion')
+    expect(banner).toHaveTextContent(/inactif|idle/i)
+    expect(banner).toHaveTextContent(/3 h/)
+    // L'honnêteté du coût : l'arrêt détruit le tmux.
+    expect(banner).toHaveTextContent(/tmux/i)
+    const user = userEvent.setup()
+    await user.click(screen.getAllByRole('button', { name: /stop|arrêter/i })[0])
+    expect(onStop).toHaveBeenCalledWith('myapp')
+  })
+
+  it("masque la suggestion d'arrêt quand le workspace est épinglé « garder actif »", () => {
+    const ws: WorkspaceStatus = {
+      ws_id: 'alice-myapp', status: 'running', url: 'https://x',
+      stop_suggested: true, keep_active: true,
+      idle_since: new Date(Date.now() - 3 * 3600_000).toISOString(),
+    }
+    renderWithProviders(
+      <WorkspaceCard spec={SPEC} status={ws} onStop={vi.fn()} onDelete={vi.fn()} />,
+    )
+    expect(screen.queryByTestId('idle-suggestion')).not.toBeInTheDocument()
+  })
+
+  it("n'affiche pas de suggestion sans stop_suggested", () => {
+    renderWithProviders(card('running', 'https://x'))
+    expect(screen.queryByTestId('idle-suggestion')).not.toBeInTheDocument()
+  })
+
   it('affiche le badge "running" et le bouton Ouvrir', () => {
     renderWithProviders(card('running', 'https://alice-myapp.dev.yoops.org'))
     expect(screen.getByText(/running|en cours/i)).toBeInTheDocument()

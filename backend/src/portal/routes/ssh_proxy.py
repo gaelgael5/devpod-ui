@@ -2,28 +2,33 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
+import re
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
 import structlog
 from fastapi import APIRouter, WebSocket
-from starlette.websockets import WebSocketDisconnect
 
 from ..auth.rbac import session_within_max_age
 from ..config.store import _data_root, load_global
+from ..devpod.exec import remote_tmux_command
 from ..devpod.service import _materialize_system_cert
 from ..devpod.ssh_exec import host_key_changed
 from ..sessions import registry
+from ..sessions.pty_bridge import run_pty_bridge
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["ssh-proxy"])
 
+_SESSION_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,29}$")
+
 
 @router.websocket("/hosts/{name}/ssh")
-async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
+async def host_ssh_terminal(name: str, websocket: WebSocket, session: str = "main") -> None:
     await websocket.accept()
     settings = get_settings()
     cfg = load_global()
@@ -61,6 +66,9 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         return
 
     # ── Config ────────────────────────────────────────────────────────────────
+    if not _SESSION_NAME_RE.fullmatch(session):
+        await websocket.close(code=4022, reason="Invalid session name")
+        return
     host = next((h for h in cfg.hosts if h.name == name), None)
     if host is None:
         _log.warning("ws_ssh_host_not_found", host=name, known=[h.name for h in cfg.hosts])
@@ -130,7 +138,9 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         )
         await purge.wait()
 
-    proc = await asyncio.create_subprocess_exec(
+    # Terminal dans tmux (session persistante, réattachable) ; PTY local pour que
+    # le resize se propage (SIGWINCH) — les trames texte sont du contrôle, pas du stdin.
+    cmd = [
         "ssh",
         "-t",
         "-t",  # force PTY même quand stdin est un pipe
@@ -143,71 +153,25 @@ async def host_ssh_terminal(name: str, websocket: WebSocket) -> None:
         "-o",
         "BatchMode=no",
         address,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
+        remote_tmux_command(session),
+    ]
 
     # Enregistrement du terminal vivant (vue centralisée des sessions).
     live_term = registry.new_terminal(
-        family="host", target=name, owner=user_data.get("login") or "admin"
+        family="host", target=name, owner=user_data.get("login") or "admin", session=session
     )
 
-    async def _ws_to_ssh() -> None:
-        try:
-            while True:
-                message = await websocket.receive()
-                if message["type"] == "websocket.disconnect":
-                    break
-                raw: bytes | None = message.get("bytes")
-                if raw is None:
-                    raw = (message.get("text") or "").encode()
-                if raw and proc.stdin and not proc.stdin.is_closing():
-                    proc.stdin.write(raw)
-                    await proc.stdin.drain()
-        except (WebSocketDisconnect, OSError):
-            pass
-        except Exception as exc:
-            _log.warning("ws_ssh_ws_to_ssh_error", exc_type=type(exc).__name__)
+    returncode = await run_pty_bridge(
+        websocket,
+        cmd,
+        # Le portail n'a pas de terminal : forcer un TERM propagé par ssh -t -t.
+        {**os.environ, "TERM": "xterm-256color"},
+        live_term,
+        log_label="ws_ssh",
+    )
 
-    async def _ssh_to_ws() -> None:
-        try:
-            if proc.stdout is None:
-                return
-            while True:
-                chunk = await proc.stdout.read(4096)
-                if not chunk:
-                    break
-                await websocket.send_bytes(chunk)
-        except (WebSocketDisconnect, OSError):
-            pass
-        except Exception as exc:
-            _log.warning("ws_ssh_ssh_to_ws_error", exc_type=type(exc).__name__)
+    if tmp_key_path.startswith(tempfile.gettempdir()):
+        with contextlib.suppress(OSError):
+            Path(tmp_key_path).unlink()
 
-    tasks = [
-        asyncio.create_task(_ws_to_ssh()),
-        asyncio.create_task(_ssh_to_ws()),
-    ]
-
-    # Closer : `POST /sessions/close` annule le pont (téardown dans le `finally`).
-    def _closer() -> None:
-        for t in tasks:
-            t.cancel()
-
-    registry.register(live_term, closer=_closer)
-    try:
-        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-    finally:
-        registry.unregister(live_term.id)
-        for t in tasks:
-            t.cancel()
-        if proc.returncode is None:
-            proc.kill()
-            await proc.wait()
-        with contextlib.suppress(Exception):
-            await websocket.close()
-        if tmp_key_path.startswith(tempfile.gettempdir()):
-            with contextlib.suppress(OSError):
-                Path(tmp_key_path).unlink()
-
-    _log.info("ws_ssh_closed", host=name, returncode=proc.returncode)
+    _log.info("ws_ssh_closed", host=name, returncode=returncode)

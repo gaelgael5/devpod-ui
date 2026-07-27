@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
 export type Transport = 'streamable_http' | 'sse' | 'stdio' | 'internal'
+// Schéma d'auth vers le backend : Bearer (standard MCP) ou header X-API-Key.
+export type AuthScheme = 'bearer' | 'x_api_key'
 export type StorageType = 'local' | 'harpocrate'
 
 export type BackendHealth = 'up' | 'down' | 'unknown'
@@ -13,6 +15,10 @@ export interface MCPBackend {
   name: string
   url: string
   transport: Transport
+  // Header d'auth utilisé vers le backend (cf. AuthScheme).
+  auth_scheme: AuthScheme
+  // Propager l'identité humaine (on-behalf-of signé) aux appels sortants.
+  forward_identity: boolean
   enabled: boolean
   // URL web optionnelle de l'application (lien « ouvrir » dans la liste). '' = aucun.
   app_url: string
@@ -88,6 +94,8 @@ export interface BackendCreateBody {
   name: string
   url: string
   transport: Transport
+  auth_scheme: AuthScheme
+  forward_identity: boolean
   app_url: string
 }
 
@@ -96,6 +104,8 @@ export interface BackendUpdateBody {
   url: string
   transport: Transport
   enabled: boolean
+  auth_scheme: AuthScheme
+  forward_identity: boolean
   app_url: string
   quarantine_disabled: boolean
 }
@@ -288,6 +298,25 @@ export function useSetApikeyProfile() {
           body: JSON.stringify({ profile_id }),
         },
       ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.apikeys() }),
+  })
+}
+
+/** Réponse de rotation : token one-time (clef bearer) OU réinjection (clef workspace). */
+export interface RotatedApikey {
+  id: string
+  token?: string
+  workspace?: string
+  reinjected?: boolean
+}
+
+export function useRotateApikey() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetchJson<RotatedApikey>(`/me/mcp/apikeys/${encodeURIComponent(id)}/rotate`, {
+        method: 'POST',
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.apikeys() }),
   })
 }
