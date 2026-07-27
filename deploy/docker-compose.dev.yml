@@ -1,9 +1,13 @@
+# VM de test PARTAGÉE : tous les points de contact hôte sont paramétrables pour
+# cohabiter avec d'autres stacks — DATA_ROOT (défaut /data), *_DEV_PORT (défauts
+# historiques), et poser COMPOSE_PROJECT_NAME dans l'environnement/.env pour ne
+# pas collisionner avec un autre projet compose du même répertoire « deploy ».
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
-    # POSTGRES_USER et POSTGRES_PASSWORD lus depuis /data/.env (pas de substitution YAML)
-    env_file: /data/.env
+    # POSTGRES_USER et POSTGRES_PASSWORD lus depuis ${DATA_ROOT}/.env (pas de substitution YAML)
+    env_file: ${DATA_ROOT:-/data}/.env
     environment:
       # Base fixe — pas un secret, pas besoin d'être dans .env
       POSTGRES_DB: portal
@@ -11,7 +15,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
     ports:
-      - "5432:5432"
+      - "${POSTGRES_DEV_PORT:-5432}:5432"
     networks:
       - internal
     healthcheck:
@@ -26,7 +30,7 @@ services:
       dockerfile: deploy/Dockerfile
     image: workspace-portal:dev
     restart: unless-stopped
-    env_file: /data/.env
+    env_file: ${DATA_ROOT:-/data}/.env
     environment:
       # Accès HTTP direct (sans TLS) en dev : désactive le flag Secure sur les
       # cookies de session, sans quoi le navigateur ne les renvoie jamais.
@@ -36,10 +40,11 @@ services:
       OIDC_ADMIN_ROLE: yoops-admin
       OIDC_USER_ROLE: yoops-user
     volumes:
-      - /data:/data
+      # Côté conteneur toujours /data (PORTAL_DATA_ROOT par défaut)
+      - ${DATA_ROOT:-/data}:/data
     ports:
       # Accès direct au portail en dev (bypass Caddy) — smoke test + debug
-      - "8080:8080"
+      - "${PORTAL_DEV_PORT:-8080}:8080"
       # Plage de ports du tunnel SSH workspace
       - "40000-40019:40000-40019"
     depends_on:
@@ -57,7 +62,7 @@ services:
   caddy:
     image: caddy:2
     restart: unless-stopped
-    env_file: /data/.env
+    env_file: ${DATA_ROOT:-/data}/.env
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -81,7 +86,7 @@ services:
       - loki_data:/loki
     ports:
       # Port publié sur le host pour recevoir les push des collecteurs distants.
-      - "3100:3100"
+      - "${LOKI_DEV_PORT:-3100}:3100"
     networks:
       - internal
     healthcheck:
@@ -94,7 +99,7 @@ services:
   grafana:
     image: grafana/grafana:11.4.0
     restart: unless-stopped
-    env_file: /data/.env
+    env_file: ${DATA_ROOT:-/data}/.env
     environment:
       GF_DATABASE_TYPE: postgres
       GF_DATABASE_HOST: postgres:5432
@@ -116,8 +121,8 @@ services:
     ports:
       # Accès direct en dev (bypass Caddy) — le port hôte 3000 est déjà pris par
       # Browserless sur les VMs de test, d'où 3001. GF_SERVER_ROOT_URL doit
-      # refléter ce port dans /data/.env pour que l'OAuth Grafana redirige juste.
-      - "3001:3000"
+      # refléter ce port dans le .env pour que l'OAuth Grafana redirige juste.
+      - "${GRAFANA_DEV_PORT:-3001}:3000"
     depends_on:
       postgres:
         condition: service_healthy

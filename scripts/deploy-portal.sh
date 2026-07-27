@@ -38,6 +38,8 @@ IFS=$'\n\t'
 REPO_URL="${REPO_URL:-https://github.com/gaelgael5/devpod-ui.git}"
 APP_DIR="${APP_DIR:-/opt/workspace-portal}"
 DATA_ROOT="${DATA_ROOT:-/data}"
+# Exporté : le compose dev interpole ${DATA_ROOT} (env_file, volume) — VM partagée.
+export DATA_ROOT
 COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker-compose.yml}"
 ENV_FILE="${DATA_ROOT}/.env"
 # Le compose de dev active les commodités de VM éphémère (VAULT_DEV_PIN,
@@ -415,7 +417,7 @@ PORTAL_ID="$(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps -q port
 while [[ $ELAPSED -lt 90 ]]; do
     # Healthcheck du conteneur si disponible, sinon curl direct (fallback).
     STATUS="$(docker inspect --format='{{.State.Health.Status}}' "$PORTAL_ID" 2>/dev/null || true)"
-    if [[ "$STATUS" == "healthy" ]] || curl -sf -m 3 "http://localhost:8080/health" &>/dev/null; then
+    if [[ "$STATUS" == "healthy" ]] || curl -sf -m 3 "http://localhost:${PORTAL_DEV_PORT:-8080}/health" &>/dev/null; then
         SMOKE_OK=1; break
     fi
     sleep 5
