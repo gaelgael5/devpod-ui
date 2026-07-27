@@ -1,0 +1,256 @@
+From 947be10ae77157dc7e3b506c0268539d86b641ce Mon Sep 17 00:00:00 2001
+From: gaelgael5 <llm.beard.family@gmail.com>
+Date: Mon, 27 Jul 2026 05:59:40 +0000
+Subject: [PATCH] =?UTF-8?q?feat(recipes):=20providers=20agents=20=E2=80=94?=
+ =?UTF-8?q?=20aider=20DeepSeek=20par=20d=C3=A9faut,=20opencode=20MCP+provi?=
+ =?UTF-8?q?ders,=20claude-code-glm=20opt-in?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Convention de secrets (devpod d92893b1) : llm/deepseek_api_key, llm/zai_api_key,
+llm/zai_coding_token, mcp/gateway_token — références seules, aucune valeur.
+aider 1.1.0 : AIDER_MODEL=deepseek/deepseek-chat (profile.d).
+opencode 1.1.0 : /etc/opencode/opencode.json (DeepSeek défaut + GLM paas/v4,
+MCP remote gateway en Bearer {env:MCP_GATEWAY_TOKEN}).
+claude-code-glm 1.0.0 (nouvelle, opt-in) : ANTHROPIC_BASE_URL Z.ai + glm-5.2,
+installs_after claude-code ; token Coding Plan via ANTHROPIC_AUTH_TOKEN.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01JoTTs3iqmpegyjsuKkHePS
+---
+ recipes/aider/devcontainer-feature.json       |  4 +-
+ recipes/aider/install.sh                      | 11 ++++
+ recipes/aider/recipe.meta.yaml                |  9 ++--
+ .../claude-code-glm/devcontainer-feature.json |  7 +++
+ recipes/claude-code-glm/install.sh            | 23 ++++++++
+ recipes/claude-code-glm/recipe.meta.yaml      | 10 ++++
+ recipes/opencode/devcontainer-feature.json    |  4 +-
+ recipes/opencode/install.sh                   | 54 +++++++++++++++++++
+ recipes/opencode/recipe.meta.yaml             | 13 +++--
+ recipes/toc.txt                               |  1 +
+ 10 files changed, 126 insertions(+), 10 deletions(-)
+ create mode 100644 recipes/claude-code-glm/devcontainer-feature.json
+ create mode 100755 recipes/claude-code-glm/install.sh
+ create mode 100644 recipes/claude-code-glm/recipe.meta.yaml
+
+diff --git a/recipes/aider/devcontainer-feature.json b/recipes/aider/devcontainer-feature.json
+index c15f336..0332820 100644
+--- a/recipes/aider/devcontainer-feature.json
++++ b/recipes/aider/devcontainer-feature.json
+@@ -1,6 +1,6 @@
+ {
+   "id": "aider",
+-  "version": "1.0.0",
++  "version": "1.1.0",
+   "name": "Aider",
+-  "description": "Install Aider — AI pair programmer en CLI (requiert Python)"
++  "description": "Install Aider — AI pair programmer en CLI, DeepSeek par défaut (requiert Python)"
+ }
+diff --git a/recipes/aider/install.sh b/recipes/aider/install.sh
+index 2dceb94..7708ec4 100644
+--- a/recipes/aider/install.sh
++++ b/recipes/aider/install.sh
+@@ -13,3 +13,14 @@ python3 -m venv /opt/aider
+ ln -sf /opt/aider/bin/aider /usr/local/bin/aider
+ 
+ echo "==> Aider: $(aider --version 2>/dev/null || echo 'installed')"
++
++# Provider par défaut : DeepSeek (enabler 38da7c02 — cible sobre de l'ADR).
++# DEEPSEEK_API_KEY est injecté à l'exécution (requires_secrets → remoteEnv) ;
++# aider le consomme nativement avec --model deepseek/… GLM volontairement
++# différé (l'ADR le route via claude-code) ; surcharge ponctuelle : aider --model.
++cat > /etc/profile.d/aider-defaults.sh <<'PROFILE'
++# aider — provider par défaut (recette aider) : DeepSeek.
++export AIDER_MODEL="deepseek/deepseek-chat"
++PROFILE
++chmod 644 /etc/profile.d/aider-defaults.sh
++echo "==> Aider: DeepSeek par défaut (AIDER_MODEL=deepseek/deepseek-chat)"
+diff --git a/recipes/aider/recipe.meta.yaml b/recipes/aider/recipe.meta.yaml
+index d26c2d1..d323b2a 100644
+--- a/recipes/aider/recipe.meta.yaml
++++ b/recipes/aider/recipe.meta.yaml
+@@ -1,7 +1,10 @@
+-﻿id: aider
++id: aider
+ key: 47b57fe3-6d5e-442e-a5ce-e2cfded16065
+-version: 1.0.0
+-description: "Install Aider — AI pair programmer en CLI (requiert Python)"
++version: 1.1.0
++description: "Install Aider — AI pair programmer en CLI, DeepSeek par défaut (requiert Python)"
+ type: install
+ installs_after:
+   - fa25de9a-ef97-4e68-bea6-8353393db92a
++requires_secrets:
++  - path: llm/deepseek_api_key
++    env: DEEPSEEK_API_KEY
+diff --git a/recipes/claude-code-glm/devcontainer-feature.json b/recipes/claude-code-glm/devcontainer-feature.json
+new file mode 100644
+index 0000000..40d9611
+--- /dev/null
++++ b/recipes/claude-code-glm/devcontainer-feature.json
+@@ -0,0 +1,7 @@
++{
++  "id": "claude-code-glm",
++  "version": "1.0.0",
++  "name": "Claude Code — profil GLM (Z.ai)",
++  "description": "Bascule claude-code sur GLM via l'endpoint anthropic de Z.ai (Coding Plan). Opt-in : sans cette recette, claude-code reste sur Anthropic natif.",
++  "installsAfter": ["./claude-code"]
++}
+diff --git a/recipes/claude-code-glm/install.sh b/recipes/claude-code-glm/install.sh
+new file mode 100755
+index 0000000..848e9c8
+--- /dev/null
++++ b/recipes/claude-code-glm/install.sh
+@@ -0,0 +1,23 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++# Profil GLM opt-in (enabler 2549f804) : la recette claude-code installe le
++# binaire pointé sur Anthropic natif ; celle-ci le bascule sur l'endpoint
++# anthropic de Z.ai (Coding Plan) pour TOUT le workspace, de façon reproductible.
++# Le token (ANTHROPIC_AUTH_TOKEN) vient du secret llm/zai_coding_token injecté
++# à l'exécution (requires_secrets → remoteEnv) — jamais écrit sur disque.
++
++if ! command -v claude &>/dev/null; then
++    echo "ERROR: claude not found. Add the claude-code recipe first." >&2
++    exit 1
++fi
++
++cat > /etc/profile.d/claude-code-glm.sh <<'PROFILE'
++# claude-code → GLM (Z.ai, Coding Plan) — recette claude-code-glm.
++# ANTHROPIC_AUTH_TOKEN est fourni par l'environnement du workspace (secret).
++export ANTHROPIC_BASE_URL="https://api.z.ai/api/anthropic"
++export ANTHROPIC_MODEL="glm-5.2"
++PROFILE
++chmod 644 /etc/profile.d/claude-code-glm.sh
++
++echo "==> claude-code-glm: endpoint Z.ai anthropic configuré (modèle glm-5.2, opt-in par recette)"
+diff --git a/recipes/claude-code-glm/recipe.meta.yaml b/recipes/claude-code-glm/recipe.meta.yaml
+new file mode 100644
+index 0000000..0ba9602
+--- /dev/null
++++ b/recipes/claude-code-glm/recipe.meta.yaml
+@@ -0,0 +1,10 @@
++id: claude-code-glm
++key: 509496d7-7f5d-4073-9e71-2f4aa8e72cd9
++version: "1.0.0"
++description: "Profil GLM pour Claude Code — endpoint Z.ai anthropic (Coding Plan), opt-in"
++type: install
++installs_after:
++  - ff184539-18c7-4849-9ef3-943174113c49
++requires_secrets:
++  - path: llm/zai_coding_token
++    env: ANTHROPIC_AUTH_TOKEN
+diff --git a/recipes/opencode/devcontainer-feature.json b/recipes/opencode/devcontainer-feature.json
+index 738d647..e2056db 100644
+--- a/recipes/opencode/devcontainer-feature.json
++++ b/recipes/opencode/devcontainer-feature.json
+@@ -1,6 +1,6 @@
+ {
+   "id": "opencode",
+-  "version": "1.0.0",
++  "version": "1.1.0",
+   "name": "OpenCode CLI",
+-  "description": "Install OpenCode CLI — interface CLI pour LLMs (requiert Node.js)"
++  "description": "Install OpenCode CLI — MCP gateway devpod + providers DeepSeek/GLM (requiert Node.js)"
+ }
+diff --git a/recipes/opencode/install.sh b/recipes/opencode/install.sh
+index c644113..5ce1bcb 100644
+--- a/recipes/opencode/install.sh
++++ b/recipes/opencode/install.sh
+@@ -45,3 +45,57 @@ PROFILE
+ chmod +x /etc/profile.d/opencode-path.sh
+ 
+ echo "==> OpenCode: $(opencode --version 2>/dev/null || echo 'installed')"
++
++# Config globale opencode (enabler 639f669c) — tranché : écrite par install.sh
++# (statique, secrets référencés en {env:…}, aucune valeur en clair) plutôt que
++# par template jinja (rien d'utilisateur-spécifique ici). OPENCODE_CONFIG la
++# désigne pour tous les shells ; un opencode.json de projet peut la surcharger.
++mkdir -p /etc/opencode
++cat > /etc/opencode/opencode.json <<'CONFIG'
++{
++  "$schema": "https://opencode.ai/config.json",
++  "model": "deepseek/deepseek-chat",
++  "provider": {
++    "deepseek": {
++      "npm": "@ai-sdk/openai-compatible",
++      "name": "DeepSeek",
++      "options": {
++        "baseURL": "https://api.deepseek.com/v1",
++        "apiKey": "{env:DEEPSEEK_API_KEY}"
++      },
++      "models": {
++        "deepseek-chat": {},
++        "deepseek-reasoner": {}
++      }
++    },
++    "zai": {
++      "npm": "@ai-sdk/openai-compatible",
++      "name": "GLM (Z.ai)",
++      "options": {
++        "baseURL": "https://api.z.ai/api/paas/v4",
++        "apiKey": "{env:ZAI_API_KEY}"
++      },
++      "models": {
++        "glm-5.2": {}
++      }
++    }
++  },
++  "mcp": {
++    "devpod": {
++      "type": "remote",
++      "url": "https://dev.yoops.org/mcp/",
++      "enabled": true,
++      "headers": {
++        "Authorization": "Bearer {env:MCP_GATEWAY_TOKEN}"
++      }
++    }
++  }
++}
++CONFIG
++chmod 644 /etc/opencode/opencode.json
++cat > /etc/profile.d/opencode-config.sh <<'PROFILE'
++# opencode — config globale de la recette (providers + MCP gateway devpod).
++export OPENCODE_CONFIG="/etc/opencode/opencode.json"
++PROFILE
++chmod +x /etc/profile.d/opencode-config.sh
++echo "==> OpenCode: config providers (DeepSeek defaut, GLM) + MCP gateway ecrite dans /etc/opencode/opencode.json"
+diff --git a/recipes/opencode/recipe.meta.yaml b/recipes/opencode/recipe.meta.yaml
+index 29245ea..5bec706 100644
+--- a/recipes/opencode/recipe.meta.yaml
++++ b/recipes/opencode/recipe.meta.yaml
+@@ -1,7 +1,14 @@
+-﻿id: opencode
++id: opencode
+ key: ab9e8afb-7cd9-4474-931b-c925345a28aa
+-version: 1.0.0
+-description: "Install OpenCode CLI — interface CLI pour LLMs (requiert Node.js)"
++version: 1.1.0
++description: "Install OpenCode CLI — MCP gateway devpod + providers DeepSeek/GLM (requiert Node.js)"
+ type: install
+ installs_after:
+   - 08d27187-d87f-4140-a65e-0891b59441f1
++requires_secrets:
++  - path: llm/deepseek_api_key
++    env: DEEPSEEK_API_KEY
++  - path: llm/zai_api_key
++    env: ZAI_API_KEY
++  - path: mcp/gateway_token
++    env: MCP_GATEWAY_TOKEN
+diff --git a/recipes/toc.txt b/recipes/toc.txt
+index d00386c..37bda59 100644
+--- a/recipes/toc.txt
++++ b/recipes/toc.txt
+@@ -2,6 +2,7 @@ aider/
+ ansible/
+ claude-bypass-permissions/
+ claude-code/
++claude-code-glm/
+ codex/
+ cpp/
+ docker/
+-- 
+2.55.0
+
