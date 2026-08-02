@@ -80,7 +80,12 @@ async def test_expose_profile_sets_flag_and_schedules_full_resync(
 
     r = await client.put("/me/mcp/profiles/p1/exposed", json={"exposed": True})
     assert r.status_code == 200
-    assert r.json() == {"id": "p1", "exposed": True, "affected_workspaces": []}
+    assert r.json() == {
+        "id": "p1",
+        "exposed": True,
+        "affected_workspaces": [],
+        "unexposed_profiles": [],
+    }
     await _drain_resync_tasks()
 
     async with db_engine.connect() as conn:
@@ -127,3 +132,75 @@ async def test_exposed_unknown_profile_404(client: AsyncClient, db_engine: Async
     await _seed(db_engine)
     r = await client.put("/me/mcp/profiles/zzz/exposed", json={"exposed": True})
     assert r.status_code == 404
+
+
+# ─── Exclusivité de l'exposition (un seul profil exposé à la fois) ────────────
+
+
+async def _seed_second_profile(db_engine: AsyncEngine, pid: str = "p2") -> None:
+    async with db_engine.begin() as conn:
+        await insert_profile(conn, id=pid, owner_login="alice", name=f"profil {pid}")
+
+
+async def test_expose_unexposes_previous_and_revokes_its_keys(
+    client: AsyncClient, db_engine: AsyncEngine
+) -> None:
+    """Exposer un profil bascule l'exposition : le précédent est décoché et ses
+    clefs workspace révoquées (l'utilisateur a confirmé la coupure des agents)."""
+    await _seed(db_engine, exposed=True)
+    await _seed_second_profile(db_engine)
+    async with db_engine.begin() as conn:
+        keys = await rotate_workspace_keys(conn, "alice", "alice-api")
+    assert len(keys) == 1  # une clef dérivée de p1
+
+    r = await client.put("/me/mcp/profiles/p2/exposed", json={"exposed": True})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["exposed"] is True
+    assert body["unexposed_profiles"] == ["défaut"]
+    assert body["affected_workspaces"] == ["alice-api"]
+    await _drain_resync_tasks()
+
+    async with db_engine.connect() as conn:
+        p1 = await get_profile(conn, "alice", "p1")
+        p2 = await get_profile(conn, "alice", "p2")
+        # clef de l'ancien profil révoquée et committée
+        assert await find_apikey_by_hash(conn, token_hash(keys[0].token)) is None
+    assert p1 is not None and p1["exposed_in_workspaces"] is False
+    assert p2 is not None and p2["exposed_in_workspaces"] is True
+    # resync complet : chaque workspace doit recevoir la clef du nouveau profil
+    assert _RESYNC_CALLS == [("alice", None)]
+
+
+async def test_expose_already_exposed_profile_touches_nothing_else(
+    client: AsyncClient, db_engine: AsyncEngine
+) -> None:
+    """Ré-exposer le profil déjà exposé ne décoche personne (pas de coupure inutile)."""
+    await _seed(db_engine, exposed=True)
+    await _seed_second_profile(db_engine)
+
+    r = await client.put("/me/mcp/profiles/p1/exposed", json={"exposed": True})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["unexposed_profiles"] == []
+    assert body["affected_workspaces"] == []
+    await _drain_resync_tasks()
+
+    async with db_engine.connect() as conn:
+        p1 = await get_profile(conn, "alice", "p1")
+        p2 = await get_profile(conn, "alice", "p2")
+    assert p1 is not None and p1["exposed_in_workspaces"] is True
+    assert p2 is not None and p2["exposed_in_workspaces"] is False
+
+
+async def test_expose_first_profile_reports_no_previous(
+    client: AsyncClient, db_engine: AsyncEngine
+) -> None:
+    """Aucun profil exposé au départ : rien à décocher, aucune clef révoquée."""
+    await _seed(db_engine)
+    await _seed_second_profile(db_engine)
+
+    r = await client.put("/me/mcp/profiles/p2/exposed", json={"exposed": True})
+    assert r.status_code == 200
+    assert r.json()["unexposed_profiles"] == []
+    assert r.json()["affected_workspaces"] == []

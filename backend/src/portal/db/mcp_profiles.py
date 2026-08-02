@@ -97,6 +97,28 @@ async def list_exposed_profiles(conn: AsyncConnection, owner_login: str) -> list
     return [dict(r) for r in (await conn.execute(q)).mappings().all()]
 
 
+async def unexpose_other_profiles(
+    conn: AsyncConnection, owner_login: str, keep_profile_id: str
+) -> list[dict[str, Any]]:
+    """Décoche « exposé » sur tous les profils de l'owner SAUF `keep_profile_id`.
+
+    L'exposition est exclusive (fiche 0073f02e) : un seul profil alimente les
+    workspaces à la fois. Retourne les profils réellement décochés (id, name) —
+    l'appelant en révoque les clefs dérivées et les rapporte à l'utilisateur.
+    """
+    q = (
+        update(mcp_profile)
+        .where(
+            mcp_profile.c.owner_login == owner_login,
+            mcp_profile.c.id != keep_profile_id,
+            mcp_profile.c.exposed_in_workspaces.is_(True),
+        )
+        .values(exposed_in_workspaces=False, updated_at=func.now())
+        .returning(mcp_profile.c.id, mcp_profile.c.name)
+    )
+    return [dict(r) for r in (await conn.execute(q)).mappings().all()]
+
+
 async def set_profile_exposed(
     conn: AsyncConnection, owner_login: str, profile_id: str, *, exposed: bool
 ) -> bool:

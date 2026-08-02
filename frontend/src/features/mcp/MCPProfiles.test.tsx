@@ -115,7 +115,7 @@ describe('MCPProfiles — exposition aux workspaces (spec 35)', () => {
         HttpResponse.json([{ ...PROFILE, exposed_in_workspaces: false }])),
       http.put('/me/mcp/profiles/p1/exposed', async ({ request }) => {
         putBody = await request.json()
-        return HttpResponse.json({ id: 'p1', exposed: true, affected_workspaces: [] })
+        return HttpResponse.json({ id: "p1", exposed: true, affected_workspaces: [], unexposed_profiles: [] })
       }),
     )
 
@@ -154,5 +154,69 @@ describe('MCPProfiles — exposition aux workspaces (spec 35)', () => {
     await user.click(within(dialog).getByRole('button', { name: /Revoke and remove/i }))
 
     await waitFor(() => expect(putBody).toEqual({ exposed: false }))
+  })
+
+  it("basculer vers un autre profil demande confirmation, désactive le précédent et prévient de la coupure", async () => {
+    let putBody: unknown = null
+    let putUrl = ''
+    server.use(
+      http.get('/me/mcp/profiles', () =>
+        HttpResponse.json([
+          { ...PROFILE, id: 'p1', name: 'Claude code', exposed_in_workspaces: true },
+          { ...PROFILE, id: 'p2', name: 'Claude web', exposed_in_workspaces: false },
+        ])),
+      http.put('/me/mcp/profiles/p2/exposed', async ({ request }) => {
+        putBody = await request.json()
+        putUrl = request.url
+        return HttpResponse.json({
+          id: 'p2', exposed: true, affected_workspaces: ['alice-ws1'],
+          unexposed_profiles: ['Claude code'],
+        })
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<MCPProfiles />)
+
+    // Le switch du profil NON exposé (p2 = « Claude web »).
+    const switches = await screen.findAllByRole('switch', { name: /Exposed to workspaces/i })
+    await user.click(switches[1])
+
+    // Confirmation exigée : rien n'est parti, et l'impact est annoncé.
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/Claude code/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/disconnected/i)).toBeInTheDocument()
+    expect(putBody).toBeNull()
+
+    await user.click(within(dialog).getByRole('button', { name: /Switch and disconnect/i }))
+
+    await waitFor(() => expect(putBody).toEqual({ exposed: true }))
+    expect(putUrl).toContain('/profiles/p2/exposed')
+  })
+
+  it("exposer le premier profil (aucun autre exposé) ne demande aucune confirmation", async () => {
+    let putBody: unknown = null
+    server.use(
+      http.get('/me/mcp/profiles', () =>
+        HttpResponse.json([
+          { ...PROFILE, id: 'p1', name: 'Claude code', exposed_in_workspaces: false },
+          { ...PROFILE, id: 'p2', name: 'Claude web', exposed_in_workspaces: false },
+        ])),
+      http.put('/me/mcp/profiles/p1/exposed', async ({ request }) => {
+        putBody = await request.json()
+        return HttpResponse.json({
+          id: 'p1', exposed: true, affected_workspaces: [], unexposed_profiles: [],
+        })
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<MCPProfiles />)
+
+    const switches = await screen.findAllByRole('switch', { name: /Exposed to workspaces/i })
+    await user.click(switches[0])
+
+    await waitFor(() => expect(putBody).toEqual({ exposed: true }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

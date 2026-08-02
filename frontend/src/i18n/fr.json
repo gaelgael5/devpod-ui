@@ -1010,7 +1010,11 @@
       "unexposeTitle": "Ne plus exposer « {{name}} » ?",
       "unexposeWarning": "Le décochage révoque immédiatement les clefs MCP des workspaces dérivées de ce profil et régénère à chaud les fichiers de configuration des agents.",
       "unexposeConfirm": "Révoquer et retirer",
-      "unexposeDone": "Profil retiré des workspaces — {{count}} workspace(s) affecté(s)."
+      "unexposeDone": "Profil retiré des workspaces — {{count}} workspace(s) affecté(s).",
+      "exposeSwapTitle": "Exposer « {{name}} » aux workspaces ?",
+      "exposeSwapWarning": "Un seul profil peut être exposé à la fois : « {{previous}} » sera décoché et ses clefs MCP révoquées. Les agents en cours de travail seront déconnectés et devront relancer leur session (ou faire /mcp) pour reprendre.",
+      "exposeSwapConfirm": "Basculer et déconnecter",
+      "exposeSwapped": "« {{name}} » n’est plus exposé — agents à reconnecter."
     },
     "oauth": {
       "openSettings": "Ouvrir →",

@@ -392,6 +392,8 @@ export interface ProfileExposedResult {
   id: string
   exposed: boolean
   affected_workspaces: string[]
+  /** Noms des profils décochés par l'exposition (exclusive : un seul à la fois). */
+  unexposed_profiles: string[]
 }
 
 /**

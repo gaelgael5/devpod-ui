@@ -135,10 +135,21 @@ async def set_profile_exposed_route(
     from ..db.engine import _get_engine
 
     affected: list[str] = []
+    unexposed: list[dict[str, Any]] = []
     async with _get_engine().begin() as conn:
         if not await db.set_profile_exposed(conn, user.login, profile_id, exposed=body.exposed):
             raise HTTPException(status_code=404, detail="profil introuvable")
-        if not body.exposed:
+        if body.exposed:
+            # Exposition EXCLUSIVE (fiche 0073f02e) : un seul profil alimente les
+            # workspaces. Le précédent est décoché et ses clefs révoquées dans la
+            # même transaction — l'utilisateur a confirmé la coupure des agents.
+            unexposed = await db.unexpose_other_profiles(conn, user.login, profile_id)
+            for prev in unexposed:
+                affected += await mcp_db.revoke_profile_workspace_apikeys(
+                    conn, user.login, str(prev["id"])
+                )
+            affected = sorted(set(affected))
+        else:
             affected = await mcp_db.revoke_profile_workspace_apikeys(conn, user.login, profile_id)
     # Transaction committée — le resync lit l'état à jour.
     if body.exposed:
@@ -151,8 +162,14 @@ async def set_profile_exposed_route(
         profile_id=profile_id,
         exposed=body.exposed,
         revoked_workspaces=affected,
+        unexposed_profiles=[str(p["id"]) for p in unexposed],
     )
-    return {"id": profile_id, "exposed": body.exposed, "affected_workspaces": affected}
+    return {
+        "id": profile_id,
+        "exposed": body.exposed,
+        "affected_workspaces": affected,
+        "unexposed_profiles": [str(p["name"]) for p in unexposed],
+    }
 
 
 @router.delete("/mcp/profiles/{profile_id}", status_code=204)

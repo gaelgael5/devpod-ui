@@ -383,6 +383,30 @@ function ProfileExposureSwitch({ profile }: { profile: MCPProfile }) {
   const { t } = useTranslation()
   const setExposed = useSetProfileExposed()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [confirmSwapOpen, setConfirmSwapOpen] = useState(false)
+  // L'exposition est exclusive : un seul profil alimente les workspaces. Exposer
+  // celui-ci décochera l'autre et coupera les agents en cours (fiche 0073f02e).
+  const { data: profiles = [] } = useProfiles()
+  const currentlyExposed = profiles.find(
+    (p) => p.exposed_in_workspaces && p.id !== profile.id,
+  )
+
+  function doExpose() {
+    setExposed.mutate(
+      { id: profile.id, exposed: true },
+      {
+        onSuccess: (r) => {
+          setConfirmSwapOpen(false)
+          if (r.unexposed_profiles.length > 0) {
+            toast.success(
+              t('mcp.profiles.exposeSwapped', { name: r.unexposed_profiles.join(', ') }),
+            )
+          }
+        },
+        onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')),
+      },
+    )
+  }
 
   function handleChange(checked: boolean) {
     if (!checked) {
@@ -390,10 +414,12 @@ function ProfileExposureSwitch({ profile }: { profile: MCPProfile }) {
       setConfirmOpen(true)
       return
     }
-    setExposed.mutate(
-      { id: profile.id, exposed: true },
-      { onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) },
-    )
+    if (currentlyExposed) {
+      // Bascule d'un profil à l'autre : coupure des agents en cours → confirmation.
+      setConfirmSwapOpen(true)
+      return
+    }
+    doExpose()
   }
 
   function confirmUnexpose() {
@@ -442,6 +468,28 @@ function ProfileExposureSwitch({ profile }: { profile: MCPProfile }) {
               onClick={confirmUnexpose}
             >
               {t('mcp.profiles.unexposeConfirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bascule d'exposition : un seul profil à la fois, coupure des agents. */}
+      <Dialog open={confirmSwapOpen} onOpenChange={(o) => { if (!o) setConfirmSwapOpen(false) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {t('mcp.profiles.exposeSwapTitle', { name: profile.name })}
+            </DialogTitle>
+            <DialogDescription>
+              {t('mcp.profiles.exposeSwapWarning', { previous: currentlyExposed?.name ?? '' })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmSwapOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="destructive" disabled={setExposed.isPending} onClick={doExpose}>
+              {t('mcp.profiles.exposeSwapConfirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

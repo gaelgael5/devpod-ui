@@ -1010,7 +1010,11 @@
       "unexposeTitle": "Stop exposing “{{name}}”?",
       "unexposeWarning": "Unchecking immediately revokes the workspace MCP keys derived from this profile and regenerates the agent configuration files on the fly.",
       "unexposeConfirm": "Revoke and remove",
-      "unexposeDone": "Profile removed from workspaces — {{count}} workspace(s) affected."
+      "unexposeDone": "Profile removed from workspaces — {{count}} workspace(s) affected.",
+      "exposeSwapTitle": "Expose “{{name}}” to workspaces?",
+      "exposeSwapWarning": "Only one profile can be exposed at a time: “{{previous}}” will be unchecked and its MCP keys revoked. Agents currently working will be disconnected and must restart their session (or run /mcp) to resume.",
+      "exposeSwapConfirm": "Switch and disconnect",
+      "exposeSwapped": "“{{name}}” is no longer exposed — agents need to reconnect."
     },
     "oauth": {
       "openSettings": "Open →",
