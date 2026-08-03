@@ -14,6 +14,39 @@ workspace=devpod et bloc=backlog tu as un backlog de tache à executer.
 - Quand tu prends une tache tu passes le statut à 'en cours'
 - Quand tu as finis tu passes le statut de la tache 'en review'.
 
+## Recherche — le RAG d'abord
+
+**Toute recherche documentaire passe EN PRIORITÉ par le RAG**, via les primitives
+`rag__*` de la gateway MCP. Le corpus y est déjà indexé et enrichi : c'est plus
+rapide et plus complet qu'un `grep` sur un dépôt, et ça couvre la doc Docflow que
+le système de fichiers ne contient pas.
+
+Méthode (les noms sont ceux servis par la gateway, namespace `rag`) :
+
+1. **`rag__list_workspaces`** — **à appeler en premier** : donne les slugs
+   interrogeables et le scope de la clef. Corpus utiles ici : `devpod-docs`
+   (documentation de ce projet), `globals-docs` (savoir cross-projet),
+   et un `<projet>-docs` par projet voisin (`docflow-docs`, `workflow-docs`,
+   `ragflow-docs`, `ressources-docs`).
+2. **`rag__rag_search(workspace, query, top_k, min_score, scope)`** — recherche
+   **sémantique** : question en langue naturelle, concept, intention. C'est le
+   point d'entrée par défaut. `min_score` 0.3 par défaut ; monter à 0.5–0.7 pour
+   une question précise. `scope='enriched_only'` pour n'interroger que les
+   résumés / listes de fonctions / graphes de dépendances.
+3. **`rag__search_files(workspace, pattern, mode)`** — recherche **littérale**
+   quand on cherche un identifiant exact (nom de fonction, constante, chaîne) :
+   `mode='exact'` par défaut (tokens entiers, ne trouve pas les sous-chaînes),
+   `'substring'` pour un fragment, `'regex'` en dernier recours (lent).
+
+Ordre de repli, pas l'inverse : RAG → si le corpus ne répond pas (sujet non
+indexé, code modifié depuis l'indexation) → outils locaux (Grep/Glob/Read) ou
+sous-agent Explore. Le RAG lit le contenu **indexé**, jamais les fichiers live :
+pour vérifier l'état courant d'un fichier qu'on vient de modifier, lire le
+fichier.
+
+Ce que tu apprends de neuf s'écrit en article de documentation (cf. section
+suivante) — c'est ce qui alimente le RAG pour les prochains agents.
+
 ## Documentation
 
 La gatway mcp propose une api pour se connecter à docflow
