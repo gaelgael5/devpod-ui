@@ -322,3 +322,74 @@ async def test_up_raises_host_not_ready_when_no_cert_slug(
         pytest.raises(HostNotReadyError, match="clé SSH"),
     ):
         await svc.up(login="alice", ws_spec=ws_spec)
+
+
+@pytest.mark.asyncio
+async def test_up_propagates_real_error_when_cert_materialization_fails(
+    tmp_data_root: Path,
+) -> None:
+    """Un échec AVANT l'init des variables de nettoyage ne doit pas être masqué.
+
+    Régression du 2026-08-04 : `git_cred_home` était initialisée à l'intérieur du
+    `try`, après plusieurs `await` faillibles. Quand l'un d'eux levait (ici la
+    matérialisation du cert système du host), le `finally` la lisait non liée et
+    levait un UnboundLocalError qui REMPLAÇAIT l'erreur réelle — toutes les
+    reconnexions échouaient avec un message inexploitable.
+    """
+    from portal.config.models import HostConfig, WorkspaceSpec
+    from portal.devpod.service import DevPodService
+
+    ssh_host = HostConfig(
+        name="my-ssh-host",
+        type="ssh",
+        address="debian@10.0.0.1",
+        host_cert_slug="host.my-ssh-host.cert",
+    )
+    mock_global = MagicMock()
+    mock_global.hosts = [ssh_host]
+
+    ws_spec = WorkspaceSpec(
+        name="my-ws", source="https://github.com/org/repo", host="my-ssh-host"
+    )
+    svc = DevPodService.__new__(DevPodService)
+
+    async def _boom(slug: str, login: str = "") -> str:
+        raise KeyError(f"System cert {slug!r} not found")
+
+    with (
+        patch("portal.devpod.service.load_global", return_value=mock_global),
+        patch("portal.devpod.service.build_env", return_value={}),
+        patch("portal.devpod.service._materialize_system_cert", side_effect=_boom),
+        pytest.raises(KeyError, match="not found"),  # PAS un UnboundLocalError
+    ):
+        await svc.up(login="alice", ws_spec=ws_spec)
+
+
+@pytest.mark.asyncio
+async def test_up_propagates_real_error_when_provider_fails(tmp_data_root: Path) -> None:
+    """Même garantie pour un échec plus tardif (provider), sur un host docker-tls
+    sans credential git configuré — le chemin exact du reconnect."""
+    from portal.config.models import HostConfig, WorkspaceSpec
+    from portal.devpod.service import DevPodService
+
+    host = HostConfig(name="node1", type="docker-tls", docker_host="tcp://10.0.0.2:2376")
+    mock_global = MagicMock()
+    mock_global.hosts = [host]
+
+    ws_spec = WorkspaceSpec(
+        name="my-ws", source="https://github.com/org/repo", host="node1", git_credential=""
+    )
+    svc = DevPodService.__new__(DevPodService)
+    svc._exposure = None
+    svc._devpod_bin = ["devpod"]
+
+    async def _boom(**kwargs: object) -> str:
+        raise RuntimeError("provider indisponible")
+
+    with (
+        patch("portal.devpod.service.load_global", return_value=mock_global),
+        patch("portal.devpod.service.build_env", return_value={}),
+        patch("portal.devpod.service.ensure_provider", side_effect=_boom),
+        pytest.raises(RuntimeError, match="provider indisponible"),
+    ):
+        await svc.up(login="alice", ws_spec=ws_spec)

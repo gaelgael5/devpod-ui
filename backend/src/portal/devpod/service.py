@@ -276,6 +276,13 @@ class DevPodService:
         tmp_key_path = ""
         task_created = False
         host_port: int | None = None
+        # Initialisées AVANT le `try` : son `finally` les lit pour le nettoyage.
+        # Placées à l'intérieur, elles restaient non liées si un `await` du début du
+        # bloc échouait (cert système, provider, allocation de port, validation des
+        # agents) — le `finally` levait alors un UnboundLocalError qui REMPLAÇAIT
+        # l'erreur réelle et rendait l'échec indiagnosticable (reconnexions du 04/08).
+        git_ssh_key_path = ""
+        git_cred_home = ""  # HOME temporaire du credential store PAT (nettoyé après l'up)
         try:
             if host_cfg.type == "ssh" and host_cfg.host_cert_slug:
                 tmp_key_path = await _materialize_system_cert(host_cfg.host_cert_slug, login)
@@ -340,12 +347,6 @@ class DevPodService:
                         "gateway MCP aux agents workspace"
                     )
                 agent_ids = list(ws_spec.agents)
-
-            # Initialisés AVANT tout await susceptible d'échouer : le `finally` de ce
-            # bloc les lit pour le nettoyage, et les laisser non liés masquerait l'erreur
-            # réelle par un UnboundLocalError.
-            git_ssh_key_path = ""
-            git_cred_home = ""  # HOME temporaire du credential store PAT (nettoyé après l'up)
 
             # Sources additionnelles : celles authentifiées par PAT sont clonées
             # post-readiness (via ws_exec) pour éviter le panic du serveur git-credentials
@@ -537,7 +538,16 @@ class DevPodService:
         except ValueError:
             _log.warning("reconcile_ws_spec_not_found", ws_id=ws_id, login=login)
         except Exception as exc:
-            _log.warning("reconcile_reconnect_failed", ws_id=ws_id, error=str(exc))
+            # exc_info : sans le traceback, un échec de reconnexion n'est pas
+            # diagnosticable a posteriori — `str(exc)` seul avait laissé les
+            # reconnexions du 04/08 sans cause identifiable.
+            _log.warning(
+                "reconcile_reconnect_failed",
+                ws_id=ws_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+                exc_info=True,
+            )
 
     async def fail_stale_provisioning(self) -> None:
         """Au démarrage : bascule en `failed` les lignes `provisioning` orphelines.
