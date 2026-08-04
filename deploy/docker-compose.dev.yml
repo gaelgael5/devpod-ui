@@ -30,6 +30,10 @@ services:
       dockerfile: deploy/Dockerfile
     image: workspace-portal:dev
     restart: unless-stopped
+    # PID 1 = tini (bug 813f425f) : moissonne les orphelins re-parentés
+    # (masters ControlMaster expirés, ProxyCommand…) — sans init, ils
+    # s'accumulaient en zombies jusqu'à saturer pids-limit (panne du 04/08).
+    init: true
     env_file: ${DATA_ROOT:-/data}/.env
     environment:
       # Accès HTTP direct (sans TLS) en dev : désactive le flag Secure sur les

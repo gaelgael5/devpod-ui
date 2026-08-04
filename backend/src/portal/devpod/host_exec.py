@@ -17,6 +17,7 @@ import structlog
 
 from ..config.models import HostConfig
 from ..config.store import _data_root
+from .procgroup import kill_process_group, spawn_group
 from .service import _materialize_system_cert
 from .ssh_exec import host_control_ssh_args
 
@@ -90,7 +91,9 @@ def _argv(key_path: str, address: str, command: str, known_hosts: Path) -> list[
 
 
 async def _ssh_capture(argv: list[str], *, timeout: float) -> tuple[int, str, str]:
-    proc = await asyncio.create_subprocess_exec(
+    # spawn_group + kill de groupe (bug 813f425f) : proc.kill() seul laissait la
+    # descendance du ssh orpheline au timeout (fuite de pids du conteneur).
+    proc = await spawn_group(
         *argv,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
@@ -99,8 +102,7 @@ async def _ssh_capture(argv: list[str], *, timeout: float) -> tuple[int, str, st
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
-        proc.kill()
-        await proc.wait()
+        await kill_process_group(proc)
         _log.warning("host_exec_timeout", address=argv[-2] if len(argv) >= 2 else "unknown")
         raise HostExecError("commande nœud expirée (timeout)") from None
     rc = proc.returncode if proc.returncode is not None else -1
@@ -153,7 +155,7 @@ async def stream_host_command(
     key_path = await _materialize_system_cert(host.host_cert_slug)
     argv = _argv(key_path, host.address, command, known)
 
-    proc = await asyncio.create_subprocess_exec(
+    proc = await spawn_group(
         *argv,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
@@ -180,16 +182,14 @@ async def stream_host_command(
         # asyncio quand le client HTTP se déconnecte en cours de stream. Sans ce
         # garde-fou le process ssh (donc le `docker compose up` distant) survit à
         # la fermeture du générateur — orphelin, sans qu'aucune ligne DB n'en garde
-        # la trace (bug 016).
-        if proc.returncode is None:
-            proc.kill()
+        # la trace (bug 016). Kill de GROUPE (813f425f) : sa descendance aussi.
+        await kill_process_group(proc)
         raise
     finally:
         try:
             await asyncio.wait_for(proc.wait(), timeout=5.0)
         except TimeoutError:
-            if proc.returncode is None:
-                proc.kill()
+            await kill_process_group(proc)
 
     if proc.returncode != 0:
         raise HostExecError(f"commande SSH échouée (rc={proc.returncode})")

@@ -7,6 +7,8 @@ from pathlib import Path
 
 import structlog
 
+from .procgroup import kill_process_group, spawn_group
+
 # Séquences d'échappement ANSI (couleurs, mise en forme) émises par devpod --debug.
 _ANSI_RE = re.compile(r"\x1b\[[\d;]*[mGKHF]")
 
@@ -30,9 +32,9 @@ async def kill_if_running(ws_id: str) -> None:
     proc = _processes.get(ws_id)
     if proc is None or proc.returncode is not None:
         return
-    with contextlib.suppress(ProcessLookupError):
-        proc.kill()
-        await proc.wait()
+    # Kill de groupe (813f425f) : devpod spawne docker/ssh — un kill du seul
+    # parent les laissait orphelins.
+    await kill_process_group(proc)
     _log.info("devpod_subprocess_killed", ws_id=ws_id)
 
 
@@ -52,7 +54,7 @@ async def run_subprocess(
         _log.info("devpod_subprocess_start", ws_id=ws_id, cmd=cmd[0] if cmd else "")
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-        proc = await asyncio.create_subprocess_exec(
+        proc = await spawn_group(
             *cmd,
             env=env,
             stdout=asyncio.subprocess.PIPE,
@@ -79,9 +81,7 @@ async def run_subprocess(
                             log_file.flush()
                     returncode = await proc.wait()
             except TimeoutError:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
-                    await proc.wait()
+                await kill_process_group(proc)
                 _log.warning("devpod_subprocess_timeout", ws_id=ws_id, timeout_s=timeout_s)
                 raise
         finally:

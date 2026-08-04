@@ -109,10 +109,18 @@ def _patch_stream_deps(monkeypatch, tmp_path, proc: _FakeStreamProc) -> None:
     monkeypatch.setattr(host_exec, "_data_root", lambda: tmp_path)
     monkeypatch.setattr(host_exec, "_materialize_system_cert", AsyncMock(return_value="/tmp/k"))
 
-    async def fake_create_subprocess_exec(*args, **kwargs):
+    # Couture réelle depuis 813f425f : host_exec spawne via spawn_group et nettoie
+    # via kill_process_group (kill du GROUPE — un stub sans pid réel ne peut pas
+    # subir un vrai killpg, on reproduit son contrat : kill puis moisson).
+    async def fake_spawn_group(*args, **kwargs):
         return proc
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    async def fake_kill_process_group(p):
+        p.kill()
+        await p.wait()
+
+    monkeypatch.setattr(host_exec, "spawn_group", fake_spawn_group)
+    monkeypatch.setattr(host_exec, "kill_process_group", fake_kill_process_group)
 
 
 @pytest.mark.asyncio

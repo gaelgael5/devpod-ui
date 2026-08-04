@@ -197,6 +197,15 @@ async def _maintenance_sweep_loop(interval_s: float = 3600.0) -> None:
                 _log.info("revoked_apikeys_purged", count=purged_keys)
         except Exception:
             _log.warning("revoked_apikey_purge_failed", exc_info=True)
+        try:
+            # Observabilité de la fuite de pids (bug 813f425f, panne du 04/08) :
+            # une courbe `total` qui monte sans redescendre = fuite ; les zombies
+            # comptent dans pids-limit. Sert de vérification du correctif.
+            from .devpod.procgroup import process_census
+
+            _log.info("portal_process_census", **process_census())
+        except Exception:
+            _log.warning("process_census_failed", exc_info=True)
         await asyncio.sleep(interval_s)
 
 

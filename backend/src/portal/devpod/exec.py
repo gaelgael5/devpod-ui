@@ -13,6 +13,7 @@ import shlex
 import structlog
 
 from ..config.store import load_global, safe_user_path
+from .procgroup import kill_process_group, spawn_group
 from .ssh_exec import control_ssh_args, devpod_ssh_key
 
 _log = structlog.get_logger(__name__)
@@ -69,7 +70,10 @@ async def ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0) -
     }
     key_path = devpod_ssh_key(login)
     identity_args = ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
-    proc = await asyncio.create_subprocess_exec(
+    # spawn_group + kill_process_group (bug 813f425f) : au timeout, tuer AUSSI le
+    # ProxyCommand `devpod ssh --stdio` et sa descendance — proc.kill() seul les
+    # laissait orphelins (vivants si pendus, zombies à leur mort, fuite de pids).
+    proc = await spawn_group(
         "ssh",
         "-o",
         "LogLevel=ERROR",
@@ -93,8 +97,7 @@ async def ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0) -
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
-        proc.kill()
-        await proc.wait()
+        await kill_process_group(proc)
         # Libellé = contrat : create_session détecte le timeout par sous-chaîne.
         return TIMEOUT_RC, "SSH command timed out"
     output = (stdout.decode(errors="replace") + stderr.decode(errors="replace")).strip()

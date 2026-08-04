@@ -99,7 +99,15 @@ async def test_ws_exec_timeout_returns_timeout_rc(monkeypatch: pytest.MonkeyPatc
     async def _fake_exec(*args: Any, **kw: Any) -> _Proc:
         return _Proc()
 
-    monkeypatch.setattr(dexec.asyncio, "create_subprocess_exec", _fake_exec)
+    # Couture réelle depuis 813f425f : ws_exec spawne via spawn_group et nettoie
+    # au timeout via kill_process_group (contrat du stub : kill puis moisson).
+    monkeypatch.setattr(dexec, "spawn_group", _fake_exec)
+
+    async def _fake_kill_group(p: Any) -> None:
+        p.kill()
+        await p.wait()
+
+    monkeypatch.setattr(dexec, "kill_process_group", _fake_kill_group)
 
     async def _fake_wait_for(coro: Any, timeout: float) -> Any:
         coro.close()
