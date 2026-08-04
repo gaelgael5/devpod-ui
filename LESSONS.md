@@ -46,6 +46,5 @@
 - Cloudflare : bundle JS périmé possible après redeploy (hard refresh d'abord) ; 502 brandé sur UN chemin = routage Tunnel, pas l'app (curl direct pour isoler). L'ordre des étapes d'un script de deploy est une sémantique.
 
 ## [tests]
-- `TestClient` : tout appel reste DANS le `with` (sinon post-shutdown, fuite d'event loop vers le test suivant) ; un test rouge peut tester un comportement disparu — grep le code réel d'abord.
-- WebSocket : la session stub pose `auth_time` (sinon 4001 avant toute logique) ; sortir du `with websocket_connect` annule le handler ; pont PTY testé avec un vrai subprocess inerte (`sleep`).
+- `TestClient` : tout appel reste DANS le `with` (sinon post-shutdown, fuite d'event loop vers le test suivant) ; un test rouge peut tester un comportement disparu — grep le code réel d'abord. WebSocket : la session stub pose `auth_time` (sinon 4001 avant toute logique) ; sortir du `with websocket_connect` annule le handler ; pont PTY testé avec un vrai subprocess inerte (`sleep`).
 - test1 : `uv sync --extra dev` obligatoire (sinon tests DB skippés silencieusement) — exiger des PASSED explicites ; tables FK `users.login` → seeder `users` d'abord ; `(await coro)["k"]`, pas `await coro["k"]`.
