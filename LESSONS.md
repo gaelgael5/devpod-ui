@@ -5,6 +5,7 @@
 - `get_cached_global()` raise si DB vide → crash lifespan avant le yield ; `get_optional_cached_global()` quand None est valide.
 - Shell-out ssh : `openssh-client` dans l'image, `PATH=/usr/sbin:...`, vérifier `returncode`+stderr après `communicate()` ; httpx : `resp.json()` DANS le `async with` ; bridge IPv6 → patcher `socket.getaddrinfo` (AF_INET d'abord, pas de fallback httpx).
 - Auth locale possible (`allow_local_auth`) : un user local n'a PAS de `users.sub` → ne jamais supposer un sub (OBO).
+- Toute variable lue par un `finally` s'initialise AVANT le `try` (sinon UnboundLocalError qui REMPLACE l'erreur réelle) ; un `except` qui logge `str(exc)` sans `exc_info` rend la panne indiagnosticable.
 - `PORTAL_VAULT_KEK` : un `info=` HKDF distinct par consommateur (domain separation) ; `VaultClient.whoami()` n'existe pas sur vault.yoops.org (`_resolve_wallet_id()` + `_parsed.*`).
 
 ## [frontend]
