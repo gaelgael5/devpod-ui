@@ -6,7 +6,12 @@ from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from .tables import mcp_backend_key, mcp_profile, mcp_profile_entry
+from .tables import (
+    mcp_backend_key,
+    mcp_profile,
+    mcp_profile_entry,
+    mcp_workspace_profile,
+)
 
 _PROFILE_COLS = [
     mcp_profile.c.id,
@@ -227,3 +232,56 @@ async def find_first_backend_key(conn: AsyncConnection, backend_id: str) -> dict
     )
     row = (await conn.execute(q)).mappings().first()
     return dict(row) if row else None
+
+
+# ─── Surcharge persistante du profil d'un workspace (mcp_workspace_profile) ────
+
+
+async def get_workspace_profile_override(
+    conn: AsyncConnection, owner_login: str, ws_id: str
+) -> dict[str, Any] | None:
+    """Profil surchargé pour ce workspace (id, name) ou None s'il suit le défaut.
+
+    Jointure sur mcp_profile pour retourner le nom (comme list_exposed_profiles) :
+    la rotation en a besoin pour libeller la clef. Un profil supprimé fait
+    disparaître la ligne (FK CASCADE) → None → retour au défaut exposé.
+    """
+    q = (
+        select(mcp_profile.c.id, mcp_profile.c.name)
+        .select_from(
+            mcp_workspace_profile.join(
+                mcp_profile, mcp_workspace_profile.c.profile_id == mcp_profile.c.id
+            )
+        )
+        .where(
+            mcp_workspace_profile.c.ws_id == ws_id,
+            mcp_workspace_profile.c.owner_login == owner_login,
+        )
+    )
+    row = (await conn.execute(q)).mappings().first()
+    return dict(row) if row else None
+
+
+async def set_workspace_profile_override(
+    conn: AsyncConnection, owner_login: str, ws_id: str, profile_id: str
+) -> None:
+    """Fixe (upsert) le profil surchargé d'un workspace. Persistant, survit à la rotation."""
+    await conn.execute(
+        pg_insert(mcp_workspace_profile)
+        .values(ws_id=ws_id, owner_login=owner_login, profile_id=profile_id)
+        .on_conflict_do_update(
+            index_elements=["ws_id"],
+            set_={"profile_id": profile_id, "updated_at": func.now()},
+        )
+    )
+
+
+async def clear_workspace_profile_override(
+    conn: AsyncConnection, owner_login: str, ws_id: str
+) -> bool:
+    """Retire la surcharge : le workspace re-suit le profil exposé par défaut."""
+    q = delete(mcp_workspace_profile).where(
+        mcp_workspace_profile.c.ws_id == ws_id,
+        mcp_workspace_profile.c.owner_login == owner_login,
+    )
+    return (await conn.execute(q)).rowcount > 0

@@ -361,3 +361,99 @@ async def test_profile_entry_stores_tools_curation(db_conn: AsyncConnection) -> 
     entries = await list_profile_entries(db_conn, "p1")
     assert len(entries) == 1
     assert entries[0]["tools"] == []
+
+
+# ─── Surcharge de profil des clefs workspace (persistance) ────────────────────
+
+
+async def _ws_apikey(db_conn: AsyncConnection, login: str, ws_id: str, profile_id: str) -> str:
+    """Insère une clef workspace (workspace_ref) et retourne son id."""
+    from portal.db.mcp import insert_apikey
+    from portal.mcp.service import new_id, token_hash
+
+    aid = new_id()
+    await insert_apikey(
+        db_conn,
+        id=aid,
+        owner_login=login,
+        token_hash=token_hash("mcpk_" + uuid.uuid4().hex),
+        label=f"ws:{ws_id}/x",
+        profile_id=profile_id,
+        workspace_ref=ws_id,
+    )
+    return aid
+
+
+async def test_set_workspace_apikey_profile_persists_override(db_conn: AsyncConnection) -> None:
+    """Changer le profil d'une clef workspace mémorise une surcharge persistante
+    (elle survivra à la rotation) — et la clef courante est mise à jour sans rotation."""
+    from portal.db.mcp_profiles import get_workspace_profile_override
+
+    await _user(db_conn)
+    await insert_profile(db_conn, id="p1", owner_login="alice", name="défaut")
+    await insert_profile(db_conn, id="p2", owner_login="alice", name="choisi")
+    aid = await _ws_apikey(db_conn, "alice", "alice-ws", "p1")
+
+    await service.set_apikey_profile(db_conn, "alice", aid, "p2")
+
+    got = await get_apikey(db_conn, "alice", aid)
+    assert got is not None and got["profile_id"] == "p2"
+    override = await get_workspace_profile_override(db_conn, "alice", "alice-ws")
+    assert override is not None and override["id"] == "p2"
+
+
+async def test_set_workspace_apikey_profile_none_returns_to_default(
+    db_conn: AsyncConnection,
+) -> None:
+    """profile_id=None sur une clef workspace efface la surcharge et remet le
+    profil exposé par défaut sur la clef (pas None : sinon plus rien d'exposé)."""
+    from portal.db.mcp_profiles import (
+        get_workspace_profile_override,
+        set_profile_exposed,
+        set_workspace_profile_override,
+    )
+
+    await _user(db_conn)
+    await insert_profile(db_conn, id="p1", owner_login="alice", name="défaut")
+    await set_profile_exposed(db_conn, "alice", "p1", exposed=True)
+    await insert_profile(db_conn, id="p2", owner_login="alice", name="choisi")
+    aid = await _ws_apikey(db_conn, "alice", "alice-ws", "p2")
+    await set_workspace_profile_override(db_conn, "alice", "alice-ws", "p2")
+
+    await service.set_apikey_profile(db_conn, "alice", aid, None)
+
+    assert await get_workspace_profile_override(db_conn, "alice", "alice-ws") is None
+    got = await get_apikey(db_conn, "alice", aid)
+    assert got is not None and got["profile_id"] == "p1"  # profil exposé, pas None
+
+
+async def test_personal_apikey_profile_never_touches_override(db_conn: AsyncConnection) -> None:
+    """Une clef personnelle (sans workspace_ref) n'écrit aucune surcharge."""
+    from sqlalchemy import func, select
+
+    from portal.db.tables import mcp_workspace_profile
+
+    await _user(db_conn)
+    await insert_profile(db_conn, id="p1", owner_login="alice", name="perso")
+    aid, _ = await service.create_apikey(db_conn, "alice", models.ApikeyCreate(label="cli"))
+
+    await service.set_apikey_profile(db_conn, "alice", aid, "p1")
+
+    n = (await db_conn.execute(select(func.count()).select_from(mcp_workspace_profile))).scalar()
+    assert n == 0
+
+
+async def test_list_apikeys_exposes_profile_pinned(db_conn: AsyncConnection) -> None:
+    """list_apikeys signale si une clef workspace a une surcharge (profile_pinned)."""
+    from portal.db.mcp import list_apikeys
+    from portal.db.mcp_profiles import set_workspace_profile_override
+
+    await _user(db_conn)
+    await insert_profile(db_conn, id="p1", owner_login="alice", name="p")
+    pinned = await _ws_apikey(db_conn, "alice", "alice-pinned", "p1")
+    plain = await _ws_apikey(db_conn, "alice", "alice-plain", "p1")
+    await set_workspace_profile_override(db_conn, "alice", "alice-pinned", "p1")
+
+    rows = {r["id"]: r for r in await list_apikeys(db_conn, "alice")}
+    assert rows[pinned]["profile_pinned"] is True
+    assert rows[plain]["profile_pinned"] is False

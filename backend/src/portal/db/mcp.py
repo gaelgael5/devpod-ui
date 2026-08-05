@@ -6,7 +6,13 @@ from typing import Any
 from sqlalchemy import and_, delete, func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from .tables import mcp_apikey, mcp_audit_log, mcp_backend, mcp_backend_key
+from .tables import (
+    mcp_apikey,
+    mcp_audit_log,
+    mcp_backend,
+    mcp_backend_key,
+    mcp_workspace_profile,
+)
 
 # Rétention des clés API révoquées : supprimées ce délai après leur révocation.
 REVOKED_APIKEY_RETENTION_HOURS = 24
@@ -313,9 +319,20 @@ async def list_apikeys(conn: AsyncConnection, owner_login: str) -> list[dict[str
         .group_by(mcp_audit_log.c.apikey_id)
         .subquery()
     )
+    # profile_pinned : la clef workspace a une surcharge de profil persistante
+    # (l'utilisateur a fixé un profil qui survivra à la rotation) vs suit le
+    # défaut exposé. La jointure porte sur ws_id = workspace_ref de la clef.
     q = (
-        select(*_APIKEY_COLS, last_used_subq.c.last_used_at)
+        select(
+            *_APIKEY_COLS,
+            last_used_subq.c.last_used_at,
+            mcp_workspace_profile.c.ws_id.isnot(None).label("profile_pinned"),
+        )
         .outerjoin(last_used_subq, mcp_apikey.c.id == last_used_subq.c.apikey_id)
+        .outerjoin(
+            mcp_workspace_profile,
+            mcp_apikey.c.workspace_ref == mcp_workspace_profile.c.ws_id,
+        )
         .where(mcp_apikey.c.owner_login == owner_login)
         .order_by(mcp_apikey.c.created_at)
     )

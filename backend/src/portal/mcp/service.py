@@ -194,10 +194,37 @@ async def rotate_apikey(
 async def set_apikey_profile(
     conn: AsyncConnection, owner_login: str, apikey_id: str, profile_id: str | None
 ) -> None:
-    from ..db.mcp_profiles import get_profile
+    from ..db.mcp_profiles import (
+        clear_workspace_profile_override,
+        get_profile,
+        list_exposed_profiles,
+        set_workspace_profile_override,
+    )
 
     if profile_id is not None and await get_profile(conn, owner_login, profile_id) is None:
         raise NotFound(f"profil '{profile_id}' introuvable")
-    if await db.get_apikey(conn, owner_login, apikey_id) is None:
+    apikey = await db.get_apikey(conn, owner_login, apikey_id)
+    if apikey is None:
         raise NotFound(f"apikey '{apikey_id}' introuvable")
-    await db.set_apikey_profile(conn, owner_login, apikey_id, profile_id)
+
+    ws_ref = apikey.get("workspace_ref")
+    if not ws_ref:
+        # Clef utilisateur classique : comportement inchangé.
+        await db.set_apikey_profile(conn, owner_login, apikey_id, profile_id)
+        return
+
+    # Clef workspace : le choix de profil est PERSISTANT (survit à la rotation,
+    # cf. rotate_workspace_keys). Pas de rotation ici — la clef courante est mise
+    # à jour en place, l'agent en session n'est pas déconnecté.
+    effective: str | None
+    if profile_id is not None:
+        await set_workspace_profile_override(conn, owner_login, str(ws_ref), profile_id)
+        effective = profile_id
+    else:
+        # Retour au défaut : on efface la surcharge et la clef reprend le profil
+        # exposé par défaut (0 ou 1 avec l'exposition exclusive) — pas None, sinon
+        # la clef courante n'exposerait plus rien jusqu'à la prochaine rotation.
+        await clear_workspace_profile_override(conn, owner_login, str(ws_ref))
+        exposed = await list_exposed_profiles(conn, owner_login)
+        effective = exposed[0]["id"] if exposed else None
+    await db.set_apikey_profile(conn, owner_login, apikey_id, effective)

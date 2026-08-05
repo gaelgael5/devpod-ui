@@ -17,7 +17,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..db import mcp as db
-from ..db.mcp_profiles import list_exposed_profiles
+from ..db.mcp_profiles import get_workspace_profile_override, list_exposed_profiles
 from ..mcp.service import APIKEY_PREFIX, new_id, token_hash
 
 _log = structlog.get_logger(__name__)
@@ -34,7 +34,12 @@ class WorkspaceKey:
 async def rotate_workspace_keys(
     conn: AsyncConnection, owner_login: str, ws_id: str
 ) -> list[WorkspaceKey]:
-    """Met la génération précédente en grâce et crée une clef par profil exposé.
+    """Met la génération précédente en grâce et crée une clef par profil du workspace.
+
+    Le profil retenu est la **surcharge persistante** du workspace si l'utilisateur
+    en a fixé une (`mcp_workspace_profile`, écran Client API Keys) — elle survit
+    ainsi à la rotation ; sinon les profils **exposés par défaut**. Le workspace
+    qui n'a jamais été surchargé continue donc de suivre le défaut.
 
     Grâce (expire_workspace_apikeys) plutôt que révocation : une session agent en
     cours garde son token le temps de la fenêtre — une rotation légitime (recreate,
@@ -42,8 +47,13 @@ async def rotate_workspace_keys(
     (suppression du workspace, décochage d'un profil) restent en révocation immédiate.
     """
     expired = await db.expire_workspace_apikeys(conn, owner_login, ws_id)
+    override = await get_workspace_profile_override(conn, owner_login, ws_id)
+    if override is not None:
+        profiles = [override]
+    else:
+        profiles = await list_exposed_profiles(conn, owner_login)
     keys: list[WorkspaceKey] = []
-    for profile in await list_exposed_profiles(conn, owner_login):
+    for profile in profiles:
         clear = APIKEY_PREFIX + _secrets.token_urlsafe(32)
         aid = new_id()
         await db.insert_apikey(
@@ -76,10 +86,13 @@ async def rotate_workspace_keys(
 async def revoke_workspace_keys(conn: AsyncConnection, owner_login: str, ws_id: str) -> int:
     """Révoque toutes les clefs du workspace (suppression du workspace)."""
     from ..db.agent_sync import delete_config_hash
+    from ..db.mcp_profiles import clear_workspace_profile_override
 
     n = await db.revoke_workspace_apikeys(conn, owner_login, ws_id)
     # Oublie l'empreinte : un ws_id réutilisé doit re-livrer (pas de skip fantôme).
     await delete_config_hash(conn, ws_id)
+    # Oublie la surcharge de profil : un ws_id réutilisé repart du défaut exposé.
+    await clear_workspace_profile_override(conn, owner_login, ws_id)
     _log.info("workspace_keys_revoked", login=owner_login, ws_id=ws_id, revoked=n)
     return n
 

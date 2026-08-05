@@ -606,6 +606,22 @@ mcp_profile_entry = Table(
     UniqueConstraint("profile_id", "backend_id", name="uq_mcp_profile_entry"),
 )
 
+# Surcharge PERSISTANTE du profil d'un workspace (fiche persistance des choix) :
+# le profil « exposé par défaut » alimente un workspace tant que l'utilisateur ne
+# choisit rien ; dès qu'il fixe un profil sur la ligne (écran Client API Keys),
+# ce choix est mémorisé ici et survit à la rotation des clefs (qui, elle, ne
+# consulte que cette table quand une ligne existe). ws_id = convention "{login}-{name}"
+# (pas de FK dure, comme workspace_ref) ; FK profil = CASCADE (profil supprimé →
+# la surcharge disparaît → le workspace re-suit le défaut).
+mcp_workspace_profile = Table(
+    "mcp_workspace_profile",
+    metadata,
+    Column("ws_id", Text, primary_key=True),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("profile_id", Text, ForeignKey("mcp_profile.id", ondelete="CASCADE"), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 mcp_apikey = Table(
     "mcp_apikey",
     metadata,
