@@ -221,10 +221,6 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
   const [confirmDel, setConfirmDel] = useState(false)
   const [rotatedToken, setRotatedToken] = useState<string | null>(null)
 
-  const profileName = apikey.profile_id
-    ? profiles.find((p) => p.id === apikey.profile_id)?.name ?? apikey.profile_id
-    : null
-
   // Nom du workspace derrière une clef Claude Code (ws_id = `${login}-${name}`).
   const wsName =
     apikey.workspace_ref && me?.login && apikey.workspace_ref.startsWith(`${me.login}-`)
@@ -317,20 +313,16 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
         </div>
       </div>
 
-      {/* Clef workspace (spec 35) : le profil est géré par le portail, pas d'édition
-          manuelle — on affiche le profil en lecture seule, la révocation reste possible. */}
-      {!apikey.revoked && apikey.workspace_ref && profileName && (
-        <div className="mt-2 flex items-center gap-2 border-l pl-3">
-          <span className="text-xs text-muted-foreground shrink-0">{t('mcp.apikeys.profile')}</span>
-          <Badge variant="outline" className="text-xs shrink-0">{profileName}</Badge>
-        </div>
-      )}
-
-      {!apikey.revoked && !apikey.workspace_ref && (
+      {/* Profil éditable pour toutes les clefs, y compris workspace (spec 35) :
+          changer le profil d'une ligne workspace surcharge le défaut « exposé »
+          SANS rotationner le token — l'agent en session n'est pas déconnecté,
+          seule la liste des outils exposés change au prochain tools/list. */}
+      {!apikey.revoked && (
         <div className="mt-2 flex items-center gap-2 border-l pl-3">
           <span className="text-xs text-muted-foreground shrink-0">{t('mcp.apikeys.profile')}</span>
           <Select
             value={apikey.profile_id ?? NO_PROFILE}
+            disabled={setProfile.isPending}
             onValueChange={(v) => {
               if (v === undefined || v === null) return
               setProfile.mutate(
@@ -349,9 +341,6 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
               ))}
             </SelectContent>
           </Select>
-          {profileName && (
-            <Badge variant="outline" className="text-xs shrink-0">{profileName}</Badge>
-          )}
         </div>
       )}
 

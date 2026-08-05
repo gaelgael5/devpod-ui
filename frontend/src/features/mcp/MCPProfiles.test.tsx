@@ -122,7 +122,7 @@ describe('MCPProfiles — exposition aux workspaces (spec 35)', () => {
     const user = userEvent.setup()
     renderWithProviders(<MCPProfiles />)
 
-    await user.click(await screen.findByRole('switch', { name: /Exposed to workspaces/i }))
+    await user.click(await screen.findByRole('switch', { name: /Exposed .*to workspaces/i }))
 
     await waitFor(() => expect(putBody).toEqual({ exposed: true }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -144,7 +144,7 @@ describe('MCPProfiles — exposition aux workspaces (spec 35)', () => {
     const user = userEvent.setup()
     renderWithProviders(<MCPProfiles />)
 
-    await user.click(await screen.findByRole('switch', { name: /Exposed to workspaces/i }))
+    await user.click(await screen.findByRole('switch', { name: /Exposed .*to workspaces/i }))
 
     // La confirmation est affichée, la mutation n'est pas encore partie.
     const dialog = await screen.findByRole('dialog')
@@ -179,7 +179,7 @@ describe('MCPProfiles — exposition aux workspaces (spec 35)', () => {
     renderWithProviders(<MCPProfiles />)
 
     // Le switch du profil NON exposé (p2 = « Claude web »).
-    const switches = await screen.findAllByRole('switch', { name: /Exposed to workspaces/i })
+    const switches = await screen.findAllByRole('switch', { name: /Exposed .*to workspaces/i })
     await user.click(switches[1])
 
     // Confirmation exigée : rien n'est parti, et l'impact est annoncé.
@@ -213,7 +213,7 @@ describe('MCPProfiles — exposition aux workspaces (spec 35)', () => {
     const user = userEvent.setup()
     renderWithProviders(<MCPProfiles />)
 
-    const switches = await screen.findAllByRole('switch', { name: /Exposed to workspaces/i })
+    const switches = await screen.findAllByRole('switch', { name: /Exposed .*to workspaces/i })
     await user.click(switches[0])
 
     await waitFor(() => expect(putBody).toEqual({ exposed: true }))

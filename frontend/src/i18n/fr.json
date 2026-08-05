@@ -1006,7 +1006,7 @@
       "allowNoneTools": "Tout interdire",
       "allowReadOnlyTools": "Lecture seule",
       "noToolsCatalog": "Aucun tool indexé (backend non synchronisé).",
-      "exposedToWorkspaces": "Exposé aux workspaces",
+      "exposedToWorkspaces": "Exposé par défaut aux workspaces",
       "unexposeTitle": "Ne plus exposer « {{name}} » ?",
       "unexposeWarning": "Le décochage révoque immédiatement les clefs MCP des workspaces dérivées de ce profil et régénère à chaud les fichiers de configuration des agents.",
       "unexposeConfirm": "Révoquer et retirer",

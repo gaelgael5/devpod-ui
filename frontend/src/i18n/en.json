@@ -1006,7 +1006,7 @@
       "allowNoneTools": "Allow none",
       "allowReadOnlyTools": "Read-only",
       "noToolsCatalog": "No tools indexed yet (backend not synced).",
-      "exposedToWorkspaces": "Exposed to workspaces",
+      "exposedToWorkspaces": "Exposed by default to workspaces",
       "unexposeTitle": "Stop exposing “{{name}}”?",
       "unexposeWarning": "Unchecking immediately revokes the workspace MCP keys derived from this profile and regenerates the agent configuration files on the fly.",
       "unexposeConfirm": "Revoke and remove",
