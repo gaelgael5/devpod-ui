@@ -1223,7 +1223,11 @@
       "rotateNeedsRunning": "Démarrez le workspace pour roter sa clef (le nouveau token y est réinjecté).",
       "rotatedTitle": "Clef rotée",
       "rotatedWarning": "L'ancienne clef est révoquée. Copiez la nouvelle maintenant — elle ne sera plus affichée.",
-      "rotatedReinjected": "Clef rotée et réinjectée dans le workspace {{ws}} — l'ancienne génération expire après la fenêtre de grâce."
+      "rotatedReinjected": "Clef rotée et réinjectée dans le workspace {{ws}} — l'ancienne génération expire après la fenêtre de grâce.",
+      "followDefault": "Par défaut : {{name}}",
+      "followDefaultNone": "Par défaut (aucun profil exposé)",
+      "pinned": "surchargé",
+      "pinnedHint": "Profil fixé sur ce workspace — conservé même après une rotation de clef. Choisir « Par défaut » pour re-suivre le profil exposé."
     },
     "saving": "Enregistrement…",
     "save": "Enregistrer"

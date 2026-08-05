@@ -52,9 +52,11 @@ export interface MCPApikey {
   revoked: boolean
   created_at: string
   last_used_at: string | null
-  // Non-null = clef générée par le portail pour un workspace (spec 35) :
-  // profil non éditable à la main, seule la révocation est permise.
+  // Non-null = clef générée par le portail pour un workspace (spec 35).
   workspace_ref: string | null
+  // Clef workspace : true = un profil a été fixé sur ce workspace (surcharge
+  // persistante qui survit à la rotation) ; false/absent = suit le profil exposé.
+  profile_pinned?: boolean
 }
 
 export interface MCPProfile {

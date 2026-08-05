@@ -115,6 +115,80 @@ describe('MCPApikeys', () => {
     expect(screen.getByRole('button', { name: /revoke/i })).toBeInTheDocument()
   })
 
+  it('clef workspace surchargée (profile_pinned) : badge affiché, revenir au défaut envoie profile_id null', async () => {
+    const { server } = await import('@/test/server')
+    let patchBody: unknown = null
+    server.use(
+      http.get('/me/mcp/apikeys', () =>
+        HttpResponse.json([
+          {
+            id: 'wk1', owner_login: 'alice', label: 'ws claude', profile_id: 'p2',
+            revoked: false, created_at: '', last_used_at: null,
+            workspace_ref: 'alice-myapp', profile_pinned: true,
+          },
+        ]),
+      ),
+      http.get('/me/mcp/profiles', () =>
+        HttpResponse.json([
+          {
+            id: 'p1', owner_login: 'alice', name: 'Claude code',
+            description: '', created_at: '', updated_at: null, exposed_in_workspaces: true,
+          },
+          {
+            id: 'p2', owner_login: 'alice', name: 'Claude web',
+            description: '', created_at: '', updated_at: null, exposed_in_workspaces: false,
+          },
+        ]),
+      ),
+      http.patch('/me/mcp/apikeys/wk1/profile', async ({ request }) => {
+        patchBody = await request.json()
+        return HttpResponse.json({ id: 'wk1', profile_id: 'p1' })
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<MCPApikeys />)
+
+    // Badge « surchargé » présent (le workspace ne suit plus le défaut).
+    expect(await screen.findByText(/overridden|surchargé/i)).toBeInTheDocument()
+    // Le sélecteur montre le profil fixé, pas le défaut.
+    expect(screen.getByText('Claude web')).toBeInTheDocument()
+
+    // « Default: Claude code » → efface la surcharge (profile_id null).
+    await user.click(screen.getByRole('combobox'))
+    await user.click(await screen.findByRole('option', { name: /default.*claude code|par défaut.*claude code/i }))
+    await waitFor(() => expect(patchBody).toEqual({ profile_id: null }))
+  })
+
+  it('clef workspace non surchargée : suit le profil exposé par défaut, aucun badge', async () => {
+    const { server } = await import('@/test/server')
+    server.use(
+      http.get('/me/mcp/apikeys', () =>
+        HttpResponse.json([
+          {
+            id: 'wk1', owner_login: 'alice', label: 'ws claude', profile_id: 'p1',
+            revoked: false, created_at: '', last_used_at: null,
+            workspace_ref: 'alice-myapp', profile_pinned: false,
+          },
+        ]),
+      ),
+      http.get('/me/mcp/profiles', () =>
+        HttpResponse.json([
+          {
+            id: 'p1', owner_login: 'alice', name: 'Claude code',
+            description: '', created_at: '', updated_at: null, exposed_in_workspaces: true,
+          },
+        ]),
+      ),
+    )
+
+    renderWithProviders(<MCPApikeys />)
+
+    // L'option « suivre le défaut » nomme le profil exposé ; pas de badge surchargé.
+    expect(await screen.findByText(/default.*claude code|par défaut.*claude code/i)).toBeInTheDocument()
+    expect(screen.queryByText(/overridden|surchargé/i)).not.toBeInTheDocument()
+  })
+
   it('rote une clef bearer : ancienne révoquée, nouveau token affiché une fois', async () => {
     const { server } = await import('@/test/server')
     let rotated = false

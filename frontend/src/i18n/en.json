@@ -1223,7 +1223,11 @@
       "rotateNeedsRunning": "Start the workspace to rotate its key (the new token is re-injected into it).",
       "rotatedTitle": "Key rotated",
       "rotatedWarning": "The old key is revoked. Copy the new one now — it will not be shown again.",
-      "rotatedReinjected": "Key rotated and re-injected into workspace {{ws}} — the previous generation expires after the grace window."
+      "rotatedReinjected": "Key rotated and re-injected into workspace {{ws}} — the previous generation expires after the grace window.",
+      "followDefault": "Default: {{name}}",
+      "followDefaultNone": "Default (no exposed profile)",
+      "pinned": "overridden",
+      "pinnedHint": "Profile pinned on this workspace — kept even after a key rotation. Pick “Default” to follow the exposed profile again."
     },
     "saving": "Saving…",
     "save": "Save"
