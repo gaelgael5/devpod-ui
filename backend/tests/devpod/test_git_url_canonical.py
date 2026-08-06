@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from portal.devpod.git import _canonical_http_git_url
+from portal.devpod.git import _canonical_http_git_url, strip_http_userinfo
 
 
 @pytest.mark.parametrize(
@@ -45,3 +45,39 @@ def test_canonicalizes_http_git_url(raw: str, expected: str) -> None:
 )
 def test_leaves_non_http_untouched(raw: str) -> None:
     assert _canonical_http_git_url(raw) == raw
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # Azure : org en userinfo → retiré (sinon git clone cherche le credential
+        # de l'utilisateur `org`, que le store username=oauth2 ne matche pas).
+        (
+            "https://pickupsa@dev.azure.com/pickupsa/Pickup/_git/Architecture-COR-Documentation",
+            "https://dev.azure.com/pickupsa/Pickup/_git/Architecture-COR-Documentation",
+        ),
+        # user:token@ éventuel → tout l'userinfo retiré
+        ("https://user:tok@host/a/b.git", "https://host/a/b.git"),
+        # Port préservé, casse du host préservée
+        ("https://Org@Host.example.com:8443/a", "https://Host.example.com:8443/a"),
+        # http simple avec userinfo
+        ("http://u@host/a", "http://host/a"),
+    ],
+)
+def test_strips_http_userinfo(raw: str, expected: str) -> None:
+    assert strip_http_userinfo(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        # Pas d'userinfo → inchangé
+        "https://dev.azure.com/org/project/_git/repo",
+        "https://github.com/owner/repo.git",
+        # ssh/git@ → inchangé (le `git@` n'est pas un userinfo http à retirer)
+        "git@github.com:owner/repo.git",
+        "ssh://git@host/owner/repo.git",
+    ],
+)
+def test_strip_userinfo_leaves_others_untouched(raw: str) -> None:
+    assert strip_http_userinfo(raw) == raw

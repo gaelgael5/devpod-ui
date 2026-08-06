@@ -81,6 +81,27 @@ if TYPE_CHECKING:
 
 _log = structlog.get_logger(__name__)
 
+# Redaction d'un éventuel `://user:secret@host` dans la sortie devpod avant de la
+# logguer (défense en profondeur : le token vit normalement dans un fichier 0600,
+# pas dans stdout, mais on ne prend pas le risque).
+_REDACT_URL_CRED = re.compile(r"://([^:/@\s]+):[^@/\s]+@")
+
+
+def _read_log_tail(path: Path, *, max_chars: int = 2000) -> str:
+    """Dernières lignes d'un log devpod, redigées et aplaties en une ligne.
+
+    Sert à rendre visible la cause d'un `devpod up` en échec (ex. `fatal:` du
+    clone) directement dans structlog/Loki — le blob complet reste persisté à
+    part. Best-effort : chaîne vide si le fichier est illisible.
+    """
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    text = _REDACT_URL_CRED.sub(r"://\1:***@", text)
+    tail = text[-max_chars:]
+    return " | ".join(line for line in tail.splitlines() if line.strip())
+
 # Verrous de lifecycle par ws_id (bug 003). Sérialisent TOUTE opération lifecycle
 # (up/stop/delete + _run_up_task) sur un même workspace, contrairement au verrou de
 # runner.py qui n'entoure que l'exécution du subprocess devpod. Ordre d'acquisition
@@ -389,8 +410,16 @@ class DevPodService:
             # le subprocess env UNIQUEMENT — jamais dans devcontainer.json ni dans les logs.
             subprocess_env = {**base_env, **ws_spec.env}
 
-            # Résolution du credential git pour l'injection dans devpod up
+            # Résolution du credential git pour l'injection dans devpod up.
+            # On retire d'abord l'userinfo de l'URL (ex. Azure `org@dev.azure.com`) :
+            # sinon git clone chercherait un credential pour l'utilisateur `org`,
+            # que le credential store (username `oauth2`/`cred.username`) ne matche
+            # pas → auth refusée. L'auth vient du credential injecté, pas de l'URL.
             effective_source = ws_spec.source
+            if effective_source:
+                from .git import strip_http_userinfo
+
+                effective_source = strip_http_userinfo(effective_source)
             if ws_spec.git_credential and ws_spec.source:
                 try:
                     user_cfg = await load_user(login)
@@ -1483,7 +1512,15 @@ class DevPodService:
             # delete concurrent aurait supprimée (bug 003).
             await self._write_status_if_exists(ws_id, status, login=login, **extra)
             if returncode != 0:
-                _log.warning("workspace_up_failed", ws_id=ws_id, returncode=returncode)
+                # Tail de la sortie devpod (clone/build) pour ne plus être aveugle
+                # sur un up qui plante — le blob complet reste persisté par ailleurs.
+                output_tail = await asyncio.to_thread(_read_log_tail, log_path)
+                _log.warning(
+                    "workspace_up_failed",
+                    ws_id=ws_id,
+                    returncode=returncode,
+                    output_tail=output_tail,
+                )
             else:
                 _log.info("workspace_up_done", ws_id=ws_id, login=login)
                 # Sources additionnelles en PAT : clonées ici, conteneur prêt (ws_exec
