@@ -13,6 +13,8 @@ export interface TestHost {
   alias: string
   name: string
   ip: string
+  /** Utilisateur SSH (partie `<user>@` de l'adresse). Vide si l'adresse est nue. */
+  user?: string
   vmid: string
   /** Non vide = VM partagée-vers ce workspace depuis le workspace nommé (bloc en
    *  lecture seule : accès SSH sans contrôle du cycle de vie). */
@@ -57,6 +59,44 @@ export function useResolveTestHostIp(wsName: string) {
       ),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['me', 'workspaces', wsName, 'test-hosts'] }),
+  })
+}
+
+/** Édite les paramètres de connexion mémorisés d'une machine de test (host/username/
+ *  password). `password` omis = secret inchangé ; fourni = remplace le mot de passe root. */
+export function useUpdateTestHostConn(wsName: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (args: { hostName: string; username: string; host: string; password?: string }) => {
+      const body: Record<string, string> = { username: args.username, host: args.host }
+      if (args.password !== undefined) body.password = args.password
+      return apiFetchJson<TestHost>(
+        `/me/workspaces/${encodeURIComponent(wsName)}/test-vm/${encodeURIComponent(args.hostName)}/connection`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      )
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['me', 'workspaces', wsName, 'test-hosts'] }),
+  })
+}
+
+/** Révèle le mot de passe root d'une machine de test, gardé par le PIN vault.
+ *  Valeur éphémère, jamais mise en cache de query. */
+export function useRevealTestHostRootPassword(wsName: string) {
+  return useMutation({
+    mutationFn: (args: { hostName: string; pin: string }) =>
+      apiFetchJson<{ value: string }>(
+        `/me/workspaces/${encodeURIComponent(wsName)}/test-vm/${encodeURIComponent(args.hostName)}/root-password/reveal`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: args.pin }),
+        },
+      ),
   })
 }
 

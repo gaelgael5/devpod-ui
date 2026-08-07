@@ -84,7 +84,13 @@ def test_build_test_host_views_maps_ip_and_vmid() -> None:
     ]
     views = build_test_host_views([("host-test-114-1", "test1")], hosts)
     assert views == [
-        {"alias": "test1", "name": "host-test-114-1", "ip": "192.168.10.160", "vmid": "114"}
+        {
+            "alias": "test1",
+            "name": "host-test-114-1",
+            "ip": "192.168.10.160",
+            "user": "debian",
+            "vmid": "114",
+        }
     ]
 
 

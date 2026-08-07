@@ -197,6 +197,26 @@
       "copyFailed": "Failed to copy URL",
       "saveFailed": "Failed to save link"
     },
+    "testHostConn": {
+      "menu": "Edit parameters…",
+      "title": "{{alias}} parameters",
+      "description": "Connection parameters remembered by the portal. Useful to reconnect to a VM whose IP changed. Does not act on the VM itself.",
+      "username": "Username",
+      "host": "Host (IP or name)",
+      "password": "Root password",
+      "passwordPlaceholder": "leave empty = unchanged",
+      "reveal": "Reveal (PIN required)",
+      "revealConfirm": "Reveal",
+      "pinPlaceholder": "6-digit PIN",
+      "copyPassword": "Copy password",
+      "passwordCopied": "Password copied",
+      "copyFailed": "Failed to copy password",
+      "revealFailed": "Failed to reveal password",
+      "save": "Save",
+      "saved": "Parameters saved",
+      "saveFailed": "Failed to save parameters",
+      "cancel": "Cancel"
+    },
     "testHostStacks": {
       "stacksTitle": "Other Docker stacks on the machine",
       "containersTitle": "Non-compose containers"

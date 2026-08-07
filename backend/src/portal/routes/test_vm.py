@@ -14,16 +14,18 @@ from typing import Any
 from urllib.parse import urlparse
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..compose import service as csvc
 from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor
 from ..config.store import load_global, load_user
-from ..db.engine import _get_engine
+from ..db.engine import _get_engine, get_conn
 from ..db.global_config import save_global_db, set_cached_global
+from ..db.mcp_audit import record as _audit_record
 from ..db.test_hosts import (
     assign_test_host,
     count_owned_test_hosts,
@@ -64,8 +66,20 @@ from ..messages.renderer import build_host_context
 from ..messages.service import delete_message as msg_delete
 from ..messages.service import render_and_create
 from ..net import build_resolve_fqdn, resolve_ipv4
-from ..secrets.system import delete_system_secret, store_system_cert, store_system_secret
+from ..secrets.system import (
+    delete_system_secret,
+    reveal_system_secret,
+    store_system_cert,
+    store_system_secret,
+)
 from ..settings import get_settings
+from ..vault.pin import (
+    PinLockedError,
+    PinNotSetupError,
+    PinWrongError,
+    VaultDisabledError,
+    unlock_pin,
+)
 from .proxmox import (
     _fetch_spec,
     _run_destroy_script,
@@ -75,12 +89,19 @@ from .proxmox import (
     find_identifier_arg,
     resolve_node_script,
 )
+from .vault import _sid
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["test-vm"])
 
 _VMID_RE = re.compile(r"^[0-9]{1,9}$")
 _WS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
+# Utilisateur SSH POSIX ; hôte = IPv4 ou nom DNS. Strict pour éviter toute
+# injection dans `<user>@<host>` (utilisé en commande ssh côté portail/container).
+_SSH_USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+_SSH_HOST_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,253}[A-Za-z0-9])?$")
+_PIN_RE = re.compile(r"^\d{6}$")
+_AUDIT_ROOT_PW_REVEAL = "me.test_host.root_password.reveal"
 
 
 def _usable_type_names(cfg: GlobalConfig) -> set[str]:
@@ -537,6 +558,197 @@ async def resolve_test_vm_ip(
 
     _log.info("test_vm_ip_resolved", login=login, ws=ws, host=host_name, fqdn=fqdn, ip=new_ip)
     return {"ip": new_ip, "fqdn": fqdn}
+
+
+class UpdateConnectionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str
+    host: str
+    # None = ne pas toucher au mot de passe stocké ; une valeur remplace le secret.
+    password: str | None = None
+
+
+@router.put("/workspaces/{ws}/test-vm/{host_name}/connection")
+async def update_test_vm_connection(
+    ws: str,
+    host_name: str,
+    body: UpdateConnectionBody,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, str]:
+    """Édite les paramètres de connexion MÉMORISÉS d'une machine de test.
+
+    Met à jour `host.address = <username>@<host>` (et réécrit le bloc `~/.ssh/config`
+    du container) ; si `password` est fourni, remplace le secret root stocké côté
+    portail. N'agit PAS sur la VM : c'est le pendant manuel de `resolve-ip` pour
+    recoller l'état portail à la réalité (IP DHCP dérivée, identifiants changés).
+    Réservé au workspace PROPRIÉTAIRE de la VM.
+    """
+    if not _WS_NAME_RE.fullmatch(ws):
+        raise HTTPException(status_code=422, detail="Invalid workspace name")
+    if not _PROXMOX_NAME_RE.fullmatch(host_name):
+        raise HTTPException(status_code=422, detail="Invalid host name")
+
+    username = body.username.strip()
+    host = body.host.strip()
+    if not _SSH_USER_RE.fullmatch(username):
+        raise HTTPException(status_code=422, detail="Invalid SSH username")
+    if not _SSH_HOST_RE.fullmatch(host):
+        raise HTTPException(status_code=422, detail="Invalid host address")
+
+    login = user.login
+    async with _get_engine().connect() as conn:
+        detailed = await list_test_hosts_detailed(login, ws, conn)
+        owned = await is_owned_test_host(login, ws, host_name, conn)
+    alias = next((a for n, a in detailed if n == host_name), None)
+    if alias is None:
+        raise HTTPException(
+            status_code=404, detail=f"Test host {host_name!r} not found for workspace {ws!r}"
+        )
+    if not owned:
+        raise HTTPException(
+            status_code=403,
+            detail="Cette VM vous est partagée : seul son propriétaire peut la modifier.",
+        )
+
+    cfg = load_global()
+    host_cfg = next((h for h in cfg.hosts if h.name == host_name), None)
+    if host_cfg is None:
+        raise HTTPException(status_code=404, detail=f"Host {host_name!r} not found")
+    if host_cfg.type != "ssh":
+        raise HTTPException(
+            status_code=409, detail="Seuls les hosts de test SSH ont des paramètres éditables"
+        )
+
+    new_address = f"{username}@{host}"
+    cfg.hosts = [
+        h.model_copy(update={"address": new_address}) if h.name == host_name else h
+        for h in cfg.hosts
+    ]
+    async with _get_engine().begin() as conn:
+        await save_global_db(cfg, conn)
+        if body.password is not None:
+            # Mémorisé en clair côté portail comme à la création (secret système local).
+            await store_system_secret(
+                slug=f"host.{host_name}.root-password",
+                label=f"Root password — {host_name}",
+                value=body.password,
+                storage_type="local",
+                vault_identifier="",
+                conn=conn,
+            )
+    set_cached_global(cfg)  # après commit réussi seulement (bug 034)
+
+    # Réécrit le bloc ~/.ssh/config du container avec la nouvelle adresse (best-effort).
+    try:
+        await run_ssh_capture(login, f"{login}-{ws}", build_container_ssh_config_cmd(alias, host))
+    except Exception:
+        _log.warning("test_vm_ssh_config_refresh_failed", host=host_name, exc_info=True)
+
+    _log.info(
+        "test_vm_connection_updated",
+        login=login,
+        ws=ws,
+        host=host_name,
+        password_changed=body.password is not None,
+    )
+    return {"alias": alias, "name": host_name, "ip": host, "user": username, "vmid": host_cfg.vmid}
+
+
+class RevealRootPasswordBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pin: str
+
+    @field_validator("pin")
+    @classmethod
+    def _validate_pin(cls, v: str) -> str:
+        if not _PIN_RE.fullmatch(v):
+            raise ValueError("PIN must be exactly 6 digits")
+        return v
+
+
+async def _audit_root_pw(
+    conn: AsyncConnection, login: str, host: str, status: str, error: str | None
+) -> None:
+    await _audit_record(
+        conn,
+        apikey_id=None,
+        owner_login=login,
+        namespaced_name=_AUDIT_ROOT_PW_REVEAL,
+        backend_id=host,
+        backend_key_id=None,
+        latency_ms=None,
+        status=status,
+        error=error,
+    )
+
+
+async def _audit_root_pw_denied(login: str, host: str, error: str) -> None:
+    """Trace un refus dans une transaction DÉDIÉE (le 4xx rollback la conn requête)."""
+    try:
+        async with _get_engine().begin() as conn:
+            await _audit_root_pw(conn, login, host, "denied", error)
+    except Exception:
+        _log.warning("test_vm_root_pw_audit_failed", host=host, exc_info=True)
+
+
+@router.post("/workspaces/{ws}/test-vm/{host_name}/root-password/reveal")
+async def reveal_test_vm_root_password(
+    ws: str,
+    host_name: str,
+    body: RevealRootPasswordBody,
+    request: Request,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str]:
+    """Renvoie le mot de passe root d'une machine de test après validation du PIN.
+
+    Ownership et existence du host résolus AVANT le PIN : un accès non autorisé ou un
+    host inconnu ne consomme pas de tentative (le lockout protège le PIN, pas le
+    routage). Chaque tentative — accordée ou refusée — est tracée dans l'audit.
+    """
+    if not _WS_NAME_RE.fullmatch(ws):
+        raise HTTPException(status_code=422, detail="Invalid workspace name")
+    if not _PROXMOX_NAME_RE.fullmatch(host_name):
+        raise HTTPException(status_code=422, detail="Invalid host name")
+
+    login = user.login
+    if not await is_owned_test_host(login, ws, host_name, conn):
+        raise HTTPException(
+            status_code=404, detail=f"Test host {host_name!r} not found for workspace {ws!r}"
+        )
+
+    try:
+        await unlock_pin(login, body.pin, _sid(request), conn)
+    except VaultDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except PinLockedError as exc:
+        await _audit_root_pw_denied(login, host_name, "pin_locked")
+        raise HTTPException(
+            status_code=423,
+            detail={
+                "message": "PIN temporarily locked",
+                "seconds_remaining": exc.seconds_remaining,
+            },
+        ) from exc
+    except PinWrongError as exc:
+        await _audit_root_pw_denied(login, host_name, "pin_wrong")
+        _log.warning("test_vm_root_password_reveal_denied", host=host_name, by=login)
+        raise HTTPException(status_code=403, detail="Incorrect PIN") from exc
+    except PinNotSetupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        value = await reveal_system_secret(f"host.{host_name}.root-password", conn)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"Root password of {host_name!r} not stored"
+        ) from exc
+
+    await _audit_root_pw(conn, login, host_name, "ok", None)
+    _log.info("test_vm_root_password_revealed", host=host_name, by=login)
+    return {"value": value}
 
 
 @router.get("/workspaces/{ws}/test-hosts/{host_name}/stacks")

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Copy, ExternalLink, Link2, MoreVertical, PlayCircle, RefreshCw, Share2, TerminalSquare, Trash2,
+  Copy, ExternalLink, Link2, MoreVertical, Pencil, PlayCircle, RefreshCw, Share2,
+  TerminalSquare, Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -19,6 +20,7 @@ import {
 import {
   useDeleteTestHost, useResolveTestHostIp, useTestHostLinks, type TestHost,
 } from './useTestVm'
+import TestHostConnDialog from './TestHostConnDialog'
 import TestHostLinksDialog from './TestHostLinksDialog'
 import TestHostShareDialog from './TestHostShareDialog'
 import TestHostStacks from './TestHostStacks'
@@ -45,6 +47,7 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
   const [launchOpen, setLaunchOpen] = useState(false)
   const [linksOpen, setLinksOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const [connOpen, setConnOpen] = useState(false)
   const { data: links = [] } = useTestHostLinks(wsName, host.name)
   // Bloc partagé-VERS ce workspace : accès SSH seul, pas de contrôle du cycle de
   // vie de la VM (ni suppression, ni resolve-ip, ni re-partage).
@@ -118,6 +121,12 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
               <DropdownMenuItem onSelect={handleResolve} className="gap-2">
                 <RefreshCw className="h-3.5 w-3.5" />
                 {t('workspaces.testHosts.resolveIp')}
+              </DropdownMenuItem>
+            )}
+            {!shared && (
+              <DropdownMenuItem onSelect={() => setConnOpen(true)} className="gap-2">
+                <Pencil className="h-3.5 w-3.5" />
+                {t('workspaces.testHostConn.menu')}
               </DropdownMenuItem>
             )}
             {!shared && (
@@ -211,6 +220,14 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
           hostName={host.name}
           hostAlias={host.alias}
           onClose={() => setShareOpen(false)}
+        />
+      )}
+
+      {connOpen && (
+        <TestHostConnDialog
+          wsName={wsName}
+          host={host}
+          onClose={() => setConnOpen(false)}
         />
       )}
 

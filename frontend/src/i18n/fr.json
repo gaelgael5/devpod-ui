@@ -197,6 +197,26 @@
       "copyFailed": "Impossible de copier l'URL",
       "saveFailed": "Échec de l'enregistrement du lien"
     },
+    "testHostConn": {
+      "menu": "Éditer les paramètres…",
+      "title": "Paramètres de {{alias}}",
+      "description": "Paramètres de connexion mémorisés par le portail. Utile pour recoller à une VM dont l'IP a changé. N'agit pas sur la VM elle-même.",
+      "username": "Utilisateur",
+      "host": "Hôte (IP ou nom)",
+      "password": "Mot de passe root",
+      "passwordPlaceholder": "laisser vide = inchangé",
+      "reveal": "Révéler (PIN requis)",
+      "revealConfirm": "Révéler",
+      "pinPlaceholder": "PIN à 6 chiffres",
+      "copyPassword": "Copier le mot de passe",
+      "passwordCopied": "Mot de passe copié",
+      "copyFailed": "Impossible de copier le mot de passe",
+      "revealFailed": "Échec de la révélation du mot de passe",
+      "save": "Enregistrer",
+      "saved": "Paramètres enregistrés",
+      "saveFailed": "Échec de l'enregistrement des paramètres",
+      "cancel": "Annuler"
+    },
     "testHostStacks": {
       "stacksTitle": "Autres stacks Docker sur la machine",
       "containersTitle": "Conteneurs hors compose"
