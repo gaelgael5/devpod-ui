@@ -11,9 +11,23 @@ NAMESPACE_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 
 Transport = Literal["streamable_http", "sse", "stdio", "rest"]
-# Schéma d'authentification vers le backend : "bearer" (standard MCP) ou
-# "x_api_key" (header X-API-Key, pour les serveurs non conformes).
-AuthScheme = Literal["bearer", "x_api_key"]
+# Schéma d'authentification vers le backend : "bearer" (standard MCP),
+# "x_api_key" (header X-API-Key, pour les serveurs non conformes), ou "oauth"
+# (la gateway est client OAuth 2.1 du backend — token par utilisateur obtenu par
+# le flux authorization-code + PKCE, cf. mcp.oauth_client).
+AuthScheme = Literal["bearer", "x_api_key", "oauth"]
+
+
+def _validate_oauth_auth_url(v: str) -> str:
+    """URL du serveur d'autorisation OAuth (optionnelle) : vide ou http(s).
+
+    Vide → découverte automatique depuis l'URL du backend
+    (`.well-known/oauth-protected-resource`). Renseignée → utilisée telle quelle
+    comme issuer/base de l'AS quand elle diffère de l'URL du MCP.
+    """
+    if v and not (v.startswith("https://") or v.startswith("http://")):
+        raise ValueError("oauth_auth_url: doit être vide ou commencer par http:// ou https://")
+    return v
 
 
 def _validate_namespace(v: str) -> str:
@@ -43,6 +57,9 @@ class BackendCreate(BaseModel):
     forward_identity: bool = False
     # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
     app_url: str = ""
+    # URL du serveur d'autorisation OAuth (auth_scheme="oauth") si elle diffère de
+    # l'URL du MCP ; vide = découverte automatique.
+    oauth_auth_url: str = ""
     # « Ne pas appliquer la protection des primitives par quarantaine » —
     # opt-out anti rug-pull pour les backends de confiance. Protégé par défaut.
     quarantine_disabled: bool = False
@@ -63,6 +80,11 @@ class BackendCreate(BaseModel):
     @classmethod
     def _app_url(cls, v: str) -> str:
         return _validate_app_url(v)
+
+    @field_validator("oauth_auth_url")
+    @classmethod
+    def _oauth_auth_url(cls, v: str) -> str:
+        return _validate_oauth_auth_url(v)
 
 
 class KeyCreate(BaseModel):
@@ -90,6 +112,7 @@ class BackendUpdate(BaseModel):
     auth_scheme: AuthScheme = "bearer"
     forward_identity: bool = False
     app_url: str = ""
+    oauth_auth_url: str = ""
     # cf. BackendCreate — l'activer lève immédiatement les quarantaines du backend.
     quarantine_disabled: bool = False
 
@@ -104,6 +127,11 @@ class BackendUpdate(BaseModel):
     @classmethod
     def _app_url(cls, v: str) -> str:
         return _validate_app_url(v)
+
+    @field_validator("oauth_auth_url")
+    @classmethod
+    def _oauth_auth_url(cls, v: str) -> str:
+        return _validate_oauth_auth_url(v)
 
 
 class QuarantineApprove(BaseModel):

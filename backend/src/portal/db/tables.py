@@ -551,6 +551,9 @@ mcp_backend = Table(
     Column("enabled", Boolean, nullable=False, server_default="true"),
     # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
     Column("app_url", Text, nullable=False, server_default=""),
+    # auth_scheme="oauth" : URL du serveur d'autorisation si elle diffère de l'URL
+    # du MCP ; vide = découverte auto (.well-known/oauth-protected-resource).
+    Column("oauth_auth_url", Text, nullable=False, server_default=""),
     # Opt-out de la protection anti rug-pull (quarantaine sur redéfinition, spec 23).
     # false par défaut : protection active. true = backend de confiance (service
     # exposé par l'utilisateur lui-même) → jamais de quarantaine, levée au resync.
@@ -740,6 +743,62 @@ mcp_oauth_authcode = Table(
     Column("profile_id", Text, nullable=True),  # profil sélectionné sur l'écran de consentement
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("used", Boolean, nullable=False, server_default="false"),
+)
+
+# ─── MCP Gateway OAuth CLIENT (la gateway consomme un backend OAuth) ──────────
+# Distinct de mcp_oauth_* ci-dessus (gateway = serveur d'autorisation). Ici la
+# gateway est CLIENT OAuth 2.1 d'un backend amont (ex. Confluence). Auth par
+# utilisateur, enregistrement dynamique (DCR), PKCE.
+
+# Client OAuth enregistré (DCR) + métadonnées AS découvertes, un par backend.
+mcp_backend_oauth_client = Table(
+    "mcp_backend_oauth_client",
+    metadata,
+    Column(
+        "backend_id",
+        Text,
+        ForeignKey("mcp_backend.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("issuer", Text, nullable=False),
+    Column("authorization_endpoint", Text, nullable=False),
+    Column("token_endpoint", Text, nullable=False),
+    Column("registration_endpoint", Text, nullable=True),
+    Column("client_id", Text, nullable=False),
+    # Secret client éventuel (DCR confidentiel) chiffré KEK ; NULL = client public (PKCE seul).
+    Column("client_secret_enc", LargeBinary, nullable=True),
+    Column("scopes", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Token OAuth par (backend, utilisateur) — access + refresh chiffrés KEK.
+mcp_backend_oauth_token = Table(
+    "mcp_backend_oauth_token",
+    metadata,
+    Column("backend_id", Text, ForeignKey("mcp_backend.id", ondelete="CASCADE"), nullable=False),
+    Column("user_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("access_token_enc", LargeBinary, nullable=False),
+    Column("refresh_token_enc", LargeBinary, nullable=True),
+    Column("expires_at", DateTime(timezone=True), nullable=True),  # NULL = pas d'expiration connue
+    Column("scopes", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("backend_id", "user_login", name="uq_mcp_backend_oauth_token"),
+)
+
+# Requête d'autorisation en vol (entre le clic « Connecter » et le callback) :
+# state anti-CSRF lié à (backend, user) + verifier PKCE. TTL court, usage unique.
+mcp_backend_oauth_pending = Table(
+    "mcp_backend_oauth_pending",
+    metadata,
+    Column("state", Text, primary_key=True),  # aléatoire, opaque
+    Column("backend_id", Text, ForeignKey("mcp_backend.id", ondelete="CASCADE"), nullable=False),
+    Column("user_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("code_verifier", Text, nullable=False),
+    Column("redirect_uri", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
 )
 
 # ─── Compose Gallery : sources de la galerie ─────────────────────────────────

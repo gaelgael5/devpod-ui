@@ -63,6 +63,7 @@ async def create_backend(conn: AsyncConnection, owner_login: str, body: BackendC
             auth_scheme=body.auth_scheme,
             forward_identity=body.forward_identity,
             app_url=body.app_url,
+            oauth_auth_url=body.oauth_auth_url,
             quarantine_disabled=body.quarantine_disabled,
         )
     except IntegrityError as exc:

@@ -101,7 +101,8 @@ async def update_backend_route(
         conn, user.login, backend_id,
         name=body.name, url=body.url, transport=body.transport, enabled=body.enabled,
         auth_scheme=body.auth_scheme, forward_identity=body.forward_identity,
-        app_url=body.app_url, quarantine_disabled=body.quarantine_disabled,
+        app_url=body.app_url, oauth_auth_url=body.oauth_auth_url,
+        quarantine_disabled=body.quarantine_disabled,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="backend introuvable")
