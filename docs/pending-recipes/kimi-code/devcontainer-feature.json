@@ -1,0 +1,6 @@
+{
+  "id": "kimi-code",
+  "version": "1.0.0",
+  "name": "Kimi Code CLI",
+  "description": "Install Kimi Code CLI (agent de terminal @moonshot-ai/kimi-code, commande `kimi`). Auth /login (OAuth ou clé API Moonshot) ; nécessite Node.js 22.19+."
+}
