@@ -345,17 +345,50 @@ async def create_test_vm(
             buf.extend(chunk)
             yield chunk
 
-        result: dict[str, Any] | None = parse_last_json(buf.decode("utf-8", errors="replace"))
+        # La sortie du script part en streaming au navigateur ; on en garde un
+        # extrait borné pour tracer côté serveur la cause réelle d'un échec (le flux
+        # n'est sinon jamais journalisé → échec de création indiagnosticable, cf. Loki).
+        output = buf.decode("utf-8", errors="replace")
+        tail = output[-2000:]
+
+        result: dict[str, Any] | None = parse_last_json(output)
         if result is None:
+            _log.warning(
+                "test_vm_create_failed",
+                login=login,
+                ws=ws,
+                node=node.name,
+                vmid=body.vmid,
+                reason="no_json_result",
+                output_tail=tail,
+            )
             yield b"\n==> ERREUR : pas de resultat JSON du script de creation\n"
             return
         host = map_result_to_host(result, body.vmid, node.name)
         if not host.name:
+            _log.warning(
+                "test_vm_create_failed",
+                login=login,
+                ws=ws,
+                node=node.name,
+                vmid=body.vmid,
+                reason="no_hostname",
+                output_tail=tail,
+            )
             yield b"\n==> ERREUR : le script n'a pas retourne de nom d'hote\n"
             return
 
         new_cfg = load_global()
         if any(h.name == host.name for h in new_cfg.hosts):
+            _log.warning(
+                "test_vm_create_failed",
+                login=login,
+                ws=ws,
+                node=node.name,
+                vmid=body.vmid,
+                reason="host_name_conflict",
+                host=host.name,
+            )
             yield f"\n==> ERREUR : un host nomme {host.name!r} existe deja\n".encode()
             return
         new_cfg.hosts.append(host)
@@ -374,6 +407,9 @@ async def create_test_vm(
                 "address": host.address,
                 "hypervisor": node.name,
             },
+        )
+        _log.info(
+            "test_vm_create_done", login=login, ws=ws, host=host.name, alias=alias, vmid=body.vmid
         )
 
         # Message contextuel pour les agents (non-bloquant).

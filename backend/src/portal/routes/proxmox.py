@@ -203,6 +203,9 @@ async def _ssh_stream(node: Hypervisor, commands: list[str]) -> AsyncIterator[by
                 proc.kill()
 
     if proc.returncode != 0:
+        # Le flux part au navigateur ; on trace AUSSI côté serveur pour que l'échec
+        # d'un script d'hyperviseur soit diagnosticable a posteriori (Loki).
+        _log.warning("ssh_stream_nonzero_exit", node=node.name, returncode=proc.returncode)
         yield f"\n[ERROR] Script terminé avec le code {proc.returncode}\n".encode()
 
 
