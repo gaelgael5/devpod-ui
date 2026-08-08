@@ -232,6 +232,17 @@ def _substitute(template: str, args: dict[str, str]) -> str:
     return _SUBST_PLACEHOLDER_RE.sub(_repl, template)
 
 
+def missing_placeholders(templates: list[str], args: dict[str, str]) -> set[str]:
+    """Placeholders `{KEY}` référencés dans les templates mais absents des args.
+
+    Permet d'échouer TÔT et clairement quand la config d'un type d'hyperviseur ne
+    fournit pas un paramètre attendu par le script (sinon `{KEY}` part littéral au
+    script, qui le rejette avec un message cryptique — cf. SWAP_PERCENT).
+    """
+    referenced = {m.group(1) for t in templates for m in _SUBST_PLACEHOLDER_RE.finditer(t)}
+    return referenced - set(args)
+
+
 async def _run_destroy_script(cfg: GlobalConfig, host_cfg: HostConfig) -> None:
     """Exécute le destroy_script de l'hyperviseur pour la VM associée au host.
 

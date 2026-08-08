@@ -36,3 +36,20 @@ def test_substitute_multiple_placeholders_single_pass() -> None:
         {"A": "x", "B": "y"},
     )
     assert out == "x-y"
+
+
+def test_missing_placeholders_detects_unresolved() -> None:
+    from portal.routes.proxmox import missing_placeholders
+
+    templates = [
+        "clone {VMID} --memory {MEMORY} --swap {SWAP_PERCENT}",
+        "echo {CIUSER}",
+    ]
+    args = {"VMID": "105", "MEMORY": "8192", "CIUSER": "debian"}
+    assert missing_placeholders(templates, args) == {"SWAP_PERCENT"}
+
+
+def test_missing_placeholders_empty_when_all_present() -> None:
+    from portal.routes.proxmox import missing_placeholders
+
+    assert missing_placeholders(["a {X} b {Y}"], {"X": "1", "Y": "2"}) == set()

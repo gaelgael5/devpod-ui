@@ -87,6 +87,7 @@ from .proxmox import (
     _ssh_stream,
     _substitute,
     find_identifier_arg,
+    missing_placeholders,
     resolve_node_script,
 )
 from .vault import _sid
@@ -331,6 +332,28 @@ async def create_test_vm(
         n = await count_owned_test_hosts(login, ws, conn)
     alias = next_test_alias([a for _, a in detailed])
     args = substitute_param_vars(args, {"N": str(n), "N+1": str(n + 1)})
+
+    # Fail-fast : un placeholder {KEY} du script sans valeur dans les paramètres du
+    # type d'hyperviseur partirait littéral au script (échec cryptique). On le
+    # détecte ici avec un message actionnable (ex. SWAP_PERCENT manquant).
+    missing = missing_placeholders(commands_raw, args)
+    if missing:
+        _log.warning(
+            "test_vm_create_missing_params",
+            login=login,
+            ws=ws,
+            node=node.name,
+            hypervisor_type=node.hypervisor_type,
+            missing=sorted(missing),
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Paramètres manquants pour le type d'hyperviseur "
+                f"{node.hypervisor_type!r} : {', '.join(sorted(missing))}. "
+                "Renseignez-les dans les paramètres du type (/admin/hypervisor-types)."
+            ),
+        )
 
     commands = [_substitute(c, args) for c in commands_raw]
     display = [_substitute(c, {**args, "PORTAL_TOKEN": "***"}) for c in commands_raw]
