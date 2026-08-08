@@ -53,3 +53,23 @@ def test_missing_placeholders_empty_when_all_present() -> None:
     from portal.routes.proxmox import missing_placeholders
 
     assert missing_placeholders(["a {X} b {Y}"], {"X": "1", "Y": "2"}) == set()
+
+
+def test_spec_arg_defaults_includes_sub_and_excludes_identifier() -> None:
+    from portal.routes.proxmox import spec_arg_defaults
+
+    spec = {
+        "args": [
+            {"arg": "NEW_VMID", "identifier": True, "default": "x"},  # exclu
+            {"arg": "STORAGE", "default": "auto"},
+            {"arg": "NO_DEFAULT"},  # ignoré (pas de default)
+            {
+                "type": "sub",
+                "args": [
+                    {"arg": "MEMORY", "default": 8192},
+                    {"arg": "SWAP_PERCENT", "default": 25},
+                ],
+            },
+        ]
+    }
+    assert spec_arg_defaults(spec) == {"STORAGE": "auto", "MEMORY": "8192", "SWAP_PERCENT": "25"}

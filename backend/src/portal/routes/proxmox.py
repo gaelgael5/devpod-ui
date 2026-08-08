@@ -167,6 +167,26 @@ def find_identifier_arg(spec: dict[str, object]) -> str | None:
     return None
 
 
+def spec_arg_defaults(spec: dict[str, object]) -> dict[str, str]:
+    """Valeurs `default` déclarées dans la spec (args + groupes `sub`), en str.
+
+    Sert de base aux args de création : un arg déclaré avec un `default` s'applique
+    même si les `test_host_params` stockés — saisis AVANT l'ajout de cet arg à la
+    spec — ne le portent pas. Sans ça, un nouvel arg (ex. SWAP_PERCENT) partait en
+    placeholder littéral au script. L'arg identifiant est exclu (jamais de défaut).
+    """
+    raw_args = spec.get("args", [])
+    args = raw_args if isinstance(raw_args, list) else []
+    out: dict[str, str] = {}
+    for arg in _flatten_args(args):
+        if arg.get("identifier") is True or "default" not in arg:
+            continue
+        name = arg.get("arg")
+        if isinstance(name, str):
+            out[name] = str(arg["default"])
+    return out
+
+
 async def _ssh_stream(node: Hypervisor, commands: list[str]) -> AsyncIterator[bytes]:
     """Exécute des commandes shell sur le nœud SSH et streame stdout+stderr."""
     script = "set -euo pipefail\n" + "\n".join(commands) + "\n"

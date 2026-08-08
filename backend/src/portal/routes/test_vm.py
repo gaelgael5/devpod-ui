@@ -89,6 +89,7 @@ from .proxmox import (
     find_identifier_arg,
     missing_placeholders,
     resolve_node_script,
+    spec_arg_defaults,
 )
 from .vault import _sid
 
@@ -317,7 +318,11 @@ async def create_test_vm(
     commands_raw: list[str] = spec.get("commands", [])  # type: ignore[assignment]
     settings = get_settings()
     login = user.login
-    args = build_test_vm_args(dict(hyp_type.test_host_params), identifier_arg, body.vmid)
+    # Défauts déclarés par la spec EN BASE, surchargés par les params stockés du type :
+    # un arg ajouté à la spec après coup (ex. SWAP_PERCENT=25) s'applique même si les
+    # params n'ont pas été re-saisis (sinon placeholder littéral → script en échec).
+    merged_params = {**spec_arg_defaults(spec), **dict(hyp_type.test_host_params)}
+    args = build_test_vm_args(merged_params, identifier_arg, body.vmid)
     args["PORTAL_URL"] = cfg.server.external_url
     args["PORTAL_TOKEN"] = settings.portal_api_key
     args["PORTAL_PVE_NODE"] = node.name
