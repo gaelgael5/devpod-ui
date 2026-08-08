@@ -371,6 +371,12 @@ else
     echo "    IP configurée."
 fi
 
+# Guest agent QEMU : permet de lire l'IP assignée DEPUIS l'intérieur du guest
+# (détection fiable, indépendante du subnet/bridge du host). Doit être activé
+# AVANT le démarrage. Sans qemu-guest-agent dans le template, `qm guest cmd`
+# échoue simplement → on retombe sur le ping-sweep + arp (A.8).
+qm set "$NEW_VMID" --agent enabled=1
+
 # ─── A.7 — Démarrer la VM ────────────────────────────────────────────────────
 echo ""
 echo "==> A.7 — Démarrage de la VM VMID $NEW_VMID..."
@@ -379,13 +385,20 @@ qm start "$NEW_VMID"
 
 echo "    VM démarrée. Attente de cloud-init et SSH..."
 
-# ─── A.8 — Récupérer l'IP DHCP via ping sweep + arp -n ──────────────────────
-# Séquence : attendre ~30s que la VM démarre et obtienne son bail DHCP, puis
-# pinguer tous les hôtes du /24 en parallèle. La VM répond à l'ARP request
-# du host PVE → son entrée apparaît dans la table ARP → arp -n | grep <MAC>.
+# ─── A.8 — Récupérer l'IP DHCP ───────────────────────────────────────────────
+# Primaire : guest agent QEMU (lit l'IP depuis le guest, fiable quel que soit le
+# subnet/bridge). Repli : ping sweep du /24 du bridge + lecture de la table ARP
+# (la VM répond à l'ARP request du host PVE → arp -n | grep <MAC>).
+_ip_from_agent() {
+    # Première IPv4 non-loopback rapportée par l'agent (JSON network-get-interfaces).
+    qm guest cmd "$NEW_VMID" network-get-interfaces 2>/dev/null \
+        | grep -oP '"ip-address"\s*:\s*"\K[0-9.]+' \
+        | grep -vE '^127\.' \
+        | head -1
+}
 if [[ "$USE_DHCP" == "true" ]]; then
     echo ""
-    echo "==> A.8 — Détection de l'IP DHCP (max 120s)..."
+    echo "==> A.8 — Détection de l'IP DHCP (guest agent puis ping-sweep, max 120s)..."
 
     BRIDGE=$(qm config "$NEW_VMID" 2>/dev/null | grep '^net0:' \
         | grep -oP 'bridge=[^,]+' | cut -d= -f2)
@@ -405,7 +418,11 @@ if [[ "$USE_DHCP" == "true" ]]; then
     LAST_SWEEP=-30
     ELAPSED=0
     while [[ $ELAPSED -lt 120 ]]; do
-        # Lire la table ARP du kernel
+        # 1) Guest agent (fiable, indépendant du subnet/bridge)
+        IP_ADDR=$(_ip_from_agent) || true
+        [[ -n "$IP_ADDR" ]] && { echo ""; echo "    (détectée via guest agent)"; break; }
+
+        # 2) Repli : table ARP du kernel (peuplée par le ping-sweep ci-dessous)
         IP_ADDR=$(arp -n 2>/dev/null | awk -v mac="$MAC" 'tolower($3) == mac {print $1; exit}') || true
         [[ -n "$IP_ADDR" ]] && break
 
@@ -432,8 +449,10 @@ if [[ "$USE_DHCP" == "true" ]]; then
 
     if [[ -z "$IP_ADDR" ]]; then
         echo ""
-        echo "  IP DHCP non détectée après 120s."
+        echo "  IP DHCP non détectée après 120s (ni guest agent, ni ARP)."
         echo "  La VM est démarrée ($(qm status "$NEW_VMID" 2>/dev/null))."
+        echo "  Causes probables : qemu-guest-agent absent du template, ou pas de"
+        echo "  bail DHCP sur le bridge de la VM."
         echo "  Récupérer l'IP via : qm terminal $NEW_VMID  -> ip addr"
         echo ""
         if [[ -t 0 ]]; then
