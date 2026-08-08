@@ -280,6 +280,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             _outbox_task: asyncio.Task[None] | None = None
             _liveness_task: asyncio.Task[None] | None = None
             _idle_task: asyncio.Task[None] | None = None
+            _session_diff_task: asyncio.Task[None] | None = None
             if settings_obj.database_url:
                 _monitor_task = asyncio.create_task(
                     monitor_loop(settings_obj.mcp_monitor_interval_s)
@@ -300,6 +301,11 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 from .events.egress import outbox_worker_loop
 
                 _outbox_task = asyncio.create_task(outbox_worker_loop())
+                # Émetteur de diff sur la sonde tmux : détecte les sessions
+                # créées/tuées hors du portail et les journalise (best-effort).
+                from .sessions.diff_probe import diff_probe_loop
+
+                _session_diff_task = asyncio.create_task(diff_probe_loop())
                 # Spec 35b T6 : les conteneurs restés running pendant une
                 # indisponibilité du portail peuvent porter une config agents
                 # périmée — réconciliation best-effort, throttlée, en fond.
@@ -316,6 +322,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     _outbox_task,
                     _liveness_task,
                     _idle_task,
+                    _session_diff_task,
                 ):
                     if _task is not None:
                         _task.cancel()

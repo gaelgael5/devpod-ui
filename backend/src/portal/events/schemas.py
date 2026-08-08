@@ -69,6 +69,19 @@ _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
         ["actor", "workspace", "ws_id", "node"],
         {"actor": _STR, "workspace": _STR, "ws_id": _STR, "node": _STR},
     ),
+    # Émis par le rattrapage (backfill) et l'injection d'event de test pour signaler
+    # qu'un workspace « a bougé » sans transition de cycle de vie (re-synchro Termix).
+    "workspace.updated": _obj(
+        ["actor", "workspace", "ws_id"],
+        {
+            "actor": _STR,
+            "workspace": _STR,
+            "ws_id": _STR,
+            "node": _STR_OR_NULL,
+            "address": _STR_OR_NULL,
+            "status": _STR_OR_NULL,
+        },
+    ),
     "workspace.stopped": _obj(
         ["actor", "workspace", "ws_id"],
         {"actor": _STR, "workspace": _STR, "ws_id": _STR},

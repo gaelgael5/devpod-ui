@@ -20,6 +20,7 @@ from ..devpod.exec import ws_exec
 from ..devpod.host_exec import run_host_command
 from ..events.bus import emit_event
 from .aggregate import invalidate_sessions_cache
+from .diff_probe import note_session_closed
 
 _log = structlog.get_logger(__name__)
 
@@ -40,6 +41,7 @@ async def kill_tmux_session(*, owner: str, name: str, session_name: str, actor: 
     await emit_event(
         "session.closed", actor=actor, workspace=name, subject={"session": session_name}
     )
+    note_session_closed(ws_id, session_name)
 
 
 async def kill_host_tmux_session(*, host_name: str, session_name: str, actor: str) -> None:

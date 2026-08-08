@@ -47,6 +47,14 @@ def test_representative_payload_conforms_like_workflow() -> None:
     # payload représentatif de chaque event passe sa propre validation.
     samples: dict[str, dict[str, object]] = {
         "workspace.created": {"actor": "a", "workspace": "p", "ws_id": "a-p", "node": "n"},
+        "workspace.updated": {
+            "actor": "a",
+            "workspace": "p",
+            "ws_id": "a-p",
+            "node": "n",
+            "address": None,
+            "status": "running",
+        },
         "workspace.deleted": {
             "actor": "a",
             "workspace": "p",

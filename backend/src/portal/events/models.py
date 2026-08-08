@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 EVENT_TYPES: frozenset[str] = frozenset(
     {
         "workspace.created",
+        "workspace.updated",
         "workspace.deleted",
         "workspace.stopped",
         "workspace.restarted",
