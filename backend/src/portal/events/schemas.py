@@ -131,6 +131,17 @@ _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
             "hypervisor": _STR,
         },
     ),
+    "test_server.updated": _obj(
+        ["actor", "workspace", "host_name", "alias", "address"],
+        {
+            "actor": _STR,
+            "workspace": _STR,
+            "host_name": _STR,
+            "alias": _STR,
+            "address": _STR,
+            "password_changed": {"type": "boolean"},
+        },
+    ),
     "test_server.deleted": _obj(
         ["actor", "workspace", "host_name", "alias"],
         {"actor": _STR, "workspace": _STR, "host_name": _STR, "alias": _STR},

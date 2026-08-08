@@ -73,7 +73,10 @@ def _patch_owned(monkeypatch: pytest.MonkeyPatch, *, owned: bool = True) -> None
 
 
 def _patch_update_deps(
-    monkeypatch: pytest.MonkeyPatch, cfg: SimpleNamespace, stored: list[dict[str, Any]]
+    monkeypatch: pytest.MonkeyPatch,
+    cfg: SimpleNamespace,
+    stored: list[dict[str, Any]],
+    events: list[dict[str, Any]] | None = None,
 ) -> None:
     monkeypatch.setattr(test_vm, "load_global", lambda: cfg)
 
@@ -86,11 +89,16 @@ def _patch_update_deps(
     async def _ssh(login: str, target: str, cmd: str) -> tuple[int, str, str]:
         return (0, "", "")
 
+    async def _emit(event_type: str, **kwargs: Any) -> None:
+        if events is not None:
+            events.append({"type": event_type, **kwargs})
+
     monkeypatch.setattr(test_vm, "save_global_db", _save)
     monkeypatch.setattr(test_vm, "store_system_secret", _store)
     monkeypatch.setattr(test_vm, "set_cached_global", lambda _c: None)
     monkeypatch.setattr(test_vm, "run_ssh_capture", _ssh)
     monkeypatch.setattr(test_vm, "build_container_ssh_config_cmd", lambda alias, ip: "noop")
+    monkeypatch.setattr(test_vm, "emit_event", _emit)
 
 
 def test_update_connection_ok_updates_address_and_stores_password(
@@ -99,7 +107,8 @@ def test_update_connection_ok_updates_address_and_stores_password(
     _patch_owned(monkeypatch)
     cfg = SimpleNamespace(hosts=[_host()])
     stored: list[dict[str, Any]] = []
-    _patch_update_deps(monkeypatch, cfg, stored)
+    events: list[dict[str, Any]] = []
+    _patch_update_deps(monkeypatch, cfg, stored, events)
 
     resp = client.put(
         "/me/workspaces/devpod/test-vm/host-test-114-1/connection",
@@ -119,6 +128,11 @@ def test_update_connection_ok_updates_address_and_stores_password(
     assert len(stored) == 1
     assert stored[0]["slug"] == "host.host-test-114-1.root-password"
     assert stored[0]["value"] == "n3w-pass"
+    # Un event test_server.updated est émis (déclencheur de réplication externe).
+    assert len(events) == 1
+    assert events[0]["type"] == "test_server.updated"
+    assert events[0]["subject"]["address"] == "root@192.168.10.240"
+    assert events[0]["subject"]["password_changed"] is True
 
 
 def test_update_connection_without_password_leaves_secret_untouched(

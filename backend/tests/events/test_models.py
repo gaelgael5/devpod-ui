@@ -24,6 +24,7 @@ def test_registre_contient_les_types_attendus() -> None:
         "session.created",
         "session.closed",
         "test_server.created",
+        "test_server.updated",
         "test_server.deleted",
         "compose_service.started",
         "compose_service.stopped",

@@ -70,6 +70,14 @@ def test_representative_payload_conforms_like_workflow() -> None:
             "address": "1.2.3.4",
             "hypervisor": "pve",
         },
+        "test_server.updated": {
+            "actor": "a",
+            "workspace": "p",
+            "host_name": "h",
+            "alias": "al",
+            "address": "root@1.2.3.4",
+            "password_changed": True,
+        },
     }
     for event_type, payload in samples.items():
         sch = schemas.DATA_SCHEMA_BY_CODE[schemas.event_code_for(event_type)]

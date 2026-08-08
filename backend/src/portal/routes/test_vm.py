@@ -557,6 +557,17 @@ async def resolve_test_vm_ip(
         _log.warning("test_vm_ssh_config_refresh_failed", host=host_name, exc_info=True)
 
     _log.info("test_vm_ip_resolved", login=login, ws=ws, host=host_name, fqdn=fqdn, ip=new_ip)
+    await emit_event(
+        "test_server.updated",
+        actor=login,
+        workspace=ws,
+        subject={
+            "host_name": host_name,
+            "alias": alias,
+            "address": new_address,
+            "password_changed": False,
+        },
+    )
     return {"ip": new_ip, "fqdn": fqdn}
 
 
@@ -651,6 +662,17 @@ async def update_test_vm_connection(
         ws=ws,
         host=host_name,
         password_changed=body.password is not None,
+    )
+    await emit_event(
+        "test_server.updated",
+        actor=login,
+        workspace=ws,
+        subject={
+            "host_name": host_name,
+            "alias": alias,
+            "address": new_address,
+            "password_changed": body.password is not None,
+        },
     )
     return {"alias": alias, "name": host_name, "ip": host, "user": username, "vmid": host_cfg.vmid}
 
