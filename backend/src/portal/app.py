@@ -281,6 +281,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             _liveness_task: asyncio.Task[None] | None = None
             _idle_task: asyncio.Task[None] | None = None
             _session_diff_task: asyncio.Task[None] | None = None
+            _automation_task: asyncio.Task[None] | None = None
             if settings_obj.database_url:
                 _monitor_task = asyncio.create_task(
                     monitor_loop(settings_obj.mcp_monitor_interval_s)
@@ -306,6 +307,11 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 from .sessions.diff_probe import diff_probe_loop
 
                 _session_diff_task = asyncio.create_task(diff_probe_loop())
+                # Runner d'automates : consomme le journal app_event par curseur et
+                # appelle les opérations de contrats (epic Termix T3).
+                from .automations.runner import runner_loop
+
+                _automation_task = asyncio.create_task(runner_loop())
                 # Spec 35b T6 : les conteneurs restés running pendant une
                 # indisponibilité du portail peuvent porter une config agents
                 # périmée — réconciliation best-effort, throttlée, en fond.
@@ -323,6 +329,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     _liveness_task,
                     _idle_task,
                     _session_diff_task,
+                    _automation_task,
                 ):
                     if _task is not None:
                         _task.cancel()

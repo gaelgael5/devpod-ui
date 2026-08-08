@@ -78,6 +78,59 @@ def check_ssrf(url: str) -> None:
     resolve_pinned(url)
 
 
+async def pinned_request(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    content: bytes | None = None,
+    timeout: float = 10.0,
+    max_bytes: int | None = None,
+) -> httpx.Response:
+    """Requête `method` épinglée sur l'IP validée (anti DNS rebinding, anti-SSRF).
+
+    Généralise `pinned_get` aux verbes à corps (POST/PUT/PATCH/DELETE), pour les
+    appels sortants des automates. Redirections désactivées (une 30x re-résoudrait
+    le DNS). Le hostname d'origine reste en header Host et en SNI. Le corps de
+    réponse est borné par `max_bytes` (streaming).
+    """
+    pinned_ip = await asyncio.to_thread(resolve_pinned, url)
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    host_literal = f"[{host}]" if ":" in host else host
+    ip_literal = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+    if parsed.port is None:
+        host_header, netloc = host_literal, ip_literal
+    else:
+        host_header, netloc = f"{host_literal}:{parsed.port}", f"{ip_literal}:{parsed.port}"
+    pinned_url = urlunparse(parsed._replace(netloc=netloc))
+    extensions = {"sni_hostname": host} if parsed.scheme == "https" else {}
+    req_headers = {**(headers or {}), "Host": host_header}
+    request = client.build_request(
+        method.upper(),
+        pinned_url,
+        headers=req_headers,
+        content=content,
+        extensions=extensions,
+        timeout=timeout,
+    )
+    response = await client.send(request, stream=True, follow_redirects=False)
+    try:
+        chunks: list[bytes] = []
+        read = 0
+        async for chunk in response.aiter_bytes():
+            chunks.append(chunk)
+            read += len(chunk)
+            if max_bytes is not None and read >= max_bytes:
+                break
+        body = b"".join(chunks)
+        response._content = body[:max_bytes] if max_bytes is not None else body  # noqa: SLF001
+    finally:
+        await response.aclose()
+    return response
+
+
 async def pinned_get(
     client: httpx.AsyncClient,
     url: str,
