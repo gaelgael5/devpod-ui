@@ -985,6 +985,34 @@ workflow_event_outbox = Table(
 )
 
 
+# Journal durable et interne de chaque event métier (source consommée par les
+# automates locaux). Écrit **inconditionnellement** à l'émission — indépendant de
+# l'activation du producteur workflow (invariant 1 de l'epic Termix). `seq` donne
+# l'ordre total et sert de curseur aux automates. Pas de FK sur workspace : le
+# payload est auto-porteur (un event de suppression survit à l'objet disparu).
+# `consumed_by` porte le chaînage stop_chain du moteur d'automates (renseigné à
+# la consommation). `dedup_key` = clé naturelle de dédup exploitée en aval
+# (once-per-version côté automation_run), pas une contrainte d'unicité ici : le
+# journal enregistre tous les faits, y compris répétés.
+app_event = Table(
+    "app_event",
+    metadata,
+    Column("seq", BigInteger, primary_key=True, autoincrement=True),
+    Column("event_id", Text, nullable=False),
+    Column("event_type", Text, nullable=False),
+    Column("actor", Text, nullable=False),
+    Column("workspace", Text, nullable=True),
+    Column("subject", JSONB, nullable=False, server_default="{}"),
+    Column("correlation_id", Text, nullable=True),
+    Column("dedup_key", Text, nullable=True),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("consumed_by", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index("idx_app_event_type", "event_type"),
+    Index("idx_app_event_workspace", "workspace"),
+)
+
+
 # Préférences UI par utilisateur (clé fonctionnelle composée → valeur typée).
 # Une ligne = (login, pref_key) ; la valeur est rangée dans la colonne du type
 # indiqué par `value_type` (les deux autres colonnes restent NULL). Évite de
