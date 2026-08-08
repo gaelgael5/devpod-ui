@@ -1519,5 +1519,82 @@
         "unverified": "non vérifiée"
       }
     }
+  },
+  "automations": {
+    "navLabel": "Automates",
+    "title": "Automates",
+    "intro": "Sur un event du journal, appeler une opération d'un contrat OpenAPI. Évaluation par ordre de priorité, curseur persistant, anti-rejeu.",
+    "new": "Nouvel automate",
+    "empty": "Aucun automate.",
+    "pending": "{{n}} en attente",
+    "runsBtn": "Historique",
+    "confirmDelete": "Supprimer l'automate « {{label}} » ?",
+    "deleted": "Automate supprimé",
+    "sim": {
+      "title": "Simulation :",
+      "host": "Host a bougé",
+      "workspace": "Workspace a bougé",
+      "session": "Session a bougé",
+      "backfill": "Rattraper les existants",
+      "injected": "Event injecté : {{code}}",
+      "backfilled": "Rattrapage : {{hosts}} hosts, {{workspaces}} workspaces, {{sessions}} sessions"
+    },
+    "form": {
+      "newTitle": "Nouvel automate",
+      "editTitle": "Modifier l'automate",
+      "label": "Libellé",
+      "events": "Events déclencheurs",
+      "scopes": "Portée (workspaces)",
+      "scopesHint": "Liste séparée par des virgules. « * » = tous les workspaces.",
+      "contract": "Contrat",
+      "operation": "Opération",
+      "url": "URL cible",
+      "method": "Méthode",
+      "bodyTemplate": "Corps (modèle)",
+      "bodyHint": "Variables : {actor} {workspace} {type} {subject.xxx} — inconnu laissé intact.",
+      "headers": "En-têtes",
+      "addHeader": "Ajouter",
+      "headerName": "Nom",
+      "headerValue": "Valeur",
+      "secret": "secret",
+      "delay": "Débounce (minutes)",
+      "delayHint": "0 = immédiat. Fenêtre glissante : attend que l'event décante.",
+      "stopChain": "Stop chain (consomme l'event)",
+      "active": "Actif",
+      "missing": "Libellé, events, contrat, opération et URL sont requis.",
+      "scopeRequired": "Au moins une portée (ou « * »).",
+      "created": "Automate créé",
+      "updated": "Automate mis à jour"
+    },
+    "runs": {
+      "title": "Historique — {{label}}",
+      "manual": "manuel",
+      "replay": "Rejouer",
+      "replayed": "Rejoué",
+      "clear": "Vider l'historique",
+      "cleared": "Historique vidé",
+      "empty": "Aucune exécution."
+    },
+    "contracts": {
+      "navLabel": "Contrats OpenAPI",
+      "title": "Contrats OpenAPI",
+      "intro": "Contrats importés (réutilisables) décrivant les opérations appelables par les automates.",
+      "import": "Importer",
+      "importTitle": "Importer un contrat",
+      "label": "Libellé",
+      "sourceUrl": "URL du contrat",
+      "pasteSpec": "…ou coller le spec (JSON)",
+      "pasteHint": "Si collé, l'URL est ignorée (import manuel, pas de refresh).",
+      "doImport": "Importer",
+      "imported": "Contrat importé",
+      "invalidJson": "JSON invalide",
+      "needUrlOrSpec": "Fournir une URL ou un spec",
+      "operations": "Opérations",
+      "refresh": "Rafraîchir",
+      "refreshed": "Contrat rafraîchi",
+      "deleted": "Contrat supprimé",
+      "confirmDelete": "Supprimer le contrat « {{label}} » ?",
+      "empty": "Aucun contrat."
+    }
   }
 }

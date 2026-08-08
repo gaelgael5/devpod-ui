@@ -202,6 +202,12 @@ async def reorder(body: ReorderIn, _: _Admin, conn: _Conn) -> dict[str, bool]:
     return {"reordered": True}
 
 
+@router.get("/event-types")
+async def list_event_types(_: _Admin) -> list[str]:
+    """Types d'events déclencheurs disponibles (registre fermé) pour l'IHM."""
+    return sorted(EVENT_TYPES)
+
+
 # ─── Automates ────────────────────────────────────────────────────────────────
 
 

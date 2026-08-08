@@ -90,11 +90,16 @@ def _operation_id(op: dict[str, Any], method: str, path: str) -> str:
 
 
 def list_operations(spec: dict[str, Any]) -> list[dict[str, Any]]:
-    """Énumère les opérations : {operation_id, method, path, summary}."""
+    """Énumère les opérations : {operation_id, method, path, url, summary}.
+
+    `url` = URL de base du contrat (`servers`) + path — valeur par défaut proposée
+    à l'IHM pour préremplir la cible d'un automate.
+    """
     ops: list[dict[str, Any]] = []
     paths = spec.get("paths")
     if not isinstance(paths, dict):
         return ops
+    base = _base_url(spec)
     for path, item in paths.items():
         if not isinstance(item, dict):
             continue
@@ -107,6 +112,7 @@ def list_operations(spec: dict[str, Any]) -> list[dict[str, Any]]:
                     "operation_id": _operation_id(op, method, path),
                     "method": method.upper(),
                     "path": path,
+                    "url": f"{base}{path}" if base else path,
                     "summary": op.get("summary") or op.get("description") or "",
                 }
             )
@@ -119,13 +125,12 @@ def resolve_operation(spec: dict[str, Any], operation_id: str) -> dict[str, str]
     `url` = URL de base du contrat (`servers`) + path. Sert de valeur par défaut
     proposée ; l'automate persiste ensuite sa propre URL cible.
     """
-    base = _base_url(spec)
     for op in list_operations(spec):
         if op["operation_id"] == operation_id:
             return {
                 "operation_id": op["operation_id"],
                 "method": op["method"],
                 "path": op["path"],
-                "url": f"{base}{op['path']}" if base else op["path"],
+                "url": op["url"],
             }
     return None

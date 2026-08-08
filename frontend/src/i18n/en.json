@@ -1519,5 +1519,82 @@
         "unverified": "unverified"
       }
     }
+  },
+  "automations": {
+    "navLabel": "Automations",
+    "title": "Automations",
+    "intro": "On a journal event, call an OpenAPI contract operation. Priority-ordered evaluation, persistent cursor, replay protection.",
+    "new": "New automation",
+    "empty": "No automations.",
+    "pending": "{{n}} pending",
+    "runsBtn": "History",
+    "confirmDelete": "Delete automation \"{{label}}\"?",
+    "deleted": "Automation deleted",
+    "sim": {
+      "title": "Simulation:",
+      "host": "Host moved",
+      "workspace": "Workspace moved",
+      "session": "Session moved",
+      "backfill": "Backfill existing",
+      "injected": "Event injected: {{code}}",
+      "backfilled": "Backfill: {{hosts}} hosts, {{workspaces}} workspaces, {{sessions}} sessions"
+    },
+    "form": {
+      "newTitle": "New automation",
+      "editTitle": "Edit automation",
+      "label": "Label",
+      "events": "Trigger events",
+      "scopes": "Scope (workspaces)",
+      "scopesHint": "Comma-separated list. \"*\" = all workspaces.",
+      "contract": "Contract",
+      "operation": "Operation",
+      "url": "Target URL",
+      "method": "Method",
+      "bodyTemplate": "Body (template)",
+      "bodyHint": "Variables: {actor} {workspace} {type} {subject.xxx} — unknown left intact.",
+      "headers": "Headers",
+      "addHeader": "Add",
+      "headerName": "Name",
+      "headerValue": "Value",
+      "secret": "secret",
+      "delay": "Debounce (minutes)",
+      "delayHint": "0 = immediate. Sliding window: waits for the event to settle.",
+      "stopChain": "Stop chain (consume event)",
+      "active": "Active",
+      "missing": "Label, events, contract, operation and URL are required.",
+      "scopeRequired": "At least one scope (or \"*\").",
+      "created": "Automation created",
+      "updated": "Automation updated"
+    },
+    "runs": {
+      "title": "History — {{label}}",
+      "manual": "manual",
+      "replay": "Replay",
+      "replayed": "Replayed",
+      "clear": "Clear history",
+      "cleared": "History cleared",
+      "empty": "No runs."
+    },
+    "contracts": {
+      "navLabel": "OpenAPI contracts",
+      "title": "OpenAPI contracts",
+      "intro": "Imported (reusable) contracts describing operations callable by automations.",
+      "import": "Import",
+      "importTitle": "Import a contract",
+      "label": "Label",
+      "sourceUrl": "Contract URL",
+      "pasteSpec": "…or paste the spec (JSON)",
+      "pasteHint": "If pasted, the URL is ignored (manual import, no refresh).",
+      "doImport": "Import",
+      "imported": "Contract imported",
+      "invalidJson": "Invalid JSON",
+      "needUrlOrSpec": "Provide a URL or a spec",
+      "operations": "Operations",
+      "refresh": "Refresh",
+      "refreshed": "Contract refreshed",
+      "deleted": "Contract deleted",
+      "confirmDelete": "Delete contract \"{{label}}\"?",
+      "empty": "No contracts."
+    }
   }
 }

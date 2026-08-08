@@ -15,6 +15,8 @@ import {
   AdminNetwork,
   AdminOidc,
   AdminProfileEditor,
+  AdminAutomations,
+  AdminContracts,
   AdminProfileSources,
   AdminProxmox,
   AdminRecipes,
@@ -178,6 +180,14 @@ export const router = createBrowserRouter([
       {
         path: '/admin/workflow',
         element: <AdminGuard><Wrap><AdminWorkflow /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/automations',
+        element: <AdminGuard><Wrap><AdminAutomations /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/automations/contracts',
+        element: <AdminGuard><Wrap><AdminContracts /></Wrap></AdminGuard>,
       },
       { path: '/profile', element: <Wrap><ProfilePage /></Wrap> },
       { path: '/compose', element: <Wrap><ComposeGallery /></Wrap> },
