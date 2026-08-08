@@ -1013,6 +1013,118 @@ app_event = Table(
 )
 
 
+# ─── Automates (port docflow, epic Termix T3) ─────────────────────────────────
+#
+# Contrats OpenAPI stockés globalement (réutilisables) : décrivent les opérations
+# appelables. Un automate consomme le journal `app_event` par curseur et, pour un
+# event retenu, résout puis appelle une opération d'un contrat.
+
+openapi_contract = Table(
+    "openapi_contract",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("label", Text, nullable=False),
+    Column("source_url", Text, nullable=True),  # null = import manuel (pas de refresh)
+    Column("version", Text, nullable=False, server_default=""),  # info.version (affichage)
+    Column("raw_spec", JSONB, nullable=False),  # contrat OpenAPI complet
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Un automate = « sur tel(s) event(s), appelle telle opération d'un contrat ».
+# `position` = ordre d'évaluation global (drag&drop) ; `stop_chain` = chaîne de
+# responsabilité (match + appel OK → event consommé, priorités inférieures bloquées).
+# Créé désactivé (`active=false`). `delay_minutes` = débounce en fenêtre glissante.
+automation = Table(
+    "automation",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("label", Text, nullable=False),
+    Column("active", Boolean, nullable=False, server_default="false"),
+    Column("position", Integer, nullable=False, server_default="0"),
+    Column("stop_chain", Boolean, nullable=False, server_default="false"),
+    Column("event_types", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("delay_minutes", Integer, nullable=False, server_default="0"),
+    Column(
+        "contract_ref",
+        Text,
+        ForeignKey("openapi_contract.id", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    Column("operation_id", Text, nullable=False),
+    Column("url", Text, nullable=False),  # cible réelle (base du contrat + path résolu)
+    Column("http_method", Text, nullable=False),
+    Column("body_template", Text, nullable=True),  # modèle à variables ; null = pas de corps
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index("idx_automation_position", "position"),
+)
+
+# Portée : les workspaces auxquels l'automate s'applique. `workspace = '*'` = tous.
+# Jamais vide (au moins une portée). Un event de workspace W déclenche les automates
+# de portée W ET ceux de portée '*'.
+automation_scope = Table(
+    "automation_scope",
+    metadata,
+    Column("automation_id", Text, ForeignKey("automation.id", ondelete="CASCADE"), nullable=False),
+    Column("workspace", Text, nullable=False),
+    UniqueConstraint("automation_id", "workspace", name="uq_automation_scope"),
+)
+
+# En-têtes d'appel : `value` XOR `secret_ref` (référence vault résolue à l'exécution).
+automation_header = Table(
+    "automation_header",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("automation_id", Text, ForeignKey("automation.id", ondelete="CASCADE"), nullable=False),
+    Column("name", Text, nullable=False),
+    Column("value", Text, nullable=True),
+    Column("secret_ref", Text, nullable=True),
+    CheckConstraint(
+        "(value IS NULL) <> (secret_ref IS NULL)",
+        name="ck_automation_header_value_xor_secret",
+    ),
+    Index("idx_automation_header_by_automation", "automation_id"),
+)
+
+# Curseur de progression sur `app_event.seq` (anti-rejeu, reprise sans perte).
+automation_cursor = Table(
+    "automation_cursor",
+    metadata,
+    Column("automation_id", Text, ForeignKey("automation.id", ondelete="CASCADE"), primary_key=True),
+    Column("last_seq", BigInteger, nullable=False, server_default="0"),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Trace d'exécution (historique borné + rejeu). Anti-rejeu : index unique partiel
+# (automation_id, dedup_key) sur les runs AUTOMATIQUES uniquement (manual=false) —
+# un automate ne s'exécute qu'une fois par version ; un rejeu manuel est toujours
+# autorisé (n'entre pas dans l'unicité).
+automation_run = Table(
+    "automation_run",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("automation_id", Text, ForeignKey("automation.id", ondelete="CASCADE"), nullable=False),
+    Column("event_seq", BigInteger, nullable=False),
+    Column("dedup_key", Text, nullable=False),
+    Column("status", Text, nullable=False),  # ok | failed | skipped
+    Column("http_status", Integer, nullable=True),
+    Column("request_preview", Text, nullable=True),
+    Column("response_preview", Text, nullable=True),
+    Column("error", Text, nullable=True),
+    Column("manual", Boolean, nullable=False, server_default="false"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index(
+        "uq_automation_run_auto_dedup",
+        "automation_id",
+        "dedup_key",
+        unique=True,
+        postgresql_where=text("manual = false"),
+    ),
+    Index("idx_automation_run_history", "automation_id", "created_at"),
+)
+
+
 # Préférences UI par utilisateur (clé fonctionnelle composée → valeur typée).
 # Une ligne = (login, pref_key) ; la valeur est rangée dans la colonne du type
 # indiqué par `value_type` (les deux autres colonnes restent NULL). Évite de
