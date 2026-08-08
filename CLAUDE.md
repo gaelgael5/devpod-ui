@@ -76,8 +76,6 @@ Portail web self-hosted de workspaces de développement : l'utilisateur s'authen
 ## Stack technique
 
 - **Backend** : Python 3.12 + FastAPI + pydantic v2 / pydantic-settings + authlib (OIDC) + httpx + pyyaml + structlog JSON + pytest
-- **Persistance** : **AUCUNE base de données.** Fichiers YAML sous `/data` (volume), écritures atomiques (`tempfile` + `os.replace`). Source de vérité unique = le filesystem. Toute proposition d'ajouter une DB est hors périmètre.
-- **Orchestration workspaces** : DevPod CLI embarqué dans l'image — appelé via `asyncio.create_subprocess_exec` (exception assumée à la règle "pas de subprocess" : DevPod n'a pas d'API, c'est une CLI). Pour tout accès **direct** à un daemon Docker (inspect, ports), utiliser `aiodocker` en mTLS, pas de subprocess `docker`.
 - **Frontend** (quand l'UI démarrera) : Vite + React 18 + TypeScript strict + react-router-dom + TanStack Query + Tailwind + shadcn/ui + i18next + Vitest — mêmes conventions que les autres projets yoops.
 - **Reverse proxy** : Caddy (routes dynamiques via API admin, jamais par réécriture+reload), SSL wildcard `*.dev.yoops.org` en DNS-01 Cloudflare, exposition via Cloudflare Tunnel (`cloudflare-manager` existant).
 - **Auth** : Keycloak `security.yoops.org`, realm `yoops`, client `workspace-portal`, rôles `dev`/`admin`.
