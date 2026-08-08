@@ -25,6 +25,7 @@ from .routes.agent_messages import router as agent_messages_router
 from .routes.agent_types import admin_router as agent_types_admin_router
 from .routes.agent_types import me_router as agent_types_me_router
 from .routes.applications import router as applications_router
+from .routes.automations import router as automations_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
@@ -432,6 +433,7 @@ def create_app() -> FastAPI:
     app.include_router(event_schemas_router)
     app.include_router(recipes_me_router, prefix="/me")
     app.include_router(admin_router, prefix="/admin")
+    app.include_router(automations_router, prefix="/admin/automations")
     app.include_router(host_secrets_router, prefix="/admin")
     app.include_router(nodes_router, prefix="/admin")
     app.include_router(proxmox_router, prefix="/admin")
