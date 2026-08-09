@@ -349,10 +349,24 @@ async def _provision_test_vm(
     try:
         header = "==> Création VM de test\n" + "\n".join(f"    {c}" for c in display) + "\n\n"
         job.write(header.encode("utf-8"))
+        _log.info("test_vm_provision_start", login=login, ws=ws, node=node.name, vmid=vmid)
         buf = bytearray()
+        # Miroir vers Loki, ligne par ligne : la progression du provisioning (script de
+        # clone) devient observable en centralisé (Grafana/Loki), sans dépendre du flux
+        # navigateur. Seule la phase CLONE est journalisée — la sortie de _init_vm_ssh
+        # (plus bas) contient le mot de passe root et ne doit JAMAIS partir dans Loki.
+        line_buf = ""
         async for chunk in _ssh_stream(node, commands):
             buf.extend(chunk)
             job.write(chunk)
+            line_buf += chunk.decode("utf-8", errors="replace")
+            while "\n" in line_buf:
+                line, line_buf = line_buf.split("\n", 1)
+                line = line.rstrip("\r")
+                if line.strip():
+                    _log.info("test_vm_provision_out", vmid=vmid, ws=ws, line=line)
+        if line_buf.strip():
+            _log.info("test_vm_provision_out", vmid=vmid, ws=ws, line=line_buf.rstrip("\r"))
 
         # Extrait borné de la sortie pour tracer côté serveur la cause d'un échec.
         output = buf.decode("utf-8", errors="replace")
