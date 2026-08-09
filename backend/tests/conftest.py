@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import uuid
 
@@ -13,11 +14,18 @@ from portal.config.models import UserConfig
 
 @pytest.fixture(scope="session")
 def postgres_url() -> str:
-    """Démarre un container PostgreSQL et retourne son URL asyncpg.
+    """URL asyncpg d'un PostgreSQL de test.
 
-    Le container vit toute la session pytest et est détruit à la fin.
-    Nécessite Docker disponible sur la machine — skippe si absent.
+    - Si `TEST_DATABASE_URL` est défini, l'utilise tel quel (Postgres externe : CI,
+      Docker distant via tunnel SSH…) — permet de jouer les tests DB sans Docker local.
+    - Sinon démarre un container PostgreSQL éphémère (testcontainers) qui vit toute la
+      session pytest ; skippe si Docker est absent.
     """
+    external = os.environ.get("TEST_DATABASE_URL")
+    if external:
+        yield external
+        return
+
     try:
         import docker
 
