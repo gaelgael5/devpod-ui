@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import asyncio
 import re
+import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -286,13 +289,169 @@ class CreateTestVmRequest(BaseModel):
     vmid: str
 
 
+@dataclass
+class _CreateJob:
+    """Job de provisioning d'une VM de test, DÉCOUPLÉ de la requête HTTP.
+
+    Le provisioning tourne en tâche de fond et écrit ici sa progression + son
+    statut. Perdre la connexion cliente n'interrompt PAS le job : la machine est
+    enregistrée quoi qu'il arrive ; l'IHM se contente de poller cet état.
+    """
+
+    login: str
+    chunks: list[bytes] = field(default_factory=list)
+    status: str = "running"  # running | ok | failed
+    finished_at: datetime | None = None
+
+    def write(self, data: bytes) -> None:
+        self.chunks.append(data)
+
+    def finish(self, status: str) -> None:
+        self.status = status
+        self.finished_at = datetime.now(UTC)
+
+    def text(self) -> str:
+        return b"".join(self.chunks).decode("utf-8", errors="replace")
+
+
+# Registre des jobs de création en cours/récents (clé = job_id). Les tâches sont
+# référencées fortement (une tâche asyncio non référencée peut être GC avant la fin).
+_create_jobs: dict[str, _CreateJob] = {}
+_create_tasks: set[asyncio.Task[None]] = set()
+_JOB_RETENTION_S = 900.0
+
+
+def _purge_finished_jobs() -> None:
+    """Retire les jobs terminés depuis plus de _JOB_RETENTION_S (anti-fuite mémoire)."""
+    now = datetime.now(UTC)
+    stale = [
+        jid
+        for jid, j in _create_jobs.items()
+        if j.finished_at is not None and (now - j.finished_at).total_seconds() > _JOB_RETENTION_S
+    ]
+    for jid in stale:
+        _create_jobs.pop(jid, None)
+
+
+async def _provision_test_vm(
+    job: _CreateJob,
+    *,
+    login: str,
+    ws: str,
+    node: Hypervisor,
+    commands: list[str],
+    display: list[str],
+    alias: str,
+    vmid: str,
+) -> None:
+    """Provisionne la VM et ENREGISTRE la machine. Tâche de fond indépendante de la
+    requête : une déconnexion cliente ne l'interrompt pas (la machine est ajoutée)."""
+    try:
+        header = "==> Création VM de test\n" + "\n".join(f"    {c}" for c in display) + "\n\n"
+        job.write(header.encode("utf-8"))
+        buf = bytearray()
+        async for chunk in _ssh_stream(node, commands):
+            buf.extend(chunk)
+            job.write(chunk)
+
+        # Extrait borné de la sortie pour tracer côté serveur la cause d'un échec.
+        output = buf.decode("utf-8", errors="replace")
+        tail = output[-2000:]
+        result: dict[str, Any] | None = parse_last_json(output)
+        if result is None:
+            _log.warning(
+                "test_vm_create_failed", login=login, ws=ws, node=node.name, vmid=vmid,
+                reason="no_json_result", output_tail=tail,
+            )
+            job.write(b"\n==> ERREUR : pas de resultat JSON du script de creation\n")
+            job.finish("failed")
+            return
+        host = map_result_to_host(result, vmid, node.name)
+        if not host.name:
+            _log.warning(
+                "test_vm_create_failed", login=login, ws=ws, node=node.name, vmid=vmid,
+                reason="no_hostname", output_tail=tail,
+            )
+            job.write(b"\n==> ERREUR : le script n'a pas retourne de nom d'hote\n")
+            job.finish("failed")
+            return
+
+        new_cfg = load_global()
+        if any(h.name == host.name for h in new_cfg.hosts):
+            _log.warning(
+                "test_vm_create_failed", login=login, ws=ws, node=node.name, vmid=vmid,
+                reason="host_name_conflict", host=host.name,
+            )
+            job.write(f"\n==> ERREUR : un host nomme {host.name!r} existe deja\n".encode())
+            job.finish("failed")
+            return
+        new_cfg.hosts.append(host)
+        async with _get_engine().begin() as conn:
+            await save_global_db(new_cfg, conn)
+            await assign_test_host(login, ws, host.name, alias, conn)
+        set_cached_global(new_cfg)  # après commit réussi seulement (bug 034)
+
+        await emit_event(
+            "test_server.created", actor=login, workspace=ws,
+            subject={
+                "host_name": host.name, "alias": alias,
+                "address": host.address, "hypervisor": node.name,
+            },
+        )
+        _log.info(
+            "test_vm_create_done", login=login, ws=ws, host=host.name, alias=alias, vmid=vmid
+        )
+
+        # Message contextuel pour les agents (non-bloquant).
+        try:
+            user_cfg = await load_user(login)
+            ctx = build_host_context(
+                owner_login=login, workspace_name=ws, host_name=host.name,
+                alias=alias, address=host.address, culture=user_cfg.culture,
+            )
+            async with _get_engine().begin() as conn:
+                msg_id = await render_and_create(
+                    conn, key="test_host_available", culture=user_cfg.culture,
+                    owner_login=login, workspace_name=ws, msg_type="test_host", ctx=ctx,
+                )
+                if msg_id is not None:
+                    await set_test_host_message_id(host.name, msg_id, conn)
+        except Exception:
+            _log.warning("test_host_message_create_failed", host=host.name, exc_info=True)
+
+        job.write(
+            f"\n==> VM de test '{host.name}' creee et attachee au workspace '{ws}'\n".encode()
+        )
+        async for msg in _init_vm_ssh(login, ws, host, node, alias):
+            job.write(msg)
+
+        # Auto-start : uniquement si le SSH portail a été activé (host_cert_slug posé).
+        if host_cert_ready(load_global().hosts, host.name):
+            auto_user_cfg = await load_user(login)
+            async with _get_engine().begin() as conn:
+                async for line in csvc.deploy_auto_start_templates(
+                    conn, owner_login=login, secret_ns=auto_user_cfg.secret_ns, node_id=host.name,
+                ):
+                    job.write(line.encode())
+        job.finish("ok")
+    except Exception:
+        _log.error("test_vm_provision_crashed", login=login, ws=ws, vmid=vmid, exc_info=True)
+        job.write(b"\n==> ERREUR interne du provisioning (voir logs serveur)\n")
+        job.finish("failed")
+
+
 @router.post("/workspaces/{ws}/test-vm")
 async def create_test_vm(
     ws: str,
     body: CreateTestVmRequest,
     user: UserInfo = Depends(require_user),
-) -> StreamingResponse:
-    """Crée une VM de test, l'enregistre (usage=tests) et l'associe au workspace."""
+) -> JSONResponse:
+    """Lance la création d'une VM de test EN TÂCHE DE FOND et retourne un job_id (202).
+
+    Le provisioning (clone + enregistrement de la machine + init SSH) est découplé de
+    cette requête : perdre la connexion n'interrompt PAS la création — la machine est
+    enregistrée quoi qu'il arrive. L'IHM poll la progression via GET .../test-vm/create/{job_id}.
+    """
     if not _WS_NAME_RE.fullmatch(ws):
         raise HTTPException(status_code=422, detail="Invalid workspace name")
     if not _VMID_RE.fullmatch(body.vmid):
@@ -365,126 +524,42 @@ async def create_test_vm(
 
     _log.info("test_vm_create", login=login, ws=ws, node=node.name, vmid=body.vmid)
 
-    async def _stream() -> AsyncIterator[bytes]:
-        header = "==> Création VM de test\n" + "\n".join(f"    {c}" for c in display) + "\n\n"
-        yield header.encode("utf-8")
-        buf = bytearray()
-        async for chunk in _ssh_stream(node, commands):
-            buf.extend(chunk)
-            yield chunk
-
-        # La sortie du script part en streaming au navigateur ; on en garde un
-        # extrait borné pour tracer côté serveur la cause réelle d'un échec (le flux
-        # n'est sinon jamais journalisé → échec de création indiagnosticable, cf. Loki).
-        output = buf.decode("utf-8", errors="replace")
-        tail = output[-2000:]
-
-        result: dict[str, Any] | None = parse_last_json(output)
-        if result is None:
-            _log.warning(
-                "test_vm_create_failed",
-                login=login,
-                ws=ws,
-                node=node.name,
-                vmid=body.vmid,
-                reason="no_json_result",
-                output_tail=tail,
-            )
-            yield b"\n==> ERREUR : pas de resultat JSON du script de creation\n"
-            return
-        host = map_result_to_host(result, body.vmid, node.name)
-        if not host.name:
-            _log.warning(
-                "test_vm_create_failed",
-                login=login,
-                ws=ws,
-                node=node.name,
-                vmid=body.vmid,
-                reason="no_hostname",
-                output_tail=tail,
-            )
-            yield b"\n==> ERREUR : le script n'a pas retourne de nom d'hote\n"
-            return
-
-        new_cfg = load_global()
-        if any(h.name == host.name for h in new_cfg.hosts):
-            _log.warning(
-                "test_vm_create_failed",
-                login=login,
-                ws=ws,
-                node=node.name,
-                vmid=body.vmid,
-                reason="host_name_conflict",
-                host=host.name,
-            )
-            yield f"\n==> ERREUR : un host nomme {host.name!r} existe deja\n".encode()
-            return
-        new_cfg.hosts.append(host)
-        async with _get_engine().begin() as conn:
-            await save_global_db(new_cfg, conn)
-            await assign_test_host(login, ws, host.name, alias, conn)
-        set_cached_global(new_cfg)  # après commit réussi seulement (bug 034)
-
-        await emit_event(
-            "test_server.created",
-            actor=login,
-            workspace=ws,
-            subject={
-                "host_name": host.name,
-                "alias": alias,
-                "address": host.address,
-                "hypervisor": node.name,
-            },
+    _purge_finished_jobs()
+    job = _CreateJob(login=login)
+    job_id = uuid.uuid4().hex
+    _create_jobs[job_id] = job
+    task = asyncio.create_task(
+        _provision_test_vm(
+            job,
+            login=login,
+            ws=ws,
+            node=node,
+            commands=commands,
+            display=display,
+            alias=alias,
+            vmid=body.vmid,
         )
-        _log.info(
-            "test_vm_create_done", login=login, ws=ws, host=host.name, alias=alias, vmid=body.vmid
-        )
+    )
+    _create_tasks.add(task)
+    task.add_done_callback(_create_tasks.discard)
+    return JSONResponse({"job_id": job_id}, status_code=202)
 
-        # Message contextuel pour les agents (non-bloquant).
-        try:
-            user_cfg = await load_user(login)
-            ctx = build_host_context(
-                owner_login=login,
-                workspace_name=ws,
-                host_name=host.name,
-                alias=alias,
-                address=host.address,
-                culture=user_cfg.culture,
-            )
-            async with _get_engine().begin() as conn:
-                msg_id = await render_and_create(
-                    conn,
-                    key="test_host_available",
-                    culture=user_cfg.culture,
-                    owner_login=login,
-                    workspace_name=ws,
-                    msg_type="test_host",
-                    ctx=ctx,
-                )
-                if msg_id is not None:
-                    await set_test_host_message_id(host.name, msg_id, conn)
-        except Exception:
-            _log.warning("test_host_message_create_failed", host=host.name, exc_info=True)
 
-        yield (f"\n==> VM de test '{host.name}' creee et attachee au workspace '{ws}'\n").encode()
+@router.get("/workspaces/{ws}/test-vm/create/{job_id}")
+async def get_test_vm_create_progress(
+    ws: str,
+    job_id: str,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, Any]:
+    """Progression d'un job de création : log accumulé + statut (running|ok|failed).
 
-        async for msg in _init_vm_ssh(login, ws, host, node, alias):
-            yield msg
-
-        # Auto-start : uniquement si le SSH portail a bien été activé (host_cert_slug
-        # posé par _init_vm_ssh) — sinon les services compose ne sont pas déployables.
-        if host_cert_ready(load_global().hosts, host.name):
-            auto_user_cfg = await load_user(login)
-            async with _get_engine().begin() as conn:
-                async for line in csvc.deploy_auto_start_templates(
-                    conn,
-                    owner_login=login,
-                    secret_ns=auto_user_cfg.secret_ns,
-                    node_id=host.name,
-                ):
-                    yield line.encode()
-
-    return StreamingResponse(_stream(), media_type="text/plain; charset=utf-8")
+    L'IHM poll cet endpoint. Le job survit à la déconnexion cliente ; il est conservé
+    ~15 min après la fin pour la reconnexion, puis purgé.
+    """
+    job = _create_jobs.get(job_id)
+    if job is None or job.login != user.login:
+        raise HTTPException(status_code=404, detail="job de création introuvable")
+    return {"status": job.status, "log": job.text()}
 
 
 @router.delete("/workspaces/{ws}/test-vm/{host_name}", status_code=204)

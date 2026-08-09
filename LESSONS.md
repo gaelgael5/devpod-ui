@@ -38,7 +38,7 @@
 ## [config/api]
 - JAMAIS `save_global()` depuis un process externe (cache bootstrap vide → écrase la config réelle) : API admin du portail qui tourne, sinon UPDATE SQL ciblé + restart.
 - Modèle+DB ≠ configurable : vérifier que la route PUT existe ; avant un nouveau champ, vérifier qu'un existant ne porte pas la valeur ; update partiel via `model_fields_set` (jamais les défauts DTO).
-- Router : routes littérales AVANT paramétrées (`/x/readme` avant `/x/{name}`) ; `/data/.env` : doubler `$` (`$$`) ; clé YAML à tiret → `model_validator(mode="before")` ; `EVENT_TYPES` → sync `events/schemas.py` + 2 tests figés.
+- Router : routes littérales AVANT paramétrées (`/x/readme` avant `/x/{name}`) ; `/data/.env` : doubler `$` (`$$`) ; clé YAML à tiret → `model_validator(mode="before")` ; `EVENT_TYPES` → sync `events/schemas.py` + 2 tests figés. Op longue (provisioning) en `StreamingResponse` = le travail s'annule à la déconnexion client (mobile/4G surtout) → tâche de fond détachée + `job_id` + polling ; une mutation ne doit JAMAIS dépendre du maintien de la connexion.
 
 ## [observability/deploy]
 - Alloy `faro.receiver` n'écoute que `/collect` → `handle_path /faro/*` (retire le préfixe) ; les filtres `logs_query` doivent suivre les labels réellement posés par Alloy.
