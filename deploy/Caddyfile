@@ -33,7 +33,7 @@ http://{$BASE_DOMAIN} {
 # fail-closed, même garde que les workspaces). Termix conserve sa propre auth par
 # utilisateur derrière ce portillon. WS (terminal navigateur) : reverse_proxy gère
 # l'upgrade ; flush_interval -1 + timeouts 0 pour le streaming SSH interactif.
-http://termix.{$BASE_DOMAIN} {
+http://termix.yoops.org {
     forward_auth portal:8080 {
         uri /auth/caddy/verify
     }
