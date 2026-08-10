@@ -182,13 +182,18 @@ services:
     # ci-dessous) ; Termix construit son redirect vers termix.yoops.org/auth/callback.
     environment:
       PORT: "8080"
+      # OIDC entièrement paramétrable depuis /data/.env (résolu par `docker compose
+      # --env-file` au déploiement). Défauts calés sur le realm Keycloak `yoops` : la
+      # SEULE variable à poser dans /data/.env est TERMIX_OIDC_CLIENT_SECRET (le reste
+      # est overridable au besoin). Les endpoints dérivent de l'issuer (préfixe résolu
+      # + suffixe littéral) → un seul TERMIX_OIDC_ISSUER à changer si le realm diffère.
       OIDC_CLIENT_ID: "${TERMIX_OIDC_CLIENT_ID:-termix}"
       OIDC_CLIENT_SECRET: "${TERMIX_OIDC_CLIENT_SECRET:-}"
-      OIDC_ISSUER_URL: "https://security.yoops.org/realms/yoops"
-      OIDC_AUTHORIZATION_URL: "https://security.yoops.org/realms/yoops/protocol/openid-connect/auth"
-      OIDC_TOKEN_URL: "https://security.yoops.org/realms/yoops/protocol/openid-connect/token"
-      OIDC_USERINFO_URL: "https://security.yoops.org/realms/yoops/protocol/openid-connect/userinfo"
-      OIDC_SCOPES: "openid email profile"
+      OIDC_ISSUER_URL: "${TERMIX_OIDC_ISSUER:-https://security.yoops.org/realms/yoops}"
+      OIDC_AUTHORIZATION_URL: "${TERMIX_OIDC_ISSUER:-https://security.yoops.org/realms/yoops}/protocol/openid-connect/auth"
+      OIDC_TOKEN_URL: "${TERMIX_OIDC_ISSUER:-https://security.yoops.org/realms/yoops}/protocol/openid-connect/token"
+      OIDC_USERINFO_URL: "${TERMIX_OIDC_ISSUER:-https://security.yoops.org/realms/yoops}/protocol/openid-connect/userinfo"
+      OIDC_SCOPES: "${TERMIX_OIDC_SCOPES:-openid email profile}"
     volumes:
       - termix_data:/app/data
     ports:
