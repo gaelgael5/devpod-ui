@@ -27,24 +27,11 @@ http://{$BASE_DOMAIN} {
     }
 }
 
-# Termix (termix.{$BASE_DOMAIN}) : client SSH self-hosted, exposé derrière OIDC.
-# forward_auth interroge le portail (/auth/caddy/verify) : sans session OIDC valide
-# → 302 login ; rôle insuffisant → 403 ; sinon la requête passe vers Termix (§F-33
-# fail-closed, même garde que les workspaces). Termix conserve sa propre auth par
-# utilisateur derrière ce portillon. WS (terminal navigateur) : reverse_proxy gère
-# l'upgrade ; flush_interval -1 + timeouts 0 pour le streaming SSH interactif.
-http://termix.yoops.org {
-    forward_auth portal:8080 {
-        uri /auth/caddy/verify
-    }
-    reverse_proxy termix:8080 {
-        flush_interval -1
-        transport http {
-            read_timeout 0
-            write_timeout 0
-        }
-    }
-}
+# Termix (termix.yoops.org) : exposé HORS Caddy — le Cloudflare Tunnel pointe
+# directement sur le conteneur Termix (port hôte TERMIX_DEV_PORT). L'auth n'est PAS
+# déléguée au portail (cookie de session scellé sur base_domain, non transmis à un
+# autre parent que .yoops.org) : Termix fait son PROPRE OIDC contre Keycloak
+# (variables OIDC_* du service termix dans docker-compose.dev.yml).
 
 # Workspaces (ws-*.{$BASE_DOMAIN}) : routes ajoutées dynamiquement par le portail
 # via l'API admin Caddy (forward_auth interne + reverse_proxy vers node_ip:host_port),

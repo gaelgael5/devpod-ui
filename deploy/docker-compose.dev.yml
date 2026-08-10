@@ -176,8 +176,19 @@ services:
   termix:
     image: ghcr.io/lukegus/termix:latest
     restart: unless-stopped
+    # OIDC natif de Termix contre Keycloak (realm yoops). Provisioning par variables
+    # d'env (pas d'env_file : n'injecte QUE le secret résolu, pas tout /data/.env).
+    # Le Cloudflare Tunnel route termix.yoops.org → ce conteneur (port publié
+    # ci-dessous) ; Termix construit son redirect vers termix.yoops.org/auth/callback.
     environment:
       PORT: "8080"
+      OIDC_CLIENT_ID: "${TERMIX_OIDC_CLIENT_ID:-termix}"
+      OIDC_CLIENT_SECRET: "${TERMIX_OIDC_CLIENT_SECRET:-}"
+      OIDC_ISSUER_URL: "https://security.yoops.org/realms/yoops"
+      OIDC_AUTHORIZATION_URL: "https://security.yoops.org/realms/yoops/protocol/openid-connect/auth"
+      OIDC_TOKEN_URL: "https://security.yoops.org/realms/yoops/protocol/openid-connect/token"
+      OIDC_USERINFO_URL: "https://security.yoops.org/realms/yoops/protocol/openid-connect/userinfo"
+      OIDC_SCOPES: "openid email profile"
     volumes:
       - termix_data:/app/data
     ports:
