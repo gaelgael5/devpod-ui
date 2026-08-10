@@ -1595,7 +1595,8 @@
       "filterTesting": "Calling…",
       "filterStatus": "Status",
       "filterNoResult": "No call tested yet.",
-      "filterError": "Error"
+      "filterError": "Error",
+      "headersShared": "Headers shared with the Call tab (the apikey serves both filter and call)."
     },
     "runs": {
       "title": "History — {{label}}",

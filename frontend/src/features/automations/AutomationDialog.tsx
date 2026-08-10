@@ -413,6 +413,7 @@ export function AutomationDialog({
     const server = filterDetail.data?.servers?.[0]
     setFilterUrl(server ? `${server.replace(/\/+$/, '')}${op.path}` : op.url)
     if (op.body_skeleton != null) setFilterBody(JSON.stringify(op.body_skeleton, null, 2))
+    addAuthHeaders(op)
   }
 
   async function copyVariable(v: string) {
@@ -632,6 +633,13 @@ export function AutomationDialog({
                   rows={3}
                   className="font-mono text-xs"
                 />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <HeadersEditor headers={headers} setHeaders={setHeaders} />
+                <p className="text-xs text-muted-foreground">
+                  {t('automations.form.headersShared')}
+                </p>
               </div>
 
               <div>

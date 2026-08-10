@@ -1595,7 +1595,8 @@
       "filterTesting": "Appel…",
       "filterStatus": "Statut",
       "filterNoResult": "Aucun appel testé.",
-      "filterError": "Erreur"
+      "filterError": "Erreur",
+      "headersShared": "En-têtes partagés avec l'onglet Appel (l'apikey sert au filtre et à l'appel)."
     },
     "runs": {
       "title": "Historique — {{label}}",
