@@ -169,6 +169,22 @@ services:
     networks:
       - internal
 
+  # Termix — client SSH self-hosted (epic synchro config de connexion). Démarre
+  # avec la stack ; le portail l'alimentera via un contrat OpenAPI + un automate
+  # (aucune intégration en dur). Port interne 8080 (comme le portail) → publié sur
+  # un port hôte distinct paramétrable pour éviter la collision.
+  termix:
+    image: ghcr.io/lukegus/termix:latest
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+    volumes:
+      - termix_data:/app/data
+    ports:
+      - "${TERMIX_DEV_PORT:-8087}:8080"
+    networks:
+      - internal
+
 networks:
   internal:
     driver: bridge
@@ -180,3 +196,4 @@ volumes:
   loki_data:
   grafana_data:
   alloy_data:
+  termix_data:
