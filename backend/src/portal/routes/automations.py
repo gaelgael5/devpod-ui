@@ -403,6 +403,26 @@ async def list_event_variables(_: _Admin) -> dict[str, list[str]]:
     return variables_by_type()
 
 
+@router.get("/events")
+async def list_journal_events(
+    _: _Admin,
+    conn: _Conn,
+    limit: int = 50,
+    before_seq: int | None = None,
+    event_type: str | None = None,
+) -> list[dict[str, Any]]:
+    """Journal `app_event` (récent d'abord) : seq (= id de curseur), event_id, type, subject…
+
+    Paginé par `before_seq` (seq < before_seq). `event_type` filtre optionnel.
+    """
+    return await je.list_recent(
+        conn,
+        limit=max(1, min(limit, 200)),
+        before_seq=before_seq,
+        event_type=event_type or None,
+    )
+
+
 # ─── Secrets système (résolvables en tâche de fond) ───────────────────────────
 #
 # Les en-têtes d'automate résolus par le runner (KEK, sans PIN utilisateur)

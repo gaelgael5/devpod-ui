@@ -67,6 +67,23 @@ async def read_after(
     return [dict(r) for r in rows]
 
 
+async def list_recent(
+    conn: AsyncConnection,
+    *,
+    limit: int,
+    before_seq: int | None = None,
+    event_type: str | None = None,
+) -> list[dict[str, Any]]:
+    """Journal en ordre décroissant (récent d'abord) pour la vue admin. Paginé par `seq`."""
+    stmt = select(_ev).order_by(_ev.c.seq.desc()).limit(limit)
+    if before_seq is not None:
+        stmt = stmt.where(_ev.c.seq < before_seq)
+    if event_type:
+        stmt = stmt.where(_ev.c.event_type == event_type)
+    rows = (await conn.execute(stmt)).mappings().all()
+    return [dict(r) for r in rows]
+
+
 async def count_after(
     conn: AsyncConnection,
     *,

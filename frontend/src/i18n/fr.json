@@ -1649,6 +1649,16 @@
       "category": "Catégorie",
       "categoryPlaceholder": "ex. Termix, Interne…",
       "uncategorized": "Sans catégorie"
-    }
+    },
+    "events": {
+      "navLabel": "Journal d'events",
+      "title": "Journal d'events",
+      "intro": "Tous les events stockés dans le journal (app_event), récent d'abord. #seq = l'id de curseur des automates.",
+      "filter": "Type",
+      "allTypes": "— tous —",
+      "empty": "Aucun event."
+    },
+    "cursor": "curseur #{{seq}}",
+    "cursorHint": "Position du curseur de l'automate (dernier seq traité)"
   }
 }

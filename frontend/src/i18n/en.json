@@ -1649,6 +1649,16 @@
       "category": "Category",
       "categoryPlaceholder": "e.g. Termix, Internal…",
       "uncategorized": "Uncategorized"
-    }
+    },
+    "events": {
+      "navLabel": "Event journal",
+      "title": "Event journal",
+      "intro": "All events stored in the journal (app_event), newest first. #seq is the automations' cursor id.",
+      "filter": "Type",
+      "allTypes": "— all —",
+      "empty": "No event."
+    },
+    "cursor": "cursor #{{seq}}",
+    "cursorHint": "Automation cursor position (last processed seq)"
   }
 }

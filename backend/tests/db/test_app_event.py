@@ -120,3 +120,27 @@ async def test_purge_older_than(db_conn: AsyncConnection) -> None:
     assert await j.purge_older_than(db_conn, older_than=now - timedelta(days=1)) == 0
     assert await j.purge_older_than(db_conn, older_than=now + timedelta(days=1)) == 1
     assert await j.latest_seq(db_conn) == 0
+
+
+@pytest.mark.asyncio
+async def test_list_recent_desc_and_pagination(db_conn: AsyncConnection) -> None:
+    seqs = []
+    for i in range(3):
+        seqs.append(
+            await j.append(
+                db_conn,
+                event_id=f"e{i}",
+                event_type="user.created" if i == 1 else "workspace.created",
+                actor="alice",
+                occurred_at=_at(i),
+            )
+        )
+    # Récent d'abord.
+    recent = await j.list_recent(db_conn, limit=10)
+    assert [r["seq"] for r in recent[:3]] == sorted(seqs, reverse=True)
+    # Pagination par before_seq.
+    page = await j.list_recent(db_conn, limit=10, before_seq=seqs[1])
+    assert all(r["seq"] < seqs[1] for r in page)
+    # Filtre par type.
+    typed = await j.list_recent(db_conn, limit=10, event_type="user.created")
+    assert typed and all(r["event_type"] == "user.created" for r in typed)

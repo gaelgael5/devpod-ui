@@ -129,6 +129,9 @@ function Row({
           {automation.pending > 0 && (
             <Badge>{t('automations.pending', { n: automation.pending })}</Badge>
           )}
+          <Badge variant="outline" title={t('automations.cursorHint')}>
+            {t('automations.cursor', { seq: automation.last_seq })}
+          </Badge>
         </div>
         <div className="mt-1 flex flex-wrap gap-1">
           {automation.event_types.map((e) => (

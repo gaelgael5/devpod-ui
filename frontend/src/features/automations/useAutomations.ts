@@ -110,6 +110,19 @@ export interface TestCallResult {
   evaluation?: { passed?: boolean; matches?: unknown[]; error?: string }
 }
 
+export interface JournalEvent {
+  seq: number
+  event_id: string
+  event_type: string
+  actor: string
+  workspace: string | null
+  subject: Record<string, unknown>
+  dedup_key: string | null
+  occurred_at: string
+  consumed_by: string | null
+  created_at: string
+}
+
 export interface Run {
   id: string
   event_seq: number
@@ -222,6 +235,17 @@ export function useAutomations() {
   return useQuery<Automation[]>({
     queryKey: ['automations', 'list'],
     queryFn: () => apiFetchJson<Automation[]>(BASE),
+    refetchInterval: 15_000,
+  })
+}
+
+export function useJournalEvents(params: { eventType?: string; beforeSeq?: number } = {}) {
+  const qs = new URLSearchParams({ limit: '100' })
+  if (params.eventType) qs.set('event_type', params.eventType)
+  if (params.beforeSeq != null) qs.set('before_seq', String(params.beforeSeq))
+  return useQuery<JournalEvent[]>({
+    queryKey: ['automations', 'events', params.eventType ?? '', params.beforeSeq ?? 0],
+    queryFn: () => apiFetchJson<JournalEvent[]>(`${BASE}/events?${qs.toString()}`),
     refetchInterval: 15_000,
   })
 }
