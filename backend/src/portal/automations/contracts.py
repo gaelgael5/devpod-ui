@@ -170,7 +170,8 @@ def _body_skeleton(spec: dict[str, Any], op: dict[str, Any]) -> Any:
 def _auth_headers(spec: dict[str, Any], op: dict[str, Any]) -> list[dict[str, str]]:
     """En-têtes d'auth requis par l'opération (dérivés des securitySchemes).
 
-    Un scheme http/bearer → {header: Authorization, value_prefix: "Bearer "} ;
+    http/bearer, oauth2 et openIdConnect → {header: Authorization,
+    value_prefix: "Bearer "} (le jeton porteur, ex. l'apikey Termix `tmx_…`) ;
     apiKey in header → {header: <name>, value_prefix: ""}. Dédupliqué par header.
     """
     security = op.get("security")
@@ -192,9 +193,13 @@ def _auth_headers(spec: dict[str, Any], op: dict[str, Any]) -> list[dict[str, st
             if not isinstance(sch, dict):
                 continue
             header = value_prefix = ""
-            if sch.get("type") == "http" and str(sch.get("scheme", "")).lower() == "bearer":
+            sch_type = sch.get("type")
+            if sch_type == "http" and str(sch.get("scheme", "")).lower() == "bearer":
                 header, value_prefix = "Authorization", "Bearer "
-            elif sch.get("type") == "apiKey" and sch.get("in") == "header":
+            elif sch_type in ("oauth2", "openIdConnect"):
+                # Jeton porteur en Authorization: Bearer <token>.
+                header, value_prefix = "Authorization", "Bearer "
+            elif sch_type == "apiKey" and sch.get("in") == "header":
                 hn = sch.get("name")
                 if isinstance(hn, str):
                     header, value_prefix = hn, ""

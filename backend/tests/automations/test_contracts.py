@@ -129,3 +129,15 @@ def test_auth_headers_bearer_global() -> None:
 def test_auth_headers_apikey_operation_override() -> None:
     op = next(o for o in c.list_operations(_SPEC_AUTH) if o["operation_id"] == "createKey")
     assert op["auth_headers"] == [{"header": "X-Api-Key", "value_prefix": ""}]
+
+
+def test_auth_headers_oauth2_maps_to_bearer() -> None:
+    # Termix : la sécurité OAuth2 = jeton porteur (apikey tmx_…) en Authorization.
+    spec = {
+        "openapi": "3.0.0",
+        "security": [{"oauth": []}],
+        "components": {"securitySchemes": {"oauth": {"type": "oauth2", "flows": {}}}},
+        "paths": {"/users/list": {"get": {"operationId": "listUsers"}}},
+    }
+    op = next(o for o in c.list_operations(spec) if o["operation_id"] == "listUsers")
+    assert op["auth_headers"] == [{"header": "Authorization", "value_prefix": "Bearer "}]
