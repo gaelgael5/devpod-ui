@@ -133,6 +133,23 @@ async def test_delete_system_secret_calls_execute() -> None:
     assert conn.execute.call_count == 1
 
 
+@pytest.mark.asyncio
+async def test_list_system_secrets_maps_rows_without_value() -> None:
+    from portal.secrets.system import list_system_secrets
+
+    conn = AsyncMock()
+    rows = [
+        {"slug": "termix", "label": "Termix", "secret_type": "CI_PASSWORD", "storage_type": "local"}
+    ]
+    result = MagicMock()
+    result.mappings.return_value.all.return_value = rows
+    conn.execute.return_value = result
+
+    out = await list_system_secrets(conn)
+    assert out == rows
+    assert all("secret_value_local" not in r for r in out)  # jamais la valeur
+
+
 # ── store/reveal cert ─────────────────────────────────────────────────────────
 
 

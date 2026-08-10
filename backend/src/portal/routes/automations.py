@@ -7,6 +7,7 @@ sont déclarées AVANT `/{automation_id}` pour ne pas être capturées par le pa
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -23,6 +24,7 @@ from ..db import automation_run as ar
 from ..db import openapi_contract as oc
 from ..db.engine import get_conn
 from ..events.models import EVENT_TYPES
+from ..secrets import system as sysec
 
 router = APIRouter(tags=["automations"])
 
@@ -57,6 +59,11 @@ class HeaderIn(BaseModel):
     name: str
     value: str | None = None
     secret_ref: str | None = None
+    # Préfixe concaténé devant la valeur/secret résolu (ex. « Bearer »).
+    value_prefix: str = ""
+    # required : en-tête d'auth du contrat ; enabled : ligne active à l'appel.
+    required: bool = False
+    enabled: bool = True
 
 
 class AutomationCreate(BaseModel):
@@ -94,6 +101,17 @@ class ReorderIn(BaseModel):
     ordered_ids: list[str]
 
 
+# Slug d'un secret système (réf `${system://<slug>}`) : minuscules, chiffres, - et _.
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+class SystemSecretIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    slug: str
+    label: str
+    value: str
+
+
 class InjectIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal["user", "host", "workspace", "session"]
@@ -111,14 +129,25 @@ def _validate(event_types: list[str], http_method: str) -> None:
 
 
 def _headers_payload(headers: list[HeaderIn]) -> list[dict[str, Any]]:
+    """Normalise les en-têtes. value et secret_ref sont exclusifs ; les deux vides =
+    stub d'auth non encore configuré (autorisé, ignoré à l'appel)."""
     out: list[dict[str, Any]] = []
     for h in headers:
-        if (h.value is None) == (h.secret_ref is None):
+        if h.value is not None and h.secret_ref is not None:
             raise HTTPException(
                 status_code=422,
-                detail=f"en-tête {h.name!r} : value XOR secret_ref requis",
+                detail=f"en-tête {h.name!r} : value et secret_ref exclusifs",
             )
-        out.append({"name": h.name, "value": h.value, "secret_ref": h.secret_ref})
+        out.append(
+            {
+                "name": h.name,
+                "value": h.value,
+                "secret_ref": h.secret_ref,
+                "value_prefix": h.value_prefix,
+                "required": h.required,
+                "enabled": h.enabled,
+            }
+        )
     return out
 
 
@@ -248,6 +277,38 @@ async def reorder(body: ReorderIn, _: _Admin, conn: _Conn) -> dict[str, bool]:
 async def list_event_types(_: _Admin) -> list[str]:
     """Types d'events déclencheurs disponibles (registre fermé) pour l'IHM."""
     return sorted(EVENT_TYPES)
+
+
+# ─── Secrets système (résolvables en tâche de fond) ───────────────────────────
+#
+# Les en-têtes d'automate résolus par le runner (KEK, sans PIN utilisateur)
+# référencent ces secrets via `${system://<slug>}`. La valeur n'est jamais relue.
+
+
+@router.get("/secrets")
+async def list_system_secrets(_: _Admin, conn: _Conn) -> list[dict[str, str]]:
+    return await sysec.list_system_secrets(conn)
+
+
+@router.post("/secrets", status_code=201)
+async def create_system_secret(body: SystemSecretIn, _: _Admin, conn: _Conn) -> dict[str, str]:
+    if not _SLUG_RE.match(body.slug):
+        raise HTTPException(status_code=422, detail=f"slug invalide : {body.slug!r}")
+    await sysec.ensure_system_user(conn)
+    await sysec.store_system_secret(
+        slug=body.slug,
+        label=body.label,
+        value=body.value,
+        storage_type="local",
+        vault_identifier="",
+        conn=conn,
+    )
+    return {"slug": body.slug, "ref": f"${{system://{body.slug}}}"}
+
+
+@router.delete("/secrets/{slug}", status_code=204)
+async def delete_system_secret(slug: str, _: _Admin, conn: _Conn) -> None:
+    await sysec.delete_system_secret(slug, conn)
 
 
 # ─── Automates ────────────────────────────────────────────────────────────────

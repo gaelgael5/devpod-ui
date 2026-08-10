@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from portal.automations import runner as r
 
 
@@ -61,3 +63,23 @@ def test_render_template_substitutes_known_leaves_unknown() -> None:
     assert '"addr":"root@1.2.3.4"' in out
     assert '"who":"alice"' in out
     assert '"x":"{missing}"' in out  # inconnu laissé intact
+
+
+def test_system_ref_regex_matches_slug() -> None:
+    m = r._SYSTEM_REF_RE.match("${system://termix-apikey}")
+    assert m is not None and m.group(1) == "termix-apikey"
+    # Rejette les slugs invalides et les autres schémas.
+    assert r._SYSTEM_REF_RE.match("${vault://foo}") is None
+    assert r._SYSTEM_REF_RE.match("${system://Bad Slug}") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_headers_value_prefix_and_flags() -> None:
+    headers = [
+        {"name": "X-Api-Key", "value": "abc", "secret_ref": None, "value_prefix": ""},
+        {"name": "Authorization", "value": "tok", "secret_ref": None, "value_prefix": "Bearer "},
+        {"name": "X-Off", "value": "z", "secret_ref": None, "enabled": False},
+        {"name": "X-Stub", "value": None, "secret_ref": None},  # auth non configuré
+    ]
+    out = await r._resolve_headers(headers)
+    assert out == {"X-Api-Key": "abc", "Authorization": "Bearer tok"}

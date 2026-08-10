@@ -1082,10 +1082,11 @@ automation_header = Table(
     Column("name", Text, nullable=False),
     Column("value", Text, nullable=True),
     Column("secret_ref", Text, nullable=True),
-    CheckConstraint(
-        "(value IS NULL) <> (secret_ref IS NULL)",
-        name="ck_automation_header_value_xor_secret",
-    ),
+    # Préfixe de valeur concaténé devant le secret résolu (ex. « Bearer »).
+    Column("value_prefix", Text, nullable=False, server_default=""),
+    # required : en-tête d'auth obligatoire (dérivé du contrat) ; enabled : ligne active.
+    Column("required", Boolean, nullable=False, server_default="false"),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
     Index("idx_automation_header_by_automation", "automation_id"),
 )
 

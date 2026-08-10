@@ -76,8 +76,12 @@ def render_template(template: str, context: dict[str, str]) -> str:
     return _VAR_RE.sub(_sub, template)
 
 
+# Référence de secret système résolvable en tâche de fond (KEK, sans PIN utilisateur).
+_SYSTEM_REF_RE = re.compile(r"^\$\{system://([a-z0-9][a-z0-9_-]*)\}$")
+
+
 def _resolve_headers_blocking(headers: list[dict[str, Any]]) -> dict[str, str]:
-    """Résout les en-têtes (value direct ou secret_ref vault global). Bloquant."""
+    """Résout les secret_ref vault globaux → {name: valeur révélée}. Bloquant."""
     from ..config.store import load_global, safe_user_path
     from ..secrets.factory import create_backend
     from ..secrets.resolver import Scope, resolve
@@ -94,11 +98,42 @@ def _resolve_headers_blocking(headers: list[dict[str, Any]]) -> dict[str, str]:
     scope = Scope(kind="global")
     out: dict[str, str] = {}
     for hdr in headers:
-        if hdr.get("secret_ref"):
-            val = resolve(hdr["secret_ref"], scope, backend)
-            out[hdr["name"]] = val.reveal() if isinstance(val, Secret) else str(val)
+        val = resolve(hdr["secret_ref"], scope, backend)
+        out[hdr["name"]] = val.reveal() if isinstance(val, Secret) else str(val)
+    return out
+
+
+async def _resolve_headers(headers: list[dict[str, Any]]) -> dict[str, str]:
+    """Résout les en-têtes actifs. `${system://slug}` via KEK (fond), sinon vault global.
+
+    La valeur finale = `value_prefix` + secret/valeur (ex. « Bearer » + token).
+    En-têtes désactivés ou sans valeur ni secret (stub d'auth) → ignorés.
+    """
+    from ..secrets.system import reveal_system_secret
+
+    out: dict[str, str] = {}
+    vault_headers: list[dict[str, Any]] = []
+    for hdr in headers:
+        if not hdr.get("enabled", True):
+            continue
+        name = hdr["name"]
+        prefix = hdr.get("value_prefix") or ""
+        ref = hdr.get("secret_ref")
+        if ref:
+            m = _SYSTEM_REF_RE.match(ref)
+            if m:
+                async with _get_engine().begin() as conn:
+                    secret = await reveal_system_secret(m.group(1), conn)
+                out[name] = prefix + secret
+            else:
+                vault_headers.append(hdr)
         elif hdr.get("value") is not None:
-            out[hdr["name"]] = hdr["value"]
+            out[name] = prefix + str(hdr["value"])
+    if vault_headers:
+        revealed = await asyncio.to_thread(_resolve_headers_blocking, vault_headers)
+        for hdr in vault_headers:
+            if hdr["name"] in revealed:
+                out[hdr["name"]] = (hdr.get("value_prefix") or "") + revealed[hdr["name"]]
     return out
 
 
@@ -122,7 +157,7 @@ async def _execute(
     preview = f"{method} {url}" + (f"\n{body}" if body else "")
 
     try:
-        headers = await asyncio.to_thread(_resolve_headers_blocking, automation["headers"])
+        headers = await _resolve_headers(automation["headers"])
         if body is not None:
             headers.setdefault("content-type", "application/json")
         resp = await pinned_request(

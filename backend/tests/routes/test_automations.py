@@ -83,20 +83,50 @@ def test_validate_accepts_valid() -> None:
     _validate(["test_server.updated", "workspace.updated"], "put")
 
 
-def test_headers_payload_requires_value_xor_secret() -> None:
+def test_headers_payload_rejects_value_and_secret_together() -> None:
     with pytest.raises(HTTPException):
-        _headers_payload([HeaderIn(name="A")])  # ni value ni secret
-    with pytest.raises(HTTPException):
-        _headers_payload([HeaderIn(name="A", value="v", secret_ref="${vault://x}")])  # les deux
+        _headers_payload([HeaderIn(name="A", value="v", secret_ref="${vault://x}")])
 
 
-def test_headers_payload_accepts_xor() -> None:
+def test_headers_payload_allows_unconfigured_stub() -> None:
+    # Ni value ni secret = stub d'auth non configuré : accepté (ignoré à l'appel).
+    out = _headers_payload([HeaderIn(name="A", required=True, value_prefix="Bearer ")])
+    assert out == [
+        {
+            "name": "A",
+            "value": None,
+            "secret_ref": None,
+            "value_prefix": "Bearer ",
+            "required": True,
+            "enabled": True,
+        }
+    ]
+
+
+def test_headers_payload_carries_prefix_and_flags() -> None:
     out = _headers_payload(
-        [HeaderIn(name="A", value="v"), HeaderIn(name="B", secret_ref="${vault://x}")]
+        [
+            HeaderIn(name="A", value="v"),
+            HeaderIn(name="B", secret_ref="${system://k}", value_prefix="Bearer ", enabled=False),
+        ]
     )
     assert out == [
-        {"name": "A", "value": "v", "secret_ref": None},
-        {"name": "B", "value": None, "secret_ref": "${vault://x}"},
+        {
+            "name": "A",
+            "value": "v",
+            "secret_ref": None,
+            "value_prefix": "",
+            "required": False,
+            "enabled": True,
+        },
+        {
+            "name": "B",
+            "value": None,
+            "secret_ref": "${system://k}",
+            "value_prefix": "Bearer ",
+            "required": False,
+            "enabled": False,
+        },
     ]
 
 

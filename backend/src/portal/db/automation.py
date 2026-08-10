@@ -124,7 +124,7 @@ async def get_headers(conn: AsyncConnection, automation_id: str) -> list[dict[st
 async def set_headers(
     conn: AsyncConnection, automation_id: str, headers: list[dict[str, Any]]
 ) -> None:
-    """Remplace les en-têtes. Chaque entrée : name + (value XOR secret_ref)."""
+    """Remplace les en-têtes. Chaque entrée : name + value|secret_ref + prefix/flags."""
     await conn.execute(delete(_h).where(_h.c.automation_id == automation_id))
     for hdr in headers:
         await conn.execute(
@@ -134,6 +134,9 @@ async def set_headers(
                 name=hdr["name"],
                 value=hdr.get("value"),
                 secret_ref=hdr.get("secret_ref"),
+                value_prefix=hdr.get("value_prefix") or "",
+                required=bool(hdr.get("required", False)),
+                enabled=bool(hdr.get("enabled", True)),
             )
         )
 

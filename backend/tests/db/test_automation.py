@@ -98,13 +98,23 @@ async def test_headers_value_and_secret(db_conn: AsyncConnection) -> None:
         aid,
         [
             {"name": "X-Env", "value": "prod"},
-            {"name": "Authorization", "secret_ref": "${vault://termix-token}"},
+            {
+                "name": "Authorization",
+                "secret_ref": "${system://termix-token}",
+                "value_prefix": "Bearer ",
+                "required": True,
+                "enabled": False,
+            },
         ],
     )
     hdrs = await a.get_headers(db_conn, aid)
     by_name = {h["name"]: h for h in hdrs}
     assert by_name["X-Env"]["value"] == "prod" and by_name["X-Env"]["secret_ref"] is None
-    assert by_name["Authorization"]["secret_ref"] == "${vault://termix-token}"
+    assert by_name["X-Env"]["value_prefix"] == "" and by_name["X-Env"]["enabled"] is True
+    auth = by_name["Authorization"]
+    assert auth["secret_ref"] == "${system://termix-token}"
+    assert auth["value_prefix"] == "Bearer " and auth["required"] is True
+    assert auth["enabled"] is False
 
 
 @pytest.mark.asyncio
