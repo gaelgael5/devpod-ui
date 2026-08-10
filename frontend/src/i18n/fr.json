@@ -1590,7 +1590,7 @@
       "secretValue": "Valeur",
       "createSecret": "Créer",
       "secretCreated": "Secret créé",
-      "filterIntro": "Appel d'API préliminaire (ex. « l'utilisateur existe-t-il ? »). Le résultat est affiché ; l'évaluation viendra plus tard.",
+      "filterIntro": "Appel d'API préliminaire (ex. « l'utilisateur existe-t-il ? »). On teste l'appel, puis on pose une règle d'évaluation qui conditionne l'exécution de l'onglet Appel.",
       "filterTest": "Tester l'appel",
       "filterTesting": "Appel…",
       "filterStatus": "Statut",
@@ -1611,7 +1611,8 @@
       "evalResult": "Évaluation",
       "evalPass": "✓ passe",
       "evalFail": "✗ ne passe pas",
-      "evalMatches": "match(s)"
+      "evalMatches": "match(s)",
+      "evalTest": "Tester l'appel + l'évaluation"
     },
     "runs": {
       "title": "Historique — {{label}}",

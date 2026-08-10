@@ -20,6 +20,7 @@ import {
   useCreateAutomation,
   useCreateSystemSecret,
   useEventTypes,
+  useEventVariables,
   useSystemSecrets,
   useTestCall,
   useUpdateAutomation,
@@ -30,20 +31,6 @@ import {
 } from './useAutomations'
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
-
-// Variables de contexte proposées comme raccourcis (event courant → template).
-// `user.*` = propriétés de la table user (events user.*) ; `subject.*` = autres events.
-const VARIABLES = [
-  'actor',
-  'workspace',
-  'type',
-  'user.login',
-  'user.sub',
-  'user.identity',
-  'user.email',
-  'subject.host_name',
-  'subject.address',
-]
 
 const SELECT_CLS =
   'h-9 w-full rounded-md border border-input bg-background px-2 text-sm ' +
@@ -58,21 +45,24 @@ function slugify(s: string): string {
     .slice(0, 64)
 }
 
-// Palette de variables copiables (event source) — partagée Filtre / Appel.
+// Palette de variables copiables, contextuelles à l'event — partagée Filtre / Appel.
 function VariablesPalette({
+  variables,
   copied,
   onCopy,
 }: {
+  variables: string[]
   copied: string | null
   onCopy: (v: string) => void
 }) {
   const { t } = useTranslation()
+  if (variables.length === 0) return null
   return (
     <div className="flex flex-wrap justify-end gap-1">
       <span className="mr-1 text-xs text-muted-foreground">
         {t('automations.form.variables')} :
       </span>
-      {VARIABLES.map((v) => (
+      {variables.map((v) => (
         <button
           key={v}
           type="button"
@@ -362,9 +352,11 @@ export function AutomationDialog({
   const isEdit = automation !== null
   const contracts = useContracts()
   const eventTypes = useEventTypes()
+  const eventVariables = useEventVariables()
   const create = useCreateAutomation()
   const update = useUpdateAutomation()
-  const testCall = useTestCall()
+  const testCallRaw = useTestCall() // appel seul (après les headers)
+  const testCallEval = useTestCall() // appel + évaluation (après le filtre)
 
   const [tab, setTab] = useState('general')
   const [label, setLabel] = useState(automation?.label ?? '')
@@ -466,6 +458,14 @@ export function AutomationDialog({
     }
   }
 
+  // Variables disponibles = union des variables des events sélectionnés (contextuel).
+  const contextualVariables = useMemo(() => {
+    const map = eventVariables.data ?? {}
+    const set = new Set<string>()
+    for (const ev of events) for (const v of map[ev] ?? []) set.add(v)
+    return [...set]
+  }, [eventVariables.data, events])
+
   // Variables {var} référencées dans l'appel de filtre + sa règle (pour les valeurs de test).
   const usedVars = useMemo(() => {
     const found = new Set<string>()
@@ -475,9 +475,22 @@ export function AutomationDialog({
     return [...found]
   }, [filterUrl, filterBody, filterJsonpath, filterExpected])
 
-  function runTest() {
+  // Test 1 : appel seul (après les headers) — n'écrit que le payload.
+  function runCall() {
     if (!filterUrl.trim()) return
-    testCall.mutate({
+    testCallRaw.mutate({
+      url: filterUrl.trim(),
+      http_method: filterMethod,
+      headers: draftsToRows(headers),
+      body: filterBody.trim() || null,
+      variables: sampleVars,
+    })
+  }
+
+  // Test 2 : appel + évaluation (après le filtre) — renvoie passe/échec.
+  function runEval() {
+    if (!filterUrl.trim()) return
+    testCallEval.mutate({
       url: filterUrl.trim(),
       http_method: filterMethod,
       headers: draftsToRows(headers),
@@ -683,7 +696,7 @@ export function AutomationDialog({
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="fi-body">{t('automations.form.bodyTemplate')}</Label>
-                  <VariablesPalette copied={copiedVar} onCopy={copyVariable} />
+                  <VariablesPalette variables={contextualVariables} copied={copiedVar} onCopy={copyVariable} />
                 </div>
                 <Textarea
                   id="fi-body"
@@ -701,6 +714,42 @@ export function AutomationDialog({
                 </p>
               </div>
 
+              {/* Test 1 : appel seul → écrit le payload de retour juste en dessous. */}
+              <div className="flex flex-col gap-2">
+                <div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={runCall}
+                    disabled={testCallRaw.isPending || !filterUrl.trim()}
+                  >
+                    {testCallRaw.isPending
+                      ? t('automations.form.filterTesting')
+                      : t('automations.form.filterTest')}
+                  </Button>
+                </div>
+                {testCallRaw.data ? (
+                  testCallRaw.data.ok ? (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">
+                        {t('automations.form.filterStatus')} : {testCallRaw.data.status_code}
+                      </p>
+                      <pre className="max-h-56 overflow-auto rounded-md border bg-muted p-2 font-mono text-xs">
+                        {testCallRaw.data.body}
+                      </pre>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-destructive">
+                      {t('automations.form.filterError')} : {testCallRaw.data.error}
+                    </p>
+                  )
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {t('automations.form.filterNoResult')}
+                  </p>
+                )}
+              </div>
+
               {/* Règle d'évaluation : JSONPath sur la réponse + opérateur booléen. */}
               <div className="flex flex-col gap-3 rounded-md border p-3">
                 <Label>{t('automations.form.evaluation')}</Label>
@@ -713,7 +762,7 @@ export function AutomationDialog({
                     id="fi-jsonpath"
                     value={filterJsonpath}
                     onChange={(e) => setFilterJsonpath(e.target.value)}
-                    placeholder={'$.users[?(@.username=="{subject.login}")]'}
+                    placeholder={'$.users[?(@.username=="{event.login}")]'}
                     className="font-mono text-xs"
                   />
                 </div>
@@ -769,58 +818,58 @@ export function AutomationDialog({
                 )}
               </div>
 
-              <div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={runTest}
-                  disabled={testCall.isPending || !filterUrl.trim()}
-                >
-                  {testCall.isPending
-                    ? t('automations.form.filterTesting')
-                    : t('automations.form.filterTest')}
-                </Button>
-              </div>
-
-              <div>
-                {testCall.data ? (
-                  testCall.data.ok ? (
+              {/* Test 2 : appel + évaluation → renvoie passe/échec de la règle. */}
+              <div className="flex flex-col gap-2">
+                <div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={runEval}
+                    disabled={testCallEval.isPending || !filterUrl.trim() || !filterOperator}
+                  >
+                    {testCallEval.isPending
+                      ? t('automations.form.filterTesting')
+                      : t('automations.form.evalTest')}
+                  </Button>
+                </div>
+                {testCallEval.data ? (
+                  testCallEval.data.ok ? (
                     <div className="space-y-1">
                       <p className="text-xs text-muted-foreground">
-                        {t('automations.form.filterStatus')} : {testCall.data.status_code}
+                        {t('automations.form.filterStatus')} : {testCallEval.data.status_code}
                       </p>
-                      {testCall.data.evaluation && (
+                      {testCallEval.data.evaluation && (
                         <p className="text-xs">
                           {t('automations.form.evalResult')} :{' '}
-                          {testCall.data.evaluation.error ? (
+                          {testCallEval.data.evaluation.error ? (
                             <span className="text-destructive">
-                              {testCall.data.evaluation.error}
+                              {testCallEval.data.evaluation.error}
                             </span>
                           ) : (
                             <span
                               className={
-                                testCall.data.evaluation.passed
+                                testCallEval.data.evaluation.passed
                                   ? 'font-medium text-green-600'
                                   : 'font-medium text-amber-600'
                               }
                             >
-                              {testCall.data.evaluation.passed
+                              {testCallEval.data.evaluation.passed
                                 ? t('automations.form.evalPass')
                                 : t('automations.form.evalFail')}
                               {' · '}
-                              {testCall.data.evaluation.matches?.length ?? 0}{' '}
+                              {testCallEval.data.evaluation.matches?.length ?? 0}{' '}
                               {t('automations.form.evalMatches')}
                             </span>
                           )}
                         </p>
                       )}
                       <pre className="max-h-56 overflow-auto rounded-md border bg-muted p-2 font-mono text-xs">
-                        {testCall.data.body}
+                        {testCallEval.data.body}
                       </pre>
                     </div>
                   ) : (
                     <p className="text-xs text-destructive">
-                      {t('automations.form.filterError')} : {testCall.data.error}
+                      {t('automations.form.filterError')} : {testCallEval.data.error}
                     </p>
                   )
                 ) : (
@@ -894,7 +943,7 @@ export function AutomationDialog({
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="au-body">{t('automations.form.bodyTemplate')}</Label>
-                  <VariablesPalette copied={copiedVar} onCopy={copyVariable} />
+                  <VariablesPalette variables={contextualVariables} copied={copiedVar} onCopy={copyVariable} />
                 </div>
                 <JsonEditor value={bodyTemplate} onChange={setBodyTemplate} />
                 <p className="text-xs text-muted-foreground">{t('automations.form.bodyHint')}</p>

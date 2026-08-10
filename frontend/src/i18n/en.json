@@ -1590,7 +1590,7 @@
       "secretValue": "Value",
       "createSecret": "Create",
       "secretCreated": "Secret created",
-      "filterIntro": "Preliminary API call (e.g. “does the user exist?”). The result is shown; evaluation comes later.",
+      "filterIntro": "Preliminary API call (e.g. “does the user exist?”). Test the call, then set an evaluation rule that gates the Call tab.",
       "filterTest": "Test call",
       "filterTesting": "Calling…",
       "filterStatus": "Status",
@@ -1611,7 +1611,8 @@
       "evalResult": "Evaluation",
       "evalPass": "✓ passes",
       "evalFail": "✗ does not pass",
-      "evalMatches": "match(es)"
+      "evalMatches": "match(es)",
+      "evalTest": "Test call + evaluation"
     },
     "runs": {
       "title": "History — {{label}}",

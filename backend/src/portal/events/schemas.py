@@ -253,3 +253,20 @@ def schema_versions(event_code: str) -> list[int] | None:
     if event_code not in DATA_SCHEMA_BY_CODE:
         return None
     return [_EVENT_VERSION]
+
+
+def variables_for(event_type: str) -> list[str]:
+    """Variables de template disponibles pour un event (namespace `event.*`).
+
+    Dérivées du dataSchema : `event.type` + un `event.<champ>` par propriété métier.
+    Contextuel : `event.workspace` n'apparaît que pour les events qui en portent un
+    (schéma), pas pour `user.created` par exemple.
+    """
+    schema = _DATA_SCHEMA_BY_TYPE.get(event_type)
+    props = list(schema["properties"].keys()) if schema else []
+    return ["event.type", *(f"event.{p}" for p in props)]
+
+
+def variables_by_type() -> dict[str, list[str]]:
+    """Catalogue {type interne → variables} pour l'IHM (palette contextuelle)."""
+    return {t: variables_for(t) for t in sorted(EVENT_TYPES)}

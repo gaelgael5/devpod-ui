@@ -395,6 +395,14 @@ async def list_event_types(_: _Admin) -> list[str]:
     return sorted(EVENT_TYPES)
 
 
+@router.get("/event-variables")
+async def list_event_variables(_: _Admin) -> dict[str, list[str]]:
+    """Variables de template par type d'event (`event.*`) — palette contextuelle IHM."""
+    from ..events.schemas import variables_by_type
+
+    return variables_by_type()
+
+
 # ─── Secrets système (résolvables en tâche de fond) ───────────────────────────
 #
 # Les en-têtes d'automate résolus par le runner (KEK, sans PIN utilisateur)

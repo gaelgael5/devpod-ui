@@ -59,12 +59,18 @@ def build_context(event: dict[str, Any]) -> dict[str, str]:
         "type": str(event.get("event_type", "")),
         "seq": str(event.get("seq", "")),
     }
+    # Namespace canonique `event.*` : racine + champs du subject, tous préfixés.
+    ctx["event.type"] = ctx["type"]
+    ctx["event.actor"] = ctx["actor"]
+    ctx["event.workspace"] = ctx["workspace"]
+    ctx["event.seq"] = ctx["seq"]
     subject = event.get("subject") or {}
     for key, value in subject.items():
-        ctx[f"subject.{key}"] = "" if value is None else str(value)
-        ctx.setdefault(key, "" if value is None else str(value))
-    # Namespace `user.*` (propriétés de la table user) pour les events user.* :
-    # login/sub/identity/email garantis (défaut "") — aucun {user.x} laissé littéral.
+        sval = "" if value is None else str(value)
+        ctx[f"subject.{key}"] = sval
+        ctx.setdefault(key, sval)
+        ctx[f"event.{key}"] = sval  # forme canonique exposée à la palette
+    # Alias `user.*` (compat des templates existants sur events user.*).
     if str(event.get("event_type", "")).startswith("user."):
         for prop in ("login", "sub", "identity", "email"):
             raw = subject.get(prop)

@@ -103,3 +103,17 @@ def test_revision_changes_when_a_schema_changes(monkeypatch: pytest.MonkeyPatch)
     mutated = {**schemas.DATA_SCHEMA_BY_CODE[code], "title": "changed"}
     monkeypatch.setitem(schemas.DATA_SCHEMA_BY_CODE, code, mutated)
     assert schemas.catalog()["revision"] != before
+
+
+def test_variables_for_is_event_prefixed_and_contextual() -> None:
+    user_vars = schemas.variables_for("user.created")
+    assert user_vars[0] == "event.type"
+    assert "event.actor" in user_vars
+    assert "event.sub" in user_vars and "event.identity" in user_vars
+    assert "event.workspace" not in user_vars  # user.created n'a pas de workspace
+    ws_vars = schemas.variables_for("workspace.created")
+    assert "event.workspace" in ws_vars  # contextuel : présent ici
+
+
+def test_variables_by_type_covers_registry() -> None:
+    assert set(schemas.variables_by_type()) == set(EVENT_TYPES)

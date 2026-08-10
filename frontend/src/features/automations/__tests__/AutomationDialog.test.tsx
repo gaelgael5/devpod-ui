@@ -24,6 +24,13 @@ function mockRefs() {
       ]),
     ),
     http.get('/admin/automations/secrets', () => HttpResponse.json([])),
+    http.get('/admin/automations/event-variables', () =>
+      HttpResponse.json({
+        'user.created': ['event.type', 'event.actor', 'event.login', 'event.sub'],
+        'user.deleted': ['event.type', 'event.actor', 'event.login', 'event.sub'],
+        'test_server.updated': ['event.type', 'event.actor', 'event.host_name'],
+      }),
+    ),
   )
 }
 
@@ -56,6 +63,23 @@ describe('AutomationDialog', () => {
     const labelInput = getByLabelText('Label')
     await user.type(labelInput, 'Autre')
     expect(slugInput.value).toBe('custom') // plus dérivé après édition manuelle
+  })
+
+  it('shows event-contextual variables only when a matching event is selected', async () => {
+    mockRefs()
+    const user = userEvent.setup()
+    const { findByText, getByRole, queryByText } = renderWithProviders(
+      <AutomationDialog automation={null} open onOpenChange={() => {}} />,
+    )
+    await user.click(getByRole('tab', { name: 'Call' }))
+    // Aucun event coché → pas de variable event.*
+    expect(queryByText('{event.sub}')).toBeNull()
+    // On coche user.created dans l'onglet General
+    await user.click(getByRole('tab', { name: 'General' }))
+    await user.click(await findByText('user.created'))
+    await user.click(getByRole('tab', { name: 'Call' }))
+    expect(await findByText('{event.sub}')).toBeInTheDocument()
+    expect(queryByText('{event.host_name}')).toBeNull() // pas dans user.created
   })
 
   it('reveals the expected value field only for equals/not_equals operators', async () => {

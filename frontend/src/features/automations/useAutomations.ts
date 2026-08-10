@@ -210,6 +210,14 @@ export function useEventTypes() {
   })
 }
 
+export function useEventVariables() {
+  return useQuery<Record<string, string[]>>({
+    queryKey: ['automations', 'event-variables'],
+    queryFn: () => apiFetchJson<Record<string, string[]>>(`${BASE}/event-variables`),
+    staleTime: 300_000,
+  })
+}
+
 export function useAutomations() {
   return useQuery<Automation[]>({
     queryKey: ['automations', 'list'],

@@ -45,7 +45,7 @@ def test_dedup_key_prefers_natural_then_seq() -> None:
     assert r.dedup_key(_event(dedup_key=None, seq=42)) == "seq:42"
 
 
-def test_build_context_user_namespace() -> None:
+def test_build_context_event_namespace() -> None:
     ev = {
         "seq": 1,
         "event_type": "user.created",
@@ -53,10 +53,13 @@ def test_build_context_user_namespace() -> None:
         "subject": {"login": "alice", "sub": "S-1", "email": "a@x.org", "identity": None},
     }
     ctx = r.build_context(ev)
-    assert ctx["user.login"] == "alice"
-    assert ctx["user.sub"] == "S-1"
-    assert ctx["user.email"] == "a@x.org"
-    assert ctx["user.identity"] == ""  # None → "" (jamais {user.identity} littéral)
+    assert ctx["event.type"] == "user.created"
+    assert ctx["event.actor"] == "alice"
+    assert ctx["event.login"] == "alice"
+    assert ctx["event.sub"] == "S-1"
+    assert ctx["event.email"] == "a@x.org"
+    assert ctx["event.identity"] == ""  # None → "" (jamais littéral)
+    assert ctx["user.sub"] == "S-1"  # alias de compat conservé
 
 
 def test_build_context_no_user_namespace_for_non_user_event() -> None:
