@@ -1605,7 +1605,10 @@
       "empty": "No contracts.",
       "editTitle": "Edit contract",
       "editUrlHint": "Changing the URL re-fetches the spec. Clearing the URL freezes the contract (manual import).",
-      "updated": "Contract updated"
+      "updated": "Contract updated",
+      "category": "Category",
+      "categoryPlaceholder": "e.g. Termix, Internal…",
+      "uncategorized": "Uncategorized"
     }
   }
 }

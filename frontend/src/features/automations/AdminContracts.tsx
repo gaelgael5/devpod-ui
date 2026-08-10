@@ -29,11 +29,15 @@ function ImportDialog() {
   const create = useCreateContract()
   const [open, setOpen] = useState(false)
   const [label, setLabel] = useState('')
+  const [category, setCategory] = useState('')
   const [sourceUrl, setSourceUrl] = useState('')
   const [rawSpec, setRawSpec] = useState('')
 
   function submit() {
-    const body: { label: string; source_url?: string; raw_spec?: unknown } = { label }
+    const body: { label: string; category?: string; source_url?: string; raw_spec?: unknown } = {
+      label,
+      category: category.trim() || undefined,
+    }
     if (rawSpec.trim()) {
       try {
         body.raw_spec = JSON.parse(rawSpec)
@@ -51,6 +55,7 @@ function ImportDialog() {
       onSuccess: () => {
         setOpen(false)
         setLabel('')
+        setCategory('')
         setSourceUrl('')
         setRawSpec('')
         toast.success(t('automations.contracts.imported'))
@@ -71,6 +76,15 @@ function ImportDialog() {
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="ct-label">{t('automations.contracts.label')}</Label>
             <Input id="ct-label" value={label} onChange={(e) => setLabel(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ct-category">{t('automations.contracts.category')}</Label>
+            <Input
+              id="ct-category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder={t('automations.contracts.categoryPlaceholder')}
+            />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="ct-url">{t('automations.contracts.sourceUrl')}</Label>
@@ -144,11 +158,13 @@ function EditDialog({ contract }: { contract: Contract }) {
   const update = useUpdateContract()
   const [open, setOpen] = useState(false)
   const [label, setLabel] = useState(contract.label)
+  const [category, setCategory] = useState(contract.category ?? '')
   const [sourceUrl, setSourceUrl] = useState(contract.source_url ?? '')
 
   function submit() {
-    const body: { label?: string; source_url?: string } = {}
+    const body: { label?: string; category?: string; source_url?: string } = {}
     if (label.trim() && label !== contract.label) body.label = label.trim()
+    if (category !== (contract.category ?? '')) body.category = category.trim()
     if (sourceUrl !== (contract.source_url ?? '')) body.source_url = sourceUrl.trim()
     if (Object.keys(body).length === 0) {
       setOpen(false)
@@ -182,6 +198,15 @@ function EditDialog({ contract }: { contract: Contract }) {
             <Input id="edit-label" value={label} onChange={(e) => setLabel(e.target.value)} />
           </div>
           <div className="flex flex-col gap-1.5">
+            <Label htmlFor="edit-category">{t('automations.contracts.category')}</Label>
+            <Input
+              id="edit-category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder={t('automations.contracts.categoryPlaceholder')}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
             <Label htmlFor="edit-url">{t('automations.contracts.sourceUrl')}</Label>
             <Input
               id="edit-url"
@@ -202,11 +227,78 @@ function EditDialog({ contract }: { contract: Contract }) {
   )
 }
 
+function ContractRow({ contract: c }: { contract: Contract }) {
+  const { t } = useTranslation()
+  const refresh = useRefreshContract()
+  const del = useDeleteContract()
+  return (
+    <div className="flex items-center justify-between rounded-md border p-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{c.label}</span>
+          {c.version && <Badge variant="secondary">v{c.version}</Badge>}
+        </div>
+        {c.source_url && (
+          <code className="block truncate text-xs text-muted-foreground">{c.source_url}</code>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <OperationsDialog contract={c} />
+        <EditDialog contract={c} />
+        {c.source_url && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              refresh.mutate(c.id, {
+                onSuccess: () => toast.success(t('automations.contracts.refreshed')),
+              })
+            }
+            disabled={refresh.isPending}
+          >
+            {t('automations.contracts.refresh')}
+          </Button>
+        )}
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={() => {
+            if (confirm(t('automations.contracts.confirmDelete', { label: c.label }))) {
+              del.mutate(c.id, {
+                onSuccess: () => toast.success(t('automations.contracts.deleted')),
+              })
+            }
+          }}
+          disabled={del.isPending}
+        >
+          {t('common.delete')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** Regroupe les contrats par catégorie (les sans-catégorie en dernier), triés. */
+function groupByCategory(contracts: Contract[]): { key: string; items: Contract[] }[] {
+  const map = new Map<string, Contract[]>()
+  for (const c of contracts) {
+    const key = c.category?.trim() || ''
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(c)
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => {
+      if (a === '') return 1
+      if (b === '') return -1
+      return a.localeCompare(b)
+    })
+    .map(([key, items]) => ({ key, items }))
+}
+
 export default function AdminContracts() {
   const { t } = useTranslation()
   const { data, isLoading, isError } = useContracts()
-  const refresh = useRefreshContract()
-  const del = useDeleteContract()
+  const groups = groupByCategory(data ?? [])
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -222,53 +314,15 @@ export default function AdminContracts() {
         <p className="text-sm text-muted-foreground">{t('automations.contracts.empty')}</p>
       )}
 
-      <div className="flex flex-col gap-2">
-        {data?.map((c) => (
-          <div
-            key={c.id}
-            className="flex items-center justify-between rounded-md border p-3"
-          >
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{c.label}</span>
-                {c.version && <Badge variant="secondary">v{c.version}</Badge>}
-              </div>
-              {c.source_url && (
-                <code className="block truncate text-xs text-muted-foreground">{c.source_url}</code>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <OperationsDialog contract={c} />
-              <EditDialog contract={c} />
-              {c.source_url && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    refresh.mutate(c.id, {
-                      onSuccess: () => toast.success(t('automations.contracts.refreshed')),
-                    })
-                  }
-                  disabled={refresh.isPending}
-                >
-                  {t('automations.contracts.refresh')}
-                </Button>
-              )}
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => {
-                  if (confirm(t('automations.contracts.confirmDelete', { label: c.label }))) {
-                    del.mutate(c.id, {
-                      onSuccess: () => toast.success(t('automations.contracts.deleted')),
-                    })
-                  }
-                }}
-                disabled={del.isPending}
-              >
-                {t('common.delete')}
-              </Button>
-            </div>
+      <div className="flex flex-col gap-6">
+        {groups.map((g) => (
+          <div key={g.key || '__none__'} className="flex flex-col gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              {g.key || t('automations.contracts.uncategorized')}
+            </h2>
+            {g.items.map((c) => (
+              <ContractRow key={c.id} contract={c} />
+            ))}
           </div>
         ))}
       </div>

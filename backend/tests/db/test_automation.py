@@ -44,11 +44,25 @@ async def test_contract_crud(db_conn: AsyncConnection) -> None:
     cid = await _contract(db_conn)
     got = await oc.get(db_conn, cid)
     assert got is not None and got["version"] == "1.2.3"
+    assert got["category"] == ""  # défaut
     updated = await oc.update_spec(db_conn, cid, label="Termix v2", version="2.0.0")
     assert updated is not None and updated["label"] == "Termix v2" and updated["version"] == "2.0.0"
     assert [c["id"] for c in await oc.list_all(db_conn)] == [cid]
     assert await oc.delete_contract(db_conn, cid) is True
     assert await oc.get(db_conn, cid) is None
+
+
+@pytest.mark.asyncio
+async def test_contract_category_create_update_and_sort(db_conn: AsyncConnection) -> None:
+    a = await oc.create(db_conn, label="B-svc", raw_spec=_SPEC, category="zeta")
+    b = await oc.create(db_conn, label="A-svc", raw_spec=_SPEC, category="alpha")
+    c = await oc.create(db_conn, label="No-cat", raw_spec=_SPEC)  # category ""
+    # list_all trié par (category, label) : "" en premier alphabétiquement côté SQL.
+    order = [(x["category"], x["label"]) for x in await oc.list_all(db_conn)]
+    assert order == [("", "No-cat"), ("alpha", "A-svc"), ("zeta", "B-svc")]
+    upd = await oc.update_spec(db_conn, a["id"], category="alpha")
+    assert upd is not None and upd["category"] == "alpha"
+    assert b["id"] and c["id"]
 
 
 # ─── Automates ────────────────────────────────────────────────────────────────

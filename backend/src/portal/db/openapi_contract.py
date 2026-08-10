@@ -22,6 +22,7 @@ async def create(
     raw_spec: dict[str, Any],
     version: str = "",
     source_url: str | None = None,
+    category: str = "",
 ) -> dict[str, Any]:
     """Crée un contrat et retourne la ligne insérée."""
     contract_id = uuid.uuid4().hex
@@ -30,6 +31,7 @@ async def create(
         .values(
             id=contract_id,
             label=label,
+            category=category,
             source_url=source_url,
             version=version,
             raw_spec=raw_spec,
@@ -47,6 +49,7 @@ async def update_spec(
     raw_spec: dict[str, Any] | None = None,
     version: str | None = None,
     source_url: str | None = None,
+    category: str | None = None,
 ) -> dict[str, Any] | None:
     """Met à jour un contrat (champs fournis uniquement). None si absent."""
     values: dict[str, Any] = {"updated_at": func.now()}
@@ -58,6 +61,8 @@ async def update_spec(
         values["version"] = version
     if source_url is not None:
         values["source_url"] = source_url
+    if category is not None:
+        values["category"] = category
     stmt = update(_c).where(_c.c.id == contract_id).values(**values).returning(_c)
     row = (await conn.execute(stmt)).mappings().first()
     return dict(row) if row is not None else None
@@ -69,7 +74,7 @@ async def get(conn: AsyncConnection, contract_id: str) -> dict[str, Any] | None:
 
 
 async def list_all(conn: AsyncConnection) -> list[dict[str, Any]]:
-    rows = (await conn.execute(select(_c).order_by(_c.c.label))).mappings().all()
+    rows = (await conn.execute(select(_c).order_by(_c.c.category, _c.c.label))).mappings().all()
     return [dict(r) for r in rows]
 
 

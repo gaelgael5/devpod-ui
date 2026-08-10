@@ -1605,7 +1605,10 @@
       "empty": "Aucun contrat.",
       "editTitle": "Éditer le contrat",
       "editUrlHint": "Changer l'URL re-télécharge la spec. Vider l'URL fige le contrat (import manuel).",
-      "updated": "Contrat mis à jour"
+      "updated": "Contrat mis à jour",
+      "category": "Catégorie",
+      "categoryPlaceholder": "ex. Termix, Interne…",
+      "uncategorized": "Sans catégorie"
     }
   }
 }

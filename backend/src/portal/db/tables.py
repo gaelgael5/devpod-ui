@@ -1024,6 +1024,8 @@ openapi_contract = Table(
     metadata,
     Column("id", Text, primary_key=True),
     Column("label", Text, nullable=False),
+    # Catégorie libre pour trier/regrouper les contrats dans l'IHM (vide = « Sans catégorie »).
+    Column("category", Text, nullable=False, server_default=""),
     Column("source_url", Text, nullable=True),  # null = import manuel (pas de refresh)
     Column("version", Text, nullable=False, server_default=""),  # info.version (affichage)
     Column("raw_spec", JSONB, nullable=False),  # contrat OpenAPI complet

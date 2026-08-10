@@ -37,6 +37,7 @@ _Conn = Annotated[AsyncConnection, Depends(get_conn)]
 class ContractCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str
+    category: str = ""
     source_url: str | None = None
     raw_spec: dict[str, Any] | None = None
 
@@ -44,6 +45,7 @@ class ContractCreate(BaseModel):
 class ContractUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str | None = None
+    category: str | None = None
     # source_url : "" efface l'URL (import manuel figé) ; une URL non vide la met à jour.
     source_url: str | None = None
     # Re-fetch la spec depuis la nouvelle source_url après changement (défaut True).
@@ -145,6 +147,7 @@ async def create_contract(body: ContractCreate, _: _Admin, conn: _Conn) -> dict[
     row = await oc.create(
         conn,
         label=body.label,
+        category=body.category,
         raw_spec=spec,
         version=ct.extract_version(spec),
         source_url=body.source_url,
@@ -185,6 +188,7 @@ async def update_contract(
         conn,
         contract_id,
         label=fields.get("label"),
+        category=fields.get("category"),
         source_url=new_url,
         raw_spec=spec,
         version=version,

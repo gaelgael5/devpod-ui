@@ -7,6 +7,7 @@ import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 export interface Contract {
   id: string
   label: string
+  category: string
   source_url: string | null
   version: string
   created_at: string
@@ -101,7 +102,12 @@ export function useContract(id: string | null) {
 export function useCreateContract() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: { label: string; source_url?: string; raw_spec?: unknown }) =>
+    mutationFn: (body: {
+      label: string
+      category?: string
+      source_url?: string
+      raw_spec?: unknown
+    }) =>
       apiFetchJson<Contract>(`${BASE}/contracts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -120,7 +126,7 @@ export function useUpdateContract() {
       body,
     }: {
       id: string
-      body: { label?: string; source_url?: string; refresh?: boolean }
+      body: { label?: string; category?: string; source_url?: string; refresh?: boolean }
     }) =>
       apiFetchJson<Contract>(`${BASE}/contracts/${id}`, {
         method: 'PATCH',
