@@ -35,7 +35,6 @@ from ..routes._ssrf import pinned_request
 _log = structlog.get_logger(__name__)
 
 _BATCH = 200
-_RUN_HISTORY_KEEP = 20
 _RESP_PREVIEW_MAX = 2000
 _DEFAULT_INTERVAL_S = 10.0
 _VAR_RE = re.compile(r"\{([a-zA-Z0-9_.]+)\}")
@@ -231,7 +230,6 @@ async def _execute(
                     response_preview=f_resp,
                     error="filtré",
                 )
-            await ar.prune(conn, aid, keep=_RUN_HISTORY_KEEP)
         return "skipped"
 
     url = render_template(automation["url"], ctx)
@@ -286,7 +284,6 @@ async def _execute(
                 response_preview=resp_preview,
                 error=error,
             )
-        await ar.prune(conn, aid, keep=_RUN_HISTORY_KEEP)
     return status
 
 

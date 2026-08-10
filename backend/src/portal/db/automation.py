@@ -182,6 +182,17 @@ async def set_cursor(conn: AsyncConnection, automation_id: str, last_seq: int) -
     await conn.execute(stmt)
 
 
+async def set_all_cursors(conn: AsyncConnection, last_seq: int) -> int:
+    """Repositionne le curseur de TOUS les automates à `last_seq`. Retourne le count.
+
+    Les events de seq > `last_seq` seront (ré)évalués par le runner au prochain balayage.
+    """
+    ids = [r[0] for r in (await conn.execute(select(_a.c.id))).all()]
+    for automation_id in ids:
+        await set_cursor(conn, automation_id, last_seq)
+    return len(ids)
+
+
 async def _attach_details(conn: AsyncConnection, row: dict[str, Any]) -> dict[str, Any]:
     """Enrichit un automate de ses en-têtes et curseur."""
     row["headers"] = await get_headers(conn, row["id"])

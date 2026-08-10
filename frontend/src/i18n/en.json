@@ -1612,7 +1612,8 @@
       "evalPass": "✓ passes",
       "evalFail": "✗ does not pass",
       "evalMatches": "match(es)",
-      "evalTest": "Test call + evaluation"
+      "evalTest": "Test call + evaluation",
+      "opNotExists": "does not exist"
     },
     "runs": {
       "title": "History — {{label}}",
@@ -1656,7 +1657,11 @@
       "intro": "All events stored in the journal (app_event), newest first. #seq is the automations' cursor id.",
       "filter": "Type",
       "allTypes": "— all —",
-      "empty": "No event."
+      "empty": "No event.",
+      "replayFromHere": "Re-evaluate from here",
+      "replayHint": "Move the global cursor just before this event to re-evaluate everything.",
+      "replayConfirm": "Re-evaluate all rules from event #{{seq}}? The global cursor rewinds and the affected runs are cleared.",
+      "replayed": "Cursor repositioned ({{automations}} automation(s)) — re-evaluation on next sweep."
     },
     "cursor": "cursor #{{seq}}",
     "cursorHint": "Automation cursor position (last processed seq)"

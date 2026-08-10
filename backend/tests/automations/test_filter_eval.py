@@ -25,6 +25,14 @@ def test_exists_false_when_no_match() -> None:
     assert passed is False and matches == []
 
 
+def test_not_exists() -> None:
+    # not_exists : passe quand rien ne matche (ex. « créer si l'user n'existe pas »).
+    passed, _ = fe.evaluate(_RESP, '$.users[?(@.username=="ghost")]', "not_exists", None)
+    assert passed is True
+    passed2, _ = fe.evaluate(_RESP, '$.users[?(@.username=="gael")]', "not_exists", None)
+    assert passed2 is False
+
+
 def test_equals_on_scalar_path() -> None:
     passed, _ = fe.evaluate(_RESP, '$.users[?(@.username=="gael")].is_admin', "equals", "true")
     assert passed is True  # booléen JSON → "true", comparaison insensible à la casse

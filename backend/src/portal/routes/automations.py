@@ -334,6 +334,24 @@ async def reorder(body: ReorderIn, _: _Admin, conn: _Conn) -> dict[str, bool]:
     return {"reordered": True}
 
 
+class CursorResetIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Nouveau curseur (dernier seq considéré traité). Les events > seq seront réévalués.
+    seq: int
+
+
+@router.post("/reset-cursor")
+async def reset_cursor(body: CursorResetIn, _: _Admin, conn: _Conn) -> dict[str, int]:
+    """Repositionne le curseur global : tous les automates repartent à `seq`.
+
+    Purge aussi l'anti-rejeu des events > seq (runs supprimés) pour qu'ils soient
+    réellement ré-évalués « comme si le curseur avançait normalement ».
+    """
+    n = await adb.set_all_cursors(conn, body.seq)
+    cleared = await ar.clear_after_seq(conn, body.seq)
+    return {"automations": n, "runs_cleared": cleared}
+
+
 @router.post("/test-call")
 async def test_call(body: FilterCallIn, _: _Admin) -> dict[str, Any]:
     """Exécute l'appel de filtre (SSRF-pinné), renvoie le payload et, si une règle

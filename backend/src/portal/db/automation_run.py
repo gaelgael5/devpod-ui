@@ -11,6 +11,7 @@ Les rejeus manuels (`manual=true`) échappent à l'unicité.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import delete, func, insert, select, text, update
@@ -139,6 +140,22 @@ async def prune(conn: AsyncConnection, automation_id: str, *, keep: int) -> int:
 async def clear(conn: AsyncConnection, automation_id: str) -> int:
     """Vide l'historique d'un automate. Retourne le count supprimé."""
     result = await conn.execute(delete(_r).where(_r.c.automation_id == automation_id))
+    return int(result.rowcount or 0)
+
+
+async def clear_after_seq(conn: AsyncConnection, after_seq: int) -> int:
+    """Supprime les runs des events de seq > `after_seq` (tous automates confondus).
+
+    Sert au repositionnement du curseur : purger l'anti-rejeu pour que ces events
+    soient ré-évalués quand le curseur repasse dessus. Retourne le count supprimé.
+    """
+    result = await conn.execute(delete(_r).where(_r.c.event_seq > after_seq))
+    return int(result.rowcount or 0)
+
+
+async def purge_older_than(conn: AsyncConnection, older_than: datetime) -> int:
+    """Rétention : supprime les runs plus anciens que `older_than`. Retourne le count."""
+    result = await conn.execute(delete(_r).where(_r.c.created_at < older_than))
     return int(result.rowcount or 0)
 
 

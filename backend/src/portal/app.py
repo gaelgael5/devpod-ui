@@ -200,6 +200,18 @@ async def _maintenance_sweep_loop(interval_s: float = 3600.0) -> None:
         except Exception:
             _log.warning("revoked_apikey_purge_failed", exc_info=True)
         try:
+            from datetime import UTC, datetime, timedelta
+
+            from .db import automation_run as _ar
+
+            cutoff = datetime.now(UTC) - timedelta(days=7)
+            async with _get_engine().begin() as conn:
+                purged_runs = await _ar.purge_older_than(conn, cutoff)
+            if purged_runs:
+                _log.info("automation_runs_purged", count=purged_runs)
+        except Exception:
+            _log.warning("automation_run_purge_failed", exc_info=True)
+        try:
             # Observabilité de la fuite de pids (bug 813f425f, panne du 04/08) :
             # une courbe `total` qui monte sans redescendre = fuite ; les zombies
             # comptent dans pids-limit. Sert de vérification du correctif.

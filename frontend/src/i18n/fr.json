@@ -1612,7 +1612,8 @@
       "evalPass": "✓ passe",
       "evalFail": "✗ ne passe pas",
       "evalMatches": "match(s)",
-      "evalTest": "Tester l'appel + l'évaluation"
+      "evalTest": "Tester l'appel + l'évaluation",
+      "opNotExists": "n'existe pas"
     },
     "runs": {
       "title": "Historique — {{label}}",
@@ -1656,7 +1657,11 @@
       "intro": "Tous les events stockés dans le journal (app_event), récent d'abord. #seq = l'id de curseur des automates.",
       "filter": "Type",
       "allTypes": "— tous —",
-      "empty": "Aucun event."
+      "empty": "Aucun event.",
+      "replayFromHere": "Réévaluer d'ici",
+      "replayHint": "Repositionne le curseur global juste avant cet event pour tout réévaluer.",
+      "replayConfirm": "Réévaluer toutes les règles à partir de l'event #{{seq}} ? Le curseur global recule et les runs concernés sont effacés.",
+      "replayed": "Curseur repositionné ({{automations}} automate(s)) — réévaluation au prochain balayage."
     },
     "cursor": "curseur #{{seq}}",
     "cursorHint": "Position du curseur de l'automate (dernier seq traité)"

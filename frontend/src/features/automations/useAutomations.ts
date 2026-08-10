@@ -287,6 +287,23 @@ export function useDeleteAutomation() {
   })
 }
 
+export function useResetCursor() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (seq: number) =>
+      apiFetchJson<{ automations: number; runs_cleared: number }>(`${BASE}/reset-cursor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seq }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['automations', 'list'] })
+      qc.invalidateQueries({ queryKey: ['automations', 'events'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
 export function useReorderAutomations() {
   const qc = useQueryClient()
   return useMutation({

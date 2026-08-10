@@ -779,6 +779,7 @@ export function AutomationDialog({
                     >
                       <option value="">{t('automations.form.operatorNone')}</option>
                       <option value="exists">{t('automations.form.opExists')}</option>
+                      <option value="not_exists">{t('automations.form.opNotExists')}</option>
                       <option value="equals">{t('automations.form.opEquals')}</option>
                       <option value="not_equals">{t('automations.form.opNotEquals')}</option>
                     </select>

@@ -14,7 +14,7 @@ from typing import Any
 from jsonpath_ng.ext import parse as _parse  # type: ignore[import-untyped]
 
 # Opérateurs supportés par l'IHM et le runner.
-OPERATORS = ("exists", "equals", "not_equals")
+OPERATORS = ("exists", "not_exists", "equals", "not_equals")
 
 
 def _scalar(v: Any) -> str:
@@ -34,6 +34,8 @@ def evaluate(
     values = [m.value for m in expr.find(response)]
     if operator == "exists":
         return (len(values) > 0, values)
+    if operator == "not_exists":
+        return (len(values) == 0, values)
     exp = (expected or "").casefold()
     svals = [_scalar(v).casefold() for v in values]
     if operator == "equals":

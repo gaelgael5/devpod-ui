@@ -1,9 +1,17 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
-import { useEventTypes, useJournalEvents, type JournalEvent } from './useAutomations'
+import { Button } from '@/components/ui/button'
+import {
+  useEventTypes,
+  useJournalEvents,
+  useResetCursor,
+  type JournalEvent,
+} from './useAutomations'
 
-function Row({ ev }: { ev: JournalEvent }) {
+function Row({ ev, onReplay }: { ev: JournalEvent; onReplay: (ev: JournalEvent) => void }) {
+  const { t } = useTranslation()
   const subject = JSON.stringify(ev.subject)
   return (
     <div className="flex items-start gap-3 rounded-md border p-2 text-sm">
@@ -28,6 +36,15 @@ function Row({ ev }: { ev: JournalEvent }) {
         </div>
         <div className="mt-0.5 font-mono text-[10px] text-muted-foreground/70">{ev.event_id}</div>
       </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="shrink-0"
+        onClick={() => onReplay(ev)}
+        title={t('automations.events.replayHint')}
+      >
+        {t('automations.events.replayFromHere')}
+      </Button>
     </div>
   )
 }
@@ -36,7 +53,17 @@ export default function AdminEvents() {
   const { t } = useTranslation()
   const [filter, setFilter] = useState('')
   const eventTypes = useEventTypes()
+  const resetCursor = useResetCursor()
   const { data, isLoading, isError } = useJournalEvents({ eventType: filter || undefined })
+
+  function replay(ev: JournalEvent) {
+    if (!confirm(t('automations.events.replayConfirm', { seq: ev.seq }))) return
+    // Repositionne le curseur global juste avant cet event → il sera ré-évalué.
+    resetCursor.mutate(ev.seq - 1, {
+      onSuccess: (r) =>
+        toast.success(t('automations.events.replayed', { automations: r.automations })),
+    })
+  }
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -70,7 +97,7 @@ export default function AdminEvents() {
 
       <div className="flex flex-col gap-2">
         {data?.map((ev) => (
-          <Row key={ev.seq} ev={ev} />
+          <Row key={ev.seq} ev={ev} onReplay={replay} />
         ))}
       </div>
     </div>

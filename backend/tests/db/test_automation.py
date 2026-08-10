@@ -244,3 +244,45 @@ async def test_clear_history(db_conn: AsyncConnection) -> None:
     await ar.finish(db_conn, rid, status="ok")
     assert await ar.clear(db_conn, aid) == 1
     assert await ar.count(db_conn, aid) == 0
+
+
+@pytest.mark.asyncio
+async def test_clear_after_seq_purges_replay_range(db_conn: AsyncConnection) -> None:
+    aid = await _automation(db_conn)
+    for i in (1, 2, 3):
+        rid = await ar.claim(db_conn, automation_id=aid, event_seq=i, dedup_key=f"k{i}")
+        assert rid is not None
+        await ar.finish(db_conn, rid, status="ok")
+    # Repositionne à seq=1 → purge des runs des events 2 et 3.
+    assert await ar.clear_after_seq(db_conn, 1) == 2
+    assert await ar.count(db_conn, aid) == 1
+
+
+@pytest.mark.asyncio
+async def test_set_all_cursors(db_conn: AsyncConnection) -> None:
+    cid = await _contract(db_conn)
+    a1 = await _automation(db_conn, contract_ref=cid)
+    a2 = await _automation(db_conn, contract_ref=cid)
+    assert await a.set_all_cursors(db_conn, 42) == 2
+    assert await a.get_cursor(db_conn, a1) == 42
+    assert await a.get_cursor(db_conn, a2) == 42
+
+
+@pytest.mark.asyncio
+async def test_purge_older_than(db_conn: AsyncConnection) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import update
+
+    from portal.db.tables import automation_run as _r
+
+    aid = await _automation(db_conn)
+    rid = await ar.claim(db_conn, automation_id=aid, event_seq=1, dedup_key="k")
+    assert rid is not None
+    await ar.finish(db_conn, rid, status="ok")
+    # Vieillit artificiellement le run à 8 jours.
+    await db_conn.execute(
+        update(_r).where(_r.c.id == rid).values(created_at=datetime.now(UTC) - timedelta(days=8))
+    )
+    assert await ar.purge_older_than(db_conn, datetime.now(UTC) - timedelta(days=7)) == 1
+    assert await ar.count(db_conn, aid) == 0
