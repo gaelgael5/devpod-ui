@@ -157,6 +157,7 @@ async def get_contract(contract_id: str, _: _Admin, conn: _Conn) -> dict[str, An
     if row is None:
         raise HTTPException(status_code=404, detail="contrat introuvable")
     row["operations"] = ct.list_operations(row["raw_spec"])
+    row["servers"] = ct.servers(row["raw_spec"])
     return row
 
 

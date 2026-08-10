@@ -61,3 +61,71 @@ def test_resolve_operation_builds_url_from_servers() -> None:
 
 def test_resolve_operation_unknown() -> None:
     assert c.resolve_operation(_SPEC, "nope") is None
+
+
+_SPEC_AUTH = {
+    "openapi": "3.0.3",
+    "info": {"version": "1.0.0"},
+    "servers": [{"url": "https://termix.yoops.org"}],
+    "security": [{"bearerAuth": []}],
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {"type": "http", "scheme": "bearer"},
+            "apiKeyAuth": {"type": "apiKey", "in": "header", "name": "X-Api-Key"},
+        },
+        "schemas": {
+            "CreateUser": {
+                "type": "object",
+                "required": ["username", "password"],
+                "properties": {
+                    "username": {"type": "string"},
+                    "password": {"type": "string"},
+                    "isAdmin": {"type": "boolean"},
+                },
+            }
+        },
+    },
+    "paths": {
+        "/users/admin-create": {
+            "post": {
+                "operationId": "adminCreateUser",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/CreateUser"}}
+                    }
+                },
+            }
+        },
+        "/keys": {
+            "post": {
+                "operationId": "createKey",
+                "security": [{"apiKeyAuth": []}],
+            }
+        },
+    },
+}
+
+
+def test_servers() -> None:
+    assert c.servers(_SPEC_AUTH) == ["https://termix.yoops.org"]
+    assert c.servers({"servers": [{"url": "relative/no"}]}) == []
+
+
+def test_body_skeleton_from_ref() -> None:
+    op = next(o for o in c.list_operations(_SPEC_AUTH) if o["operation_id"] == "adminCreateUser")
+    assert op["body_skeleton"] == {"username": "", "password": "", "isAdmin": False}
+
+
+def test_no_body_skeleton_when_no_request_body() -> None:
+    op = next(o for o in c.list_operations(_SPEC_AUTH) if o["operation_id"] == "createKey")
+    assert op["body_skeleton"] is None
+
+
+def test_auth_headers_bearer_global() -> None:
+    op = next(o for o in c.list_operations(_SPEC_AUTH) if o["operation_id"] == "adminCreateUser")
+    assert op["auth_headers"] == [{"header": "Authorization", "value_prefix": "Bearer "}]
+
+
+def test_auth_headers_apikey_operation_override() -> None:
+    op = next(o for o in c.list_operations(_SPEC_AUTH) if o["operation_id"] == "createKey")
+    assert op["auth_headers"] == [{"header": "X-Api-Key", "value_prefix": ""}]

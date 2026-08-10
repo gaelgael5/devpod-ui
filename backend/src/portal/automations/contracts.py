@@ -81,12 +81,127 @@ def _base_url(spec: dict[str, Any]) -> str:
     return ""
 
 
+def servers(spec: dict[str, Any]) -> list[str]:
+    """Liste des `servers[].url` absolus déclarés (base d'appel candidate pour l'IHM)."""
+    out: list[str] = []
+    raw = spec.get("servers")
+    if isinstance(raw, list):
+        for srv in raw:
+            if isinstance(srv, dict):
+                url = srv.get("url")
+                if isinstance(url, str) and url.startswith(("http://", "https://")):
+                    out.append(url.rstrip("/"))
+    return out
+
+
 def _operation_id(op: dict[str, Any], method: str, path: str) -> str:
     """operationId du spec, ou identifiant déterministe de repli."""
     op_id = op.get("operationId")
     if isinstance(op_id, str) and op_id:
         return op_id
     return f"{method.lower()} {path}"
+
+
+def _resolve_ref(spec: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
+    """Suit un `$ref` interne (#/components/schemas/X) une fois ; sinon retourne tel quel."""
+    ref = schema.get("$ref")
+    if not isinstance(ref, str) or not ref.startswith("#/"):
+        return schema
+    node: Any = spec
+    for part in ref[2:].split("/"):
+        if not isinstance(node, dict):
+            return {}
+        node = node.get(part)
+    return node if isinstance(node, dict) else {}
+
+
+def _example_from_schema(spec: dict[str, Any], schema: dict[str, Any], depth: int = 0) -> Any:
+    """Exemple minimal dérivé d'un JSON Schema OpenAPI (résolution $ref, garde de profondeur)."""
+    if depth > 6 or not isinstance(schema, dict):
+        return None
+    schema = _resolve_ref(spec, schema)
+    if "example" in schema:
+        return schema["example"]
+    if "default" in schema:
+        return schema["default"]
+    enum = schema.get("enum")
+    if isinstance(enum, list) and enum:
+        return enum[0]
+    if isinstance(schema.get("allOf"), list):
+        merged: dict[str, Any] = {}
+        for sub in schema["allOf"]:
+            part = _example_from_schema(spec, sub, depth + 1)
+            if isinstance(part, dict):
+                merged.update(part)
+        return merged
+    t = schema.get("type")
+    props = schema.get("properties")
+    if t == "object" or isinstance(props, dict):
+        obj: dict[str, Any] = {}
+        for key, sub in (props or {}).items():
+            if isinstance(sub, dict):
+                obj[key] = _example_from_schema(spec, sub, depth + 1)
+        return obj
+    if t == "array":
+        items = schema.get("items")
+        return [_example_from_schema(spec, items, depth + 1)] if isinstance(items, dict) else []
+    if t == "integer" or t == "number":
+        return 0
+    if t == "boolean":
+        return False
+    return ""
+
+
+def _body_skeleton(spec: dict[str, Any], op: dict[str, Any]) -> Any:
+    """Squelette JSON du corps de requête (application/json), ou None si pas de corps."""
+    body = op.get("requestBody")
+    if not isinstance(body, dict):
+        return None
+    body = _resolve_ref(spec, body)
+    content = body.get("content")
+    if not isinstance(content, dict):
+        return None
+    media = content.get("application/json")
+    if not isinstance(media, dict) or not isinstance(media.get("schema"), dict):
+        return None
+    return _example_from_schema(spec, media["schema"])
+
+
+def _auth_headers(spec: dict[str, Any], op: dict[str, Any]) -> list[dict[str, str]]:
+    """En-têtes d'auth requis par l'opération (dérivés des securitySchemes).
+
+    Un scheme http/bearer → {header: Authorization, value_prefix: "Bearer "} ;
+    apiKey in header → {header: <name>, value_prefix: ""}. Dédupliqué par header.
+    """
+    security = op.get("security")
+    if security is None:
+        security = spec.get("security")
+    if not isinstance(security, list):
+        return []
+    comps = spec.get("components")
+    schemes = comps.get("securitySchemes") if isinstance(comps, dict) else None
+    if not isinstance(schemes, dict):
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for req in security:
+        if not isinstance(req, dict):
+            continue
+        for name in req:
+            sch = schemes.get(name)
+            if not isinstance(sch, dict):
+                continue
+            header = value_prefix = ""
+            if sch.get("type") == "http" and str(sch.get("scheme", "")).lower() == "bearer":
+                header, value_prefix = "Authorization", "Bearer "
+            elif sch.get("type") == "apiKey" and sch.get("in") == "header":
+                hn = sch.get("name")
+                if isinstance(hn, str):
+                    header, value_prefix = hn, ""
+            if header and header.lower() not in seen:
+                seen.add(header.lower())
+                out.append({"header": header, "value_prefix": value_prefix})
+    return out
 
 
 def list_operations(spec: dict[str, Any]) -> list[dict[str, Any]]:
@@ -114,6 +229,8 @@ def list_operations(spec: dict[str, Any]) -> list[dict[str, Any]]:
                     "path": path,
                     "url": f"{base}{path}" if base else path,
                     "summary": op.get("summary") or op.get("description") or "",
+                    "body_skeleton": _body_skeleton(spec, op),
+                    "auth_headers": _auth_headers(spec, op),
                 }
             )
     return ops
