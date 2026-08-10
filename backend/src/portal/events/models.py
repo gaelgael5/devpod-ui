@@ -18,6 +18,9 @@ EVENT_TYPES: frozenset[str] = frozenset(
     {
         "user.created",
         "user.refreshed",
+        "user.deleted",
+        "user.paused",
+        "user.resumed",
         "workspace.created",
         "workspace.updated",
         "workspace.deleted",

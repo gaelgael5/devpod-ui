@@ -70,6 +70,20 @@ _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
         ["actor", "login", "sub"],
         {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR},
     ),
+    # Cycle de vie compte devpod (émetteurs à câbler quand la désactivation/suppression
+    # d'utilisateur existera) : deleted = compte retiré ; paused = désactivé ; resumed = réactivé.
+    "user.deleted": _obj(
+        ["actor", "login", "sub"],
+        {"actor": _STR, "login": _STR, "sub": _STR},
+    ),
+    "user.paused": _obj(
+        ["actor", "login", "sub"],
+        {"actor": _STR, "login": _STR, "sub": _STR},
+    ),
+    "user.resumed": _obj(
+        ["actor", "login", "sub"],
+        {"actor": _STR, "login": _STR, "sub": _STR},
+    ),
     "workspace.created": _obj(
         ["actor", "workspace", "ws_id", "node"],
         {"actor": _STR, "workspace": _STR, "ws_id": _STR, "node": _STR},

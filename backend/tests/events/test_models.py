@@ -19,6 +19,9 @@ def test_registre_contient_les_types_attendus() -> None:
     assert {
         "user.created",
         "user.refreshed",
+        "user.deleted",
+        "user.paused",
+        "user.resumed",
         "workspace.created",
         "workspace.updated",
         "workspace.deleted",
