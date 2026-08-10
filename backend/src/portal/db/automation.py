@@ -21,6 +21,7 @@ from .tables import automation_scope as _s
 # Champs modifiables d'un automate (hors id / timestamps).
 _EDITABLE = (
     "label",
+    "slug",
     "active",
     "position",
     "stop_chain",
@@ -31,6 +32,11 @@ _EDITABLE = (
     "url",
     "http_method",
     "body_template",
+    "filter_contract_ref",
+    "filter_operation_id",
+    "filter_url",
+    "filter_method",
+    "filter_body",
 )
 
 
@@ -58,6 +64,16 @@ async def update_fields(
 async def get(conn: AsyncConnection, automation_id: str) -> dict[str, Any] | None:
     row = (await conn.execute(select(_a).where(_a.c.id == automation_id))).mappings().first()
     return dict(row) if row is not None else None
+
+
+async def slug_exists(
+    conn: AsyncConnection, slug: str, *, exclude_id: str | None = None
+) -> bool:
+    """True si `slug` est déjà porté par un autre automate (exclut `exclude_id`)."""
+    stmt = select(_a.c.id).where(_a.c.slug == slug)
+    if exclude_id is not None:
+        stmt = stmt.where(_a.c.id != exclude_id)
+    return (await conn.execute(stmt)).first() is not None
 
 
 async def delete_automation(conn: AsyncConnection, automation_id: str) -> bool:

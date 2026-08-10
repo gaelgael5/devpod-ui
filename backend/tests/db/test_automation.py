@@ -6,6 +6,8 @@ un env avec Postgres (test1).
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -25,6 +27,7 @@ async def _automation(conn: AsyncConnection, **over: object) -> str:
     cid = over.pop("contract_ref", None) or await _contract(conn)
     fields = {
         "label": "sync-hosts",
+        "slug": f"a-{uuid.uuid4().hex[:8]}",  # unique (contrainte uq_automation_slug)
         "event_types": ["test_server.updated"],
         "contract_ref": cid,
         "operation_id": "putHost",
@@ -75,6 +78,28 @@ async def test_automation_created_disabled(db_conn: AsyncConnection) -> None:
     assert row is not None
     assert row["active"] is False  # créé désactivé
     assert row["event_types"] == ["test_server.updated"]
+
+
+@pytest.mark.asyncio
+async def test_slug_exists_and_filter_fields(db_conn: AsyncConnection) -> None:
+    cid = await _contract(db_conn)
+    aid = await _automation(
+        db_conn,
+        contract_ref=cid,
+        slug="sync-hosts",
+        filter_contract_ref=cid,
+        filter_operation_id="listUsers",
+        filter_url="https://termix.example.org/api/users/list",
+        filter_method="GET",
+    )
+    assert await a.slug_exists(db_conn, "sync-hosts") is True
+    assert await a.slug_exists(db_conn, "sync-hosts", exclude_id=aid) is False
+    assert await a.slug_exists(db_conn, "autre") is False
+    row = await a.get(db_conn, aid)
+    assert row is not None
+    assert row["filter_operation_id"] == "listUsers"
+    assert row["filter_url"] == "https://termix.example.org/api/users/list"
+    assert row["filter_method"] == "GET"
 
 
 @pytest.mark.asyncio

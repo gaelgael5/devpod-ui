@@ -69,6 +69,8 @@ class HeaderIn(BaseModel):
 class AutomationCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str
+    # slug vide → dérivé du label (normalisé). Unique.
+    slug: str = ""
     event_types: list[str]
     contract_ref: str
     operation_id: str
@@ -77,13 +79,22 @@ class AutomationCreate(BaseModel):
     body_template: str | None = None
     delay_minutes: int = 0
     stop_chain: bool = False
+    # Priorité d'exécution (position). None → ajouté en fin de liste.
+    position: int | None = None
     headers: list[HeaderIn] = Field(default_factory=list)
     active: bool = False
+    # Onglet Filtre : appel d'API préliminaire (évaluation différée).
+    filter_contract_ref: str | None = None
+    filter_operation_id: str | None = None
+    filter_url: str | None = None
+    filter_method: str | None = None
+    filter_body: str | None = None
 
 
 class AutomationUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str | None = None
+    slug: str | None = None
     event_types: list[str] | None = None
     contract_ref: str | None = None
     operation_id: str | None = None
@@ -92,8 +103,24 @@ class AutomationUpdate(BaseModel):
     body_template: str | None = None
     delay_minutes: int | None = None
     stop_chain: bool | None = None
+    position: int | None = None
     headers: list[HeaderIn] | None = None
     active: bool | None = None
+    filter_contract_ref: str | None = None
+    filter_operation_id: str | None = None
+    filter_url: str | None = None
+    filter_method: str | None = None
+    filter_body: str | None = None
+
+
+class FilterCallIn(BaseModel):
+    """Appel d'API ad hoc pour l'onglet Filtre : exécuté tel quel, payload renvoyé."""
+
+    model_config = ConfigDict(extra="forbid")
+    url: str
+    http_method: str
+    headers: list[HeaderIn] = Field(default_factory=list)
+    body: str | None = None
 
 
 class ReorderIn(BaseModel):
@@ -126,6 +153,20 @@ def _validate(event_types: list[str], http_method: str) -> None:
         raise HTTPException(status_code=422, detail=f"event_types inconnus : {sorted(unknown)}")
     if http_method.upper() not in _HTTP_METHODS:
         raise HTTPException(status_code=422, detail=f"http_method invalide : {http_method!r}")
+
+
+def _normalize_slug(raw: str) -> str:
+    """Normalise en slug : minuscules, [a-z0-9] conservés, autres → '-', borné à 64."""
+    s = re.sub(r"[^a-z0-9]+", "-", raw.strip().lower()).strip("-")
+    return s[:64]
+
+
+def _resolve_slug(slug: str, label: str) -> str:
+    """Slug explicite (normalisé) ou dérivé du label. Lève 422 si vide/invalide."""
+    candidate = _normalize_slug(slug) if slug else _normalize_slug(label)
+    if not _SLUG_RE.match(candidate):
+        raise HTTPException(status_code=422, detail=f"slug invalide : {slug or label!r}")
+    return candidate
 
 
 def _headers_payload(headers: list[HeaderIn]) -> list[dict[str, Any]]:
@@ -273,6 +314,40 @@ async def reorder(body: ReorderIn, _: _Admin, conn: _Conn) -> dict[str, bool]:
     return {"reordered": True}
 
 
+@router.post("/test-call")
+async def test_call(body: FilterCallIn, _: _Admin) -> dict[str, Any]:
+    """Exécute l'appel de filtre tel quel (SSRF-pinné) et renvoie le payload.
+
+    Sert l'onglet Filtre : l'admin voit le status et le corps de réponse.
+    L'ÉVALUATION du résultat est différée — on ne fait que restituer.
+    """
+    import httpx
+
+    from ..automations.runner import _resolve_headers
+    from ..routes._ssrf import pinned_request
+
+    if body.http_method.upper() not in _HTTP_METHODS:
+        raise HTTPException(status_code=422, detail=f"http_method invalide : {body.http_method!r}")
+    headers = await _resolve_headers(_headers_payload(body.headers))
+    content = body.body.encode() if body.body else None
+    if content is not None:
+        headers.setdefault("content-type", "application/json")
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await pinned_request(
+                client,
+                body.http_method,
+                body.url,
+                headers=headers,
+                content=content,
+                timeout=10.0,
+                max_bytes=64 * 1024,
+            )
+    except Exception as exc:  # DNS/SSRF/timeout/connexion
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "status_code": resp.status_code, "body": resp.text[:64_000]}
+
+
 @router.get("/event-types")
 async def list_event_types(_: _Admin) -> list[str]:
     """Types d'events déclencheurs disponibles (registre fermé) pour l'IHM."""
@@ -329,10 +404,14 @@ async def create_automation(body: AutomationCreate, _: _Admin, conn: _Conn) -> d
     _validate(body.event_types, body.http_method)
     if await oc.get(conn, body.contract_ref) is None:
         raise HTTPException(status_code=422, detail="contract_ref introuvable")
-    position = await adb.max_position(conn) + 1
+    slug = _resolve_slug(body.slug, body.label)
+    if await adb.slug_exists(conn, slug):
+        raise HTTPException(status_code=409, detail=f"slug déjà utilisé : {slug!r}")
+    position = body.position if body.position is not None else await adb.max_position(conn) + 1
     row = await adb.create(
         conn,
         label=body.label,
+        slug=slug,
         event_types=body.event_types,
         contract_ref=body.contract_ref,
         operation_id=body.operation_id,
@@ -343,6 +422,11 @@ async def create_automation(body: AutomationCreate, _: _Admin, conn: _Conn) -> d
         stop_chain=body.stop_chain,
         active=body.active,
         position=position,
+        filter_contract_ref=body.filter_contract_ref,
+        filter_operation_id=body.filter_operation_id,
+        filter_url=body.filter_url,
+        filter_method=body.filter_method,
+        filter_body=body.filter_body,
     )
     await adb.set_headers(conn, row["id"], _headers_payload(body.headers))
     # Nouveau : curseur au sommet du journal — n'exécute que les events À VENIR
@@ -371,6 +455,11 @@ async def update_automation(
     fields = body.model_dump(exclude_unset=True, exclude={"headers"})
     if "http_method" in fields and fields["http_method"] is not None:
         fields["http_method"] = fields["http_method"].upper()
+    if fields.get("slug"):
+        slug = _resolve_slug(fields["slug"], current["label"])
+        if await adb.slug_exists(conn, slug, exclude_id=automation_id):
+            raise HTTPException(status_code=409, detail=f"slug déjà utilisé : {slug!r}")
+        fields["slug"] = slug
     et = body.event_types if body.event_types is not None else current["event_types"]
     hm = fields.get("http_method") or current["http_method"]
     _validate(et, hm)

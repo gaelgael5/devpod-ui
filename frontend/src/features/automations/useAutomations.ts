@@ -14,28 +14,40 @@ export interface Contract {
   updated_at: string
 }
 
+export interface AuthHeader {
+  header: string
+  value_prefix: string
+}
+
 export interface Operation {
   operation_id: string
   method: string
   path: string
   url: string
   summary: string
+  body_skeleton?: unknown
+  auth_headers?: AuthHeader[]
 }
 
 export interface ContractDetail extends Contract {
   raw_spec: unknown
   operations: Operation[]
+  servers: string[]
 }
 
 export interface HeaderRow {
   name: string
   value?: string | null
   secret_ref?: string | null
+  value_prefix?: string
+  required?: boolean
+  enabled?: boolean
 }
 
 export interface Automation {
   id: string
   label: string
+  slug: string
   active: boolean
   position: number
   stop_chain: boolean
@@ -46,6 +58,11 @@ export interface Automation {
   url: string
   http_method: string
   body_template: string | null
+  filter_contract_ref: string | null
+  filter_operation_id: string | null
+  filter_url: string | null
+  filter_method: string | null
+  filter_body: string | null
   headers: HeaderRow[]
   last_seq: number
   pending: number
@@ -53,6 +70,7 @@ export interface Automation {
 
 export interface AutomationInput {
   label: string
+  slug?: string
   event_types: string[]
   contract_ref: string
   operation_id: string
@@ -63,6 +81,25 @@ export interface AutomationInput {
   stop_chain?: boolean
   headers?: HeaderRow[]
   active?: boolean
+  filter_contract_ref?: string | null
+  filter_operation_id?: string | null
+  filter_url?: string | null
+  filter_method?: string | null
+  filter_body?: string | null
+}
+
+export interface SystemSecret {
+  slug: string
+  label: string
+  secret_type: string
+  storage_type: string
+}
+
+export interface TestCallResult {
+  ok: boolean
+  status_code?: number
+  body?: string
+  error?: string
 }
 
 export interface Run {
@@ -250,6 +287,58 @@ export function useClearRuns() {
   return useMutation({
     mutationFn: (id: string) => apiFetchVoid(`${BASE}/${id}/runs`, { method: 'DELETE' }),
     onSuccess: (_r, id) => qc.invalidateQueries({ queryKey: ['automations', 'runs', id] }),
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
+// ─── Secrets système (en-têtes d'auth des automates) ───────────────────────────
+
+export function useSystemSecrets() {
+  return useQuery<SystemSecret[]>({
+    queryKey: ['automations', 'secrets'],
+    queryFn: () => apiFetchJson<SystemSecret[]>(`${BASE}/secrets`),
+    staleTime: 60_000,
+  })
+}
+
+export function useCreateSystemSecret() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { slug: string; label: string; value: string }) =>
+      apiFetchJson<{ slug: string; ref: string }>(`${BASE}/secrets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['automations', 'secrets'] }),
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
+export function useDeleteSystemSecret() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (slug: string) => apiFetchVoid(`${BASE}/secrets/${slug}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['automations', 'secrets'] }),
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
+// ─── Test d'appel (onglet Filtre) ───────────────────────────────────────────────
+
+export function useTestCall() {
+  return useMutation({
+    mutationFn: (body: {
+      url: string
+      http_method: string
+      headers?: HeaderRow[]
+      body?: string | null
+    }) =>
+      apiFetchJson<TestCallResult>(`${BASE}/test-call`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
     onError: (e: Error) => toast.error(e.message),
   })
 }

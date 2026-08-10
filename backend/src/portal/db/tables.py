@@ -1042,6 +1042,8 @@ automation = Table(
     metadata,
     Column("id", Text, primary_key=True),
     Column("label", Text, nullable=False),
+    # Identifiant lisible et stable côté IHM (prérempli du label normalisé).
+    Column("slug", Text, nullable=False, server_default=""),
     Column("active", Boolean, nullable=False, server_default="false"),
     Column("position", Integer, nullable=False, server_default="0"),
     Column("stop_chain", Boolean, nullable=False, server_default="false"),
@@ -1057,9 +1059,21 @@ automation = Table(
     Column("url", Text, nullable=False),  # cible réelle (base du contrat + path résolu)
     Column("http_method", Text, nullable=False),
     Column("body_template", Text, nullable=True),  # modèle à variables ; null = pas de corps
+    # Onglet Filtre : appel d'API préliminaire (évaluation différée) — tout nullable.
+    Column(
+        "filter_contract_ref",
+        Text,
+        ForeignKey("openapi_contract.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    Column("filter_operation_id", Text, nullable=True),
+    Column("filter_url", Text, nullable=True),
+    Column("filter_method", Text, nullable=True),
+    Column("filter_body", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Index("idx_automation_position", "position"),
+    Index("uq_automation_slug", "slug", unique=True),
 )
 
 # Portée : les workspaces auxquels l'automate s'applique. `workspace = '*'` = tous.
@@ -1094,7 +1108,12 @@ automation_header = Table(
 automation_cursor = Table(
     "automation_cursor",
     metadata,
-    Column("automation_id", Text, ForeignKey("automation.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "automation_id",
+        Text,
+        ForeignKey("automation.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
     Column("last_seq", BigInteger, nullable=False, server_default="0"),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )

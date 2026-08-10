@@ -13,9 +13,12 @@ from pydantic import ValidationError
 from portal.routes.automations import (
     AutomationCreate,
     ContractUpdate,
+    FilterCallIn,
     HeaderIn,
     InjectIn,
     _headers_payload,
+    _normalize_slug,
+    _resolve_slug,
     _validate,
 )
 
@@ -134,3 +137,41 @@ def test_inject_kind_literal() -> None:
     assert InjectIn(kind="host").kind == "host"
     with pytest.raises(ValidationError):
         InjectIn(kind="banana")
+
+
+def test_normalize_slug() -> None:
+    assert _normalize_slug("Sync Termix Hosts !") == "sync-termix-hosts"
+    assert _normalize_slug("  Déjà__vu  ") == "d-j-vu"  # non-[a-z0-9] → '-'
+    assert _normalize_slug("---") == ""
+
+
+def test_resolve_slug_from_label_when_empty() -> None:
+    assert _resolve_slug("", "Sync Termix") == "sync-termix"
+    assert _resolve_slug("my-slug", "ignored") == "my-slug"
+
+
+def test_resolve_slug_rejects_empty_result() -> None:
+    with pytest.raises(HTTPException):
+        _resolve_slug("", "!!!")  # ni slug ni label normalisable
+
+
+def test_automation_create_accepts_slug_and_filter() -> None:
+    a = AutomationCreate(
+        label="L",
+        slug="my-auto",
+        event_types=["test_server.updated"],
+        contract_ref="c",
+        operation_id="op",
+        url="https://x/y",
+        http_method="POST",
+        filter_contract_ref="c",
+        filter_operation_id="listUsers",
+        filter_url="https://x/users/list",
+        filter_method="GET",
+    )
+    assert a.slug == "my-auto" and a.filter_method == "GET"
+
+
+def test_test_call_in_forbids_extra() -> None:
+    with pytest.raises(ValidationError):
+        FilterCallIn(url="https://x", http_method="GET", nope=1)  # type: ignore[call-arg]
