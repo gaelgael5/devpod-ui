@@ -21,7 +21,7 @@ function SimulateBar() {
   const inject = useInjectTestEvent()
   const backfill = useBackfill()
 
-  function fire(kind: 'host' | 'workspace' | 'session') {
+  function fire(kind: 'user' | 'host' | 'workspace' | 'session') {
     inject.mutate(
       { kind },
       { onSuccess: (r) => toast.success(t('automations.sim.injected', { code: r.emitted })) },
@@ -31,6 +31,9 @@ function SimulateBar() {
   return (
     <div className="mb-6 flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 p-3">
       <span className="text-sm font-medium">{t('automations.sim.title')}</span>
+      <Button variant="outline" size="sm" onClick={() => fire('user')} disabled={inject.isPending}>
+        {t('automations.sim.user')}
+      </Button>
       <Button variant="outline" size="sm" onClick={() => fire('host')} disabled={inject.isPending}>
         {t('automations.sim.host')}
       </Button>
@@ -59,6 +62,7 @@ function SimulateBar() {
               onSuccess: (r) =>
                 toast.success(
                   t('automations.sim.backfilled', {
+                    users: r.users,
                     hosts: r.hosts,
                     workspaces: r.workspaces,
                     sessions: r.sessions,

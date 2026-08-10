@@ -61,6 +61,15 @@ _STR_OR_NULL = {"type": ["string", "null"]}
 # dataSchema par type interne (les champs métier vivent à la racine de l'enveloppe :
 # `actor` et `workspace` de l'AppEvent + les clés du `subject`).
 _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
+    # Identité utilisateur : `sub` (ancre OIDC) = clé de matching côté systèmes tiers.
+    "user.created": _obj(
+        ["actor", "login", "sub"],
+        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR},
+    ),
+    "user.refreshed": _obj(
+        ["actor", "login", "sub"],
+        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR},
+    ),
     "workspace.created": _obj(
         ["actor", "workspace", "ws_id", "node"],
         {"actor": _STR, "workspace": _STR, "ws_id": _STR, "node": _STR},

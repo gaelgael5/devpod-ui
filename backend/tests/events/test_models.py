@@ -17,6 +17,8 @@ def test_type_inconnu_rejete() -> None:
 
 def test_registre_contient_les_types_attendus() -> None:
     assert {
+        "user.created",
+        "user.refreshed",
         "workspace.created",
         "workspace.updated",
         "workspace.deleted",

@@ -1545,7 +1545,8 @@
       "session": "Session moved",
       "backfill": "Backfill existing",
       "injected": "Event injected: {{code}}",
-      "backfilled": "Backfill: {{hosts}} hosts, {{workspaces}} workspaces, {{sessions}} sessions"
+      "backfilled": "Backfill: {{users}} users, {{hosts}} hosts, {{workspaces}} workspaces, {{sessions}} sessions",
+      "user": "User moved"
     },
     "form": {
       "newTitle": "New automation",

@@ -98,7 +98,7 @@ class ReorderIn(BaseModel):
 
 class InjectIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["host", "workspace", "session"]
+    kind: Literal["user", "host", "workspace", "session"]
     workspace: str | None = None
     host_name: str | None = None
     session: str | None = None

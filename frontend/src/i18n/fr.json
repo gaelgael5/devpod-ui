@@ -1545,7 +1545,8 @@
       "session": "Session a bougé",
       "backfill": "Rattraper les existants",
       "injected": "Event injecté : {{code}}",
-      "backfilled": "Rattrapage : {{hosts}} hosts, {{workspaces}} workspaces, {{sessions}} sessions"
+      "backfilled": "Rattrapage : {{users}} users, {{hosts}} hosts, {{workspaces}} workspaces, {{sessions}} sessions",
+      "user": "User a bougé"
     },
     "form": {
       "newTitle": "Nouvel automate",

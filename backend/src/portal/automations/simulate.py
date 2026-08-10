@@ -26,6 +26,13 @@ async def inject_test_event(
 ) -> dict[str, str]:
     """Injecte un event synthétique de test (déclenche le runner comme une vraie mutation)."""
     ws = workspace or "test-ws"
+    if kind == "user":
+        await emit_event(
+            "user.refreshed",
+            actor=actor,
+            subject={"login": actor, "sub": f"test-sub-{actor}", "email": ""},
+        )
+        return {"emitted": "user.refreshed"}
     if kind == "host":
         name = host_name or "test-host"
         await emit_event(
@@ -61,19 +68,34 @@ async def inject_test_event(
 
 async def backfill(*, actor: str) -> dict[str, int]:
     """Émet un event de synchro par host / workspace / session existant (idempotent)."""
+    from sqlalchemy import select
+
     from ..config.store import load_global
     from ..db.engine import _get_engine
+    from ..db.tables import users
     from ..db.test_hosts import list_all_test_hosts
     from ..db.workspace_status import list_running_db
     from ..sessions.aggregate import probe_workspace_sessions
 
     cfg = load_global()
     addr_by_host = {h.name: h.address for h in cfg.hosts}
-    counts = {"hosts": 0, "workspaces": 0, "sessions": 0}
+    counts = {"users": 0, "hosts": 0, "workspaces": 0, "sessions": 0}
 
     async with _get_engine().connect() as conn:
+        user_rows = (
+            await conn.execute(select(users.c.login, users.c.sub, users.c.email))
+        ).all()
         hosts = await list_all_test_hosts(conn)
         running = await list_running_db(conn)
+
+    for login, sub, email in user_rows:
+        await emit_event(
+            "user.refreshed",
+            actor=login,
+            subject={"login": login, "sub": sub or "", "email": email or ""},
+            dedup_key=f"backfill:user:{login}",
+        )
+        counts["users"] += 1
 
     for _login, ws_name, host_name, alias in hosts:
         await emit_event(

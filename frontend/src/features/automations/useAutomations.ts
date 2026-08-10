@@ -260,7 +260,7 @@ export function useClearRuns() {
 
 export function useInjectTestEvent() {
   return useMutation({
-    mutationFn: (body: { kind: 'host' | 'workspace' | 'session'; workspace?: string }) =>
+    mutationFn: (body: { kind: 'user' | 'host' | 'workspace' | 'session'; workspace?: string }) =>
       apiFetchJson<{ emitted: string }>(`${BASE}/inject-test-event`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -274,9 +274,12 @@ export function useBackfill() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () =>
-      apiFetchJson<{ hosts: number; workspaces: number; sessions: number }>(`${BASE}/backfill`, {
-        method: 'POST',
-      }),
+      apiFetchJson<{ users: number; hosts: number; workspaces: number; sessions: number }>(
+        `${BASE}/backfill`,
+        {
+          method: 'POST',
+        },
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['automations', 'list'] }),
     onError: (e: Error) => toast.error(e.message),
   })

@@ -46,6 +46,8 @@ def test_representative_payload_conforms_like_workflow() -> None:
     # Le workflow valide les champs métier contre le dataSchema — on vérifie qu'un
     # payload représentatif de chaque event passe sa propre validation.
     samples: dict[str, dict[str, object]] = {
+        "user.created": {"actor": "gael", "login": "gael", "sub": "kc-123", "email": "g@x.org"},
+        "user.refreshed": {"actor": "gael", "login": "gael", "sub": "kc-123", "email": ""},
         "workspace.created": {"actor": "a", "workspace": "p", "ws_id": "a-p", "node": "n"},
         "workspace.updated": {
             "actor": "a",

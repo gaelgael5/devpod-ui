@@ -198,6 +198,15 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     # Claims essentiels curés (jamais le jeton brut) pour affichage/copie côté profil.
     request.session["token_claims"] = curate_token_claims(claims)
     _log.info("user_logged_in", login=login_name, roles=roles)
+    # Rafraîchissement d'identité à chaque login OIDC : re-synchronise l'aval
+    # (ex. upsert du user dans Termix), idempotent. Best-effort (hors txn).
+    from ..events.bus import emit_event
+
+    await emit_event(
+        "user.refreshed",
+        actor=login_name,
+        subject={"login": login_name, "sub": sub, "email": email},
+    )
     return RedirectResponse("/", status_code=302)
 
 
@@ -330,6 +339,17 @@ async def provision_user(login: str, sub: str, data_root: Path, email: str = "")
                 from ..mcp.devpod_bootstrap import ensure_devpod_backend
 
                 await ensure_devpod_backend(conn, login)
+                # Émis DANS la transaction de création (atomique avec la row users) :
+                # déclencheur de provisioning aval (ex. créer le user dans Termix).
+                from ..events.bus import emit_event
+
+                await emit_event(
+                    "user.created",
+                    actor=login,
+                    subject={"login": login, "sub": sub, "email": email},
+                    dedup_key=f"user:{login}",
+                    conn=conn,
+                )
             else:
                 if email:
                     await conn.execute(
