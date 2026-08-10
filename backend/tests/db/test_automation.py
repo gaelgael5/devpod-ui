@@ -116,6 +116,32 @@ async def test_update_and_reorder(db_conn: AsyncConnection) -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_route_persists_filter_eval(db_conn: AsyncConnection) -> None:
+    # Régression : le handler de création doit persister jsonpath/operator/expected.
+    from portal.routes.automations import AutomationCreate, create_automation
+
+    cid = await _contract(db_conn)
+    body = AutomationCreate(
+        label="sync-user",
+        event_types=["test_server.updated"],
+        contract_ref=cid,
+        operation_id="putHost",
+        url="https://termix.example.org/api/hosts",
+        http_method="POST",
+        filter_url="https://termix.example.org/users/list",
+        filter_method="GET",
+        filter_jsonpath='$.users[?(@.username=="{user.sub}")]',
+        filter_operator="exists",
+        filter_expected="",
+    )
+    created = await create_automation(body, _=None, conn=db_conn)  # type: ignore[arg-type]
+    row = await a.get(db_conn, created["id"])
+    assert row is not None
+    assert row["filter_jsonpath"] == '$.users[?(@.username=="{user.sub}")]'
+    assert row["filter_operator"] == "exists"
+
+
+@pytest.mark.asyncio
 async def test_headers_value_and_secret(db_conn: AsyncConnection) -> None:
     aid = await _automation(db_conn)
     await a.set_headers(

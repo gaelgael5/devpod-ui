@@ -469,6 +469,9 @@ async def create_automation(body: AutomationCreate, _: _Admin, conn: _Conn) -> d
         filter_url=body.filter_url,
         filter_method=body.filter_method,
         filter_body=body.filter_body,
+        filter_jsonpath=body.filter_jsonpath,
+        filter_operator=body.filter_operator,
+        filter_expected=body.filter_expected,
     )
     await adb.set_headers(conn, row["id"], _headers_payload(body.headers))
     # Nouveau : curseur au sommet du journal — n'exécute que les events À VENIR
