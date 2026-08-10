@@ -112,6 +112,26 @@ export function useCreateContract() {
   })
 }
 
+export function useUpdateContract() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id: string
+      body: { label?: string; source_url?: string; refresh?: boolean }
+    }) =>
+      apiFetchJson<Contract>(`${BASE}/contracts/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['automations', 'contracts'] }),
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
 export function useRefreshContract() {
   const qc = useQueryClient()
   return useMutation({

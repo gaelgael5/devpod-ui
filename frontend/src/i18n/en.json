@@ -1602,7 +1602,10 @@
       "refreshed": "Contract refreshed",
       "deleted": "Contract deleted",
       "confirmDelete": "Delete contract \"{{label}}\"?",
-      "empty": "No contracts."
+      "empty": "No contracts.",
+      "editTitle": "Edit contract",
+      "editUrlHint": "Changing the URL re-fetches the spec. Clearing the URL freezes the contract (manual import).",
+      "updated": "Contract updated"
     }
   }
 }

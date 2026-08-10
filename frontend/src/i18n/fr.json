@@ -1602,7 +1602,10 @@
       "refreshed": "Contrat rafraîchi",
       "deleted": "Contrat supprimé",
       "confirmDelete": "Supprimer le contrat « {{label}} » ?",
-      "empty": "Aucun contrat."
+      "empty": "Aucun contrat.",
+      "editTitle": "Éditer le contrat",
+      "editUrlHint": "Changer l'URL re-télécharge la spec. Vider l'URL fige le contrat (import manuel).",
+      "updated": "Contrat mis à jour"
     }
   }
 }

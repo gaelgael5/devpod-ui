@@ -12,11 +12,33 @@ from pydantic import ValidationError
 
 from portal.routes.automations import (
     AutomationCreate,
+    ContractUpdate,
     HeaderIn,
     InjectIn,
     _headers_payload,
     _validate,
 )
+
+
+def test_contract_update_forbids_extra() -> None:
+    with pytest.raises(ValidationError):
+        ContractUpdate(label="x", unknown="oops")
+
+
+def test_contract_update_defaults_refresh_true() -> None:
+    u = ContractUpdate(source_url="https://x/openapi.json")
+    assert u.refresh is True
+    assert u.label is None
+
+
+def test_contract_update_allows_partial_rename() -> None:
+    u = ContractUpdate(label="Nouveau nom")
+    assert u.model_dump(exclude_unset=True) == {"label": "Nouveau nom"}
+
+
+def test_contract_update_clear_url() -> None:
+    u = ContractUpdate(source_url="", refresh=False)
+    assert u.model_dump(exclude_unset=True) == {"source_url": "", "refresh": False}
 
 
 def test_automation_create_forbids_extra() -> None:

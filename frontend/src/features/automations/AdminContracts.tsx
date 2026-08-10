@@ -20,6 +20,7 @@ import {
   useCreateContract,
   useDeleteContract,
   useRefreshContract,
+  useUpdateContract,
   type Contract,
 } from './useAutomations'
 
@@ -138,6 +139,69 @@ function OperationsDialog({ contract }: { contract: Contract }) {
   )
 }
 
+function EditDialog({ contract }: { contract: Contract }) {
+  const { t } = useTranslation()
+  const update = useUpdateContract()
+  const [open, setOpen] = useState(false)
+  const [label, setLabel] = useState(contract.label)
+  const [sourceUrl, setSourceUrl] = useState(contract.source_url ?? '')
+
+  function submit() {
+    const body: { label?: string; source_url?: string } = {}
+    if (label.trim() && label !== contract.label) body.label = label.trim()
+    if (sourceUrl !== (contract.source_url ?? '')) body.source_url = sourceUrl.trim()
+    if (Object.keys(body).length === 0) {
+      setOpen(false)
+      return
+    }
+    update.mutate(
+      { id: contract.id, body },
+      {
+        onSuccess: () => {
+          setOpen(false)
+          toast.success(t('automations.contracts.updated'))
+        },
+      },
+    )
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          {t('common.edit')}
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('automations.contracts.editTitle')}</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="edit-label">{t('automations.contracts.label')}</Label>
+            <Input id="edit-label" value={label} onChange={(e) => setLabel(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="edit-url">{t('automations.contracts.sourceUrl')}</Label>
+            <Input
+              id="edit-url"
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              placeholder="https://…/openapi.json"
+            />
+            <p className="text-xs text-muted-foreground">{t('automations.contracts.editUrlHint')}</p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={submit} disabled={!label.trim() || update.isPending}>
+            {update.isPending ? '…' : t('common.save')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export default function AdminContracts() {
   const { t } = useTranslation()
   const { data, isLoading, isError } = useContracts()
@@ -175,6 +239,7 @@ export default function AdminContracts() {
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <OperationsDialog contract={c} />
+              <EditDialog contract={c} />
               {c.source_url && (
                 <Button
                   variant="outline"

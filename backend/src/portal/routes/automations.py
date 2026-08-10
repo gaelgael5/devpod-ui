@@ -41,6 +41,15 @@ class ContractCreate(BaseModel):
     raw_spec: dict[str, Any] | None = None
 
 
+class ContractUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str | None = None
+    # source_url : "" efface l'URL (import manuel figé) ; une URL non vide la met à jour.
+    source_url: str | None = None
+    # Re-fetch la spec depuis la nouvelle source_url après changement (défaut True).
+    refresh: bool = True
+
+
 class HeaderIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
@@ -150,6 +159,38 @@ async def get_contract(contract_id: str, _: _Admin, conn: _Conn) -> dict[str, An
         raise HTTPException(status_code=404, detail="contrat introuvable")
     row["operations"] = ct.list_operations(row["raw_spec"])
     return row
+
+
+@router.patch("/contracts/{contract_id}")
+async def update_contract(
+    contract_id: str, body: ContractUpdate, _: _Admin, conn: _Conn
+) -> dict[str, Any]:
+    """Édite un contrat : renommer (label) et/ou changer sa source_url.
+
+    Si la source_url change vers une URL non vide et `refresh` (défaut), la spec est
+    re-téléchargée (anti-SSRF) et remplacée. source_url="" fige le contrat en import
+    manuel (garde le raw_spec courant).
+    """
+    current = await oc.get(conn, contract_id)
+    if current is None:
+        raise HTTPException(status_code=404, detail="contrat introuvable")
+    fields = body.model_dump(exclude_unset=True)
+    new_url = fields.get("source_url")
+    spec = None
+    version = None
+    if body.refresh and body.source_url:
+        spec = await ct.fetch_spec(body.source_url)
+        version = ct.extract_version(spec)
+    updated = await oc.update_spec(
+        conn,
+        contract_id,
+        label=fields.get("label"),
+        source_url=new_url,
+        raw_spec=spec,
+        version=version,
+    )
+    assert updated is not None
+    return {k: v for k, v in updated.items() if k != "raw_spec"}
 
 
 @router.post("/contracts/{contract_id}/refresh")
