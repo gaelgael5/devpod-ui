@@ -30,7 +30,12 @@ async def inject_test_event(
         await emit_event(
             "user.refreshed",
             actor=actor,
-            subject={"login": actor, "sub": f"test-sub-{actor}", "email": ""},
+            subject={
+                "login": actor,
+                "sub": f"test-sub-{actor}",
+                "email": f"{actor}@example.org",
+                "identity": "",
+            },
         )
         return {"emitted": "user.refreshed"}
     if kind == "host":
@@ -83,16 +88,23 @@ async def backfill(*, actor: str) -> dict[str, int]:
 
     async with _get_engine().connect() as conn:
         user_rows = (
-            await conn.execute(select(users.c.login, users.c.sub, users.c.email))
+            await conn.execute(
+                select(users.c.login, users.c.sub, users.c.email, users.c.identity)
+            )
         ).all()
         hosts = await list_all_test_hosts(conn)
         running = await list_running_db(conn)
 
-    for login, sub, email in user_rows:
+    for login, sub, email, identity in user_rows:
         await emit_event(
             "user.refreshed",
             actor=login,
-            subject={"login": login, "sub": sub or "", "email": email or ""},
+            subject={
+                "login": login,
+                "sub": sub or "",
+                "email": email or "",
+                "identity": identity or "",
+            },
             dedup_key=f"backfill:user:{login}",
         )
         counts["users"] += 1

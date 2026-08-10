@@ -45,6 +45,25 @@ def test_dedup_key_prefers_natural_then_seq() -> None:
     assert r.dedup_key(_event(dedup_key=None, seq=42)) == "seq:42"
 
 
+def test_build_context_user_namespace() -> None:
+    ev = {
+        "seq": 1,
+        "event_type": "user.created",
+        "actor": "alice",
+        "subject": {"login": "alice", "sub": "S-1", "email": "a@x.org", "identity": None},
+    }
+    ctx = r.build_context(ev)
+    assert ctx["user.login"] == "alice"
+    assert ctx["user.sub"] == "S-1"
+    assert ctx["user.email"] == "a@x.org"
+    assert ctx["user.identity"] == ""  # None → "" (jamais {user.identity} littéral)
+
+
+def test_build_context_no_user_namespace_for_non_user_event() -> None:
+    ctx = r.build_context(_event())  # test_server.updated
+    assert "user.sub" not in ctx
+
+
 def test_build_context_exposes_root_and_subject() -> None:
     ctx = r.build_context(_event())
     assert ctx["actor"] == "alice"

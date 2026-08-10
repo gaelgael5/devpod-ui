@@ -32,13 +32,15 @@ import {
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 
 // Variables de contexte proposées comme raccourcis (event courant → template).
+// `user.*` = propriétés de la table user (events user.*) ; `subject.*` = autres events.
 const VARIABLES = [
   'actor',
   'workspace',
   'type',
-  'subject.login',
-  'subject.sub',
-  'subject.email',
+  'user.login',
+  'user.sub',
+  'user.identity',
+  'user.email',
   'subject.host_name',
   'subject.address',
 ]

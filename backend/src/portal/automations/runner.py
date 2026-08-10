@@ -63,6 +63,12 @@ def build_context(event: dict[str, Any]) -> dict[str, str]:
     for key, value in subject.items():
         ctx[f"subject.{key}"] = "" if value is None else str(value)
         ctx.setdefault(key, "" if value is None else str(value))
+    # Namespace `user.*` (propriétés de la table user) pour les events user.* :
+    # login/sub/identity/email garantis (défaut "") — aucun {user.x} laissé littéral.
+    if str(event.get("event_type", "")).startswith("user."):
+        for prop in ("login", "sub", "identity", "email"):
+            raw = subject.get(prop)
+            ctx[f"user.{prop}"] = "" if raw is None else str(raw)
     return ctx
 
 

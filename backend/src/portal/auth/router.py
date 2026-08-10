@@ -200,12 +200,16 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     _log.info("user_logged_in", login=login_name, roles=roles)
     # Rafraîchissement d'identité à chaque login OIDC : re-synchronise l'aval
     # (ex. upsert du user dans Termix), idempotent. Best-effort (hors txn).
+    from ..db.engine import _get_engine
+    from ..db.user_config import get_user_actor
     from ..events.bus import emit_event
 
+    async with _get_engine().connect() as conn:
+        identity = await get_user_actor(login_name, conn) or ""
     await emit_event(
         "user.refreshed",
         actor=login_name,
-        subject={"login": login_name, "sub": sub, "email": email},
+        subject={"login": login_name, "sub": sub, "email": email, "identity": identity},
     )
     return RedirectResponse("/", status_code=302)
 
@@ -341,12 +345,14 @@ async def provision_user(login: str, sub: str, data_root: Path, email: str = "")
                 await ensure_devpod_backend(conn, login)
                 # Émis DANS la transaction de création (atomique avec la row users) :
                 # déclencheur de provisioning aval (ex. créer le user dans Termix).
+                from ..db.user_config import get_user_actor
                 from ..events.bus import emit_event
 
+                identity = await get_user_actor(login, conn) or ""
                 await emit_event(
                     "user.created",
                     actor=login,
-                    subject={"login": login, "sub": sub, "email": email},
+                    subject={"login": login, "sub": sub, "email": email, "identity": identity},
                     dedup_key=f"user:{login}",
                     conn=conn,
                 )

@@ -64,11 +64,11 @@ _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
     # Identité utilisateur : `sub` (ancre OIDC) = clé de matching côté systèmes tiers.
     "user.created": _obj(
         ["actor", "login", "sub"],
-        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR},
+        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR, "identity": _STR},
     ),
     "user.refreshed": _obj(
         ["actor", "login", "sub"],
-        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR},
+        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR, "identity": _STR},
     ),
     # Cycle de vie compte devpod (émetteurs à câbler quand la désactivation/suppression
     # d'utilisateur existera) : deleted = compte retiré ; paused = désactivé ; resumed = réactivé.
