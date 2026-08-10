@@ -161,8 +161,7 @@ async def set_cursor(conn: AsyncConnection, automation_id: str, last_seq: int) -
 
 
 async def _attach_details(conn: AsyncConnection, row: dict[str, Any]) -> dict[str, Any]:
-    """Enrichit un automate de ses portées, en-têtes et curseur."""
-    row["scopes"] = await get_scopes(conn, row["id"])
+    """Enrichit un automate de ses en-têtes et curseur."""
     row["headers"] = await get_headers(conn, row["id"])
     row["last_seq"] = await get_cursor(conn, row["id"])
     return row

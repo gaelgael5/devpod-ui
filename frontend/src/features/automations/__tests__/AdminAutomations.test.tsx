@@ -18,7 +18,6 @@ const AUTOMATION = {
   url: 'https://termix.example.org/api/hosts',
   http_method: 'PUT',
   body_template: null,
-  scopes: ['*'],
   headers: [],
   last_seq: 0,
   pending: 3,

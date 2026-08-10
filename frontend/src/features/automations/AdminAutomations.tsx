@@ -138,7 +138,7 @@ function Row({
           ))}
         </div>
         <div className="mt-1 truncate text-xs text-muted-foreground">
-          {automation.scopes.join(', ')} → {automation.url}
+          {automation.http_method} → {automation.url}
         </div>
       </div>
 

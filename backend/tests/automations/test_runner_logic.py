@@ -21,7 +21,6 @@ def _event(**over: object) -> dict:
 def _auto(**over: object) -> dict:
     base = {
         "event_types": ["test_server.updated"],
-        "scopes": ["*"],
         "delay_minutes": 0,
         "stop_chain": False,
     }
@@ -29,13 +28,10 @@ def _auto(**over: object) -> dict:
     return base
 
 
-def test_matches_type_and_wildcard_scope() -> None:
+def test_matches_on_type() -> None:
+    # Le matching ne dépend QUE du type d'event (plus de filtre par workspace).
     assert r.matches(_auto(), _event()) is True
-
-
-def test_matches_scope_by_workspace() -> None:
-    assert r.matches(_auto(scopes=["proj"]), _event(workspace="proj")) is True
-    assert r.matches(_auto(scopes=["other"]), _event(workspace="proj")) is False
+    assert r.matches(_auto(), _event(workspace="autre")) is True
 
 
 def test_no_match_on_type() -> None:

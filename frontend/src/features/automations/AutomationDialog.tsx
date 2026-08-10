@@ -65,7 +65,6 @@ export function AutomationDialog({
 
   const [label, setLabel] = useState(automation?.label ?? '')
   const [events, setEvents] = useState<string[]>(automation?.event_types ?? [])
-  const [scopes, setScopes] = useState((automation?.scopes ?? ['*']).join(', '))
   const [contractRef, setContractRef] = useState(automation?.contract_ref ?? '')
   const [operationId, setOperationId] = useState(automation?.operation_id ?? '')
   const [url, setUrl] = useState(automation?.url ?? '')
@@ -96,16 +95,8 @@ export function AutomationDialog({
   }
 
   function submit() {
-    const scopeList = scopes
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
     if (!label.trim() || events.length === 0 || !contractRef || !operationId || !url.trim()) {
       toast.error(t('automations.form.missing'))
-      return
-    }
-    if (scopeList.length === 0) {
-      toast.error(t('automations.form.scopeRequired'))
       return
     }
     const headerRows: HeaderRow[] = headers
@@ -118,7 +109,6 @@ export function AutomationDialog({
     const body: AutomationInput = {
       label: label.trim(),
       event_types: events,
-      scopes: scopeList,
       contract_ref: contractRef,
       operation_id: operationId,
       url: url.trim(),
@@ -168,12 +158,6 @@ export function AutomationDialog({
                 </label>
               ))}
             </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="au-scopes">{t('automations.form.scopes')}</Label>
-            <Input id="au-scopes" value={scopes} onChange={(e) => setScopes(e.target.value)} />
-            <p className="text-xs text-muted-foreground">{t('automations.form.scopesHint')}</p>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

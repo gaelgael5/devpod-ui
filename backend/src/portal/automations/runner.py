@@ -42,13 +42,8 @@ _VAR_RE = re.compile(r"\{([a-zA-Z0-9_.]+)\}")
 
 
 def matches(automation: dict[str, Any], event: dict[str, Any]) -> bool:
-    """L'automate est-il déclenché par cet event (type + portée) ?"""
-    if event["event_type"] not in (automation.get("event_types") or []):
-        return False
-    scopes = automation.get("scopes") or []
-    if "*" in scopes:
-        return True
-    return event.get("workspace") in scopes
+    """L'automate est-il déclenché par cet event ? (uniquement sur le type d'event)."""
+    return event["event_type"] in (automation.get("event_types") or [])
 
 
 def dedup_key(event: dict[str, Any]) -> str:

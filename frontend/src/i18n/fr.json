@@ -1553,8 +1553,6 @@
       "editTitle": "Modifier l'automate",
       "label": "Libellé",
       "events": "Events déclencheurs",
-      "scopes": "Portée (workspaces)",
-      "scopesHint": "Liste séparée par des virgules. « * » = tous les workspaces.",
       "contract": "Contrat",
       "operation": "Opération",
       "url": "URL cible",
@@ -1571,7 +1569,6 @@
       "stopChain": "Stop chain (consomme l'event)",
       "active": "Actif",
       "missing": "Libellé, events, contrat, opération et URL sont requis.",
-      "scopeRequired": "Au moins une portée (ou « * »).",
       "created": "Automate créé",
       "updated": "Automate mis à jour"
     },

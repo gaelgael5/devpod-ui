@@ -1553,8 +1553,6 @@
       "editTitle": "Edit automation",
       "label": "Label",
       "events": "Trigger events",
-      "scopes": "Scope (workspaces)",
-      "scopesHint": "Comma-separated list. \"*\" = all workspaces.",
       "contract": "Contract",
       "operation": "Operation",
       "url": "Target URL",
@@ -1571,7 +1569,6 @@
       "stopChain": "Stop chain (consume event)",
       "active": "Active",
       "missing": "Label, events, contract, operation and URL are required.",
-      "scopeRequired": "At least one scope (or \"*\").",
       "created": "Automation created",
       "updated": "Automation updated"
     },

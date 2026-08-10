@@ -63,7 +63,6 @@ class AutomationCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str
     event_types: list[str]
-    scopes: list[str] = Field(default_factory=lambda: ["*"])
     contract_ref: str
     operation_id: str
     url: str
@@ -79,7 +78,6 @@ class AutomationUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str | None = None
     event_types: list[str] | None = None
-    scopes: list[str] | None = None
     contract_ref: str | None = None
     operation_id: str | None = None
     url: str | None = None
@@ -104,14 +102,12 @@ class InjectIn(BaseModel):
     session: str | None = None
 
 
-def _validate(event_types: list[str], http_method: str, scopes: list[str]) -> None:
+def _validate(event_types: list[str], http_method: str) -> None:
     unknown = set(event_types) - EVENT_TYPES
     if unknown:
         raise HTTPException(status_code=422, detail=f"event_types inconnus : {sorted(unknown)}")
     if http_method.upper() not in _HTTP_METHODS:
         raise HTTPException(status_code=422, detail=f"http_method invalide : {http_method!r}")
-    if not scopes:
-        raise HTTPException(status_code=422, detail="portée vide (au moins un workspace ou '*')")
 
 
 def _headers_payload(headers: list[HeaderIn]) -> list[dict[str, Any]]:
@@ -268,7 +264,7 @@ async def list_automations(_: _Admin, conn: _Conn) -> list[dict[str, Any]]:
 
 @router.post("", status_code=201)
 async def create_automation(body: AutomationCreate, _: _Admin, conn: _Conn) -> dict[str, Any]:
-    _validate(body.event_types, body.http_method, body.scopes)
+    _validate(body.event_types, body.http_method)
     if await oc.get(conn, body.contract_ref) is None:
         raise HTTPException(status_code=422, detail="contract_ref introuvable")
     position = await adb.max_position(conn) + 1
@@ -286,7 +282,6 @@ async def create_automation(body: AutomationCreate, _: _Admin, conn: _Conn) -> d
         active=body.active,
         position=position,
     )
-    await adb.set_scopes(conn, row["id"], body.scopes)
     await adb.set_headers(conn, row["id"], _headers_payload(body.headers))
     # Nouveau : curseur au sommet du journal — n'exécute que les events À VENIR
     # (le rattrapage des existants est explicite via /backfill).
@@ -311,17 +306,14 @@ async def update_automation(
     current = await adb.get(conn, automation_id)
     if current is None:
         raise HTTPException(status_code=404, detail="automate introuvable")
-    fields = body.model_dump(exclude_unset=True, exclude={"scopes", "headers"})
+    fields = body.model_dump(exclude_unset=True, exclude={"headers"})
     if "http_method" in fields and fields["http_method"] is not None:
         fields["http_method"] = fields["http_method"].upper()
     et = body.event_types if body.event_types is not None else current["event_types"]
     hm = fields.get("http_method") or current["http_method"]
-    sc = body.scopes if body.scopes is not None else await adb.get_scopes(conn, automation_id)
-    _validate(et, hm, sc)
+    _validate(et, hm)
     if fields:
         await adb.update_fields(conn, automation_id, **fields)
-    if body.scopes is not None:
-        await adb.set_scopes(conn, automation_id, body.scopes)
     if body.headers is not None:
         await adb.set_headers(conn, automation_id, _headers_payload(body.headers))
     fresh = await adb.get(conn, automation_id)
@@ -354,7 +346,6 @@ async def replay(automation_id: str, run_id: str, _: _Admin) -> dict[str, Any]:
 
 
 async def _detail(conn: AsyncConnection, row: dict[str, Any]) -> dict[str, Any]:
-    row["scopes"] = await adb.get_scopes(conn, row["id"])
     row["headers"] = await adb.get_headers(conn, row["id"])
     row["last_seq"] = await adb.get_cursor(conn, row["id"])
     return row

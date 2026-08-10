@@ -46,7 +46,6 @@ export interface Automation {
   url: string
   http_method: string
   body_template: string | null
-  scopes: string[]
   headers: HeaderRow[]
   last_seq: number
   pending: number
@@ -55,7 +54,6 @@ export interface Automation {
 export interface AutomationInput {
   label: string
   event_types: string[]
-  scopes: string[]
   contract_ref: string
   operation_id: string
   url: string

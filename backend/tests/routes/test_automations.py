@@ -63,7 +63,6 @@ def test_automation_create_defaults() -> None:
         url="https://x",
         http_method="PUT",
     )
-    assert a.scopes == ["*"]
     assert a.active is False
     assert a.stop_chain is False
     assert a.delay_minutes == 0
@@ -71,22 +70,17 @@ def test_automation_create_defaults() -> None:
 
 def test_validate_rejects_unknown_event_type() -> None:
     with pytest.raises(HTTPException) as exc:
-        _validate(["nope.event"], "PUT", ["*"])
+        _validate(["nope.event"], "PUT")
     assert exc.value.status_code == 422
 
 
 def test_validate_rejects_bad_method() -> None:
     with pytest.raises(HTTPException):
-        _validate(["test_server.updated"], "FETCH", ["*"])
-
-
-def test_validate_rejects_empty_scopes() -> None:
-    with pytest.raises(HTTPException):
-        _validate(["test_server.updated"], "PUT", [])
+        _validate(["test_server.updated"], "FETCH")
 
 
 def test_validate_accepts_valid() -> None:
-    _validate(["test_server.updated", "workspace.updated"], "put", ["*", "proj"])
+    _validate(["test_server.updated", "workspace.updated"], "put")
 
 
 def test_headers_payload_requires_value_xor_secret() -> None:

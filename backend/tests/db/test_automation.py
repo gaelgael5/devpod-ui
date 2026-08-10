@@ -91,15 +91,6 @@ async def test_update_and_reorder(db_conn: AsyncConnection) -> None:
 
 
 @pytest.mark.asyncio
-async def test_scopes_dedup_and_replace(db_conn: AsyncConnection) -> None:
-    aid = await _automation(db_conn)
-    await a.set_scopes(db_conn, aid, ["proj", "proj", "*"])
-    assert await a.get_scopes(db_conn, aid) == ["*", "proj"]
-    await a.set_scopes(db_conn, aid, ["other"])
-    assert await a.get_scopes(db_conn, aid) == ["other"]
-
-
-@pytest.mark.asyncio
 async def test_headers_value_and_secret(db_conn: AsyncConnection) -> None:
     aid = await _automation(db_conn)
     await a.set_headers(
@@ -128,12 +119,10 @@ async def test_cursor_upsert(db_conn: AsyncConnection) -> None:
 @pytest.mark.asyncio
 async def test_list_active_attaches_details(db_conn: AsyncConnection) -> None:
     aid = await _automation(db_conn, active=True)
-    await a.set_scopes(db_conn, aid, ["*"])
     await a.set_headers(db_conn, aid, [{"name": "X", "value": "y"}])
     await a.set_cursor(db_conn, aid, 7)
     active = await a.list_active(db_conn)
     assert len(active) == 1
-    assert active[0]["scopes"] == ["*"]
     assert active[0]["headers"][0]["name"] == "X"
     assert active[0]["last_seq"] == 7
 
