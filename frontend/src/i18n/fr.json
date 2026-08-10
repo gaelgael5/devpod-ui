@@ -1412,7 +1412,15 @@
     "identityHint": "GUID propagé aux services (workflow, rag, doc) quand un backend a « Propager mon identité » activé, pour vous attribuer les objets créés par vos agents. Générez-le (ou saisissez-en un) et posez la MÊME valeur côté service. Laissé vide : aucune identité propagée.",
     "save": "Enregistrer",
     "saved": "Modifications enregistrées.",
-    "saveError": "Erreur lors de la sauvegarde."
+    "saveError": "Erreur lors de la sauvegarde.",
+    "token": {
+      "title": "Jeton d'identité (OIDC)",
+      "intro": "Propriétés essentielles du jeton reçu à la connexion. Le jeton brut n'est jamais exposé.",
+      "empty": "Aucun claim disponible (connecte-toi via OIDC).",
+      "copy": "Copier",
+      "copied": "Copié",
+      "subHint": "Copie le « sub » et colle-le dans le champ Identité ci-dessus (matching OBO), ou dans les autres applications (docflow, rag, workflow)."
+    }
   },
   "agentMessages": {
     "title": "Demandes inter-agents",

@@ -5,7 +5,9 @@ import os
 import tempfile
 import time
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import bcrypt as _bcrypt
 import structlog
@@ -103,8 +105,31 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
         "roles": [settings.oidc_admin_role],
         "sub": "local",
     }
+    # Pas de vrai jeton en login local : claims minimaux pour la page profil.
+    request.session["token_claims"] = {"sub": "local", "preferred_username": settings.local_user}
     _log.info("local_login_success", login=settings.local_user)
     return {"ok": True}
+
+
+# Claims OIDC exposés à l'utilisateur sur sa page profil (affichage + copie, ex.
+# copier le `sub` pour le coller dans le champ Identité OBO ou d'autres apps).
+_EXPOSED_CLAIMS = ("sub", "email", "preferred_username", "name", "iss", "aud", "exp", "iat")
+
+
+def curate_token_claims(claims: Mapping[str, Any]) -> dict[str, str]:
+    """Sous-ensemble sûr des claims OIDC à persister en session pour la page profil.
+
+    On ne garde JAMAIS le jeton brut ni l'access_token (bearer) : uniquement des
+    claims d'identité essentiels, courts, en chaînes (une liste comme `aud` est
+    jointe). Destiné à l'affichage/copie, pas à une ré-authentification.
+    """
+
+    def _s(v: Any) -> str:
+        if isinstance(v, (list, tuple)):
+            return ", ".join(str(x) for x in v)
+        return "" if v is None else str(v)
+
+    return {k: _s(claims[k]) for k in _EXPOSED_CLAIMS if k in claims}
 
 
 @router.get("/oidc")
@@ -170,6 +195,8 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     # du max_age glissant du cookie (bug 032).
     request.session["auth_time"] = int(time.time())
     request.session["user"] = {"login": login_name, "roles": roles, "sub": sub}
+    # Claims essentiels curés (jamais le jeton brut) pour affichage/copie côté profil.
+    request.session["token_claims"] = curate_token_claims(claims)
     _log.info("user_logged_in", login=login_name, roles=roles)
     return RedirectResponse("/", status_code=302)
 

@@ -17,6 +17,19 @@ export function useProfile() {
   })
 }
 
+/** Claims essentiels du jeton OIDC (jamais le jeton brut) — pour affichage/copie. */
+export interface TokenClaims {
+  claims: Record<string, string>
+}
+
+export function useTokenClaims() {
+  return useQuery<TokenClaims>({
+    queryKey: ['me-token-claims'],
+    queryFn: () => apiFetchJson<TokenClaims>('/me/token-claims'),
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 export type ProfileUpdate = { display_name?: string; email?: string; identity?: string }
 
 export function useUpdateProfile() {

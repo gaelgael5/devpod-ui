@@ -96,6 +96,24 @@ async def get_profile(
     return await _read_profile(conn, user.login)
 
 
+@router.get("/token-claims")
+async def get_token_claims(
+    request: Request,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, object]:
+    """Claims essentiels du jeton OIDC de la session (affichage/copie sur la page profil).
+
+    Ne renvoie JAMAIS le jeton brut ni l'access_token : uniquement le sous-ensemble
+    curé persisté au login (`token_claims`). Le `sub` (ancre d'identité) est garanti
+    même sur une session antérieure à cette fonctionnalité.
+    """
+    claims = dict(request.session.get("token_claims") or {})
+    sub = (request.session.get("user") or {}).get("sub")
+    if sub and not claims.get("sub"):
+        claims["sub"] = str(sub)
+    return {"claims": claims}
+
+
 @router.patch("/profile")
 async def patch_profile(
     body: _ProfilePatch,

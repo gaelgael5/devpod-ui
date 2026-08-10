@@ -1412,7 +1412,15 @@
     "identityHint": "GUID forwarded to services (workflow, rag, doc) when a backend has \"Forward my identity\" enabled, to attribute objects created by your agents to you. Generate one (or enter one) and set the SAME value on the service side. Left empty: no identity forwarded.",
     "save": "Save",
     "saved": "Changes saved.",
-    "saveError": "Failed to save changes."
+    "saveError": "Failed to save changes.",
+    "token": {
+      "title": "Identity token (OIDC)",
+      "intro": "Essential properties of the token received at login. The raw token is never exposed.",
+      "empty": "No claims available (sign in via OIDC).",
+      "copy": "Copy",
+      "copied": "Copied",
+      "subHint": "Copy the \"sub\" and paste it into the Identity field above (OBO matching), or into the other apps (docflow, rag, workflow)."
+    }
   },
   "agentMessages": {
     "title": "Inter-agent requests",

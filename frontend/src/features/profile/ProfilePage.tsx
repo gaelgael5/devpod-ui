@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useProfile, useUpdateProfile } from './useProfile'
+import { useProfile, useTokenClaims, useUpdateProfile } from './useProfile'
 import type { UserProfile } from './useProfile'
 
 /** Attend le profil puis monte le formulaire : l'état est initialisé au montage
@@ -12,7 +12,78 @@ import type { UserProfile } from './useProfile'
 export default function ProfilePage() {
   const { data: profile, isLoading } = useProfile()
   if (isLoading || !profile) return <p className="text-muted-foreground">…</p>
-  return <ProfileForm profile={profile} />
+  return (
+    <div className="max-w-lg">
+      <ProfileForm profile={profile} />
+      <TokenClaimsBlock />
+    </div>
+  )
+}
+
+/** Ordre d'affichage des claims (sub en tête = ancre d'identité / clé de matching). */
+const CLAIM_ORDER = ['sub', 'preferred_username', 'email', 'name', 'iss', 'aud', 'exp', 'iat']
+
+function CopyButton({ value }: { value: string }) {
+  const { t } = useTranslation()
+  const [copied, setCopied] = useState(false)
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => {
+        navigator.clipboard.writeText(value).then(() => {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        })
+      }}
+    >
+      {copied ? t('profile.token.copied') : t('profile.token.copy')}
+    </Button>
+  )
+}
+
+/** Bloc « Jeton d'identité (OIDC) » : claims essentiels + boutons copier. Le jeton
+ *  brut n'est jamais exposé (seuls les claims curés persistés au login). */
+function TokenClaimsBlock() {
+  const { t } = useTranslation()
+  const { data, isLoading } = useTokenClaims()
+  const claims = data?.claims ?? {}
+  const keys = [
+    ...CLAIM_ORDER.filter((k) => k in claims),
+    ...Object.keys(claims).filter((k) => !CLAIM_ORDER.includes(k)),
+  ]
+
+  return (
+    <section className="mt-10 border-t pt-6">
+      <h2 className="mb-1 text-lg font-semibold">{t('profile.token.title')}</h2>
+      <p className="mb-4 text-sm text-muted-foreground">{t('profile.token.intro')}</p>
+
+      {isLoading && <p className="text-sm text-muted-foreground">…</p>}
+      {!isLoading && keys.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t('profile.token.empty')}</p>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {keys.map((key) => (
+          <div
+            key={key}
+            className={`flex items-center gap-2 rounded-md border p-2 ${
+              key === 'sub' ? 'bg-muted/50' : ''
+            }`}
+          >
+            <span className="w-40 shrink-0 font-mono text-xs text-muted-foreground">{key}</span>
+            <code className="flex-1 truncate font-mono text-sm" title={claims[key]}>
+              {claims[key]}
+            </code>
+            <CopyButton value={claims[key]} />
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-3 text-xs text-muted-foreground">{t('profile.token.subHint')}</p>
+    </section>
+  )
 }
 
 function ProfileForm({ profile }: { profile: UserProfile }) {
