@@ -31,6 +31,9 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
   const termRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
+  // Dernière sélection non vide : la sélection xterm est volatile (toute frappe,
+  // resize ou reset d'écran l'efface) — on la mémorise pour le bouton Copier.
+  const lastSelectionRef = useRef('')
   const [disconnected, setDisconnected] = useState(false)
   const [epoch, setEpoch] = useState(0)
   const tRef = useRef(t)
@@ -80,6 +83,22 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     })
     const resizeDisposable = terminal.onResize(({ cols, rows }) => sendResize(cols, rows))
 
+    // Copy-on-select : la sélection part au presse-papier dès qu'elle se stabilise
+    // (debounce du drag). Indispensable ici : la sélection xterm ne survit ni à une
+    // frappe ni aux redraws des TUI, le copier différé (menu, bouton) est fragile.
+    // Échec silencieux si l'écriture presse-papier est refusée (contexte non
+    // sécurisé, permission) — le bouton Copier reste le chemin explicite.
+    let copyTimer: ReturnType<typeof setTimeout> | undefined
+    const selectionDisposable = terminal.onSelectionChange(() => {
+      const text = terminal.getSelection()
+      if (!text) return
+      lastSelectionRef.current = text
+      clearTimeout(copyTimer)
+      copyTimer = setTimeout(() => {
+        navigator.clipboard?.writeText(text).catch(() => {})
+      }, 200)
+    })
+
     ws.onmessage = (e) => {
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
       terminal.write(data)
@@ -101,6 +120,8 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       ro.disconnect()
       dataDisposable.dispose()
       resizeDisposable.dispose()
+      selectionDisposable.dispose()
+      clearTimeout(copyTimer)
       ws.close()
       terminal.dispose()
       wsRef.current = null
@@ -134,7 +155,9 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       </div>
       <TerminalKeybar
         onSend={sendToTerminal}
-        getSelection={() => terminalRef.current?.getSelection() ?? ''}
+        getSelection={() =>
+          terminalRef.current?.getSelection() || lastSelectionRef.current
+        }
       />
     </div>
   )

@@ -15,7 +15,7 @@ import { toast } from 'sonner'
 interface Props {
   /** Écrit des données brutes dans le stdin de la session (via la WS ouverte). */
   onSend: (data: string) => void
-  /** Sélection courante du terminal (xterm `getSelection`), '' si aucune. */
+  /** Sélection à copier : la courante, sinon la dernière non vide ('' si aucune). */
   getSelection: () => string
 }
 
