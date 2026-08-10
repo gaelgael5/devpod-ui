@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -23,6 +24,50 @@ import {
   useUpdateContract,
   type Contract,
 } from './useAutomations'
+
+/** Catégories existantes (distinctes, triées) pour l'autocomplétion. */
+function existingCategories(contracts: Contract[] | undefined): string[] {
+  const set = new Set<string>()
+  for (const c of contracts ?? []) {
+    const v = c.category?.trim()
+    if (v) set.add(v)
+  }
+  return [...set].sort((a, b) => a.localeCompare(b))
+}
+
+/** Saisie de catégorie : liste les catégories existantes (datalist) tout en
+ *  autorisant la saisie d'une nouvelle. */
+function CategoryInput({
+  id,
+  value,
+  onChange,
+}: {
+  id: string
+  value: string
+  onChange: (v: string) => void
+}) {
+  const { t } = useTranslation()
+  const { data } = useContracts()
+  const listId = `${id}-list`
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id}>{t('automations.contracts.category')}</Label>
+      <Input
+        id={id}
+        list={listId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={t('automations.contracts.categoryPlaceholder')}
+        autoComplete="off"
+      />
+      <datalist id={listId}>
+        {existingCategories(data).map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+    </div>
+  )
+}
 
 function ImportDialog() {
   const { t } = useTranslation()
@@ -77,15 +122,7 @@ function ImportDialog() {
             <Label htmlFor="ct-label">{t('automations.contracts.label')}</Label>
             <Input id="ct-label" value={label} onChange={(e) => setLabel(e.target.value)} />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ct-category">{t('automations.contracts.category')}</Label>
-            <Input
-              id="ct-category"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              placeholder={t('automations.contracts.categoryPlaceholder')}
-            />
-          </div>
+          <CategoryInput id="ct-category" value={category} onChange={setCategory} />
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="ct-url">{t('automations.contracts.sourceUrl')}</Label>
             <Input
@@ -197,15 +234,7 @@ function EditDialog({ contract }: { contract: Contract }) {
             <Label htmlFor="edit-label">{t('automations.contracts.label')}</Label>
             <Input id="edit-label" value={label} onChange={(e) => setLabel(e.target.value)} />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="edit-category">{t('automations.contracts.category')}</Label>
-            <Input
-              id="edit-category"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              placeholder={t('automations.contracts.categoryPlaceholder')}
-            />
-          </div>
+          <CategoryInput id="edit-category" value={category} onChange={setCategory} />
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="edit-url">{t('automations.contracts.sourceUrl')}</Label>
             <Input
@@ -299,6 +328,17 @@ export default function AdminContracts() {
   const { t } = useTranslation()
   const { data, isLoading, isError } = useContracts()
   const groups = groupByCategory(data ?? [])
+  // Catégories repliées (état local, par clé de catégorie). Dépliées par défaut.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+
+  function toggle(key: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -315,16 +355,25 @@ export default function AdminContracts() {
       )}
 
       <div className="flex flex-col gap-6">
-        {groups.map((g) => (
-          <div key={g.key || '__none__'} className="flex flex-col gap-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              {g.key || t('automations.contracts.uncategorized')}
-            </h2>
-            {g.items.map((c) => (
-              <ContractRow key={c.id} contract={c} />
-            ))}
-          </div>
-        ))}
+        {groups.map((g) => {
+          const isCollapsed = collapsed.has(g.key)
+          return (
+            <div key={g.key || '__none__'} className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => toggle(g.key)}
+                className="flex items-center gap-1.5 text-left text-sm font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+                aria-expanded={!isCollapsed}
+              >
+                {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                {g.key || t('automations.contracts.uncategorized')}{' '}
+                <span className="font-normal normal-case">({g.items.length})</span>
+              </button>
+              {!isCollapsed &&
+                g.items.map((c) => <ContractRow key={c.id} contract={c} />)}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
