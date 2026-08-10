@@ -1597,7 +1597,21 @@
       "filterNoResult": "Aucun appel testé.",
       "filterError": "Erreur",
       "headersShared": "En-têtes partagés avec l'onglet Appel (l'apikey sert au filtre et à l'appel).",
-      "secretSystemHint": "Secret système (admin), résolu par l'automate en tâche de fond — distinct de tes secrets de profil (chiffrés par ton PIN, non lisibles en arrière-plan). Saisis la valeur brute (ex. « tmx_… », sans « Bearer »)."
+      "secretSystemHint": "Secret système (admin), résolu par l'automate en tâche de fond — distinct de tes secrets de profil (chiffrés par ton PIN, non lisibles en arrière-plan). Saisis la valeur brute (ex. « tmx_… », sans « Bearer »).",
+      "evaluation": "Évaluation",
+      "evalHint": "Règle appliquée à la réponse : JSONPath (avec {variable}) puis opérateur. Si la règle ne passe pas, l'appel de l'onglet Appel n'est pas exécuté.",
+      "jsonpath": "Expression JSONPath",
+      "operator": "Opérateur",
+      "operatorNone": "— aucune évaluation —",
+      "opExists": "existe",
+      "opEquals": "égal à",
+      "opNotEquals": "différent de",
+      "expected": "Valeur attendue",
+      "sampleValues": "Valeurs de test (pour l'essai)",
+      "evalResult": "Évaluation",
+      "evalPass": "✓ passe",
+      "evalFail": "✗ ne passe pas",
+      "evalMatches": "match(s)"
     },
     "runs": {
       "title": "Historique — {{label}}",

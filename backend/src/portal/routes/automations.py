@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..auth.rbac import UserInfo, require_admin
 from ..automations import contracts as ct
 from ..automations import simulate
+from ..automations.filter_eval import OPERATORS as _FILTER_OPS
 from ..automations.runner import replay_run
 from ..db import app_event as je
 from ..db import automation as adb
@@ -83,12 +84,15 @@ class AutomationCreate(BaseModel):
     position: int | None = None
     headers: list[HeaderIn] = Field(default_factory=list)
     active: bool = False
-    # Onglet Filtre : appel d'API préliminaire (évaluation différée).
+    # Onglet Filtre : appel d'API préliminaire + règle d'évaluation.
     filter_contract_ref: str | None = None
     filter_operation_id: str | None = None
     filter_url: str | None = None
     filter_method: str | None = None
     filter_body: str | None = None
+    filter_jsonpath: str | None = None
+    filter_operator: str | None = None
+    filter_expected: str | None = None
 
 
 class AutomationUpdate(BaseModel):
@@ -111,16 +115,27 @@ class AutomationUpdate(BaseModel):
     filter_url: str | None = None
     filter_method: str | None = None
     filter_body: str | None = None
+    filter_jsonpath: str | None = None
+    filter_operator: str | None = None
+    filter_expected: str | None = None
 
 
 class FilterCallIn(BaseModel):
-    """Appel d'API ad hoc pour l'onglet Filtre : exécuté tel quel, payload renvoyé."""
+    """Appel d'API ad hoc pour l'onglet Filtre : exécuté tel quel, payload + éval renvoyés.
+
+    Si jsonpath+operator sont fournis, la règle est évaluée sur la réponse ;
+    `variables` (nom→valeur d'exemple) rend les `{var}` de url/body/jsonpath/expected.
+    """
 
     model_config = ConfigDict(extra="forbid")
     url: str
     http_method: str
     headers: list[HeaderIn] = Field(default_factory=list)
     body: str | None = None
+    jsonpath: str | None = None
+    operator: str | None = None
+    expected: str | None = None
+    variables: dict[str, str] = Field(default_factory=dict)
 
 
 class ReorderIn(BaseModel):
@@ -153,6 +168,11 @@ def _validate(event_types: list[str], http_method: str) -> None:
         raise HTTPException(status_code=422, detail=f"event_types inconnus : {sorted(unknown)}")
     if http_method.upper() not in _HTTP_METHODS:
         raise HTTPException(status_code=422, detail=f"http_method invalide : {http_method!r}")
+
+
+def _validate_filter_operator(operator: str | None) -> None:
+    if operator and operator not in _FILTER_OPS:
+        raise HTTPException(status_code=422, detail=f"opérateur de filtre invalide : {operator!r}")
 
 
 def _normalize_slug(raw: str) -> str:
@@ -316,20 +336,27 @@ async def reorder(body: ReorderIn, _: _Admin, conn: _Conn) -> dict[str, bool]:
 
 @router.post("/test-call")
 async def test_call(body: FilterCallIn, _: _Admin) -> dict[str, Any]:
-    """Exécute l'appel de filtre tel quel (SSRF-pinné) et renvoie le payload.
+    """Exécute l'appel de filtre (SSRF-pinné), renvoie le payload et, si une règle
+    (jsonpath+operator) est fournie, son évaluation.
 
-    Sert l'onglet Filtre : l'admin voit le status et le corps de réponse.
-    L'ÉVALUATION du résultat est différée — on ne fait que restituer.
+    Les `{var}` de url/body/jsonpath/expected sont rendus avec `variables` (valeurs
+    d'exemple fournies par l'IHM ; à l'exécution ce sont celles de l'event).
     """
     import httpx
 
-    from ..automations.runner import _resolve_headers
+    from ..automations import filter_eval as feval
+    from ..automations.runner import _resolve_headers, render_template
     from ..routes._ssrf import pinned_request
 
     if body.http_method.upper() not in _HTTP_METHODS:
         raise HTTPException(status_code=422, detail=f"http_method invalide : {body.http_method!r}")
+    if body.operator is not None and body.operator not in feval.OPERATORS:
+        raise HTTPException(status_code=422, detail=f"opérateur invalide : {body.operator!r}")
+    ctx = body.variables
+    url = render_template(body.url, ctx)
+    raw_body = render_template(body.body, ctx) if body.body else None
     headers = await _resolve_headers(_headers_payload(body.headers))
-    content = body.body.encode() if body.body else None
+    content = raw_body.encode() if raw_body else None
     if content is not None:
         headers.setdefault("content-type", "application/json")
     try:
@@ -337,7 +364,7 @@ async def test_call(body: FilterCallIn, _: _Admin) -> dict[str, Any]:
             resp = await pinned_request(
                 client,
                 body.http_method,
-                body.url,
+                url,
                 headers=headers,
                 content=content,
                 timeout=10.0,
@@ -345,7 +372,21 @@ async def test_call(body: FilterCallIn, _: _Admin) -> dict[str, Any]:
             )
     except Exception as exc:  # DNS/SSRF/timeout/connexion
         return {"ok": False, "error": str(exc)}
-    return {"ok": True, "status_code": resp.status_code, "body": resp.text[:64_000]}
+    result: dict[str, Any] = {
+        "ok": True,
+        "status_code": resp.status_code,
+        "body": resp.text[:64_000],
+    }
+    if body.jsonpath and body.operator:
+        expected = render_template(body.expected, ctx) if body.expected else None
+        try:
+            passed, matches = feval.evaluate(
+                resp.json(), render_template(body.jsonpath, ctx), body.operator, expected
+            )
+            result["evaluation"] = {"passed": passed, "matches": matches}
+        except Exception as exc:  # JSON non parsable / JSONPath invalide
+            result["evaluation"] = {"error": str(exc)}
+    return result
 
 
 @router.get("/event-types")
@@ -402,6 +443,7 @@ async def list_automations(_: _Admin, conn: _Conn) -> list[dict[str, Any]]:
 @router.post("", status_code=201)
 async def create_automation(body: AutomationCreate, _: _Admin, conn: _Conn) -> dict[str, Any]:
     _validate(body.event_types, body.http_method)
+    _validate_filter_operator(body.filter_operator)
     if await oc.get(conn, body.contract_ref) is None:
         raise HTTPException(status_code=422, detail="contract_ref introuvable")
     slug = _resolve_slug(body.slug, body.label)
@@ -463,6 +505,7 @@ async def update_automation(
     et = body.event_types if body.event_types is not None else current["event_types"]
     hm = fields.get("http_method") or current["http_method"]
     _validate(et, hm)
+    _validate_filter_operator(body.filter_operator)
     if fields:
         await adb.update_fields(conn, automation_id, **fields)
     if body.headers is not None:

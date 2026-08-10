@@ -63,6 +63,9 @@ export interface Automation {
   filter_url: string | null
   filter_method: string | null
   filter_body: string | null
+  filter_jsonpath: string | null
+  filter_operator: string | null
+  filter_expected: string | null
   headers: HeaderRow[]
   last_seq: number
   pending: number
@@ -87,6 +90,9 @@ export interface AutomationInput {
   filter_url?: string | null
   filter_method?: string | null
   filter_body?: string | null
+  filter_jsonpath?: string | null
+  filter_operator?: string | null
+  filter_expected?: string | null
 }
 
 export interface SystemSecret {
@@ -101,6 +107,7 @@ export interface TestCallResult {
   status_code?: number
   body?: string
   error?: string
+  evaluation?: { passed?: boolean; matches?: unknown[]; error?: string }
 }
 
 export interface Run {
@@ -334,6 +341,10 @@ export function useTestCall() {
       http_method: string
       headers?: HeaderRow[]
       body?: string | null
+      jsonpath?: string | null
+      operator?: string | null
+      expected?: string | null
+      variables?: Record<string, string>
     }) =>
       apiFetchJson<TestCallResult>(`${BASE}/test-call`, {
         method: 'POST',

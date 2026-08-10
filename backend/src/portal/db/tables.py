@@ -1070,6 +1070,10 @@ automation = Table(
     Column("filter_url", Text, nullable=True),
     Column("filter_method", Text, nullable=True),
     Column("filter_body", Text, nullable=True),
+    # Évaluation du filtre : JSONPath (variables rendues) + opérateur + attendu.
+    Column("filter_jsonpath", Text, nullable=True),
+    Column("filter_operator", Text, nullable=True),
+    Column("filter_expected", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Index("idx_automation_position", "position"),

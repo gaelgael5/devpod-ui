@@ -57,4 +57,19 @@ describe('AutomationDialog', () => {
     await user.type(labelInput, 'Autre')
     expect(slugInput.value).toBe('custom') // plus dérivé après édition manuelle
   })
+
+  it('reveals the expected value field only for equals/not_equals operators', async () => {
+    mockRefs()
+    const user = userEvent.setup()
+    const { findByText, getByText, getByLabelText, queryByLabelText } = renderWithProviders(
+      <AutomationDialog automation={null} open onOpenChange={() => {}} />,
+    )
+    await user.click(await findByText('Filter'))
+    // exists (défaut vide) → pas de champ « Expected value »
+    expect(queryByLabelText('Expected value')).toBeNull()
+    await user.selectOptions(getByLabelText('Operator'), 'equals')
+    expect(getByText('Expected value')).toBeInTheDocument()
+    await user.selectOptions(getByLabelText('Operator'), 'exists')
+    expect(queryByLabelText('Expected value')).toBeNull()
+  })
 })

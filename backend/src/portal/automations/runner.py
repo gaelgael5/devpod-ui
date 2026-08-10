@@ -137,10 +137,52 @@ async def _resolve_headers(headers: list[dict[str, Any]]) -> dict[str, str]:
     return out
 
 
+async def _run_filter(
+    automation: dict[str, Any], ctx: dict[str, str], client: httpx.AsyncClient
+) -> tuple[bool, str, str | None]:
+    """Gate de filtre. `(passe, aperçu requête, aperçu réponse)`.
+
+    Pas de filtre configuré → passe. Erreur d'appel/évaluation → **fail closed**
+    (ne passe pas) : on n'agit jamais sur un état incertain.
+    """
+    from . import filter_eval as feval
+
+    op = automation.get("filter_operator")
+    furl = automation.get("filter_url")
+    jsonpath = automation.get("filter_jsonpath")
+    if not (op and furl and jsonpath):
+        return True, "", None
+    method = automation.get("filter_method") or "GET"
+    r_url = render_template(furl, ctx)
+    r_jsonpath = render_template(jsonpath, ctx)
+    expected = automation.get("filter_expected")
+    r_expected = render_template(expected, ctx) if expected else None
+    fbody = automation.get("filter_body")
+    body = render_template(fbody, ctx) if fbody else None
+    preview = f"[filtre] {method} {r_url} :: {r_jsonpath} {op} {r_expected or ''}".rstrip()
+    try:
+        headers = await _resolve_headers(automation["headers"])
+        if body is not None:
+            headers.setdefault("content-type", "application/json")
+        resp = await pinned_request(
+            client,
+            method,
+            r_url,
+            headers=headers,
+            content=body.encode() if body is not None else None,
+            timeout=15.0,
+            max_bytes=_RESP_PREVIEW_MAX,
+        )
+        passed, matches = feval.evaluate(resp.json(), r_jsonpath, op, r_expected)
+        return passed, preview, f"passe={passed} matches={matches!r}\n{resp.text[:2000]}"
+    except Exception as exc:
+        return False, preview, f"filter_error: {type(exc).__name__}: {exc}"
+
+
 async def _execute(
     automation: dict[str, Any], event: dict[str, Any], client: httpx.AsyncClient, *, manual: bool
 ) -> str:
-    """Claim (sauf rejeu manuel) + appel HTTP + finish. Retourne ok|failed|skipped."""
+    """Claim (sauf rejeu manuel) + filtre + appel HTTP + finish. Retourne ok|failed|skipped."""
     aid = automation["id"]
     key = dedup_key(event)
     if not manual:
@@ -150,6 +192,36 @@ async def _execute(
             return "skipped"  # déjà traité (anti-rejeu)
 
     ctx = build_context(event)
+
+    # Gate de filtre : si configuré et non passé, on n'appelle pas (run tracé « skipped »).
+    passed, f_preview, f_resp = await _run_filter(automation, ctx, client)
+    if not passed:
+        async with _get_engine().begin() as conn:
+            if manual:
+                await ar.record_manual(
+                    conn,
+                    automation_id=aid,
+                    event_seq=event["seq"],
+                    dedup_key=key,
+                    status="skipped",
+                    http_status=None,
+                    request_preview=f_preview,
+                    response_preview=f_resp,
+                    error="filtré",
+                )
+            else:
+                await ar.finish(
+                    conn,
+                    run_id,  # type: ignore[arg-type]  # non-None dans la branche non-manuelle
+                    status="skipped",
+                    http_status=None,
+                    request_preview=f_preview,
+                    response_preview=f_resp,
+                    error="filtré",
+                )
+            await ar.prune(conn, aid, keep=_RUN_HISTORY_KEEP)
+        return "skipped"
+
     url = render_template(automation["url"], ctx)
     tmpl = automation["body_template"]
     body = render_template(tmpl, ctx) if tmpl else None

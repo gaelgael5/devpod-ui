@@ -37,6 +37,9 @@ _EDITABLE = (
     "filter_url",
     "filter_method",
     "filter_body",
+    "filter_jsonpath",
+    "filter_operator",
+    "filter_expected",
 )
 
 

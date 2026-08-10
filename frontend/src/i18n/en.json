@@ -1597,7 +1597,21 @@
       "filterNoResult": "No call tested yet.",
       "filterError": "Error",
       "headersShared": "Headers shared with the Call tab (the apikey serves both filter and call).",
-      "secretSystemHint": "System (admin) secret, resolved by the automation in the background — distinct from your profile secrets (PIN-encrypted, unreadable in the background). Enter the raw value (e.g. “tmx_…”, without “Bearer”)."
+      "secretSystemHint": "System (admin) secret, resolved by the automation in the background — distinct from your profile secrets (PIN-encrypted, unreadable in the background). Enter the raw value (e.g. “tmx_…”, without “Bearer”).",
+      "evaluation": "Evaluation",
+      "evalHint": "Rule applied to the response: JSONPath (with {variable}) then operator. If the rule fails, the Call tab request is not executed.",
+      "jsonpath": "JSONPath expression",
+      "operator": "Operator",
+      "operatorNone": "— no evaluation —",
+      "opExists": "exists",
+      "opEquals": "equals",
+      "opNotEquals": "not equals",
+      "expected": "Expected value",
+      "sampleValues": "Test values (for the trial)",
+      "evalResult": "Evaluation",
+      "evalPass": "✓ passes",
+      "evalFail": "✗ does not pass",
+      "evalMatches": "match(es)"
     },
     "runs": {
       "title": "History — {{label}}",

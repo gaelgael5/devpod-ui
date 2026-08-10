@@ -74,6 +74,13 @@ def test_system_ref_regex_matches_slug() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_filter_passes_when_unconfigured() -> None:
+    # Sans (operator, filter_url, filter_jsonpath) le gate passe sans appel réseau.
+    passed, preview, resp = await r._run_filter(_auto(), {}, client=None)  # type: ignore[arg-type]
+    assert passed is True and preview == "" and resp is None
+
+
+@pytest.mark.asyncio
 async def test_resolve_headers_value_prefix_and_flags() -> None:
     headers = [
         {"name": "X-Api-Key", "value": "abc", "secret_ref": None, "value_prefix": ""},

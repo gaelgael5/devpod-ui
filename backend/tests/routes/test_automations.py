@@ -20,6 +20,7 @@ from portal.routes.automations import (
     _normalize_slug,
     _resolve_slug,
     _validate,
+    _validate_filter_operator,
 )
 
 
@@ -175,3 +176,35 @@ def test_automation_create_accepts_slug_and_filter() -> None:
 def test_test_call_in_forbids_extra() -> None:
     with pytest.raises(ValidationError):
         FilterCallIn(url="https://x", http_method="GET", nope=1)  # type: ignore[call-arg]
+
+
+def test_filter_call_in_accepts_eval_fields() -> None:
+    c = FilterCallIn(
+        url="https://x/users/list",
+        http_method="GET",
+        jsonpath='$.users[?(@.username=="{subject.login}")]',
+        operator="exists",
+        variables={"subject.login": "gael"},
+    )
+    assert c.operator == "exists" and c.variables["subject.login"] == "gael"
+
+
+def test_validate_filter_operator() -> None:
+    _validate_filter_operator(None)  # None accepté (pas de filtre)
+    _validate_filter_operator("equals")
+    with pytest.raises(HTTPException):
+        _validate_filter_operator("matches")
+
+
+def test_automation_create_accepts_filter_eval() -> None:
+    a = AutomationCreate(
+        label="L",
+        event_types=["user.created"],
+        contract_ref="c",
+        operation_id="op",
+        url="https://x/y",
+        http_method="POST",
+        filter_jsonpath='$.users[?(@.username=="{subject.login}")]',
+        filter_operator="exists",
+    )
+    assert a.filter_operator == "exists"

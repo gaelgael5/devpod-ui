@@ -56,6 +56,36 @@ function slugify(s: string): string {
     .slice(0, 64)
 }
 
+// Palette de variables copiables (event source) — partagée Filtre / Appel.
+function VariablesPalette({
+  copied,
+  onCopy,
+}: {
+  copied: string | null
+  onCopy: (v: string) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex flex-wrap justify-end gap-1">
+      <span className="mr-1 text-xs text-muted-foreground">
+        {t('automations.form.variables')} :
+      </span>
+      {VARIABLES.map((v) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => onCopy(v)}
+          className={`rounded px-1.5 py-0.5 font-mono text-xs transition-colors ${
+            copied === v ? 'bg-primary/20 text-primary' : 'bg-muted hover:bg-muted-foreground/20'
+          }`}
+        >
+          {copied === v ? '✓' : `{${v}}`}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 interface HeaderDraft {
   name: string
   value: string
@@ -357,6 +387,11 @@ export function AutomationDialog({
   const [filterUrl, setFilterUrl] = useState(automation?.filter_url ?? '')
   const [filterMethod, setFilterMethod] = useState(automation?.filter_method ?? 'GET')
   const [filterBody, setFilterBody] = useState(automation?.filter_body ?? '')
+  const [filterJsonpath, setFilterJsonpath] = useState(automation?.filter_jsonpath ?? '')
+  const [filterOperator, setFilterOperator] = useState(automation?.filter_operator ?? '')
+  const [filterExpected, setFilterExpected] = useState(automation?.filter_expected ?? '')
+  // Valeurs d'exemple des variables, pour le rendu des {var} lors du test.
+  const [sampleVars, setSampleVars] = useState<Record<string, string>>({})
 
   const detail = useContract(contractRef || null)
   const filterDetail = useContract(filterContractRef || null)
@@ -429,6 +464,15 @@ export function AutomationDialog({
     }
   }
 
+  // Variables {var} référencées dans l'appel de filtre + sa règle (pour les valeurs de test).
+  const usedVars = useMemo(() => {
+    const found = new Set<string>()
+    for (const s of [filterUrl, filterBody, filterJsonpath, filterExpected]) {
+      for (const m of s.matchAll(/\{([^}]+)\}/g)) found.add(m[1])
+    }
+    return [...found]
+  }, [filterUrl, filterBody, filterJsonpath, filterExpected])
+
   function runTest() {
     if (!filterUrl.trim()) return
     testCall.mutate({
@@ -436,6 +480,10 @@ export function AutomationDialog({
       http_method: filterMethod,
       headers: draftsToRows(headers),
       body: filterBody.trim() || null,
+      jsonpath: filterJsonpath.trim() || null,
+      operator: filterOperator || null,
+      expected: filterExpected.trim() || null,
+      variables: sampleVars,
     })
   }
 
@@ -463,6 +511,9 @@ export function AutomationDialog({
       filter_url: filterUrl.trim() || null,
       filter_method: filterUrl.trim() ? filterMethod : null,
       filter_body: filterBody.trim() || null,
+      filter_jsonpath: filterJsonpath.trim() || null,
+      filter_operator: filterOperator || null,
+      filter_expected: filterExpected.trim() || null,
     }
     const onSuccess = () => {
       onOpenChange(false)
@@ -628,7 +679,10 @@ export function AutomationDialog({
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="fi-body">{t('automations.form.bodyTemplate')}</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="fi-body">{t('automations.form.bodyTemplate')}</Label>
+                  <VariablesPalette copied={copiedVar} onCopy={copyVariable} />
+                </div>
                 <Textarea
                   id="fi-body"
                   value={filterBody}
@@ -643,6 +697,74 @@ export function AutomationDialog({
                 <p className="text-xs text-muted-foreground">
                   {t('automations.form.headersShared')}
                 </p>
+              </div>
+
+              {/* Règle d'évaluation : JSONPath sur la réponse + opérateur booléen. */}
+              <div className="flex flex-col gap-3 rounded-md border p-3">
+                <Label>{t('automations.form.evaluation')}</Label>
+                <p className="text-xs text-muted-foreground">{t('automations.form.evalHint')}</p>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="fi-jsonpath" className="text-xs">
+                    {t('automations.form.jsonpath')}
+                  </Label>
+                  <Input
+                    id="fi-jsonpath"
+                    value={filterJsonpath}
+                    onChange={(e) => setFilterJsonpath(e.target.value)}
+                    placeholder={'$.users[?(@.username=="{subject.login}")]'}
+                    className="font-mono text-xs"
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="fi-operator" className="text-xs">
+                      {t('automations.form.operator')}
+                    </Label>
+                    <select
+                      id="fi-operator"
+                      className={SELECT_CLS}
+                      value={filterOperator}
+                      onChange={(e) => setFilterOperator(e.target.value)}
+                    >
+                      <option value="">{t('automations.form.operatorNone')}</option>
+                      <option value="exists">{t('automations.form.opExists')}</option>
+                      <option value="equals">{t('automations.form.opEquals')}</option>
+                      <option value="not_equals">{t('automations.form.opNotEquals')}</option>
+                    </select>
+                  </div>
+                  {(filterOperator === 'equals' || filterOperator === 'not_equals') && (
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="fi-expected" className="text-xs">
+                        {t('automations.form.expected')}
+                      </Label>
+                      <Input
+                        id="fi-expected"
+                        value={filterExpected}
+                        onChange={(e) => setFilterExpected(e.target.value)}
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                  )}
+                </div>
+                {usedVars.length > 0 && (
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-xs">{t('automations.form.sampleValues')}</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {usedVars.map((v) => (
+                        <div key={v} className="flex items-center gap-1">
+                          <span className="font-mono text-xs text-muted-foreground">{`{${v}}`}</span>
+                          <Input
+                            className="h-8 w-40"
+                            value={sampleVars[v] ?? ''}
+                            onChange={(e) =>
+                              setSampleVars((s) => ({ ...s, [v]: e.target.value }))
+                            }
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -665,6 +787,31 @@ export function AutomationDialog({
                       <p className="text-xs text-muted-foreground">
                         {t('automations.form.filterStatus')} : {testCall.data.status_code}
                       </p>
+                      {testCall.data.evaluation && (
+                        <p className="text-xs">
+                          {t('automations.form.evalResult')} :{' '}
+                          {testCall.data.evaluation.error ? (
+                            <span className="text-destructive">
+                              {testCall.data.evaluation.error}
+                            </span>
+                          ) : (
+                            <span
+                              className={
+                                testCall.data.evaluation.passed
+                                  ? 'font-medium text-green-600'
+                                  : 'font-medium text-amber-600'
+                              }
+                            >
+                              {testCall.data.evaluation.passed
+                                ? t('automations.form.evalPass')
+                                : t('automations.form.evalFail')}
+                              {' · '}
+                              {testCall.data.evaluation.matches?.length ?? 0}{' '}
+                              {t('automations.form.evalMatches')}
+                            </span>
+                          )}
+                        </p>
+                      )}
                       <pre className="max-h-56 overflow-auto rounded-md border bg-muted p-2 font-mono text-xs">
                         {testCall.data.body}
                       </pre>
@@ -745,25 +892,7 @@ export function AutomationDialog({
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="au-body">{t('automations.form.bodyTemplate')}</Label>
-                  <div className="flex flex-wrap justify-end gap-1">
-                    <span className="mr-1 text-xs text-muted-foreground">
-                      {t('automations.form.variables')} :
-                    </span>
-                    {VARIABLES.map((v) => (
-                      <button
-                        key={v}
-                        type="button"
-                        onClick={() => copyVariable(v)}
-                        className={`rounded px-1.5 py-0.5 font-mono text-xs transition-colors ${
-                          copiedVar === v
-                            ? 'bg-primary/20 text-primary'
-                            : 'bg-muted hover:bg-muted-foreground/20'
-                        }`}
-                      >
-                        {copiedVar === v ? '✓' : `{${v}}`}
-                      </button>
-                    ))}
-                  </div>
+                  <VariablesPalette copied={copiedVar} onCopy={copyVariable} />
                 </div>
                 <JsonEditor value={bodyTemplate} onChange={setBodyTemplate} />
                 <p className="text-xs text-muted-foreground">{t('automations.form.bodyHint')}</p>
