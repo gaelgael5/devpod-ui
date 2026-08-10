@@ -1596,7 +1596,8 @@
       "filterStatus": "Statut",
       "filterNoResult": "Aucun appel testé.",
       "filterError": "Erreur",
-      "headersShared": "En-têtes partagés avec l'onglet Appel (l'apikey sert au filtre et à l'appel)."
+      "headersShared": "En-têtes partagés avec l'onglet Appel (l'apikey sert au filtre et à l'appel).",
+      "secretSystemHint": "Secret système (admin), résolu par l'automate en tâche de fond — distinct de tes secrets de profil (chiffrés par ton PIN, non lisibles en arrière-plan). Saisis la valeur brute (ex. « tmx_… », sans « Bearer »)."
     },
     "runs": {
       "title": "Historique — {{label}}",

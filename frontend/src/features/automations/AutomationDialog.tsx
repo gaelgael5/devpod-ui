@@ -192,6 +192,9 @@ function SecretPicker({ value, onChange }: { value: string; onChange: (v: string
       </div>
       {creating && (
         <div className="flex flex-wrap items-center gap-1 rounded-md border p-2">
+          <p className="w-full text-xs text-muted-foreground">
+            {t('automations.form.secretSystemHint')}
+          </p>
           <Input
             className="h-8 w-28"
             placeholder={t('automations.form.secretSlug')}

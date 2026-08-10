@@ -1596,7 +1596,8 @@
       "filterStatus": "Status",
       "filterNoResult": "No call tested yet.",
       "filterError": "Error",
-      "headersShared": "Headers shared with the Call tab (the apikey serves both filter and call)."
+      "headersShared": "Headers shared with the Call tab (the apikey serves both filter and call).",
+      "secretSystemHint": "System (admin) secret, resolved by the automation in the background — distinct from your profile secrets (PIN-encrypted, unreadable in the background). Enter the raw value (e.g. “tmx_…”, without “Bearer”)."
     },
     "runs": {
       "title": "History — {{label}}",
