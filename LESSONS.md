@@ -9,7 +9,8 @@
 - `PORTAL_VAULT_KEK` : un `info=` HKDF distinct par consommateur (domain separation) ; `VaultClient.whoami()` n'existe pas sur vault.yoops.org (`_resolve_wallet_id()` + `_parsed.*`).
 
 ## [frontend]
-- lucide-react ≥1.0 a renommé des icônes — import inexistant = crash silencieux, vérifier `tsc --noEmit`.
+- Typecheck local = `tsc -b` (comme `npm run build`), PAS `tsc --noEmit` : avec project references (tsconfig.app.json), `--noEmit` sur la racine ne traverse rien et laisse passer des erreurs (`exactOptionalPropertyTypes`, narrowing d'optional chaining) qui cassent le build Docker.
+- lucide-react ≥1.0 a renommé des icônes — import inexistant = crash silencieux, vérifier `tsc -b`.
 - Jamais de nom de rôle en dur (config serveur) : le backend expose `is_admin` ; en changeant une valeur configurable, grepper ses littéraux dans TOUT le repo.
 - `DialogFooter` 3 boutons : `flex-col-reverse` tronque sous 640px → div custom `sm:justify-between`.
 

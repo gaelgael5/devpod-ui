@@ -369,10 +369,11 @@ export function AutomationDialog({
   }
 
   function addAuthHeaders(op: Operation) {
-    if (!op.auth_headers?.length) return
+    const auth = op.auth_headers
+    if (!auth?.length) return
     setHeaders((prev) => {
       const names = new Set(prev.map((h) => h.name.toLowerCase()))
-      const add: HeaderDraft[] = op.auth_headers
+      const add: HeaderDraft[] = auth
         .filter((a) => !names.has(a.header.toLowerCase()))
         .map((a) => ({
           name: a.header,

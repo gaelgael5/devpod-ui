@@ -78,6 +78,7 @@ export interface AutomationInput {
   http_method: string
   body_template?: string | null
   delay_minutes?: number
+  position?: number
   stop_chain?: boolean
   headers?: HeaderRow[]
   active?: boolean
