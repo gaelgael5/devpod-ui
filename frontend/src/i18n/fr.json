@@ -1641,7 +1641,8 @@
       "replayed": "Rejoué",
       "clear": "Vider l'historique",
       "cleared": "Historique vidé",
-      "empty": "Aucune exécution."
+      "empty": "Aucune exécution.",
+      "trace": "Trace ({{n}} nœuds)"
     },
     "contracts": {
       "navLabel": "Contrats OpenAPI",
@@ -1683,6 +1684,48 @@
       "replayed": "Curseur repositionné ({{automations}} automate(s)) — réévaluation au prochain balayage."
     },
     "cursor": "curseur #{{seq}}",
-    "cursorHint": "Position du curseur de l'automate (dernier seq traité)"
+    "cursorHint": "Position du curseur de l'automate (dernier seq traité)",
+    "tree": {
+      "title": "Arbre de la règle",
+      "intro": "Blocs évalués en séquence : filtre (porte) → appels → blocs enfants. Un filtre non passé saute le sous-arbre et continue au bloc frère suivant.",
+      "empty": "Aucun bloc — la règle ne fait rien.",
+      "addBlock": "Ajouter un bloc",
+      "block": "Bloc",
+      "blockLabel": "Libellé du bloc (optionnel)",
+      "removeBlock": "Supprimer le bloc",
+      "filter": "Filtre",
+      "noFilter": "Aucun filtre — le bloc passe toujours.",
+      "condition": "Condition (appel + évaluation)",
+      "addCondition": "Ajouter une condition",
+      "addGroup": "Ajouter un groupe",
+      "wrapGroup": "Envelopper dans un groupe",
+      "and": "ET — toutes les conditions",
+      "or": "OU — au moins une condition",
+      "calls": "Appels",
+      "addCall": "Ajouter un appel",
+      "callName": "Nom",
+      "callNameHint": "réponse exposée aux blocs aval : {{name}}.champ",
+      "children": "Blocs enfants",
+      "addChild": "Ajouter un bloc enfant",
+      "filterBody": "Corps de l'appel de filtre (optionnel)",
+      "noContract": "— contrat (optionnel) —",
+      "passes": "passe",
+      "blocked": "bloqué",
+      "summary": "{{blocks}} bloc(s), {{calls}} appel(s)"
+    },
+    "editor": {
+      "back": "← Automates",
+      "notFound": "Automate introuvable.",
+      "missing": "Libellé et events déclencheurs sont requis.",
+      "headersShared": "En-têtes partagés par TOUS les appels et filtres de la règle.",
+      "sampleVars": "Valeurs d'exemple",
+      "sampleVarsHint": "Utilisées par les boutons « Tester l'appel » pour rendre les {variable} ; à l'exécution ce sont celles de l'event."
+    },
+    "operators": {
+      "exists": "existe",
+      "not_exists": "n'existe pas",
+      "equals": "égale",
+      "not_equals": "différent"
+    }
   }
 }

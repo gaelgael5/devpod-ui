@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { AutomationDialog } from './AutomationDialog'
 import { AutomationRuns } from './AutomationRuns'
+import { treeSummary } from './tree'
 import {
   useAutomations,
   useBackfill,
@@ -124,7 +125,6 @@ function Row({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{automation.label}</span>
-          <Badge variant="secondary">{automation.http_method}</Badge>
           {automation.stop_chain && <Badge variant="outline">stop_chain</Badge>}
           {automation.pending > 0 && (
             <Badge>{t('automations.pending', { n: automation.pending })}</Badge>
@@ -141,7 +141,10 @@ function Row({
           ))}
         </div>
         <div className="mt-1 truncate text-xs text-muted-foreground">
-          {automation.http_method} → {automation.url}
+          {(() => {
+            const s = treeSummary(automation.tree)
+            return t('automations.tree.summary', { blocks: s.blocks, calls: s.calls })
+          })()}
         </div>
       </div>
 
@@ -183,19 +186,17 @@ function Row({
 
 export default function AdminAutomations() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { data, isLoading, isError } = useAutomations()
   const reorder = useReorderAutomations()
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [editing, setEditing] = useState<Automation | null>(null)
   const [runsFor, setRunsFor] = useState<Automation | null>(null)
 
+  // Édition en page pleine (la popup historique est retirée).
   function openNew() {
-    setEditing(null)
-    setDialogOpen(true)
+    navigate('/admin/automations/new')
   }
   function openEdit(a: Automation) {
-    setEditing(a)
-    setDialogOpen(true)
+    navigate(`/admin/automations/${a.id}`)
   }
   function move(index: number, dir: -1 | 1) {
     if (!data) return
@@ -236,13 +237,6 @@ export default function AdminAutomations() {
         ))}
       </div>
 
-      {dialogOpen && (
-        <AutomationDialog
-          automation={editing}
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-        />
-      )}
       {runsFor && (
         <AutomationRuns
           automationId={runsFor.id}

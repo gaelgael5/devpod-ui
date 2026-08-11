@@ -13,11 +13,20 @@ const AUTOMATION = {
   stop_chain: false,
   event_types: ['test_server.updated'],
   delay_minutes: 0,
-  contract_ref: 'c1',
-  operation_id: 'putHost',
-  url: 'https://termix.example.org/api/hosts',
-  http_method: 'PUT',
-  body_template: null,
+  tree: {
+    version: 1,
+    blocks: [
+      {
+        label: '',
+        filter: null,
+        calls: [
+          { name: 'putHost', url: 'https://termix.example.org/api/hosts', http_method: 'PUT' },
+        ],
+        blocks: [],
+      },
+    ],
+  },
+  slug: 'sync-hosts',
   headers: [],
   last_seq: 0,
   pending: 3,

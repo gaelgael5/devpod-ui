@@ -17,6 +17,7 @@ import {
   AdminOidc,
   AdminProfileEditor,
   AdminAutomations,
+  AutomationEditor,
   AdminContracts,
   AdminEvents,
   AdminProfileSources,
@@ -198,6 +199,12 @@ export const router = createBrowserRouter([
       {
         path: '/admin/automations/events',
         element: <AdminGuard><Wrap><AdminEvents /></Wrap></AdminGuard>,
+      },
+      {
+        // Édition d'une règle en page pleine ('new' = création) ; les routes
+        // statiques /contracts et /events priment sur ce segment dynamique.
+        path: '/admin/automations/:automationId',
+        element: <AdminGuard><Wrap><AutomationEditor /></Wrap></AdminGuard>,
       },
       { path: '/profile', element: <Wrap><ProfilePage /></Wrap> },
       { path: '/compose', element: <Wrap><ComposeGallery /></Wrap> },

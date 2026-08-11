@@ -1641,7 +1641,8 @@
       "replayed": "Replayed",
       "clear": "Clear history",
       "cleared": "History cleared",
-      "empty": "No runs."
+      "empty": "No runs.",
+      "trace": "Trace ({{n}} nodes)"
     },
     "contracts": {
       "navLabel": "OpenAPI contracts",
@@ -1683,6 +1684,48 @@
       "replayed": "Cursor repositioned ({{automations}} automation(s)) — re-evaluation on next sweep."
     },
     "cursor": "cursor #{{seq}}",
-    "cursorHint": "Automation cursor position (last processed seq)"
+    "cursorHint": "Automation cursor position (last processed seq)",
+    "tree": {
+      "title": "Rule tree",
+      "intro": "Blocks run in sequence: filter (gate) → calls → child blocks. A failed filter skips the subtree and continues with the next sibling.",
+      "empty": "No blocks — the rule does nothing.",
+      "addBlock": "Add block",
+      "block": "Block",
+      "blockLabel": "Block label (optional)",
+      "removeBlock": "Remove block",
+      "filter": "Filter",
+      "noFilter": "No filter — the block always passes.",
+      "condition": "Condition (call + evaluation)",
+      "addCondition": "Add condition",
+      "addGroup": "Add group",
+      "wrapGroup": "Wrap in group",
+      "and": "AND — all conditions",
+      "or": "OR — at least one condition",
+      "calls": "Calls",
+      "addCall": "Add call",
+      "callName": "Name",
+      "callNameHint": "response exposed to downstream blocks: {{name}}.field",
+      "children": "Child blocks",
+      "addChild": "Add child block",
+      "filterBody": "Filter call body (optional)",
+      "noContract": "— contract (optional) —",
+      "passes": "passes",
+      "blocked": "blocked",
+      "summary": "{{blocks}} block(s), {{calls}} call(s)"
+    },
+    "editor": {
+      "back": "← Automations",
+      "notFound": "Automation not found.",
+      "missing": "Label and trigger events are required.",
+      "headersShared": "Headers shared by ALL calls and filters of the rule.",
+      "sampleVars": "Sample values",
+      "sampleVarsHint": "Used by the “Test call” buttons to render {variable}; at run time the event values are used."
+    },
+    "operators": {
+      "exists": "exists",
+      "not_exists": "does not exist",
+      "equals": "equals",
+      "not_equals": "not equals"
+    }
   }
 }

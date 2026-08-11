@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
+import type { RuleTree } from './tree'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,19 +54,7 @@ export interface Automation {
   stop_chain: boolean
   event_types: string[]
   delay_minutes: number
-  contract_ref: string
-  operation_id: string
-  url: string
-  http_method: string
-  body_template: string | null
-  filter_contract_ref: string | null
-  filter_operation_id: string | null
-  filter_url: string | null
-  filter_method: string | null
-  filter_body: string | null
-  filter_jsonpath: string | null
-  filter_operator: string | null
-  filter_expected: string | null
+  tree: RuleTree
   headers: HeaderRow[]
   last_seq: number
   pending: number
@@ -75,24 +64,12 @@ export interface AutomationInput {
   label: string
   slug?: string
   event_types: string[]
-  contract_ref: string
-  operation_id: string
-  url: string
-  http_method: string
-  body_template?: string | null
+  tree: RuleTree
   delay_minutes?: number
   position?: number
   stop_chain?: boolean
   headers?: HeaderRow[]
   active?: boolean
-  filter_contract_ref?: string | null
-  filter_operation_id?: string | null
-  filter_url?: string | null
-  filter_method?: string | null
-  filter_body?: string | null
-  filter_jsonpath?: string | null
-  filter_operator?: string | null
-  filter_expected?: string | null
 }
 
 export interface SystemSecret {
@@ -123,6 +100,19 @@ export interface JournalEvent {
   created_at: string
 }
 
+export interface TraceItem {
+  path: string
+  kind: string
+  name?: string
+  label?: string
+  op?: string
+  preview?: string
+  detail?: string
+  http_status?: number
+  status?: string
+  passed?: boolean
+}
+
 export interface Run {
   id: string
   event_seq: number
@@ -133,6 +123,7 @@ export interface Run {
   response_preview: string | null
   error: string | null
   manual: boolean
+  trace: TraceItem[] | null
   created_at: string
 }
 
@@ -239,6 +230,14 @@ export function useAutomations() {
   })
 }
 
+export function useAutomation(id: string | null) {
+  return useQuery<Automation>({
+    queryKey: ['automations', 'detail', id],
+    queryFn: () => apiFetchJson<Automation>(`${BASE}/${id}`),
+    enabled: id !== null,
+  })
+}
+
 export function useJournalEvents(params: { eventType?: string; beforeSeq?: number } = {}) {
   const qs = new URLSearchParams({ limit: '100' })
   if (params.eventType) qs.set('event_type', params.eventType)
@@ -273,7 +272,10 @@ export function useUpdateAutomation() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['automations', 'list'] }),
+    onSuccess: (_r, v) => {
+      qc.invalidateQueries({ queryKey: ['automations', 'list'] })
+      qc.invalidateQueries({ queryKey: ['automations', 'detail', v.id] })
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 }

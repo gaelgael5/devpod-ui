@@ -8,12 +8,54 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useClearRuns, useReplayRun, useRuns, type Run } from './useAutomations'
+import { useClearRuns, useReplayRun, useRuns, type Run, type TraceItem } from './useAutomations'
 
 function statusVariant(status: string): 'default' | 'secondary' | 'destructive' {
   if (status === 'ok') return 'default'
   if (status === 'failed') return 'destructive'
   return 'secondary'
+}
+
+function TraceView({ trace }: { trace: TraceItem[] }) {
+  const { t } = useTranslation()
+  return (
+    <details className="mt-1">
+      <summary className="cursor-pointer select-none text-xs text-muted-foreground">
+        {t('automations.runs.trace', { n: trace.length })}
+      </summary>
+      <div className="mt-1 flex flex-col gap-1">
+        {trace.map((item, i) => {
+          const okish = item.status === 'ok' || item.passed === true
+          const koish = item.status === 'failed' || item.passed === false
+          return (
+            <div key={i} className="rounded border bg-muted/30 p-1.5 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="text-muted-foreground">{item.path}</code>
+                <Badge variant="outline">{item.kind}</Badge>
+                {item.name && <code>{item.name}</code>}
+                {item.op && <code>{item.op}</code>}
+                {item.http_status != null && (
+                  <span className="text-muted-foreground">HTTP {item.http_status}</span>
+                )}
+                {okish && <span className="text-green-600">✓</span>}
+                {koish && <span className="text-destructive">✗</span>}
+              </div>
+              {item.preview && (
+                <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap font-mono">
+                  {item.preview}
+                </pre>
+              )}
+              {item.detail && (
+                <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap font-mono text-muted-foreground">
+                  {item.detail}
+                </pre>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </details>
+  )
 }
 
 function RunRow({ automationId, run }: { automationId: string; run: Run }) {
@@ -50,6 +92,7 @@ function RunRow({ automationId, run }: { automationId: string; run: Run }) {
           {run.request_preview}
         </pre>
       )}
+      {run.trace && run.trace.length > 0 && <TraceView trace={run.trace} />}
     </div>
   )
 }
