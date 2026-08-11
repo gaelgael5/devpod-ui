@@ -86,9 +86,7 @@ async def save_global_db(cfg: GlobalConfig, conn: AsyncConnection) -> None:
 
 
 async def _load_from_db(conn: AsyncConnection) -> GlobalConfig | None:
-    row_result = await conn.execute(
-        select(global_config).where(global_config.c.id == 1)
-    )
+    row_result = await conn.execute(select(global_config).where(global_config.c.id == 1))
     row = row_result.mappings().one_or_none()
     if row is None:
         return None
@@ -111,77 +109,95 @@ def _build_global_config(
     hyp_rows: list[dict[str, Any]],
     host_rows: list[dict[str, Any]],
 ) -> GlobalConfig:
-    return GlobalConfig.model_validate({
-        "version": row["version"],
-        "server": {
-            "listen": row["listen"],
-            "base_domain": row["base_domain"],
-            "external_url": row["external_url"],
-            "dev_mode": row["dev_mode"],
-            "workspace_host": row["workspace_host"],
-            "local_domain": row["local_domain"],
-            "vs_proxy_domain": row["vs_proxy_domain"],
-            "cookie_domain": row["cookie_domain"],
-            "session_max_age": row["session_max_age"],
-            "session_absolute_max_age": row["session_absolute_max_age"],
-            "log": {
-                "level": row["log_level"],
-                "format": row["log_format"],
-                "output": row["log_output"],
+    return GlobalConfig.model_validate(
+        {
+            "version": row["version"],
+            "server": {
+                "listen": row["listen"],
+                "base_domain": row["base_domain"],
+                "external_url": row["external_url"],
+                "dev_mode": row["dev_mode"],
+                "workspace_host": row["workspace_host"],
+                "local_domain": row["local_domain"],
+                "vs_proxy_domain": row["vs_proxy_domain"],
+                "cookie_domain": row["cookie_domain"],
+                "session_max_age": row["session_max_age"],
+                "session_absolute_max_age": row["session_absolute_max_age"],
+                "log": {
+                    "level": row["log_level"],
+                    "format": row["log_format"],
+                    "output": row["log_output"],
+                },
             },
-        },
-        "logs": {
-            "enabled": row["logs_enabled"],
-            "loki_push_url": row["logs_loki_push_url"] or None,
-            "loki_query_url": row["logs_loki_query_url"] or None,
-            "grafana_url": row["logs_grafana_url"] or None,
-            "module": row["logs_module"],
-            "push_token": row["logs_push_token"] or None,
-            "grafana_oauth_client_id": row["logs_grafana_oauth_client_id"],
-            "grafana_oauth_client_secret": row["logs_grafana_oauth_client_secret"] or None,
-        },
-        "auth": {
-            "oidc": {
-                "issuer": row["oidc_issuer"],
-                "client_id": row["oidc_client_id"],
-                "client_secret": row["oidc_client_secret"],
-                "scopes": list(row["oidc_scopes"]),
-                "role_claim": row["oidc_role_claim"],
-                "admin_role": row["oidc_admin_role"],
-                "user_role": row["oidc_user_role"],
-                "username_claim": row["oidc_username_claim"],
-                "allow_local_auth": row.get("oidc_allow_local_auth", True),
+            "logs": {
+                "enabled": row["logs_enabled"],
+                "loki_push_url": row["logs_loki_push_url"] or None,
+                "loki_query_url": row["logs_loki_query_url"] or None,
+                "grafana_url": row["logs_grafana_url"] or None,
+                "module": row["logs_module"],
+                "push_token": row["logs_push_token"] or None,
+                "grafana_oauth_client_id": row["logs_grafana_oauth_client_id"],
+                "grafana_oauth_client_secret": row["logs_grafana_oauth_client_secret"] or None,
             },
-        },
-        "secrets": {
-            "backend": row["secrets_backend"],
-            "harpocrate": {
-                "url": row["harpocrate_url"],
-                "api_key": row["harpocrate_api_key"],
-                "base_path": row["harpocrate_base_path"],
+            "auth": {
+                "oidc": {
+                    "issuer": row["oidc_issuer"],
+                    "client_id": row["oidc_client_id"],
+                    "client_secret": row["oidc_client_secret"],
+                    "scopes": list(row["oidc_scopes"]),
+                    "role_claim": row["oidc_role_claim"],
+                    "admin_role": row["oidc_admin_role"],
+                    "user_role": row["oidc_user_role"],
+                    "username_claim": row["oidc_username_claim"],
+                    "allow_local_auth": row.get("oidc_allow_local_auth", True),
+                },
             },
-        },
-        "devpod": {
-            "binary": row["devpod_binary"],
-            "client_cert_path": row["devpod_client_cert_path"],
-            "defaults": {
-                "ide": row["devpod_ide"],
-                "idle_timeout": row["devpod_idle_timeout"],
-                "dotfiles": row["devpod_dotfiles"],
+            "secrets": {
+                "backend": row["secrets_backend"],
+                "harpocrate": {
+                    "url": row["harpocrate_url"],
+                    "api_key": row["harpocrate_api_key"],
+                    "base_path": row["harpocrate_base_path"],
+                },
             },
-        },
-        "caddy": {
-            "admin_api": row["caddy_admin_api"],
-            "portal_host": row["caddy_portal_host"],
-        },
-        "cloudflare_manager": {
-            "url": row["cf_url"],
-            "api_key": row["cf_api_key"],
-        },
-        "hypervisor_types": [_ht_row_to_dict(r) for r in ht_rows],
-        "hypervisors": [_hyp_row_to_dict(r) for r in hyp_rows],
-        "hosts": [_host_row_to_dict(r) for r in host_rows],
-    })
+            "devpod": {
+                "binary": row["devpod_binary"],
+                "client_cert_path": row["devpod_client_cert_path"],
+                "defaults": {
+                    "ide": row["devpod_ide"],
+                    "idle_timeout": row["devpod_idle_timeout"],
+                    "dotfiles": row["devpod_dotfiles"],
+                },
+            },
+            "caddy": {
+                "admin_api": row["caddy_admin_api"],
+                "portal_host": row["caddy_portal_host"],
+            },
+            "cloudflare_manager": {
+                "url": row["cf_url"],
+                "api_key": row["cf_api_key"],
+            },
+            "events_producer": {
+                "enabled": row["events_enabled"],
+                "workflow_base_url": row["events_workflow_base_url"],
+                "source_id": row["events_source_id"],
+                "secret_slug": row["events_secret_slug"],
+                "source_uri": row["events_source_uri"],
+                "events": list(row["events_types"]),
+            },
+            "bastion": {
+                "enabled": row["bastion_enabled"],
+                "api_url": row["bastion_api_url"],
+                "host": row["bastion_host"],
+                "port": row["bastion_port"],
+                "role": row["bastion_role"],
+                "apikey_secret": row["bastion_apikey_secret"],
+            },
+            "hypervisor_types": [_ht_row_to_dict(r) for r in ht_rows],
+            "hypervisors": [_hyp_row_to_dict(r) for r in hyp_rows],
+            "hosts": [_host_row_to_dict(r) for r in host_rows],
+        }
+    )
 
 
 def _ht_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
@@ -308,6 +324,18 @@ def _cfg_to_scalars(cfg: GlobalConfig) -> dict[str, Any]:
         "caddy_portal_host": cfg.caddy.portal_host,
         "cf_url": cfg.cloudflare_manager.url,
         "cf_api_key": cfg.cloudflare_manager.api_key,
+        "events_enabled": cfg.events_producer.enabled,
+        "events_workflow_base_url": cfg.events_producer.workflow_base_url,
+        "events_source_id": cfg.events_producer.source_id,
+        "events_secret_slug": cfg.events_producer.secret_slug,
+        "events_source_uri": cfg.events_producer.source_uri,
+        "events_types": list(cfg.events_producer.events),
+        "bastion_enabled": cfg.bastion.enabled,
+        "bastion_api_url": cfg.bastion.api_url,
+        "bastion_host": cfg.bastion.host,
+        "bastion_port": cfg.bastion.port,
+        "bastion_role": cfg.bastion.role,
+        "bastion_apikey_secret": cfg.bastion.apikey_secret,
     }
 
 

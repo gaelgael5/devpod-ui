@@ -83,6 +83,20 @@ global_config = Table(
     # CloudflareManagerConfig
     Column("cf_url", Text, nullable=False, server_default=""),
     Column("cf_api_key", Text, nullable=False, server_default=""),
+    # EventsProducerConfig (relais d'events signé HMAC vers le module workflow), migration 093.
+    Column("events_enabled", Boolean, nullable=False, server_default="false"),
+    Column("events_workflow_base_url", Text, nullable=False, server_default=""),
+    Column("events_source_id", Text, nullable=False, server_default=""),
+    Column("events_secret_slug", Text, nullable=False, server_default="workflow_events_hmac"),
+    Column("events_source_uri", Text, nullable=False, server_default="urn:yoops:devpod"),
+    Column("events_types", ARRAY(Text), nullable=False, server_default="{}"),
+    # BastionConfig (sshd bastion + provisioning Termix), migration 093.
+    Column("bastion_enabled", Boolean, nullable=False, server_default="false"),
+    Column("bastion_api_url", Text, nullable=False, server_default=""),
+    Column("bastion_host", Text, nullable=False, server_default=""),
+    Column("bastion_port", Integer, nullable=False, server_default="2222"),
+    Column("bastion_role", Text, nullable=False, server_default=""),
+    Column("bastion_apikey_secret", Text, nullable=False, server_default="termix-apikey"),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
