@@ -95,9 +95,7 @@ async def backfill(*, actor: str) -> dict[str, int]:
 
     async with _get_engine().connect() as conn:
         user_rows = (
-            await conn.execute(
-                select(users.c.login, users.c.sub, users.c.email, users.c.identity)
-            )
+            await conn.execute(select(users.c.login, users.c.sub, users.c.email, users.c.identity))
         ).all()
         hosts = await list_all_test_hosts(conn)
         running = await list_running_db(conn)

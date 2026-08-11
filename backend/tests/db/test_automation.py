@@ -23,16 +23,35 @@ async def _contract(conn: AsyncConnection) -> str:
     return row["id"]
 
 
+_TREE = {
+    "version": 1,
+    "blocks": [
+        {
+            "label": "",
+            "filter": None,
+            "calls": [
+                {
+                    "name": "putHost",
+                    "url": "https://termix.example.org/api/hosts",
+                    "http_method": "PUT",
+                    "body_template": None,
+                    "contract_ref": None,
+                    "operation_id": None,
+                }
+            ],
+            "blocks": [],
+        }
+    ],
+}
+
+
 async def _automation(conn: AsyncConnection, **over: object) -> str:
-    cid = over.pop("contract_ref", None) or await _contract(conn)
+    over.pop("contract_ref", None)  # compat appels existants (plus de FK contrat)
     fields = {
         "label": "sync-hosts",
         "slug": f"a-{uuid.uuid4().hex[:8]}",  # unique (contrainte uq_automation_slug)
         "event_types": ["test_server.updated"],
-        "contract_ref": cid,
-        "operation_id": "putHost",
-        "url": "https://termix.example.org/api/hosts",
-        "http_method": "PUT",
+        "tree": _TREE,
         **over,
     }
     row = await a.create(conn, **fields)
@@ -81,25 +100,14 @@ async def test_automation_created_disabled(db_conn: AsyncConnection) -> None:
 
 
 @pytest.mark.asyncio
-async def test_slug_exists_and_filter_fields(db_conn: AsyncConnection) -> None:
-    cid = await _contract(db_conn)
-    aid = await _automation(
-        db_conn,
-        contract_ref=cid,
-        slug="sync-hosts",
-        filter_contract_ref=cid,
-        filter_operation_id="listUsers",
-        filter_url="https://termix.example.org/api/users/list",
-        filter_method="GET",
-    )
+async def test_slug_exists_and_tree_persisted(db_conn: AsyncConnection) -> None:
+    aid = await _automation(db_conn, slug="sync-hosts")
     assert await a.slug_exists(db_conn, "sync-hosts") is True
     assert await a.slug_exists(db_conn, "sync-hosts", exclude_id=aid) is False
     assert await a.slug_exists(db_conn, "autre") is False
     row = await a.get(db_conn, aid)
     assert row is not None
-    assert row["filter_operation_id"] == "listUsers"
-    assert row["filter_url"] == "https://termix.example.org/api/users/list"
-    assert row["filter_method"] == "GET"
+    assert row["tree"]["blocks"][0]["calls"][0]["name"] == "putHost"
 
 
 @pytest.mark.asyncio
@@ -116,29 +124,38 @@ async def test_update_and_reorder(db_conn: AsyncConnection) -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_route_persists_filter_eval(db_conn: AsyncConnection) -> None:
-    # Régression : le handler de création doit persister jsonpath/operator/expected.
+async def test_create_route_persists_tree(db_conn: AsyncConnection) -> None:
+    # Régression : le handler de création doit persister l'arbre NORMALISÉ.
     from portal.routes.automations import AutomationCreate, create_automation
 
-    cid = await _contract(db_conn)
     body = AutomationCreate(
         label="sync-user",
         event_types=["test_server.updated"],
-        contract_ref=cid,
-        operation_id="putHost",
-        url="https://termix.example.org/api/hosts",
-        http_method="POST",
-        filter_url="https://termix.example.org/users/list",
-        filter_method="GET",
-        filter_jsonpath='$.users[?(@.username=="{user.sub}")]',
-        filter_operator="exists",
-        filter_expected="",
+        tree={
+            "blocks": [
+                {
+                    "filter": {
+                        "url": "https://termix.example.org/users/list",
+                        "jsonpath": '$.users[?(@.username=="{user.sub}")]',
+                        "operator": "exists",
+                    },
+                    "calls": [
+                        {
+                            "name": "putHost",
+                            "url": "https://termix.example.org/api/hosts",
+                            "http_method": "POST",
+                        }
+                    ],
+                }
+            ]
+        },
     )
     created = await create_automation(body, _=None, conn=db_conn)  # type: ignore[arg-type]
     row = await a.get(db_conn, created["id"])
     assert row is not None
-    assert row["filter_jsonpath"] == '$.users[?(@.username=="{user.sub}")]'
-    assert row["filter_operator"] == "exists"
+    blk = row["tree"]["blocks"][0]
+    assert blk["filter"]["operator"] == "exists"
+    assert blk["calls"][0]["body_template"] is None  # défauts matérialisés
 
 
 @pytest.mark.asyncio

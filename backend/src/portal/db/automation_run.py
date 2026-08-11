@@ -62,8 +62,9 @@ async def finish(
     request_preview: str | None = None,
     response_preview: str | None = None,
     error: str | None = None,
+    trace: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Clôt un run (ok | failed | skipped) avec ses aperçus bornés."""
+    """Clôt un run (ok | failed | skipped) avec ses aperçus bornés + trace d'arbre."""
     await conn.execute(
         update(_r)
         .where(_r.c.id == run_id)
@@ -73,6 +74,7 @@ async def finish(
             request_preview=_clip(request_preview),
             response_preview=_clip(response_preview),
             error=_clip(error),
+            trace=trace,
         )
     )
 
@@ -88,6 +90,7 @@ async def record_manual(
     request_preview: str | None = None,
     response_preview: str | None = None,
     error: str | None = None,
+    trace: list[dict[str, Any]] | None = None,
 ) -> str:
     """Insère un run de rejeu manuel (hors unicité anti-rejeu). Retourne son id."""
     run_id = uuid.uuid4().hex
@@ -102,6 +105,7 @@ async def record_manual(
             request_preview=_clip(request_preview),
             response_preview=_clip(response_preview),
             error=_clip(error),
+            trace=trace,
             manual=True,
         )
     )

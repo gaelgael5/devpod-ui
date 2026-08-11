@@ -1188,6 +1188,89 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "write",
     },
+    "automation_rule_list": {
+        "description": (
+            "Liste les règles d'automates (slug, label, actif, events déclencheurs, "
+            "position, stop_chain, debounce). "
+            "Impact: read-only — aucune mutation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {},
+        },
+        "scope": "admin",
+    },
+    "automation_rule_get": {
+        "description": (
+            "Lit une règle d'automate par son slug : métadonnées, arbre de règle "
+            "(blocs récursifs filtre ET/OU → appels nommés → enfants) et en-têtes "
+            "(les secrets restent des références, jamais révélés). "
+            "Impact: read-only — aucune mutation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["slug"],
+            "properties": {
+                "slug": {"type": "string", "description": "Slug de la règle."},
+            },
+        },
+        "scope": "admin",
+    },
+    "automation_rule_upsert": {
+        "description": (
+            "Crée ou modifie une règle d'automate par son slug. Champs partiels : "
+            "seuls ceux fournis sont modifiés ; création = label + event_types requis. "
+            "`tree` = arbre de règle {version:1, blocks:[{label, filter, calls, "
+            "blocks}]} — filter = feuille {url, http_method, body?, jsonpath, "
+            "operator(exists|not_exists|equals|not_equals), expected?} ou groupe "
+            "{op:and|or, items:[…]} imbriqué ; calls = [{name (unique, sert de racine "
+            "de variables {name.champ} pour les blocs aval), url, http_method, "
+            "body_template?}] ; blocks = enfants récursifs exécutés si le filtre "
+            "passe. Templates : variables d'event ({event.*}, {subject.*}) + réponses "
+            "nommées. En-têtes : value XOR secret_ref (`${system://slug}`). "
+            "À la création le curseur part du sommet du journal (events à venir "
+            "uniquement — backfill explicite pour rattraper l'existant) et la règle "
+            "est inactive sauf `active:true`. "
+            "Impact: write-safe — modifie la config des automates, aucun appel émis "
+            "immédiatement."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["slug"],
+            "properties": {
+                "slug": {"type": "string", "description": "Slug (identifiant stable)."},
+                "label": {"type": "string", "description": "Libellé lisible."},
+                "event_types": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Types d'events déclencheurs (registre fermé).",
+                },
+                "tree": {
+                    "type": "object",
+                    "description": "Arbre de règle (schéma RuleTree v1, cf. description).",
+                },
+                "active": {"type": "boolean", "description": "Active/désactive la règle."},
+                "stop_chain": {
+                    "type": "boolean",
+                    "description": "Exécution OK → event consommé pour les priorités basses.",
+                },
+                "delay_minutes": {
+                    "type": "integer",
+                    "description": "Débounce en minutes (fenêtre glissante).",
+                },
+                "headers": {
+                    "type": "array",
+                    "description": "En-têtes d'appel [{name, value? XOR secret_ref?, "
+                    "value_prefix?, required?, enabled?}] — remplace la liste.",
+                    "items": {"type": "object"},
+                },
+            },
+        },
+        "scope": "admin",
+    },
 }
 
 

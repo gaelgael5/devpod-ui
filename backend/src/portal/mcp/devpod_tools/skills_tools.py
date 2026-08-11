@@ -47,8 +47,10 @@ def _require_str(args: dict[str, Any], key: str) -> str:
 
 def _skill_id(args: dict[str, Any]) -> str:
     v = _require_str(args, "skill_id")
-    if len(v) > 300 or not _SKILL_ID_RE.fullmatch(v) or any(
-        set(seg) == {"."} for seg in v.split("/")
+    if (
+        len(v) > 300
+        or not _SKILL_ID_RE.fullmatch(v)
+        or any(set(seg) == {"."} for seg in v.split("/"))
     ):
         raise DevpodToolError("skill_id invalide (attendu : source/skillId)")
     return v
@@ -66,15 +68,11 @@ async def _subject(conn: AsyncConnection, owner_login: str) -> str:
         await conn.execute(select(users.c.sub).where(users.c.login == owner_login))
     ).scalar_one_or_none()
     if not sub:
-        raise DevpodToolError(
-            "compte non ancré OIDC (aucun sub) — connectez-vous via OIDC d'abord"
-        )
+        raise DevpodToolError("compte non ancré OIDC (aucun sub) — connectez-vous via OIDC d'abord")
     return str(sub)
 
 
-async def _skills_search(
-    conn: AsyncConnection, args: dict[str, Any], owner_login: str
-) -> Any:
+async def _skills_search(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     query = _require_str(args, "query")
     search_type = str(args.get("search_type", "fuzzy"))
     if search_type not in ("fuzzy", "semantic"):
@@ -104,9 +102,7 @@ async def _skills_request_approval(
     }
 
 
-async def _skills_place(
-    conn: AsyncConnection, args: dict[str, Any], owner_login: str
-) -> Any:
+async def _skills_place(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     """Self-provisioning : place une skill DÉJÀ validée (grant granted) dans le
     workspace de l'agent. 409-like si non validée (il ne peut placer que le béni)."""
     ws_id = _ws_id(args, owner_login)
@@ -125,9 +121,7 @@ async def _skills_place(
         raise DevpodToolError(str(exc)) from exc
 
 
-async def _skills_remove(
-    conn: AsyncConnection, args: dict[str, Any], owner_login: str
-) -> Any:
+async def _skills_remove(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     ws_id = _ws_id(args, owner_login)
     skill_id = _skill_id(args)
     subject = await _subject(conn, owner_login)
@@ -139,9 +133,7 @@ async def _skills_remove(
     return {"skill_id": skill_id, "workspace": args.get("workspace"), "removed": True}
 
 
-async def _skills_pause(
-    conn: AsyncConnection, args: dict[str, Any], owner_login: str
-) -> Any:
+async def _skills_pause(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
     """Restreindre est sain → autorisé côté MCP. Pas de resume (humain seul)."""
     skill_id = _skill_id(args)
     subject = await _subject(conn, owner_login)

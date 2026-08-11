@@ -3,6 +3,7 @@
 Tout chemin est relatif à la racine `/workspaces/{name}`, normalisé côté portail.
 Rejet de `..`, des chemins absolus et des composantes hors racine.
 """
+
 from __future__ import annotations
 
 import posixpath

@@ -1047,10 +1047,12 @@ openapi_contract = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
-# Un automate = « sur tel(s) event(s), appelle telle opération d'un contrat ».
+# Un automate = « sur tel(s) event(s), exécute l'arbre de règle `tree` ».
 # `position` = ordre d'évaluation global (drag&drop) ; `stop_chain` = chaîne de
-# responsabilité (match + appel OK → event consommé, priorités inférieures bloquées).
-# Créé désactivé (`active=false`). `delay_minutes` = débounce en fenêtre glissante.
+# responsabilité (match + exécution OK → event consommé, priorités inférieures
+# bloquées). Créé désactivé (`active=false`). `delay_minutes` = débounce en
+# fenêtre glissante. `tree` (migration 094) = blocs récursifs {filtre ET/OU
+# imbriqué → appels nommés → blocs enfants}, schéma automations/tree.py.
 automation = Table(
     "automation",
     metadata,
@@ -1063,31 +1065,7 @@ automation = Table(
     Column("stop_chain", Boolean, nullable=False, server_default="false"),
     Column("event_types", ARRAY(Text), nullable=False, server_default="{}"),
     Column("delay_minutes", Integer, nullable=False, server_default="0"),
-    Column(
-        "contract_ref",
-        Text,
-        ForeignKey("openapi_contract.id", ondelete="RESTRICT"),
-        nullable=False,
-    ),
-    Column("operation_id", Text, nullable=False),
-    Column("url", Text, nullable=False),  # cible réelle (base du contrat + path résolu)
-    Column("http_method", Text, nullable=False),
-    Column("body_template", Text, nullable=True),  # modèle à variables ; null = pas de corps
-    # Onglet Filtre : appel d'API préliminaire (évaluation différée) — tout nullable.
-    Column(
-        "filter_contract_ref",
-        Text,
-        ForeignKey("openapi_contract.id", ondelete="SET NULL"),
-        nullable=True,
-    ),
-    Column("filter_operation_id", Text, nullable=True),
-    Column("filter_url", Text, nullable=True),
-    Column("filter_method", Text, nullable=True),
-    Column("filter_body", Text, nullable=True),
-    # Évaluation du filtre : JSONPath (variables rendues) + opérateur + attendu.
-    Column("filter_jsonpath", Text, nullable=True),
-    Column("filter_operator", Text, nullable=True),
-    Column("filter_expected", Text, nullable=True),
+    Column("tree", JSONB, nullable=False, server_default='{"version": 1, "blocks": []}'),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Index("idx_automation_position", "position"),
@@ -1153,6 +1131,8 @@ automation_run = Table(
     Column("response_preview", Text, nullable=True),
     Column("error", Text, nullable=True),
     Column("manual", Boolean, nullable=False, server_default="false"),
+    # Trace structurée du parcours de l'arbre (un item par nœud exécuté), migration 094.
+    Column("trace", JSONB, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Index(
         "uq_automation_run_auto_dedup",

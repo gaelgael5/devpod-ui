@@ -42,6 +42,7 @@ from ...devpod.exec import TMUX_SOCK_DETECT, tmux, ws_exec
 from ...events.bus import emit_event
 from . import operations
 from .agent_message_tools import AGENT_MESSAGE_IMPLS
+from .automation_tools import AUTOMATION_IMPLS
 from .compose_tools import COMPOSE_IMPLS
 from .errors import DevpodToolError
 from .logs_tools import LOGS_IMPLS
@@ -642,9 +643,7 @@ async def _session_close(conn: AsyncConnection, args: dict[str, Any], owner_logi
     from ...sessions.aggregate import invalidate_sessions_cache
 
     invalidate_sessions_cache()
-    await emit_event(
-        "session.closed", actor=owner_login, workspace=name, subject={"session": sess}
-    )
+    await emit_event("session.closed", actor=owner_login, workspace=name, subject={"session": sess})
     return {"closed": True}
 
 
@@ -830,9 +829,7 @@ async def _node_list(conn: AsyncConnection, args: dict[str, Any], owner_login: s
             "host": h.address or h.docker_host or None,
             "health": {
                 "reachable": reachable,
-                "status": (
-                    "configured" if reachable is None else "up" if reachable else "down"
-                ),
+                "status": ("configured" if reachable is None else "up" if reachable else "down"),
                 "last_seen": last_seen.isoformat() if last_seen else None,
             },
             "lifecycle": {
@@ -1163,6 +1160,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_delete": _workspace_delete,
     "workspace_apply_recipe": _workspace_apply_recipe,
     "workspace_profile_set": _workspace_profile_set,
+    **AUTOMATION_IMPLS,
     **COMPOSE_IMPLS,
     **MESSAGE_IMPLS,
     **AGENT_MESSAGE_IMPLS,

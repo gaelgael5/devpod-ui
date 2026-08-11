@@ -27,19 +27,7 @@ _EDITABLE = (
     "stop_chain",
     "event_types",
     "delay_minutes",
-    "contract_ref",
-    "operation_id",
-    "url",
-    "http_method",
-    "body_template",
-    "filter_contract_ref",
-    "filter_operation_id",
-    "filter_url",
-    "filter_method",
-    "filter_body",
-    "filter_jsonpath",
-    "filter_operator",
-    "filter_expected",
+    "tree",
 )
 
 

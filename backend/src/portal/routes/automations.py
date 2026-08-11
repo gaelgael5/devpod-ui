@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..auth.rbac import UserInfo, require_admin
 from ..automations import contracts as ct
 from ..automations import simulate
-from ..automations.filter_eval import OPERATORS as _FILTER_OPS
 from ..automations.runner import replay_run
+from ..automations.tree import EMPTY_TREE, RuleTree
 from ..db import app_event as je
 from ..db import automation as adb
 from ..db import automation_run as ar
@@ -73,26 +73,15 @@ class AutomationCreate(BaseModel):
     # slug vide → dérivé du label (normalisé). Unique.
     slug: str = ""
     event_types: list[str]
-    contract_ref: str
-    operation_id: str
-    url: str
-    http_method: str
-    body_template: str | None = None
+    # Arbre de règle (blocs récursifs filtre ET/OU → appels nommés → enfants),
+    # validé/normalisé par automations/tree.py:RuleTree.
+    tree: dict[str, Any] = Field(default_factory=lambda: dict(EMPTY_TREE))
     delay_minutes: int = 0
     stop_chain: bool = False
     # Priorité d'exécution (position). None → ajouté en fin de liste.
     position: int | None = None
     headers: list[HeaderIn] = Field(default_factory=list)
     active: bool = False
-    # Onglet Filtre : appel d'API préliminaire + règle d'évaluation.
-    filter_contract_ref: str | None = None
-    filter_operation_id: str | None = None
-    filter_url: str | None = None
-    filter_method: str | None = None
-    filter_body: str | None = None
-    filter_jsonpath: str | None = None
-    filter_operator: str | None = None
-    filter_expected: str | None = None
 
 
 class AutomationUpdate(BaseModel):
@@ -100,24 +89,12 @@ class AutomationUpdate(BaseModel):
     label: str | None = None
     slug: str | None = None
     event_types: list[str] | None = None
-    contract_ref: str | None = None
-    operation_id: str | None = None
-    url: str | None = None
-    http_method: str | None = None
-    body_template: str | None = None
+    tree: dict[str, Any] | None = None
     delay_minutes: int | None = None
     stop_chain: bool | None = None
     position: int | None = None
     headers: list[HeaderIn] | None = None
     active: bool | None = None
-    filter_contract_ref: str | None = None
-    filter_operation_id: str | None = None
-    filter_url: str | None = None
-    filter_method: str | None = None
-    filter_body: str | None = None
-    filter_jsonpath: str | None = None
-    filter_operator: str | None = None
-    filter_expected: str | None = None
 
 
 class FilterCallIn(BaseModel):
@@ -162,17 +139,18 @@ class InjectIn(BaseModel):
     session: str | None = None
 
 
-def _validate(event_types: list[str], http_method: str) -> None:
+def _validate(event_types: list[str]) -> None:
     unknown = set(event_types) - EVENT_TYPES
     if unknown:
         raise HTTPException(status_code=422, detail=f"event_types inconnus : {sorted(unknown)}")
-    if http_method.upper() not in _HTTP_METHODS:
-        raise HTTPException(status_code=422, detail=f"http_method invalide : {http_method!r}")
 
 
-def _validate_filter_operator(operator: str | None) -> None:
-    if operator and operator not in _FILTER_OPS:
-        raise HTTPException(status_code=422, detail=f"opérateur de filtre invalide : {operator!r}")
+def _validated_tree(raw: dict[str, Any]) -> dict[str, Any]:
+    """Valide l'arbre de règle et le renvoie NORMALISÉ (défauts matérialisés). 422 sinon."""
+    try:
+        return RuleTree.model_validate(raw).model_dump()
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"arbre de règle invalide : {exc}") from exc
 
 
 def _normalize_slug(raw: str) -> str:
@@ -488,10 +466,8 @@ async def list_automations(_: _Admin, conn: _Conn) -> list[dict[str, Any]]:
 
 @router.post("", status_code=201)
 async def create_automation(body: AutomationCreate, _: _Admin, conn: _Conn) -> dict[str, Any]:
-    _validate(body.event_types, body.http_method)
-    _validate_filter_operator(body.filter_operator)
-    if await oc.get(conn, body.contract_ref) is None:
-        raise HTTPException(status_code=422, detail="contract_ref introuvable")
+    _validate(body.event_types)
+    tree = _validated_tree(body.tree)
     slug = _resolve_slug(body.slug, body.label)
     if await adb.slug_exists(conn, slug):
         raise HTTPException(status_code=409, detail=f"slug déjà utilisé : {slug!r}")
@@ -501,23 +477,11 @@ async def create_automation(body: AutomationCreate, _: _Admin, conn: _Conn) -> d
         label=body.label,
         slug=slug,
         event_types=body.event_types,
-        contract_ref=body.contract_ref,
-        operation_id=body.operation_id,
-        url=body.url,
-        http_method=body.http_method.upper(),
-        body_template=body.body_template,
+        tree=tree,
         delay_minutes=body.delay_minutes,
         stop_chain=body.stop_chain,
         active=body.active,
         position=position,
-        filter_contract_ref=body.filter_contract_ref,
-        filter_operation_id=body.filter_operation_id,
-        filter_url=body.filter_url,
-        filter_method=body.filter_method,
-        filter_body=body.filter_body,
-        filter_jsonpath=body.filter_jsonpath,
-        filter_operator=body.filter_operator,
-        filter_expected=body.filter_expected,
     )
     await adb.set_headers(conn, row["id"], _headers_payload(body.headers))
     # Nouveau : curseur au sommet du journal — n'exécute que les events À VENIR
@@ -544,17 +508,15 @@ async def update_automation(
     if current is None:
         raise HTTPException(status_code=404, detail="automate introuvable")
     fields = body.model_dump(exclude_unset=True, exclude={"headers"})
-    if "http_method" in fields and fields["http_method"] is not None:
-        fields["http_method"] = fields["http_method"].upper()
+    if fields.get("tree") is not None:
+        fields["tree"] = _validated_tree(fields["tree"])
     if fields.get("slug"):
         slug = _resolve_slug(fields["slug"], current["label"])
         if await adb.slug_exists(conn, slug, exclude_id=automation_id):
             raise HTTPException(status_code=409, detail=f"slug déjà utilisé : {slug!r}")
         fields["slug"] = slug
     et = body.event_types if body.event_types is not None else current["event_types"]
-    hm = fields.get("http_method") or current["http_method"]
-    _validate(et, hm)
-    _validate_filter_operator(body.filter_operator)
+    _validate(et)
     if fields:
         await adb.update_fields(conn, automation_id, **fields)
     if body.headers is not None:

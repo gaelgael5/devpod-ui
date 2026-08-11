@@ -95,11 +95,159 @@ def test_system_ref_regex_matches_slug() -> None:
     assert r._SYSTEM_REF_RE.match("${system://Bad Slug}") is None
 
 
+def test_flatten_response_paths_and_bounds() -> None:
+    ctx: dict[str, str] = {}
+    r.flatten_response("create", {"id": 7, "ok": True, "tags": ["a", "b"], "nul": None}, ctx)
+    assert ctx == {
+        "create.id": "7",
+        "create.ok": "true",
+        "create.tags.0": "a",
+        "create.tags.1": "b",
+        "create.nul": "",
+    }
+    # Clé non sûre pour un nom de variable → ignorée.
+    ctx2: dict[str, str] = {}
+    r.flatten_response("x", {"a b": 1, "ok": 2}, ctx2)
+    assert ctx2 == {"x.ok": "2"}
+
+
+def _mock_walk(handler: object, ctx: dict[str, str] | None = None):  # noqa: ANN202
+    import httpx
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return r._TreeWalk(ctx or {}, {}, client), client
+
+
+def _unpin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Court-circuite l'anti-SSRF (MockTransport ne résout pas de DNS)."""
+
+    async def _unpinned(client, method, url, **kw):  # noqa: ANN001, ANN202
+        kw.pop("max_bytes", None)
+        return await client.request(method, url, **kw)
+
+    monkeypatch.setattr(r, "pinned_request", _unpinned)
+
+
 @pytest.mark.asyncio
-async def test_run_filter_passes_when_unconfigured() -> None:
-    # Sans (operator, filter_url, filter_jsonpath) le gate passe sans appel réseau.
-    passed, preview, resp = await r._run_filter(_auto(), {}, client=None)  # type: ignore[arg-type]
-    assert passed is True and preview == "" and resp is None
+async def test_treewalk_filter_gate_and_response_chaining(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    from portal.automations.tree import RuleTree
+
+    _unpin(monkeypatch)
+    calls_seen: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls_seen.append(f"{req.method} {req.url.path}")
+        if req.url.path == "/check":
+            return httpx.Response(200, json={"ok": True})
+        if req.url.path == "/create":
+            return httpx.Response(201, json={"id": 42})
+        if req.url.path == "/use":
+            assert req.url.params["id"] == "42"  # réponse nommée chaînée
+            return httpx.Response(200, json={})
+        return httpx.Response(500)
+
+    tree = RuleTree.model_validate(
+        {
+            "blocks": [
+                {
+                    "filter": {"url": "https://x/check", "jsonpath": "$.ok", "operator": "exists"},
+                    "calls": [{"name": "create", "url": "https://x/create", "http_method": "POST"}],
+                    "blocks": [
+                        {
+                            "calls": [
+                                {
+                                    "name": "use",
+                                    "url": "https://x/use?id={create.id}",
+                                    "http_method": "GET",
+                                }
+                            ]
+                        }
+                    ],
+                },
+                {
+                    # Filtre non passé → sous-arbre sauté, pas d'appel /never.
+                    "filter": {
+                        "url": "https://x/check",
+                        "jsonpath": "$.missing",
+                        "operator": "exists",
+                    },
+                    "calls": [{"name": "never", "url": "https://x/never", "http_method": "GET"}],
+                },
+            ]
+        }
+    )
+    walk, client = _mock_walk(handler)
+    for i, block in enumerate(tree.blocks):
+        await walk.run_block(block, str(i))
+    await client.aclose()
+
+    assert walk.calls_run == 2
+    assert "GET /never" not in calls_seen
+    kinds = [(t["kind"], t.get("passed", t.get("status"))) for t in walk.trace]
+    assert ("filter", True) in kinds and ("call", "ok") in kinds and ("block", False) in kinds
+
+
+@pytest.mark.asyncio
+async def test_treewalk_call_failure_fails_fast(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    from portal.automations.tree import RuleTree
+
+    _unpin(monkeypatch)
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="boom")
+
+    tree = RuleTree.model_validate(
+        {"blocks": [{"calls": [{"name": "ko", "url": "https://x/do", "http_method": "POST"}]}]}
+    )
+    walk, client = _mock_walk(handler)
+    with pytest.raises(r._CallFailed, match="HTTP 500"):
+        await walk.run_block(tree.blocks[0], "0")
+    await client.aclose()
+    assert walk.calls_run == 0 and walk.last_http == 500
+
+
+@pytest.mark.asyncio
+async def test_treewalk_nested_and_or_short_circuit(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    from portal.automations.tree import RuleTree
+
+    _unpin(monkeypatch)
+    hits: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        hits.append(req.url.path)
+        return httpx.Response(200, json={"ok": req.url.path == "/yes"})
+
+    leaf_yes = {
+        "url": "https://x/yes",
+        "jsonpath": "$.ok",
+        "operator": "equals",
+        "expected": "true",
+    }
+    leaf_no = {"url": "https://x/no", "jsonpath": "$.ok", "operator": "equals", "expected": "true"}
+    tree = RuleTree.model_validate(
+        {
+            "blocks": [
+                {
+                    "filter": {
+                        "op": "and",
+                        "items": [leaf_yes, {"op": "or", "items": [leaf_yes, leaf_no]}],
+                    },
+                    "calls": [{"name": "go", "url": "https://x/yes", "http_method": "GET"}],
+                }
+            ]
+        }
+    )
+    walk, client = _mock_walk(handler)
+    await walk.run_block(tree.blocks[0], "0")
+    await client.aclose()
+    # OU court-circuité : /no jamais appelé ; le call final est parti.
+    assert "/no" not in hits and walk.calls_run == 1
 
 
 @pytest.mark.asyncio

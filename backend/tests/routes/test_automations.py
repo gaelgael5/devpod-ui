@@ -20,7 +20,7 @@ from portal.routes.automations import (
     _normalize_slug,
     _resolve_slug,
     _validate,
-    _validate_filter_operator,
+    _validated_tree,
 )
 
 
@@ -47,44 +47,25 @@ def test_contract_update_clear_url() -> None:
 
 def test_automation_create_forbids_extra() -> None:
     with pytest.raises(ValidationError):
-        AutomationCreate(
-            label="x",
-            event_types=["test_server.updated"],
-            contract_ref="c",
-            operation_id="op",
-            url="https://x",
-            http_method="PUT",
-            unknown="oops",
-        )
+        AutomationCreate(label="x", event_types=["test_server.updated"], unknown="oops")
 
 
 def test_automation_create_defaults() -> None:
-    a = AutomationCreate(
-        label="x",
-        event_types=["test_server.updated"],
-        contract_ref="c",
-        operation_id="op",
-        url="https://x",
-        http_method="PUT",
-    )
+    a = AutomationCreate(label="x", event_types=["test_server.updated"])
     assert a.active is False
     assert a.stop_chain is False
     assert a.delay_minutes == 0
+    assert a.tree == {"version": 1, "blocks": []}
 
 
 def test_validate_rejects_unknown_event_type() -> None:
     with pytest.raises(HTTPException) as exc:
-        _validate(["nope.event"], "PUT")
+        _validate(["nope.event"])
     assert exc.value.status_code == 422
 
 
-def test_validate_rejects_bad_method() -> None:
-    with pytest.raises(HTTPException):
-        _validate(["test_server.updated"], "FETCH")
-
-
 def test_validate_accepts_valid() -> None:
-    _validate(["test_server.updated", "workspace.updated"], "put")
+    _validate(["test_server.updated", "workspace.updated"])
 
 
 def test_headers_payload_rejects_value_and_secret_together() -> None:
@@ -156,21 +137,21 @@ def test_resolve_slug_rejects_empty_result() -> None:
         _resolve_slug("", "!!!")  # ni slug ni label normalisable
 
 
-def test_automation_create_accepts_slug_and_filter() -> None:
+def test_automation_create_accepts_slug_and_tree() -> None:
     a = AutomationCreate(
         label="L",
         slug="my-auto",
         event_types=["test_server.updated"],
-        contract_ref="c",
-        operation_id="op",
-        url="https://x/y",
-        http_method="POST",
-        filter_contract_ref="c",
-        filter_operation_id="listUsers",
-        filter_url="https://x/users/list",
-        filter_method="GET",
+        tree={
+            "blocks": [
+                {
+                    "filter": {"url": "https://x/u", "jsonpath": "$.ok", "operator": "exists"},
+                    "calls": [{"name": "go", "url": "https://x/y", "http_method": "POST"}],
+                }
+            ]
+        },
     )
-    assert a.slug == "my-auto" and a.filter_method == "GET"
+    assert a.slug == "my-auto" and a.tree["blocks"][0]["calls"][0]["name"] == "go"
 
 
 def test_test_call_in_forbids_extra() -> None:
@@ -189,22 +170,19 @@ def test_filter_call_in_accepts_eval_fields() -> None:
     assert c.operator == "exists" and c.variables["subject.login"] == "gael"
 
 
-def test_validate_filter_operator() -> None:
-    _validate_filter_operator(None)  # None accepté (pas de filtre)
-    _validate_filter_operator("equals")
-    with pytest.raises(HTTPException):
-        _validate_filter_operator("matches")
-
-
-def test_automation_create_accepts_filter_eval() -> None:
-    a = AutomationCreate(
-        label="L",
-        event_types=["user.created"],
-        contract_ref="c",
-        operation_id="op",
-        url="https://x/y",
-        http_method="POST",
-        filter_jsonpath='$.users[?(@.username=="{subject.login}")]',
-        filter_operator="exists",
+def test_validated_tree_normalizes_defaults() -> None:
+    out = _validated_tree(
+        {"blocks": [{"calls": [{"name": "a", "url": "https://x", "http_method": "GET"}]}]}
     )
-    assert a.filter_operator == "exists"
+    call = out["blocks"][0]["calls"][0]
+    assert call["body_template"] is None and out["version"] == 1
+
+
+def test_validated_tree_rejects_invalid_as_422() -> None:
+    with pytest.raises(HTTPException) as exc:
+        _validated_tree({"blocks": [{"filter": {"op": "and", "items": []}}]})
+    assert exc.value.status_code == 422
+    with pytest.raises(HTTPException):
+        _validated_tree(
+            {"blocks": [{"calls": [{"name": "a.b", "url": "https://x", "http_method": "GET"}]}]}
+        )

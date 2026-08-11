@@ -4,6 +4,7 @@ La couche MCP ne connaît que `owner_login` (pas de workspace émetteur ambiant)
 l'agent déclare donc explicitement `from_workspace` (le workspace dans lequel il
 tourne). v1 intra-utilisateur : les deux workspaces appartiennent à owner_login.
 """
+
 from __future__ import annotations
 
 import re

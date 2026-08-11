@@ -19,6 +19,7 @@ d'évaluation (`position`) :
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -148,143 +149,237 @@ async def _resolve_headers(headers: list[dict[str, Any]]) -> dict[str, str]:
     return out
 
 
-async def _run_filter(
-    automation: dict[str, Any], ctx: dict[str, str], client: httpx.AsyncClient
-) -> tuple[bool, str, str | None]:
-    """Gate de filtre. `(passe, aperçu requête, aperçu réponse)`.
+# ─── Exécution de l'arbre de règle ───────────────────────────────────────────
 
-    Pas de filtre configuré → passe. Erreur d'appel/évaluation → **fail closed**
-    (ne passe pas) : on n'agit jamais sur un état incertain.
+# Bornes de la trace persistée (un item par nœud exécuté) et de l'aplatissement
+# d'une réponse nommée dans le contexte de template.
+_TRACE_MAX_ITEMS = 200
+_TRACE_PREVIEW = 500
+_FLAT_MAX_ENTRIES = 200
+_FLAT_MAX_DEPTH = 6
+_FLAT_MAX_LIST = 20
+
+_KEY_RE = re.compile(r"^[a-zA-Z0-9_]+$")
+
+
+def flatten_response(name: str, data: Any, ctx: dict[str, str]) -> None:
+    """Expose la réponse JSON d'un appel nommé aux templates aval.
+
+    `{"id": 7, "tags": ["a"]}` sous le nom `create` → `{create.id}`, `{create.tags.0}`.
+    Bornes défensives (profondeur, listes, nombre d'entrées) : une réponse énorme
+    n'inonde pas le contexte. Clés non sûres pour un nom de variable ignorées.
     """
-    from . import filter_eval as feval
+    budget = _FLAT_MAX_ENTRIES
 
-    op = automation.get("filter_operator")
-    furl = automation.get("filter_url")
-    jsonpath = automation.get("filter_jsonpath")
-    if not (op and furl and jsonpath):
-        return True, "", None
-    method = automation.get("filter_method") or "GET"
-    r_url = render_template(furl, ctx)
-    r_jsonpath = render_template(jsonpath, ctx)
-    expected = automation.get("filter_expected")
-    r_expected = render_template(expected, ctx) if expected else None
-    fbody = automation.get("filter_body")
-    body = render_template(fbody, ctx) if fbody else None
-    preview = f"[filtre] {method} {r_url} :: {r_jsonpath} {op} {r_expected or ''}".rstrip()
-    try:
-        headers = await _resolve_headers(automation["headers"])
-        if body is not None:
-            headers.setdefault("content-type", "application/json")
-        resp = await pinned_request(
-            client,
-            method,
-            r_url,
-            headers=headers,
-            content=body.encode() if body is not None else None,
-            timeout=15.0,
-            max_bytes=_RESP_PREVIEW_MAX,
-        )
-        passed, matches = feval.evaluate(resp.json(), r_jsonpath, op, r_expected)
-        return passed, preview, f"passe={passed} matches={matches!r}\n{resp.text[:2000]}"
-    except Exception as exc:
-        return False, preview, f"filter_error: {type(exc).__name__}: {exc}"
+    def _rec(prefix: str, val: Any, depth: int) -> None:
+        nonlocal budget
+        if budget <= 0 or depth > _FLAT_MAX_DEPTH:
+            return
+        if isinstance(val, dict):
+            for k, v in val.items():
+                if _KEY_RE.fullmatch(str(k)):
+                    _rec(f"{prefix}.{k}", v, depth + 1)
+        elif isinstance(val, list):
+            for i, v in enumerate(val[:_FLAT_MAX_LIST]):
+                _rec(f"{prefix}.{i}", v, depth + 1)
+        else:
+            if isinstance(val, bool):
+                sval = "true" if val else "false"
+            else:
+                sval = "" if val is None else str(val)
+            ctx[prefix] = sval
+            budget -= 1
+
+    _rec(name, data, 0)
+
+
+class _CallFailed(Exception):
+    """Échec d'un appel de l'arbre : toute la règle s'arrête (fail-fast, rejouable)."""
+
+
+class _TreeWalk:
+    """Parcours en profondeur d'un arbre de règle pour UN event.
+
+    Filtre du bloc (arbre ET/OU, court-circuit, fail closed) → s'il passe, appels
+    (chaque réponse JSON aplatie dans le contexte sous son nom) puis blocs enfants ;
+    sinon le sous-arbre est sauté et le bloc frère suivant continue.
+    """
+
+    def __init__(
+        self, ctx: dict[str, str], headers: dict[str, str], client: httpx.AsyncClient
+    ) -> None:
+        self.ctx = ctx
+        self.headers = headers
+        self.client = client
+        self.trace: list[dict[str, Any]] = []
+        self.calls_run = 0
+        self.last_http: int | None = None
+
+    def _add(self, item: dict[str, Any]) -> None:
+        if len(self.trace) < _TRACE_MAX_ITEMS:
+            self.trace.append(item)
+
+    async def eval_filter(self, node: Any, path: str) -> bool:
+        from . import filter_eval as feval
+        from .tree import TreeFilterGroup
+
+        if isinstance(node, TreeFilterGroup):
+            passed = node.op == "and"
+            for i, child in enumerate(node.items):
+                sub = await self.eval_filter(child, f"{path}.{i}")
+                if node.op == "and" and not sub:
+                    passed = False
+                    break  # court-circuit ET
+                if node.op == "or" and sub:
+                    passed = True
+                    break  # court-circuit OU
+                passed = sub
+            self._add({"path": path, "kind": "filter_group", "op": node.op, "passed": passed})
+            return passed
+
+        r_url = render_template(node.url, self.ctx)
+        r_jsonpath = render_template(node.jsonpath, self.ctx)
+        r_expected = render_template(node.expected, self.ctx) if node.expected else None
+        body = render_template(node.body, self.ctx) if node.body else None
+        preview = f"{node.http_method} {r_url} :: {r_jsonpath} {node.operator} {r_expected or ''}"
+        item: dict[str, Any] = {"path": path, "kind": "filter", "preview": preview.rstrip()}
+        try:
+            headers = dict(self.headers)
+            if body is not None:
+                headers.setdefault("content-type", "application/json")
+            resp = await pinned_request(
+                self.client,
+                node.http_method,
+                r_url,
+                headers=headers,
+                content=body.encode() if body is not None else None,
+                timeout=15.0,
+                max_bytes=_RESP_PREVIEW_MAX,
+            )
+            passed, matched = feval.evaluate(resp.json(), r_jsonpath, node.operator, r_expected)
+            item.update(
+                passed=passed,
+                http_status=resp.status_code,
+                detail=f"matches={matched!r}"[:_TRACE_PREVIEW],
+            )
+        except Exception as exc:
+            # Fail closed : on n'agit jamais sur un état incertain.
+            item.update(passed=False, detail=f"{type(exc).__name__}: {exc}"[:_TRACE_PREVIEW])
+        self._add(item)
+        return bool(item["passed"])
+
+    async def run_call(self, call: Any, path: str) -> None:
+        r_url = render_template(call.url, self.ctx)
+        body = render_template(call.body_template, self.ctx) if call.body_template else None
+        preview = f"{call.http_method} {r_url}" + (f"\n{body}" if body else "")
+        item: dict[str, Any] = {
+            "path": path,
+            "kind": "call",
+            "name": call.name,
+            "preview": preview[:_TRACE_PREVIEW],
+        }
+        try:
+            headers = dict(self.headers)
+            if body is not None:
+                headers.setdefault("content-type", "application/json")
+            resp = await pinned_request(
+                self.client,
+                call.http_method,
+                r_url,
+                headers=headers,
+                content=body.encode() if body is not None else None,
+                timeout=15.0,
+                max_bytes=_RESP_PREVIEW_MAX,
+            )
+        except Exception as exc:
+            item.update(status="failed", detail=f"{type(exc).__name__}: {exc}"[:_TRACE_PREVIEW])
+            self._add(item)
+            raise _CallFailed(f"appel {call.name!r} : {type(exc).__name__}: {exc}") from exc
+        self.last_http = resp.status_code
+        item["http_status"] = resp.status_code
+        if not (httpx.codes.OK <= resp.status_code < 300):
+            item.update(status="failed", detail=resp.text[:_TRACE_PREVIEW])
+            self._add(item)
+            raise _CallFailed(f"appel {call.name!r} : HTTP {resp.status_code}")
+        self.calls_run += 1
+        item.update(status="ok", detail=resp.text[:_TRACE_PREVIEW])
+        self._add(item)
+        # Réponse non-JSON : rien à exposer dans le contexte, l'appel reste OK.
+        with contextlib.suppress(ValueError):
+            flatten_response(call.name, resp.json(), self.ctx)
+
+    async def run_block(self, block: Any, path: str) -> None:
+        if block.filter is not None and not await self.eval_filter(block.filter, f"{path}.filter"):
+            self._add({"path": path, "kind": "block", "label": block.label, "passed": False})
+            return  # sous-arbre sauté, le bloc frère suivant continue
+        for i, call in enumerate(block.calls):
+            await self.run_call(call, f"{path}.calls.{i}")
+        for j, child in enumerate(block.blocks):
+            await self.run_block(child, f"{path}.blocks.{j}")
 
 
 async def _execute(
     automation: dict[str, Any], event: dict[str, Any], client: httpx.AsyncClient, *, manual: bool
 ) -> str:
-    """Claim (sauf rejeu manuel) + filtre + appel HTTP + finish. Retourne ok|failed|skipped."""
+    """Claim (sauf rejeu manuel) + parcours de l'arbre + finish. ok|failed|skipped.
+
+    `ok` = au moins un appel exécuté, aucun en échec ; `skipped` = tous les blocs
+    filtrés (ou arbre vide) ; `failed` = arbre/headers invalides ou appel en échec
+    (fail-fast : la règle s'arrête au premier appel KO, le run est rejouable).
+    """
+    from .tree import RuleTree
+
     aid = automation["id"]
     key = dedup_key(event)
+    run_id: str | None = None
     if not manual:
         async with _get_engine().begin() as conn:
             run_id = await ar.claim(conn, automation_id=aid, event_seq=event["seq"], dedup_key=key)
         if run_id is None:
             return "skipped"  # déjà traité (anti-rejeu)
 
-    ctx = build_context(event)
+    walk: _TreeWalk | None = None
 
-    # Gate de filtre : si configuré et non passé, on n'appelle pas (run tracé « skipped »).
-    passed, f_preview, f_resp = await _run_filter(automation, ctx, client)
-    if not passed:
+    async def _finish(status: str, *, error: str | None = None) -> str:
+        calls = walk.calls_run if walk is not None else 0
+        fields: dict[str, Any] = {
+            "status": status,
+            "http_status": walk.last_http if walk is not None else None,
+            "request_preview": f"tree v1 : {calls} appel(s) exécuté(s)",
+            "response_preview": None,
+            "error": error,
+            "trace": walk.trace if walk is not None else None,
+        }
         async with _get_engine().begin() as conn:
             if manual:
                 await ar.record_manual(
-                    conn,
-                    automation_id=aid,
-                    event_seq=event["seq"],
-                    dedup_key=key,
-                    status="skipped",
-                    http_status=None,
-                    request_preview=f_preview,
-                    response_preview=f_resp,
-                    error="filtré",
+                    conn, automation_id=aid, event_seq=event["seq"], dedup_key=key, **fields
                 )
             else:
-                await ar.finish(
-                    conn,
-                    run_id,  # type: ignore[arg-type]  # non-None dans la branche non-manuelle
-                    status="skipped",
-                    http_status=None,
-                    request_preview=f_preview,
-                    response_preview=f_resp,
-                    error="filtré",
-                )
-        return "skipped"
-
-    url = render_template(automation["url"], ctx)
-    tmpl = automation["body_template"]
-    body = render_template(tmpl, ctx) if tmpl else None
-    method = automation["http_method"]
-    preview = f"{method} {url}" + (f"\n{body}" if body else "")
+                assert run_id is not None
+                await ar.finish(conn, run_id, **fields)
+        return status
 
     try:
-        headers = await _resolve_headers(automation["headers"])
-        if body is not None:
-            headers.setdefault("content-type", "application/json")
-        resp = await pinned_request(
-            client,
-            method,
-            url,
-            headers=headers,
-            content=body.encode() if body is not None else None,
-            timeout=15.0,
-            max_bytes=_RESP_PREVIEW_MAX,
-        )
-        status = "ok" if httpx.codes.OK <= resp.status_code < 300 else "failed"
-        error = None if status == "ok" else f"HTTP {resp.status_code}"
-        resp_preview: str | None = resp.text
-        http_status: int | None = resp.status_code
+        tree = RuleTree.model_validate(automation.get("tree") or {})
     except Exception as exc:
-        status = "failed"
-        error = f"{type(exc).__name__}: {exc}"
-        resp_preview = None
-        http_status = None
+        return await _finish("failed", error=f"arbre de règle invalide : {exc}")
+    try:
+        headers = await _resolve_headers(automation["headers"])
+    except Exception as exc:
+        return await _finish("failed", error=f"résolution des en-têtes : {exc}")
 
-    async with _get_engine().begin() as conn:
-        if manual:
-            await ar.record_manual(
-                conn,
-                automation_id=aid,
-                event_seq=event["seq"],
-                dedup_key=key,
-                status=status,
-                http_status=http_status,
-                request_preview=preview,
-                response_preview=resp_preview,
-                error=error,
-            )
-        else:
-            await ar.finish(
-                conn,
-                run_id,  # type: ignore[arg-type]  # non-None dans la branche non-manuelle
-                status=status,
-                http_status=http_status,
-                request_preview=preview,
-                response_preview=resp_preview,
-                error=error,
-            )
-    return status
+    walk = _TreeWalk(build_context(event), headers, client)
+    try:
+        for i, block in enumerate(tree.blocks):
+            await walk.run_block(block, str(i))
+    except _CallFailed as exc:
+        return await _finish("failed", error=str(exc))
+    except Exception as exc:  # garde-fou : jamais de crash du balayage
+        return await _finish("failed", error=f"{type(exc).__name__}: {exc}")
+    if walk.calls_run == 0:
+        return await _finish("skipped", error="aucun appel exécuté (filtres non passés)")
+    return await _finish("ok")
 
 
 async def _record_skipped(automation_id: str, event: dict[str, Any], *, reason: str) -> None:
