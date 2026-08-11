@@ -4,6 +4,7 @@ import {
   collectUsedVariables,
   isGroup,
   newCall,
+  normalizeTree,
   treeSummary,
   type RuleTree,
 } from '../tree'
@@ -74,5 +75,29 @@ describe('tree helpers', () => {
 
   it('newCall génère un nom unique', () => {
     expect(newCall(['call1', 'call2']).name).toBe('call3')
+  })
+
+  it('normalizeTree matérialise les tableaux manquants (arbre d\'une version antérieure)', () => {
+    // Nœuds sans headers/calls/blocks/items → normalisés en tableaux vides.
+    const raw = {
+      version: 1,
+      blocks: [
+        {
+          label: 'x',
+          filter: { url: 'https://x', http_method: 'GET', jsonpath: '$.a', operator: 'exists' },
+          calls: [{ name: 'c', url: 'https://y', http_method: 'POST' }],
+        },
+      ],
+    } as unknown as RuleTree
+    const norm = normalizeTree(raw)
+    const block = norm.blocks[0]
+    expect(block.blocks).toEqual([])
+    expect(block.calls[0].headers).toEqual([])
+    expect((block.filter as { headers: unknown[] }).headers).toEqual([])
+  })
+
+  it('normalizeTree tolère null/undefined', () => {
+    expect(normalizeTree(null)).toEqual({ version: 1, blocks: [] })
+    expect(normalizeTree(undefined)).toEqual({ version: 1, blocks: [] })
   })
 })

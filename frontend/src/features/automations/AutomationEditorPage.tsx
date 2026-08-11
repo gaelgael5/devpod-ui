@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { EventsTree, VariablesPalette } from './editor-shared'
 import { slugify } from './editor-utils'
-import { collectCallNames, collectUsedVariables, emptyTree, type RuleTree } from './tree'
+import { collectCallNames, collectUsedVariables, normalizeTree, type RuleTree } from './tree'
 import { TreeEditor } from './TreeEditor'
 import {
   useAutomation,
@@ -41,7 +41,7 @@ function EditorForm({ automation }: { automation: Automation | null }) {
   const [delay, setDelay] = useState(String(automation?.delay_minutes ?? 0))
   const [stopChain, setStopChain] = useState(automation?.stop_chain ?? false)
   const [active, setActive] = useState(automation?.active ?? false)
-  const [tree, setTree] = useState<RuleTree>(automation?.tree ?? emptyTree())
+  const [tree, setTree] = useState<RuleTree>(() => normalizeTree(automation?.tree))
   const [sampleVars, setSampleVars] = useState<Record<string, string>>({})
   const [copied, setCopied] = useState<string | null>(null)
 

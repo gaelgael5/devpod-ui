@@ -45,7 +45,7 @@ function NodeHeaders({
   headers: TreeHeader[]
   onChange: (h: TreeHeader[]) => void
 }) {
-  const drafts = toDrafts(headers)
+  const drafts = toDrafts(headers ?? [])
   return (
     <HeadersEditor
       headers={drafts}

@@ -61,6 +61,67 @@ export function emptyTree(): RuleTree {
   return { version: 1, blocks: [] }
 }
 
+// ─── Normalisation défensive au chargement ─────────────────────────────────────
+// Un arbre venu de l'API peut avoir été écrit par une version antérieure où un
+// nœud n'avait pas encore tous ses tableaux (headers/calls/blocks/items). On
+// matérialise les défauts pour que l'éditeur n'appelle jamais .map sur undefined.
+
+function normHeaders(raw: unknown): TreeHeader[] {
+  return Array.isArray(raw) ? (raw as TreeHeader[]) : []
+}
+
+function normFilter(raw: unknown): TreeFilterNode | null {
+  if (!raw || typeof raw !== 'object') return null
+  const node = raw as Record<string, unknown>
+  if (node.op !== undefined) {
+    return {
+      op: node.op === 'or' ? 'or' : 'and',
+      items: Array.isArray(node.items)
+        ? node.items.map(normFilter).filter((n): n is TreeFilterNode => n !== null)
+        : [],
+    }
+  }
+  return {
+    url: String(node.url ?? ''),
+    http_method: String(node.http_method ?? 'GET'),
+    body: (node.body as string | null) ?? null,
+    jsonpath: String(node.jsonpath ?? ''),
+    operator: String(node.operator ?? 'exists'),
+    expected: (node.expected as string | null) ?? null,
+    headers: normHeaders(node.headers),
+    contract_ref: (node.contract_ref as string | null) ?? null,
+    operation_id: (node.operation_id as string | null) ?? null,
+  }
+}
+
+function normCall(raw: unknown): TreeCall {
+  const c = (raw ?? {}) as Record<string, unknown>
+  return {
+    name: String(c.name ?? ''),
+    url: String(c.url ?? ''),
+    http_method: String(c.http_method ?? 'POST'),
+    body_template: (c.body_template as string | null) ?? null,
+    headers: normHeaders(c.headers),
+    contract_ref: (c.contract_ref as string | null) ?? null,
+    operation_id: (c.operation_id as string | null) ?? null,
+  }
+}
+
+function normBlock(raw: unknown): TreeBlock {
+  const b = (raw ?? {}) as Record<string, unknown>
+  return {
+    label: String(b.label ?? ''),
+    filter: normFilter(b.filter),
+    calls: Array.isArray(b.calls) ? b.calls.map(normCall) : [],
+    blocks: Array.isArray(b.blocks) ? b.blocks.map(normBlock) : [],
+  }
+}
+
+export function normalizeTree(raw: RuleTree | null | undefined): RuleTree {
+  const blocks = raw && Array.isArray(raw.blocks) ? raw.blocks : []
+  return { version: 1, blocks: blocks.map(normBlock) }
+}
+
 export function newBlock(): TreeBlock {
   return { label: '', filter: null, calls: [], blocks: [] }
 }
