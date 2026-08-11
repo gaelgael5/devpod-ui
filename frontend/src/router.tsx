@@ -12,6 +12,7 @@ import {
   AdminHypervisorTypes,
   AdminJinjaTemplates,
   AdminLogs,
+  AdminBastion,
   AdminNetwork,
   AdminOidc,
   AdminProfileEditor,
@@ -177,6 +178,10 @@ export const router = createBrowserRouter([
       {
         path: '/admin/logs',
         element: <AdminGuard><Wrap><AdminLogs /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/bastion',
+        element: <AdminGuard><Wrap><AdminBastion /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/workflow',

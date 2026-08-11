@@ -258,6 +258,13 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
             await ensure_system_user(conn)
 
+            # Bastion sshd : démarré/arrêté selon la config DB (plus d'.env). À chaud
+            # via PUT /admin/bastion-config ; ici au boot.
+            from .bastion.runtime import apply as apply_bastion
+
+            cached_b = get_optional_cached_global()
+            apply_bastion(bool(cached_b and cached_b.bastion.enabled))
+
             # Backend MCP interne devpod : enregistrement idempotent + catalogue.
             from .mcp.devpod_bootstrap import bootstrap_devpod
 
@@ -355,6 +362,11 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         _task.cancel()
                         with contextlib.suppress(asyncio.CancelledError):
                             await _task
+                # Bastion sshd : arrêt propre du process supervisé.
+                with contextlib.suppress(Exception):
+                    from .bastion.runtime import stop as stop_bastion
+
+                    stop_bastion()
                 # Bus d'événements : annule les livraisons en attente et oublie le
                 # singleton — deux apps successives (tests TestClient) ne doivent
                 # pas cumuler leurs abonnements.

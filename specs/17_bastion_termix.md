@@ -21,11 +21,12 @@ Termix ──SSH(clé dédiée)──▶ Bastion sshd (image portail, :2222)
 ```
 
 ## Composants
-- **sshd bastion** (`deploy/bastion_sshd_config`, `deploy/portal-entrypoint.sh`) : dans
-  le conteneur portail (réutilise devpod + `/data` + mTLS). **Opt-in** via
-  `PORTAL_BASTION_ENABLED=1`. Host key persistée `/data/bastion/ssh_host_ed25519_key`
-  (jamais régénérée). Durci : clé publique only, `PermitRootLogin forced-commands-only`,
-  aucun forwarding.
+- **sshd bastion** (`deploy/bastion_sshd_config`, `portal/bastion/runtime.py`) : dans le
+  conteneur portail (réutilise devpod + `/data` + mTLS). **Démarré/arrêté à chaud par
+  l'app** selon `GlobalConfig.bastion.enabled` (écran admin) — pas d'`.env`, pas
+  d'entrypoint. Host key persistée `/data/bastion/ssh_host_ed25519_key` (jamais
+  régénérée). Durci : clé publique only, `PermitRootLogin forced-commands-only`, aucun
+  forwarding.
 - **wrapper** `deploy/ws-bastion <login> <ws_id>` : revalide, exporte le `DEVPOD_HOME`
   du user, `exec devpod ssh <ws_id>`.
 - **authorized_keys** (`portal/bastion/authorized_keys.py`) : **1 ligne par workspace**
@@ -48,16 +49,17 @@ Termix ──SSH(clé dédiée)──▶ Bastion sshd (image portail, :2222)
 État par workspace = secret système `ws-bastion-<ws_id>` (JSON chiffré KEK :
 `{login, key, host_id, cred_id}`) → idempotence + cleanup.
 
-## Configuration (`/data/.env`)
-```ini
-PORTAL_BASTION_ENABLED=1              # active le sshd bastion
-TERMIX_API_URL=https://termix.yoops.org   # URL externe (appels API de provisioning)
-TERMIX_BASTION_HOST=192.168.10.164   # IP/host que Termix vise en SSH (IP LAN portail)
-TERMIX_BASTION_PORT=2222
-TERMIX_ROLE=devpod-users             # rôle Termix cible du partage (créé dans l'UI Termix)
-TERMIX_APIKEY_SECRET=termix-apikey   # slug du SECRET SYSTÈME portant l'apikey tmx_ admin
-```
-Prérequis Termix : créer le rôle `devpod-users` (UI RBAC) ; les users portent ce rôle
+## Configuration — écran admin (pas d'`.env`)
+Tout se règle dans l'IHM : **Admin → Bastion Termix** (`/admin/bastion`), persisté dans
+`GlobalConfig.bastion` (DB). Champs : `enabled`, `api_url` (URL externe Termix), `host`
++ `port` (cible SSH que Termix vise = IP LAN portail:2222), `role` (rôle Termix cible du
+partage), `apikey_secret` (slug du secret système portant l'apikey tmx_).
+- **`enabled`** démarre/arrête le sshd bastion **à chaud** (l'app gère le process ;
+  `PUT /admin/bastion-config` applique le toggle sans redéploiement).
+- Le **provisioning** Termix ne s'active que si `api_url` + `host` + `role` sont posés.
+
+Prérequis Termix : créer le rôle `devpod-users` (UI RBAC) + un **secret système**
+(picker de secrets des automates) contenant l'apikey `tmx_` ; les users portent ce rôle
 (assignation manuelle ou `OIDC_ROLE_MAP` groupe Keycloak → rôle) pour voir leurs hosts.
 
 ## Modèle de sécurité
@@ -76,8 +78,9 @@ Prérequis Termix : créer le rôle `devpod-users` (UI RBAC) ; les users portent
 ## Runbook
 **Activer / valider (test1)**
 1. `dev-deploy.sh` (rebuild image).
-2. Poser la config `/data/.env`, créer le rôle Termix, `docker restart deploy-portal-1`.
-3. `docker logs deploy-portal-1 | grep bastion` → « bastion sshd démarré sur :2222 ».
+2. Créer le rôle Termix + le secret système apikey, puis **Admin → Bastion Termix** :
+   activer + saisir URL/hôte/port/rôle → Enregistrer (le sshd démarre à chaud).
+3. `docker logs deploy-portal-1 | grep bastion_sshd_started`.
 4. Créer/relancer un workspace → il apparaît dans Termix (partagé au rôle) et se connecte.
 
 **Dépannage** (logs structurés)
@@ -88,8 +91,8 @@ Prérequis Termix : créer le rôle `devpod-users` (UI RBAC) ; les users portent
   ajuster `_extract_id` (`termix_client.py`) aux champs réels (`id`/`hostId`/`credentialId`).
 - `bastion_orphans_reconciled` : nettoyage d'orphelins effectué.
 
-**Désactiver** : retirer `PORTAL_BASTION_ENABLED` de `/data/.env` + restart. Le sshd ne
-démarre plus ; le provisioning devient no-op (config lue mais bastion inerte).
+**Désactiver** : **Admin → Bastion Termix**, décocher + Enregistrer → le sshd s'arrête à
+chaud et le provisioning devient no-op.
 
 ## Point à confirmer au runtime
 Les formes de réponse Termix (`POST /credentials`, `POST /host`) n'ont pas été testées

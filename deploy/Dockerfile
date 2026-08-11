@@ -84,15 +84,14 @@ COPY --from=frontend-builder /build/dist ./static
 # Exposer le venv uv sur PATH — évite le surcoût de `uv run` à chaque démarrage
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Bastion SSH (opt-in via PORTAL_BASTION_ENABLED) : wrapper de relais + config sshd
-# durcie + entrypoint. Inerte tant que l'env n'active pas le bastion.
+# Bastion SSH : wrapper de relais + config sshd durcie. Le sshd est démarré/arrêté
+# À CHAUD par l'app selon la config DB (GlobalConfig.bastion.enabled) — pas d'.env,
+# pas d'entrypoint. Inerte tant que non activé via l'IHM admin.
 COPY deploy/ws-bastion /usr/local/bin/ws-bastion
 COPY deploy/bastion_sshd_config /etc/ssh/bastion_sshd_config
-COPY deploy/portal-entrypoint.sh /usr/local/bin/portal-entrypoint.sh
-RUN chmod 0755 /usr/local/bin/ws-bastion /usr/local/bin/portal-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/ws-bastion
 
 EXPOSE 8080 2222
 
-# Pas d'ENV avec secret — tout vient de /data/.env au runtime.
-# L'entrypoint démarre le sshd bastion (si activé) puis exec uvicorn (process principal).
-CMD ["/usr/local/bin/portal-entrypoint.sh"]
+# Pas d'ENV avec secret — tout vient de /data/.env au runtime
+CMD ["uvicorn", "portal.app:app", "--host", "0.0.0.0", "--port", "8080", "--access-log"]

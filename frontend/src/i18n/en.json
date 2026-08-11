@@ -713,6 +713,25 @@
       "saved": "Session durations updated.",
       "invalid": "Invalid durations (minimum 1 minute).",
       "absoluteBelowIdle": "The maximum lifetime must be ≥ the idle timeout."
+    },
+    "bastion": {
+      "navLabel": "Termix bastion",
+      "title": "SSH bastion → Termix",
+      "intro": "Termix access to workspaces via an SSH bastion. The toggle starts/stops the bastion sshd live; Termix provisioning (host + share) activates once URL, host and role are set.",
+      "enabled": "Enable bastion",
+      "enabledHint": "Starts the bastion sshd (:2222). Without URL/host/role, only the sshd runs (no Termix provisioning).",
+      "apiUrl": "Termix URL",
+      "apiUrlHint": "External Termix API URL for provisioning (credential + host + share).",
+      "host": "Bastion host (SSH)",
+      "port": "Port",
+      "hostHint": "IP/host Termix connects to for the bastion (portal LAN IP).",
+      "role": "Termix role",
+      "roleHint": "Role name (created in Termix) each workspace host is shared to. Users carry this role (assignment or OIDC_ROLE_MAP).",
+      "apikeySecret": "Apikey secret",
+      "apikeySecretHint": "Slug of the system secret holding the Termix admin apikey (tmx_…).",
+      "missing": "URL, host and role are required to enable provisioning.",
+      "save": "Save",
+      "saved": "Bastion config saved"
     }
   },
   "errors": {

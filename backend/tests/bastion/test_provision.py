@@ -24,17 +24,20 @@ def test_orphan_ws_ids_empty_valid_flags_all() -> None:
 
 
 def test_enabled_requires_full_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _S:
-        termix_api_url = ""
-        termix_bastion_host = ""
-        termix_role = ""
+    from portal.config.models import BastionConfig
 
-    monkeypatch.setattr(p, "get_settings", lambda: _S())
-    assert p.enabled() is False  # config incomplète → provisioning inactif
+    class _Cfg:
+        def __init__(self, b: BastionConfig) -> None:
+            self.bastion = b
 
-    _S.termix_api_url = "https://termix.yoops.org"
-    _S.termix_bastion_host = "192.168.10.164"
-    _S.termix_role = "devpod-users"
+    def _use(b: BastionConfig) -> None:
+        monkeypatch.setattr(p, "load_global", lambda: _Cfg(b))
+
+    _use(BastionConfig(enabled=False))
+    assert p.enabled() is False  # désactivé
+    _use(BastionConfig(enabled=True, api_url="https://x", host="1.2.3.4"))
+    assert p.enabled() is False  # role manquant
+    _use(BastionConfig(enabled=True, api_url="https://x", host="1.2.3.4", role="devpod-users"))
     assert p.enabled() is True
 
 

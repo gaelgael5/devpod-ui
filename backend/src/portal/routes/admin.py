@@ -280,6 +280,66 @@ async def put_admin_logs_config(
     return _logs_config_out(cfg)
 
 
+# ─── Bastion SSH → Termix ───────────────────────────────────────────────────
+# Config éditable via l'IHM (plus d'.env). `enabled` démarre/arrête le sshd bastion
+# à chaud ; api_url + host + role activent le provisioning Termix au cycle de vie ws.
+
+
+class BastionConfigUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    api_url: str = ""
+    host: str = ""
+    port: int = 2222
+    role: str = ""
+    apikey_secret: str = "termix-apikey"
+
+
+def _bastion_config_out(cfg: GlobalConfig) -> dict[str, object]:
+    b = cfg.bastion
+    return {
+        "enabled": b.enabled,
+        "api_url": b.api_url,
+        "host": b.host,
+        "port": b.port,
+        "role": b.role,
+        "apikey_secret": b.apikey_secret,
+    }
+
+
+@router.get("/bastion-config")
+async def get_admin_bastion_config(user: UserInfo = Depends(require_admin)) -> dict[str, object]:
+    return _bastion_config_out(load_global())
+
+
+@router.put("/bastion-config")
+async def put_admin_bastion_config(
+    body: BastionConfigUpdateRequest,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    """Édite la config bastion et applique le toggle sshd À CHAUD (démarrage/arrêt)."""
+    cfg = load_global()
+    cfg.bastion = cfg.bastion.model_copy(
+        update={
+            "enabled": body.enabled,
+            "api_url": body.api_url.strip(),
+            "host": body.host.strip(),
+            "port": body.port,
+            "role": body.role.strip(),
+            "apikey_secret": body.apikey_secret.strip() or "termix-apikey",
+        }
+    )
+    await save_global_db(cfg, conn)
+    set_cached_global(cfg)
+    from ..bastion.runtime import apply as apply_bastion
+
+    apply_bastion(cfg.bastion.enabled)
+    _log.info("bastion_config_updated", by=user.login, enabled=body.enabled)
+    return _bastion_config_out(cfg)
+
+
 # ─── Producteur d'events workflow (relais egress signé HMAC) ────────────────
 # enabled + workflow_base_url + source_id + liste blanche `events` + secret HMAC
 # (stocké comme secret système, jamais renvoyé). L'écriture reconcilie l'abonnement

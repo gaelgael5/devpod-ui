@@ -17,9 +17,9 @@ from typing import Any
 
 import structlog
 
+from ..config.store import load_global
 from ..db.engine import _get_engine
 from ..secrets import system as sysec
-from ..settings import get_settings
 from . import keys as bkeys
 from .authorized_keys import remove_entry, set_entry
 from .termix_client import TermixClient
@@ -36,8 +36,8 @@ def _slug(ws_id: str) -> str:
 
 def enabled() -> bool:
     """True si la config Termix est complète (sinon provisioning inactif)."""
-    s = get_settings()
-    return bool(s.termix_api_url and s.termix_bastion_host and s.termix_role)
+    b = load_global().bastion
+    return bool(b.enabled and b.api_url and b.host and b.role)
 
 
 async def _load_state(ws_id: str) -> dict[str, Any] | None:
@@ -54,7 +54,7 @@ async def _load_state(ws_id: str) -> dict[str, Any] | None:
 
 async def _apikey() -> str:
     async with _get_engine().connect() as conn:
-        return await sysec.reveal_system_secret(get_settings().termix_apikey_secret, conn)
+        return await sysec.reveal_system_secret(load_global().bastion.apikey_secret, conn)
 
 
 async def _save_state(ws_id: str, state: dict[str, Any]) -> None:
@@ -82,22 +82,22 @@ async def provision_workspace(login: str, ws_id: str) -> None:
             return
         private, public = bkeys.generate_keypair(comment=f"ws:{ws_id}")
         await set_entry(login, ws_id, public)
-        s = get_settings()
+        b = load_global().bastion
         apikey = await _apikey()
         host_id = cred_id = None
-        async with TermixClient(s.termix_api_url, apikey) as tx:
+        async with TermixClient(b.api_url, apikey) as tx:
             cred_id = await tx.create_credential(_slug(ws_id), _SSH_USER, private)
             if cred_id is not None:
                 host_id = await tx.create_host(
-                    ws_id, s.termix_bastion_host, s.termix_bastion_port, _SSH_USER, cred_id
+                    ws_id, b.host, b.port, _SSH_USER, cred_id
                 )
-            role_id = await tx.find_role_id(s.termix_role)
+            role_id = await tx.find_role_id(b.role)
             if host_id is not None and role_id is not None:
                 await tx.share_host_to_role(host_id, role_id)
         await _save_state(
             ws_id, {"login": login, "key": private, "host_id": host_id, "cred_id": cred_id}
         )
-        _log.info("bastion_provisioned", ws_id=ws_id, host_id=host_id, role=s.termix_role)
+        _log.info("bastion_provisioned", ws_id=ws_id, host_id=host_id, role=b.role)
     except Exception:
         _log.warning("bastion_provision_failed", login=login, ws_id=ws_id, exc_info=True)
 
@@ -156,9 +156,9 @@ async def deprovision_workspace(login: str, ws_id: str) -> None:
         await remove_entry(login, ws_id)
         state = await _load_state(ws_id)
         if state:
-            s = get_settings()
+            b = load_global().bastion
             apikey = await _apikey()
-            async with TermixClient(s.termix_api_url, apikey) as tx:
+            async with TermixClient(b.api_url, apikey) as tx:
                 if state.get("host_id"):
                     await tx.delete_host(int(state["host_id"]))
                 if state.get("cred_id"):

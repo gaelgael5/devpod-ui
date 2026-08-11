@@ -63,15 +63,6 @@ class AppSettings(BaseSettings):
     scripts_dir: str = "/app/scripts"
     portal_api_key: str = ""
 
-    # Bastion SSH → Termix (provisioning au cycle de vie workspace). Tout dans /data/.env.
-    # Inactif tant que termix_api_url + termix_bastion_host + termix_role ne sont pas tous
-    # renseignés (ET PORTAL_BASTION_ENABLED=1 côté bastion sshd).
-    termix_api_url: str = ""  # URL externe, ex. https://termix.yoops.org
-    termix_bastion_host: str = ""  # IP/host que Termix vise pour le SSH (IP LAN portail-dev)
-    termix_bastion_port: int = 2222
-    termix_role: str = ""  # nom du rôle Termix cible du partage (créé dans l'UI Termix)
-    termix_apikey_secret: str = "termix-apikey"  # slug du secret SYSTÈME portant l'apikey tmx_
-
     # Base de données PostgreSQL (format : postgresql+asyncpg://user:pass@host/db)
     database_url: str = ""
 

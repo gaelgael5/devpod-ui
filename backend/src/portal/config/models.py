@@ -253,6 +253,23 @@ class CloudflareManagerConfig(BaseModel):
     api_key: str = ""
 
 
+class BastionConfig(BaseModel):
+    """Bastion SSH → Termix (éditable via l'IHM admin, plus d'.env à la main).
+
+    `enabled` pilote le sshd bastion (démarré/arrêté à chaud par l'app). Le provisioning
+    Termix (credential+host+partage) n'est actif que si api_url + host + role sont posés.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    api_url: str = ""  # URL externe Termix (ex. https://termix.yoops.org)
+    host: str = ""  # IP/host que Termix vise en SSH (IP LAN du portail)
+    port: int = 2222
+    role: str = ""  # nom du rôle Termix cible du partage
+    apikey_secret: str = "termix-apikey"  # slug du secret système portant l'apikey tmx_
+
+
 class LogsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -309,6 +326,7 @@ class GlobalConfig(BaseModel):
     cloudflare_manager: CloudflareManagerConfig = Field(default_factory=CloudflareManagerConfig)
     logs: LogsConfig = Field(default_factory=LogsConfig)
     events_producer: EventsProducerConfig = Field(default_factory=EventsProducerConfig)
+    bastion: BastionConfig = Field(default_factory=BastionConfig)
 
     @model_validator(mode="before")
     @classmethod
