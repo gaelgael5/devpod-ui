@@ -34,7 +34,7 @@ async def test_create_credential_and_host_and_share() -> None:
         assert req.headers["authorization"] == "Bearer tmx_secret"
         if req.url.path == "/credentials":
             return httpx.Response(201, json={"id": 42})
-        if req.url.path == "/host":
+        if req.url.path == "/host/db/host":
             return httpx.Response(201, json={"id": 99})
         if req.url.path == "/rbac/roles":
             return httpx.Response(200, json=[{"id": 5, "name": "devpod-users"}])
@@ -57,7 +57,7 @@ async def test_create_credential_and_host_and_share() -> None:
         "username": "root",
         "key": "PRIVKEY",
     }
-    host_body = next(b for m, p, b in seen if p == "/host")
+    host_body = next(b for m, p, b in seen if p == "/host/db/host")
     assert host_body["credentialId"] == 42 and host_body["port"] == 2222
     share_body = next(b for m, p, b in seen if p.endswith("/share"))
     assert share_body == {"targets": [{"type": "role", "id": 5}], "permissionLevel": "connect"}
@@ -69,3 +69,37 @@ async def test_http_error_raises() -> None:
     with pytest.raises(RuntimeError, match="401"):
         await c.find_role_id("x")
     await c._client.aclose()  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_list_host_ids_contract_path() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert (req.method, req.url.path) == ("GET", "/host/db/host")
+        return httpx.Response(200, json=[{"id": 7}, {"id": 9}, {"nope": 1}])
+
+    c = _client_with(handler)
+    assert await c.list_host_ids() == [7, 9]
+    await c._client.aclose()  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_list_host_ids_inconclusive_on_error() -> None:
+    # Route absente / forme inattendue → None (l'appelant ne conclut pas à la disparition).
+    c = _client_with(lambda req: httpx.Response(404))
+    assert await c.list_host_ids() is None
+    await c._client.aclose()  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_deletes_tolerate_404() -> None:
+    paths: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        paths.append(req.url.path)
+        return httpx.Response(404)
+
+    c = _client_with(handler)
+    await c.delete_host(99)  # ne lève pas : déjà supprimé = succès
+    await c.delete_credential(42)
+    await c._client.aclose()  # type: ignore[union-attr]
+    assert paths == ["/host/db/host/99", "/credentials/42"]

@@ -3,8 +3,10 @@
 Appelle l'URL EXTERNE de Termix (ex. https://termix.yoops.org) avec l'apikey admin
 (`Authorization: Bearer tmx_…`). Couvre le strict nécessaire au cycle de vie d'un
 host bastion : credential (clé), host (référence credential), partage à un rôle,
-et suppression. Les formes de réponse (champ `id`) sont parsées tolérant — à
-confirmer au runtime contre le Termix réel.
+et suppression. Chemins alignés sur le contrat OpenAPI
+`ag-flow/ressources/contracts/termix/termix-hosts.openapi.json` (hosts sous
+`/host/db/host`) ; les corps y sont volontairement permissifs, d'où le parsing
+tolérant des réponses (champ `id`) via `_extract_id`.
 """
 
 from __future__ import annotations
@@ -90,7 +92,7 @@ class TermixClient:
     ) -> int | None:
         resp = await self._req(
             "POST",
-            "/host",
+            "/host/db/host",
             json={
                 "name": name,
                 "ip": ip,
@@ -104,13 +106,14 @@ class TermixClient:
 
     async def delete_host(self, host_id: int) -> None:
         """Supprime un host ; déjà absent (404) = succès (rejeu idempotent)."""
-        await self._req("DELETE", f"/host/{host_id}", allow_404=True)
+        await self._req("DELETE", f"/host/db/host/{host_id}", allow_404=True)
 
     async def list_host_ids(self) -> list[int] | None:
-        """Ids des hosts existants (GET /host). None si route/forme inattendue —
-        l'appelant ne doit alors PAS conclure à la disparition d'un host."""
+        """Ids des hosts existants (GET /host/db/host, opération `listHosts` du
+        contrat). None si forme inattendue — l'appelant ne doit alors PAS
+        conclure à la disparition d'un host."""
         try:
-            resp = await self._req("GET", "/host")
+            resp = await self._req("GET", "/host/db/host")
             data = resp.json()
         except Exception:
             return None

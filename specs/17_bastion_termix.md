@@ -107,7 +107,11 @@ Prérequis Termix : créer le rôle `devpod-users` (UI RBAC) + un **secret syst�
 **Désactiver** : **Admin → Bastion Termix**, décocher + Enregistrer → le sshd s'arrête à
 chaud et le provisioning devient no-op.
 
-## Point à confirmer au runtime
-Les formes de réponse Termix (`POST /credentials`, `POST /host`) n'ont pas été testées
-contre le Termix réel : `_extract_id` parse `id`/`hostId`/`credentialId` de façon
-tolérante — à ajuster au premier test si besoin.
+## Contrat API Termix
+Contrat de référence : `ag-flow/ressources/contracts/termix/termix-hosts.openapi.json`
+(hosts sous `/host/db/host`, credentials sous `/credentials`, partage
+`POST /rbac/host/{id}/share`) — `termix_client.py` est aligné dessus. Les corps y
+sont volontairement permissifs (Termix ne documente pas ses schémas) :
+`_extract_id` parse `id`/`hostId`/`credentialId` de façon tolérante — les formes
+de réponse réelles restent à confirmer au premier run (aperçu dans l'historique
+de l'automate).
