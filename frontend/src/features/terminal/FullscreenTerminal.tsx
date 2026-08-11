@@ -92,14 +92,20 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // Diagnostic temporaire (préfixe terminal_diag, relayé à Loki via Faro) :
     // la sélection souris n'aboutit pas chez certains clients — tracer ce que
     // reçoit réellement xterm pour situer la perte (DOM ? xterm ? clipboard ?).
-    console.warn('terminal_diag: mount', { wsPath })
+    // (payloads sérialisés en JSON : Faro rend « [object Object] » sinon)
+    console.warn(`terminal_diag: mount ${JSON.stringify({ wsPath })}`)
     let mouseLogs = 0
     const diagMouse = (ev: MouseEvent) => {
       if (mouseLogs < 6) {
         mouseLogs++
-        console.warn('terminal_diag: mouse', {
-          type: ev.type, button: ev.button, x: ev.clientX, y: ev.clientY,
-        })
+        console.warn(
+          `terminal_diag: mouse ${JSON.stringify({
+            type: ev.type,
+            button: ev.button,
+            shift: ev.shiftKey,
+            mouseTracking: terminal.modes.mouseTrackingMode,
+          })}`,
+        )
       }
     }
     const termHost = termRef.current
@@ -113,7 +119,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       const text = terminal.getSelection()
       if (selLogs < 10) {
         selLogs++
-        console.warn('terminal_diag: selection_change', { chars: text.length })
+        console.warn(`terminal_diag: selection_change ${JSON.stringify({ chars: text.length })}`)
       }
       if (!text) return
       lastSelectionRef.current = text
@@ -127,10 +133,10 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
           () => {
             if (!copyLogged) {
               copyLogged = true
-              console.warn('terminal_copy_on_select: ok', { chars: text.length })
+              console.warn(`terminal_copy_on_select: ok ${JSON.stringify({ chars: text.length })}`)
             }
           },
-          (err: unknown) => console.warn('terminal_copy_on_select: échec', err),
+          (err: unknown) => console.warn(`terminal_copy_on_select: échec ${String(err)}`),
         )
       }, 200)
     })
