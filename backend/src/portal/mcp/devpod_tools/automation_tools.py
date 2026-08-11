@@ -50,12 +50,13 @@ async def _rule_get(conn: AsyncConnection, args: dict[str, Any], owner_login: st
     row = await _by_slug(conn, slug)
     if row is None:
         raise DevpodToolError(f"règle introuvable : {slug!r}")
-    return {**_summary(row), "tree": row["tree"], "headers": row["headers"]}
+    return {**_summary(row), "tree": row["tree"]}
 
 
 async def _rule_upsert(conn: AsyncConnection, args: dict[str, Any], owner_login: str) -> Any:
-    # Helpers de validation partagés avec l'API admin (source unique).
-    from ...routes.automations import HeaderIn, _headers_payload, _validate, _validated_tree
+    # Helpers de validation partagés avec l'API admin (source unique). L'arbre porte
+    # ses en-têtes par appel/filtre — plus d'en-têtes au niveau règle.
+    from ...routes.automations import _validate, _validated_tree
 
     slug = str(args.get("slug") or "").strip()
     if not slug:
@@ -73,9 +74,6 @@ async def _rule_upsert(conn: AsyncConnection, args: dict[str, Any], owner_login:
             if not isinstance(args["tree"], dict):
                 raise DevpodToolError("tree doit être un objet JSON (arbre de règle)")
             fields["tree"] = _validated_tree(args["tree"])
-        headers = None
-        if args.get("headers") is not None:
-            headers = _headers_payload([HeaderIn(**h) for h in args["headers"]])
     except HTTPException as exc:
         raise DevpodToolError(str(exc.detail)) from exc
     except (TypeError, ValueError) as exc:
@@ -102,8 +100,6 @@ async def _rule_upsert(conn: AsyncConnection, args: dict[str, Any], owner_login:
         if fields:
             await adb.update_fields(conn, rule_id, **fields)
         created = False
-    if headers is not None:
-        await adb.set_headers(conn, rule_id, headers)
     fresh = await adb.get(conn, rule_id)
     assert fresh is not None
     return {"created": created, **_summary(fresh), "tree": fresh["tree"]}

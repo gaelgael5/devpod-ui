@@ -80,7 +80,6 @@ class AutomationCreate(BaseModel):
     stop_chain: bool = False
     # Priorité d'exécution (position). None → ajouté en fin de liste.
     position: int | None = None
-    headers: list[HeaderIn] = Field(default_factory=list)
     active: bool = False
 
 
@@ -93,7 +92,6 @@ class AutomationUpdate(BaseModel):
     delay_minutes: int | None = None
     stop_chain: bool | None = None
     position: int | None = None
-    headers: list[HeaderIn] | None = None
     active: bool | None = None
 
 
@@ -483,7 +481,6 @@ async def create_automation(body: AutomationCreate, _: _Admin, conn: _Conn) -> d
         active=body.active,
         position=position,
     )
-    await adb.set_headers(conn, row["id"], _headers_payload(body.headers))
     # Nouveau : curseur au sommet du journal — n'exécute que les events À VENIR
     # (le rattrapage des existants est explicite via /backfill).
     await adb.set_cursor(conn, row["id"], await je.latest_seq(conn))
@@ -507,7 +504,7 @@ async def update_automation(
     current = await adb.get(conn, automation_id)
     if current is None:
         raise HTTPException(status_code=404, detail="automate introuvable")
-    fields = body.model_dump(exclude_unset=True, exclude={"headers"})
+    fields = body.model_dump(exclude_unset=True)
     if fields.get("tree") is not None:
         fields["tree"] = _validated_tree(fields["tree"])
     if fields.get("slug"):
@@ -519,8 +516,6 @@ async def update_automation(
     _validate(et)
     if fields:
         await adb.update_fields(conn, automation_id, **fields)
-    if body.headers is not None:
-        await adb.set_headers(conn, automation_id, _headers_payload(body.headers))
     fresh = await adb.get(conn, automation_id)
     assert fresh is not None
     return await _detail(conn, fresh)
@@ -551,6 +546,5 @@ async def replay(automation_id: str, run_id: str, _: _Admin) -> dict[str, Any]:
 
 
 async def _detail(conn: AsyncConnection, row: dict[str, Any]) -> dict[str, Any]:
-    row["headers"] = await adb.get_headers(conn, row["id"])
     row["last_seq"] = await adb.get_cursor(conn, row["id"])
     return row

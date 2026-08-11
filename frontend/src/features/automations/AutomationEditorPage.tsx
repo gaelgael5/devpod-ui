@@ -1,6 +1,6 @@
 // Édition d'une règle d'automate en PAGE PLEINE (remplace l'ancienne popup) :
-// général (libellé, slug, events, priorité, débounce, flags) → en-têtes partagés
-// → arbre de la règle (éditeur récursif) → valeurs d'exemple pour les tests.
+// général (libellé, slug, events, priorité, débounce, flags) → arbre de la règle
+// (éditeur récursif, en-têtes par appel/filtre) → valeurs d'exemple pour les tests.
 
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -10,8 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { EventsTree, HeadersEditor, VariablesPalette } from './editor-shared'
-import { draftsToRows, slugify, toDrafts, type HeaderDraft } from './editor-utils'
+import { EventsTree, VariablesPalette } from './editor-shared'
+import { slugify } from './editor-utils'
 import { collectCallNames, collectUsedVariables, emptyTree, type RuleTree } from './tree'
 import { TreeEditor } from './TreeEditor'
 import {
@@ -41,7 +41,6 @@ function EditorForm({ automation }: { automation: Automation | null }) {
   const [delay, setDelay] = useState(String(automation?.delay_minutes ?? 0))
   const [stopChain, setStopChain] = useState(automation?.stop_chain ?? false)
   const [active, setActive] = useState(automation?.active ?? false)
-  const [headers, setHeaders] = useState<HeaderDraft[]>(toDrafts(automation?.headers ?? []))
   const [tree, setTree] = useState<RuleTree>(automation?.tree ?? emptyTree())
   const [sampleVars, setSampleVars] = useState<Record<string, string>>({})
   const [copied, setCopied] = useState<string | null>(null)
@@ -96,7 +95,6 @@ function EditorForm({ automation }: { automation: Automation | null }) {
       delay_minutes: Number(delay) || 0,
       position: Number(priority) || 0,
       stop_chain: stopChain,
-      headers: draftsToRows(headers),
       active,
     }
     const onSuccess = () => {
@@ -199,26 +197,11 @@ function EditorForm({ automation }: { automation: Automation | null }) {
         </div>
       </section>
 
-      {/* ── Arbre de la règle (en-têtes partagés en tête : ils s'appliquent à
-             tous les appels et filtres ci-dessous) ── */}
+      {/* ── Arbre de la règle (chaque appel/filtre porte ses propres en-têtes,
+             pré-remplis par l'opération du contrat choisie) ── */}
       <section className="flex flex-col gap-3 rounded-lg border p-4">
         <h2 className="text-sm font-semibold">{t('automations.tree.title')}</h2>
-        <details className="rounded-md border bg-muted/30 p-3">
-          <summary className="cursor-pointer select-none text-xs font-medium">
-            {t('automations.form.headers')}
-          </summary>
-          <div className="mt-2 flex flex-col gap-2">
-            <HeadersEditor headers={headers} setHeaders={setHeaders} />
-            <p className="text-xs text-muted-foreground">
-              {t('automations.editor.headersShared')}
-            </p>
-          </div>
-        </details>
-        <TreeEditor
-          tree={tree}
-          onChange={setTree}
-          ctx={{ variables, headers: draftsToRows(headers), sampleVars }}
-        />
+        <TreeEditor tree={tree} onChange={setTree} ctx={{ variables, sampleVars }} />
       </section>
 
       {/* ── Valeurs d'exemple pour les boutons Tester ── */}

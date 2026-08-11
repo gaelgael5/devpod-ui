@@ -1227,9 +1227,11 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
             "operator(exists|not_exists|equals|not_equals), expected?} ou groupe "
             "{op:and|or, items:[…]} imbriqué ; calls = [{name (unique, sert de racine "
             "de variables {name.champ} pour les blocs aval), url, http_method, "
-            "body_template?}] ; blocks = enfants récursifs exécutés si le filtre "
-            "passe. Templates : variables d'event ({event.*}, {subject.*}) + réponses "
-            "nommées. En-têtes : value XOR secret_ref (`${system://slug}`). "
+            "body_template?, headers?}] ; chaque appel/feuille porte ses en-têtes "
+            "headers:[{name, value? XOR secret_ref? (`${system://slug}`), "
+            "value_prefix?, enabled?}] ; blocks = enfants récursifs exécutés si le "
+            "filtre passe. Templates : variables d'event ({event.*}, {subject.*}) + "
+            "réponses nommées. "
             "À la création le curseur part du sommet du journal (events à venir "
             "uniquement — backfill explicite pour rattraper l'existant) et la règle "
             "est inactive sauf `active:true`. "
@@ -1260,12 +1262,6 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
                 "delay_minutes": {
                     "type": "integer",
                     "description": "Débounce en minutes (fenêtre glissante).",
-                },
-                "headers": {
-                    "type": "array",
-                    "description": "En-têtes d'appel [{name, value? XOR secret_ref?, "
-                    "value_prefix?, required?, enabled?}] — remplace la liste.",
-                    "items": {"type": "object"},
                 },
             },
         },

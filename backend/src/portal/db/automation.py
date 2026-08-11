@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .tables import automation as _a
 from .tables import automation_cursor as _cur
-from .tables import automation_header as _h
 from .tables import automation_scope as _s
 
 # Champs modifiables d'un automate (hors id / timestamps).
@@ -120,34 +119,6 @@ async def set_scopes(conn: AsyncConnection, automation_id: str, workspaces: list
             await conn.execute(insert(_s).values(automation_id=automation_id, workspace=ws))
 
 
-# ─── En-têtes ───────────────────────────────────────────────────────────────
-
-
-async def get_headers(conn: AsyncConnection, automation_id: str) -> list[dict[str, Any]]:
-    stmt = select(_h).where(_h.c.automation_id == automation_id).order_by(_h.c.name)
-    return [dict(r) for r in (await conn.execute(stmt)).mappings().all()]
-
-
-async def set_headers(
-    conn: AsyncConnection, automation_id: str, headers: list[dict[str, Any]]
-) -> None:
-    """Remplace les en-têtes. Chaque entrée : name + value|secret_ref + prefix/flags."""
-    await conn.execute(delete(_h).where(_h.c.automation_id == automation_id))
-    for hdr in headers:
-        await conn.execute(
-            insert(_h).values(
-                id=uuid.uuid4().hex,
-                automation_id=automation_id,
-                name=hdr["name"],
-                value=hdr.get("value"),
-                secret_ref=hdr.get("secret_ref"),
-                value_prefix=hdr.get("value_prefix") or "",
-                required=bool(hdr.get("required", False)),
-                enabled=bool(hdr.get("enabled", True)),
-            )
-        )
-
-
 # ─── Curseur ──────────────────────────────────────────────────────────────────
 
 
@@ -182,7 +153,6 @@ async def set_all_cursors(conn: AsyncConnection, last_seq: int) -> int:
 
 
 async def _attach_details(conn: AsyncConnection, row: dict[str, Any]) -> dict[str, Any]:
-    """Enrichit un automate de ses en-têtes et curseur."""
-    row["headers"] = await get_headers(conn, row["id"])
+    """Enrichit un automate de son curseur (les en-têtes vivent dans l'arbre)."""
     row["last_seq"] = await get_cursor(conn, row["id"])
     return row

@@ -16,7 +16,13 @@ const TREE: RuleTree = {
       filter: {
         op: 'and',
         items: [
-          { url: 'https://x/{subject.ws_id}', http_method: 'GET', jsonpath: '$.ok', operator: 'exists' },
+          {
+            url: 'https://x/{subject.ws_id}',
+            http_method: 'GET',
+            jsonpath: '$.ok',
+            operator: 'exists',
+            headers: [],
+          },
         ],
       },
       calls: [
@@ -25,13 +31,16 @@ const TREE: RuleTree = {
           url: 'https://x/create',
           http_method: 'POST',
           body_template: '{"login": "{subject.login}"}',
+          headers: [],
         },
       ],
       blocks: [
         {
           label: 'enfant',
           filter: null,
-          calls: [{ name: 'share', url: 'https://x/{create.id}/share', http_method: 'POST' }],
+          calls: [
+            { name: 'share', url: 'https://x/{create.id}/share', http_method: 'POST', headers: [] },
+          ],
           blocks: [],
         },
       ],

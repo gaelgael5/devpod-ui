@@ -159,30 +159,39 @@ async def test_create_route_persists_tree(db_conn: AsyncConnection) -> None:
 
 
 @pytest.mark.asyncio
-async def test_headers_value_and_secret(db_conn: AsyncConnection) -> None:
-    aid = await _automation(db_conn)
-    await a.set_headers(
-        db_conn,
-        aid,
-        [
-            {"name": "X-Env", "value": "prod"},
+async def test_headers_persisted_in_tree(db_conn: AsyncConnection) -> None:
+    # Les en-têtes vivent dans l'arbre (par appel), plus dans une table dédiée.
+    tree = {
+        "version": 1,
+        "blocks": [
             {
-                "name": "Authorization",
-                "secret_ref": "${system://termix-token}",
-                "value_prefix": "Bearer ",
-                "required": True,
-                "enabled": False,
-            },
+                "label": "",
+                "filter": None,
+                "calls": [
+                    {
+                        "name": "call1",
+                        "url": "https://x/y",
+                        "http_method": "POST",
+                        "headers": [
+                            {
+                                "name": "Authorization",
+                                "secret_ref": "${system://termix-token}",
+                                "value_prefix": "Bearer ",
+                                "enabled": False,
+                            }
+                        ],
+                    }
+                ],
+                "blocks": [],
+            }
         ],
-    )
-    hdrs = await a.get_headers(db_conn, aid)
-    by_name = {h["name"]: h for h in hdrs}
-    assert by_name["X-Env"]["value"] == "prod" and by_name["X-Env"]["secret_ref"] is None
-    assert by_name["X-Env"]["value_prefix"] == "" and by_name["X-Env"]["enabled"] is True
-    auth = by_name["Authorization"]
-    assert auth["secret_ref"] == "${system://termix-token}"
-    assert auth["value_prefix"] == "Bearer " and auth["required"] is True
-    assert auth["enabled"] is False
+    }
+    aid = await _automation(db_conn, tree=tree)
+    row = await a.get(db_conn, aid)
+    assert row is not None
+    hdr = row["tree"]["blocks"][0]["calls"][0]["headers"][0]
+    assert hdr["secret_ref"] == "${system://termix-token}"
+    assert hdr["value_prefix"] == "Bearer " and hdr["enabled"] is False
 
 
 @pytest.mark.asyncio
@@ -197,11 +206,10 @@ async def test_cursor_upsert(db_conn: AsyncConnection) -> None:
 @pytest.mark.asyncio
 async def test_list_active_attaches_details(db_conn: AsyncConnection) -> None:
     aid = await _automation(db_conn, active=True)
-    await a.set_headers(db_conn, aid, [{"name": "X", "value": "y"}])
     await a.set_cursor(db_conn, aid, 7)
     active = await a.list_active(db_conn)
     assert len(active) == 1
-    assert active[0]["headers"][0]["name"] == "X"
+    assert active[0]["tree"]["blocks"][0]["calls"][0]["name"] == "putHost"
     assert active[0]["last_seq"] == 7
 
 

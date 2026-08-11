@@ -90,6 +90,23 @@ def test_empty_group_rejected() -> None:
         RuleTree.model_validate({"blocks": [{"filter": {"op": "and", "items": []}}]})
 
 
+def test_call_headers_value_xor_secret() -> None:
+    call = dict(_call("a"))
+    call["headers"] = [{"name": "Authorization", "value": "t", "secret_ref": "${system://k}"}]
+    with pytest.raises(ValidationError, match="exclusifs"):
+        RuleTree.model_validate({"blocks": [{"calls": [call]}]})
+
+
+def test_call_headers_accepted_and_normalized() -> None:
+    call = dict(_call("a"))
+    call["headers"] = [
+        {"name": "Authorization", "secret_ref": "${system://k}", "value_prefix": "Bearer "}
+    ]
+    tree = RuleTree.model_validate({"blocks": [{"calls": [call]}]})
+    hdr = tree.blocks[0].calls[0].headers[0]
+    assert hdr.enabled is True and hdr.value is None and hdr.value_prefix == "Bearer "
+
+
 def test_leaf_and_group_union_unambiguous() -> None:
     # Un dict avec `op` + feuille mélangés ne doit matcher aucun des deux membres.
     with pytest.raises(ValidationError):

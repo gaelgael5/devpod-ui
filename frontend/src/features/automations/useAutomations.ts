@@ -55,7 +55,6 @@ export interface Automation {
   event_types: string[]
   delay_minutes: number
   tree: RuleTree
-  headers: HeaderRow[]
   last_seq: number
   pending: number
 }
@@ -68,7 +67,6 @@ export interface AutomationInput {
   delay_minutes?: number
   position?: number
   stop_chain?: boolean
-  headers?: HeaderRow[]
   active?: boolean
 }
 

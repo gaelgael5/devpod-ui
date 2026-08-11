@@ -26,6 +26,29 @@ HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 _CALL_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 
 
+class TreeHeader(BaseModel):
+    """En-tête d'un appel/filtre : `value` XOR `secret_ref` (les deux None = stub).
+
+    `secret_ref` = référence vault résolue à l'exécution (`${system://slug}` ou
+    `${vault://…}`) ; `value_prefix` est concaténé devant (ex. « Bearer »).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    value: str | None = None
+    secret_ref: str | None = None
+    value_prefix: str = ""
+    required: bool = False
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def _value_xor_secret(self) -> TreeHeader:
+        if self.value is not None and self.secret_ref is not None:
+            raise ValueError(f"en-tête {self.name!r} : value et secret_ref exclusifs")
+        return self
+
+
 class TreeCall(BaseModel):
     """Appel HTTP nommé ; sa réponse JSON est exposée sous `name` aux blocs aval."""
 
@@ -35,6 +58,8 @@ class TreeCall(BaseModel):
     url: str
     http_method: str
     body_template: str | None = None
+    # En-têtes propres à l'appel (pré-remplis depuis l'opération du contrat).
+    headers: list[TreeHeader] = Field(default_factory=list)
     # Métadonnées d'édition (opération de contrat choisie dans l'IHM).
     contract_ref: str | None = None
     operation_id: str | None = None
@@ -74,6 +99,8 @@ class TreeFilterLeaf(BaseModel):
     jsonpath: str
     operator: str
     expected: str | None = None
+    # En-têtes propres au filtre (pré-remplis depuis l'opération du contrat).
+    headers: list[TreeHeader] = Field(default_factory=list)
     contract_ref: str | None = None
     operation_id: str | None = None
 

@@ -205,11 +205,8 @@ class _TreeWalk:
     sinon le sous-arbre est sauté et le bloc frère suivant continue.
     """
 
-    def __init__(
-        self, ctx: dict[str, str], headers: dict[str, str], client: httpx.AsyncClient
-    ) -> None:
+    def __init__(self, ctx: dict[str, str], client: httpx.AsyncClient) -> None:
         self.ctx = ctx
-        self.headers = headers
         self.client = client
         self.trace: list[dict[str, Any]] = []
         self.calls_run = 0
@@ -218,6 +215,13 @@ class _TreeWalk:
     def _add(self, item: dict[str, Any]) -> None:
         if len(self.trace) < _TRACE_MAX_ITEMS:
             self.trace.append(item)
+
+    async def _node_headers(self, node: Any, *, json_body: bool) -> dict[str, str]:
+        """Résout les en-têtes propres au nœud (value/`${…}` → valeur révélée)."""
+        headers = await _resolve_headers([h.model_dump() for h in node.headers])
+        if json_body:
+            headers.setdefault("content-type", "application/json")
+        return headers
 
     async def eval_filter(self, node: Any, path: str) -> bool:
         from . import filter_eval as feval
@@ -244,9 +248,7 @@ class _TreeWalk:
         preview = f"{node.http_method} {r_url} :: {r_jsonpath} {node.operator} {r_expected or ''}"
         item: dict[str, Any] = {"path": path, "kind": "filter", "preview": preview.rstrip()}
         try:
-            headers = dict(self.headers)
-            if body is not None:
-                headers.setdefault("content-type", "application/json")
+            headers = await self._node_headers(node, json_body=body is not None)
             resp = await pinned_request(
                 self.client,
                 node.http_method,
@@ -279,9 +281,7 @@ class _TreeWalk:
             "preview": preview[:_TRACE_PREVIEW],
         }
         try:
-            headers = dict(self.headers)
-            if body is not None:
-                headers.setdefault("content-type", "application/json")
+            headers = await self._node_headers(call, json_body=body is not None)
             resp = await pinned_request(
                 self.client,
                 call.http_method,
@@ -364,12 +364,8 @@ async def _execute(
         tree = RuleTree.model_validate(automation.get("tree") or {})
     except Exception as exc:
         return await _finish("failed", error=f"arbre de règle invalide : {exc}")
-    try:
-        headers = await _resolve_headers(automation["headers"])
-    except Exception as exc:
-        return await _finish("failed", error=f"résolution des en-têtes : {exc}")
 
-    walk = _TreeWalk(build_context(event), headers, client)
+    walk = _TreeWalk(build_context(event), client)
     try:
         for i, block in enumerate(tree.blocks):
             await walk.run_block(block, str(i))

@@ -115,7 +115,7 @@ def _mock_walk(handler: object, ctx: dict[str, str] | None = None):  # noqa: ANN
     import httpx
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return r._TreeWalk(ctx or {}, {}, client), client
+    return r._TreeWalk(ctx or {}, client), client
 
 
 def _unpin(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -248,6 +248,46 @@ async def test_treewalk_nested_and_or_short_circuit(monkeypatch: pytest.MonkeyPa
     await client.aclose()
     # OU court-circuité : /no jamais appelé ; le call final est parti.
     assert "/no" not in hits and walk.calls_run == 1
+
+
+@pytest.mark.asyncio
+async def test_treewalk_per_node_headers_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    from portal.automations.tree import RuleTree
+
+    _unpin(monkeypatch)
+    seen: dict[str, str] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["auth"] = req.headers.get("authorization", "")
+        seen["ct"] = req.headers.get("content-type", "")
+        return httpx.Response(200, json={})
+
+    tree = RuleTree.model_validate(
+        {
+            "blocks": [
+                {
+                    "calls": [
+                        {
+                            "name": "go",
+                            "url": "https://x/y",
+                            "http_method": "POST",
+                            "body_template": '{"a":1}',
+                            "headers": [
+                                {"name": "Authorization", "value": "tok", "value_prefix": "Bearer "}
+                            ],
+                        }
+                    ]
+                }
+            ]
+        }
+    )
+    walk, client = _mock_walk(handler)
+    await walk.run_block(tree.blocks[0], "0")
+    await client.aclose()
+    # En-tête propre à l'appel résolu + content-type auto sur corps.
+    assert seen["auth"] == "Bearer tok" and seen["ct"] == "application/json"
 
 
 @pytest.mark.asyncio

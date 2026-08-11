@@ -1,11 +1,21 @@
 // Arbre de règle d'un automate — miroir TS du schéma backend automations/tree.py.
 // Blocs récursifs : filtre (arbre ET/OU imbriqué) → appels nommés → blocs enfants.
 
+export interface TreeHeader {
+  name: string
+  value?: string | null
+  secret_ref?: string | null
+  value_prefix?: string
+  required?: boolean
+  enabled?: boolean
+}
+
 export interface TreeCall {
   name: string
   url: string
   http_method: string
   body_template?: string | null
+  headers: TreeHeader[]
   contract_ref?: string | null
   operation_id?: string | null
 }
@@ -17,6 +27,7 @@ export interface TreeFilterLeaf {
   jsonpath: string
   operator: string
   expected?: string | null
+  headers: TreeHeader[]
   contract_ref?: string | null
   operation_id?: string | null
 }
@@ -58,11 +69,38 @@ export function newCall(existingNames: string[]): TreeCall {
   let i = existingNames.length + 1
   let name = `call${i}`
   while (existingNames.includes(name)) name = `call${++i}`
-  return { name, url: '', http_method: 'POST', body_template: null }
+  return { name, url: '', http_method: 'POST', body_template: null, headers: [] }
 }
 
 export function newLeaf(): TreeFilterLeaf {
-  return { url: '', http_method: 'GET', jsonpath: '', operator: 'exists', expected: null }
+  return {
+    url: '',
+    http_method: 'GET',
+    jsonpath: '',
+    operator: 'exists',
+    expected: null,
+    headers: [],
+  }
+}
+
+/** Fusionne les en-têtes d'auth d'une opération dans une liste (sans doublon de nom). */
+export function mergeAuthHeaders(
+  existing: TreeHeader[],
+  auth: { header: string; value_prefix: string }[] | undefined,
+): TreeHeader[] {
+  if (!auth?.length) return existing
+  const names = new Set(existing.map((h) => h.name.toLowerCase()))
+  const add = auth
+    .filter((a) => !names.has(a.header.toLowerCase()))
+    .map<TreeHeader>((a) => ({
+      name: a.header,
+      value: null,
+      secret_ref: null,
+      value_prefix: a.value_prefix,
+      required: true,
+      enabled: true,
+    }))
+  return add.length ? [...existing, ...add] : existing
 }
 
 export function newGroup(first: TreeFilterNode): TreeFilterGroup {

@@ -8,10 +8,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { VariablesPalette } from './editor-shared'
-import { METHODS, SELECT_CLS } from './editor-utils'
+import { HeadersEditor, VariablesPalette } from './editor-shared'
+import { draftsToRows, METHODS, SELECT_CLS, toDrafts } from './editor-utils'
 import {
   isGroup,
+  mergeAuthHeaders,
   newBlock,
   newCall,
   newGroup,
@@ -22,24 +23,38 @@ import {
   type TreeFilterGroup,
   type TreeFilterLeaf,
   type TreeFilterNode,
+  type TreeHeader,
   OPERATORS,
 } from './tree'
-import {
-  useContract,
-  useContracts,
-  useTestCall,
-  type HeaderRow,
-  type Operation,
-} from './useAutomations'
+import { useContract, useContracts, useTestCall, type Operation } from './useAutomations'
 
-// Contexte passé à tous les niveaux : variables copiables, en-têtes de la règle
-// (pour tester une condition) et valeurs d'exemple des {var}.
+// Contexte passé à tous les niveaux : variables copiables et valeurs d'exemple
+// des {var} (chaque appel/filtre porte désormais ses propres en-têtes).
 export interface EditorCtx {
   variables: string[]
-  headers: HeaderRow[]
   sampleVars: Record<string, string>
   copied: string | null
   onCopy: (v: string) => void
+}
+
+// Éditeur d'en-têtes d'un nœud (HeaderRow[] de l'arbre ↔ drafts UI).
+function NodeHeaders({
+  headers,
+  onChange,
+}: {
+  headers: TreeHeader[]
+  onChange: (h: TreeHeader[]) => void
+}) {
+  const drafts = toDrafts(headers)
+  return (
+    <HeadersEditor
+      headers={drafts}
+      setHeaders={(update) => {
+        const next = typeof update === 'function' ? update(drafts) : update
+        onChange(draftsToRows(next))
+      }}
+    />
+  )
 }
 
 // ─── Sélecteur contrat → opération (préremplit méthode/URL/corps) ──────────────
@@ -123,7 +138,7 @@ function FilterLeafEditor({
     test.mutate({
       url: leaf.url.trim(),
       http_method: leaf.http_method,
-      headers: ctx.headers,
+      headers: leaf.headers,
       body: leaf.body?.trim() || null,
       jsonpath: leaf.jsonpath.trim() || null,
       operator: leaf.operator || null,
@@ -159,6 +174,7 @@ function FilterLeafEditor({
                   operation_id: op.operation_id,
                   http_method: op.method,
                   url: opUrl(op, servers),
+                  headers: mergeAuthHeaders(leaf.headers, op.auth_headers),
                 }
               : { ...leaf, contract_ref: cRef || null, operation_id: null },
           )
@@ -181,6 +197,7 @@ function FilterLeafEditor({
           ))}
         </select>
       </div>
+      <NodeHeaders headers={leaf.headers} onChange={(h) => onChange({ ...leaf, headers: h })} />
       <Textarea
         placeholder={t('automations.tree.filterBody')}
         value={leaf.body ?? ''}
@@ -372,6 +389,7 @@ function CallEditor({
                   operation_id: op.operation_id,
                   http_method: op.method,
                   url: opUrl(op, servers),
+                  headers: mergeAuthHeaders(call.headers, op.auth_headers),
                   body_template:
                     op.body_skeleton != null
                       ? JSON.stringify(op.body_skeleton, null, 2)
@@ -398,6 +416,7 @@ function CallEditor({
           ))}
         </select>
       </div>
+      <NodeHeaders headers={call.headers} onChange={(h) => onChange({ ...call, headers: h })} />
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
           <Label className="text-xs">{t('automations.form.bodyTemplate')}</Label>
