@@ -86,16 +86,30 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // Copy-on-select : la sélection part au presse-papier dès qu'elle se stabilise
     // (debounce du drag). Indispensable ici : la sélection xterm ne survit ni à une
     // frappe ni aux redraws des TUI, le copier différé (menu, bouton) est fragile.
-    // Échec silencieux si l'écriture presse-papier est refusée (contexte non
-    // sécurisé, permission) — le bouton Copier reste le chemin explicite.
+    // Les échecs (permission presse-papier, contexte) partent en console.warn —
+    // remontés à Loki via Faro, sans casser la session ; le bouton Copier reste
+    // le chemin explicite.
     let copyTimer: ReturnType<typeof setTimeout> | undefined
+    let copyLogged = false
     const selectionDisposable = terminal.onSelectionChange(() => {
       const text = terminal.getSelection()
       if (!text) return
       lastSelectionRef.current = text
       clearTimeout(copyTimer)
       copyTimer = setTimeout(() => {
-        navigator.clipboard?.writeText(text).catch(() => {})
+        if (!navigator.clipboard) {
+          console.warn('terminal_copy_on_select: navigator.clipboard indisponible')
+          return
+        }
+        navigator.clipboard.writeText(text).then(
+          () => {
+            if (!copyLogged) {
+              copyLogged = true
+              console.warn('terminal_copy_on_select: ok', { chars: text.length })
+            }
+          },
+          (err: unknown) => console.warn('terminal_copy_on_select: échec', err),
+        )
       }, 200)
     })
 
