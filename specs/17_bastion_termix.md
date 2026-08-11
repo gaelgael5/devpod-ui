@@ -89,11 +89,36 @@ Prérequis Termix : créer le rôle `devpod-users` (UI RBAC) + un **secret syst�
 2. Créer le rôle Termix + le secret système apikey, puis **Admin → Bastion Termix** :
    activer + saisir URL/hôte/port/rôle → Enregistrer (le sshd démarre à chaud).
 3. `docker logs deploy-portal-1 | grep bastion_sshd_started`.
-4. **Écran automates** : créer les deux automates (provision : `workspace.created` +
-   `restarted` + `updated` ; deprovision : `workspace.deleted`) ciblant
-   `{external_url}/admin/service/bastion/provision|deprovision`, body
-   `{"login": "{subject.login}", "ws_id": "{subject.ws_id}"}`, header d'auth clé API
-   admin (`${system://…}`), puis **backfill** pour peupler les workspaces existants.
+4. **Automates** (éditeur pleine page ou primitive MCP `automation_rule_upsert`) :
+   poser un secret système `portal-api-key` (= `PORTAL_API_KEY` du portail) puis
+   créer les deux règles — l'auth des endpoints service est
+   `Authorization: Bearer <PORTAL_API_KEY>` (`require_admin_or_api_key`), et
+   l'anti-SSRF impose une **URL publique** (l'`external_url`, pas une IP LAN).
+   Headers des deux règles :
+   `[{"name": "Authorization", "secret_ref": "${system://portal-api-key}", "value_prefix": "Bearer "}]`.
+
+   Règle `bastion-provision` — `workspace.created` + `workspace.restarted` +
+   `workspace.updated` (ce dernier = backfill/injection de test) :
+   ```json
+   {"version": 1, "blocks": [{"label": "provision", "filter": null, "calls": [{
+     "name": "provision",
+     "url": "https://dev.yoops.org/admin/service/bastion/provision",
+     "http_method": "POST",
+     "body_template": "{\"login\": \"{subject.login}\", \"ws_id\": \"{subject.ws_id}\"}"
+   }], "blocks": []}]}
+   ```
+
+   Règle `bastion-deprovision` — `workspace.deleted` :
+   ```json
+   {"version": 1, "blocks": [{"label": "deprovision", "filter": null, "calls": [{
+     "name": "deprovision",
+     "url": "https://dev.yoops.org/admin/service/bastion/deprovision",
+     "http_method": "POST",
+     "body_template": "{\"login\": \"{subject.login}\", \"ws_id\": \"{subject.ws_id}\"}"
+   }], "blocks": []}]}
+   ```
+   ⚠️ `{subject.login}` (propriétaire), PAS `{event.actor}` : le backfill émet
+   `actor=admin`. Puis **backfill** pour peupler les workspaces existants.
 5. Créer/relancer un workspace → il apparaît dans Termix (partagé au rôle) et se connecte.
 
 **Dépannage** (écran automates + logs structurés)
