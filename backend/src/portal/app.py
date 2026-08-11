@@ -212,6 +212,12 @@ async def _maintenance_sweep_loop(interval_s: float = 3600.0) -> None:
         except Exception:
             _log.warning("automation_run_purge_failed", exc_info=True)
         try:
+            from .bastion.provision import reconcile_orphans
+
+            await reconcile_orphans()
+        except Exception:
+            _log.warning("bastion_reconcile_failed", exc_info=True)
+        try:
             # Observabilité de la fuite de pids (bug 813f425f, panne du 04/08) :
             # une courbe `total` qui monte sans redescendre = fuite ; les zombies
             # comptent dans pids-limit. Sert de vérification du correctif.

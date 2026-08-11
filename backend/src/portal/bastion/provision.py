@@ -94,10 +94,58 @@ async def provision_workspace(login: str, ws_id: str) -> None:
             role_id = await tx.find_role_id(s.termix_role)
             if host_id is not None and role_id is not None:
                 await tx.share_host_to_role(host_id, role_id)
-        await _save_state(ws_id, {"key": private, "host_id": host_id, "cred_id": cred_id})
+        await _save_state(
+            ws_id, {"login": login, "key": private, "host_id": host_id, "cred_id": cred_id}
+        )
         _log.info("bastion_provisioned", ws_id=ws_id, host_id=host_id, role=s.termix_role)
     except Exception:
         _log.warning("bastion_provision_failed", login=login, ws_id=ws_id, exc_info=True)
+
+
+_SLUG_PREFIX = "ws-bastion-"
+
+
+def _orphan_ws_ids(valid: set[str], slugs: list[str]) -> list[str]:
+    """ws_id provisionnés (slugs `ws-bastion-*`) absents de `valid` = orphelins."""
+    out: list[str] = []
+    for slug in slugs:
+        if slug.startswith(_SLUG_PREFIX):
+            ws_id = slug[len(_SLUG_PREFIX) :]
+            if ws_id not in valid:
+                out.append(ws_id)
+    return out
+
+
+async def reconcile_orphans() -> int:
+    """Supprime le provisioning bastion des workspaces qui n'existent plus.
+
+    Source de vérité = `workspace_status` (purgée à la suppression d'un workspace).
+    Un état bastion `ws-bastion-<ws_id>` sans ligne workspace_status = orphelin
+    (workspace supprimé pendant que le portail était down, ou provisioning résiduel).
+    Best-effort. Retourne le nombre d'orphelins nettoyés.
+    """
+    if not enabled():
+        return 0
+    from sqlalchemy import select
+
+    from ..db.tables import workspace_status
+
+    try:
+        async with _get_engine().connect() as conn:
+            valid = {r[0] for r in (await conn.execute(select(workspace_status.c.ws_id))).all()}
+            slugs = [s["slug"] for s in await sysec.list_system_secrets(conn)]
+    except Exception:
+        _log.warning("bastion_reconcile_read_failed", exc_info=True)
+        return 0
+    removed = 0
+    for ws_id in _orphan_ws_ids(valid, slugs):
+        state = await _load_state(ws_id)
+        login = (state or {}).get("login") or ws_id.split("-", 1)[0]
+        await deprovision_workspace(login, ws_id)
+        removed += 1
+    if removed:
+        _log.info("bastion_orphans_reconciled", removed=removed)
+    return removed
 
 
 async def deprovision_workspace(login: str, ws_id: str) -> None:
