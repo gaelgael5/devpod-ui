@@ -117,3 +117,10 @@ def test_variables_for_is_event_prefixed_and_contextual() -> None:
 
 def test_variables_by_type_covers_registry() -> None:
     assert set(schemas.variables_by_type()) == set(EVENT_TYPES)
+
+
+def test_workspace_events_carry_owner_identity() -> None:
+    # Enrichissement identité propriétaire (sub = clé de matching Termix).
+    for t in ("workspace.created", "workspace.restarted", "workspace.stopped", "workspace.deleted"):
+        v = schemas.variables_for(t)
+        assert {"event.login", "event.sub", "event.email", "event.identity"} <= set(v), t

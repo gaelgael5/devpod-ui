@@ -58,6 +58,10 @@ def _obj(
 _STR = {"type": "string"}
 _STR_OR_NULL = {"type": ["string", "null"]}
 
+# Identité du propriétaire, injectée dans les events workspace/session (comme user.*)
+# pour matcher les systèmes tiers (Termix : clé = `sub`). Tous optionnels.
+_OWNER = {"login": _STR, "sub": _STR, "email": _STR, "identity": _STR}
+
 # dataSchema par type interne (les champs métier vivent à la racine de l'enveloppe :
 # `actor` et `workspace` de l'AppEvent + les clés du `subject`).
 _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
@@ -86,11 +90,11 @@ _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
     ),
     "workspace.created": _obj(
         ["actor", "workspace", "ws_id", "node"],
-        {"actor": _STR, "workspace": _STR, "ws_id": _STR, "node": _STR},
+        {"actor": _STR, "workspace": _STR, "ws_id": _STR, "node": _STR, **_OWNER},
     ),
     "workspace.restarted": _obj(
         ["actor", "workspace", "ws_id", "node"],
-        {"actor": _STR, "workspace": _STR, "ws_id": _STR, "node": _STR},
+        {"actor": _STR, "workspace": _STR, "ws_id": _STR, "node": _STR, **_OWNER},
     ),
     # Émis par le rattrapage (backfill) et l'injection d'event de test pour signaler
     # qu'un workspace « a bougé » sans transition de cycle de vie (re-synchro Termix).
@@ -103,11 +107,12 @@ _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
             "node": _STR_OR_NULL,
             "address": _STR_OR_NULL,
             "status": _STR_OR_NULL,
+            **_OWNER,
         },
     ),
     "workspace.stopped": _obj(
         ["actor", "workspace", "ws_id"],
-        {"actor": _STR, "workspace": _STR, "ws_id": _STR},
+        {"actor": _STR, "workspace": _STR, "ws_id": _STR, **_OWNER},
     ),
     "workspace.deleted": _obj(
         ["actor", "workspace", "ws_id"],
@@ -116,6 +121,7 @@ _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
             "workspace": _STR,
             "ws_id": _STR,
             "recovery_branch": _STR_OR_NULL,
+            **_OWNER,
         },
     ),
     "session.created": _obj(

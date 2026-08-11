@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import structlog
 
+from ..db.user_config import owner_identity_subject
 from ..events.bus import emit_event
 
 _log = structlog.get_logger(__name__)
@@ -57,7 +58,13 @@ async def inject_test_event(
             "workspace.updated",
             actor=actor,
             workspace=ws,
-            subject={"ws_id": f"{actor}-{ws}", "node": None, "address": None, "status": "running"},
+            subject={
+                **await owner_identity_subject(actor),
+                "ws_id": f"{actor}-{ws}",
+                "node": None,
+                "address": None,
+                "status": "running",
+            },
         )
         return {"emitted": "workspace.updated"}
     if kind == "session":
@@ -135,6 +142,7 @@ async def backfill(*, actor: str) -> dict[str, int]:
             actor=actor,
             workspace=ws_name,
             subject={
+                **await owner_identity_subject(login),
                 "ws_id": ws_id,
                 "node": row.get("host_name"),
                 "address": row.get("hostname"),

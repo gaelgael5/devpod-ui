@@ -738,11 +738,13 @@ class DevPodService:
                 return
             await self._write_status_if_exists(ws_id, "stopped", login=login)
             _log.info("workspace_stopped", ws_id=ws_id, login=login)
+            from ..db.user_config import owner_identity_subject
+
             await emit_event(
                 "workspace.stopped",
                 actor=login,
                 workspace=ws_id.removeprefix(f"{login}-"),
-                subject={"ws_id": ws_id},
+                subject={**await owner_identity_subject(login), "ws_id": ws_id},
             )
 
     async def delete(self, login: str, ws_id: str, *, shelve: bool = True) -> dict[str, Any]:
@@ -793,11 +795,17 @@ class DevPodService:
                 await revoke_workspace_keys(conn, login, ws_id)
             await self._purge_agent_config(login, ws_id, ws_name)
             _log.info("workspace_deleted", ws_id=ws_id, login=login, recovery_branch=branch)
+            from ..db.user_config import owner_identity_subject
+
             await emit_event(
                 "workspace.deleted",
                 actor=login,
                 workspace=ws_name,
-                subject={"ws_id": ws_id, "recovery_branch": branch},
+                subject={
+                    **await owner_identity_subject(login),
+                    "ws_id": ws_id,
+                    "recovery_branch": branch,
+                },
             )
             return {"deleted": True, "recovery_branch": branch}
 
@@ -1532,11 +1540,17 @@ class DevPodService:
                 # aucun recreate — rejoué à chaque up, donc un restart suffit.
                 if agents:
                     await self._push_agent_files_safe(login, ws_id, agents, mcp_url, project_root)
+                from ..db.user_config import owner_identity_subject
+
                 await emit_event(
                     lifecycle_event,
                     actor=login,
                     workspace=ws_id.removeprefix(f"{login}-"),
-                    subject={"ws_id": ws_id, "node": host_name},
+                    subject={
+                        **await owner_identity_subject(login),
+                        "ws_id": ws_id,
+                        "node": host_name,
+                    },
                 )
         except Exception as exc:
             await self._write_status_if_exists(

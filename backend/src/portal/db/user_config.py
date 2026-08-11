@@ -41,6 +41,31 @@ class UserNotProvisionedError(Exception):
         self.login = login
 
 
+async def owner_identity_subject(login: str) -> dict[str, str]:
+    """`{login, sub, email, identity}` du propriétaire — pour enrichir les events.
+
+    Ouvre sa propre connexion (émission d'event best-effort, hors txn). Champs
+    absents rendus "" (jamais None → pas de placeholder littéral côté template).
+    """
+    from .engine import _get_engine
+
+    async with _get_engine().connect() as conn:
+        row = (
+            await conn.execute(
+                select(users.c.sub, users.c.email, users.c.identity).where(
+                    users.c.login == login
+                )
+            )
+        ).first()
+    sub, email, identity = row if row is not None else (None, None, None)
+    return {
+        "login": login,
+        "sub": sub or "",
+        "email": email or "",
+        "identity": identity or "",
+    }
+
+
 async def get_user_actor(login: str, conn: AsyncConnection) -> str | None:
     """Identité propagée aux services MCP (on-behalf-of) : `users.identity` (GUID).
 
