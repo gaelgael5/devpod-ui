@@ -89,10 +89,32 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // Les échecs (permission presse-papier, contexte) partent en console.warn —
     // remontés à Loki via Faro, sans casser la session ; le bouton Copier reste
     // le chemin explicite.
+    // Diagnostic temporaire (préfixe terminal_diag, relayé à Loki via Faro) :
+    // la sélection souris n'aboutit pas chez certains clients — tracer ce que
+    // reçoit réellement xterm pour situer la perte (DOM ? xterm ? clipboard ?).
+    console.warn('terminal_diag: mount', { wsPath })
+    let mouseLogs = 0
+    const diagMouse = (ev: MouseEvent) => {
+      if (mouseLogs < 6) {
+        mouseLogs++
+        console.warn('terminal_diag: mouse', {
+          type: ev.type, button: ev.button, x: ev.clientX, y: ev.clientY,
+        })
+      }
+    }
+    const termHost = termRef.current
+    termHost?.addEventListener('mousedown', diagMouse)
+    termHost?.addEventListener('mouseup', diagMouse)
+    let selLogs = 0
+
     let copyTimer: ReturnType<typeof setTimeout> | undefined
     let copyLogged = false
     const selectionDisposable = terminal.onSelectionChange(() => {
       const text = terminal.getSelection()
+      if (selLogs < 10) {
+        selLogs++
+        console.warn('terminal_diag: selection_change', { chars: text.length })
+      }
       if (!text) return
       lastSelectionRef.current = text
       clearTimeout(copyTimer)
@@ -131,6 +153,8 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     return () => {
       intentional = true
       window.removeEventListener('resize', onResize)
+      termHost?.removeEventListener('mousedown', diagMouse)
+      termHost?.removeEventListener('mouseup', diagMouse)
       ro.disconnect()
       dataDisposable.dispose()
       resizeDisposable.dispose()
