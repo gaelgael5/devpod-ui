@@ -67,9 +67,16 @@ export function EventsTree({
   return (
     <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-2">
       {groups.map(([domain, members]) => (
-        <details key={domain} open className="group">
+        // Replié par défaut ; ouvert seulement si le domaine porte une sélection
+        // (ne jamais masquer les events déjà cochés).
+        <details key={domain} open={members.some((c) => selected.includes(c))} className="group">
           <summary className="cursor-pointer select-none text-xs font-semibold text-muted-foreground">
             {domain}
+            {members.filter((c) => selected.includes(c)).length > 0 && (
+              <span className="ml-1 text-primary">
+                ({members.filter((c) => selected.includes(c)).length})
+              </span>
+            )}
           </summary>
           <div className="ml-3 mt-1 space-y-1 border-l pl-3">
             {members.map((code) => (
