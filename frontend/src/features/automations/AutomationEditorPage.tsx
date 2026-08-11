@@ -174,15 +174,21 @@ function EditorForm({ automation }: { automation: Automation | null }) {
         </div>
       </section>
 
-      {/* ── En-têtes (partagés par tous les appels et filtres de la règle) ── */}
-      <section className="flex flex-col gap-2 rounded-lg border p-4">
-        <HeadersEditor headers={headers} setHeaders={setHeaders} />
-        <p className="text-xs text-muted-foreground">{t('automations.editor.headersShared')}</p>
-      </section>
-
-      {/* ── Arbre de la règle ── */}
+      {/* ── Arbre de la règle (en-têtes partagés en tête : ils s'appliquent à
+             tous les appels et filtres ci-dessous) ── */}
       <section className="flex flex-col gap-3 rounded-lg border p-4">
         <h2 className="text-sm font-semibold">{t('automations.tree.title')}</h2>
+        <details className="rounded-md border bg-muted/30 p-3">
+          <summary className="cursor-pointer select-none text-xs font-medium">
+            {t('automations.form.headers')}
+          </summary>
+          <div className="mt-2 flex flex-col gap-2">
+            <HeadersEditor headers={headers} setHeaders={setHeaders} />
+            <p className="text-xs text-muted-foreground">
+              {t('automations.editor.headersShared')}
+            </p>
+          </div>
+        </details>
         <TreeEditor
           tree={tree}
           onChange={setTree}
