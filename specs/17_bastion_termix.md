@@ -32,19 +32,27 @@ Termix ──SSH(clé dédiée)──▶ Bastion sshd (image portail, :2222)
 - **authorized_keys** (`portal/bastion/authorized_keys.py`) : **1 ligne par workspace**
   `command="…/ws-bastion <login> <ws_id>",<restrictions> <pubkey>`. L'autorisation est
   **implicite** (une clé ne joint que SON workspace) → aucun resolver d'identité.
-- **provisioning** (`portal/bastion/provision.py`, `termix_client.py`) : au cycle de vie
-  du workspace, déclare l'accès côté Termix.
+- **provisioning** (`portal/bastion/provision.py`, `termix_client.py`) : orchestration
+  idempotente exposée par les **endpoints service** `POST /admin/service/bastion/
+  provision|deprovision` (clé API admin, audités) — appelés par les **automates**.
 
-## Flux
-- **workspace.created / restarted** → génère (1 fois) une clé ed25519, pose la pubkey
-  dans `authorized_keys`, crée côté Termix un **credential** (clé privée) + un **host**
-  (`TERMIX_BASTION_HOST:PORT`, `authType=key`, `credentialId`) partagé au **rôle**
-  `TERMIX_ROLE`. Idempotent (recreate = réutilise la clé).
-- **workspace.deleted** → retire la ligne + supprime host/credential Termix + le secret.
-- **best-effort** : toute erreur (Termix down, config incomplète) est loguée, **jamais**
-  propagée au cycle de vie du workspace.
-- **réconciliation horaire** : `reconcile_orphans()` supprime le provisioning des
-  workspaces disparus (source de vérité = `workspace_status`).
+## Flux — piloté par les automates (aucun câblage direct)
+Le cycle de vie n'appelle plus le provisioning : les events `workspace.*` sont écrits
+dans le **journal durable `app_event`** (dans la transaction de la mutation) et des
+**automates à curseur** (épic synchro Termix) appellent les endpoints service :
+- automate **provision** : `workspace.created` + `workspace.restarted` +
+  `workspace.updated` (backfill/injection de test) → `POST …/bastion/provision`
+  body `{"login": "{subject.login}", "ws_id": "{subject.ws_id}"}` — génère (1 fois)
+  la clé ed25519, pose la pubkey dans `authorized_keys`, crée côté Termix un
+  **credential** + un **host** (`host:port` config, `authType=key`) et (re)partage au
+  **rôle** configuré. Si Termix a perdu le host (base réinitialisée), il est recréé.
+- automate **deprovision** : `workspace.deleted` → `POST …/bastion/deprovision` —
+  retire la ligne + supprime host/credential Termix (404 tolérés) + le secret d'état.
+- **erreurs honnêtes** : 409 config incomplète, 502 échec Termix → le run de
+  l'automate est `failed`, visible et **rejouable** depuis l'écran automates.
+- **rattrapage / réconciliation** : plus de tâche au boot — `workspace.deleted` étant
+  journalisé transactionnellement, le curseur le consomme même après un down du
+  portail ; le peuplement initial passe par le bouton **backfill** de l'écran automates.
 
 État par workspace = secret système `ws-bastion-<ws_id>` (JSON chiffré KEK :
 `{login, key, host_id, cred_id}`) → idempotence + cleanup.
@@ -81,15 +89,20 @@ Prérequis Termix : créer le rôle `devpod-users` (UI RBAC) + un **secret syst�
 2. Créer le rôle Termix + le secret système apikey, puis **Admin → Bastion Termix** :
    activer + saisir URL/hôte/port/rôle → Enregistrer (le sshd démarre à chaud).
 3. `docker logs deploy-portal-1 | grep bastion_sshd_started`.
-4. Créer/relancer un workspace → il apparaît dans Termix (partagé au rôle) et se connecte.
+4. **Écran automates** : créer les deux automates (provision : `workspace.created` +
+   `restarted` + `updated` ; deprovision : `workspace.deleted`) ciblant
+   `{external_url}/admin/service/bastion/provision|deprovision`, body
+   `{"login": "{subject.login}", "ws_id": "{subject.ws_id}"}`, header d'auth clé API
+   admin (`${system://…}`), puis **backfill** pour peupler les workspaces existants.
+5. Créer/relancer un workspace → il apparaît dans Termix (partagé au rôle) et se connecte.
 
-**Dépannage** (logs structurés)
-- `bastion_provisioned` : OK (host_id renseigné).
-- `bastion_provision_failed` : voir l'exception. Si le **partage** manque (host créé, pas
-  de rôle) → vérifier `TERMIX_ROLE` existe côté Termix.
-- Si `host_id`/`cred_id` restent nuls → forme de réponse `id` de Termix différente :
-  ajuster `_extract_id` (`termix_client.py`) aux champs réels (`id`/`hostId`/`credentialId`).
-- `bastion_orphans_reconciled` : nettoyage d'orphelins effectué.
+**Dépannage** (écran automates + logs structurés)
+- Run `ok` + `bastion_provisioned` : OK (host_id renseigné).
+- Run `failed` HTTP 409 : config bastion incomplète (Admin → Bastion Termix).
+- Run `failed` HTTP 502 : voir le détail (réponse Termix dans l'aperçu du run). Si le
+  **rôle** manque → le créer dans l'UI RBAC Termix, puis **rejouer** le run.
+- « réponse sans id exploitable » → forme de réponse Termix différente : ajuster
+  `_extract_id` (`termix_client.py`) aux champs réels (`id`/`hostId`/`credentialId`).
 
 **Désactiver** : **Admin → Bastion Termix**, décocher + Enregistrer → le sshd s'arrête à
 chaud et le provisioning devient no-op.

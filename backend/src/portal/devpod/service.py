@@ -102,6 +102,7 @@ def _read_log_tail(path: Path, *, max_chars: int = 2000) -> str:
     tail = text[-max_chars:]
     return " | ".join(line for line in tail.splitlines() if line.strip())
 
+
 # Verrous de lifecycle par ws_id (bug 003). Sérialisent TOUTE opération lifecycle
 # (up/stop/delete + _run_up_task) sur un même workspace, contrairement au verrou de
 # runner.py qui n'entoure que l'exécution du subprocess devpod. Ordre d'acquisition
@@ -807,10 +808,8 @@ class DevPodService:
                     "recovery_branch": branch,
                 },
             )
-            # Bastion : retire l'accès Termix au workspace supprimé (best-effort).
-            from ..bastion.provision import deprovision_workspace
-
-            await deprovision_workspace(login, ws_id)
+            # Bastion/Termix : la déprovision est pilotée par l'automate abonné à
+            # workspace.deleted (journal app_event) — aucun câblage direct ici.
             return {"deleted": True, "recovery_branch": branch}
 
     async def _purge_agent_config(self, login: str, ws_id: str, ws_name: str) -> None:
@@ -1556,10 +1555,6 @@ class DevPodService:
                         "node": host_name,
                     },
                 )
-                # Bastion : déclare/ré-assure l'accès Termix au workspace (best-effort).
-                from ..bastion.provision import provision_workspace
-
-                await provision_workspace(login, ws_id)
         except Exception as exc:
             await self._write_status_if_exists(
                 ws_id, "failed", login=login, error=type(exc).__name__

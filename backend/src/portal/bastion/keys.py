@@ -31,7 +31,9 @@ def generate_keypair(comment: str = "") -> tuple[str, str]:
 def public_from_private(private_openssh: str, comment: str = "") -> str:
     """Re-dérive la clé publique OpenSSH depuis la privée (idempotence au recreate)."""
     key = serialization.load_ssh_private_key(private_openssh.encode(), password=None)
-    public = key.public_key().public_bytes(
-        serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH
-    ).decode()
+    public = (
+        key.public_key()
+        .public_bytes(serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH)
+        .decode()
+    )
     return f"{public} {comment}" if comment else public

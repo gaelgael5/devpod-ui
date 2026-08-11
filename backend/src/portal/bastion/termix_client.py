@@ -47,11 +47,15 @@ class TermixClient:
             await self._client.aclose()
             self._client = None
 
-    async def _req(self, method: str, path: str, **kw: Any) -> httpx.Response:
+    async def _req(
+        self, method: str, path: str, *, allow_404: bool = False, **kw: Any
+    ) -> httpx.Response:
         assert self._client is not None, "TermixClient hors contexte"
         resp = await self._client.request(
             method, f"{self._base}{path}", headers=self._headers, **kw
         )
+        if resp.status_code == 404 and allow_404:
+            return resp
         if resp.status_code >= 400:
             raise RuntimeError(f"Termix {method} {path} → {resp.status_code}: {resp.text[:300]}")
         return resp
@@ -77,7 +81,8 @@ class TermixClient:
         return _extract_id(resp.json())
 
     async def delete_credential(self, credential_id: int) -> None:
-        await self._req("DELETE", f"/credentials/{credential_id}")
+        """Supprime un credential ; déjà absent (404) = succès (rejeu idempotent)."""
+        await self._req("DELETE", f"/credentials/{credential_id}", allow_404=True)
 
     # ─── Hosts ──────────────────────────────────────────────────────────────
     async def create_host(
@@ -98,7 +103,23 @@ class TermixClient:
         return _extract_id(resp.json())
 
     async def delete_host(self, host_id: int) -> None:
-        await self._req("DELETE", f"/host/{host_id}")
+        """Supprime un host ; déjà absent (404) = succès (rejeu idempotent)."""
+        await self._req("DELETE", f"/host/{host_id}", allow_404=True)
+
+    async def list_host_ids(self) -> list[int] | None:
+        """Ids des hosts existants (GET /host). None si route/forme inattendue —
+        l'appelant ne doit alors PAS conclure à la disparition d'un host."""
+        try:
+            resp = await self._req("GET", "/host")
+            data = resp.json()
+        except Exception:
+            return None
+        items: Any = data if isinstance(data, list) else None
+        if items is None and isinstance(data, dict):
+            items = data.get("hosts")
+        if not isinstance(items, list):
+            return None
+        return [i for i in (_extract_id(it) for it in items) if i is not None]
 
     async def share_host_to_role(
         self, host_id: int, role_id: int, permission: str = "connect"
