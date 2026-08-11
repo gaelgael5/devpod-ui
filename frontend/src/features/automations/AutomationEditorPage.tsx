@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { EventsTree, HeadersEditor } from './editor-shared'
+import { EventsTree, HeadersEditor, VariablesPalette } from './editor-shared'
 import { draftsToRows, slugify, toDrafts, type HeaderDraft } from './editor-utils'
 import { collectCallNames, collectUsedVariables, emptyTree, type RuleTree } from './tree'
 import { TreeEditor } from './TreeEditor'
@@ -44,6 +44,7 @@ function EditorForm({ automation }: { automation: Automation | null }) {
   const [headers, setHeaders] = useState<HeaderDraft[]>(toDrafts(automation?.headers ?? []))
   const [tree, setTree] = useState<RuleTree>(automation?.tree ?? emptyTree())
   const [sampleVars, setSampleVars] = useState<Record<string, string>>({})
+  const [copied, setCopied] = useState<string | null>(null)
 
   function onLabelChange(v: string) {
     setLabel(v)
@@ -54,14 +55,30 @@ function EditorForm({ automation }: { automation: Automation | null }) {
     setEvents((c) => (c.includes(code) ? c.filter((x) => x !== code) : [...c, code]))
   }
 
-  // Variables copiables : events sélectionnés + réponses nommées des appels.
-  const variables = useMemo(() => {
+  async function copyVariable(v: string) {
+    try {
+      await navigator.clipboard?.writeText(`{${v}}`)
+      setCopied(v)
+      setTimeout(() => setCopied(null), 1200)
+    } catch {
+      /* presse-papier indisponible */
+    }
+  }
+
+  // Variables exposées par les events sélectionnés (référence sous la sélection).
+  const eventVars = useMemo(() => {
     const map = eventVariables.data ?? {}
     const set = new Set<string>()
     for (const ev of events) for (const v of map[ev] ?? []) set.add(v)
+    return [...set]
+  }, [eventVariables.data, events])
+
+  // Variables copiables dans les appels : events + réponses nommées des appels.
+  const variables = useMemo(() => {
+    const set = new Set<string>(eventVars)
     for (const name of collectCallNames(tree.blocks)) set.add(`${name}.…`)
     return [...set]
-  }, [eventVariables.data, events, tree])
+  }, [eventVars, tree])
 
   // {var} utilisées dans l'arbre → champs de valeurs d'exemple pour les tests.
   const usedVars = useMemo(() => collectUsedVariables(tree), [tree])
@@ -138,6 +155,14 @@ function EditorForm({ automation }: { automation: Automation | null }) {
         <div className="flex flex-col gap-1.5">
           <Label>{t('automations.form.events')}</Label>
           <EventsTree codes={eventTypes.data ?? []} selected={events} onToggle={toggleEvent} />
+          {eventVars.length > 0 && (
+            <div className="mt-1 flex flex-col gap-1 rounded-md border bg-muted/30 p-2">
+              <span className="text-xs text-muted-foreground">
+                {t('automations.editor.eventVars')}
+              </span>
+              <VariablesPalette variables={eventVars} copied={copied} onCopy={copyVariable} />
+            </div>
+          )}
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">

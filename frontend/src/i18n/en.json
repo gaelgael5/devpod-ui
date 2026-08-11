@@ -1719,7 +1719,8 @@
       "missing": "Label and trigger events are required.",
       "headersShared": "Headers shared by ALL calls and filters of the rule.",
       "sampleVars": "Sample values",
-      "sampleVarsHint": "Used by the “Test call” buttons to render {variable}; at run time the event values are used."
+      "sampleVarsHint": "Used by the “Test call” buttons to render {variable}; at run time the event values are used.",
+      "eventVars": "Variables exposed by these events (click to copy):"
     },
     "operators": {
       "exists": "exists",

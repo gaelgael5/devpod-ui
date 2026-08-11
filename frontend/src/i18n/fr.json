@@ -1719,7 +1719,8 @@
       "missing": "Libellé et events déclencheurs sont requis.",
       "headersShared": "En-têtes partagés par TOUS les appels et filtres de la règle.",
       "sampleVars": "Valeurs d'exemple",
-      "sampleVarsHint": "Utilisées par les boutons « Tester l'appel » pour rendre les {variable} ; à l'exécution ce sont celles de l'event."
+      "sampleVarsHint": "Utilisées par les boutons « Tester l'appel » pour rendre les {variable} ; à l'exécution ce sont celles de l'event.",
+      "eventVars": "Variables exposées par ces events (cliquer pour copier) :"
     },
     "operators": {
       "exists": "existe",
