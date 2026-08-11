@@ -807,6 +807,10 @@ class DevPodService:
                     "recovery_branch": branch,
                 },
             )
+            # Bastion : retire l'accès Termix au workspace supprimé (best-effort).
+            from ..bastion.provision import deprovision_workspace
+
+            await deprovision_workspace(login, ws_id)
             return {"deleted": True, "recovery_branch": branch}
 
     async def _purge_agent_config(self, login: str, ws_id: str, ws_name: str) -> None:
@@ -1552,6 +1556,10 @@ class DevPodService:
                         "node": host_name,
                     },
                 )
+                # Bastion : déclare/ré-assure l'accès Termix au workspace (best-effort).
+                from ..bastion.provision import provision_workspace
+
+                await provision_workspace(login, ws_id)
         except Exception as exc:
             await self._write_status_if_exists(
                 ws_id, "failed", login=login, error=type(exc).__name__
