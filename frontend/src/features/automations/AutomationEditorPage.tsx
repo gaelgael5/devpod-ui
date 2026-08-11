@@ -2,7 +2,7 @@
 // général (libellé, slug, events, priorité, débounce, flags) → arbre de la règle
 // (éditeur récursif, en-têtes par appel/filtre) → valeurs d'exemple pour les tests.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -97,15 +97,42 @@ function EditorForm({ automation }: { automation: Automation | null }) {
       stop_chain: stopChain,
       active,
     }
-    const onSuccess = () => {
-      toast.success(isEdit ? t('automations.form.updated') : t('automations.form.created'))
-      navigate('/admin/automations')
+    // Sauver ne ferme plus l'éditeur : on reste sur la page. À la création, on
+    // bascule vers l'URL de la règle créée (mode édition) pour que les sauvegardes
+    // suivantes mettent à jour au lieu de recréer.
+    if (isEdit) {
+      update.mutate(
+        { id: automation.id, body },
+        { onSuccess: () => toast.success(t('automations.form.updated')) },
+      )
+    } else {
+      create.mutate(body, {
+        onSuccess: (created) => {
+          toast.success(t('automations.form.created'))
+          navigate(`/admin/automations/${created.id}`, { replace: true })
+        },
+      })
     }
-    if (isEdit) update.mutate({ id: automation.id, body }, { onSuccess })
-    else create.mutate(body, { onSuccess })
   }
 
   const pending = create.isPending || update.isPending
+
+  // Ctrl/Cmd+S = sauver (sans déclencher le « enregistrer la page » du navigateur).
+  // Ref sur le submit courant : l'écouteur est posé une fois, lit toujours l'état frais.
+  const submitRef = useRef(submit)
+  useEffect(() => {
+    submitRef.current = submit
+  })
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        submitRef.current()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 pb-24">
@@ -120,7 +147,7 @@ function EditorForm({ automation }: { automation: Automation | null }) {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => navigate('/admin/automations')}>
-            {t('common.cancel')}
+            {t('common.close')}
           </Button>
           <Button onClick={submit} disabled={pending}>
             {pending ? '…' : t('common.save')}
