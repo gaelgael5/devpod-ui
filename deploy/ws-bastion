@@ -1,0 +1,23 @@
+#!/bin/sh
+# Bastion SSH : relaie une session vers le workspace <ws_id> du user <login>.
+#
+# Appelé UNIQUEMENT via le ForceCommand d'une ligne authorized_keys
+# (`command="/usr/local/bin/ws-bastion <login> <ws_id>"`). Les arguments viennent
+# donc d'authorized_keys (écrit par le portail), pas du client — mais on revalide
+# strictement (défense en profondeur) car ils entrent dans un exec.
+# Tourne DANS le conteneur portail : devpod + /data y sont présents.
+set -eu
+
+LOGIN="${1:-}"
+WS_ID="${2:-}"
+
+case "$LOGIN" in
+  '' | *[!a-z0-9_-]*) echo "bastion: login invalide" >&2; exit 1 ;;
+esac
+case "$WS_ID" in
+  '' | *[!a-z0-9-]*) echo "bastion: ws_id invalide" >&2; exit 1 ;;
+esac
+
+export DEVPOD_HOME="/data/users/$LOGIN/devpod"
+export HOME="/root"
+exec devpod ssh "$WS_ID"

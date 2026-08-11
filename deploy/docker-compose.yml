@@ -22,6 +22,10 @@ services:
       - /data/.devpod:/root/.devpod
     networks:
       - internal
+    # Bastion SSH (opt-in PORTAL_BASTION_ENABLED) : Termix s'y connecte. Inerte
+    # tant que le bastion n'écoute pas. Restreindre à l'IP LAN si besoin de durcir.
+    ports:
+      - "2222:2222"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 30s
