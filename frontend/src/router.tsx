@@ -14,6 +14,7 @@ import {
   AdminLogs,
   AdminBastion,
   AdminTermix,
+  AdminUsers,
   AdminNetwork,
   AdminOidc,
   AdminProfileEditor,
@@ -188,6 +189,10 @@ export const router = createBrowserRouter([
       {
         path: '/admin/termix-instances',
         element: <AdminGuard><Wrap><AdminTermix /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/users',
+        element: <AdminGuard><Wrap><AdminUsers /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/workflow',

@@ -751,6 +751,20 @@
       "isDefault": "Default instance",
       "isDefaultHint": "Only one instance can be default; enabling it unsets the others.",
       "defaultBadge": "default"
+    },
+    "users": {
+      "navLabel": "Users",
+      "title": "Users",
+      "intro": "Attach each user to a Termix instance (otherwise the default instance is inherited) and manage the SSH hosts shared with them.",
+      "empty": "No users.",
+      "login": "Login",
+      "name": "Name",
+      "instance": "Termix instance",
+      "inheritDefault": "Default instance (inherited)",
+      "hostGrants": "SSH hosts",
+      "hostGrantsTitle": "SSH hosts shared with {{login}}",
+      "hostGrantsHint": "Check the SSH hosts (published workspaces) this user may access in Termix.",
+      "noHosts": "No published SSH host yet."
     }
   },
   "errors": {
