@@ -1681,7 +1681,14 @@
       "replayFromHere": "Réévaluer d'ici",
       "replayHint": "Repositionne le curseur global juste avant cet event pour tout réévaluer.",
       "replayConfirm": "Réévaluer toutes les règles à partir de l'event #{{seq}} ? Le curseur global recule et les runs concernés sont effacés.",
-      "replayed": "Curseur repositionné ({{automations}} automate(s)) — réévaluation au prochain balayage."
+      "replayed": "Curseur repositionné ({{automations}} automate(s)) — réévaluation au prochain balayage.",
+      "filterAll": "Tous",
+      "filterNone": "Aucun",
+      "selectedCount": "{{n}} type(s) sélectionné(s)",
+      "pageSize": "Par page",
+      "prev": "← Plus récents",
+      "next": "Plus anciens →",
+      "page": "Page {{n}}"
     },
     "cursor": "curseur #{{seq}}",
     "cursorHint": "Position du curseur de l'automate (dernier seq traité)",

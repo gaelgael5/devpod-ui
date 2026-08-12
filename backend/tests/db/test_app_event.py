@@ -141,6 +141,11 @@ async def test_list_recent_desc_and_pagination(db_conn: AsyncConnection) -> None
     # Pagination par before_seq.
     page = await j.list_recent(db_conn, limit=10, before_seq=seqs[1])
     assert all(r["seq"] < seqs[1] for r in page)
-    # Filtre par type.
-    typed = await j.list_recent(db_conn, limit=10, event_type="user.created")
+    # Filtre multi-types (liste).
+    typed = await j.list_recent(db_conn, limit=10, event_types=["user.created"])
     assert typed and all(r["event_type"] == "user.created" for r in typed)
+    both = await j.list_recent(
+        db_conn, limit=10, event_types=["user.created", "workspace.created"]
+    )
+    assert len(both) == 3
+    assert await j.list_recent(db_conn, limit=10, event_types=[]) == recent

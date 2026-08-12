@@ -72,14 +72,18 @@ async def list_recent(
     *,
     limit: int,
     before_seq: int | None = None,
-    event_type: str | None = None,
+    event_types: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Journal en ordre décroissant (récent d'abord) pour la vue admin. Paginé par `seq`."""
+    """Journal en ordre décroissant (récent d'abord) pour la vue admin. Paginé par `seq`.
+
+    `event_types` : filtre optionnel (vide/None = tous). Le filtre IHM est un arbre
+    de cases (domaine coché = tous ses types), d'où une LISTE de types.
+    """
     stmt = select(_ev).order_by(_ev.c.seq.desc()).limit(limit)
     if before_seq is not None:
         stmt = stmt.where(_ev.c.seq < before_seq)
-    if event_type:
-        stmt = stmt.where(_ev.c.event_type == event_type)
+    if event_types:
+        stmt = stmt.where(_ev.c.event_type.in_(event_types))
     rows = (await conn.execute(stmt)).mappings().all()
     return [dict(r) for r in rows]
 

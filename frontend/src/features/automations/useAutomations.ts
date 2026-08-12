@@ -236,12 +236,16 @@ export function useAutomation(id: string | null) {
   })
 }
 
-export function useJournalEvents(params: { eventType?: string; beforeSeq?: number } = {}) {
-  const qs = new URLSearchParams({ limit: '100' })
-  if (params.eventType) qs.set('event_type', params.eventType)
+export function useJournalEvents(
+  params: { eventTypes?: string[]; beforeSeq?: number; limit?: number } = {},
+) {
+  const limit = params.limit ?? 50
+  const types = params.eventTypes ?? []
+  const qs = new URLSearchParams({ limit: String(limit) })
+  for (const ty of types) qs.append('event_type', ty) // multi-valué : ?event_type=a&event_type=b
   if (params.beforeSeq != null) qs.set('before_seq', String(params.beforeSeq))
   return useQuery<JournalEvent[]>({
-    queryKey: ['automations', 'events', params.eventType ?? '', params.beforeSeq ?? 0],
+    queryKey: ['automations', 'events', [...types].sort().join(','), params.beforeSeq ?? 0, limit],
     queryFn: () => apiFetchJson<JournalEvent[]>(`${BASE}/events?${qs.toString()}`),
     refetchInterval: 15_000,
   })

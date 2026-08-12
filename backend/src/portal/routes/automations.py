@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -403,17 +403,18 @@ async def list_journal_events(
     conn: _Conn,
     limit: int = 50,
     before_seq: int | None = None,
-    event_type: str | None = None,
+    event_type: list[str] | None = Query(default=None),
 ) -> list[dict[str, Any]]:
     """Journal `app_event` (récent d'abord) : seq (= id de curseur), event_id, type, subject…
 
-    Paginé par `before_seq` (seq < before_seq). `event_type` filtre optionnel.
+    Paginé par `before_seq` (seq < before_seq). `event_type` = filtre multi-valué
+    (répété : `?event_type=a&event_type=b`) ; vide = tous. `limit` borné à [1, 200].
     """
     return await je.list_recent(
         conn,
         limit=max(1, min(limit, 200)),
         before_seq=before_seq,
-        event_type=event_type or None,
+        event_types=[e for e in (event_type or []) if e] or None,
     )
 
 

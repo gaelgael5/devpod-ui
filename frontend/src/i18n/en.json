@@ -1681,7 +1681,14 @@
       "replayFromHere": "Re-evaluate from here",
       "replayHint": "Move the global cursor just before this event to re-evaluate everything.",
       "replayConfirm": "Re-evaluate all rules from event #{{seq}}? The global cursor rewinds and the affected runs are cleared.",
-      "replayed": "Cursor repositioned ({{automations}} automation(s)) — re-evaluation on next sweep."
+      "replayed": "Cursor repositioned ({{automations}} automation(s)) — re-evaluation on next sweep.",
+      "filterAll": "All",
+      "filterNone": "None",
+      "selectedCount": "{{n}} type(s) selected",
+      "pageSize": "Per page",
+      "prev": "← Newer",
+      "next": "Older →",
+      "page": "Page {{n}}"
     },
     "cursor": "cursor #{{seq}}",
     "cursorHint": "Automation cursor position (last processed seq)",
