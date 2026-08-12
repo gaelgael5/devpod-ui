@@ -132,3 +132,27 @@ class TermixClient:
             f"/rbac/host/{host_id}/share",
             json={"targets": [{"type": "role", "id": role_id}], "permissionLevel": permission},
         )
+
+    # ─── Users (partage per-user, spec 18 T5) ────────────────────────────────
+    async def find_user_id(self, username: str) -> int | None:
+        """Id interne du user Termix dont `username == username` (= le `sub` OIDC).
+
+        None si absent (compte pas encore créé côté Termix → l'appelant réessaie).
+        """
+        resp = await self._req("GET", "/users/list")
+        data = resp.json()
+        items = data if isinstance(data, list) else data.get("users", [])
+        for u in items:
+            if isinstance(u, dict) and u.get("username") == username:
+                uid = u.get("id")
+                return int(uid) if isinstance(uid, (int, str)) and str(uid).isdigit() else None
+        return None
+
+    async def share_host_to_user(
+        self, host_id: int, user_id: int, permission: str = "connect"
+    ) -> None:
+        await self._req(
+            "POST",
+            f"/rbac/host/{host_id}/share",
+            json={"targets": [{"type": "user", "id": user_id}], "permissionLevel": permission},
+        )

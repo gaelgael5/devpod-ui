@@ -58,9 +58,7 @@ async def owner_identity_subject(login: str) -> dict[str, str]:
     async with _get_engine().connect() as conn:
         row = (
             await conn.execute(
-                select(users.c.sub, users.c.email, users.c.identity).where(
-                    users.c.login == login
-                )
+                select(users.c.sub, users.c.email, users.c.identity).where(users.c.login == login)
             )
         ).first()
     sub, email, identity = row if row is not None else (None, None, None)
@@ -135,6 +133,26 @@ async def user_exists_db(login: str, conn: AsyncConnection) -> bool:
     return (
         await conn.execute(select(users.c.login).where(users.c.login == login))
     ).scalar_one_or_none() is not None
+
+
+async def get_workspace_profile_ref_db(
+    login: str, name: str, conn: AsyncConnection
+) -> tuple[str, str] | None:
+    """(scope, slug) du profil d'un workspace, ou None si sans profil (spec 18 T5)."""
+    row = (
+        (
+            await conn.execute(
+                select(workspaces.c.profile_scope, workspaces.c.profile_slug).where(
+                    workspaces.c.login == login, workspaces.c.name == name
+                )
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None or not row["profile_scope"] or not row["profile_slug"]:
+        return None
+    return (row["profile_scope"], row["profile_slug"])
 
 
 async def list_users_db(conn: AsyncConnection) -> list[dict[str, Any]]:

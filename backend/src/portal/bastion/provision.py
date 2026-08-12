@@ -1,18 +1,19 @@
-"""Provisioning bastion↔Termix — appelé par les AUTOMATES, plus par le lifecycle.
+"""Provisioning Termix « Modèle B » — appelé par les AUTOMATES (spec 18 T5).
 
-Les events `workspace.*` du journal durable `app_event` déclenchent des automates
-qui appellent `POST /admin/service/bastion/provision` / `deprovision` (clé API
-admin). Les erreurs sont PROPAGÉES : le run de l'automate les trace (historique,
-rejeu depuis l'écran automates) — fini le best-effort silencieux.
+Les events `workspace.*` déclenchent des automates qui appellent
+`POST /admin/service/bastion/provision` / `deprovision`. Erreurs PROPAGÉES : le
+run de l'automate les trace (historique, rejeu).
 
-À la provision : génère (une fois) la clé du workspace, pose la clé publique dans
-`authorized_keys` du bastion, déclare côté Termix un credential (clé privée) + un
-host (IP:port du bastion) et (re)partage le host au rôle configuré. Si Termix a
-perdu le host (base réinitialisée), il est recréé. À la déprovision : retire la
-ligne authorized_keys et supprime host + credential Termix (404 toléré).
+Modèle B : Termix se connecte EN DIRECT au sshd du workspace, publié sur
+`node_ip:ssh_port` (spec 18 T1), en `ws_user` (image_user du profil, défaut
+vscode) avec la clé du workspace. Fan-out multi-instance : le host est déclaré sur
+CHAQUE instance Termix de l'union des instances des users qui y ont accès
+(propriétaire + `user_host_grant`), et partagé per-user (`type:"user"`, id trouvé
+par `sub`) sur chacune. Un compte Termix pas encore créé (1er login) est mis « en
+attente » → l'automate rejoue (idempotent).
 
-État par workspace = un secret système `ws-bastion-<ws_id>` (JSON chiffré KEK :
-clé privée + ids Termix) → idempotent et propre au nettoyage.
+État par workspace = secret système `ws-bastion-<ws_id>` (JSON chiffré) :
+`{login, key, instances: {instance_id: {host_id, cred_id, ip, port, user}}}`.
 """
 
 from __future__ import annotations
@@ -23,20 +24,23 @@ from typing import Any
 import structlog
 
 from ..config.store import load_global
+from ..db import termix_instance as ti
+from ..db import user_host_grant as uhg
+from ..db import user_termix_instance as uti
 from ..db.engine import _get_engine
+from ..db.user_config import get_workspace_profile_ref_db, owner_identity_subject
+from ..db.workspace_status import get_status_db
+from ..devpod.env import _find_host
+from ..profiles.repository import ProfileError
 from ..secrets import system as sysec
 from . import keys as bkeys
-from .authorized_keys import remove_entry, set_entry
 from .termix_client import TermixClient
 
 _log = structlog.get_logger(__name__)
 
-# Utilisateur SSH de la connexion Termix → bastion (le ForceCommand relaie ensuite).
-_SSH_USER = "root"
-
 
 class BastionNotConfiguredError(RuntimeError):
-    """Config bastion incomplète : enabled + api_url + host + role sont requis."""
+    """Provisioning Termix désactivé (toggle Admin → Bastion Termix)."""
 
 
 def _slug(ws_id: str) -> str:
@@ -44,19 +48,15 @@ def _slug(ws_id: str) -> str:
 
 
 def enabled() -> bool:
-    """True si la config Termix est complète (sinon provisioning inactif)."""
-    b = load_global().bastion
-    return bool(b.enabled and b.api_url and b.host and b.role)
+    """True si le provisioning Termix est activé (toggle maître)."""
+    return bool(load_global().bastion.enabled)
 
 
-def _require_enabled() -> Any:
-    b = load_global().bastion
-    if not (b.enabled and b.api_url and b.host and b.role):
+def _require_enabled() -> None:
+    if not enabled():
         raise BastionNotConfiguredError(
-            "bastion non configuré : enabled + api_url + host + role requis "
-            "(Admin → Bastion Termix)"
+            "provisioning Termix désactivé (Admin → Bastion Termix : activer)"
         )
-    return b
 
 
 async def _load_state(ws_id: str) -> dict[str, Any] | None:
@@ -69,11 +69,6 @@ async def _load_state(ws_id: str) -> dict[str, Any] | None:
         return dict(json.loads(raw))
     except (ValueError, TypeError):
         return None
-
-
-async def _apikey() -> str:
-    async with _get_engine().connect() as conn:
-        return await sysec.reveal_system_secret(load_global().bastion.apikey_secret, conn)
 
 
 async def _save_state(ws_id: str, state: dict[str, Any]) -> None:
@@ -93,9 +88,9 @@ async def ensure_ws_ssh_pubkey(login: str, ws_id: str) -> str:
     """Clé SSH ed25519 du workspace (idempotent) → clé publique.
 
     Spec 18 T1 : générée par le portail AU `up`, avant le build, pour que le
-    composant `ssh-access` puisse poser la pubkey dans `authorized_keys`. La clé
-    privée est stockée dans le secret système `ws-bastion-<ws_id>` (réutilisé par
-    le provisioning Termix). Rejouable : ré-appel = même clé.
+    composant `ssh-access` pose la pubkey dans `authorized_keys` du conteneur. La
+    clé privée est stockée dans le secret `ws-bastion-<ws_id>` (réutilisé par le
+    provisioning Termix). Rejouable : ré-appel = même clé. Préserve `instances`.
     """
     state = await _load_state(ws_id)
     if state and state.get("key"):
@@ -105,86 +100,179 @@ async def ensure_ws_ssh_pubkey(login: str, ws_id: str) -> str:
     return public
 
 
-async def _create_and_share(tx: TermixClient, b: Any, ws_id: str, private: str) -> tuple[int, int]:
-    """Crée credential + host et partage au rôle. Lève si Termix ne renvoie pas d'id."""
-    cred_id = await tx.create_credential(_slug(ws_id), _SSH_USER, private)
+# ─── Résolution des cibles Modèle B ─────────────────────────────────────────────
+
+
+async def _resolve_ws_user(login: str, ws_id: str, conn: Any) -> str:
+    """Utilisateur SSH du workspace = image_user du profil, sinon 'vscode'."""
+    name = ws_id[len(login) + 1 :] if ws_id.startswith(f"{login}-") else ws_id
+    ref = await get_workspace_profile_ref_db(login, name, conn)
+    if ref is None or ref[0] not in ("shared", "user"):
+        return "vscode"
+    from typing import Literal, cast
+
+    from ..db.profiles import AsyncProfileRepository
+
+    try:
+        profile = await AsyncProfileRepository().get(
+            cast("Literal['shared', 'user']", ref[0]), ref[1], login
+        )
+    except ProfileError:
+        return "vscode"
+    return profile.image_user or "vscode"
+
+
+def _node_ip(host_name: str) -> str:
+    """IP LAN joignable du node depuis son nom (strip d'un éventuel user@)."""
+    host_cfg = _find_host(host_name, load_global())
+    addr = (host_cfg.address or "").strip()
+    if not addr:
+        raise RuntimeError(f"node {host_name!r} sans adresse (host.address vide)")
+    return addr.split("@", 1)[1] if "@" in addr else addr
+
+
+async def _target(login: str, ws_id: str, conn: Any) -> tuple[str, int, str]:
+    """(node_ip, ssh_port, ws_user) du host Modèle B. Lève si non publié."""
+    status = await get_status_db(ws_id, conn)
+    if status is None:
+        raise RuntimeError(f"workspace {ws_id!r} inconnu (workspace_status absent)")
+    ssh_port = status.get("ssh_port")
+    host_name = status.get("host_name")
+    if not ssh_port or not host_name:
+        raise RuntimeError(
+            f"workspace {ws_id!r} sans host SSH publié (ssh_port/host_name manquant)"
+        )
+    return _node_ip(str(host_name)), int(ssh_port), await _resolve_ws_user(login, ws_id, conn)
+
+
+async def _apikey(apikey_secret: str, conn: Any) -> str:
+    return await sysec.reveal_system_secret(apikey_secret, conn)
+
+
+async def _accessors(login: str, ws_id: str, conn: Any) -> list[str]:
+    """Logins ayant accès au host : propriétaire + grants (spec 18 T3)."""
+    granted = await uhg.list_users_for_host(conn, ws_id)
+    return sorted(set(granted) | {login})
+
+
+# ─── Provision / deprovision ────────────────────────────────────────────────────
+
+
+async def _ensure_host_on_instance(
+    tx: TermixClient,
+    ws_id: str,
+    private: str,
+    ip: str,
+    port: int,
+    user: str,
+    prev: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Crée (ou recrée si cible changée / host perdu) credential + host. → rec état."""
+    if prev is not None:
+        same = prev.get("ip") == ip and prev.get("port") == port and prev.get("user") == user
+        known = await tx.list_host_ids()
+        host_id = prev.get("host_id")
+        if same and host_id is not None and (known is None or int(host_id) in known):
+            return prev
+        # Cible changée ou host perdu : purge l'ancien puis recrée.
+        if host_id is not None:
+            await tx.delete_host(int(host_id))
+        if prev.get("cred_id"):
+            await tx.delete_credential(int(prev["cred_id"]))
+    cred_id = await tx.create_credential(_slug(ws_id), user, private)
     if cred_id is None:
         raise RuntimeError("Termix POST /credentials : réponse sans id exploitable")
-    host_id = await tx.create_host(ws_id, b.host, b.port, _SSH_USER, cred_id)
+    host_id = await tx.create_host(ws_id, ip, port, user, cred_id)
     if host_id is None:
         raise RuntimeError("Termix POST /host : réponse sans id exploitable")
-    await _share(tx, b, host_id)
-    return host_id, cred_id
-
-
-async def _share(tx: TermixClient, b: Any, host_id: int) -> None:
-    role_id = await tx.find_role_id(b.role)
-    if role_id is None:
-        raise RuntimeError(f"rôle Termix {b.role!r} introuvable (à créer dans l'UI RBAC)")
-    await tx.share_host_to_role(host_id, role_id)
+    return {"host_id": host_id, "cred_id": cred_id, "ip": ip, "port": port, "user": user}
 
 
 async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
-    """Provisionne (idempotent) l'accès Termix d'un workspace. Erreurs propagées.
-
-    État existant → ré-assure la ligne authorized_keys ET le partage au rôle ;
-    si le host a disparu côté Termix (base perdue), credential + host sont recréés
-    avec la même clé. `created` dit si des objets Termix ont été (re)créés.
-    """
-    b = _require_enabled()
+    """Provisionne (idempotent) l'accès Termix d'un workspace, en fan-out. Erreurs
+    propagées. `created` liste les instances (re)provisionnées ; `pending` liste les
+    users dont le compte Termix n'existe pas encore (→ rejeu de l'automate)."""
+    _require_enabled()
     state = await _load_state(ws_id)
-    apikey = await _apikey()
-    private: str
-    if state and state.get("key"):
-        private = str(state["key"])
-        await set_entry(login, ws_id, bkeys.public_from_private(private, f"ws:{ws_id}"))
-        async with TermixClient(b.api_url, apikey) as tx:
-            known = await tx.list_host_ids()
-            host_id = state.get("host_id")
-            if host_id is not None and (known is None or int(host_id) in known):
-                # Host toujours là (ou vérification inconclusive) : re-partage seulement.
-                await _share(tx, b, int(host_id))
-                return {
-                    "ws_id": ws_id,
-                    "host_id": int(host_id),
-                    "cred_id": state.get("cred_id"),
-                    "created": False,
-                }
-            # Host perdu côté Termix : purge du credential résiduel puis recréation.
-            if state.get("cred_id"):
-                await tx.delete_credential(int(state["cred_id"]))
-            new_host_id, cred_id = await _create_and_share(tx, b, ws_id, private)
-    else:
-        private, public = bkeys.generate_keypair(comment=f"ws:{ws_id}")
-        await set_entry(login, ws_id, public)
-        async with TermixClient(b.api_url, apikey) as tx:
-            new_host_id, cred_id = await _create_and_share(tx, b, ws_id, private)
-    await _save_state(
-        ws_id, {"login": login, "key": private, "host_id": new_host_id, "cred_id": cred_id}
+    private = str(state["key"]) if state and state.get("key") else None
+    if private is None:
+        private, _ = bkeys.generate_keypair(comment=f"ws:{ws_id}")
+    prev_instances: dict[str, Any] = dict((state or {}).get("instances", {}))
+
+    async with _get_engine().connect() as conn:
+        ip, port, ws_user = await _target(login, ws_id, conn)
+        accessors = await _accessors(login, ws_id, conn)
+        # login → (instances, sub) ; union des instances → dict id→instance.
+        per_user_instances: dict[str, set[str]] = {}
+        subs: dict[str, str | None] = {}
+        union: dict[str, dict[str, Any]] = {}
+        for lg in accessors:
+            insts = await uti.resolve_instances_for_user(conn, lg)
+            per_user_instances[lg] = {i["id"] for i in insts}
+            for i in insts:
+                union[i["id"]] = i
+            subs[lg] = (await owner_identity_subject(lg)).get("sub")
+
+    new_instances: dict[str, Any] = {}
+    pending: list[str] = []
+    for inst_id, inst in union.items():
+        async with _get_engine().connect() as conn:
+            apikey = await _apikey(inst["apikey_secret"], conn)
+        async with TermixClient(inst["url"], apikey) as tx:
+            rec = await _ensure_host_on_instance(
+                tx, ws_id, private, ip, port, ws_user, prev_instances.get(inst_id)
+            )
+            new_instances[inst_id] = rec
+            for lg in accessors:
+                if inst_id not in per_user_instances[lg]:
+                    continue
+                sub = subs.get(lg)
+                if not sub:
+                    # Pas de `sub` OIDC (compte local) → non partageable, jamais résolu.
+                    _log.warning("bastion_share_no_sub", login=lg, ws_id=ws_id)
+                    continue
+                uid = await tx.find_user_id(sub)
+                if uid is None:
+                    pending.append(f"{lg}@{inst.get('name', inst_id)}")
+                    continue
+                await tx.share_host_to_user(int(rec["host_id"]), uid)
+
+    await _save_state(ws_id, {"login": login, "key": private, "instances": new_instances})
+    _log.info(
+        "bastion_provisioned",
+        ws_id=ws_id,
+        instances=list(new_instances),
+        pending=pending,
     )
-    _log.info("bastion_provisioned", ws_id=ws_id, host_id=new_host_id, role=b.role)
-    return {"ws_id": ws_id, "host_id": new_host_id, "cred_id": cred_id, "created": True}
+    if pending:
+        raise RuntimeError(
+            "comptes Termix pas encore créés (rejeu au prochain event) : " + ", ".join(pending)
+        )
+    return {"ws_id": ws_id, "instances": list(new_instances), "created": True, "pending": []}
 
 
 async def deprovision_workspace(login: str, ws_id: str) -> dict[str, Any]:
-    """Retire authorized_keys + host/credential Termix + l'état. Erreurs propagées.
-
-    Idempotent : sans état connu c'est un no-op (la ligne authorized_keys est
-    retirée quoi qu'il arrive) ; côté Termix les 404 de suppression sont tolérés.
-    """
+    """Retire host + credential Termix sur toutes les instances + l'état. Erreurs
+    propagées ; 404 de suppression tolérés (rejeu idempotent)."""
     _require_enabled()
-    removed = await remove_entry(login, ws_id)
     state = await _load_state(ws_id)
     if state is None:
-        return {"ws_id": ws_id, "removed": removed, "termix_deleted": False}
-    b = load_global().bastion
-    apikey = await _apikey()
-    async with TermixClient(b.api_url, apikey) as tx:
-        if state.get("host_id"):
-            await tx.delete_host(int(state["host_id"]))
-        if state.get("cred_id"):
-            await tx.delete_credential(int(state["cred_id"]))
+        return {"ws_id": ws_id, "termix_deleted": False, "instances": []}
+    instances: dict[str, Any] = dict(state.get("instances", {}))
+    deleted: list[str] = []
+    for inst_id, rec in instances.items():
+        async with _get_engine().connect() as conn:
+            inst = await ti.get(conn, inst_id)
+            if inst is None:
+                continue
+            apikey = await _apikey(inst["apikey_secret"], conn)
+        async with TermixClient(inst["url"], apikey) as tx:
+            if rec.get("host_id"):
+                await tx.delete_host(int(rec["host_id"]))
+            if rec.get("cred_id"):
+                await tx.delete_credential(int(rec["cred_id"]))
+        deleted.append(inst_id)
     async with _get_engine().begin() as conn:
         await sysec.delete_system_secret(_slug(ws_id), conn)
-    _log.info("bastion_deprovisioned", ws_id=ws_id)
-    return {"ws_id": ws_id, "removed": removed, "termix_deleted": True}
+    _log.info("bastion_deprovisioned", ws_id=ws_id, instances=deleted)
+    return {"ws_id": ws_id, "termix_deleted": True, "instances": deleted}
