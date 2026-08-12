@@ -1049,6 +1049,25 @@ openapi_contract = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
+# Registre d'instances Termix (spec 18 T2) : une instance = un serveur Termix
+# (URL + apikey admin en secret système). Un user est rattaché à une instance ;
+# `is_default` désigne l'instance héritée par défaut (au plus une à True).
+termix_instance = Table(
+    "termix_instance",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("name", Text, nullable=False, unique=True),
+    Column("url", Text, nullable=False),
+    # Slug du secret système portant l'apikey admin `tmx_` de cette instance.
+    Column("apikey_secret", Text, nullable=False),
+    # client_id OIDC Keycloak de l'instance (référence/affichage ; l'OIDC est
+    # configuré côté Termix, le portail n'en a pas besoin pour provisionner).
+    Column("oidc_client_id", Text, nullable=False, server_default=""),
+    Column("is_default", Boolean, nullable=False, server_default="false"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 # Un automate = « sur tel(s) event(s), exécute l'arbre de règle `tree` ».
 # `position` = ordre d'évaluation global (drag&drop) ; `stop_chain` = chaîne de
 # responsabilité (match + exécution OK → event consommé, priorités inférieures
