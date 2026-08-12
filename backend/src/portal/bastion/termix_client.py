@@ -148,6 +148,13 @@ class TermixClient:
             if isinstance(u, dict) and u.get("username") == username:
                 uid = u.get("userId") if u.get("userId") is not None else u.get("id")
                 return str(uid) if uid is not None else None
+        # Diag (spec 18 T5) : ce que le portail voit réellement quand ça ne matche pas.
+        _log.info(
+            "termix_users_list_seen",
+            searched=username,
+            candidates=[u.get("username") for u in items if isinstance(u, dict)],
+            raw_type=type(data).__name__,
+        )
         return None
 
     async def share_host_to_user(
