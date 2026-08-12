@@ -1,4 +1,5 @@
 """Persistance workspace_status (table workspace_status) — remplace routes/*.json."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -67,6 +68,7 @@ async def update_status_if_exists_db(
         "status": status,
         "login": login,
         "host_port": extra.get("host_port"),
+        "ssh_port": extra.get("ssh_port"),
         "host_type": extra.get("host_type"),
         "host_name": extra.get("host_name"),
         "url": extra.get("url"),
@@ -76,9 +78,7 @@ async def update_status_if_exists_db(
         "updated_at": func.now(),
     }
     result = await conn.execute(
-        update(workspace_status)
-        .where(workspace_status.c.ws_id == ws_id)
-        .values(**update_vals)
+        update(workspace_status).where(workspace_status.c.ws_id == ws_id).values(**update_vals)
     )
     return (result.rowcount or 0) > 0
 
@@ -103,28 +103,28 @@ async def port_claimed_by_other_db(ws_id: str, port: int, conn: AsyncConnection)
 
 async def get_status_db(ws_id: str, conn: AsyncConnection) -> dict[str, Any] | None:
     row = (
-        await conn.execute(
-            select(workspace_status).where(workspace_status.c.ws_id == ws_id)
-        )
-    ).mappings().one_or_none()
+        (await conn.execute(select(workspace_status).where(workspace_status.c.ws_id == ws_id)))
+        .mappings()
+        .one_or_none()
+    )
     return dict(row) if row is not None else None
 
 
 async def list_by_login_db(login: str, conn: AsyncConnection) -> list[dict[str, Any]]:
     rows = (
-        await conn.execute(
-            select(workspace_status).where(workspace_status.c.login == login)
-        )
-    ).mappings().all()
+        (await conn.execute(select(workspace_status).where(workspace_status.c.login == login)))
+        .mappings()
+        .all()
+    )
     return [dict(r) for r in rows]
 
 
 async def list_running_db(conn: AsyncConnection) -> list[dict[str, Any]]:
     rows = (
-        await conn.execute(
-            select(workspace_status).where(workspace_status.c.status == "running")
-        )
-    ).mappings().all()
+        (await conn.execute(select(workspace_status).where(workspace_status.c.status == "running")))
+        .mappings()
+        .all()
+    )
     return [dict(r) for r in rows]
 
 
@@ -139,17 +139,21 @@ async def fail_stale_provisioning_db(conn: AsyncConnection) -> list[str]:
     Retourne les ws_id basculés (pour le log de démarrage).
     """
     rows = (
-        await conn.execute(
-            update(workspace_status)
-            .where(workspace_status.c.status == "provisioning")
-            .values(
-                status="failed",
-                error="portal restarted during provisioning",
-                updated_at=func.now(),
+        (
+            await conn.execute(
+                update(workspace_status)
+                .where(workspace_status.c.status == "provisioning")
+                .values(
+                    status="failed",
+                    error="portal restarted during provisioning",
+                    updated_at=func.now(),
+                )
+                .returning(workspace_status.c.ws_id)
             )
-            .returning(workspace_status.c.ws_id)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
@@ -160,6 +164,4 @@ async def list_all_status_db(conn: AsyncConnection) -> list[dict[str, Any]]:
 
 
 async def delete_status_db(ws_id: str, conn: AsyncConnection) -> None:
-    await conn.execute(
-        delete(workspace_status).where(workspace_status.c.ws_id == ws_id)
-    )
+    await conn.execute(delete(workspace_status).where(workspace_status.c.ws_id == ws_id))

@@ -401,6 +401,8 @@ workspace_status = Table(
     Column("status", Text, nullable=False),
     Column("login", Text, nullable=False, server_default=""),
     Column("host_port", Integer, nullable=True),
+    # Port SSH par workspace publié sur l'IP du node (spec 18 T1), plage 50000-59999.
+    Column("ssh_port", Integer, nullable=True),
     Column("host_type", Text, nullable=True),
     Column("host_name", Text, nullable=True),
     Column("url", Text, nullable=True),
