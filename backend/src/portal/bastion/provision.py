@@ -19,7 +19,6 @@ attente » → l'automate rejoue (idempotent).
 from __future__ import annotations
 
 import json
-import secrets as _rand
 from typing import Any
 
 import structlog
@@ -46,6 +45,12 @@ class BastionNotConfiguredError(RuntimeError):
 
 def _slug(ws_id: str) -> str:
     return f"ws-bastion-{ws_id}"
+
+
+# Mot de passe d'INITIALISATION des comptes Termix créés à l'association (spec 18
+# T5). L'utilisateur le change / merge son OIDC ensuite. NE PAS considérer comme un
+# secret durable — à durcir avant prod (mdp aléatoire stocké, ou forçage au 1er login).
+_INIT_PASSWORD = "1234"
 
 
 def enabled() -> bool:
@@ -160,8 +165,9 @@ async def ensure_termix_account(conn: Any, login: str, instance_ids: list[str]) 
     """Crée (idempotent) le compte Termix LOCAL du user (`username = email`) sur
     chaque instance donnée — appelé à l'association user↔instance (spec 18 T5).
 
-    Le login Termix se fait par email ; le compte OIDC est mergé manuellement
-    ensuite (pas d'API de merge). Best-effort : retourne la liste des erreurs
+    Le login Termix se fait par email ; le compte est créé avec le mot de passe
+    d'initialisation `_INIT_PASSWORD` (l'user le change / merge son OIDC ensuite,
+    pas d'API de merge). Best-effort : retourne la liste des erreurs
     (`instance: message`) sans lever, pour ne pas bloquer l'association en base.
     """
     email = (await owner_identity_subject(login)).get("email")
@@ -176,7 +182,7 @@ async def ensure_termix_account(conn: Any, login: str, instance_ids: list[str]) 
         try:
             apikey = await _apikey(inst["apikey_secret"], conn)
             async with TermixClient(inst["url"], apikey) as tx:
-                created = await tx.create_user(email, _rand.token_urlsafe(24))
+                created = await tx.create_user(email, _INIT_PASSWORD)
             _log.info(
                 "termix_account_ensured",
                 login=login,
