@@ -9,7 +9,7 @@ from ..db.engine import _get_engine
 from ..db.workspace_status import get_status_db, upsert_status_db
 from ..net import build_resolve_fqdn, is_ipv4, resolve_ipv4
 from .caddy import CaddyClient
-from .ports import PortRegistry
+from .ports import SSH_PORT_MAX, SSH_PORT_MIN, PortRegistry
 
 _log = structlog.get_logger(__name__)
 
@@ -49,9 +49,15 @@ class ExposureService:
         local_domain: str = "",
         vs_proxy_domain: str = "",
         vs_proxy_verify_uri: str = "",
+        ssh_registry: PortRegistry | None = None,
     ) -> None:
         self._caddy = caddy
         self._registry = registry
+        # Registre de ports SSH par workspace (spec 18 T1), plage dédiée
+        # 50000-59999 sur la colonne ssh_port — indépendant du host_port openvscode.
+        self._ssh_registry = ssh_registry or PortRegistry(
+            port_min=SSH_PORT_MIN, port_max=SSH_PORT_MAX, column="ssh_port"
+        )
         self._base_domain = base_domain
         self._url_scheme = url_scheme
         self._dev_mode = dev_mode
@@ -92,6 +98,14 @@ class ExposureService:
     async def release_port(self, port: int) -> None:
         """Libère un port alloué mais jamais persisté en DB (échec avant `up()` — bug 037)."""
         await self._registry.release(port)
+
+    async def allocate_ssh_port(self, ws_id: str) -> int:
+        """Alloue le port SSH du workspace (plage 50000-59999, colonne ssh_port)."""
+        return await self._ssh_registry.allocate(ws_id)
+
+    async def release_ssh_port(self, port: int) -> None:
+        """Libère un port SSH réservé mais jamais persisté (échec avant `up()`)."""
+        await self._ssh_registry.release(port)
 
     async def expose(
         self,

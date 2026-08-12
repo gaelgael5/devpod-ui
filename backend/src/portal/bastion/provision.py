@@ -89,6 +89,22 @@ async def _save_state(ws_id: str, state: dict[str, Any]) -> None:
         )
 
 
+async def ensure_ws_ssh_pubkey(login: str, ws_id: str) -> str:
+    """Clé SSH ed25519 du workspace (idempotent) → clé publique.
+
+    Spec 18 T1 : générée par le portail AU `up`, avant le build, pour que le
+    composant `ssh-access` puisse poser la pubkey dans `authorized_keys`. La clé
+    privée est stockée dans le secret système `ws-bastion-<ws_id>` (réutilisé par
+    le provisioning Termix). Rejouable : ré-appel = même clé.
+    """
+    state = await _load_state(ws_id)
+    if state and state.get("key"):
+        return bkeys.public_from_private(str(state["key"]), f"ws:{ws_id}")
+    private, public = bkeys.generate_keypair(comment=f"ws:{ws_id}")
+    await _save_state(ws_id, {**(state or {}), "login": login, "key": private})
+    return public
+
+
 async def _create_and_share(tx: TermixClient, b: Any, ws_id: str, private: str) -> tuple[int, int]:
     """Crée credential + host et partage au rôle. Lève si Termix ne renvoie pas d'id."""
     cred_id = await tx.create_credential(_slug(ws_id), _SSH_USER, private)

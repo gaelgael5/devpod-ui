@@ -22,6 +22,19 @@ def _reset_runner_locks() -> None:
     service.clear_lifecycle_locks()
 
 
+@pytest.fixture(autouse=True)
+def _mock_ws_ssh_pubkey(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mocke la génération de clé SSH du workspace (spec 18 T1) : pas de subprocess
+    ssh-keygen ni de secret système dans les tests unitaires du flux `up`."""
+    from unittest.mock import AsyncMock
+
+    import portal.bastion.provision as prov
+
+    monkeypatch.setattr(
+        prov, "ensure_ws_ssh_pubkey", AsyncMock(return_value="ssh-ed25519 TESTKEY ws:test")
+    )
+
+
 @pytest.fixture
 def fake_devpod_bin() -> list[str]:
     """Retourne la commande pour appeler le faux devpod."""

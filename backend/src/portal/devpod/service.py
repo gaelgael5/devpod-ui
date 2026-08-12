@@ -298,6 +298,8 @@ class DevPodService:
         tmp_key_path = ""
         task_created = False
         host_port: int | None = None
+        ssh_port: int | None = None  # spec 18 T1 : port SSH publié sur l'IP du node
+        ssh_pubkey: str | None = None
         # Initialisées AVANT le `try` : son `finally` les lit pour le nettoyage.
         # Placées à l'intérieur, elles restaient non liées si un `await` du début du
         # bloc échouait (cert système, provider, allocation de port, validation des
@@ -342,6 +344,20 @@ class DevPodService:
                     _log.info("port_reused", ws_id=ws_id, port=host_port)
                 else:
                     host_port = await self._exposure.allocate_port(ws_id)
+
+                # Accès SSH par workspace (spec 18 T1, option A : le portail définit
+                # toujours l'environnement en mode exposition). Port dédié (réutilisé
+                # du même row au re-up, sinon alloué) + clé du workspace (idempotente,
+                # générée avant le build pour être injectée dans authorized_keys).
+                from ..bastion.provision import ensure_ws_ssh_pubkey
+
+                raw_ssh = existing_row.get("ssh_port") if existing_row is not None else None
+                ssh_port = (
+                    int(raw_ssh)
+                    if raw_ssh is not None
+                    else await self._exposure.allocate_ssh_port(ws_id)
+                )
+                ssh_pubkey = await ensure_ws_ssh_pubkey(login, ws_id)
 
             # Spec 35b : validation des agents demandés (échec 422 si inconnu/
             # désactivé, host incompatible, ou external_url manquante). La LIVRAISON
@@ -391,6 +407,7 @@ class DevPodService:
                 or profile
                 or ws_spec.recipe_volumes
                 or memory_limit
+                or ssh_port is not None  # spec 18 T1 : composant ssh-access injecté
             )
             if needs_devcontainer:
                 # mkdtemp/copytree/write_text sont bloquants (plusieurs répertoires de
@@ -405,6 +422,12 @@ class DevPodService:
                     profile=profile,
                     recipe_volumes=ws_spec.recipe_volumes or None,
                     memory_limit=memory_limit or None,
+                    ssh_port=ssh_port,
+                    ssh_pubkey=ssh_pubkey,
+                    # Utilisateur du devcontainer (possède le socket tmux + reçoit
+                    # authorized_keys). "vscode" pour l'image de base ; une image de
+                    # profil à autre user demandera un champ dédié (TODO T1+).
+                    ws_user="vscode",
                 )
 
             # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
@@ -482,7 +505,11 @@ class DevPodService:
             # repasse jamais à NULL pendant le devpod up (jusqu'à 30 min), donc
             # _used_ports() protège le port même après la perte de _reserved
             # (restart du portail, _reset_service).
-            await self._write_status(ws_id, "provisioning", login=login, host_port=host_port)
+            # ssh_port persisté dès le provisioning (comme host_port) : le registre
+            # SSH le lit depuis workspace_status pour protéger le port durablement.
+            await self._write_status(
+                ws_id, "provisioning", login=login, host_port=host_port, ssh_port=ssh_port
+            )
 
             task = asyncio.create_task(
                 self._run_up_task(
@@ -535,6 +562,8 @@ class DevPodService:
                 # n'a jamais démarré : jamais persisté en DB, il faut le relâcher
                 # explicitement (bug 037), sinon il reste réservé jusqu'au restart.
                 await self._exposure.release_port(host_port)
+            if not task_created and ssh_port is not None and self._exposure is not None:
+                await self._exposure.release_ssh_port(ssh_port)
 
     def _devpod_state_exists(self, ws_id: str, login: str) -> bool:
         """Vérifie si devpod connaît ce workspace (état local présent).

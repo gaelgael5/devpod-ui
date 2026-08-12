@@ -37,6 +37,11 @@ async def upsert_status_db(
         "returncode": extra.get("returncode"),
         "error": extra.get("error"),
     }
+    # ssh_port « sticky » : écrit UNIQUEMENT s'il est explicitement fourni, jamais
+    # remis à NULL par un write qui ne le mentionne pas (le port est posé au
+    # provisioning et doit survivre aux écritures de statut ultérieures).
+    if "ssh_port" in extra:
+        vals["ssh_port"] = extra["ssh_port"]
     set_vals: dict[str, Any] = {k: v for k, v in vals.items() if k != "ws_id"}
     set_vals["updated_at"] = func.now()
     await conn.execute(
@@ -68,7 +73,6 @@ async def update_status_if_exists_db(
         "status": status,
         "login": login,
         "host_port": extra.get("host_port"),
-        "ssh_port": extra.get("ssh_port"),
         "host_type": extra.get("host_type"),
         "host_name": extra.get("host_name"),
         "url": extra.get("url"),
@@ -77,6 +81,9 @@ async def update_status_if_exists_db(
         "error": extra.get("error"),
         "updated_at": func.now(),
     }
+    # ssh_port « sticky » (cf. upsert_status_db) : jamais effacé implicitement.
+    if "ssh_port" in extra:
+        update_vals["ssh_port"] = extra["ssh_port"]
     result = await conn.execute(
         update(workspace_status).where(workspace_status.c.ws_id == ws_id).values(**update_vals)
     )
