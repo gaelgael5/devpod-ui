@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -211,7 +211,15 @@ export default function AdminAutomations() {
     <div className="mx-auto max-w-4xl">
       <div className="mb-2 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{t('automations.title')}</h1>
-        <Button onClick={openNew}>{t('automations.new')}</Button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/admin/automations/events"
+            className="text-sm text-muted-foreground hover:underline"
+          >
+            {t('automations.events.title')} →
+          </Link>
+          <Button onClick={openNew}>{t('automations.new')}</Button>
+        </div>
       </div>
       <p className="mb-6 text-sm text-muted-foreground">{t('automations.intro')}</p>
 
