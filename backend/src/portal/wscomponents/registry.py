@@ -82,7 +82,8 @@ def ordered_components(
     exclus ; une dépendance absente du lot est ignorée (pas d'arête). Lève
     `CycleError` sur cycle.
     """
-    comps = [c for c in (components or SYSTEM_COMPONENTS) if c.enabled]
+    source = SYSTEM_COMPONENTS if components is None else components
+    comps = [c for c in source if c.enabled]
     present = {c.name for c in comps}
     by_name = {c.name: c for c in comps}
     # Arêtes uniquement vers des dépendances présentes et actives.

@@ -899,6 +899,9 @@ class DevPodService:
         extra_mounts: list[str] | None = None,
         extra_post_create: list[str] | None = None,
         memory_limit: str | None = None,
+        ssh_port: int | None = None,
+        ssh_pubkey: str | None = None,
+        ws_user: str = "vscode",
     ) -> Path:
         """Écrit devcontainer.json + Feature dirs dans un tmpdir. Retourne le chemin du JSON."""
         user_dir = safe_user_path(login, "devpod")
@@ -1004,6 +1007,18 @@ class DevPodService:
             # (struct devcontainer config) ; appliqué à la (re)construction.
             if memory_limit:
                 content["runArgs"] = [f"--memory={memory_limit}"]
+
+            # Composants système (spec 18 T1) : accès SSH par workspace publié sur
+            # l'IP du node. Injecté quand une clé + un port SSH sont fournis (mode
+            # exposition). AJOUTE features/runArgs (--publish)/postStartCommand (sshd).
+            if ssh_port is not None and ssh_pubkey:
+                from ..wscomponents.devcontainer import inject_components
+
+                inject_components(
+                    content,
+                    tmp_dir,
+                    {"ssh_port": str(ssh_port), "ssh_pubkey": ssh_pubkey, "ws_user": ws_user},
+                )
 
             mounts: list[str] = []
             if recipe_volumes and recipes:
