@@ -23,6 +23,7 @@ import {
   useSetHostGrants,
   useSshHosts,
   type AdminUser,
+  type SshHost,
 } from './useAdminUsers'
 
 // Radix interdit une valeur vide sur SelectItem : sentinelle pour « héritage défaut ».
