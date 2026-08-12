@@ -182,6 +182,24 @@ else
     echo "    Restreignez manuellement le port 2376 à $PORTAL_IP." >&2
 fi
 
+# 9b. Pare-feu : plage SSH des workspaces publiée sur l'IP du node (spec 18 T1).
+# Chaque workspace publie son sshd sur un port de 50000-59999 (docker --publish) ;
+# Termix s'y connecte. La plage est OUVERTE (le sshd est durci : clé publique
+# uniquement, ForceCommand tmux, aucun forwarding). Durcissement ultérieur possible :
+# restreindre la source aux IP des instances Termix quand elles sont stables/routées.
+SSH_PORT_RANGE="50000:59999"
+echo "==> Pare-feu : plage SSH workspaces ${SSH_PORT_RANGE}..."
+if command -v ufw &>/dev/null; then
+    ufw allow "${SSH_PORT_RANGE}/tcp" comment "devpod workspace SSH (Termix)" || true
+    echo "    ufw : ${SSH_PORT_RANGE}/tcp autorisé"
+elif command -v firewall-cmd &>/dev/null; then
+    firewall-cmd --permanent --add-port="${SSH_PORT_RANGE/:/-}/tcp" || true
+    firewall-cmd --reload
+    echo "    firewalld : ${SSH_PORT_RANGE/:/-}/tcp autorisé"
+else
+    echo "    ATTENTION : aucun outil pare-feu ; ouvrez ${SSH_PORT_RANGE}/tcp manuellement." >&2
+fi
+
 # 10. Redémarrer Docker avec la config mTLS
 echo "==> Redémarrage Docker..."
 systemctl restart docker

@@ -425,9 +425,9 @@ class DevPodService:
                     ssh_port=ssh_port,
                     ssh_pubkey=ssh_pubkey,
                     # Utilisateur du devcontainer (possède le socket tmux + reçoit
-                    # authorized_keys). "vscode" pour l'image de base ; une image de
-                    # profil à autre user demandera un champ dédié (TODO T1+).
-                    ws_user="vscode",
+                    # authorized_keys) : image_user du profil si défini, sinon
+                    # "vscode" (image de base devcontainer).
+                    ws_user=(profile.image_user if profile is not None else "") or "vscode",
                 )
 
             # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
