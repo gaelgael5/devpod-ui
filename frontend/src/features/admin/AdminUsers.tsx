@@ -16,8 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
 import { useTermixInstances } from './useTermixInstances'
 import {
+  MAX_TERMIX_INSTANCES,
   useAdminUsers,
   useHostGrants,
   useSetHostGrants,
@@ -26,35 +28,61 @@ import {
   type SshHost,
 } from './useAdminUsers'
 
-// Radix interdit une valeur vide sur SelectItem : sentinelle pour « héritage défaut ».
-const INHERIT = '__inherit__'
+// Radix interdit une valeur vide sur SelectItem : sentinelle pour l'ajout.
+const ADD = '__add__'
 
-/** Sélecteur d'instance Termix pour un user (rattachement explicite ou héritage). */
-function InstanceSelect({ user }: { user: AdminUser }) {
+/** Multi-sélection d'instances Termix pour un user (jusqu'à 3, spec 18 T4b).
+ *  Badges retirables + un Select d'ajout filtré, désactivé au plafond. */
+function InstancePicker({ user }: { user: AdminUser }) {
   const { t } = useTranslation()
   const { listQuery } = useTermixInstances()
-  const { setInstance } = useAdminUsers()
+  const { setInstances } = useAdminUsers()
   const instances = listQuery.data ?? []
+  const selected = user.termix_instance_ids
+  const nameOf = (id: string) => instances.find((i) => i.id === id)?.name ?? id
+  const available = instances.filter((i) => !selected.includes(i.id))
+  const atCap = selected.length >= MAX_TERMIX_INSTANCES
+
+  function update(ids: string[]) {
+    setInstances.mutate({ login: user.login, instanceIds: ids })
+  }
 
   return (
-    <Select
-      value={user.termix_instance_id ?? INHERIT}
-      onValueChange={(v) =>
-        setInstance.mutate({ login: user.login, instanceId: v === INHERIT ? null : v })
-      }
-    >
-      <SelectTrigger className="h-8 w-56">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={INHERIT}>{t('admin.users.inheritDefault')}</SelectItem>
-        {instances.map((i) => (
-          <SelectItem key={i.id} value={i.id}>
-            {i.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="flex flex-wrap items-center gap-1.5">
+      {selected.length === 0 && (
+        <span className="text-xs text-muted-foreground">{t('admin.users.inheritDefault')}</span>
+      )}
+      {selected.map((id) => (
+        <Badge key={id} variant="secondary" className="gap-1">
+          {nameOf(id)}
+          <button
+            type="button"
+            aria-label={t('admin.users.remove', { name: nameOf(id) })}
+            className="ml-0.5 text-muted-foreground hover:text-foreground"
+            onClick={() => update(selected.filter((x) => x !== id))}
+          >
+            ×
+          </button>
+        </Badge>
+      ))}
+      {!atCap && available.length > 0 && (
+        <Select value={ADD} onValueChange={(v) => v !== ADD && update([...selected, v])}>
+          <SelectTrigger className="h-7 w-auto gap-1 text-xs">
+            <SelectValue placeholder={t('admin.users.addInstance')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ADD} disabled>
+              {t('admin.users.addInstance')}
+            </SelectItem>
+            {available.map((i) => (
+              <SelectItem key={i.id} value={i.id}>
+                {i.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
   )
 }
 
@@ -196,7 +224,7 @@ export default function AdminUsers() {
                     {u.email && <span className="ml-1 text-xs">({u.email})</span>}
                   </td>
                   <td className="px-4 py-2">
-                    <InstanceSelect user={u} />
+                    <InstancePicker user={u} />
                   </td>
                   <td className="px-4 py-2 text-right">
                     <Button size="sm" variant="ghost" onClick={() => setGrantsFor(u.login)}>

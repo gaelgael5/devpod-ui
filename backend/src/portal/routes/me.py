@@ -184,6 +184,22 @@ async def get_current_user(user: UserInfo = Depends(require_user)) -> dict[str, 
     }
 
 
+@router.get("/termix-instances")
+async def get_my_termix_instances(
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[dict[str, object]]:
+    """Serveurs Termix effectifs de l'utilisateur (lecture seule, spec 18 T4b).
+
+    Résolus (rattachés explicitement, sinon défaut). Champs publics uniquement —
+    jamais l'apikey.
+    """
+    from ..db import user_termix_instance as uti
+
+    resolved = await uti.resolve_instances_for_user(conn, user.login)
+    return [{"id": i["id"], "name": i["name"], "url": i["url"]} for i in resolved]
+
+
 @router.get("/logs-config")
 async def get_logs_config(_user: UserInfo = Depends(require_user)) -> dict[str, object]:
     """Expose les paramètres Grafana nécessaires au frontend (pas de secrets)."""

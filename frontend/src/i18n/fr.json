@@ -759,12 +759,14 @@
       "empty": "Aucun utilisateur.",
       "login": "Login",
       "name": "Nom",
-      "instance": "Instance Termix",
+      "instance": "Instances Termix",
       "inheritDefault": "Instance par défaut (héritée)",
       "hostGrants": "Hosts SSH",
       "hostGrantsTitle": "Hosts SSH partagés à {{login}}",
       "hostGrantsHint": "Cocher les hosts SSH (workspaces publiés) auxquels cet utilisateur a accès dans Termix.",
-      "noHosts": "Aucun host SSH publié pour le moment."
+      "noHosts": "Aucun host SSH publié pour le moment.",
+      "addInstance": "Ajouter…",
+      "remove": "Retirer {{name}}"
     }
   },
   "errors": {
@@ -1479,6 +1481,11 @@
       "label": "Fuseau",
       "browserDefault": "Fuseau du navigateur ({{tz}})",
       "preview": "Exemple : {{value}}"
+    },
+    "termix": {
+      "title": "Mes serveurs Termix",
+      "hint": "Termix est l'interface web qui vous donne un accès SSH/terminal à vos workspaces. Voici le ou les serveurs Termix associés à votre compte (jusqu'à 3, pour la redondance et les migrations). L'association est gérée par un administrateur.",
+      "none": "Aucun serveur Termix associé (le serveur par défaut sera utilisé)."
     }
   },
   "agentMessages": {

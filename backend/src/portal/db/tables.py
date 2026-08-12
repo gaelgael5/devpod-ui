@@ -207,15 +207,6 @@ users = Table(
     # get_user_actor). Nécessaire pour les comptes LOCAUX (sans sub), qui peuvent ainsi
     # se donner un identifiant portable aligné sur les services. UNIQUE (anti-collision).
     Column("identity", Text, nullable=True, unique=True),
-    # Instance Termix rattachée (spec 18 T4). NULL = héritage de l'instance
-    # `is_default`. FK SET NULL : supprimer une instance retombe le rattachement
-    # sur le défaut. Assignée par l'admin via la page Utilisateurs.
-    Column(
-        "termix_instance_id",
-        Text,
-        ForeignKey("termix_instance.id", ondelete="SET NULL"),
-        nullable=True,
-    ),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
@@ -1075,6 +1066,23 @@ termix_instance = Table(
     Column("is_default", Boolean, nullable=False, server_default="false"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Rattachement user→instances Termix (spec 18 T4b). N-N plafonnée à 3 côté appli
+# (fallback/migration) : un user peut être servi par jusqu'à 3 serveurs Termix,
+# le provisioning fan-out réplique ses hosts sur chacun. Vide = héritage de
+# l'instance `is_default`. CASCADE des deux côtés.
+user_termix_instance = Table(
+    "user_termix_instance",
+    metadata,
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "instance_id",
+        Text,
+        ForeignKey("termix_instance.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
 # Portée user→host SSH (spec 18 T3). N-N pure : quel user a accès à quel host

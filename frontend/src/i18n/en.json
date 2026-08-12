@@ -759,12 +759,14 @@
       "empty": "No users.",
       "login": "Login",
       "name": "Name",
-      "instance": "Termix instance",
+      "instance": "Termix instances",
       "inheritDefault": "Default instance (inherited)",
       "hostGrants": "SSH hosts",
       "hostGrantsTitle": "SSH hosts shared with {{login}}",
       "hostGrantsHint": "Check the SSH hosts (published workspaces) this user may access in Termix.",
-      "noHosts": "No published SSH host yet."
+      "noHosts": "No published SSH host yet.",
+      "addInstance": "Add…",
+      "remove": "Remove {{name}}"
     }
   },
   "errors": {
@@ -1479,6 +1481,11 @@
       "label": "Time zone",
       "browserDefault": "Browser time zone ({{tz}})",
       "preview": "Example: {{value}}"
+    },
+    "termix": {
+      "title": "My Termix servers",
+      "hint": "Termix is the web interface giving you SSH/terminal access to your workspaces. Here are the Termix server(s) linked to your account (up to 3, for redundancy and migrations). The association is managed by an administrator.",
+      "none": "No Termix server linked (the default server will be used)."
     }
   },
   "agentMessages": {

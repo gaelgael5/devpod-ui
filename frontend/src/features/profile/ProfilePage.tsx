@@ -10,7 +10,7 @@ import {
   supportedTimezones,
   TIMEZONE_PREF_KEY,
 } from '@/shared/hooks/useUserTimezone'
-import { useProfile, useTokenClaims, useUpdateProfile } from './useProfile'
+import { useMyTermixInstances, useProfile, useTokenClaims, useUpdateProfile } from './useProfile'
 import type { UserProfile } from './useProfile'
 
 /** Attend le profil puis monte le formulaire : l'état est initialisé au montage
@@ -23,8 +23,41 @@ export default function ProfilePage() {
     <div className="max-w-lg">
       <ProfileForm profile={profile} />
       <TimezoneBlock />
+      <TermixInstancesBlock />
       <TokenClaimsBlock />
     </div>
+  )
+}
+
+/** Serveurs Termix de l'utilisateur (lecture seule, spec 18 T4b). */
+function TermixInstancesBlock() {
+  const { t } = useTranslation()
+  const { data, isLoading } = useMyTermixInstances()
+  if (isLoading) return null
+  return (
+    <section className="mt-8">
+      <h2 className="text-lg font-semibold">{t('profile.termix.title')}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{t('profile.termix.hint')}</p>
+      {!data?.length ? (
+        <p className="mt-2 text-sm text-muted-foreground">{t('profile.termix.none')}</p>
+      ) : (
+        <ul className="mt-2 space-y-1.5">
+          {data.map((i) => (
+            <li key={i.id} className="rounded-md border px-3 py-2 text-sm">
+              <span className="font-medium">{i.name}</span>
+              <a
+                href={i.url}
+                target="_blank"
+                rel="noreferrer"
+                className="ml-2 text-xs text-muted-foreground underline hover:text-foreground"
+              >
+                {i.url}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 

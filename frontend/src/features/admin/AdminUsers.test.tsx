@@ -16,7 +16,7 @@ import { useUserStore } from '@/store/user'
 import AdminUsers from './AdminUsers'
 
 const USERS = [
-  { login: 'alice', email: 'a@x', display_name: 'Alice', termix_instance_id: null },
+  { login: 'alice', email: 'a@x', display_name: 'Alice', termix_instance_ids: [] },
 ]
 const INSTANCES = [
   { id: 'i1', name: 'prod', url: 'https://t', apikey_secret: 's', oidc_client_id: '', is_default: true },
@@ -42,21 +42,21 @@ describe('AdminUsers', () => {
     expect(screen.getByText(/Alice/)).toBeInTheDocument()
   })
 
-  it('assigne une instance Termix (PUT)', async () => {
+  it('rattache une instance Termix via le multi-sélecteur (PUT)', async () => {
     let putBody: unknown = null
     server.use(
-      http.put('/admin/users/alice/termix-instance', async ({ request }) => {
+      http.put('/admin/users/alice/termix-instances', async ({ request }) => {
         putBody = await request.json()
-        return HttpResponse.json({ instance_id: 'i1' })
+        return HttpResponse.json({ instance_ids: ['i1'] })
       }),
     )
     const user = userEvent.setup()
     renderWithProviders(<AdminUsers />)
     await screen.findByText('alice')
-    // Ouvre le Select d'instance et choisit "prod".
-    await user.click(screen.getByRole('combobox'))
+    // Le Select « Ajouter… » propose les instances non encore rattachées.
+    await user.click(await screen.findByRole('combobox'))
     await user.click(await screen.findByRole('option', { name: 'prod' }))
-    await waitFor(() => expect(putBody).toEqual({ instance_id: 'i1' }))
+    await waitFor(() => expect(putBody).toEqual({ instance_ids: ['i1'] }))
   })
 
   it('sauve le partage de hosts (PUT host-grants avec cases cochées)', async () => {

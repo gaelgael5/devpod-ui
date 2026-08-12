@@ -1,4 +1,4 @@
-"""Routes page Utilisateurs admin (spec 18 T4) : liste + rattachement instance (DB mockée)."""
+"""Routes page Utilisateurs admin (spec 18 T4b) : liste + rattachement N-N ≤3 (DB mockée)."""
 
 from __future__ import annotations
 
@@ -16,35 +16,37 @@ from portal.routes.admin_users import router
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    users = {
-        "alice": {
-            "login": "alice",
-            "email": "a@x",
-            "display_name": "Alice",
-            "termix_instance_id": None,
-        },
-    }
-    instances = {"i1"}
+    users = {"alice"}
+    instances = {"i1", "i2", "i3", "i4"}
+    assigned: dict[str, list[str]] = {}
 
     async def _list_users(conn: Any) -> list[dict[str, Any]]:
-        return list(users.values())
+        return [
+            {
+                "login": "alice",
+                "email": "a@x",
+                "display_name": "Alice",
+                "termix_instance_ids": assigned.get("alice", []),
+            }
+        ]
 
     async def _user_exists(login: str, conn: Any) -> bool:
         return login in users
 
-    async def _set_instance(login: str, instance_id: str | None, conn: Any) -> bool:
-        if login not in users:
-            return False
-        users[login]["termix_instance_id"] = instance_id
-        return True
-
     async def _ti_get(conn: Any, instance_id: str) -> dict[str, Any] | None:
         return {"id": instance_id} if instance_id in instances else None
 
+    async def _set(conn: Any, login: str, ids: list[str]) -> None:
+        assigned[login] = list(ids)
+
+    async def _list_ids(conn: Any, login: str) -> list[str]:
+        return sorted(assigned.get(login, []))
+
     monkeypatch.setattr(admin_users, "list_users_db", _list_users)
     monkeypatch.setattr(admin_users, "user_exists_db", _user_exists)
-    monkeypatch.setattr(admin_users, "set_user_termix_instance_db", _set_instance)
     monkeypatch.setattr(admin_users.ti, "get", _ti_get)
+    monkeypatch.setattr(admin_users.uti, "set_instances_for_user", _set)
+    monkeypatch.setattr(admin_users.uti, "list_instance_ids", _list_ids)
 
     app = FastAPI()
     app.include_router(router, prefix="/admin")
@@ -55,29 +57,36 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 def test_list_users(client: TestClient) -> None:
     r = client.get("/admin/users")
-    assert r.status_code == 200 and [u["login"] for u in r.json()] == ["alice"]
+    assert r.status_code == 200 and r.json()[0]["login"] == "alice"
 
 
-def test_assign_instance(client: TestClient) -> None:
-    r = client.put("/admin/users/alice/termix-instance", json={"instance_id": "i1"})
-    assert r.status_code == 200 and r.json() == {"instance_id": "i1"}
-    # clear → null
-    r2 = client.put("/admin/users/alice/termix-instance", json={"instance_id": None})
-    assert r2.status_code == 200 and r2.json() == {"instance_id": None}
+def test_assign_instances(client: TestClient) -> None:
+    r = client.put("/admin/users/alice/termix-instances", json={"instance_ids": ["i1", "i2"]})
+    assert r.status_code == 200 and r.json() == {"instance_ids": ["i1", "i2"]}
 
 
 def test_assign_unknown_user_404(client: TestClient) -> None:
-    r = client.put("/admin/users/ghost/termix-instance", json={"instance_id": "i1"})
+    r = client.put("/admin/users/ghost/termix-instances", json={"instance_ids": ["i1"]})
     assert r.status_code == 404
 
 
 def test_assign_unknown_instance_422(client: TestClient) -> None:
-    r = client.put("/admin/users/alice/termix-instance", json={"instance_id": "nope"})
+    r = client.put("/admin/users/alice/termix-instances", json={"instance_ids": ["nope"]})
+    assert r.status_code == 422
+
+
+def test_assign_over_cap_422(client: TestClient) -> None:
+    r = client.put(
+        "/admin/users/alice/termix-instances",
+        json={"instance_ids": ["i1", "i2", "i3", "i4"]},
+    )
     assert r.status_code == 422
 
 
 def test_assign_rejects_extra_field(client: TestClient) -> None:
-    r = client.put("/admin/users/alice/termix-instance", json={"instance_id": "i1", "x": 1})
+    r = client.put(
+        "/admin/users/alice/termix-instances", json={"instance_ids": [], "x": 1}
+    )
     assert r.status_code == 422
 
 

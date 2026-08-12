@@ -2,13 +2,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiFetchJson } from '@/shared/api/client'
 
-/** Un utilisateur du portail (page Utilisateurs admin, spec 18 T4). */
+/** Un utilisateur du portail (page Utilisateurs admin, spec 18 T4b). */
 export interface AdminUser {
   login: string
   email: string
   display_name: string
-  termix_instance_id: string | null
+  termix_instance_ids: string[]
 }
+
+/** Plafond d'instances Termix par utilisateur (aligné backend MAX_INSTANCES). */
+export const MAX_TERMIX_INSTANCES = 3
 
 /** Un host SSH publié, sélectionnable pour le partage (spec 18 T3). */
 export interface SshHost {
@@ -29,21 +32,21 @@ export function useAdminUsers() {
     staleTime: 60_000,
   })
 
-  const setInstance = useMutation({
-    mutationFn: ({ login, instanceId }: { login: string; instanceId: string | null }) =>
-      apiFetchJson<{ instance_id: string | null }>(
-        `/admin/users/${encodeURIComponent(login)}/termix-instance`,
+  const setInstances = useMutation({
+    mutationFn: ({ login, instanceIds }: { login: string; instanceIds: string[] }) =>
+      apiFetchJson<{ instance_ids: string[] }>(
+        `/admin/users/${encodeURIComponent(login)}/termix-instances`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ instance_id: instanceId }),
+          body: JSON.stringify({ instance_ids: instanceIds }),
         },
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: USERS_QK }),
     onError: (e: Error) => toast.error(e.message),
   })
 
-  return { listQuery, setInstance }
+  return { listQuery, setInstances }
 }
 
 /** Univers des hosts SSH publiés (pour le sélecteur de partage). */

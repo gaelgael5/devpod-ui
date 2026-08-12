@@ -7,7 +7,7 @@ from typing import Any
 
 import structlog
 import yaml
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -21,7 +21,13 @@ from ..config.models import (
     WorkspaceExpose,
     WorkspaceSpec,
 )
-from .tables import git_credentials, users, workspace_extra_sources, workspaces
+from .tables import (
+    git_credentials,
+    user_termix_instance,
+    users,
+    workspace_extra_sources,
+    workspaces,
+)
 
 _log = structlog.get_logger(__name__)
 
@@ -132,7 +138,11 @@ async def user_exists_db(login: str, conn: AsyncConnection) -> bool:
 
 
 async def list_users_db(conn: AsyncConnection) -> list[dict[str, Any]]:
-    """Tous les users pour la page Utilisateurs admin (spec 18 T4)."""
+    """Tous les users pour la page Utilisateurs admin (spec 18 T4b).
+
+    Agrège les instances Termix rattachées (N-N) dans `termix_instance_ids`.
+    """
+    uti = user_termix_instance
     rows = (
         (
             await conn.execute(
@@ -140,29 +150,19 @@ async def list_users_db(conn: AsyncConnection) -> list[dict[str, Any]]:
                     users.c.login,
                     users.c.email,
                     users.c.display_name,
-                    users.c.termix_instance_id,
-                ).order_by(users.c.login)
+                    func.array_remove(func.array_agg(uti.c.instance_id), None).label(
+                        "termix_instance_ids"
+                    ),
+                )
+                .select_from(users.outerjoin(uti, users.c.login == uti.c.login))
+                .group_by(users.c.login, users.c.email, users.c.display_name)
+                .order_by(users.c.login)
             )
         )
         .mappings()
         .all()
     )
     return [dict(r) for r in rows]
-
-
-async def set_user_termix_instance_db(
-    login: str, instance_id: str | None, conn: AsyncConnection
-) -> bool:
-    """Rattache `login` à une instance Termix (None = héritage défaut, spec 18 T4).
-
-    Retourne True si la row user existe (donc mise à jour), False sinon.
-    """
-    result = await conn.execute(
-        update(users)
-        .where(users.c.login == login)
-        .values(termix_instance_id=instance_id, updated_at=func.now())
-    )
-    return (result.rowcount or 0) > 0
 
 
 async def list_workspace_refs(login: str | None, conn: AsyncConnection) -> list[dict[str, Any]]:
