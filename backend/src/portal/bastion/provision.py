@@ -232,6 +232,9 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
                     _log.warning("bastion_share_no_sub", login=lg, ws_id=ws_id)
                     continue
                 uid = await tx.find_user_id(sub)
+                _log.info(
+                    "bastion_share_lookup", login=lg, sub=sub, found=uid, instance=inst.get("name")
+                )
                 if uid is None:
                     pending.append(f"{lg}@{inst.get('name', inst_id)}")
                     continue
