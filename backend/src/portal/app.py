@@ -55,6 +55,7 @@ from .routes.resource_hosts import me_router as resource_hosts_me_router
 from .routes.secrets import router_admin as secrets_admin_router
 from .routes.secrets import router_me as secrets_me_router
 from .routes.service_bastion import router as service_bastion_router
+from .routes.admin_users import router as admin_users_router
 from .routes.host_grants import router as host_grants_router
 from .routes.termix import router as termix_instances_router
 from .routes.service_ssh import router as service_ssh_router
@@ -466,6 +467,7 @@ def create_app() -> FastAPI:
     app.include_router(service_bastion_router, prefix="/admin/service")
     app.include_router(termix_instances_router, prefix="/admin")
     app.include_router(host_grants_router, prefix="/admin")
+    app.include_router(admin_users_router, prefix="/admin")
     app.include_router(host_secrets_router, prefix="/admin")
     app.include_router(nodes_router, prefix="/admin")
     app.include_router(proxmox_router, prefix="/admin")

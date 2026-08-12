@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .tables import termix_instance as _t
+from .tables import users as _users
 
 _EDITABLE = ("name", "url", "apikey_secret", "oidc_client_id", "is_default")
 
@@ -66,6 +67,24 @@ async def list_all(conn: AsyncConnection) -> list[dict[str, Any]]:
 async def get_default(conn: AsyncConnection) -> dict[str, Any] | None:
     row = (await conn.execute(select(_t).where(_t.c.is_default.is_(True)))).mappings().first()
     return dict(row) if row is not None else None
+
+
+async def resolve_for_user(conn: AsyncConnection, login: str) -> dict[str, Any] | None:
+    """Instance Termix effective d'un user (spec 18 T4, option A).
+
+    Explicite (`users.termix_instance_id`) si posée et existante, sinon l'instance
+    `is_default`, sinon None. Consommée par le provisioning (T5).
+    """
+    assigned = (
+        await conn.execute(
+            select(_users.c.termix_instance_id).where(_users.c.login == login)
+        )
+    ).scalar_one_or_none()
+    if assigned is not None:
+        inst = await get(conn, assigned)
+        if inst is not None:
+            return inst
+    return await get_default(conn)
 
 
 async def name_exists(conn: AsyncConnection, name: str, *, exclude_id: str | None = None) -> bool:

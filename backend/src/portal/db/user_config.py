@@ -7,7 +7,7 @@ from typing import Any
 
 import structlog
 import yaml
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -129,6 +129,40 @@ async def user_exists_db(login: str, conn: AsyncConnection) -> bool:
     return (
         await conn.execute(select(users.c.login).where(users.c.login == login))
     ).scalar_one_or_none() is not None
+
+
+async def list_users_db(conn: AsyncConnection) -> list[dict[str, Any]]:
+    """Tous les users pour la page Utilisateurs admin (spec 18 T4)."""
+    rows = (
+        (
+            await conn.execute(
+                select(
+                    users.c.login,
+                    users.c.email,
+                    users.c.display_name,
+                    users.c.termix_instance_id,
+                ).order_by(users.c.login)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(r) for r in rows]
+
+
+async def set_user_termix_instance_db(
+    login: str, instance_id: str | None, conn: AsyncConnection
+) -> bool:
+    """Rattache `login` à une instance Termix (None = héritage défaut, spec 18 T4).
+
+    Retourne True si la row user existe (donc mise à jour), False sinon.
+    """
+    result = await conn.execute(
+        update(users)
+        .where(users.c.login == login)
+        .values(termix_instance_id=instance_id, updated_at=func.now())
+    )
+    return (result.rowcount or 0) > 0
 
 
 async def list_workspace_refs(login: str | None, conn: AsyncConnection) -> list[dict[str, Any]]:

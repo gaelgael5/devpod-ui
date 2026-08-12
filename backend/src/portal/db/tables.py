@@ -207,6 +207,15 @@ users = Table(
     # get_user_actor). Nécessaire pour les comptes LOCAUX (sans sub), qui peuvent ainsi
     # se donner un identifiant portable aligné sur les services. UNIQUE (anti-collision).
     Column("identity", Text, nullable=True, unique=True),
+    # Instance Termix rattachée (spec 18 T4). NULL = héritage de l'instance
+    # `is_default`. FK SET NULL : supprimer une instance retombe le rattachement
+    # sur le défaut. Assignée par l'admin via la page Utilisateurs.
+    Column(
+        "termix_instance_id",
+        Text,
+        ForeignKey("termix_instance.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
