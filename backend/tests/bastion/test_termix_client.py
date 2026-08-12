@@ -71,20 +71,32 @@ async def test_find_user_id_and_share_to_user() -> None:
         body = json.loads(req.content) if req.content else {}
         seen.append((req.url.path, body))
         if req.url.path == "/users/list":
-            return httpx.Response(200, json=[{"id": 3, "username": "sub-abc"}, {"id": 4}])
+            # Forme réelle Termix : userId est une chaîne, sous la clé "users".
+            return httpx.Response(
+                200,
+                json={
+                    "users": [
+                        {"userId": "wG3UbK6OF8H1", "username": "sub-abc", "is_oidc": False},
+                        {"userId": "RT23SEGfo", "username": "gael", "is_oidc": True},
+                    ]
+                },
+            )
         if req.url.path == "/rbac/host/99/share":
             return httpx.Response(200, json={"ok": True})
         return httpx.Response(404)
 
     c = _client_with(handler)
     uid = await c.find_user_id("sub-abc")
-    assert uid == 3
+    assert uid == "wG3UbK6OF8H1"
     assert await c.find_user_id("inconnu") is None
     await c.share_host_to_user(99, uid)  # type: ignore[arg-type]
     await c._client.aclose()  # type: ignore[union-attr]
 
     share_body = next(b for p, b in seen if p.endswith("/share"))
-    assert share_body == {"targets": [{"type": "user", "id": 3}], "permissionLevel": "connect"}
+    assert share_body == {
+        "targets": [{"type": "user", "id": "wG3UbK6OF8H1"}],
+        "permissionLevel": "connect",
+    }
 
 
 @pytest.mark.asyncio

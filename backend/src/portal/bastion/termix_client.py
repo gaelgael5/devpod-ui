@@ -134,22 +134,24 @@ class TermixClient:
         )
 
     # ─── Users (partage per-user, spec 18 T5) ────────────────────────────────
-    async def find_user_id(self, username: str) -> int | None:
-        """Id interne du user Termix dont `username == username` (= le `sub` OIDC).
+    async def find_user_id(self, username: str) -> str | None:
+        """`userId` Termix du user dont `username == username` (= le `sub` OIDC).
 
-        None si absent (compte pas encore créé côté Termix → l'appelant réessaie).
+        Réponse observée : `{"users":[{"userId":"<str>","username":"...", ...}]}`.
+        `userId` est une **chaîne** (pas un int), d'où le type de retour. None si
+        absent (compte pas encore créé côté Termix → l'appelant réessaie).
         """
         resp = await self._req("GET", "/users/list")
         data = resp.json()
         items = data if isinstance(data, list) else data.get("users", [])
         for u in items:
             if isinstance(u, dict) and u.get("username") == username:
-                uid = u.get("id")
-                return int(uid) if isinstance(uid, (int, str)) and str(uid).isdigit() else None
+                uid = u.get("userId") if u.get("userId") is not None else u.get("id")
+                return str(uid) if uid is not None else None
         return None
 
     async def share_host_to_user(
-        self, host_id: int, user_id: int, permission: str = "connect"
+        self, host_id: int, user_id: str, permission: str = "connect"
     ) -> None:
         await self._req(
             "POST",
