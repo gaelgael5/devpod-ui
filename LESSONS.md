@@ -1,5 +1,8 @@
 # Lessons apprises — max 50 lignes : consolider dans une leçon existante plutôt qu'ajouter.
 
+## [workflow]
+- « Enchaîne jusqu'au bout » N'EST PAS un feu vert pour des choix d'archi contestés (ex. bastion dans le portail vs à côté ; provisioning en dur vs via automates). Verrouiller EXPLICITEMENT chaque décision d'archi avant de coder, même sous pression d'avancer — l'utilisateur est architecte.
+
 ## [backend]
 - Pas de synchro auto des recettes au démarrage — choix admin (`POST /admin/recipes/sync`), demandé 3x.
 - `get_cached_global()` raise si DB vide → crash lifespan avant le yield ; `get_optional_cached_global()` quand None est valide.
@@ -47,5 +50,6 @@
 - Cloudflare : bundle JS périmé possible après redeploy (hard refresh d'abord) ; 502 brandé sur UN chemin = routage Tunnel, pas l'app (curl direct pour isoler). L'ordre des étapes d'un script de deploy est une sémantique.
 
 ## [tests]
+- Front : vérifier avec `tsc -b` (ou `npm run build`), pas `tsc --noEmit` — l'incrémental de `--noEmit` rate des erreurs (ex. type utilisé non importé) que le build/dev-deploy rejette, même si vitest/eslint passent.
 - `TestClient` : tout appel reste DANS le `with` (sinon post-shutdown, fuite d'event loop vers le test suivant) ; un test rouge peut tester un comportement disparu — grep le code réel d'abord. Ne jamais piper pytest dans `tail` (perd la liste des FAILED) : rediriger `grep '^FAILED'` dans un fichier, diff vs baseline pour prouver zéro régression. WebSocket : la session stub pose `auth_time` (sinon 4001 avant toute logique) ; sortir du `with websocket_connect` annule le handler ; pont PTY testé avec un vrai subprocess inerte (`sleep`).
 - test1 : `uv sync --extra dev` obligatoire (sinon tests DB skippés silencieusement) — exiger des PASSED explicites ; tables FK `users.login` → seeder `users` d'abord ; `(await coro)["k"]`, pas `await coro["k"]`.
