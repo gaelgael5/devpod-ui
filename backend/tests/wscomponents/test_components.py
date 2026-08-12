@@ -92,6 +92,7 @@ def test_ssh_access_render_publishes_port_and_places_key() -> None:
     assert "ForceCommand" in sshd.content
     assert "PasswordAuthentication no" in sshd.content
     assert "PermitRootLogin no" in sshd.content
-    # sshd démarré (daemonisé, pas -D bloquant) au postStart.
-    assert any("sshd" in c for c in r.post_start)
+    # sshd démarré (daemonisé, pas -D bloquant) au postStart, /run/sshd créé avant.
+    assert any("/usr/sbin/sshd" in c for c in r.post_start)
+    assert any("/run/sshd" in c for c in r.post_start)
     assert not any("sshd -D" in c for c in r.post_start)

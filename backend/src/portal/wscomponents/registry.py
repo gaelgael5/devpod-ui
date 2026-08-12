@@ -57,9 +57,11 @@ SSH_ACCESS = WorkspaceComponent(
             owner="{ws_user}",
         ),
     ],
-    # Génère les clés d'hôte puis démarre sshd en daemon (pas -D : postStart ne
-    # doit pas bloquer). Le dossier .ssh est créé/chown par la matérialisation.
-    post_start=["ssh-keygen -A", "/usr/sbin/sshd"],
+    # postStartCommand tourne en tant qu'utilisateur du conteneur (vscode) ; sshd
+    # exige root (lire les host keys 600, binder le port) → `sudo` (l'image de base
+    # devcontainer accorde le sudo sans mot de passe). /run/sshd = priv-sep dir ;
+    # sshd daemonisé (pas -D : postStart ne doit pas bloquer).
+    post_start=["sudo mkdir -p /run/sshd", "sudo ssh-keygen -A", "sudo /usr/sbin/sshd"],
     run_args=["--publish", "0.0.0.0:{ssh_port}:22"],
 )
 
