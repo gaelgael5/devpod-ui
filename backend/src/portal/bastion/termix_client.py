@@ -50,13 +50,21 @@ class TermixClient:
             self._client = None
 
     async def _req(
-        self, method: str, path: str, *, allow_404: bool = False, **kw: Any
+        self,
+        method: str,
+        path: str,
+        *,
+        allow_404: bool = False,
+        allow_409: bool = False,
+        **kw: Any,
     ) -> httpx.Response:
         assert self._client is not None, "TermixClient hors contexte"
         resp = await self._client.request(
             method, f"{self._base}{path}", headers=self._headers, **kw
         )
         if resp.status_code == 404 and allow_404:
+            return resp
+        if resp.status_code == 409 and allow_409:
             return resp
         if resp.status_code >= 400:
             raise RuntimeError(f"Termix {method} {path} → {resp.status_code}: {resp.text[:300]}")
@@ -134,6 +142,21 @@ class TermixClient:
         )
 
     # ─── Users (partage per-user, spec 18 T5) ────────────────────────────────
+    async def create_user(self, username: str, password: str) -> bool:
+        """Crée un compte LOCAL Termix (`POST /users/admin-create`, `isOidc=false`).
+
+        `username` = email de l'utilisateur (login Termix par email). Appelé à
+        l'association user↔instance côté portail. 409 (existe déjà) toléré →
+        idempotent. Retourne True si créé, False s'il existait déjà.
+        """
+        resp = await self._req(
+            "POST",
+            "/users/admin-create",
+            json={"username": username, "password": password},
+            allow_409=True,
+        )
+        return resp.status_code != 409
+
     async def find_user_id(self, username: str) -> str | None:
         """`userId` Termix du user dont `username == username` (= le `sub` OIDC).
 

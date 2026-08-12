@@ -19,6 +19,7 @@ attente » → l'automate rejoue (idempotent).
 from __future__ import annotations
 
 import json
+import secrets as _rand
 from typing import Any
 
 import structlog
@@ -155,6 +156,42 @@ async def _accessors(login: str, ws_id: str, conn: Any) -> list[str]:
     return sorted(set(granted) | {login})
 
 
+async def ensure_termix_account(conn: Any, login: str, instance_ids: list[str]) -> list[str]:
+    """Crée (idempotent) le compte Termix LOCAL du user (`username = email`) sur
+    chaque instance donnée — appelé à l'association user↔instance (spec 18 T5).
+
+    Le login Termix se fait par email ; le compte OIDC est mergé manuellement
+    ensuite (pas d'API de merge). Best-effort : retourne la liste des erreurs
+    (`instance: message`) sans lever, pour ne pas bloquer l'association en base.
+    """
+    email = (await owner_identity_subject(login)).get("email")
+    if not email:
+        _log.warning("termix_account_no_email", login=login)
+        return [f"{login} : email manquant (compte Termix non créé)"]
+    errors: list[str] = []
+    for inst_id in instance_ids:
+        inst = await ti.get(conn, inst_id)
+        if inst is None:
+            continue
+        try:
+            apikey = await _apikey(inst["apikey_secret"], conn)
+            async with TermixClient(inst["url"], apikey) as tx:
+                created = await tx.create_user(email, _rand.token_urlsafe(24))
+            _log.info(
+                "termix_account_ensured",
+                login=login,
+                email=email,
+                instance=inst.get("name"),
+                created=created,
+            )
+        except Exception as exc:  # best-effort : l'association en base reste valable
+            _log.warning(
+                "termix_account_failed", login=login, instance=inst.get("name"), error=str(exc)
+            )
+            errors.append(f"{inst.get('name', inst_id)} : {exc}")
+    return errors
+
+
 # ─── Provision / deprovision ────────────────────────────────────────────────────
 
 
@@ -204,14 +241,14 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
         accessors = await _accessors(login, ws_id, conn)
         # login → (instances, sub) ; union des instances → dict id→instance.
         per_user_instances: dict[str, set[str]] = {}
-        subs: dict[str, str | None] = {}
+        emails: dict[str, str | None] = {}
         union: dict[str, dict[str, Any]] = {}
         for lg in accessors:
             insts = await uti.resolve_instances_for_user(conn, lg)
             per_user_instances[lg] = {i["id"] for i in insts}
             for i in insts:
                 union[i["id"]] = i
-            subs[lg] = (await owner_identity_subject(lg)).get("sub")
+            emails[lg] = (await owner_identity_subject(lg)).get("email")
 
     new_instances: dict[str, Any] = {}
     pending: list[str] = []
@@ -226,14 +263,18 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
             for lg in accessors:
                 if inst_id not in per_user_instances[lg]:
                     continue
-                sub = subs.get(lg)
-                if not sub:
-                    # Pas de `sub` OIDC (compte local) → non partageable, jamais résolu.
-                    _log.warning("bastion_share_no_sub", login=lg, ws_id=ws_id)
+                email = emails.get(lg)
+                if not email:
+                    # Sans email → non partageable (login Termix = email, spec 18 T5).
+                    _log.warning("bastion_share_no_email", login=lg, ws_id=ws_id)
                     continue
-                uid = await tx.find_user_id(sub)
+                uid = await tx.find_user_id(email)
                 _log.info(
-                    "bastion_share_lookup", login=lg, sub=sub, found=uid, instance=inst.get("name")
+                    "bastion_share_lookup",
+                    login=lg,
+                    email=email,
+                    found=uid,
+                    instance=inst.get("name"),
                 )
                 if uid is None:
                     pending.append(f"{lg}@{inst.get('name', inst_id)}")

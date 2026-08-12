@@ -64,6 +64,26 @@ async def test_create_credential_and_host_and_share() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_user_local_and_conflict() -> None:
+    seen: list[tuple[str, dict]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content) if req.content else {}
+        seen.append((req.url.path, body))
+        # 1er appel : créé ; 2e (même username) : 409 déjà existant.
+        already = sum(1 for p, _ in seen if p == "/users/admin-create") > 1
+        return httpx.Response(409 if already else 200, json={"message": "ok"})
+
+    c = _client_with(handler)
+    assert await c.create_user("gael@x.org", "pw") is True
+    assert await c.create_user("gael@x.org", "pw") is False  # 409 toléré
+    await c._client.aclose()  # type: ignore[union-attr]
+    body = seen[0][1]
+    assert body == {"username": "gael@x.org", "password": "pw"}
+    assert seen[0][0] == "/users/admin-create"
+
+
+@pytest.mark.asyncio
 async def test_find_user_id_and_share_to_user() -> None:
     seen: list[tuple[str, dict]] = []
 

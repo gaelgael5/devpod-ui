@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
+from ..bastion.provision import ensure_termix_account
 from ..db import termix_instance as ti
 from ..db import user_termix_instance as uti
 from ..db.engine import get_conn
@@ -54,4 +55,7 @@ async def set_termix_instances(
         if await ti.get(conn, i) is None:
             raise HTTPException(status_code=422, detail=f"instance Termix introuvable : {i}")
     await uti.set_instances_for_user(conn, login, ids)
-    return {"instance_ids": await uti.list_instance_ids(conn, login)}
+    # Crée le compte Termix (username=email) sur les instances rattachées (spec 18
+    # T5) — best-effort : les échecs sont remontés sans annuler l'association.
+    warnings = await ensure_termix_account(conn, login, ids)
+    return {"instance_ids": await uti.list_instance_ids(conn, login), "termix_warnings": warnings}

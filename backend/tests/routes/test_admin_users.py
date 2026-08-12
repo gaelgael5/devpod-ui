@@ -42,8 +42,12 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def _list_ids(conn: Any, login: str) -> list[str]:
         return sorted(assigned.get(login, []))
 
+    async def _ensure_account(conn: Any, login: str, ids: list[str]) -> list[str]:
+        return []
+
     monkeypatch.setattr(admin_users, "list_users_db", _list_users)
     monkeypatch.setattr(admin_users, "user_exists_db", _user_exists)
+    monkeypatch.setattr(admin_users, "ensure_termix_account", _ensure_account)
     monkeypatch.setattr(admin_users.ti, "get", _ti_get)
     monkeypatch.setattr(admin_users.uti, "set_instances_for_user", _set)
     monkeypatch.setattr(admin_users.uti, "list_instance_ids", _list_ids)
@@ -62,7 +66,8 @@ def test_list_users(client: TestClient) -> None:
 
 def test_assign_instances(client: TestClient) -> None:
     r = client.put("/admin/users/alice/termix-instances", json={"instance_ids": ["i1", "i2"]})
-    assert r.status_code == 200 and r.json() == {"instance_ids": ["i1", "i2"]}
+    assert r.status_code == 200
+    assert r.json() == {"instance_ids": ["i1", "i2"], "termix_warnings": []}
 
 
 def test_assign_unknown_user_404(client: TestClient) -> None:
@@ -84,9 +89,7 @@ def test_assign_over_cap_422(client: TestClient) -> None:
 
 
 def test_assign_rejects_extra_field(client: TestClient) -> None:
-    r = client.put(
-        "/admin/users/alice/termix-instances", json={"instance_ids": [], "x": 1}
-    )
+    r = client.put("/admin/users/alice/termix-instances", json={"instance_ids": [], "x": 1})
     assert r.status_code == 422
 
 
