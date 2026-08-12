@@ -1267,6 +1267,37 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "admin",
     },
+    "openapi_contract_list": {
+        "description": (
+            "Liste les contrats OpenAPI enregistrés (cibles d'appel des automates) : "
+            "id, label (nom), url (source_url), catégorie, version. "
+            "Impact: read-only — aucune mutation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {},
+        },
+        "scope": "admin",
+    },
+    "openapi_contract_get": {
+        "description": (
+            "Paramétrage complet d'un contrat OpenAPI (par id ou label) : "
+            "métadonnées, serveurs (base URLs) et opérations appelables "
+            "(operation_id, méthode, path, résumé, squelette de corps, en-têtes "
+            "d'auth). "
+            "Impact: read-only — aucune mutation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["contract"],
+            "properties": {
+                "contract": {"type": "string", "description": "Id ou label du contrat."},
+            },
+        },
+        "scope": "admin",
+    },
 }
 
 

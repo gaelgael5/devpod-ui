@@ -44,6 +44,7 @@ from . import operations
 from .agent_message_tools import AGENT_MESSAGE_IMPLS
 from .automation_tools import AUTOMATION_IMPLS
 from .compose_tools import COMPOSE_IMPLS
+from .contract_tools import CONTRACT_IMPLS
 from .errors import DevpodToolError
 from .logs_tools import LOGS_IMPLS
 from .message_tools import MESSAGE_IMPLS
@@ -1161,6 +1162,7 @@ _IMPLS: dict[str, Callable[[AsyncConnection, dict[str, Any], str], Awaitable[Any
     "workspace_apply_recipe": _workspace_apply_recipe,
     "workspace_profile_set": _workspace_profile_set,
     **AUTOMATION_IMPLS,
+    **CONTRACT_IMPLS,
     **COMPOSE_IMPLS,
     **MESSAGE_IMPLS,
     **AGENT_MESSAGE_IMPLS,
