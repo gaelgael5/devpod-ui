@@ -1439,6 +1439,13 @@
       "copy": "Copier",
       "copied": "Copié",
       "subHint": "Copie le « sub » et colle-le dans le champ Identité ci-dessus (matching OBO), ou dans les autres applications (docflow, rag, workflow)."
+    },
+    "timezone": {
+      "title": "Fuseau horaire",
+      "intro": "Fuseau utilisé pour afficher les dates et heures dans l'interface.",
+      "label": "Fuseau",
+      "browserDefault": "Fuseau du navigateur ({{tz}})",
+      "preview": "Exemple : {{value}}"
     }
   },
   "agentMessages": {

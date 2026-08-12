@@ -3,6 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useSetPreference, useUserPreferences } from '@/shared/hooks/useUserPreferences'
+import {
+  browserTimezone,
+  formatInstant,
+  supportedTimezones,
+  TIMEZONE_PREF_KEY,
+} from '@/shared/hooks/useUserTimezone'
 import { useProfile, useTokenClaims, useUpdateProfile } from './useProfile'
 import type { UserProfile } from './useProfile'
 
@@ -15,8 +22,46 @@ export default function ProfilePage() {
   return (
     <div className="max-w-lg">
       <ProfileForm profile={profile} />
+      <TimezoneBlock />
       <TokenClaimsBlock />
     </div>
+  )
+}
+
+/** Choix du fuseau horaire d'affichage (préférence `ui.timezone`). Vide = fuseau
+ *  du navigateur. Persisté immédiatement (mise à jour optimiste). */
+function TimezoneBlock() {
+  const { t } = useTranslation()
+  const { data } = useUserPreferences()
+  const setPref = useSetPreference()
+  const current = typeof data?.[TIMEZONE_PREF_KEY] === 'string' ? (data[TIMEZONE_PREF_KEY] as string) : ''
+  const zones = supportedTimezones()
+  const effective = current || browserTimezone()
+
+  return (
+    <section className="mt-10 border-t pt-6">
+      <h2 className="mb-1 text-lg font-semibold">{t('profile.timezone.title')}</h2>
+      <p className="mb-4 text-sm text-muted-foreground">{t('profile.timezone.intro')}</p>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="tz">{t('profile.timezone.label')}</Label>
+        <select
+          id="tz"
+          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          value={current}
+          onChange={(e) => setPref.mutate({ key: TIMEZONE_PREF_KEY, value: e.target.value })}
+        >
+          <option value="">{t('profile.timezone.browserDefault', { tz: browserTimezone() })}</option>
+          {zones.map((z) => (
+            <option key={z} value={z}>
+              {z}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">
+          {t('profile.timezone.preview', { value: formatInstant(new Date().toISOString(), effective) })}
+        </p>
+      </div>
+    </section>
   )
 }
 

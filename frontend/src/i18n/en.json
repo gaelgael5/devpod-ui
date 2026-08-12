@@ -1439,6 +1439,13 @@
       "copy": "Copy",
       "copied": "Copied",
       "subHint": "Copy the \"sub\" and paste it into the Identity field above (OBO matching), or into the other apps (docflow, rag, workflow)."
+    },
+    "timezone": {
+      "title": "Time zone",
+      "intro": "Time zone used to display dates and times across the interface.",
+      "label": "Time zone",
+      "browserDefault": "Browser time zone ({{tz}})",
+      "preview": "Example: {{value}}"
     }
   },
   "agentMessages": {

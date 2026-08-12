@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { formatInstant, useUserTimezone } from '@/shared/hooks/useUserTimezone'
 import {
   useEventTypes,
   useJournalEvents,
@@ -108,7 +109,15 @@ function EventTypeFilter({
   )
 }
 
-function Row({ ev, onReplay }: { ev: JournalEvent; onReplay: (ev: JournalEvent) => void }) {
+function Row({
+  ev,
+  tz,
+  onReplay,
+}: {
+  ev: JournalEvent
+  tz?: string
+  onReplay: (ev: JournalEvent) => void
+}) {
   const { t } = useTranslation()
   const subject = JSON.stringify(ev.subject)
   return (
@@ -126,7 +135,7 @@ function Row({ ev, onReplay }: { ev: JournalEvent; onReplay: (ev: JournalEvent) 
           {ev.workspace && <Badge variant="outline">{ev.workspace}</Badge>}
           {ev.consumed_by && <Badge variant="secondary">consumed</Badge>}
           <span className="ml-auto text-xs text-muted-foreground">
-            {new Date(ev.occurred_at).toLocaleString()}
+            {formatInstant(ev.occurred_at, tz)}
           </span>
         </div>
         <div className="mt-1 truncate font-mono text-xs text-muted-foreground" title={subject}>
@@ -157,6 +166,7 @@ export default function AdminEvents() {
   const beforeSeq = cursors[page]
 
   const eventTypes = useEventTypes()
+  const tz = useUserTimezone()
   const resetCursor = useResetCursor()
   const { data, isLoading, isError } = useJournalEvents({
     eventTypes: filter,
@@ -242,7 +252,7 @@ export default function AdminEvents() {
 
       <div className="flex flex-col gap-2">
         {data?.map((ev) => (
-          <Row key={ev.seq} ev={ev} onReplay={replay} />
+          <Row key={ev.seq} ev={ev} tz={tz} onReplay={replay} />
         ))}
       </div>
     </div>
