@@ -48,6 +48,8 @@ def test_representative_payload_conforms_like_workflow() -> None:
     samples: dict[str, dict[str, object]] = {
         "user.created": {"actor": "gael", "login": "gael", "sub": "kc-123", "email": "g@x.org"},
         "user.refreshed": {"actor": "gael", "login": "gael", "sub": "kc-123", "email": ""},
+        "user.connected": {"actor": "gael", "login": "gael", "sub": "kc-123", "email": "g@x.org"},
+        "user.disconnected": {"actor": "gael", "login": "gael", "sub": "kc-123"},
         "user.deleted": {"actor": "admin", "login": "gael", "sub": "kc-123"},
         "user.paused": {"actor": "admin", "login": "gael", "sub": "kc-123"},
         "user.resumed": {"actor": "admin", "login": "gael", "sub": "kc-123"},

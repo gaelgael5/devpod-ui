@@ -19,6 +19,8 @@ def test_registre_contient_les_types_attendus() -> None:
     assert {
         "user.created",
         "user.refreshed",
+        "user.connected",
+        "user.disconnected",
         "user.deleted",
         "user.paused",
         "user.resumed",

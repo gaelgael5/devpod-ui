@@ -108,6 +108,13 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
     # Pas de vrai jeton en login local : claims minimaux pour la page profil.
     request.session["token_claims"] = {"sub": "local", "preferred_username": settings.local_user}
     _log.info("local_login_success", login=settings.local_user)
+    from ..events.bus import emit_event
+
+    await emit_event(
+        "user.connected",
+        actor=settings.local_user,
+        subject={"login": settings.local_user, "sub": "local", "email": "", "identity": ""},
+    )
     return {"ok": True}
 
 
@@ -206,17 +213,18 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
 
     async with _get_engine().connect() as conn:
         identity = await get_user_actor(login_name, conn) or ""
-    await emit_event(
-        "user.refreshed",
-        actor=login_name,
-        subject={"login": login_name, "sub": sub, "email": email, "identity": identity},
-    )
+    subject = {"login": login_name, "sub": sub, "email": email, "identity": identity}
+    await emit_event("user.refreshed", actor=login_name, subject=subject)
+    # Ouverture d'une session de connexion (distinct du rafraîchissement d'identité).
+    await emit_event("user.connected", actor=login_name, subject=subject)
     return RedirectResponse("/", status_code=302)
 
 
 @router.get("/logout")
 async def logout(request: Request) -> RedirectResponse:
-    login_name = request.session.get("user", {}).get("login", "?")
+    session_user = request.session.get("user", {})
+    login_name = session_user.get("login", "?")
+    sub = session_user.get("sub", "")
     sid = request.session.get("session_id", "")
     if sid:
         from ..vault import session as vault_session
@@ -224,6 +232,15 @@ async def logout(request: Request) -> RedirectResponse:
         vault_session.clear_session(sid)
     request.session.clear()
     _log.info("user_logged_out", login=login_name)
+    # Fermeture de la session de connexion (best-effort, hors txn ; skip si anonyme).
+    if login_name != "?":
+        from ..events.bus import emit_event
+
+        await emit_event(
+            "user.disconnected",
+            actor=login_name,
+            subject={"login": login_name, "sub": sub},
+        )
     resp = RedirectResponse("/", status_code=302)
     # Expire aussi un éventuel cookie de session legacy host-only (posé avant
     # COOKIE_DOMAIN) ; le SessionMiddleware, lui, ne supprime que celui sur son domaine.

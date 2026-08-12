@@ -18,6 +18,8 @@ EVENT_TYPES: frozenset[str] = frozenset(
     {
         "user.created",
         "user.refreshed",
+        "user.connected",
+        "user.disconnected",
         "user.deleted",
         "user.paused",
         "user.resumed",
