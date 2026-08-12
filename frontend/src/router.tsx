@@ -13,6 +13,7 @@ import {
   AdminJinjaTemplates,
   AdminLogs,
   AdminBastion,
+  AdminTermix,
   AdminNetwork,
   AdminOidc,
   AdminProfileEditor,
@@ -183,6 +184,10 @@ export const router = createBrowserRouter([
       {
         path: '/admin/bastion',
         element: <AdminGuard><Wrap><AdminBastion /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/termix-instances',
+        element: <AdminGuard><Wrap><AdminTermix /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/workflow',

@@ -732,6 +732,25 @@
       "missing": "URL, hôte et rôle sont requis pour activer le provisioning.",
       "save": "Enregistrer",
       "saved": "Config bastion enregistrée"
+    },
+    "termix": {
+      "navLabel": "Instances Termix",
+      "title": "Registre d'instances Termix",
+      "intro": "Serveurs Termix connus du portail. Chaque instance porte son URL, l'apikey admin (secret système) et l'éventuel client OIDC Keycloak. L'instance par défaut est utilisée quand aucune n'est explicitement choisie.",
+      "add": "Ajouter une instance",
+      "edit": "Modifier l'instance",
+      "empty": "Aucune instance Termix enregistrée.",
+      "dialogHint": "L'apikey n'est jamais affichée : on référence un secret système existant.",
+      "name": "Nom",
+      "url": "URL Termix",
+      "apikeySecret": "Secret apikey",
+      "apikeySecretPlaceholder": "Choisir un secret système…",
+      "apikeySecretHint": "Secret système portant l'apikey admin Termix (tmx_…). Se gère dans l'écran des secrets d'automate.",
+      "oidcClientId": "Client OIDC Keycloak",
+      "oidcClientIdHint": "Identifiant du client Keycloak de cette instance Termix (optionnel).",
+      "isDefault": "Instance par défaut",
+      "isDefaultHint": "Une seule instance peut être par défaut ; l'activer décoche les autres.",
+      "defaultBadge": "défaut"
     }
   },
   "errors": {
