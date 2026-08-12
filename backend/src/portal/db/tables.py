@@ -1068,6 +1068,24 @@ termix_instance = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
+# Portée user→host SSH (spec 18 T3). N-N pure : quel user a accès à quel host
+# Termix (= un workspace SSH publié, identifié par `ws_id`). Consulté par le
+# provisioning (T5) pour partager le host aux seuls users accordés, et par le
+# sélecteur de host de la page Utilisateurs (T4). PK composite (login, ws_id) ;
+# CASCADE des deux côtés (suppression user ou workspace ⇒ grants effacés).
+user_host_grant = Table(
+    "user_host_grant",
+    metadata,
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "ws_id",
+        Text,
+        ForeignKey("workspace_status.ws_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 # Un automate = « sur tel(s) event(s), exécute l'arbre de règle `tree` ».
 # `position` = ordre d'évaluation global (drag&drop) ; `stop_chain` = chaîne de
 # responsabilité (match + exécution OK → event consommé, priorités inférieures

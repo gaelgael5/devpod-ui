@@ -124,6 +124,13 @@ async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
         _log.info("user_db_row_lazy_created", login=login)
 
 
+async def user_exists_db(login: str, conn: AsyncConnection) -> bool:
+    """True si la row users existe (garde de validation, spec 18 T3)."""
+    return (
+        await conn.execute(select(users.c.login).where(users.c.login == login))
+    ).scalar_one_or_none() is not None
+
+
 async def list_workspace_refs(login: str | None, conn: AsyncConnection) -> list[dict[str, Any]]:
     """Référentiel léger des workspaces déclarés : `login`, `name`, `host` (nœud).
 

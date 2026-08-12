@@ -172,3 +172,29 @@ async def list_all_status_db(conn: AsyncConnection) -> list[dict[str, Any]]:
 
 async def delete_status_db(ws_id: str, conn: AsyncConnection) -> None:
     await conn.execute(delete(workspace_status).where(workspace_status.c.ws_id == ws_id))
+
+
+async def list_ssh_hosts_db(conn: AsyncConnection) -> list[dict[str, Any]]:
+    """Univers des hosts SSH publiés (spec 18 T3) : workspaces ayant un `ssh_port`.
+
+    C'est l'ensemble sélectionnable par le sélecteur de host de la page
+    Utilisateurs (T4). Retourne {ws_id, login, host_name (node), ssh_port},
+    ordonné par ws_id.
+    """
+    rows = (
+        (
+            await conn.execute(
+                select(
+                    workspace_status.c.ws_id,
+                    workspace_status.c.login,
+                    workspace_status.c.host_name,
+                    workspace_status.c.ssh_port,
+                )
+                .where(workspace_status.c.ssh_port.is_not(None))
+                .order_by(workspace_status.c.ws_id)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(r) for r in rows]
