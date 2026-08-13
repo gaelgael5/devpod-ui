@@ -93,7 +93,10 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
     if not valid:
         _log.warning("local_login_failed", username=credentials.username)
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    await provision_user(login=settings.local_user, sub="local", data_root=_data_root())
+    # Login local = admin (rôle admin attribué en session ci-dessous) → persiste is_admin.
+    await provision_user(
+        login=settings.local_user, sub="local", data_root=_data_root(), is_admin=True
+    )
     request.session.setdefault("session_id", str(uuid.uuid4()))
     # Horodatage de login absolu : borne l'âge maximal de la session indépendamment
     # du max_age glissant du cookie (bug 032).
