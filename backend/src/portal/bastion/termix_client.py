@@ -235,6 +235,16 @@ class TermixClient:
                     n += 1
         return n
 
+    async def link_oidc_to_password(self, oidc_user_id: str, target_username: str) -> None:
+        """Lie un compte OIDC au compte local `target_username` (`POST
+        /users/link-oidc-to-password`). Après ça, le login OIDC utilise le compte
+        local (qui possède les hosts) → un seul compte effectif (spec 18 T5)."""
+        await self._req(
+            "POST",
+            "/users/link-oidc-to-password",
+            json={"oidcUserId": oidc_user_id, "targetUsername": target_username},
+        )
+
     async def delete_user(self, *, user_id: str | None = None, username: str | None = None) -> None:
         """Supprime un utilisateur (`DELETE /users/delete-user`), par `userId` OU
         `username` (l'API accepte les deux ; `username` sert aux comptes OIDC nommés

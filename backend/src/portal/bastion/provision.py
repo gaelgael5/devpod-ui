@@ -368,9 +368,11 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
                     pending.append(f"{lg}@{inst.get('name', inst_id)}")
                     continue
                 await tx.share_host_to_user(int(rec["host_id"]), uid)
-            # Partage au compte OIDC de CHAQUE accessor (proprio inclus : il se
-            # connecte en OIDC) — clé = `email` + `is_oidc` (Termix `name_path=email`,
-            # doublon de username toléré). Best-effort : pas de compte OIDC → on saute.
+            # LIER le compte OIDC de chaque accessor à son compte interne (email)
+            # plutôt que partager : `link-oidc-to-password` fusionne l'OIDC dans le
+            # compte local → le login OIDC utilise LE compte interne (propriétaire des
+            # hosts) → un seul compte, plus de partage. Best-effort ; idempotent (une
+            # fois lié, plus de compte OIDC séparé → find renvoie None au prochain tour).
             for lg in accessors:
                 if inst_id not in per_user_instances[lg]:
                     continue
@@ -378,15 +380,19 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
                 if not email:
                     continue
                 oidc_uid = await tx.find_user_id(email, oidc=True)
-                if oidc_uid is not None:
-                    await tx.share_host_to_user(int(rec["host_id"]), oidc_uid)
+                if oidc_uid is None:
+                    continue
+                try:
+                    await tx.link_oidc_to_password(oidc_uid, email)
                     _log.info(
-                        "bastion_share_oidc",
+                        "termix_oidc_linked",
                         login=lg,
                         email=email,
-                        found=oidc_uid,
+                        oidc_uid=oidc_uid,
                         instance=inst.get("name"),
                     )
+                except Exception as exc:
+                    _log.warning("termix_oidc_link_failed", login=lg, email=email, error=str(exc))
 
     await _save_state(ws_id, {"login": login, "key": private, "instances": new_instances})
     _log.info(
