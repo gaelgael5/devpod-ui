@@ -56,6 +56,11 @@ def _slug(ws_id: str) -> str:
 _INIT_PASSWORD = "1234"
 
 
+def _apikey_expiry() -> str:
+    """Expiration courte (filet) des apikeys éphémères mintées pour un user."""
+    return (datetime.now(UTC) + timedelta(minutes=10)).isoformat()
+
+
 def enabled() -> bool:
     """True si le provisioning Termix est activé (toggle maître)."""
     return bool(load_global().bastion.enabled)
@@ -269,9 +274,8 @@ async def _ensure_host_owned_by_user(
         return prev
     owner_uid = await admin_tx.find_user_id(owner_email) if owner_email else None
     if owner_uid is not None:
-        expiry = (datetime.now(UTC) + timedelta(minutes=10)).isoformat()
         key_id, owner_token = await admin_tx.create_apikey_for_user(
-            owner_uid, f"portal-provision-{ws_id}", expiry
+            owner_uid, f"portal-provision-{ws_id}", _apikey_expiry()
         )
         if owner_token:
             try:
@@ -417,27 +421,48 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
     warnings: list[str] = []
     apikey = await _apikey(inst["apikey_secret"], conn)
     email = (await owner_identity_subject(login)).get("email")
-    owned = [h["ws_id"] for h in await list_ssh_hosts_db(conn) if h.get("login") == login]
+    # Hosts que l'user possède sur cette instance (depuis l'état) + purge de l'état.
+    to_delete: list[tuple[Any, Any]] = []
+    for h in await list_ssh_hosts_db(conn):
+        if h.get("login") != login:
+            continue
+        state = await _load_state(h["ws_id"])
+        if not state:
+            continue
+        instances = dict(state.get("instances", {}))
+        rec = instances.pop(instance_id, None)
+        if rec is not None:
+            to_delete.append((rec.get("host_id"), rec.get("cred_id")))
+            await _save_state(h["ws_id"], {**state, "instances": instances})
+
     async with TermixClient(inst["url"], apikey) as tx:
-        for ws_id in owned:
-            state = await _load_state(ws_id)
-            if not state:
-                continue
-            instances = dict(state.get("instances", {}))
-            rec = instances.pop(instance_id, None)
-            if rec is None:
-                continue
-            try:
-                if rec.get("host_id"):
-                    await tx.delete_host(int(rec["host_id"]))
-                if rec.get("cred_id"):
-                    await tx.delete_credential(int(rec["cred_id"]))
-            except Exception as exc:
-                _log.warning("deprovision_user_host_failed", ws_id=ws_id, error=str(exc))
-                warnings.append(f"{ws_id} : {exc}")
-            await _save_state(ws_id, {**state, "instances": instances})
+        uid = await tx.find_user_id(email) if email else None
+        # Supprimer les hosts EN TANT QUE l'user (owner) : Termix refuse la suppression
+        # du compte (500) tant qu'il possède des hosts, et l'admin ne peut pas
+        # supprimer les hosts d'un autre user → on minte sa clé éphémère.
+        if uid and to_delete:
+            key_id, token = await tx.create_apikey_for_user(
+                uid, f"portal-deprovision-{login}", _apikey_expiry()
+            )
+            if token:
+                try:
+                    async with TermixClient(inst["url"], token) as otx:
+                        for host_id, cred_id in to_delete:
+                            try:
+                                if host_id:
+                                    await otx.delete_host(int(host_id))
+                                if cred_id:
+                                    await otx.delete_credential(int(cred_id))
+                            except Exception as exc:
+                                warnings.append(f"host {host_id} : {exc}")
+                finally:
+                    if key_id:
+                        try:
+                            await tx.delete_apikey(key_id)
+                        except Exception:
+                            _log.warning("termix_apikey_cleanup_failed", key_id=key_id)
+        # Puis supprimer le compte (username=email) — best-effort.
         if email:
-            # Compte portail nommé par l'email → suppression directe par username.
             try:
                 await tx.delete_user(username=email)
                 _log.info(
