@@ -180,6 +180,28 @@ async def test_list_host_ids_contract_path() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_hosts_returns_dicts() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert (req.method, req.url.path) == ("GET", "/host/db/host")
+        return httpx.Response(
+            200,
+            json={"hosts": [{"id": 7, "name": "ws-a", "credentialId": 3}, {"nope": 1}, "x"]},
+        )
+
+    c = _client_with(handler)
+    hosts = await c.list_hosts()
+    await c._client.aclose()  # type: ignore[union-attr]
+    assert hosts == [{"id": 7, "name": "ws-a", "credentialId": 3}, {"nope": 1}]
+
+
+@pytest.mark.asyncio
+async def test_list_hosts_empty_on_error() -> None:
+    c = _client_with(lambda req: httpx.Response(500))
+    assert await c.list_hosts() == []
+    await c._client.aclose()  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
 async def test_list_host_ids_inconclusive_on_error() -> None:
     # Route absente / forme inattendue → None (l'appelant ne conclut pas à la disparition).
     c = _client_with(lambda req: httpx.Response(404))

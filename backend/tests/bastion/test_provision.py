@@ -70,6 +70,9 @@ class _FakeTx:
     async def list_host_ids(self) -> list[int] | None:
         return self.host_ids
 
+    async def list_hosts(self) -> list[dict]:
+        return []
+
     async def create_credential(self, name: str, user: str, priv: str) -> int:
         self.created.append(("cred", name, user))
         return 100

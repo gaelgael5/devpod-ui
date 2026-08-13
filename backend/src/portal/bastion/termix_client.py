@@ -146,6 +146,22 @@ class TermixClient:
             return None
         return [i for i in (_extract_id(it) for it in items) if i is not None]
 
+    async def list_hosts(self) -> list[dict[str, Any]]:
+        """Hosts existants avec leurs champs bruts (id, name, credentialId, …).
+
+        `GET /host/db/host`. Retourne `[]` si erreur / forme inattendue. Sert au
+        nettoyage par NOM (dé-provisioning d'un workspace : supprimer TOUS les
+        hosts qui portent son `ws_id`, doublons compris)."""
+        try:
+            resp = await self._req("GET", "/host/db/host")
+            data = resp.json()
+        except Exception:
+            return []
+        items: Any = data if isinstance(data, list) else None
+        if items is None and isinstance(data, dict):
+            items = data.get("hosts")
+        return [it for it in items if isinstance(it, dict)] if isinstance(items, list) else []
+
     async def share_host_to_role(
         self, host_id: int, role_id: int, permission: str = "connect"
     ) -> None:

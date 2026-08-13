@@ -19,6 +19,7 @@ accessors** (identifiés par email). Compte Termix absent → « en attente » (
 
 from __future__ import annotations
 
+import contextlib
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -59,6 +60,63 @@ _INIT_PASSWORD = "1234"
 def _apikey_expiry() -> str:
     """Expiration courte (filet) des apikeys éphémères mintées pour un user."""
     return (datetime.now(UTC) + timedelta(minutes=10)).isoformat()
+
+
+def _as_int(v: Any) -> int | None:
+    """Id Termix → int (id host/credential est numérique) ; None sinon."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, str) and v.isdigit():
+        return int(v)
+    return None
+
+
+async def _delete_hosts_named(tx: TermixClient, ws_id: str) -> int:
+    """Supprime TOUS les hosts (+ leur credential) dont le `name` == `ws_id`.
+
+    Vu par `tx` (donc scopé au propriétaire de l'apikey). Nettoie les doublons /
+    orphelins d'un delete non propagé. Retourne le nombre de hosts supprimés."""
+    removed = 0
+    for h in await tx.list_hosts():
+        if h.get("name") != ws_id:
+            continue
+        hid = _as_int(h.get("id") if h.get("id") is not None else h.get("hostId"))
+        if hid is not None:
+            await tx.delete_host(hid)
+            removed += 1
+        cid = _as_int(h.get("credentialId") or h.get("credential_id"))
+        if cid is not None:
+            await tx.delete_credential(cid)
+    return removed
+
+
+async def _delete_ws_hosts_as_owner(
+    admin_tx: TermixClient, inst: dict[str, Any], ws_id: str, owner_email: str | None
+) -> int:
+    """Supprime les hosts nommés `ws_id` sur l'instance EN TANT QUE le propriétaire.
+
+    Les hosts sont possédés par le user (mint d'apikey éphémère au provisioning) :
+    l'apikey admin ne les voit pas et ne peut pas les supprimer. On minte donc la
+    clé du propriétaire, on supprime avec, puis on la jette. Fallback admin pour les
+    hosts admin-owned (ancien comportement / provisioning en secours)."""
+    owner_uid = await admin_tx.find_user_id(owner_email) if owner_email else None
+    if owner_uid is not None:
+        key_id, token = await admin_tx.create_apikey_for_user(
+            owner_uid, f"portal-deprovision-{ws_id}", _apikey_expiry()
+        )
+        if token:
+            try:
+                async with TermixClient(inst["url"], token) as owner_tx:
+                    return await _delete_hosts_named(owner_tx, ws_id)
+            finally:
+                if key_id:
+                    try:
+                        await admin_tx.delete_apikey(key_id)
+                    except Exception:
+                        _log.warning("termix_apikey_cleanup_failed", ws_id=ws_id, key_id=key_id)
+    return await _delete_hosts_named(admin_tx, ws_id)
 
 
 def enabled() -> bool:
@@ -230,6 +288,10 @@ async def _ensure_host_on_instance(
             await tx.delete_host(int(host_id))
         if prev.get("cred_id"):
             await tx.delete_credential(int(prev["cred_id"]))
+    # Idempotence par NOM : purge tout host résiduel du même ws_id (doublon /
+    # orphelin d'un delete non propagé) AVANT d'en recréer un propre — sinon un
+    # état vidé + host survivant = doublon (cas restart après stop KO).
+    await _delete_hosts_named(tx, ws_id)
     # Nom de credential UNIQUE (suffixe GUID) : le nom n'est qu'un label (le suivi
     # se fait par cred_id), et un nom stable provoque des 409 « déjà existant » côté
     # Termix quand un credential résiduel traîne (recréation, delete non propagé,
@@ -546,18 +608,26 @@ async def deprovision_workspace(
     if state is None:
         return {"ws_id": ws_id, "termix_deleted": False, "instances": []}
     instances: dict[str, Any] = dict(state.get("instances", {}))
+    # Union état + instances actuellement résolues pour le propriétaire : un stop
+    # précédent qui a échoué à supprimer (clé admin sur host user-owned) a pu vider
+    # l'état tout en laissant des hosts → on balaie aussi les instances courantes.
+    inst_ids = set(instances)
+    async with _get_engine().connect() as conn:
+        owner_email = (await owner_identity_subject(login)).get("email")
+        with contextlib.suppress(Exception):
+            inst_ids |= {i["id"] for i in await uti.resolve_instances_for_user(conn, login)}
     deleted: list[str] = []
-    for inst_id, rec in instances.items():
+    for inst_id in inst_ids:
         async with _get_engine().connect() as conn:
             inst = await ti.get(conn, inst_id)
             if inst is None:
                 continue
             apikey = await _apikey(inst["apikey_secret"], conn)
         async with TermixClient(inst["url"], apikey) as tx:
-            if rec.get("host_id"):
-                await tx.delete_host(int(rec["host_id"]))
-            if rec.get("cred_id"):
-                await tx.delete_credential(int(rec["cred_id"]))
+            # Suppression par NOM et EN TANT QUE le propriétaire (les hosts lui
+            # appartiennent : l'apikey admin ne les voit pas). Nettoie les doublons.
+            n = await _delete_ws_hosts_as_owner(tx, inst, ws_id, owner_email)
+            _log.info("bastion_hosts_removed", ws_id=ws_id, instance=inst.get("name"), count=n)
         deleted.append(inst_id)
     if purge_state:
         async with _get_engine().begin() as conn:
