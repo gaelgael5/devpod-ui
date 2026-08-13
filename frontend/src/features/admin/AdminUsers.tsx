@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -42,6 +43,9 @@ function InstancePicker({ user }: { user: AdminUser }) {
   const nameOf = (id: string) => instances.find((i) => i.id === id)?.name ?? id
   const available = instances.filter((i) => !selected.includes(i.id))
   const atCap = selected.length >= MAX_TERMIX_INSTANCES
+  // Le PUT est SYNCHRONE (attend la fin du provisioning Termix) : tant qu'il tourne on
+  // désactive tout + spinner → pas de clic concurrent, plus de course (spec 18).
+  const busy = setInstances.isPending
 
   function update(ids: string[]) {
     setInstances.mutate({ login: user.login, instanceIds: ids })
@@ -49,7 +53,7 @@ function InstancePicker({ user }: { user: AdminUser }) {
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {selected.length === 0 && (
+      {selected.length === 0 && !busy && (
         <span className="text-xs text-muted-foreground">{t('admin.users.inheritDefault')}</span>
       )}
       {selected.map((id) => (
@@ -58,29 +62,38 @@ function InstancePicker({ user }: { user: AdminUser }) {
           <button
             type="button"
             aria-label={t('admin.users.remove', { name: nameOf(id) })}
-            className="ml-0.5 text-muted-foreground hover:text-foreground"
+            className="ml-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40"
+            disabled={busy}
             onClick={() => update(selected.filter((x) => x !== id))}
           >
             ×
           </button>
         </Badge>
       ))}
-      {!atCap && available.length > 0 && (
-        <Select value={ADD} onValueChange={(v) => v !== ADD && update([...selected, v])}>
-          <SelectTrigger className="h-7 w-auto gap-1 text-xs">
-            <SelectValue placeholder={t('admin.users.addInstance')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ADD} disabled>
-              {t('admin.users.addInstance')}
-            </SelectItem>
-            {available.map((i) => (
-              <SelectItem key={i.id} value={i.id}>
-                {i.name}
+      {busy ? (
+        <Loader2
+          className="h-3.5 w-3.5 animate-spin text-muted-foreground"
+          aria-label={t('admin.users.provisioning')}
+        />
+      ) : (
+        !atCap &&
+        available.length > 0 && (
+          <Select value={ADD} onValueChange={(v) => v !== ADD && update([...selected, v])}>
+            <SelectTrigger className="h-7 w-auto gap-1 text-xs">
+              <SelectValue placeholder={t('admin.users.addInstance')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ADD} disabled>
+                {t('admin.users.addInstance')}
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+              {available.map((i) => (
+                <SelectItem key={i.id} value={i.id}>
+                  {i.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )
       )}
     </div>
   )

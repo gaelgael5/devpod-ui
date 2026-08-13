@@ -766,6 +766,7 @@
       "hostGrantsHint": "Cocher les hosts SSH (workspaces publiés) auxquels cet utilisateur a accès dans Termix.",
       "noHosts": "Aucun host SSH publié pour le moment.",
       "addInstance": "Ajouter…",
+      "provisioning": "Provisioning en cours…",
       "remove": "Retirer {{name}}"
     }
   },

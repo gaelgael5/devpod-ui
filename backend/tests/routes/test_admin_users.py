@@ -54,6 +54,24 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def _sync_servers(login: str) -> None:
         return None
 
+    # La route PUT gère ses propres transactions (_get_engine().begin()/connect()) pour
+    # committer l'association AVANT le provisioning synchrone → on mocke l'engine par un
+    # faux dont le contexte cède une conn None (les fonctions DB ci-dessus l'ignorent).
+    class _FakeCtx:
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, *a: object) -> bool:
+            return False
+
+    class _FakeEngine:
+        def begin(self) -> _FakeCtx:
+            return _FakeCtx()
+
+        def connect(self) -> _FakeCtx:
+            return _FakeCtx()
+
+    monkeypatch.setattr(admin_users, "_get_engine", lambda: _FakeEngine())
     monkeypatch.setattr(admin_users, "sync_server_hosts_for_user", _sync_servers)
     monkeypatch.setattr(admin_users, "list_users_db", _list_users)
     monkeypatch.setattr(admin_users, "user_exists_db", _user_exists)
