@@ -426,8 +426,7 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
     warnings: list[str] = []
     apikey = await _apikey(inst["apikey_secret"], conn)
     email = (await owner_identity_subject(login)).get("email")
-    # Hosts que l'user possède sur cette instance (depuis l'état) + purge de l'état.
-    to_delete: list[tuple[Any, Any]] = []
+    # Purge de l'état : entrées de cette instance pour les workspaces de l'user.
     for h in await list_ssh_hosts_db(conn):
         if h.get("login") != login:
             continue
@@ -435,29 +434,25 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
         if not state:
             continue
         instances = dict(state.get("instances", {}))
-        rec = instances.pop(instance_id, None)
-        if rec is not None:
-            to_delete.append((rec.get("host_id"), rec.get("cred_id")))
+        if instances.pop(instance_id, None) is not None:
             await _save_state(h["ws_id"], {**state, "instances": instances})
 
     async with TermixClient(inst["url"], apikey) as tx:
         uid = await tx.find_user_id(email) if email else None
-        # Supprimer les hosts EN TANT QUE l'user (owner) : Termix refuse la suppression
-        # du compte (500) tant qu'il possède des hosts, et l'admin ne peut pas
-        # supprimer les hosts d'un autre user → on minte sa clé éphémère.
-        if uid and to_delete:
+        # Supprimer TOUS les hosts de l'user EN TANT QUE lui (liste owner-scoped) :
+        # nettoie doublons/orphelins ET débloque la suppression du compte (Termix
+        # refuse un delete-user en 500 tant que le compte possède des hosts ; l'admin
+        # ne peut pas supprimer les hosts d'un autre user → clé éphémère de l'user).
+        if uid is not None:
             key_id, token = await tx.create_apikey_for_user(
                 uid, f"portal-deprovision-{login}", _apikey_expiry()
             )
             if token:
                 try:
                     async with TermixClient(inst["url"], token) as otx:
-                        for host_id, cred_id in to_delete:
+                        for host_id in await otx.list_host_ids() or []:
                             try:
-                                if host_id:
-                                    await otx.delete_host(int(host_id))
-                                if cred_id:
-                                    await otx.delete_credential(int(cred_id))
+                                await otx.delete_host(host_id)
                             except Exception as exc:
                                 warnings.append(f"host {host_id} : {exc}")
                 finally:
