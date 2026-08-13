@@ -92,7 +92,14 @@ class _FakeTx:
 async def test_ensure_host_creates_when_no_prev() -> None:
     tx = _FakeTx()
     rec = await p._ensure_host_on_instance(tx, "admin-doc", "PK", "1.2.3.4", 50001, "vscode", None)  # type: ignore[arg-type]
-    assert rec == {"host_id": 200, "cred_id": 100, "ip": "1.2.3.4", "port": 50001, "user": "vscode"}
+    assert rec == {
+        "host_id": 200,
+        "cred_id": 100,
+        "ip": "1.2.3.4",
+        "port": 50001,
+        "user": "vscode",
+        "owner": None,
+    }
     assert tx.created[0][0] == "cred" and tx.created[1][0] == "host"
     assert tx.deleted == []
 
@@ -122,6 +129,57 @@ async def test_ensure_host_recreates_when_lost() -> None:
     rec = await p._ensure_host_on_instance(tx, "admin-doc", "PK", "1.2.3.4", 50001, "vscode", prev)  # type: ignore[arg-type]
     assert rec["host_id"] == 200  # recréé (le fake renvoie 200)
     assert ("host", 200) in tx.deleted
+
+
+@pytest.mark.asyncio
+async def test_ensure_host_keeps_when_same_owner() -> None:
+    prev = {
+        "host_id": 200,
+        "cred_id": 100,
+        "ip": "1.2.3.4",
+        "port": 50001,
+        "user": "vscode",
+        "owner": "oidc-uid",
+    }
+    tx = _FakeTx(host_ids=[200])
+    rec = await p._ensure_host_on_instance(
+        tx,  # type: ignore[arg-type]
+        "admin-doc",
+        "PK",
+        "1.2.3.4",
+        50001,
+        "vscode",
+        prev,
+        owner="oidc-uid",
+    )
+    assert rec == prev
+    assert tx.created == [] and tx.deleted == []
+
+
+@pytest.mark.asyncio
+async def test_ensure_host_recreates_when_owner_changed() -> None:
+    # Ré-appropriation : le host passe du compte placeholder au compte OIDC → recréé.
+    prev = {
+        "host_id": 200,
+        "cred_id": 100,
+        "ip": "1.2.3.4",
+        "port": 50001,
+        "user": "vscode",
+        "owner": "old-uid",
+    }
+    tx = _FakeTx(host_ids=[200])
+    rec = await p._ensure_host_on_instance(
+        tx,  # type: ignore[arg-type]
+        "admin-doc",
+        "PK",
+        "1.2.3.4",
+        50001,
+        "vscode",
+        prev,
+        owner="oidc-uid",
+    )
+    assert rec["owner"] == "oidc-uid" and rec["host_id"] == 200
+    assert ("host", 200) in tx.deleted and ("cred", 100) in tx.deleted
 
 
 def test_reconcile_orphans_removed() -> None:
