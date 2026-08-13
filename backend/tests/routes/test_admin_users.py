@@ -45,9 +45,13 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def _ensure_account(conn: Any, login: str, ids: list[str]) -> list[str]:
         return []
 
+    async def _provision_access(conn: Any, login: str) -> list[str]:
+        return []
+
     monkeypatch.setattr(admin_users, "list_users_db", _list_users)
     monkeypatch.setattr(admin_users, "user_exists_db", _user_exists)
     monkeypatch.setattr(admin_users, "ensure_termix_account", _ensure_account)
+    monkeypatch.setattr(admin_users, "provision_user_access", _provision_access)
     monkeypatch.setattr(admin_users.ti, "get", _ti_get)
     monkeypatch.setattr(admin_users.uti, "set_instances_for_user", _set)
     monkeypatch.setattr(admin_users.uti, "list_instance_ids", _list_ids)

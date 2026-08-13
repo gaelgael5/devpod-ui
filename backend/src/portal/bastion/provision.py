@@ -29,7 +29,7 @@ from ..db import user_host_grant as uhg
 from ..db import user_termix_instance as uti
 from ..db.engine import _get_engine
 from ..db.user_config import get_workspace_profile_ref_db, owner_identity_subject
-from ..db.workspace_status import get_status_db
+from ..db.workspace_status import get_status_db, list_ssh_hosts_db
 from ..devpod.env import _find_host
 from ..profiles.repository import ProfileError
 from ..secrets import system as sysec
@@ -294,11 +294,39 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
         instances=list(new_instances),
         pending=pending,
     )
+    # `pending` = comptes Termix pas encore créés (partage différé) : on NE lève PAS
+    # (sinon 502) — les comptes sont normalement créés à l'association ; on remonte
+    # simplement l'info. Un re-provision les rattrapera.
     if pending:
-        raise RuntimeError(
-            "comptes Termix pas encore créés (rejeu au prochain event) : " + ", ".join(pending)
-        )
-    return {"ws_id": ws_id, "instances": list(new_instances), "created": True, "pending": []}
+        _log.warning("bastion_share_pending", ws_id=ws_id, pending=pending)
+    return {"ws_id": ws_id, "instances": list(new_instances), "created": True, "pending": pending}
+
+
+async def provision_user_access(conn: Any, login: str) -> list[str]:
+    """(Ré)partage à `login`, sur ses instances, tous les hosts SSH auxquels il a
+    accès — appelé à l'association user↔instance (spec 18 T5) pour que « associer »
+    suffise (plus besoin d'attendre un event workspace).
+
+    Accès = workspaces publiés dont il est propriétaire + hosts accordés (T3). Pour
+    chaque, on rejoue `provision_workspace(owner, ws_id)` (idempotent, fan-out sur
+    toutes les instances des accessors). Best-effort → liste d'avertissements.
+    """
+    if not enabled():
+        return []
+    owned = [h["ws_id"] for h in await list_ssh_hosts_db(conn) if h.get("login") == login]
+    granted = await uhg.list_hosts_for_user(conn, login)
+    warnings: list[str] = []
+    for ws_id in sorted(set(owned) | set(granted)):
+        status = await get_status_db(ws_id, conn)
+        owner = (status or {}).get("login") or login
+        try:
+            res = await provision_workspace(str(owner), ws_id)
+            if res.get("pending"):
+                warnings.append(f"{ws_id} : partage en attente {res['pending']}")
+        except Exception as exc:  # best-effort : n'annule pas l'association
+            _log.warning("provision_user_access_failed", login=login, ws_id=ws_id, error=str(exc))
+            warnings.append(f"{ws_id} : {exc}")
+    return warnings
 
 
 async def deprovision_workspace(login: str, ws_id: str) -> dict[str, Any]:
