@@ -18,7 +18,11 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
-from ..bastion.provision import ensure_termix_account, provision_user_access
+from ..bastion.provision import (
+    deprovision_user_from_instance,
+    ensure_termix_account,
+    provision_user_access,
+)
 from ..db import termix_instance as ti
 from ..db import user_termix_instance as uti
 from ..db.engine import get_conn
@@ -54,10 +58,14 @@ async def set_termix_instances(
     for i in ids:
         if await ti.get(conn, i) is None:
             raise HTTPException(status_code=422, detail=f"instance Termix introuvable : {i}")
+    removed = set(await uti.list_instance_ids(conn, login)) - set(ids)
     await uti.set_instances_for_user(conn, login, ids)
     # Spec 18 T5 — « associer » suffit : (1) crée le compte Termix (username=email)
-    # sur les instances rattachées, (2) partage immédiatement les hosts SSH auxquels
-    # l'user a accès. Best-effort : les échecs sont remontés sans annuler l'association.
+    # sur les instances rattachées + partage les hosts ; (2) sur les instances RETIRÉES,
+    # supprime les hosts de l'user + son compte Termix (il ne peut plus s'y connecter).
+    # Best-effort : les échecs sont remontés sans annuler l'association.
     warnings = await ensure_termix_account(conn, login, ids)
     warnings += await provision_user_access(conn, login)
+    for inst_id in removed:
+        warnings += await deprovision_user_from_instance(conn, login, inst_id)
     return {"instance_ids": await uti.list_instance_ids(conn, login), "termix_warnings": warnings}

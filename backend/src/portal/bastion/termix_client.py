@@ -195,6 +195,18 @@ class TermixClient:
         """Supprime une apikey (`DELETE /users/api-keys/{keyId}`) ; 404 toléré."""
         await self._req("DELETE", f"/users/api-keys/{key_id}", allow_404=True)
 
+    async def delete_user(self, *, user_id: str | None = None, username: str | None = None) -> None:
+        """Supprime un utilisateur (`DELETE /users/delete-user`), par `userId` OU
+        `username` (l'API accepte les deux ; `username` sert aux comptes OIDC nommés
+        par le claim `name`). Dé-association user↔instance (spec 18 T5) — l'user ne
+        peut plus se connecter. 404 toléré (déjà supprimé)."""
+        body: dict[str, str] = {}
+        if user_id is not None:
+            body["userId"] = user_id
+        if username is not None:
+            body["username"] = username
+        await self._req("DELETE", "/users/delete-user", json=body, allow_404=True)
+
     async def find_user_id(self, username: str) -> str | None:
         """`userId` Termix du user dont `username == username` (= le `sub` OIDC).
 

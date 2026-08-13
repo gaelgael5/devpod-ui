@@ -64,6 +64,23 @@ async def test_create_credential_and_host_and_share() -> None:
 
 
 @pytest.mark.asyncio
+async def test_delete_user_by_username() -> None:
+    seen: list[tuple[str, str, dict]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content) if req.content else {}
+        seen.append((req.method, req.url.path, body))
+        return httpx.Response(200, json={"message": "ok"})
+
+    c = _client_with(handler)
+    await c.delete_user(username="gaelgael5@gmail.com")
+    await c.delete_user(user_id="RT23SEGfo")
+    await c._client.aclose()  # type: ignore[union-attr]
+    assert seen[0] == ("DELETE", "/users/delete-user", {"username": "gaelgael5@gmail.com"})
+    assert seen[1] == ("DELETE", "/users/delete-user", {"userId": "RT23SEGfo"})
+
+
+@pytest.mark.asyncio
 async def test_create_apikey_for_user_and_delete() -> None:
     seen: list[tuple[str, str, dict]] = []
 

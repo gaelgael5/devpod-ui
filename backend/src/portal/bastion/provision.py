@@ -405,6 +405,44 @@ async def provision_user_access(conn: Any, login: str) -> list[str]:
     return warnings
 
 
+async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str) -> list[str]:
+    """Dé-association user↔instance (spec 18 T5) : sur l'instance retirée, supprime
+    les hosts que l'user possède (+ leur état) puis **supprime son compte Termix**
+    (il ne peut plus s'y connecter). Best-effort → liste d'avertissements."""
+    if not enabled():
+        return []
+    inst = await ti.get(conn, instance_id)
+    if inst is None:
+        return []
+    warnings: list[str] = []
+    apikey = await _apikey(inst["apikey_secret"], conn)
+    email = (await owner_identity_subject(login)).get("email")
+    owned = [h["ws_id"] for h in await list_ssh_hosts_db(conn) if h.get("login") == login]
+    async with TermixClient(inst["url"], apikey) as tx:
+        for ws_id in owned:
+            state = await _load_state(ws_id)
+            if not state:
+                continue
+            instances = dict(state.get("instances", {}))
+            rec = instances.pop(instance_id, None)
+            if rec is None:
+                continue
+            try:
+                if rec.get("host_id"):
+                    await tx.delete_host(int(rec["host_id"]))
+                if rec.get("cred_id"):
+                    await tx.delete_credential(int(rec["cred_id"]))
+            except Exception as exc:
+                _log.warning("deprovision_user_host_failed", ws_id=ws_id, error=str(exc))
+                warnings.append(f"{ws_id} : {exc}")
+            await _save_state(ws_id, {**state, "instances": instances})
+        if email:
+            # Compte portail nommé par l'email → suppression directe par username.
+            await tx.delete_user(username=email)
+            _log.info("termix_user_deleted", login=login, email=email, instance=inst.get("name"))
+    return warnings
+
+
 async def deprovision_workspace(
     login: str, ws_id: str, *, purge_state: bool = True
 ) -> dict[str, Any]:
