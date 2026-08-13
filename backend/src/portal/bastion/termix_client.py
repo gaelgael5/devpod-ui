@@ -94,6 +94,20 @@ class TermixClient:
         """Supprime un credential ; déjà absent (404) = succès (rejeu idempotent)."""
         await self._req("DELETE", f"/credentials/{credential_id}", allow_404=True)
 
+    async def list_credential_ids(self) -> list[int]:
+        """Ids des credentials visibles (GET /credentials). Vide si forme inattendue."""
+        try:
+            resp = await self._req("GET", "/credentials")
+            data = resp.json()
+        except Exception:
+            return []
+        items: Any = data if isinstance(data, list) else None
+        if items is None and isinstance(data, dict):
+            items = data.get("credentials") or data.get("items")
+        if not isinstance(items, list):
+            return []
+        return [i for i in (_extract_id(it) for it in items) if i is not None]
+
     # ─── Hosts ──────────────────────────────────────────────────────────────
     async def create_host(
         self, name: str, ip: str, port: int, username: str, credential_id: int

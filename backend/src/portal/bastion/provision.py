@@ -455,17 +455,24 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
                                 await otx.delete_host(host_id)
                             except Exception as exc:
                                 warnings.append(f"host {host_id} : {exc}")
+                        # Puis les credentials (sinon delete-user → 500 FK NOT NULL).
+                        for cred_id in await otx.list_credential_ids():
+                            try:
+                                await otx.delete_credential(cred_id)
+                            except Exception as exc:
+                                warnings.append(f"credential {cred_id} : {exc}")
                 finally:
                     if key_id:
                         try:
                             await tx.delete_apikey(key_id)
                         except Exception:
                             _log.warning("termix_apikey_cleanup_failed", key_id=key_id)
-        # Puis supprimer le compte — best-effort. Par userId (la suppression par
-        # username renvoie SQLITE_CONSTRAINT_NOTNULL côté Termix ; le userId est fiable).
-        if uid is not None:
+        # Puis supprimer le compte — best-effort. L'endpoint EXIGE `username`
+        # (email) ; il faut que hosts ET credentials soient supprimés d'abord
+        # (sinon 500 SQLITE_CONSTRAINT_NOTNULL sur une FK).
+        if email and uid is not None:
             try:
-                await tx.delete_user(user_id=uid)
+                await tx.delete_user(username=email)
                 _log.info(
                     "termix_user_deleted", login=login, email=email, instance=inst.get("name")
                 )
