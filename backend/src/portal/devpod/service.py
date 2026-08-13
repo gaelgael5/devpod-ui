@@ -837,8 +837,16 @@ class DevPodService:
                     "recovery_branch": branch,
                 },
             )
-            # Bastion/Termix : la déprovision est pilotée par l'automate abonné à
-            # workspace.deleted (journal app_event) — aucun câblage direct ici.
+            # Déprovision Termix DIRECTE (spec 18 T5) — pas via automate : retire
+            # host + credential sur toutes les instances + le secret d'état.
+            # Best-effort : jamais bloquant pour la suppression.
+            from ..bastion import provision as _bastion
+
+            try:
+                if _bastion.enabled():
+                    await _bastion.deprovision_workspace(login, ws_id)
+            except Exception:
+                _log.warning("bastion_deprovision_on_delete_failed", ws_id=ws_id, exc_info=True)
             return {"deleted": True, "recovery_branch": branch}
 
     async def _purge_agent_config(self, login: str, ws_id: str, ws_name: str) -> None:
@@ -1599,6 +1607,16 @@ class DevPodService:
                         "node": host_name,
                     },
                 )
+                # Provisioning Termix DIRECT (spec 18 T5) — pas via automate (couplage
+                # assumé) : au up réussi, (re)crée + partage le host node_ip:ssh_port
+                # sur les instances des accessors. Best-effort : jamais bloquant.
+                from ..bastion import provision as _bastion
+
+                try:
+                    if _bastion.enabled():
+                        await _bastion.provision_workspace(login, ws_id)
+                except Exception:
+                    _log.warning("bastion_provision_on_up_failed", ws_id=ws_id, exc_info=True)
         except Exception as exc:
             await self._write_status_if_exists(
                 ws_id, "failed", login=login, error=type(exc).__name__
