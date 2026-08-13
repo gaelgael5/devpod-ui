@@ -272,7 +272,9 @@ async def _ensure_host_owned_by_user(
         and prev.get("user") == ws_user
     ):
         return prev
-    owner_uid = await admin_tx.find_user_id(owner_email) if owner_email else None
+    # Compte INTERNE (is_oidc=false) : c'est lui qui possède les hosts (le compte
+    # OIDC, même username=email, ne reçoit qu'un partage).
+    owner_uid = await admin_tx.find_user_id(owner_email, oidc=False) if owner_email else None
     if owner_uid is not None:
         key_id, owner_token = await admin_tx.create_apikey_for_user(
             owner_uid, f"portal-provision-{ws_id}", _apikey_expiry()
@@ -315,16 +317,13 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
         # login → (instances, sub) ; union des instances → dict id→instance.
         per_user_instances: dict[str, set[str]] = {}
         emails: dict[str, str | None] = {}
-        subs: dict[str, str | None] = {}
         union: dict[str, dict[str, Any]] = {}
         for lg in accessors:
             insts = await uti.resolve_instances_for_user(conn, lg)
             per_user_instances[lg] = {i["id"] for i in insts}
             for i in insts:
                 union[i["id"]] = i
-            ident = await owner_identity_subject(lg)
-            emails[lg] = ident.get("email")
-            subs[lg] = ident.get("sub")
+            emails[lg] = (await owner_identity_subject(lg)).get("email")
 
     new_instances: dict[str, Any] = {}
     pending: list[str] = []
@@ -357,7 +356,7 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
                     # Sans email → non partageable (login Termix = email, spec 18 T5).
                     _log.warning("bastion_share_no_email", login=lg, ws_id=ws_id)
                     continue
-                uid = await tx.find_user_id(email)
+                uid = await tx.find_user_id(email, oidc=False)  # compte interne
                 _log.info(
                     "bastion_share_lookup",
                     login=lg,
@@ -370,21 +369,21 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
                     continue
                 await tx.share_host_to_user(int(rec["host_id"]), uid)
             # Partage au compte OIDC de CHAQUE accessor (proprio inclus : il se
-            # connecte en OIDC) — clé = `sub` (username OIDC = sub une fois Termix
-            # aligné). Best-effort : si pas de compte OIDC, on saute (pas pending).
+            # connecte en OIDC) — clé = `email` + `is_oidc` (Termix `name_path=email`,
+            # doublon de username toléré). Best-effort : pas de compte OIDC → on saute.
             for lg in accessors:
                 if inst_id not in per_user_instances[lg]:
                     continue
-                sub = subs.get(lg)
-                if not sub:
+                email = emails.get(lg)
+                if not email:
                     continue
-                oidc_uid = await tx.find_user_id(sub, oidc=True)
+                oidc_uid = await tx.find_user_id(email, oidc=True)
                 if oidc_uid is not None:
                     await tx.share_host_to_user(int(rec["host_id"]), oidc_uid)
                     _log.info(
                         "bastion_share_oidc",
                         login=lg,
-                        sub=sub,
+                        email=email,
                         found=oidc_uid,
                         instance=inst.get("name"),
                     )
@@ -460,7 +459,7 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
             await _save_state(h["ws_id"], {**state, "instances": instances})
 
     async with TermixClient(inst["url"], apikey) as tx:
-        uid = await tx.find_user_id(email) if email else None
+        uid = await tx.find_user_id(email, oidc=False) if email else None  # compte interne
         # Supprimer TOUS les hosts de l'user EN TANT QUE lui (liste owner-scoped) :
         # nettoie doublons/orphelins ET débloque la suppression du compte (Termix
         # refuse un delete-user en 500 tant que le compte possède des hosts ; l'admin
