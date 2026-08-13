@@ -164,6 +164,26 @@ async def test_find_user_id_and_share_to_user() -> None:
 
 
 @pytest.mark.asyncio
+async def test_find_user_ids_returns_all_for_email() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "users": [
+                    {"userId": "int1", "username": "a@x", "is_oidc": False},
+                    {"userId": "oidc2", "username": "a@x", "is_oidc": True},
+                    {"userId": "other", "username": "b@x", "is_oidc": True},
+                ]
+            },
+        )
+
+    c = _client_with(handler)
+    uids = await c.find_user_ids("a@x")
+    await c._client.aclose()  # type: ignore[union-attr]
+    assert uids == ["int1", "oidc2"]  # interne + OIDC, pas les autres emails
+
+
+@pytest.mark.asyncio
 async def test_http_error_raises() -> None:
     c = _client_with(lambda req: httpx.Response(401, text="Missing authentication token"))
     with pytest.raises(RuntimeError, match="401"):

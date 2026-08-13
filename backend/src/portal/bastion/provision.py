@@ -634,12 +634,13 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
             await _save_state(h["ws_id"], {**state, "instances": instances})
 
     async with TermixClient(inst["url"], apikey) as tx:
-        uid = await tx.find_user_id(email) if email else None  # compte du user
-        # Supprimer TOUS les hosts de l'user EN TANT QUE lui (liste owner-scoped) :
-        # nettoie doublons/orphelins ET débloque la suppression du compte (Termix
-        # refuse un delete-user en 500 tant que le compte possède des hosts ; l'admin
-        # ne peut pas supprimer les hosts d'un autre user → clé éphémère de l'user).
-        if uid is not None:
+        # TOUS les comptes portant cet email (interne + OIDC coexistent) : depuis le
+        # passage au déterministe, les hosts vivent sur le compte OIDC — ne nettoyer
+        # que le premier trouvé laissait les hosts sur l'autre compte. On purge chacun.
+        uids = await tx.find_user_ids(email) if email else []
+        for uid in uids:
+            # Supprimer TOUS les hosts du compte EN TANT QUE lui (liste owner-scoped) :
+            # l'admin ne voit pas les hosts d'un autre user → clé éphémère du compte.
             key_id, token = await tx.create_apikey_for_user(
                 uid, f"portal-deprovision-{login}", _apikey_expiry()
             )
@@ -663,7 +664,7 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
                             await tx.delete_apikey(key_id)
                         except Exception:
                             _log.warning("termix_apikey_cleanup_failed", key_id=key_id)
-            # Purge des apikeys RÉSIDUELLES de l'user (portal-provision-* accumulées) :
+            # Purge des apikeys RÉSIDUELLES du compte (portal-provision-* accumulées) :
             # elles bloquent delete-user (FK NOT NULL sur apikey.userId).
             try:
                 n = await tx.delete_user_apikeys(uid, email)
@@ -681,7 +682,7 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
         # variante FOREIGN KEY). En attendant le fix Termix, ce delete échoue → on
         # garde le code (best-effort) : les ACCÈS sont déjà retirés ci-dessus
         # (hosts/credentials/apikeys), seule la coquille du compte subsiste.
-        if email and uid is not None:
+        if email and uids:
             try:
                 await tx.delete_user(username=email)
                 _log.info(

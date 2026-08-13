@@ -299,6 +299,22 @@ class TermixClient:
         )
         return None
 
+    async def find_user_ids(self, username: str) -> list[str]:
+        """TOUS les `userId` portant ce username (compte interne + OIDC coexistent avec
+        le même email). Sert au nettoyage COMPLET à la dé-association — supprimer les
+        hosts sur chacun des comptes, pas seulement le premier trouvé."""
+        resp = await self._req("GET", "/users/list")
+        data = resp.json()
+        items = data if isinstance(data, list) else data.get("users", [])
+        out: list[str] = []
+        for u in items:
+            if not isinstance(u, dict) or u.get("username") != username:
+                continue
+            uid = u.get("userId") if u.get("userId") is not None else u.get("id")
+            if uid is not None:
+                out.append(str(uid))
+        return out
+
     async def share_host_to_user(
         self, host_id: int, user_id: str, permission: str = "connect"
     ) -> None:
