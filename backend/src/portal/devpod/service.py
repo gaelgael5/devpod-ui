@@ -1605,6 +1605,21 @@ class DevPodService:
                 # aucun recreate — rejoué à chaque up, donc un restart suffit.
                 if agents:
                     await self._push_agent_files_safe(login, ws_id, agents, mcp_url, project_root)
+                # ForceCommand ssh-access (spec 18 T1) rafraîchie à chaque up (spec
+                # 35b) : les workspaces existants prennent la version courante au
+                # restart, sans recreate. Gatée dans la commande sur la présence du
+                # script (no-op hors T1). Best-effort : jamais bloquant.
+                try:
+                    from ..wscomponents.registry import tmux_attach_refresh_cmd
+                    from .exec import ws_exec
+
+                    rc, out = await ws_exec(login, ws_id, tmux_attach_refresh_cmd())
+                    if rc != 0:
+                        _log.warning(
+                            "ws_tmux_attach_refresh_failed", ws_id=ws_id, rc=rc, output=out[-300:]
+                        )
+                except Exception:
+                    _log.warning("ws_tmux_attach_refresh_crashed", ws_id=ws_id, exc_info=True)
                 from ..db.user_config import owner_identity_subject
 
                 await emit_event(

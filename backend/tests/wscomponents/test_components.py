@@ -39,6 +39,39 @@ def test_disabled_excluded() -> None:
     assert [c.name for c in ordered_components(comps)] == ["a"]
 
 
+def test_tmux_attach_reaches_portal_sessions() -> None:
+    """La ForceCommand doit rendre les sessions du PORTAIL disponibles côté Termix :
+    attache la session existante la plus récente (`attach-session` sans -t), et ne
+    crée `main` qu'à défaut — sinon une connexion Termix atterrit toujours dans une
+    session `main` vide alors qu'une session portail est ouverte à côté."""
+    from portal.wscomponents.registry import SSH_ACCESS
+
+    attach = next(f for f in SSH_ACCESS.files if f.path == "/usr/local/bin/ws-tmux-attach")
+    body = attach.content
+    assert "attach-session" in body
+    assert "new-session -A -s main" in body  # fallback : aucune session existante
+    # L'attache réussie ne doit PAS retomber sur la création de main (exit après).
+    assert body.index("attach-session") < body.index("new-session")
+
+
+def test_tmux_attach_refresh_cmd_is_gated_and_idempotent() -> None:
+    """Commande de rafraîchissement au `up` (spec 35b) : ne touche que les
+    workspaces T1 (script déjà présent), compare avant d'écrire, root ou sudo."""
+    from portal.wscomponents.registry import SSH_ACCESS, tmux_attach_refresh_cmd
+
+    cmd = tmux_attach_refresh_cmd()
+    assert "ws-tmux-attach" in cmd
+    assert "base64 -d" in cmd
+    assert "cmp -s" in cmd  # idempotent : réécrit seulement si le contenu diffère
+    assert "sudo -n" in cmd and 'id -u' in cmd  # conteneurs root sans sudo
+    # Le contenu embarqué est bien le script courant du composant.
+    import base64
+
+    attach = next(f for f in SSH_ACCESS.files if f.path == "/usr/local/bin/ws-tmux-attach")
+    b64 = base64.b64encode(attach.content.encode()).decode()
+    assert b64 in cmd
+
+
 def test_render_substitutes_placeholders() -> None:
     comp = WorkspaceComponent(
         name="t",
