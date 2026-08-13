@@ -475,9 +475,16 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
                     _log.info("termix_user_apikeys_purged", login=login, count=n)
             except Exception as exc:
                 warnings.append(f"purge apikeys {email} : {exc}")
-        # Puis supprimer le compte — best-effort. L'endpoint EXIGE `username`
-        # (email) ; hosts, credentials ET apikeys doivent être supprimés d'abord
-        # (sinon 500 SQLITE_CONSTRAINT_NOTNULL sur une FK).
+        # Puis supprimer le compte — best-effort. L'endpoint EXIGE `username` (email).
+        #
+        # ⚠️ BUG TERMIX UPSTREAM (à réactiver quand corrigé) : la suppression d'un
+        # compte échoue en 500 `SQLITE_CONSTRAINT_NOTNULL: audit_logs.user_id` — leur
+        # `deleteUserAndRelatedData` met `audit_logs.user_id` à NULL alors que la
+        # colonne est NOT NULL. Reproductible AUSSI dans l'IHM Termix (pas notre code).
+        # Même famille que Termix-SSH/Support#322 (« Unable to delete user », fermé,
+        # variante FOREIGN KEY). En attendant le fix Termix, ce delete échoue → on
+        # garde le code (best-effort) : les ACCÈS sont déjà retirés ci-dessus
+        # (hosts/credentials/apikeys), seule la coquille du compte subsiste.
         if email and uid is not None:
             try:
                 await tx.delete_user(username=email)
