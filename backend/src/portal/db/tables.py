@@ -207,6 +207,9 @@ users = Table(
     # get_user_actor). Nécessaire pour les comptes LOCAUX (sans sub), qui peuvent ainsi
     # se donner un identifiant portable aligné sur les services. UNIQUE (anti-collision).
     Column("identity", Text, nullable=True, unique=True),
+    # Rôle admin (claim OIDC) persisté à chaque login → permet de pousser aux admins
+    # (hosts d'infra, serveurs de ressources) hors contexte de requête. Migration 101.
+    Column("is_admin", Boolean, nullable=False, server_default="false"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )

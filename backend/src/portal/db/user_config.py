@@ -70,6 +70,19 @@ async def owner_identity_subject(login: str) -> dict[str, str]:
     }
 
 
+async def list_admin_logins(conn: AsyncConnection) -> list[str]:
+    """Logins des utilisateurs admin (`users.is_admin`, persisté au login OIDC).
+
+    Sert à pousser des connexions Termix aux admins (hosts d'infra, ressources) hors
+    contexte de requête — le rôle OIDC n'étant pas disponible ailleurs (migration 101)."""
+    rows = (
+        (await conn.execute(select(users.c.login).where(users.c.is_admin.is_(True))))
+        .scalars()
+        .all()
+    )
+    return list(rows)
+
+
 async def get_user_actor(login: str, conn: AsyncConnection) -> str | None:
     """Identité propagée aux services MCP (on-behalf-of) : `users.identity` (GUID).
 

@@ -195,7 +195,10 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
             _log.info("oidc_login_matched_by_email", derived=login_name, matched=matched)
             login_name = matched
 
-    await provision_user(login=login_name, sub=sub, data_root=_data_root(), email=email)
+    is_admin = get_settings().oidc_admin_role in roles
+    await provision_user(
+        login=login_name, sub=sub, data_root=_data_root(), email=email, is_admin=is_admin
+    )
 
     request.session.setdefault("session_id", str(uuid.uuid4()))
     # Horodatage de login absolu : borne l'âge maximal de la session indépendamment
@@ -301,8 +304,13 @@ async def resolve_login_by_email(email: str, email_verified: object = None) -> s
     return logins[0] if logins else None
 
 
-async def provision_user(login: str, sub: str, data_root: Path, email: str = "") -> None:
-    """Crée le répertoire + config YAML initiale si absent, upsert la row users. Idempotent."""
+async def provision_user(
+    login: str, sub: str, data_root: Path, email: str = "", is_admin: bool = False
+) -> None:
+    """Crée le répertoire + config YAML initiale si absent, upsert la row users. Idempotent.
+
+    `is_admin` (rôle OIDC) est persisté à CHAQUE login (création ET mise à jour) afin
+    de pouvoir pousser aux admins hors contexte de requête (migration 101)."""
     validate_username(login)
     user_dir = data_root / "users" / login
     config_path = user_dir / "config.yaml"
@@ -347,7 +355,13 @@ async def provision_user(login: str, sub: str, data_root: Path, email: str = "")
             # INSERT atomique (même famille que bug 010) : deux callbacks de
             # login concurrents du même user ne doivent pas lever UniqueViolation.
             # DO NOTHING préserve la ligne existante (et son secret_ns).
-            values = {"login": login, "version": "1", "secret_ns": secret_ns_str, "email": email}
+            values = {
+                "login": login,
+                "version": "1",
+                "secret_ns": secret_ns_str,
+                "email": email,
+                "is_admin": is_admin,
+            }
             if sub:
                 values["sub"] = sub
             result = await conn.execute(
@@ -374,6 +388,10 @@ async def provision_user(login: str, sub: str, data_root: Path, email: str = "")
                     conn=conn,
                 )
             else:
+                # Rôle admin re-synchronisé à chaque login (perte/gain de rôle reflétée).
+                await conn.execute(
+                    update(users).where(users.c.login == login).values(is_admin=is_admin)
+                )
                 if email:
                     await conn.execute(
                         update(users).where(users.c.login == login).values(email=email)
