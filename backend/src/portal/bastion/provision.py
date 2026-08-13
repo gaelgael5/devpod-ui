@@ -398,7 +398,12 @@ async def provision_user_access(conn: Any, login: str) -> list[str]:
     warnings: list[str] = []
     for ws_id in sorted(set(owned) | set(granted)):
         status = await get_status_db(ws_id, conn)
-        owner = (status or {}).get("login") or login
+        # Ne provisionner QUE les workspaces démarrés : le `ssh_port` reste sticky
+        # après un stop, mais un workspace arrêté n'a pas de sshd joignable (spec 18
+        # T5) — le host est (re)créé au prochain `up`.
+        if not status or status.get("status") != "running":
+            continue
+        owner = status.get("login") or login
         try:
             res = await provision_workspace(str(owner), ws_id)
             if res.get("pending"):
