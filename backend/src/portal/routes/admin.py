@@ -9,13 +9,14 @@ import httpx
 import structlog
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
+from ..bastion import servers as bastion_servers
 from ..certificates.docker_bundle import (
     host_bundle_dir,
     materialize_host_bundle,
@@ -955,6 +956,7 @@ async def list_hosts(user: UserInfo = Depends(require_admin)) -> list[dict[str, 
 async def add_host(
     body: HostCreateRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, object]:
@@ -1007,6 +1009,8 @@ async def add_host(
     await save_global_db(cfg, conn)
     set_cached_global(cfg)
     _log.info("host_added", name=body.name, by=user.login)
+    # Pousse le serveur vers Termix (dossier selon usage) après commit (best-effort).
+    background_tasks.add_task(bastion_servers.sync_server_host, body.name)
     return host.model_dump(mode="json")
 
 
@@ -1015,6 +1019,7 @@ async def update_host(
     name: str,
     body: HostCreateRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, object]:
@@ -1080,12 +1085,15 @@ async def update_host(
     await save_global_db(cfg, conn)
     set_cached_global(cfg)
     _log.info("host_updated", name=name, by=user.login)
+    # Re-pousse le serveur (ip/user/usage/clé ont pu changer → dossier/cible) après commit.
+    background_tasks.add_task(bastion_servers.sync_server_host, name)
     return host.model_dump(mode="json")
 
 
 @router.delete("/hosts/{name}", status_code=204)
 async def delete_host(
     name: str,
+    background_tasks: BackgroundTasks,
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
@@ -1148,6 +1156,8 @@ async def delete_host(
     await save_global_db(cfg, conn)
     set_cached_global(cfg)
     _log.info("host_deleted", name=name, by=user.login, workspaces_deleted=len(rows))
+    # Retire le serveur de Termix chez tous ses destinataires après commit (best-effort).
+    background_tasks.add_task(bastion_servers.deprovision_server_host, name)
 
 
 @router.get("/hosts/{name}/workspaces")

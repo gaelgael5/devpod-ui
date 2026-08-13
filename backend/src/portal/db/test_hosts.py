@@ -100,6 +100,22 @@ async def is_owned_test_host(
     return row is not None
 
 
+async def owner_of_test_host(host_name: str, conn: AsyncConnection) -> tuple[str, str] | None:
+    """(login, workspace_name) PROPRIÉTAIRE d'une VM de test (lien non partagé), ou None.
+
+    Sert au push Termix des serveurs de test (spec 18) : la VM est poussée au compte
+    OIDC de son créateur, dans le dossier `workspaces`. On ignore les partages
+    (`shared_from_workspace` non nul)."""
+    row = (
+        await conn.execute(
+            select(_t.c.login, _t.c.workspace_name).where(
+                (_t.c.host_name == host_name) & (_t.c.shared_from_workspace.is_(None))
+            )
+        )
+    ).first()
+    return (row[0], row[1]) if row is not None else None
+
+
 async def list_test_hosts_for_workspace(
     login: str, workspace_name: str, conn: AsyncConnection
 ) -> list[str]:
