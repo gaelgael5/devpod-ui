@@ -184,6 +184,23 @@ async def test_find_user_ids_returns_all_for_email() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_oidc_config_returns_dict_or_none() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/users/oidc-config/admin"
+        return httpx.Response(200, json={"client_id": "termix", "name_path": "name"})
+
+    c = _client_with(handler)
+    cfg = await c.get_oidc_config()
+    await c._client.aclose()  # type: ignore[union-attr]
+    assert cfg == {"client_id": "termix", "name_path": "name"}
+
+    # Pas de config SSO (env incomplet) → l'endpoint renvoie littéralement `null`.
+    c2 = _client_with(lambda req: httpx.Response(200, json=None))
+    assert await c2.get_oidc_config() is None
+    await c2._client.aclose()  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
 async def test_http_error_raises() -> None:
     c = _client_with(lambda req: httpx.Response(401, text="Missing authentication token"))
     with pytest.raises(RuntimeError, match="401"):

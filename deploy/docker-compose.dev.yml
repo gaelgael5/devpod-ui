@@ -194,6 +194,12 @@ services:
       OIDC_TOKEN_URL: "${TERMIX_OIDC_ISSUER:-https://security.yoops.org/realms/yoops}/protocol/openid-connect/token"
       OIDC_USERINFO_URL: "${TERMIX_OIDC_ISSUER:-https://security.yoops.org/realms/yoops}/protocol/openid-connect/userinfo"
       OIDC_SCOPES: "${TERMIX_OIDC_SCOPES:-openid email profile}"
+      # CONTRAT portail (spec 18) : les comptes Termix sont matchés par username=email
+      # (`find_user_ids`). Les défauts upstream (identifier=sub, name=claim `name`)
+      # donnent des comptes OIDC dont le username N'EST PAS l'email → aucun host
+      # poussé sur le compte que voit l'utilisateur SSO. On force le mapping email.
+      OIDC_IDENTIFIER_PATH: "${TERMIX_OIDC_IDENTIFIER_PATH:-email}"
+      OIDC_NAME_PATH: "${TERMIX_OIDC_NAME_PATH:-email}"
     volumes:
       - termix_data:/app/data
     ports:

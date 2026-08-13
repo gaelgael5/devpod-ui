@@ -283,6 +283,20 @@ class TermixClient:
             body["username"] = username
         await self._req("DELETE", "/users/delete-user", json=body, allow_404=True)
 
+    async def get_oidc_config(self) -> dict[str, Any] | None:
+        """Config SSO effective de l'instance (`GET /users/oidc-config/admin`).
+
+        Sert à DÉTECTER un mapping de claims incompatible avec le partage par email :
+        Termix nomme les comptes OIDC d'après `name_path` (défaut upstream `name`) —
+        si ce n'est pas `email`, `find_user_ids(email)` ne matchera jamais le compte
+        OIDC. Renvoie None si aucun SSO configuré (l'endpoint répond `null`)."""
+        resp = await self._req("GET", "/users/oidc-config/admin")
+        try:
+            data = resp.json()
+        except ValueError:
+            return None
+        return data if isinstance(data, dict) else None
+
     async def find_user_id(self, username: str, *, oidc: bool | None = None) -> str | None:
         """`userId` Termix du user dont `username == username`.
 

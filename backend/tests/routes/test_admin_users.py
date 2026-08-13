@@ -15,10 +15,11 @@ from portal.routes.admin_users import router
 
 
 @pytest.fixture
-def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def env(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     users = {"alice"}
-    instances = {"i1", "i2", "i3", "i4"}
+    instances = {"i1", "i2", "i3", "i4", "idef"}
     assigned: dict[str, list[str]] = {}
+    calls: list[tuple[str, Any]] = []
 
     async def _list_users(conn: Any) -> list[dict[str, Any]]:
         return [
@@ -42,16 +43,25 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def _list_ids(conn: Any, login: str) -> list[str]:
         return sorted(assigned.get(login, []))
 
+    async def _resolve(conn: Any, login: str) -> list[dict[str, Any]]:
+        # Sémantique réelle : explicites, sinon héritage de l'instance défaut `idef`.
+        ids = assigned.get(login, [])
+        return [{"id": i} for i in ids] if ids else [{"id": "idef"}]
+
     async def _ensure_account(conn: Any, login: str, ids: list[str]) -> list[str]:
+        calls.append(("ensure", list(ids)))
         return []
 
     async def _provision_access(conn: Any, login: str) -> list[str]:
+        calls.append(("provision", login))
         return []
 
     async def _deprovision(conn: Any, login: str, instance_id: str) -> list[str]:
+        calls.append(("deprovision", instance_id))
         return []
 
     async def _sync_servers(login: str) -> None:
+        calls.append(("sync_servers", login))
         return None
 
     # La route PUT gère ses propres transactions (_get_engine().begin()/connect()) pour
@@ -81,12 +91,18 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(admin_users.ti, "get", _ti_get)
     monkeypatch.setattr(admin_users.uti, "set_instances_for_user", _set)
     monkeypatch.setattr(admin_users.uti, "list_instance_ids", _list_ids)
+    monkeypatch.setattr(admin_users.uti, "resolve_instances_for_user", _resolve)
 
     app = FastAPI()
     app.include_router(router, prefix="/admin")
     app.dependency_overrides[require_admin] = lambda: UserInfo(login="admin", roles=["admin"])
     app.dependency_overrides[get_conn] = lambda: None
-    return TestClient(app)
+    return {"client": TestClient(app), "calls": calls, "assigned": assigned}
+
+
+@pytest.fixture
+def client(env: dict[str, Any]) -> TestClient:
+    return env["client"]
 
 
 def test_list_users(client: TestClient) -> None:
@@ -121,6 +137,41 @@ def test_assign_over_cap_422(client: TestClient) -> None:
 def test_assign_rejects_extra_field(client: TestClient) -> None:
     r = client.put("/admin/users/alice/termix-instances", json={"instance_ids": [], "x": 1})
     assert r.status_code == 422
+
+
+def test_deassociate_default_inherited_is_noop(env: dict[str, Any]) -> None:
+    """Retirer l'instance défaut explicite → l'user en HÉRITE encore (vide = défaut) :
+    aucun deprovision (sinon les hosts sont détruits puis recréés par le sync — le
+    « serveur de test qui réapparaît »)."""
+    env["assigned"]["alice"] = ["idef"]
+    r = env["client"].put("/admin/users/alice/termix-instances", json={"instance_ids": []})
+    assert r.status_code == 200
+    kinds = [k for k, _ in env["calls"]]
+    assert "deprovision" not in kinds
+    assert ("ensure", ["idef"]) in env["calls"]  # comptes assurés sur l'instance effective
+
+
+def test_deassociate_nondefault_deprovisions_it(env: dict[str, Any]) -> None:
+    """Retirer une instance non-défaut → deprovision de CELLE-CI, et provisioning sur
+    l'instance effective (héritage du défaut)."""
+    env["assigned"]["alice"] = ["i2"]
+    r = env["client"].put("/admin/users/alice/termix-instances", json={"instance_ids": []})
+    assert r.status_code == 200
+    assert ("deprovision", "i2") in env["calls"]
+    assert ("ensure", ["idef"]) in env["calls"]
+
+
+def test_deprovision_runs_before_provisioning(env: dict[str, Any]) -> None:
+    """Bascule i2 → i3 : le nettoyage de l'instance retirée précède le provisioning
+    (sinon un provisioning fantôme peut être détruit juste après sa création)."""
+    env["assigned"]["alice"] = ["i2"]
+    r = env["client"].put("/admin/users/alice/termix-instances", json={"instance_ids": ["i3"]})
+    assert r.status_code == 200
+    kinds = [k for k, _ in env["calls"]]
+    assert kinds.index("deprovision") < kinds.index("ensure")
+    assert kinds.index("deprovision") < kinds.index("provision")
+    assert ("deprovision", "i2") in env["calls"] and ("deprovision", "i3") not in env["calls"]
+    assert ("sync_servers", "alice") in env["calls"]
 
 
 def test_requires_admin() -> None:

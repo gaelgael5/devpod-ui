@@ -34,7 +34,7 @@ export function useAdminUsers() {
 
   const setInstances = useMutation({
     mutationFn: ({ login, instanceIds }: { login: string; instanceIds: string[] }) =>
-      apiFetchJson<{ instance_ids: string[] }>(
+      apiFetchJson<{ instance_ids: string[]; termix_warnings: string[] }>(
         `/admin/users/${encodeURIComponent(login)}/termix-instances`,
         {
           method: 'PUT',
@@ -42,7 +42,13 @@ export function useAdminUsers() {
           body: JSON.stringify({ instance_ids: instanceIds }),
         },
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: USERS_QK }),
+    onSuccess: (data) => {
+      // Le PUT est best-effort côté Termix : l'association est persistée même si un
+      // effet de bord a échoué — sans affichage, ces échecs sont invisibles pour
+      // l'admin (« j'associe mais je ne vois pas les hosts »).
+      for (const w of data.termix_warnings ?? []) toast.warning(w, { duration: 10000 })
+      void qc.invalidateQueries({ queryKey: USERS_QK })
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 

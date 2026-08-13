@@ -258,6 +258,30 @@ async def _accessors(login: str, ws_id: str, conn: Any) -> list[str]:
     return sorted(set(granted) | {login})
 
 
+async def _oidc_mapping_warning(tx: Any) -> str | None:
+    """Avertit si le SSO de l'instance nomme les comptes OIDC autrement que par email.
+
+    Termix crée le compte OIDC avec `username = <claim name_path>` (défaut upstream
+    `name`, re-synchronisé à CHAQUE login) : si ce n'est pas `email`, tout le partage
+    par `find_user_ids(email)` rate le compte OIDC — l'utilisateur qui se connecte en
+    SSO ne voit AUCUN host. Détection best-effort (None si SSO absent ou API KO) ;
+    remède : `name_path=email` (env `OIDC_NAME_PATH` ou config SSO Termix)."""
+    try:
+        cfg = await tx.get_oidc_config()
+    except Exception:
+        return None
+    if not cfg or not cfg.get("client_id"):
+        return None  # pas de SSO sur cette instance → rien à vérifier
+    name_path = str(cfg.get("name_path") or "name")
+    if name_path == "email":
+        return None
+    return (
+        f"SSO Termix : name_path={name_path!r} — les comptes OIDC n'ont pas l'email en "
+        "username, les hosts ne leur seront PAS poussés ; configurer name_path=email "
+        "(OIDC_NAME_PATH) côté Termix"
+    )
+
+
 async def ensure_termix_account(conn: Any, login: str, instance_ids: list[str]) -> list[str]:
     """Crée (idempotent) le compte Termix LOCAL du user (`username = email`) sur
     chaque instance donnée — appelé à l'association user↔instance (spec 18 T5).
@@ -280,6 +304,12 @@ async def ensure_termix_account(conn: Any, login: str, instance_ids: list[str]) 
             apikey = await _apikey(inst["apikey_secret"], conn)
             async with TermixClient(inst["url"], apikey) as tx:
                 created = await tx.create_user(email, _INIT_PASSWORD)
+                warn = await _oidc_mapping_warning(tx)
+                if warn:
+                    _log.warning(
+                        "termix_oidc_mapping_mismatch", instance=inst.get("name"), detail=warn
+                    )
+                    errors.append(f"{inst.get('name', inst_id)} : {warn}")
             _log.info(
                 "termix_account_ensured",
                 login=login,

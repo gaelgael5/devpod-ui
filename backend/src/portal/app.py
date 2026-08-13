@@ -21,6 +21,7 @@ from .mcp.monitor import monitor_loop
 from .mcp.server import build_server as _build_mcp_server
 from .routes import compose as compose_routes
 from .routes.admin import router as admin_router
+from .routes.admin_users import router as admin_users_router
 from .routes.agent_messages import router as agent_messages_router
 from .routes.agent_types import admin_router as agent_types_admin_router
 from .routes.agent_types import me_router as agent_types_me_router
@@ -30,6 +31,7 @@ from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
 from .routes.event_schemas import router as event_schemas_router
+from .routes.host_grants import router as host_grants_router
 from .routes.host_secrets import router as host_secrets_router
 from .routes.jinja_template_sources import router_admin as jinja_sources_admin_router
 from .routes.jinja_templates import router as jinja_templates_router
@@ -55,15 +57,13 @@ from .routes.resource_hosts import me_router as resource_hosts_me_router
 from .routes.secrets import router_admin as secrets_admin_router
 from .routes.secrets import router_me as secrets_me_router
 from .routes.service_bastion import router as service_bastion_router
-from .routes.admin_users import router as admin_users_router
-from .routes.host_grants import router as host_grants_router
-from .routes.termix import router as termix_instances_router
 from .routes.service_ssh import router as service_ssh_router
 from .routes.sessions import router as sessions_router
 from .routes.skill_placements import router as skill_placements_router
 from .routes.skills import router as skills_router
 from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
+from .routes.termix import router as termix_instances_router
 from .routes.test_vm import router as test_vm_router
 from .routes.vault import router as vault_router
 from .routes.vscode_proxy import router as vscode_proxy_router

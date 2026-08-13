@@ -2,6 +2,7 @@
 
 ## [workflow]
 - « Enchaîne jusqu'au bout » N'EST PAS un feu vert pour des choix d'archi contestés (ex. bastion dans le portail vs à côté ; provisioning en dur vs via automates). Verrouiller EXPLICITEMENT chaque décision d'archi avant de coder, même sous pression d'avancer — l'utilisateur est architecte.
+- Ne JAMAIS expliquer un comportement runtime par déduction : lire les logs Loki d'abord (corrigé 2x sur Termix — le « nettoyage » supposé était en fait admin=False + une course de clics). Un état IHM ≠ l'état serveur : croiser les deux avant de conclure.
 
 ## [backend]
 - Pas de synchro auto des recettes au démarrage — choix admin (`POST /admin/recipes/sync`), demandé 3x.
@@ -16,6 +17,9 @@
 - lucide-react ≥1.0 a renommé des icônes — import inexistant = crash silencieux, vérifier `tsc -b`.
 - Jamais de nom de rôle en dur (config serveur) : le backend expose `is_admin` ; en changeant une valeur configurable, grepper ses littéraux dans TOUT le repo.
 - `DialogFooter` 3 boutons : `flex-col-reverse` tronque sous 640px → div custom `sm:justify-between`.
+
+## [bastion/termix]
+- Les effets d'une (dé)association se diffent sur les instances EFFECTIVES (`resolve_instances_for_user`, vide = héritage du défaut), jamais sur les explicites — sinon deprovision puis resync (qui ré-hérite le défaut) se contredisent dans la même requête (« serveur de test qui réapparaît »). Termix nomme les comptes OIDC d'après `name_path` (défaut upstream `name`, re-sync à chaque login), PAS l'email : tout matching `username=email` exige `name_path=email` côté SSO — détecté via `GET /users/oidc-config/admin` et remonté en warning. Les `termix_warnings` du PUT doivent être AFFICHÉS (toast) : best-effort invisible = bug invisible.
 
 ## [devpod/service]
 - `--devcontainer-path` : devpod préfixe `content/` et efface `{workspace_dir}` → uploader dans `workspaces/.devpod-portal-dc/{ws_id}/` + chemin relatif `../../`.

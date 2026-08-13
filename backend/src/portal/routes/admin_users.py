@@ -63,21 +63,29 @@ async def set_termix_instances(login: str, body: TermixAssign, _: _Admin) -> dic
         for i in ids:
             if await ti.get(conn, i) is None:
                 raise HTTPException(status_code=422, detail=f"instance Termix introuvable : {i}")
-        removed = set(await uti.list_instance_ids(conn, login)) - set(ids)
+        # Diff sur les instances EFFECTIVES (explicites, sinon héritage du défaut —
+        # T4b), pas sur les explicites : retirer l'instance défaut d'un user qui en
+        # hérite encore ne doit PAS déprovisionner (sinon le sync qui suit — et qui
+        # résout la même instance par héritage — recrée les hosts qu'on vient de
+        # détruire : « le serveur de test réapparaît à la dé-association »).
+        before = {i["id"] for i in await uti.resolve_instances_for_user(conn, login)}
         await uti.set_instances_for_user(conn, login, ids)
 
     # 2) Effets de bord SYNCHRONES (spec 18 T5) : le PUT ne répond qu'à la FIN du
     #    provisioning → l'IHM garde le bouton désactivé + spinner jusqu'ici, ce qui
-    #    empêche les clics concurrents et la course. Comptes Termix + partage sur les
-    #    instances rattachées ; suppression sur les instances RETIRÉES ; puis serveurs
-    #    (hosts d'infra / ressources / tests). Best-effort : un échec Termix ne fait pas
-    #    échouer le PUT (l'association est déjà persistée) — tout est remonté en warnings.
+    #    empêche les clics concurrents et la course. D'abord le nettoyage des instances
+    #    effectivement retirées, PUIS comptes + partage + serveurs (hosts d'infra /
+    #    ressources / tests) sur les instances effectives. Best-effort : un échec Termix
+    #    ne fait pas échouer le PUT (l'association est déjà persistée) — remonté en
+    #    warnings.
     warnings: list[str] = []
     async with _get_engine().connect() as conn:
+        effective = [i["id"] for i in await uti.resolve_instances_for_user(conn, login)]
+        removed = before - set(effective)
         for coro in (
-            ensure_termix_account(conn, login, ids),
+            *(deprovision_user_from_instance(conn, login, i) for i in sorted(removed)),
+            ensure_termix_account(conn, login, effective),
             provision_user_access(conn, login),
-            *(deprovision_user_from_instance(conn, login, i) for i in removed),
         ):
             try:
                 warnings += await coro

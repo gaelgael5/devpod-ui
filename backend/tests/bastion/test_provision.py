@@ -21,6 +21,41 @@ def _use(monkeypatch: pytest.MonkeyPatch, b: BastionConfig) -> None:
     monkeypatch.setattr(p, "load_global", lambda: _Cfg(b))
 
 
+class _OidcTx:
+    def __init__(self, cfg: dict | None) -> None:
+        self._cfg = cfg
+
+    async def get_oidc_config(self) -> dict | None:
+        return self._cfg
+
+
+@pytest.mark.asyncio
+async def test_oidc_mapping_warning_when_name_path_not_email() -> None:
+    """SSO configuré avec name_path≠email → les comptes OIDC Termix ont un username
+    qui n'est PAS l'email → jamais matchés par `find_user_ids(email)` → aucun host
+    poussé sur le compte que l'utilisateur voit. Détection + message actionnable."""
+    warn = await p._oidc_mapping_warning(_OidcTx({"client_id": "termix", "name_path": "name"}))
+    assert warn is not None and "name_path" in warn and "email" in warn
+
+
+@pytest.mark.asyncio
+async def test_oidc_mapping_no_warning_when_email_or_unconfigured() -> None:
+    assert (
+        await p._oidc_mapping_warning(_OidcTx({"client_id": "termix", "name_path": "email"}))
+    ) is None
+    assert await p._oidc_mapping_warning(_OidcTx(None)) is None  # pas de SSO → rien
+    assert await p._oidc_mapping_warning(_OidcTx({"name_path": "name"})) is None  # sans client_id
+
+
+@pytest.mark.asyncio
+async def test_oidc_mapping_warning_swallows_errors() -> None:
+    class _Boom:
+        async def get_oidc_config(self) -> dict | None:
+            raise RuntimeError("Termix GET /users/oidc-config/admin → 500")
+
+    assert await p._oidc_mapping_warning(_Boom()) is None  # best-effort
+
+
 def test_enabled_is_master_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
     # Spec 18 T5 (Modèle B) : le gating est le seul toggle `enabled` ; api_url/
     # host/role de BastionConfig sont vestigiaux (instance résolue par le registre).
