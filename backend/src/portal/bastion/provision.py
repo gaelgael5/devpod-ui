@@ -461,10 +461,11 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
                             await tx.delete_apikey(key_id)
                         except Exception:
                             _log.warning("termix_apikey_cleanup_failed", key_id=key_id)
-        # Puis supprimer le compte (username=email) — best-effort.
-        if email:
+        # Puis supprimer le compte — best-effort. Par userId (la suppression par
+        # username renvoie SQLITE_CONSTRAINT_NOTNULL côté Termix ; le userId est fiable).
+        if uid is not None:
             try:
-                await tx.delete_user(username=email)
+                await tx.delete_user(user_id=uid)
                 _log.info(
                     "termix_user_deleted", login=login, email=email, instance=inst.get("name")
                 )
