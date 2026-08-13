@@ -83,6 +83,15 @@ async def list_admin_logins(conn: AsyncConnection) -> list[str]:
     return list(rows)
 
 
+async def is_admin_db(login: str, conn: AsyncConnection) -> bool:
+    """True si l'utilisateur est admin (`users.is_admin`, posé au login OIDC)."""
+    return bool(
+        (
+            await conn.execute(select(users.c.is_admin).where(users.c.login == login))
+        ).scalar_one_or_none()
+    )
+
+
 async def get_user_actor(login: str, conn: AsyncConnection) -> str | None:
     """Identité propagée aux services MCP (on-behalf-of) : `users.identity` (GUID).
 

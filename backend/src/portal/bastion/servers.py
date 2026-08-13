@@ -29,7 +29,7 @@ from ..db import termix_instance as ti
 from ..db import test_hosts
 from ..db import user_termix_instance as uti
 from ..db.engine import _get_engine
-from ..db.user_config import list_admin_logins, owner_identity_subject
+from ..db.user_config import is_admin_db, list_admin_logins, owner_identity_subject
 from ..secrets import system as sysec
 from ..secrets.system import reveal_system_cert
 from .provision import (
@@ -177,6 +177,35 @@ async def sync_server_host(host_name: str) -> None:
     await _cleanup_removed(prev_targets, new_targets, host_name)
     await _save_srv_state(host_name, {"targets": new_targets})
     _log.info("srv_host_synced", host=host_name, folder=folder, targets=list(new_targets))
+
+
+async def sync_server_hosts_for_user(login: str) -> None:
+    """Pousse à `login` les serveurs qu'il doit voir — appelé à l'association Termix
+    (pour que « (ré)associer » suffise, sans attendre un changement de host).
+
+    Admin → tous les hosts d'infra + ressources ; plus les serveurs de TEST qu'il a
+    créés. Chaque host concerné est re-synchronisé (idempotent, fan-out sur tous ses
+    destinataires). Ouvre sa propre connexion (BackgroundTask après commit de
+    l'association → instances à jour). Best-effort."""
+    if not enabled():
+        return
+    async with _get_engine().connect() as conn:
+        admin = await is_admin_db(login, conn)
+        names: set[str] = set()
+        for host in load_global().hosts:
+            if host.type != "ssh" or not host.host_cert_slug:
+                continue
+            if _USAGE_FOLDER.get(host.usage) is None:
+                continue
+            if host.usage == "tests":
+                owner = await test_hosts.owner_of_test_host(host.name, conn)
+                if owner and owner[0] == login:
+                    names.add(host.name)
+            elif admin:
+                names.add(host.name)
+    for name in sorted(names):
+        await sync_server_host(name)
+    _log.info("srv_hosts_synced_for_user", login=login, admin=admin, hosts=sorted(names))
 
 
 async def deprovision_server_host(host_name: str) -> None:

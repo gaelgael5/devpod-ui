@@ -51,6 +51,10 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def _deprovision(conn: Any, login: str, instance_id: str) -> list[str]:
         return []
 
+    async def _sync_servers(login: str) -> None:
+        return None
+
+    monkeypatch.setattr(admin_users, "sync_server_hosts_for_user", _sync_servers)
     monkeypatch.setattr(admin_users, "list_users_db", _list_users)
     monkeypatch.setattr(admin_users, "user_exists_db", _user_exists)
     monkeypatch.setattr(admin_users, "ensure_termix_account", _ensure_account)

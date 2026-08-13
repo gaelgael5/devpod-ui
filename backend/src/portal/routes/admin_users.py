@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -24,6 +24,7 @@ from ..bastion.provision import (
     ensure_termix_account,
     provision_user_access,
 )
+from ..bastion.servers import sync_server_hosts_for_user
 from ..db import termix_instance as ti
 from ..db import user_termix_instance as uti
 from ..db.engine import get_conn
@@ -48,7 +49,7 @@ async def list_users(_: _Admin, conn: _Conn) -> list[dict[str, Any]]:
 
 @router.put("/users/{login}/termix-instances")
 async def set_termix_instances(
-    login: str, body: TermixAssign, _: _Admin, conn: _Conn
+    login: str, body: TermixAssign, background_tasks: BackgroundTasks, _: _Admin, conn: _Conn
 ) -> dict[str, list[str]]:
     if not await user_exists_db(login, conn):
         raise HTTPException(status_code=404, detail="utilisateur introuvable")
@@ -79,4 +80,7 @@ async def set_termix_instances(
         except Exception as exc:
             _log.warning("termix_sideeffect_failed", login=login, error=str(exc))
             warnings.append(f"Termix : {exc}")
+    # Pousse aussi les SERVEURS que le user doit voir (hosts d'infra + ressources s'il
+    # est admin, ses serveurs de test) après commit → « (ré)associer » suffit (spec 18).
+    background_tasks.add_task(sync_server_hosts_for_user, login)
     return {"instance_ids": await uti.list_instance_ids(conn, login), "termix_warnings": warnings}
