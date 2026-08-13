@@ -315,13 +315,16 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
         # login → (instances, sub) ; union des instances → dict id→instance.
         per_user_instances: dict[str, set[str]] = {}
         emails: dict[str, str | None] = {}
+        subs: dict[str, str | None] = {}
         union: dict[str, dict[str, Any]] = {}
         for lg in accessors:
             insts = await uti.resolve_instances_for_user(conn, lg)
             per_user_instances[lg] = {i["id"] for i in insts}
             for i in insts:
                 union[i["id"]] = i
-            emails[lg] = (await owner_identity_subject(lg)).get("email")
+            ident = await owner_identity_subject(lg)
+            emails[lg] = ident.get("email")
+            subs[lg] = ident.get("sub")
 
     new_instances: dict[str, Any] = {}
     pending: list[str] = []
@@ -366,6 +369,25 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
                     pending.append(f"{lg}@{inst.get('name', inst_id)}")
                     continue
                 await tx.share_host_to_user(int(rec["host_id"]), uid)
+            # Partage au compte OIDC de CHAQUE accessor (proprio inclus : il se
+            # connecte en OIDC) — clé = `sub` (username OIDC = sub une fois Termix
+            # aligné). Best-effort : si pas de compte OIDC, on saute (pas pending).
+            for lg in accessors:
+                if inst_id not in per_user_instances[lg]:
+                    continue
+                sub = subs.get(lg)
+                if not sub:
+                    continue
+                oidc_uid = await tx.find_user_id(sub, oidc=True)
+                if oidc_uid is not None:
+                    await tx.share_host_to_user(int(rec["host_id"]), oidc_uid)
+                    _log.info(
+                        "bastion_share_oidc",
+                        login=lg,
+                        sub=sub,
+                        found=oidc_uid,
+                        instance=inst.get("name"),
+                    )
 
     await _save_state(ws_id, {"login": login, "key": private, "instances": new_instances})
     _log.info(

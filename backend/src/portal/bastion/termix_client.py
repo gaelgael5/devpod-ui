@@ -247,20 +247,24 @@ class TermixClient:
             body["username"] = username
         await self._req("DELETE", "/users/delete-user", json=body, allow_404=True)
 
-    async def find_user_id(self, username: str) -> str | None:
-        """`userId` Termix du user dont `username == username` (= le `sub` OIDC).
+    async def find_user_id(self, username: str, *, oidc: bool | None = None) -> str | None:
+        """`userId` Termix du user dont `username == username`.
 
-        Réponse observée : `{"users":[{"userId":"<str>","username":"...", ...}]}`.
-        `userId` est une **chaîne** (pas un int), d'où le type de retour. None si
-        absent (compte pas encore créé côté Termix → l'appelant réessaie).
+        `oidc=True` : ne matche que les comptes OIDC (`is_oidc`) — pour partager au
+        compte OIDC (username = `sub`) distinct du compte interne (username = email).
+        Réponse : `{"users":[{"userId":"<str>","username":"...","is_oidc":bool}]}`.
+        `userId` est une **chaîne**. None si absent.
         """
         resp = await self._req("GET", "/users/list")
         data = resp.json()
         items = data if isinstance(data, list) else data.get("users", [])
         for u in items:
-            if isinstance(u, dict) and u.get("username") == username:
-                uid = u.get("userId") if u.get("userId") is not None else u.get("id")
-                return str(uid) if uid is not None else None
+            if not isinstance(u, dict) or u.get("username") != username:
+                continue
+            if oidc is not None and bool(u.get("is_oidc")) != oidc:
+                continue
+            uid = u.get("userId") if u.get("userId") is not None else u.get("id")
+            return str(uid) if uid is not None else None
         # Diag (spec 18 T5) : ce que le portail voit réellement quand ça ne matche pas.
         _log.info(
             "termix_users_list_seen",
