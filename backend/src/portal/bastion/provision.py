@@ -19,6 +19,7 @@ attente » → l'automate rejoue (idempotent).
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any
 
 import structlog
@@ -222,7 +223,12 @@ async def _ensure_host_on_instance(
             await tx.delete_host(int(host_id))
         if prev.get("cred_id"):
             await tx.delete_credential(int(prev["cred_id"]))
-    cred_id = await tx.create_credential(_slug(ws_id), user, private)
+    # Nom de credential UNIQUE (suffixe GUID) : le nom n'est qu'un label (le suivi
+    # se fait par cred_id), et un nom stable provoque des 409 « déjà existant » côté
+    # Termix quand un credential résiduel traîne (recréation, delete non propagé,
+    # double passe entre users). Spec 18 T5.
+    cred_name = f"{_slug(ws_id)}-{uuid.uuid4().hex[:8]}"
+    cred_id = await tx.create_credential(cred_name, user, private)
     if cred_id is None:
         raise RuntimeError("Termix POST /credentials : réponse sans id exploitable")
     host_id = await tx.create_host(ws_id, ip, port, user, cred_id)
