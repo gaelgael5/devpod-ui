@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -28,6 +29,7 @@ from ..db import user_termix_instance as uti
 from ..db.engine import get_conn
 from ..db.user_config import list_users_db, user_exists_db
 
+_log = structlog.get_logger(__name__)
 router = APIRouter(tags=["admin-users"])
 
 _Admin = Annotated[UserInfo, Depends(require_admin)]
@@ -64,8 +66,17 @@ async def set_termix_instances(
     # sur les instances rattachées + partage les hosts ; (2) sur les instances RETIRÉES,
     # supprime les hosts de l'user + son compte Termix (il ne peut plus s'y connecter).
     # Best-effort : les échecs sont remontés sans annuler l'association.
-    warnings = await ensure_termix_account(conn, login, ids)
-    warnings += await provision_user_access(conn, login)
-    for inst_id in removed:
-        warnings += await deprovision_user_from_instance(conn, login, inst_id)
+    # Effets de bord Termix best-effort : un échec ne doit JAMAIS faire échouer le
+    # PUT (l'association en base est déjà persistée) — on remonte tout en warnings.
+    warnings: list[str] = []
+    for coro in (
+        ensure_termix_account(conn, login, ids),
+        provision_user_access(conn, login),
+        *(deprovision_user_from_instance(conn, login, i) for i in removed),
+    ):
+        try:
+            warnings += await coro
+        except Exception as exc:
+            _log.warning("termix_sideeffect_failed", login=login, error=str(exc))
+            warnings.append(f"Termix : {exc}")
     return {"instance_ids": await uti.list_instance_ids(conn, login), "termix_warnings": warnings}

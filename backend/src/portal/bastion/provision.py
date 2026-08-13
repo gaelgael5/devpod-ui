@@ -438,8 +438,14 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
             await _save_state(ws_id, {**state, "instances": instances})
         if email:
             # Compte portail nommé par l'email → suppression directe par username.
-            await tx.delete_user(username=email)
-            _log.info("termix_user_deleted", login=login, email=email, instance=inst.get("name"))
+            try:
+                await tx.delete_user(username=email)
+                _log.info(
+                    "termix_user_deleted", login=login, email=email, instance=inst.get("name")
+                )
+            except Exception as exc:
+                _log.warning("termix_user_delete_failed", login=login, email=email, error=str(exc))
+                warnings.append(f"suppression compte Termix {email} : {exc}")
     return warnings
 
 
