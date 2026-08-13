@@ -272,9 +272,10 @@ async def _ensure_host_owned_by_user(
         and prev.get("user") == ws_user
     ):
         return prev
-    # Compte INTERNE (is_oidc=false) : c'est lui qui possède les hosts (le compte
-    # OIDC, même username=email, ne reçoit qu'un partage).
-    owner_uid = await admin_tx.find_user_id(owner_email, oidc=False) if owner_email else None
+    # Compte du propriétaire par username=email, SANS filtre is_oidc : après le link
+    # OIDC (link-oidc-to-password), le compte fusionné devient is_oidc:true — filtrer
+    # sur is_oidc=false le manquerait et ferait retomber en admin-owned (host invisible).
+    owner_uid = await admin_tx.find_user_id(owner_email) if owner_email else None
     if owner_uid is not None:
         key_id, owner_token = await admin_tx.create_apikey_for_user(
             owner_uid, f"portal-provision-{ws_id}", _apikey_expiry()
@@ -361,7 +362,7 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
                     # Sans email → non partageable (login Termix = email, spec 18 T5).
                     _log.warning("bastion_share_no_email", login=lg, ws_id=ws_id)
                     continue
-                uid = await tx.find_user_id(email, oidc=False)  # compte interne
+                uid = await tx.find_user_id(email)  # compte du user (fusionné après link)
                 _log.info(
                     "bastion_share_lookup",
                     login=lg,
@@ -470,7 +471,7 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
             await _save_state(h["ws_id"], {**state, "instances": instances})
 
     async with TermixClient(inst["url"], apikey) as tx:
-        uid = await tx.find_user_id(email, oidc=False) if email else None  # compte interne
+        uid = await tx.find_user_id(email) if email else None  # compte du user
         # Supprimer TOUS les hosts de l'user EN TANT QUE lui (liste owner-scoped) :
         # nettoie doublons/orphelins ET débloque la suppression du compte (Termix
         # refuse un delete-user en 500 tant que le compte possède des hosts ; l'admin
