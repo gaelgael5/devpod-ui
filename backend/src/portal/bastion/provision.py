@@ -34,6 +34,7 @@ from ..config.store import load_global
 from ..db import termix_instance as ti
 from ..db import user_host_grant as uhg
 from ..db import user_termix_instance as uti
+from ..db import workspace_groups as wg
 from ..db.engine import _get_engine
 from ..db.user_config import get_workspace_profile_ref_db, owner_identity_subject
 from ..db.workspace_status import get_status_db, list_ssh_hosts_db
@@ -200,9 +201,23 @@ async def ensure_ws_ssh_pubkey(login: str, ws_id: str) -> str:
 # ─── Résolution des cibles Modèle B ─────────────────────────────────────────────
 
 
+def _ws_name(login: str, ws_id: str) -> str:
+    """Nom court du workspace (ws_id = `<login>-<name>`) ; ws_id tel quel sinon."""
+    return ws_id[len(login) + 1 :] if ws_id.startswith(f"{login}-") else ws_id
+
+
+async def _folder_for(login: str, ws_id: str, conn: Any) -> str | None:
+    """Dossier Termix = `workspace-<groupe>` d'après les groupes du workspace.
+
+    Un workspace est mono-groupe en pratique ; multi-groupes → 1er par ordre alpha
+    (déterministe, `folder` Termix est unique). Aucun groupe → None (hors dossier)."""
+    groups = await wg.get_groups_for_workspace(login, _ws_name(login, ws_id), conn)
+    return f"workspace-{sorted(groups)[0]}" if groups else None
+
+
 async def _resolve_ws_user(login: str, ws_id: str, conn: Any) -> str:
     """Utilisateur SSH du workspace = image_user du profil, sinon 'vscode'."""
-    name = ws_id[len(login) + 1 :] if ws_id.startswith(f"{login}-") else ws_id
+    name = _ws_name(login, ws_id)
     ref = await get_workspace_profile_ref_db(login, name, conn)
     if ref is None or ref[0] not in ("shared", "user"):
         return "vscode"
@@ -293,21 +308,35 @@ async def ensure_termix_account(conn: Any, login: str, instance_ids: list[str]) 
 
 
 async def _create_host_rec(
-    tx: TermixClient, ws_id: str, private: str, ip: str, port: int, user: str
+    tx: TermixClient,
+    ws_id: str,
+    private: str,
+    ip: str,
+    port: int,
+    user: str,
+    folder: str | None = None,
 ) -> dict[str, Any]:
     """Crée credential + host vus par `tx` (donc possédés par le user de l'apikey).
 
-    Nom de credential UNIQUE (suffixe GUID) : le nom n'est qu'un label (le suivi se
-    fait par cred_id), et un nom stable provoque des 409 « déjà existant » côté Termix
-    quand un credential résiduel traîne (recréation, delete non propagé). Spec 18 T5."""
+    `folder` = dossier de regroupement Termix (barre latérale). Nom de credential
+    UNIQUE (suffixe GUID) : le nom n'est qu'un label (le suivi se fait par cred_id),
+    et un nom stable provoque des 409 « déjà existant » côté Termix quand un credential
+    résiduel traîne (recréation, delete non propagé). Spec 18 T5."""
     cred_name = f"{_slug(ws_id)}-{uuid.uuid4().hex[:8]}"
     cred_id = await tx.create_credential(cred_name, user, private)
     if cred_id is None:
         raise RuntimeError("Termix POST /credentials : réponse sans id exploitable")
-    host_id = await tx.create_host(ws_id, ip, port, user, cred_id)
+    host_id = await tx.create_host(ws_id, ip, port, user, cred_id, folder=folder)
     if host_id is None:
         raise RuntimeError("Termix POST /host : réponse sans id exploitable")
-    return {"host_id": host_id, "cred_id": cred_id, "ip": ip, "port": port, "user": user}
+    return {
+        "host_id": host_id,
+        "cred_id": cred_id,
+        "ip": ip,
+        "port": port,
+        "user": user,
+        "folder": folder,
+    }
 
 
 async def _ensure_host_on_instance(
@@ -319,23 +348,26 @@ async def _ensure_host_on_instance(
     user: str,
     prev: dict[str, Any] | None,
     owner: str | None = None,
+    folder: str | None = None,
 ) -> dict[str, Any]:
-    """Crée (ou recrée si cible/propriétaire changé / host perdu) credential + host.
+    """Crée (ou recrée si cible/propriétaire/dossier changé / host perdu) cred + host.
 
-    `owner` = userId Termix propriétaire (None = admin) ; mémorisé dans le rec et
-    comparé au no-op pour re-créer si l'appropriation doit changer. → rec état."""
+    `owner` = userId Termix propriétaire (None = admin) ; `folder` = dossier de
+    regroupement. Les deux sont mémorisés dans le rec et comparés au no-op pour
+    recréer si l'appropriation ou le groupe doivent changer. → rec état."""
     if prev is not None:
         same = (
             prev.get("ip") == ip
             and prev.get("port") == port
             and prev.get("user") == user
             and prev.get("owner") == owner
+            and prev.get("folder") == folder
         )
         known = await tx.list_host_ids()
         host_id = prev.get("host_id")
         if same and host_id is not None and (known is None or int(host_id) in known):
             return prev
-        # Cible/propriétaire changé ou host perdu : purge l'ancien puis recrée.
+        # Cible/propriétaire/dossier changé ou host perdu : purge l'ancien puis recrée.
         if host_id is not None:
             await tx.delete_host(int(host_id))
         if prev.get("cred_id"):
@@ -344,7 +376,7 @@ async def _ensure_host_on_instance(
     # orphelin d'un delete non propagé) AVANT d'en recréer un propre — sinon un
     # état vidé + host survivant = doublon (cas restart après stop KO).
     await _delete_hosts_named(tx, ws_id)
-    rec = await _create_host_rec(tx, ws_id, private, ip, port, user)
+    rec = await _create_host_rec(tx, ws_id, private, ip, port, user, folder=folder)
     rec["owner"] = owner
     return rec
 
@@ -360,6 +392,7 @@ async def _ensure_host_owned_by_user(
     port: int,
     ws_user: str,
     prev: dict[str, Any] | None,
+    folder: str | None = None,
 ) -> dict[str, Any]:
     """Crée le host+credential POSSÉDÉ par le **compte OIDC** du propriétaire.
 
@@ -383,9 +416,9 @@ async def _ensure_host_owned_by_user(
         )
         base = prev if (prev and prev.get("owner") is None) else None
         return await _ensure_host_on_instance(
-            admin_tx, ws_id, private, ip, port, ws_user, base, owner=None
+            admin_tx, ws_id, private, ip, port, ws_user, base, owner=None, folder=folder
         )
-    # No-op si cible ET propriétaire inchangés (host déjà chez le bon compte OIDC).
+    # No-op si cible, propriétaire ET dossier inchangés (host déjà chez le bon compte).
     if (
         prev is not None
         and prev.get("host_id")
@@ -393,6 +426,7 @@ async def _ensure_host_owned_by_user(
         and prev.get("port") == port
         and prev.get("user") == ws_user
         and prev.get("owner") == desired
+        and prev.get("folder") == folder
     ):
         return prev
     # Ré-appropriation : purge l'ancien host chez son propriétaire d'origine (l'apikey
@@ -406,7 +440,9 @@ async def _ensure_host_owned_by_user(
         try:
             async with TermixClient(inst["url"], owner_token) as owner_tx:
                 await _delete_hosts_named(owner_tx, ws_id)  # purge résiduels du compte cible
-                rec = await _create_host_rec(owner_tx, ws_id, private, ip, port, ws_user)
+                rec = await _create_host_rec(
+                    owner_tx, ws_id, private, ip, port, ws_user, folder=folder
+                )
                 rec["owner"] = desired
                 return rec
         finally:
@@ -421,7 +457,7 @@ async def _ensure_host_owned_by_user(
         reason="mint_failed",
     )
     return await _ensure_host_on_instance(
-        admin_tx, ws_id, private, ip, port, ws_user, None, owner=None
+        admin_tx, ws_id, private, ip, port, ws_user, None, owner=None, folder=folder
     )
 
 
@@ -443,6 +479,7 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
 
     async with _get_engine().connect() as conn:
         ip, port, ws_user = await _target(login, ws_id, conn)
+        folder = await _folder_for(login, ws_id, conn)  # dossier Termix = workspace-<groupe>
         accessors = await _accessors(login, ws_id, conn)
         # login → (instances, sub) ; union des instances → dict id→instance.
         per_user_instances: dict[str, set[str]] = {}
@@ -475,6 +512,7 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
                 port,
                 ws_user,
                 prev_instances.get(inst_id),
+                folder=folder,
             )
             new_instances[inst_id] = rec
             # Partage aux AUTRES accessors (le propriétaire possède déjà le host).
@@ -508,6 +546,36 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
     if pending:
         _log.warning("bastion_share_pending", ws_id=ws_id, pending=pending)
     return {"ws_id": ws_id, "instances": list(new_instances), "created": True, "pending": pending}
+
+
+async def reprovision_workspace_if_running(login: str, ws_id: str) -> None:
+    """Re-provisionne best-effort si bastion activé ET workspace démarré.
+
+    Sert à refléter EN LIVE un changement de groupe (dossier Termix). Appelé en
+    `BackgroundTask` (après commit de la requête → lit les groupes à jour). Ouvre sa
+    PROPRE connexion. Le host n'existe que pour un workspace `up` — pour un workspace
+    arrêté le dossier sera pris au prochain `up`. Silencieux si désactivé/arrêté/erreur."""
+    if not enabled():
+        return
+    async with _get_engine().connect() as conn:
+        status = await get_status_db(ws_id, conn)
+    if not status or status.get("status") != "running":
+        return
+    try:
+        await provision_workspace(login, ws_id)
+    except Exception as exc:
+        _log.warning("bastion_reprovision_failed", ws_id=ws_id, error=str(exc))
+
+
+async def reprovision_group_if_running(login: str, group_name: str) -> None:
+    """Re-provisionne (live, best-effort) tous les workspaces démarrés d'un groupe —
+    leur dossier Termix change (rename de groupe). `BackgroundTask` (après commit)."""
+    if not enabled():
+        return
+    async with _get_engine().connect() as conn:
+        names = await wg.list_workspace_names_in_group(login, group_name, conn)
+    for name in names:
+        await reprovision_workspace_if_running(login, f"{login}-{name}")
 
 
 async def provision_user_access(conn: Any, login: str) -> list[str]:

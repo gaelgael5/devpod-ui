@@ -44,7 +44,9 @@ async def test_create_credential_and_host_and_share() -> None:
 
     c = _client_with(handler)
     cred = await c.create_credential("ws-admin-doc", "root", "PRIVKEY")
-    host = await c.create_host("admin-doc", "192.168.10.164", 2222, "root", cred)  # type: ignore[arg-type]
+    host = await c.create_host(
+        "admin-doc", "192.168.10.164", 2222, "root", cred, folder="workspace-agflow"
+    )  # type: ignore[arg-type]
     role = await c.find_role_id("devpod-users")
     await c.share_host_to_role(host, role)  # type: ignore[arg-type]
     await c._client.aclose()  # type: ignore[union-attr]
@@ -59,6 +61,7 @@ async def test_create_credential_and_host_and_share() -> None:
     }
     host_body = next(b for m, p, b in seen if p == "/host/db/host")
     assert host_body["credentialId"] == 42 and host_body["port"] == 2222
+    assert host_body["folder"] == "workspace-agflow"
     share_body = next(b for m, p, b in seen if p.endswith("/share"))
     assert share_body == {"targets": [{"type": "role", "id": 5}], "permissionLevel": "connect"}
 

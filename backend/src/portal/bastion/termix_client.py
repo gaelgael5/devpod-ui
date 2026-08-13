@@ -110,8 +110,16 @@ class TermixClient:
 
     # ─── Hosts ──────────────────────────────────────────────────────────────
     async def create_host(
-        self, name: str, ip: str, port: int, username: str, credential_id: int
+        self,
+        name: str,
+        ip: str,
+        port: int,
+        username: str,
+        credential_id: int,
+        folder: str | None = None,
     ) -> int | None:
+        """Crée un host. `folder` = dossier de regroupement Termix (barre latérale) ;
+        None → hors dossier (le champ Termix accepte `folder || null`)."""
         resp = await self._req(
             "POST",
             "/host/db/host",
@@ -122,6 +130,7 @@ class TermixClient:
                 "username": username,
                 "authType": "key",
                 "credentialId": credential_id,
+                "folder": folder,
             },
         )
         return _extract_id(resp.json())

@@ -77,8 +77,10 @@ class _FakeTx:
         self.created.append(("cred", name, user))
         return 100
 
-    async def create_host(self, name: str, ip: str, port: int, user: str, cred: int) -> int:
-        self.created.append(("host", ip, port, user, cred))
+    async def create_host(
+        self, name: str, ip: str, port: int, user: str, cred: int, folder: str | None = None
+    ) -> int:
+        self.created.append(("host", ip, port, user, cred, folder))
         return 200
 
     async def delete_host(self, hid: int) -> None:
@@ -91,7 +93,16 @@ class _FakeTx:
 @pytest.mark.asyncio
 async def test_ensure_host_creates_when_no_prev() -> None:
     tx = _FakeTx()
-    rec = await p._ensure_host_on_instance(tx, "admin-doc", "PK", "1.2.3.4", 50001, "vscode", None)  # type: ignore[arg-type]
+    rec = await p._ensure_host_on_instance(
+        tx,  # type: ignore[arg-type]
+        "admin-doc",
+        "PK",
+        "1.2.3.4",
+        50001,
+        "vscode",
+        None,
+        folder="workspace-agflow",
+    )
     assert rec == {
         "host_id": 200,
         "cred_id": 100,
@@ -99,8 +110,10 @@ async def test_ensure_host_creates_when_no_prev() -> None:
         "port": 50001,
         "user": "vscode",
         "owner": None,
+        "folder": "workspace-agflow",
     }
     assert tx.created[0][0] == "cred" and tx.created[1][0] == "host"
+    assert tx.created[1][-1] == "workspace-agflow"  # folder transmis à create_host
     assert tx.deleted == []
 
 
