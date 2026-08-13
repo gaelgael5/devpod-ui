@@ -8,16 +8,19 @@ Modèle B : Termix se connecte EN DIRECT au sshd du workspace, publié sur
 `node_ip:ssh_port` (spec 18 T1), en `ws_user` (image_user du profil, défaut vscode)
 avec la clé du workspace. Fan-out multi-instance : le host est déclaré sur CHAQUE
 instance Termix de l'union des instances des accessors (propriétaire +
-`user_host_grant`). Le host est **possédé par le compte OIDC du propriétaire**
-(`is_oidc=true`, username=email — celui sur lequel il se connecte), via une apikey
-éphémère mintée pour lui, puis **partagé aux comptes OIDC des autres accessors**. On
-ne dépend PAS de link-oidc-to-password (fragile). Pas encore de compte OIDC (user
-jamais connecté à Termix) → host possédé en admin, ré-approprié dès sa 1re connexion +
-re-provision. Compte accessor absent → « en attente » (pas de 502 ; re-provision
-rattrape).
+`user_host_grant`).
+
+Modèle de comptes (spec 18) : une personne peut avoir 1 OU 2 comptes Termix avec
+`username=email` (interne créé à l'association + OIDC créé au 1er login, tant qu'ils
+ne sont pas fusionnés). On possède **une COPIE du host par compte** (`find_user_ids`)
+→ chaque compte est alimenté, quel que soit le type de connexion. À chaque login /
+provision on tente de **fusionner** (link-oidc-to-password, best-effort) → converge
+vers un seul compte. Aucun compte encore (jamais connecté) → placeholder admin,
+ré-approprié au prochain provision.
 
 État par workspace = secret système `ws-bastion-<ws_id>` (JSON chiffré) :
-`{login, key, instances: {instance_id: {host_id, cred_id, ip, port, user}}}`.
+`{login, key, instances: {instance_id: {uid: {host_id, cred_id, ip, port, user,
+owner, folder}}}}` — une entrée par compte Termix (`uid`), `""` = placeholder admin.
 """
 
 from __future__ import annotations
@@ -121,28 +124,16 @@ async def _delete_named_as_owner(
 async def _delete_ws_hosts_as_owner(
     admin_tx: TermixClient, inst: dict[str, Any], ws_id: str, owner_email: str | None
 ) -> int:
-    """Supprime les hosts nommés `ws_id` sur l'instance EN TANT QUE le propriétaire.
-
-    Les hosts sont possédés par le user (mint d'apikey éphémère au provisioning) :
-    l'apikey admin ne les voit pas et ne peut pas les supprimer. On minte donc la
-    clé du propriétaire, on supprime avec, puis on la jette. Fallback admin pour les
-    hosts admin-owned (ancien comportement / provisioning en secours)."""
-    owner_uid = await admin_tx.find_user_id(owner_email) if owner_email else None
-    if owner_uid is not None:
-        key_id, token = await admin_tx.create_apikey_for_user(
-            owner_uid, f"portal-deprovision-{ws_id}", _apikey_expiry()
-        )
-        if token:
-            try:
-                async with TermixClient(inst["url"], token) as owner_tx:
-                    return await _delete_hosts_named(owner_tx, ws_id)
-            finally:
-                if key_id:
-                    try:
-                        await admin_tx.delete_apikey(key_id)
-                    except Exception:
-                        _log.warning("termix_apikey_cleanup_failed", ws_id=ws_id, key_id=key_id)
-    return await _delete_hosts_named(admin_tx, ws_id)
+    """Supprime les hosts nommés `ws_id` sur l'instance, EN TANT QUE chaque compte de
+    l'email (interne + OIDC — une copie par compte). L'apikey admin ne voit pas les
+    hosts user-owned → on minte la clé de chaque compte. Fallback admin si aucun."""
+    uids = await admin_tx.find_user_ids(owner_email) if owner_email else []
+    if not uids:
+        return await _delete_hosts_named(admin_tx, ws_id)
+    total = 0
+    for uid in uids:
+        total += await _delete_named_as_owner(admin_tx, inst, ws_id, uid)
+    return total
 
 
 def enabled() -> bool:
@@ -381,84 +372,86 @@ async def _ensure_host_on_instance(
     return rec
 
 
-async def _ensure_host_owned_by_user(
+async def _own_copy_for_uid(
     admin_tx: TermixClient,
     inst: dict[str, Any],
-    ws_id: str,
-    owner_login: str,
-    owner_email: str | None,
+    name: str,
+    uid: str,
     private: str,
     ip: str,
     port: int,
-    ws_user: str,
+    user: str,
     prev: dict[str, Any] | None,
-    folder: str | None = None,
+    folder: str | None,
 ) -> dict[str, Any]:
-    """Crée le host+credential POSSÉDÉ par le **compte OIDC** du propriétaire.
-
-    Déterminisme (spec 18 T5) : le user se connecte à Termix en OIDC → le host DOIT
-    appartenir à SON compte OIDC (`is_oidc=true`, username=email), sinon il ne le voit
-    pas. On ne dépend plus du link-oidc-to-password (fragile). Ré-appropriation : si le
-    host était possédé par un autre compte (ancien fallback admin, placeholder), on le
-    purge chez l'ancien propriétaire puis on le recrée chez le compte OIDC. Fallback
-    admin uniquement si le user ne s'est JAMAIS connecté à Termix (pas de compte OIDC) —
-    il verra ses hosts après sa 1re connexion + un re-provision (up)."""
-    desired = await admin_tx.find_user_id(owner_email, oidc=True) if owner_email else None
-    if desired is None:
-        # Pas de compte OIDC : possède en admin (invisible au user jusqu'à sa 1re
-        # connexion Termix). owner=None → sera ré-approprié dès que le compte existe.
-        _log.warning(
-            "bastion_host_admin_owned_fallback",
-            ws_id=ws_id,
-            instance=inst.get("name"),
-            owner=owner_login,
-            reason="no_oidc_account",
-        )
-        base = prev if (prev and prev.get("owner") is None) else None
-        return await _ensure_host_on_instance(
-            admin_tx, ws_id, private, ip, port, ws_user, base, owner=None, folder=folder
-        )
-    # No-op si cible, propriétaire ET dossier inchangés (host déjà chez le bon compte).
-    if (
-        prev is not None
-        and prev.get("host_id")
-        and prev.get("ip") == ip
-        and prev.get("port") == port
-        and prev.get("user") == ws_user
-        and prev.get("owner") == desired
-        and prev.get("folder") == folder
-    ):
-        return prev
-    # Ré-appropriation : purge l'ancien host chez son propriétaire d'origine (l'apikey
-    # d'un autre compte ne le voit pas), avant de recréer chez le compte OIDC.
-    if prev is not None and prev.get("host_id") and prev.get("owner") != desired:
-        await _delete_named_as_owner(admin_tx, inst, ws_id, prev.get("owner"))
-    key_id, owner_token = await admin_tx.create_apikey_for_user(
-        desired, f"portal-provision-{ws_id}", _apikey_expiry()
+    """Possède UNE copie du host `name` sur le compte `uid` (apikey éphémère), dans
+    `folder`. No-op si l'état `prev` correspond déjà (même cible + propriétaire)."""
+    key_id, token = await admin_tx.create_apikey_for_user(
+        uid, f"portal-provision-{name}", _apikey_expiry()
     )
-    if owner_token:
+    if token:
         try:
-            async with TermixClient(inst["url"], owner_token) as owner_tx:
-                await _delete_hosts_named(owner_tx, ws_id)  # purge résiduels du compte cible
-                rec = await _create_host_rec(
-                    owner_tx, ws_id, private, ip, port, ws_user, folder=folder
+            async with TermixClient(inst["url"], token) as owner_tx:
+                return await _ensure_host_on_instance(
+                    owner_tx, name, private, ip, port, user, prev, owner=uid, folder=folder
                 )
-                rec["owner"] = desired
-                return rec
         finally:
             if key_id:
                 with contextlib.suppress(Exception):
                     await admin_tx.delete_apikey(key_id)
     _log.warning(
         "bastion_host_admin_owned_fallback",
-        ws_id=ws_id,
+        ws_id=name,
         instance=inst.get("name"),
-        owner=owner_login,
+        owner=uid,
         reason="mint_failed",
     )
     return await _ensure_host_on_instance(
-        admin_tx, ws_id, private, ip, port, ws_user, None, owner=None, folder=folder
+        admin_tx, name, private, ip, port, user, None, owner=None, folder=folder
     )
+
+
+async def _ensure_account_copies(
+    admin_tx: TermixClient,
+    inst: dict[str, Any],
+    name: str,
+    email: str | None,
+    private: str,
+    ip: str,
+    port: int,
+    user: str,
+    prev_map: dict[str, Any],
+    folder: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Possède une copie du host `name` sur CHAQUE compte Termix de `email` (interne ET
+    OIDC tant qu'ils ne sont pas fusionnés — spec 18). → `{uid: rec}`, vide si l'user
+    n'a encore aucun compte Termix (jamais connecté). Chaque compte est ainsi alimenté,
+    quel que soit le type de connexion ; le link (best-effort) les fusionne à terme."""
+    uids = await admin_tx.find_user_ids(email) if email else []
+    out: dict[str, dict[str, Any]] = {}
+    for uid in uids:
+        prev = prev_map.get(uid) if isinstance(prev_map, dict) else None
+        out[uid] = await _own_copy_for_uid(
+            admin_tx, inst, name, uid, private, ip, port, user, prev, folder
+        )
+    return out
+
+
+async def _try_link_accounts(tx: TermixClient, email: str | None) -> None:
+    """Tente de fusionner le compte OIDC dans le compte interne (`username=email`) —
+    best-effort, idempotent. Une fois lié, le login OIDC retombe sur le compte interne
+    → un seul compte. Échec toléré (comptes déjà liés, contrainte Termix) : on alimente
+    les deux comptes en attendant, donc le résultat est le même (spec 18)."""
+    if not email:
+        return
+    oidc_uid = await tx.find_user_id(email, oidc=True)
+    if oidc_uid is None:
+        return
+    try:
+        await tx.link_oidc_to_password(oidc_uid, email)
+        _log.info("termix_accounts_linked", email=email)
+    except Exception as exc:
+        _log.debug("termix_link_attempt_failed", email=email, error=str(exc))
 
 
 async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
@@ -498,40 +491,48 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
         async with _get_engine().connect() as conn:
             apikey = await _apikey(inst["apikey_secret"], conn)
         async with TermixClient(inst["url"], apikey) as tx:
-            # Host créé EN TANT QUE le propriétaire du workspace (owned by user, pas
-            # admin) : apikey éphémère mintée pour lui, host+credential créés avec, puis
-            # apikey jetée. Fallback admin si le proprio n'a pas de compte sur l'instance.
-            rec = await _ensure_host_owned_by_user(
-                tx,
-                inst,
-                ws_id,
-                login,
-                emails.get(login),
-                private,
-                ip,
-                port,
-                ws_user,
-                prev_instances.get(inst_id),
-                folder=folder,
-            )
-            new_instances[inst_id] = rec
-            # Partage aux AUTRES accessors (le propriétaire possède déjà le host).
+            prev_map: dict[str, Any] = dict(prev_instances.get(inst_id) or {})
+            if "host_id" in prev_map:  # ancien format à plat → ignoré (dédup par nom nettoie)
+                prev_map = {}
+            new_map: dict[str, Any] = {}
+            # Une COPIE du host par compte (interne + OIDC) de CHAQUE accessor présent
+            # sur cette instance → chaque compte est alimenté, quel que soit le login.
             for lg in accessors:
-                if lg == login or inst_id not in per_user_instances[lg]:
+                if inst_id not in per_user_instances[lg]:
                     continue
                 email = emails.get(lg)
                 if not email:
-                    # Sans email → non partageable (login Termix = email, spec 18 T5).
                     _log.warning("bastion_share_no_email", login=lg, ws_id=ws_id)
                     continue
-                # Partage au COMPTE OIDC de l'accessor (celui sur lequel il se
-                # connecte), comme pour l'appropriation du propriétaire. Absent → il
-                # ne s'est pas encore connecté à Termix : partage différé (pending).
-                uid = await tx.find_user_id(email, oidc=True)
-                if uid is None:
+                copies = await _ensure_account_copies(
+                    tx, inst, ws_id, email, private, ip, port, ws_user, prev_map, folder
+                )
+                if not copies:  # accessor sans compte Termix encore → différé
                     pending.append(f"{lg}@{inst.get('name', inst_id)}")
-                    continue
-                await tx.share_host_to_user(int(rec["host_id"]), uid)
+                new_map.update(copies)
+            if not new_map:
+                # Personne n'a de compte Termix → placeholder admin (ré-approprié dès
+                # qu'un compte apparaît, au prochain provision).
+                new_map[""] = await _ensure_host_on_instance(
+                    tx,
+                    ws_id,
+                    private,
+                    ip,
+                    port,
+                    ws_user,
+                    prev_map.get(""),
+                    owner=None,
+                    folder=folder,
+                )
+            # Nettoie les copies des comptes disparus (compte supprimé, accessor retiré).
+            for uid, rec in prev_map.items():
+                if uid not in new_map and isinstance(rec, dict):
+                    await _delete_named_as_owner(tx, inst, ws_id, rec.get("owner"))
+            # Tente de fusionner interne↔OIDC de chaque accessor (best-effort, converge).
+            for lg in accessors:
+                if inst_id in per_user_instances[lg]:
+                    await _try_link_accounts(tx, emails.get(lg))
+            new_instances[inst_id] = new_map
 
     await _save_state(ws_id, {"login": login, "key": private, "instances": new_instances})
     _log.info(
@@ -726,9 +727,14 @@ async def deprovision_workspace(
                 continue
             apikey = await _apikey(inst["apikey_secret"], conn)
         async with TermixClient(inst["url"], apikey) as tx:
-            # Suppression par NOM et EN TANT QUE le propriétaire (les hosts lui
-            # appartiennent : l'apikey admin ne les voit pas). Nettoie les doublons.
+            # Supprime les copies chez TOUS les comptes du propriétaire (interne + OIDC)…
             n = await _delete_ws_hosts_as_owner(tx, inst, ws_id, owner_email)
+            # …et celles des accessors mémorisées dans l'état (map {uid: rec}).
+            rec_map = instances.get(inst_id) or {}
+            if isinstance(rec_map, dict) and "host_id" not in rec_map:
+                for _uid, rec in rec_map.items():
+                    if isinstance(rec, dict):
+                        n += await _delete_named_as_owner(tx, inst, ws_id, rec.get("owner"))
             _log.info("bastion_hosts_removed", ws_id=ws_id, instance=inst.get("name"), count=n)
         deleted.append(inst_id)
     if purge_state:

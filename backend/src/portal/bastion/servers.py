@@ -35,7 +35,8 @@ from ..secrets.system import reveal_system_cert
 from .provision import (
     _apikey,
     _delete_named_as_owner,
-    _ensure_host_owned_by_user,
+    _ensure_account_copies,
+    _try_link_accounts,
     enabled,
 )
 from .termix_client import TermixClient
@@ -112,27 +113,37 @@ async def _resolve_targets(
     return out
 
 
-async def _delete_server_rec(host_name: str, inst_id: str, rec: dict[str, Any]) -> None:
-    """Supprime le host Termix d'un (login, instance) EN TANT QUE son propriétaire."""
+def _rec_map(value: Any) -> dict[str, Any]:
+    """Normalise une entrée d'état en map {uid: rec} (ancien format à plat → {} )."""
+    if isinstance(value, dict) and "host_id" not in value:
+        return {k: v for k, v in value.items() if isinstance(v, dict)}
+    return {}
+
+
+async def _delete_server_map(host_name: str, inst_id: str, rec_map: dict[str, Any]) -> None:
+    """Supprime les copies d'un (login, instance) EN TANT QUE chaque compte propriétaire."""
+    if not rec_map:
+        return
     async with _get_engine().connect() as conn:
         inst = await ti.get(conn, inst_id)
         if inst is None:
             return
         apikey = await _apikey(inst["apikey_secret"], conn)
     async with TermixClient(inst["url"], apikey) as tx:
-        await _delete_named_as_owner(tx, inst, host_name, rec.get("owner"))
+        for rec in rec_map.values():
+            await _delete_named_as_owner(tx, inst, host_name, rec.get("owner"))
 
 
 async def _cleanup_removed(
     prev_targets: dict[str, Any], new_targets: dict[str, Any], host_name: str
 ) -> None:
-    """Supprime les hosts des (login, instance) présents avant mais plus maintenant
+    """Supprime les copies des (login, instance) présents avant mais plus maintenant
     (admin qui a perdu le rôle, instance retirée, usage changé)."""
     for login, insts in prev_targets.items():
         kept = new_targets.get(login, {})
-        for inst_id, rec in insts.items():
+        for inst_id, rec_map in insts.items():
             if inst_id not in kept:
-                await _delete_server_rec(host_name, inst_id, rec)
+                await _delete_server_map(host_name, inst_id, _rec_map(rec_map))
 
 
 async def sync_server_host(host_name: str) -> None:
@@ -166,12 +177,17 @@ async def sync_server_host(host_name: str) -> None:
             async with _get_engine().connect() as conn:
                 apikey = await _apikey(inst["apikey_secret"], conn)
             async with TermixClient(inst["url"], apikey) as tx:
-                prev = prev_targets.get(login, {}).get(inst["id"])
-                rec = await _ensure_host_owned_by_user(
-                    tx, inst, host_name, login, email, private, ip, _SSH_PORT, ssh_user, prev,
-                    folder=folder,
+                prev_map = _rec_map(prev_targets.get(login, {}).get(inst["id"]))
+                # Une copie par compte (interne + OIDC) de l'email — chaque compte alimenté.
+                copies = await _ensure_account_copies(
+                    tx, inst, host_name, email, private, ip, _SSH_PORT, ssh_user, prev_map, folder
                 )
-                per_inst[inst["id"]] = rec
+                # Nettoie les copies des comptes disparus sur cette instance.
+                for uid, rec in prev_map.items():
+                    if uid not in copies:
+                        await _delete_named_as_owner(tx, inst, host_name, rec.get("owner"))
+                await _try_link_accounts(tx, email)  # fusion interne↔OIDC best-effort
+                per_inst[inst["id"]] = copies
         new_targets[login] = per_inst
 
     await _cleanup_removed(prev_targets, new_targets, host_name)
@@ -208,6 +224,26 @@ async def sync_server_hosts_for_user(login: str) -> None:
     _log.info("srv_hosts_synced_for_user", login=login, admin=admin, hosts=sorted(names))
 
 
+async def try_link_accounts_for_user(login: str) -> None:
+    """Tente de fusionner les comptes Termix (interne↔OIDC) de `login` sur chacune de
+    ses instances — best-effort, appelé à chaque login (spec 18). Silencieux/idempotent."""
+    if not enabled():
+        return
+    async with _get_engine().connect() as conn:
+        email = (await owner_identity_subject(login)).get("email")
+        instances = await uti.resolve_instances_for_user(conn, login)
+    if not email:
+        return
+    for inst in instances:
+        try:
+            async with _get_engine().connect() as conn:
+                apikey = await _apikey(inst["apikey_secret"], conn)
+            async with TermixClient(inst["url"], apikey) as tx:
+                await _try_link_accounts(tx, email)
+        except Exception as exc:
+            _log.debug("termix_link_for_user_failed", login=login, error=str(exc))
+
+
 async def deprovision_server_host(host_name: str) -> None:
     """Retire un serveur de Termix chez tous ses destinataires + purge l'état."""
     if not enabled():
@@ -216,7 +252,7 @@ async def deprovision_server_host(host_name: str) -> None:
     if state is None:
         return
     for _login, insts in dict(state.get("targets", {})).items():
-        for inst_id, rec in insts.items():
-            await _delete_server_rec(host_name, inst_id, rec)
+        for inst_id, rec_map in insts.items():
+            await _delete_server_map(host_name, inst_id, _rec_map(rec_map))
     await _delete_srv_state(host_name)
     _log.info("srv_host_deprovisioned", host=host_name)

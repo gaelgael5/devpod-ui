@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import os
 import tempfile
@@ -28,6 +29,20 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 _oidc_client: OIDCClient | None = None
 _oidc_client_key: tuple[str, str, str] | None = None
+
+# Tâches fire-and-forget de fusion des comptes Termix au login (spec 18) : gardées le
+# temps de leur exécution pour ne pas être ramassées par le GC.
+_link_tasks: set[asyncio.Task[None]] = set()
+
+
+def _fire_link_termix_accounts(login: str) -> None:
+    """Lance (sans bloquer le login) la tentative de fusion interne↔OIDC des comptes
+    Termix de `login`. Best-effort, silencieux si Termix indisponible."""
+    from ..bastion.servers import try_link_accounts_for_user
+
+    task = asyncio.create_task(try_link_accounts_for_user(login))
+    _link_tasks.add(task)
+    task.add_done_callback(_link_tasks.discard)
 
 
 class LocalLoginRequest(BaseModel):
@@ -111,6 +126,7 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
     # Pas de vrai jeton en login local : claims minimaux pour la page profil.
     request.session["token_claims"] = {"sub": "local", "preferred_username": settings.local_user}
     _log.info("local_login_success", login=settings.local_user)
+    _fire_link_termix_accounts(settings.local_user)  # fusion comptes Termix (best-effort)
     from ..events.bus import emit_event
 
     await emit_event(
@@ -211,6 +227,7 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     # Claims essentiels curés (jamais le jeton brut) pour affichage/copie côté profil.
     request.session["token_claims"] = curate_token_claims(claims)
     _log.info("user_logged_in", login=login_name, roles=roles)
+    _fire_link_termix_accounts(login_name)  # fusion comptes Termix (best-effort, spec 18)
     # Rafraîchissement d'identité à chaque login OIDC : re-synchronise l'aval
     # (ex. upsert du user dans Termix), idempotent. Best-effort (hors txn).
     from ..db.engine import _get_engine
