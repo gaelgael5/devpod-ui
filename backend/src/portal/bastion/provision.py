@@ -310,6 +310,11 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
     if private is None:
         private, _ = bkeys.generate_keypair(comment=f"ws:{ws_id}")
     prev_instances: dict[str, Any] = dict((state or {}).get("instances", {}))
+    # Diag (spec 18 T5) : pubkey mise dans le credential Termix — à comparer à
+    # l'authorized_keys du conteneur (doivent être identiques, sinon auth KO).
+    _log.info(
+        "bastion_ws_pubkey", ws_id=ws_id, pubkey=bkeys.public_from_private(private, f"ws:{ws_id}")
+    )
 
     async with _get_engine().connect() as conn:
         ip, port, ws_user = await _target(login, ws_id, conn)
