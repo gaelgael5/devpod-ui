@@ -335,9 +335,17 @@ async def provision_user_access(conn: Any, login: str) -> list[str]:
     return warnings
 
 
-async def deprovision_workspace(login: str, ws_id: str) -> dict[str, Any]:
-    """Retire host + credential Termix sur toutes les instances + l'état. Erreurs
-    propagées ; 404 de suppression tolérés (rejeu idempotent)."""
+async def deprovision_workspace(
+    login: str, ws_id: str, *, purge_state: bool = True
+) -> dict[str, Any]:
+    """Retire host + credential Termix sur toutes les instances. 404 tolérés.
+
+    `purge_state=True` (delete du workspace) : supprime aussi le secret d'état
+    (clé SSH comprise) — nettoyage complet. `purge_state=False` (stop) : conserve
+    la **clé SSH** (elle reste bakée dans l'`authorized_keys` du conteneur ; la
+    régénérer casserait le SSH au restart) et vide juste `instances` → un restart
+    recrée proprement les hosts.
+    """
     _require_enabled()
     state = await _load_state(ws_id)
     if state is None:
@@ -356,7 +364,11 @@ async def deprovision_workspace(login: str, ws_id: str) -> dict[str, Any]:
             if rec.get("cred_id"):
                 await tx.delete_credential(int(rec["cred_id"]))
         deleted.append(inst_id)
-    async with _get_engine().begin() as conn:
-        await sysec.delete_system_secret(_slug(ws_id), conn)
-    _log.info("bastion_deprovisioned", ws_id=ws_id, instances=deleted)
+    if purge_state:
+        async with _get_engine().begin() as conn:
+            await sysec.delete_system_secret(_slug(ws_id), conn)
+    else:
+        # Conserve la clé SSH, vide les hosts (recréés au prochain up).
+        await _save_state(ws_id, {"login": login, "key": state.get("key"), "instances": {}})
+    _log.info("bastion_deprovisioned", ws_id=ws_id, instances=deleted, purge_state=purge_state)
     return {"ws_id": ws_id, "termix_deleted": True, "instances": deleted}

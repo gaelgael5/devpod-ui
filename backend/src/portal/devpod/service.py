@@ -776,6 +776,16 @@ class DevPodService:
                 workspace=ws_id.removeprefix(f"{login}-"),
                 subject={**await owner_identity_subject(login), "ws_id": ws_id},
             )
+            # Nettoyage Termix au stop (spec 18 T5) : le host node_ip:ssh_port devient
+            # injoignable → on retire host+credential côté Termix, mais on GARDE la clé
+            # SSH (purge_state=False) pour un restart propre. Best-effort.
+            from ..bastion import provision as _bastion
+
+            try:
+                if _bastion.enabled():
+                    await _bastion.deprovision_workspace(login, ws_id, purge_state=False)
+            except Exception:
+                _log.warning("bastion_deprovision_on_stop_failed", ws_id=ws_id, exc_info=True)
 
     async def delete(self, login: str, ws_id: str, *, shelve: bool = True) -> dict[str, Any]:
         """Supprime un workspace (force). Shelve le travail en attente si shelve=True."""
