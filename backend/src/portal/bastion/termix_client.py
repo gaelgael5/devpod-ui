@@ -172,9 +172,24 @@ class TermixClient:
         resp = await self._req("POST", "/users/api-keys", json=body)
         data = resp.json()
         meta = data.get("apiKey") if isinstance(data.get("apiKey"), dict) else {}
-        key_id = meta.get("id") or meta.get("keyId") or meta.get("apiKeyId")
-        token = data.get("token")
-        return (str(key_id) if key_id is not None else None, token)
+        # Champ d'id inconnu (corps non documenté) : on essaie les candidats usuels,
+        # à défaut on cherche au niveau racine, et on loggue les clés vues pour
+        # corriger le nettoyage sans re-minter à la main.
+        key_id = None
+        for src in (meta, data):
+            for k in ("id", "keyId", "apiKeyId", "key_id", "api_key_id"):
+                if isinstance(src, dict) and src.get(k) is not None:
+                    key_id = src[k]
+                    break
+            if key_id is not None:
+                break
+        if key_id is None:
+            _log.warning(
+                "termix_apikey_id_unknown",
+                apikey_fields=list(meta.keys()) if isinstance(meta, dict) else None,
+                root_fields=list(data.keys()) if isinstance(data, dict) else None,
+            )
+        return (str(key_id) if key_id is not None else None, data.get("token"))
 
     async def delete_apikey(self, key_id: str) -> None:
         """Supprime une apikey (`DELETE /users/api-keys/{keyId}`) ; 404 toléré."""

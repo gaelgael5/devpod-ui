@@ -257,6 +257,16 @@ async def _ensure_host_owned_by_user(
     jette l'apikey. Fallback : si le proprio n'a pas de compte sur l'instance (pas
     d'email / user Termix absent), crée en admin (comportement historique) + log.
     """
+    # No-op si la cible est inchangée : on fait confiance à l'état (host déjà créé,
+    # même ip/port/user) pour NE PAS minter une apikey éphémère inutilement.
+    if (
+        prev is not None
+        and prev.get("host_id")
+        and prev.get("ip") == ip
+        and prev.get("port") == port
+        and prev.get("user") == ws_user
+    ):
+        return prev
     owner_uid = await admin_tx.find_user_id(owner_email) if owner_email else None
     if owner_uid is not None:
         expiry = (datetime.now(UTC) + timedelta(minutes=10)).isoformat()
