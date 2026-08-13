@@ -209,6 +209,32 @@ class TermixClient:
         """Supprime une apikey (`DELETE /users/api-keys/{keyId}`) ; 404 toléré."""
         await self._req("DELETE", f"/users/api-keys/{key_id}", allow_404=True)
 
+    async def list_apikeys(self) -> list[dict[str, Any]]:
+        """Apikeys visibles (`GET /users/api-keys`, admin). Entrées brutes."""
+        try:
+            resp = await self._req("GET", "/users/api-keys")
+            data = resp.json()
+        except Exception:
+            return []
+        items: Any = data if isinstance(data, list) else None
+        if items is None and isinstance(data, dict):
+            items = data.get("apiKeys") or data.get("keys") or data.get("items")
+        return [k for k in items if isinstance(k, dict)] if isinstance(items, list) else []
+
+    async def delete_user_apikeys(self, user_id: str, username: str | None = None) -> int:
+        """Supprime toutes les apikeys d'un user (match userId OU username). → nombre
+        supprimé. Nécessaire avant delete-user (FK NOT NULL sur apikey.userId)."""
+        n = 0
+        for k in await self.list_apikeys():
+            owner_id = k.get("userId") or k.get("user_id") or k.get("ownerId")
+            owner_name = k.get("username") or k.get("user")
+            if owner_id == user_id or (username is not None and owner_name == username):
+                kid = k.get("id") or k.get("keyId") or k.get("apiKeyId") or k.get("key_id")
+                if kid is not None:
+                    await self.delete_apikey(str(kid))
+                    n += 1
+        return n
+
     async def delete_user(self, *, user_id: str | None = None, username: str | None = None) -> None:
         """Supprime un utilisateur (`DELETE /users/delete-user`), par `userId` OU
         `username` (l'API accepte les deux ; `username` sert aux comptes OIDC nommés

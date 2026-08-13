@@ -467,8 +467,16 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
                             await tx.delete_apikey(key_id)
                         except Exception:
                             _log.warning("termix_apikey_cleanup_failed", key_id=key_id)
+            # Purge des apikeys RÉSIDUELLES de l'user (portal-provision-* accumulées) :
+            # elles bloquent delete-user (FK NOT NULL sur apikey.userId).
+            try:
+                n = await tx.delete_user_apikeys(uid, email)
+                if n:
+                    _log.info("termix_user_apikeys_purged", login=login, count=n)
+            except Exception as exc:
+                warnings.append(f"purge apikeys {email} : {exc}")
         # Puis supprimer le compte — best-effort. L'endpoint EXIGE `username`
-        # (email) ; il faut que hosts ET credentials soient supprimés d'abord
+        # (email) ; hosts, credentials ET apikeys doivent être supprimés d'abord
         # (sinon 500 SQLITE_CONSTRAINT_NOTNULL sur une FK).
         if email and uid is not None:
             try:
