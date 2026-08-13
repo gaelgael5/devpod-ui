@@ -1,16 +1,17 @@
-"""Provisioning Termix « Modèle B » — appelé par les AUTOMATES (spec 18 T5).
+"""Provisioning Termix « Modèle B » — appelé DIRECTEMENT dans le lifecycle (spec 18 T5).
 
-Les events `workspace.*` déclenchent des automates qui appellent
-`POST /admin/service/bastion/provision` / `deprovision`. Erreurs PROPAGÉES : le
-run de l'automate les trace (historique, rejeu).
+Pas d'automate (couplage assumé) : `up` → provision, `stop`/`delete` → deprovision
+(cf. devpod/service.py). L'association user↔instance (routes/admin_users) crée le
+compte Termix (username=email) + partage les hosts existants.
 
 Modèle B : Termix se connecte EN DIRECT au sshd du workspace, publié sur
-`node_ip:ssh_port` (spec 18 T1), en `ws_user` (image_user du profil, défaut
-vscode) avec la clé du workspace. Fan-out multi-instance : le host est déclaré sur
-CHAQUE instance Termix de l'union des instances des users qui y ont accès
-(propriétaire + `user_host_grant`), et partagé per-user (`type:"user"`, id trouvé
-par `sub`) sur chacune. Un compte Termix pas encore créé (1er login) est mis « en
-attente » → l'automate rejoue (idempotent).
+`node_ip:ssh_port` (spec 18 T1), en `ws_user` (image_user du profil, défaut vscode)
+avec la clé du workspace. Fan-out multi-instance : le host est déclaré sur CHAQUE
+instance Termix de l'union des instances des accessors (propriétaire +
+`user_host_grant`). Le host est **possédé par le propriétaire** du workspace (créé
+via une apikey éphémère mintée pour lui, pas par l'admin) puis **partagé aux autres
+accessors** (identifiés par email). Compte Termix absent → « en attente » (pas de
+502 ; un re-provision rattrape).
 
 État par workspace = secret système `ws-bastion-<ws_id>` (JSON chiffré) :
 `{login, key, instances: {instance_id: {host_id, cred_id, ip, port, user}}}`.
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -237,6 +239,51 @@ async def _ensure_host_on_instance(
     return {"host_id": host_id, "cred_id": cred_id, "ip": ip, "port": port, "user": user}
 
 
+async def _ensure_host_owned_by_user(
+    admin_tx: TermixClient,
+    inst: dict[str, Any],
+    ws_id: str,
+    owner_login: str,
+    owner_email: str | None,
+    private: str,
+    ip: str,
+    port: int,
+    ws_user: str,
+    prev: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Crée le host+credential POSSÉDÉ par le propriétaire du workspace.
+
+    Mint une apikey éphémère pour lui (via l'apikey admin), crée avec son token, puis
+    jette l'apikey. Fallback : si le proprio n'a pas de compte sur l'instance (pas
+    d'email / user Termix absent), crée en admin (comportement historique) + log.
+    """
+    owner_uid = await admin_tx.find_user_id(owner_email) if owner_email else None
+    if owner_uid is not None:
+        expiry = (datetime.now(UTC) + timedelta(minutes=10)).isoformat()
+        key_id, owner_token = await admin_tx.create_apikey_for_user(
+            owner_uid, f"portal-provision-{ws_id}", expiry
+        )
+        if owner_token:
+            try:
+                async with TermixClient(inst["url"], owner_token) as owner_tx:
+                    return await _ensure_host_on_instance(
+                        owner_tx, ws_id, private, ip, port, ws_user, prev
+                    )
+            finally:
+                if key_id:
+                    try:
+                        await admin_tx.delete_apikey(key_id)
+                    except Exception:
+                        _log.warning("termix_apikey_cleanup_failed", ws_id=ws_id, key_id=key_id)
+    _log.warning(
+        "bastion_host_admin_owned_fallback",
+        ws_id=ws_id,
+        instance=inst.get("name"),
+        owner=owner_login,
+    )
+    return await _ensure_host_on_instance(admin_tx, ws_id, private, ip, port, ws_user, prev)
+
+
 async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
     """Provisionne (idempotent) l'accès Termix d'un workspace, en fan-out. Erreurs
     propagées. `created` liste les instances (re)provisionnées ; `pending` liste les
@@ -268,12 +315,25 @@ async def provision_workspace(login: str, ws_id: str) -> dict[str, Any]:
         async with _get_engine().connect() as conn:
             apikey = await _apikey(inst["apikey_secret"], conn)
         async with TermixClient(inst["url"], apikey) as tx:
-            rec = await _ensure_host_on_instance(
-                tx, ws_id, private, ip, port, ws_user, prev_instances.get(inst_id)
+            # Host créé EN TANT QUE le propriétaire du workspace (owned by user, pas
+            # admin) : apikey éphémère mintée pour lui, host+credential créés avec, puis
+            # apikey jetée. Fallback admin si le proprio n'a pas de compte sur l'instance.
+            rec = await _ensure_host_owned_by_user(
+                tx,
+                inst,
+                ws_id,
+                login,
+                emails.get(login),
+                private,
+                ip,
+                port,
+                ws_user,
+                prev_instances.get(inst_id),
             )
             new_instances[inst_id] = rec
+            # Partage aux AUTRES accessors (le propriétaire possède déjà le host).
             for lg in accessors:
-                if inst_id not in per_user_instances[lg]:
+                if lg == login or inst_id not in per_user_instances[lg]:
                     continue
                 email = emails.get(lg)
                 if not email:

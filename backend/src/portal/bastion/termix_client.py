@@ -157,6 +157,29 @@ class TermixClient:
         )
         return resp.status_code != 409
 
+    async def create_apikey_for_user(
+        self, user_id: str, name: str, expires_at: str | None = None
+    ) -> tuple[str | None, str | None]:
+        """Mint une apikey POUR un autre user (`POST /users/api-keys`, admin only).
+
+        Permet de créer des objets « en tant que » l'user (host/credential possédés
+        par lui, pas par l'admin). Retourne `(key_id, token)` ; `key_id` sert au
+        nettoyage (`delete_apikey`). Réponse : `{apiKey:{...}, token:"tmx_..."}`.
+        """
+        body: dict[str, Any] = {"name": name, "userId": user_id}
+        if expires_at:
+            body["expiresAt"] = expires_at
+        resp = await self._req("POST", "/users/api-keys", json=body)
+        data = resp.json()
+        meta = data.get("apiKey") if isinstance(data.get("apiKey"), dict) else {}
+        key_id = meta.get("id") or meta.get("keyId") or meta.get("apiKeyId")
+        token = data.get("token")
+        return (str(key_id) if key_id is not None else None, token)
+
+    async def delete_apikey(self, key_id: str) -> None:
+        """Supprime une apikey (`DELETE /users/api-keys/{keyId}`) ; 404 toléré."""
+        await self._req("DELETE", f"/users/api-keys/{key_id}", allow_404=True)
+
     async def find_user_id(self, username: str) -> str | None:
         """`userId` Termix du user dont `username == username` (= le `sub` OIDC).
 

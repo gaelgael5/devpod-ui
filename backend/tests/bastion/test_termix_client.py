@@ -64,6 +64,30 @@ async def test_create_credential_and_host_and_share() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_apikey_for_user_and_delete() -> None:
+    seen: list[tuple[str, str, dict]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content) if req.content else {}
+        seen.append((req.method, req.url.path, body))
+        if req.url.path == "/users/api-keys" and req.method == "POST":
+            return httpx.Response(200, json={"apiKey": {"id": "key-42"}, "token": "tmx_owner"})
+        if req.url.path == "/users/api-keys/key-42" and req.method == "DELETE":
+            return httpx.Response(200, json={"message": "ok"})
+        return httpx.Response(404)
+
+    c = _client_with(handler)
+    key_id, token = await c.create_apikey_for_user("u-1", "portal", "2026-01-01T00:00:00Z")
+    assert key_id == "key-42" and token == "tmx_owner"
+    await c.delete_apikey(key_id)  # type: ignore[arg-type]
+    await c._client.aclose()  # type: ignore[union-attr]
+
+    post_body = next(b for m, p, b in seen if p == "/users/api-keys" and m == "POST")
+    assert post_body == {"name": "portal", "userId": "u-1", "expiresAt": "2026-01-01T00:00:00Z"}
+    assert ("DELETE", "/users/api-keys/key-42", {}) in seen
+
+
+@pytest.mark.asyncio
 async def test_create_user_local_and_conflict() -> None:
     seen: list[tuple[str, dict]] = []
 
