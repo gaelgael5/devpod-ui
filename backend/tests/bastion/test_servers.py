@@ -21,10 +21,11 @@ def test_ssh_target(address: str, expected: tuple[str, str]) -> None:
 
 
 def test_usage_folder_mapping() -> None:
-    # hosts d'infra → dossier "hosts" ; ressources → "Ressources" ; tests → "workspaces".
+    # hosts d'infra → dossier "hosts" ; autres → "Others" (section « Autres serveurs »
+    # de l'écran hosts) ; ressources → "Ressources" ; tests → "workspaces".
     assert srv._USAGE_FOLDER["workspaces"] == "hosts"
     assert srv._USAGE_FOLDER["portail"] == "hosts"
-    assert srv._USAGE_FOLDER["autres"] == "hosts"
+    assert srv._USAGE_FOLDER["autres"] == "Others"
     assert srv._USAGE_FOLDER["ressources"] == "Ressources"
     assert srv._USAGE_FOLDER["tests"] == "workspaces"
 

@@ -4,7 +4,8 @@ Distinct des workspaces (provision.py) : ici la cible est une entrée `HostConfi
 (machine déclarée dans l'admin), connectée EN DIRECT par Termix via son sshd. Mapping
 `usage` → dossier Termix, et destinataires selon la nature :
 
-- `workspaces`/`portail`/`autres` → dossier ``hosts`` → **admins** ;
+- `workspaces`/`portail`     → dossier ``hosts`` → **admins** ;
+- `autres`                   → dossier ``Others`` → **admins** ;
 - `ressources`               → dossier ``Ressources`` → **admins** ;
 - `tests`                    → dossier ``workspaces`` → **propriétaire** du workspace
   qui a créé la VM (lien `workspace_test_hosts`).
@@ -43,11 +44,13 @@ from .termix_client import TermixClient
 
 _log = structlog.get_logger(__name__)
 
-# usage HostConfig → dossier Termix (None = non poussé).
+# usage HostConfig → dossier Termix (None = non poussé). `autres` a son propre
+# dossier « Others » (comme la section « Autres serveurs » de l'écran hosts) ; le
+# changement de dossier est appliqué au prochain sync (folder comparé dans le rec).
 _USAGE_FOLDER: dict[str, str] = {
     "workspaces": "hosts",
     "portail": "hosts",
-    "autres": "hosts",
+    "autres": "Others",
     "ressources": "Ressources",
     "tests": "workspaces",
 }
