@@ -20,6 +20,7 @@
 
 ## [bastion/termix]
 - Les effets d'une (dé)association se diffent sur les instances EFFECTIVES (`resolve_instances_for_user`, vide = héritage du défaut), jamais sur les explicites — sinon deprovision puis resync (qui ré-hérite le défaut) se contredisent dans la même requête (« serveur de test qui réapparaît »). Termix nomme les comptes OIDC d'après `name_path` (défaut upstream `name`, re-sync à chaque login), PAS l'email : tout matching `username=email` exige `name_path=email` côté SSO — détecté via `GET /users/oidc-config/admin` et remonté en warning. Les `termix_warnings` du PUT doivent être AFFICHÉS (toast) : best-effort invisible = bug invisible.
+- Termix stocke à 0 TOUT flag omis au POST host (`x ? 1 : 0`) : envoyer explicitement `enableSsh`+`connectionType` (le gate réel de l'app iOS, modèle multi-protocole) ET `enableTerminal`/`enableFileManager`. Tout changement du payload `create_host` ⇒ bump `_REC_V` (provision.py) : les recs de version antérieure ne sont plus « same » → recréation unique des hosts existants au prochain sync.
 
 ## [devpod/service]
 - `--devcontainer-path` : devpod préfixe `content/` et efface `{workspace_dir}` → uploader dans `workspaces/.devpod-portal-dc/{ws_id}/` + chemin relatif `../../`.
