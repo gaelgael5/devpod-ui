@@ -119,7 +119,11 @@ class TermixClient:
         folder: str | None = None,
     ) -> int | None:
         """Crée un host. `folder` = dossier de regroupement Termix (barre latérale) ;
-        None → hors dossier (le champ Termix accepte `folder || null`)."""
+        None → hors dossier (le champ Termix accepte `folder || null`).
+
+        Les fonctions (terminal, gestionnaire de fichiers) sont ACTIVÉES explicitement :
+        omises, Termix les stocke à 0 (`enableTerminal ? 1 : 0`) et les clients — l'app
+        iOS notamment — refusent alors d'ouvrir une session depuis l'onglet Hosts."""
         resp = await self._req(
             "POST",
             "/host/db/host",
@@ -131,6 +135,10 @@ class TermixClient:
                 "authType": "key",
                 "credentialId": credential_id,
                 "folder": folder,
+                "enableTerminal": True,
+                "enableFileManager": True,
+                "showTerminalInSidebar": True,
+                "showFileManagerInSidebar": True,
             },
         )
         return _extract_id(resp.json())

@@ -62,6 +62,12 @@ async def test_create_credential_and_host_and_share() -> None:
     host_body = next(b for m, p, b in seen if p == "/host/db/host")
     assert host_body["credentialId"] == 42 and host_body["port"] == 2222
     assert host_body["folder"] == "workspace-agflow"
+    # Fonctions activées à la création : omises, Termix les stocke à 0 et les
+    # clients (app iOS notamment) refusent alors d'ouvrir un terminal depuis Hosts.
+    assert host_body["enableTerminal"] is True
+    assert host_body["enableFileManager"] is True
+    assert host_body["showTerminalInSidebar"] is True
+    assert host_body["showFileManagerInSidebar"] is True
     share_body = next(b for m, p, b in seen if p.endswith("/share"))
     assert share_body == {"targets": [{"type": "role", "id": 5}], "permissionLevel": "connect"}
 

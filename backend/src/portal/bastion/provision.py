@@ -20,7 +20,8 @@ ré-approprié au prochain provision.
 
 État par workspace = secret système `ws-bastion-<ws_id>` (JSON chiffré) :
 `{login, key, instances: {instance_id: {uid: {host_id, cred_id, ip, port, user,
-owner, folder}}}}` — une entrée par compte Termix (`uid`), `""` = placeholder admin.
+owner, folder, v}}}}` — une entrée par compte Termix (`uid`), `""` = placeholder
+admin, `v` = version du rec (`_REC_V`).
 """
 
 from __future__ import annotations
@@ -67,6 +68,12 @@ _INIT_PASSWORD = "1234"
 def _apikey_expiry() -> str:
     """Expiration courte (filet) des apikeys éphémères mintées pour un user."""
     return (datetime.now(UTC) + timedelta(minutes=10)).isoformat()
+
+
+# Version du rec d'état d'un host. À BUMPER quand le payload `create_host` change
+# (ex. v2 : fonctions enableTerminal/FileManager activées) : un rec de version
+# antérieure n'est plus « same » → recréation unique du host avec le payload courant.
+_REC_V = 2
 
 
 def _as_int(v: Any) -> int | None:
@@ -357,6 +364,7 @@ async def _create_host_rec(
         "port": port,
         "user": user,
         "folder": folder,
+        "v": _REC_V,
     }
 
 
@@ -383,6 +391,7 @@ async def _ensure_host_on_instance(
             and prev.get("user") == user
             and prev.get("owner") == owner
             and prev.get("folder") == folder
+            and prev.get("v") == _REC_V  # rec d'une version antérieure → recréer
         )
         known = await tx.list_host_ids()
         host_id = prev.get("host_id")

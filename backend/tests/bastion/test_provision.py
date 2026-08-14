@@ -146,6 +146,7 @@ async def test_ensure_host_creates_when_no_prev() -> None:
         "user": "vscode",
         "owner": None,
         "folder": "workspace-agflow",
+        "v": p._REC_V,
     }
     assert tx.created[0][0] == "cred" and tx.created[1][0] == "host"
     assert tx.created[1][-1] == "workspace-agflow"  # folder transmis à create_host
@@ -154,11 +155,29 @@ async def test_ensure_host_creates_when_no_prev() -> None:
 
 @pytest.mark.asyncio
 async def test_ensure_host_keeps_when_unchanged() -> None:
-    prev = {"host_id": 200, "cred_id": 100, "ip": "1.2.3.4", "port": 50001, "user": "vscode"}
+    prev = {
+        "host_id": 200,
+        "cred_id": 100,
+        "ip": "1.2.3.4",
+        "port": 50001,
+        "user": "vscode",
+        "v": p._REC_V,
+    }
     tx = _FakeTx(host_ids=[200])  # host toujours présent
     rec = await p._ensure_host_on_instance(tx, "admin-doc", "PK", "1.2.3.4", 50001, "vscode", prev)  # type: ignore[arg-type]
     assert rec == prev
     assert tx.created == [] and tx.deleted == []
+
+
+@pytest.mark.asyncio
+async def test_ensure_host_recreates_when_rec_version_old() -> None:
+    """Rec d'AVANT le versionnage (pas de `v`) : le host Termix a été créé sans les
+    fonctions activées (enableTerminal…) → recréation unique pour les poser."""
+    prev = {"host_id": 200, "cred_id": 100, "ip": "1.2.3.4", "port": 50001, "user": "vscode"}
+    tx = _FakeTx(host_ids=[200])
+    rec = await p._ensure_host_on_instance(tx, "admin-doc", "PK", "1.2.3.4", 50001, "vscode", prev)  # type: ignore[arg-type]
+    assert rec["v"] == p._REC_V
+    assert ("host", 200) in tx.deleted and ("cred", 100) in tx.deleted
 
 
 @pytest.mark.asyncio
@@ -188,6 +207,7 @@ async def test_ensure_host_keeps_when_same_owner() -> None:
         "port": 50001,
         "user": "vscode",
         "owner": "oidc-uid",
+        "v": p._REC_V,
     }
     tx = _FakeTx(host_ids=[200])
     rec = await p._ensure_host_on_instance(
