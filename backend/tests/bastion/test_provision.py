@@ -56,6 +56,18 @@ async def test_oidc_mapping_warning_swallows_errors() -> None:
     assert await p._oidc_mapping_warning(_Boom()) is None  # best-effort
 
 
+def test_account_delete_warning_explains_known_upstream_bug() -> None:
+    exc = RuntimeError(
+        'Termix DELETE /users/delete-user → 500: {"error":"Database error:'
+        ' SQLITE_CONSTRAINT_NOTNULL"}'
+    )
+    msg = p._account_delete_warning("a@x", exc)
+    assert "accès retirés" in msg and "bug Termix connu" in msg and "500" not in msg
+    # Erreur inconnue → message brut conservé (diagnosticable).
+    other = p._account_delete_warning("a@x", RuntimeError("boom 503"))
+    assert "boom 503" in other
+
+
 def test_enabled_is_master_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
     # Spec 18 T5 (Modèle B) : le gating est le seul toggle `enabled` ; api_url/
     # host/role de BastionConfig sont vestigiaux (instance résolue par le registre).

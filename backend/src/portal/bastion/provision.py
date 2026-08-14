@@ -730,8 +730,23 @@ async def deprovision_user_from_instance(conn: Any, login: str, instance_id: str
                 )
             except Exception as exc:
                 _log.warning("termix_user_delete_failed", login=login, email=email, error=str(exc))
-                warnings.append(f"suppression compte Termix {email} : {exc}")
+                warnings.append(_account_delete_warning(email, exc))
     return warnings
+
+
+def _account_delete_warning(email: str, exc: Exception) -> str:
+    """Message d'avertissement du delete-user raté — sans faux suspense.
+
+    Le cas SQLITE_CONSTRAINT (bug Termix upstream, cf. commentaire ci-dessus) est
+    ATTENDU : tous les accès sont déjà retirés, seule la coquille du compte reste.
+    Le dire tel quel évite qu'un 500 brut laisse croire que la révocation a échoué."""
+    if "SQLITE_CONSTRAINT" in str(exc):
+        return (
+            f"compte Termix {email} : accès retirés, mais la suppression du compte "
+            "lui-même échoue (bug Termix connu, delete-user) — la coquille restante "
+            "est inoffensive et sera réutilisée à la prochaine association"
+        )
+    return f"suppression compte Termix {email} : {exc}"
 
 
 async def deprovision_workspace(
