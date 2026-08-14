@@ -68,6 +68,10 @@ async def test_create_credential_and_host_and_share() -> None:
     assert host_body["enableFileManager"] is True
     assert host_body["showTerminalInSidebar"] is True
     assert host_body["showFileManagerInSidebar"] is True
+    # Modèle multi-protocole Termix : le protocole SSH lui-même doit être activé
+    # (`enableSsh`), sinon « ouvrir une session » reste grisé côté clients.
+    assert host_body["connectionType"] == "ssh"
+    assert host_body["enableSsh"] is True
     share_body = next(b for m, p, b in seen if p.endswith("/share"))
     assert share_body == {"targets": [{"type": "role", "id": 5}], "permissionLevel": "connect"}
 

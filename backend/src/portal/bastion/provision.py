@@ -71,9 +71,10 @@ def _apikey_expiry() -> str:
 
 
 # Version du rec d'état d'un host. À BUMPER quand le payload `create_host` change
-# (ex. v2 : fonctions enableTerminal/FileManager activées) : un rec de version
-# antérieure n'est plus « same » → recréation unique du host avec le payload courant.
-_REC_V = 2
+# (v2 : enableTerminal/FileManager ; v3 : enableSsh/connectionType — multi-protocole) :
+# un rec de version antérieure n'est plus « same » → recréation unique du host avec
+# le payload courant.
+_REC_V = 3
 
 
 def _as_int(v: Any) -> int | None:

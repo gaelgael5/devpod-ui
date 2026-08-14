@@ -135,6 +135,11 @@ class TermixClient:
                 "authType": "key",
                 "credentialId": credential_id,
                 "folder": folder,
+                # Modèle multi-protocole Termix : sans `enableSsh` explicite le host
+                # est stocké SSH désactivé (enableSsh=0) et les clients (app iOS)
+                # refusent d'ouvrir une session malgré enableTerminal.
+                "connectionType": "ssh",
+                "enableSsh": True,
                 "enableTerminal": True,
                 "enableFileManager": True,
                 "showTerminalInSidebar": True,
