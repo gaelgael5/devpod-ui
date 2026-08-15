@@ -209,6 +209,12 @@ def _test_sessions(
     return out
 
 
+# Références fortes des tâches de fond (une tâche asyncio non référencée peut
+# être ramassée par le GC avant de s'exécuter) — partagé avec reachability_hint
+# plus bas, même besoin.
+_background_probes: set[asyncio.Task[Any]] = set()
+
+
 def _warm_running_tunnels(
     refs: list[dict[str, Any]], status_map: dict[str, dict[str, Any]]
 ) -> None:
@@ -221,8 +227,12 @@ def _warm_running_tunnels(
         ws_id = f"{ref['login']}-{ref['name']}"
         if (status_map.get(ws_id) or {}).get("status") != "running":
             continue
-        # create_task : best-effort, warm_tunnel ne lève jamais.
-        asyncio.create_task(warm_tunnel(ref["login"], ws_id))
+        # create_task : best-effort, warm_tunnel ne lève jamais. Référencée dans
+        # _background_probes (bug fire-and-forget) : sans ça le GC peut annuler
+        # le pré-chauffage avant son terme.
+        task = asyncio.create_task(warm_tunnel(ref["login"], ws_id))
+        _background_probes.add(task)
+        task.add_done_callback(_background_probes.discard)
 
 
 # Découplage polling front / sonde réelle (enabler be1112a5) : le front peut
@@ -270,9 +280,6 @@ async def probe_workspace_sessions(login: str, ws_id: str) -> tuple[int, list[st
 # Fenêtre de validité du verdict de réachabilité pour l'AFFICHAGE (bug 2846f916) —
 # plus longue que le TTL de sonde : un verdict vieux de 30 s reste un signal utile.
 _REACHABILITY_WINDOW_S = 60.0
-# Références fortes des sondes de fond (une tâche asyncio non référencée peut
-# être ramassée par le GC avant de s'exécuter).
-_background_probes: set[asyncio.Task[Any]] = set()
 
 
 def reachability_hint(login: str, ws_id: str) -> bool | None:

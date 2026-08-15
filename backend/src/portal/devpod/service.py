@@ -706,9 +706,13 @@ class DevPodService:
         """Reconnexion forcée d'un workspace dont le conteneur tourne (portal_reload, modèle a).
 
         Lance la reconnexion (devpod up détecte le container existant et relance le
-        tunnel) en arrière-plan et rend la main immédiatement.
+        tunnel) en arrière-plan et rend la main immédiatement. Référencée dans
+        _background_tasks (comme up()) : une tâche non référencée peut être
+        ramassée par le GC avant son terme, perdant silencieusement la reconnexion.
         """
-        asyncio.create_task(self._reconnect_workspace(ws_id, login))  # noqa: RUF006
+        task = asyncio.create_task(self._reconnect_workspace(ws_id, login))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _cancel_up_task(self, ws_id: str) -> None:
         """Annule un `up` en cours pour ws_id et attend sa terminaison (bug 003).
