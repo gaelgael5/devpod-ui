@@ -9,6 +9,7 @@ que les sessions du portail et l'accès Termix soient le même serveur tmux.
 from __future__ import annotations
 
 import base64
+import shlex
 
 from .models import ComponentFile, WorkspaceComponent
 
@@ -96,7 +97,7 @@ def tmux_attach_refresh_cmd() -> str:
     )
 
 
-def authorized_keys_refresh_cmd(ssh_pubkey: str) -> str:
+def authorized_keys_refresh_cmd(ssh_pubkey: str, ws_user: str = "vscode") -> str:
     """Commande shell (ws_exec) rafraîchissant `authorized_keys` avec la clé courante.
 
     La clé n'est posée qu'au (re)build de l'image (composant ssh-access) ; or le hash
@@ -105,18 +106,30 @@ def authorized_keys_refresh_cmd(ssh_pubkey: str) -> str:
     vient d'en générer une neuve (delete purge l'état, up regénère) — auth SSH
     bastion/Termix KO. Rejouée à chaque `up` : gatée sur la présence du sshd_config
     du composant (workspaces T1 uniquement), idempotente (`cmp -s` avant écriture).
-    `ws_exec` s'exécute en tant qu'utilisateur du conteneur → `$HOME` est le bon
-    foyer et le fichier reste possédé par lui (StrictModes OK)."""
+
+    Le foyer cible est celui de `ws_user` (image_user du profil), PAS `$HOME` : la
+    façade `ws_exec` demande toujours l'utilisateur `vscode`, donc `$HOME` n'est
+    pas le foyer de `ws_user` dès qu'un profil définit un autre utilisateur — la
+    clé atterrissait alors chez le mauvais user (ou nulle part). Le foyer est lu
+    dans `/etc/passwd` (`getent`) plutôt que supposé `/home/<user>` : pour `root`
+    le vrai foyer est `/root`, et c'est bien celui que sshd consulte. Écriture en
+    `sudo -n` si on n'est pas déjà root, puis `chown` pour que StrictModes passe.
+    """
     b64 = base64.b64encode(f"{ssh_pubkey}\n".encode()).decode()
     marker = "/etc/ssh/sshd_config.d/10-portal.conf"
-    target = '"$HOME"/.ssh/authorized_keys'
+    u = shlex.quote(ws_user)
+    tmp = "/tmp/.ws-authkeys.new"
     return (
         f"if [ -f {marker} ]; then "
-        f"echo {b64} | base64 -d > /tmp/.ws-authkeys.new"
-        ' && mkdir -p "$HOME"/.ssh'
-        f" && if ! cmp -s /tmp/.ws-authkeys.new {target}; then"
-        f" install -m 600 /tmp/.ws-authkeys.new {target}; fi"
-        "; rm -f /tmp/.ws-authkeys.new; fi"
+        f"U={u}; "
+        'H=$(getent passwd "$U" | cut -d: -f6); [ -n "$H" ] || H=/home/"$U"; '
+        f"echo {b64} | base64 -d > {tmp}"
+        f' && if ! cmp -s {tmp} "$H"/.ssh/authorized_keys; then'
+        " if [ \"$(id -u)\" = '0' ]; then S=''; else S='sudo -n'; fi;"
+        ' $S mkdir -p "$H"/.ssh'
+        f' && $S install -m 600 {tmp} "$H"/.ssh/authorized_keys'
+        ' && $S chown "$U": "$H"/.ssh "$H"/.ssh/authorized_keys; fi'
+        f"; rm -f {tmp}; fi"
     )
 
 

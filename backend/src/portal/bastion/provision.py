@@ -233,6 +233,21 @@ async def _resolve_ws_user(login: str, ws_id: str, conn: Any) -> str:
     return profile.image_user or "vscode"
 
 
+async def resolve_ws_user(login: str, ws_id: str) -> str:
+    """Utilisateur SSH du workspace (image_user du profil, sinon 'vscode').
+
+    Même source de vérité que le composant `ssh-access` (qui pose `authorized_keys`
+    dans le foyer de cet utilisateur) et que le host Termix. Ouvre sa propre
+    connexion — appelable hors d'une transaction. 'vscode' en repli sur erreur.
+    """
+    try:
+        async with _get_engine().connect() as conn:
+            return await _resolve_ws_user(login, ws_id, conn)
+    except Exception:
+        _log.warning("resolve_ws_user_failed", ws_id=ws_id, exc_info=True)
+        return "vscode"
+
+
 def _node_ip(host_name: str) -> str:
     """IP LAN joignable du node depuis son nom (strip d'un éventuel user@)."""
     host_cfg = _find_host(host_name, load_global())

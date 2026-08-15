@@ -1631,12 +1631,18 @@ class DevPodService:
                 # commande sur le sshd_config du composant (no-op hors T1).
                 # Best-effort : jamais bloquant.
                 try:
-                    from ..bastion.provision import ensure_ws_ssh_pubkey
+                    from ..bastion.provision import ensure_ws_ssh_pubkey, resolve_ws_user
                     from ..wscomponents.registry import authorized_keys_refresh_cmd
                     from .exec import ws_exec
 
                     pubkey = await ensure_ws_ssh_pubkey(login, ws_id)
-                    rc, out = await ws_exec(login, ws_id, authorized_keys_refresh_cmd(pubkey))
+                    # Foyer cible = celui de ws_user (image_user du profil) : ws_exec
+                    # demande toujours `vscode`, donc $HOME n'est PAS le bon foyer
+                    # quand le profil définit un autre utilisateur.
+                    ws_user = await resolve_ws_user(login, ws_id)
+                    rc, out = await ws_exec(
+                        login, ws_id, authorized_keys_refresh_cmd(pubkey, ws_user)
+                    )
                     if rc != 0:
                         _log.warning(
                             "ws_authorized_keys_refresh_failed",

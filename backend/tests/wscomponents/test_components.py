@@ -85,11 +85,32 @@ def test_authorized_keys_refresh_cmd_is_gated_and_idempotent() -> None:
     assert "base64 -d" in cmd
     assert "cmp -s" in cmd  # idempotent : réécrit seulement si le contenu diffère
     assert "authorized_keys" in cmd and "install -m 600" in cmd
+    assert "sudo -n" in cmd and 'id -u' in cmd  # foyer d'un autre user → sudo
     # Le contenu embarqué est bien la clé passée, terminée par un newline.
     import base64
 
     b64 = base64.b64encode(f"{pubkey}\n".encode()).decode()
     assert b64 in cmd
+
+
+def test_authorized_keys_refresh_cmd_targets_ws_user_home() -> None:
+    """Le foyer visé est celui de `ws_user`, résolu via /etc/passwd — pas `$HOME`.
+
+    `ws_exec` demande toujours l'utilisateur `vscode` : avec un profil dont
+    `image_user` diffère, `$HOME` n'est pas le foyer de `ws_user` et la clé
+    atterrissait chez le mauvais utilisateur. `getent` plutôt que `/home/<user>`
+    en dur : pour `root` le vrai foyer est `/root`, celui que sshd consulte.
+    """
+    from portal.wscomponents.registry import authorized_keys_refresh_cmd
+
+    cmd = authorized_keys_refresh_cmd("ssh-ed25519 AAAATEST ws:admin-demo", "devuser")
+    assert "U=devuser" in cmd
+    assert "getent passwd" in cmd  # foyer réel, pas /home/<user> supposé
+    assert '"$H"/.ssh/authorized_keys' in cmd
+    assert '$HOME' not in cmd  # le piège corrigé
+    assert 'chown "$U":' in cmd  # StrictModes : le fichier appartient à ws_user
+    # Défaut rétro-compatible : image de base devcontainer.
+    assert "U=vscode" in authorized_keys_refresh_cmd("ssh-ed25519 AAAATEST c")
 
 
 def test_render_substitutes_placeholders() -> None:
