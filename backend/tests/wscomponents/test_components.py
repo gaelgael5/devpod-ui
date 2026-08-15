@@ -72,6 +72,26 @@ def test_tmux_attach_refresh_cmd_is_gated_and_idempotent() -> None:
     assert b64 in cmd
 
 
+def test_authorized_keys_refresh_cmd_is_gated_and_idempotent() -> None:
+    """Refresh de la clé SSH au `up` : ne touche que les workspaces T1 (gate sur le
+    sshd_config du composant), compare avant d'écrire, embarque la clé courante —
+    une image prebuild en cache ne doit plus laisser une clé périmée après un
+    delete/recreate (auth bastion/Termix KO sinon)."""
+    from portal.wscomponents.registry import authorized_keys_refresh_cmd
+
+    pubkey = "ssh-ed25519 AAAATEST ws:admin-demo"
+    cmd = authorized_keys_refresh_cmd(pubkey)
+    assert "/etc/ssh/sshd_config.d/10-portal.conf" in cmd  # gate T1
+    assert "base64 -d" in cmd
+    assert "cmp -s" in cmd  # idempotent : réécrit seulement si le contenu diffère
+    assert "authorized_keys" in cmd and "install -m 600" in cmd
+    # Le contenu embarqué est bien la clé passée, terminée par un newline.
+    import base64
+
+    b64 = base64.b64encode(f"{pubkey}\n".encode()).decode()
+    assert b64 in cmd
+
+
 def test_render_substitutes_placeholders() -> None:
     comp = WorkspaceComponent(
         name="t",

@@ -1620,6 +1620,28 @@ class DevPodService:
                         )
                 except Exception:
                     _log.warning("ws_tmux_attach_refresh_crashed", ws_id=ws_id, exc_info=True)
+                # Clé SSH du workspace rafraîchie à chaque up (même motif) : le hash
+                # de prebuild devpod ignore le contenu des features → une image en
+                # cache peut porter une clé périmée après un delete/recreate (le
+                # delete purge l'état, le up regénère une clé neuve). Gatée dans la
+                # commande sur le sshd_config du composant (no-op hors T1).
+                # Best-effort : jamais bloquant.
+                try:
+                    from ..bastion.provision import ensure_ws_ssh_pubkey
+                    from ..wscomponents.registry import authorized_keys_refresh_cmd
+                    from .exec import ws_exec
+
+                    pubkey = await ensure_ws_ssh_pubkey(login, ws_id)
+                    rc, out = await ws_exec(login, ws_id, authorized_keys_refresh_cmd(pubkey))
+                    if rc != 0:
+                        _log.warning(
+                            "ws_authorized_keys_refresh_failed",
+                            ws_id=ws_id,
+                            rc=rc,
+                            output=out[-300:],
+                        )
+                except Exception:
+                    _log.warning("ws_authorized_keys_refresh_crashed", ws_id=ws_id, exc_info=True)
                 from ..db.user_config import owner_identity_subject
 
                 await emit_event(

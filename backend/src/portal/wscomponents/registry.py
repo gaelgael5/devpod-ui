@@ -96,6 +96,30 @@ def tmux_attach_refresh_cmd() -> str:
     )
 
 
+def authorized_keys_refresh_cmd(ssh_pubkey: str) -> str:
+    """Commande shell (ws_exec) rafraîchissant `authorized_keys` avec la clé courante.
+
+    La clé n'est posée qu'au (re)build de l'image (composant ssh-access) ; or le hash
+    de prebuild devpod ne couvre pas le contenu des features → un recreate peut
+    ressortir une image en cache portant une clé PÉRIMÉE alors que le provisioning
+    vient d'en générer une neuve (delete purge l'état, up regénère) — auth SSH
+    bastion/Termix KO. Rejouée à chaque `up` : gatée sur la présence du sshd_config
+    du composant (workspaces T1 uniquement), idempotente (`cmp -s` avant écriture).
+    `ws_exec` s'exécute en tant qu'utilisateur du conteneur → `$HOME` est le bon
+    foyer et le fichier reste possédé par lui (StrictModes OK)."""
+    b64 = base64.b64encode(f"{ssh_pubkey}\n".encode()).decode()
+    marker = "/etc/ssh/sshd_config.d/10-portal.conf"
+    target = '"$HOME"/.ssh/authorized_keys'
+    return (
+        f"if [ -f {marker} ]; then "
+        f"echo {b64} | base64 -d > /tmp/.ws-authkeys.new"
+        ' && mkdir -p "$HOME"/.ssh'
+        f" && if ! cmp -s /tmp/.ws-authkeys.new {target}; then"
+        f" install -m 600 /tmp/.ws-authkeys.new {target}; fi"
+        "; rm -f /tmp/.ws-authkeys.new; fi"
+    )
+
+
 def get_component(name: str) -> WorkspaceComponent | None:
     """Composant du registre par nom, ou None."""
     return next((c for c in SYSTEM_COMPONENTS if c.name == name), None)
