@@ -24,6 +24,12 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 from fastapi import HTTPException
 
+# RFC 6598 (Carrier-Grade NAT) : ni is_private ni is_reserved ne la couvrent
+# (vérifié ipaddress stdlib) — c'est pourtant la plage du tailnet Tailscale
+# (spec 17/18, accès distant aux nodes) : sans ce blocage explicite, une URL
+# d'automate pourrait cibler un service HTTP interne du tailnet.
+_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+
 
 def resolve_pinned(url: str) -> str:
     """Valide l'URL et retourne l'IP (str) à laquelle se connecter.
@@ -52,6 +58,10 @@ def resolve_pinned(url: str) -> str:
             ip = ipaddress.ip_address(sa[0])
         except ValueError:
             continue
+        # CGNAT n'est ni is_private ni is_reserved côté stdlib : vérifié aussi sur
+        # la forme IPv4-mapped (::ffff:100.64.x.x), qui échapperait sinon comme
+        # is_private le fait déjà pour les autres plages privées.
+        v4 = ip.ipv4_mapped if isinstance(ip, ipaddress.IPv6Address) else ip
         if (
             ip.is_loopback
             or ip.is_link_local
@@ -59,6 +69,7 @@ def resolve_pinned(url: str) -> str:
             or ip.is_multicast
             or ip.is_reserved
             or ip.is_unspecified
+            or (v4 is not None and v4 in _CGNAT)
         ):
             raise HTTPException(
                 status_code=422,
