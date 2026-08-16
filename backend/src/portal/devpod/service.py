@@ -1600,6 +1600,12 @@ class DevPodService:
                 )
             else:
                 _log.info("workspace_up_done", ws_id=ws_id, login=login)
+                # Le `up` vient d'appliquer le profil : l'utilisateur du conteneur a
+                # pu changer (image_user). On oublie la valeur cachée AVANT toute
+                # opération post-readiness, qui passe par ws_exec sous cet utilisateur.
+                from .ws_user import invalidate as _invalidate_ws_user
+
+                _invalidate_ws_user(ws_id)
                 # Sources additionnelles en PAT : clonées ici, conteneur prêt (ws_exec
                 # joignable), hors du tunnel git-credentials devpod qui panique en setup.
                 if deferred_sources:

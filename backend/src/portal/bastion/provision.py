@@ -40,10 +40,9 @@ from ..db import user_host_grant as uhg
 from ..db import user_termix_instance as uti
 from ..db import workspace_groups as wg
 from ..db.engine import _get_engine
-from ..db.user_config import get_workspace_profile_ref_db, owner_identity_subject
+from ..db.user_config import owner_identity_subject
 from ..db.workspace_status import get_status_db, list_ssh_hosts_db
 from ..devpod.env import _find_host
-from ..profiles.repository import ProfileError
 from ..secrets import system as sysec
 from . import keys as bkeys
 from .termix_client import TermixClient
@@ -215,22 +214,16 @@ async def _folder_for(login: str, ws_id: str, conn: Any) -> str | None:
 
 
 async def _resolve_ws_user(login: str, ws_id: str, conn: Any) -> str:
-    """Utilisateur SSH du workspace = image_user du profil, sinon 'vscode'."""
-    name = _ws_name(login, ws_id)
-    ref = await get_workspace_profile_ref_db(login, name, conn)
-    if ref is None or ref[0] not in ("shared", "user"):
-        return "vscode"
-    from typing import Literal, cast
+    """Utilisateur SSH du workspace = image_user du profil, sinon 'vscode'.
 
-    from ..db.profiles import AsyncProfileRepository
+    Délègue à `devpod.ws_user` : même source de vérité que les façades
+    d'exécution (`ws_exec`, terminal interactif) et que le composant
+    `ssh-access`. Une divergence ici ferait pointer le host Termix sur un
+    utilisateur différent de celui qui porte `authorized_keys`.
+    """
+    from ..devpod.ws_user import resolve_ws_user_db
 
-    try:
-        profile = await AsyncProfileRepository().get(
-            cast("Literal['shared', 'user']", ref[0]), ref[1], login
-        )
-    except ProfileError:
-        return "vscode"
-    return profile.image_user or "vscode"
+    return await resolve_ws_user_db(login, ws_id, conn)
 
 
 async def resolve_ws_user(login: str, ws_id: str) -> str:

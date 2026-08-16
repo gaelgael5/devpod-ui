@@ -181,12 +181,18 @@ async def workspace_ssh_terminal(
     proxy_cmd = f"{shlex.quote(devpod_bin)} ssh --stdio {shlex.quote(ws_id)}"
     key_path = _devpod_ssh_key(effective_owner)
     identity_args = ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
+    # Utilisateur du conteneur (`image_user` du profil) — le terminal doit ouvrir
+    # la session sous le MÊME compte que celui qui possède le socket tmux et
+    # l'`authorized_keys` posés par le composant `ssh-access`.
+    from ..devpod.ws_user import resolve_ws_user
+
+    ws_user = await resolve_ws_user(effective_owner, ws_id)
     cmd = [
         "ssh",
         "-t",
         "-t",
         *identity_args,
-        *control_ssh_args(ws_id),
+        *control_ssh_args(ws_id, ws_user),
         "-o",
         f"ProxyCommand={proxy_cmd}",
         "-o",
@@ -194,7 +200,7 @@ async def workspace_ssh_terminal(
         "-o",
         "UserKnownHostsFile=/dev/null",
         "--",
-        "vscode@devpod-ws",
+        f"{ws_user}@devpod-ws",
         tmux_cmd,
     ]
 
