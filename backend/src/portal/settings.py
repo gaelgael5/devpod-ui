@@ -86,6 +86,13 @@ class AppSettings(BaseSettings):
     host_liveness_interval_s: float = 15.0
     host_liveness_failures: int = 3
 
+    # Occupation disque des hosts : sonde HORAIRE (un disque se remplit lentement,
+    # une mesure par heure suffit et évite d'ouvrir un SSH par host en continu) et
+    # seuil d'alerte affiché dans la vue workspaces. Contrairement à la vivacité,
+    # pas d'hystérésis : un taux d'occupation ne « hoquette » pas.
+    host_disk_interval_s: float = 3600.0
+    host_disk_warn_pct: int = 90
+
     # Suggestion d'arrêt des workspaces inactifs (enabler 6016436b) : seuil d'idle
     # avant suggestion (0 = feature désactivée) et intervalle de la passe de
     # détection. Détection + alerte SEULEMENT — jamais d'arrêt automatique.

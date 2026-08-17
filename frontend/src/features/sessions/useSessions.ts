@@ -17,6 +17,22 @@ export interface SessionEntry {
   orphan?: boolean
   /** tmux absent sur ce host : terminal en shell simple, session NON persistante. */
   no_tmux?: boolean
+  /** Occupation disque de la machine (hosts, ressources, VM de test).
+   *  Absent = jamais sondé — on n'affiche alors RIEN plutôt qu'un faux « 0 % ».
+   *  Alimenté par la sonde horaire du portail, pas par une mesure à la volée. */
+  disk?: DiskUsage
+}
+
+export interface DiskUsage {
+  total_bytes: number | null
+  used_bytes: number | null
+  avail_bytes: number | null
+  used_pct: number
+  /** Au-dessus du seuil configuré (90 % par défaut) — décidé par le serveur. */
+  warn: boolean
+  measured_at: string | null
+  /** Dernière sonde en échec : la valeur affichée est la précédente. */
+  stale_error?: string | null
 }
 
 /** Vue centralisée des sessions actives (conteneurs, hosts, VM de test).

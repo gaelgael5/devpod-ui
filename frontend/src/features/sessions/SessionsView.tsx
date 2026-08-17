@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useUserStore } from '@/store/user'
 import { useCreateSession } from '@/features/workspaces/useWorkspaceSessions'
+import DiskUsageBadge from './DiskUsageBadge'
 import { openTerminalTab } from '@/features/terminal/openTerminalTab'
 import { useIsMobile } from '@/shared/hooks/useMediaQuery'
 import { useCloseSession, useSessions, type SessionEntry } from './useSessions'
@@ -222,6 +223,17 @@ export default function SessionsView() {
                 <span className="font-normal text-muted-foreground">
                   {t('sessions.count', { n: g.entries.length })}
                 </span>
+                {/* Ratio disque de la machine (host, ressources, VM de test) : posé
+                    sur l'en-tête de groupe — une machine, une mesure — plutôt que
+                    répété sur chaque session. Absent si jamais sondé. */}
+                {(() => {
+                  const disk = g.entries.find((e) => e.disk)?.disk
+                  return disk ? (
+                    <span className="ml-auto font-normal">
+                      <DiskUsageBadge disk={disk} />
+                    </span>
+                  ) : null
+                })()}
               </button>
               {groupOpen && (
               <div className="divide-y">

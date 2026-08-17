@@ -103,3 +103,48 @@ describe('WorkspaceCard — repli', () => {
     )
   })
 })
+
+describe('WorkspaceCard — alerte disque du nœud', () => {
+  function withDisk(warn: boolean, pct: number) {
+    const ws: WorkspaceStatus = {
+      ws_id: 'alice-myapp',
+      status: 'running',
+      host_disk: {
+        host: 'host-dev-01',
+        used_pct: pct,
+        avail_bytes: 0,
+        total_bytes: 46036664320,
+        warn,
+        measured_at: '2026-08-17T05:00:00Z',
+      },
+    }
+    return <WorkspaceCard spec={SPEC} status={ws} onStop={vi.fn()} onDelete={vi.fn()} />
+  }
+
+  it('alerte quand le serveur signale le nœud presque plein', () => {
+    renderWithProviders(withDisk(true, 96))
+    const warning = screen.getByTestId('host-disk-warning')
+    expect(warning).toHaveTextContent('host-dev-01')
+    expect(warning).toHaveTextContent('96')
+  })
+
+  it('reste muette sous le seuil (le serveur décide, pas l’UI)', () => {
+    renderWithProviders(withDisk(false, 80))
+    expect(screen.queryByTestId('host-disk-warning')).not.toBeInTheDocument()
+  })
+
+  it('n’affiche rien quand le nœud n’a jamais été sondé', () => {
+    const ws: WorkspaceStatus = { ws_id: 'alice-myapp', status: 'running' }
+    renderWithProviders(
+      <WorkspaceCard spec={SPEC} status={ws} onStop={vi.fn()} onDelete={vi.fn()} />,
+    )
+    expect(screen.queryByTestId('host-disk-warning')).not.toBeInTheDocument()
+  })
+
+  it('l’alerte survit au repli de la carte : c’est une alerte, pas un détail', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(withDisk(true, 96))
+    await user.click(screen.getByTestId('workspace-collapse-myapp'))
+    expect(screen.getByTestId('host-disk-warning')).toBeInTheDocument()
+  })
+})

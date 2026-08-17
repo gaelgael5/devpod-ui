@@ -304,6 +304,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             _agent_reconcile_task: asyncio.Task[None] | None = None
             _outbox_task: asyncio.Task[None] | None = None
             _liveness_task: asyncio.Task[None] | None = None
+            _disk_task: asyncio.Task[None] | None = None
             _idle_task: asyncio.Task[None] | None = None
             _session_diff_task: asyncio.Task[None] | None = None
             _automation_task: asyncio.Task[None] | None = None
@@ -317,6 +318,13 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 from .nodes.liveness import liveness_loop
 
                 _liveness_task = asyncio.create_task(liveness_loop())
+                # Occupation disque des hosts : passe horaire. Un disque plein
+                # bloque tout (écritures en échec) et se voit venir des heures à
+                # l'avance — encore faut-il regarder. 0 désactive la sonde.
+                if get_settings().host_disk_interval_s > 0:
+                    from .nodes.disk import disk_loop
+
+                    _disk_task = asyncio.create_task(disk_loop())
                 # Suggestion d'arrêt des workspaces inactifs (enabler 6016436b) :
                 # détection + alerte, jamais d'arrêt automatique.
                 from .sessions.idle import idle_suggestions_loop
@@ -352,6 +360,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     _agent_reconcile_task,
                     _outbox_task,
                     _liveness_task,
+                    _disk_task,
                     _idle_task,
                     _session_diff_task,
                     _automation_task,

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, ChevronRight, Code2, Loader2, Mail, MoonStar, Pin, Play, Plus, Square, SquareTerminal, Trash2 } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, Code2, Loader2, Mail, MoonStar, Pin, Play, Plus, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,6 +21,7 @@ import WorkspaceActionsMenu from './WorkspaceActionsMenu'
 import { CreateSessionDialogHost } from './CreateSessionDialog'
 import WorkspaceSkillsDialog from '@/features/skills/WorkspaceSkillsDialog'
 import WorkspaceEditDialog from './WorkspaceEditDialog'
+import { formatBytes } from '@/features/sessions/formatBytes'
 import { useWorkspaceSessions, useDeleteSession } from './useWorkspaceSessions'
 import {
   DropdownMenu,
@@ -203,6 +204,32 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
               {r}
             </span>
           ))}
+        </div>
+      )}
+
+      {/* Disque du nœud presque plein : un host saturé fait échouer les écritures
+          du workspace sans autre signal (incident du 17/08 — host-dev-01 à 100 %,
+          rien à l'écran). Affiché même replié : c'est une alerte, pas un détail. */}
+      {status.host_disk?.warn && (
+        <div
+          className="mb-3 rounded-md border border-destructive/50 bg-destructive/10 p-2.5 text-xs text-destructive"
+          data-testid="host-disk-warning"
+        >
+          <div className="flex items-center gap-1.5 font-medium">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            {t('workspaces.hostDisk.title', {
+              host: status.host_disk.host,
+              pct: status.host_disk.used_pct,
+              defaultValue: 'Disque de {{host}} à {{pct}} %',
+            })}
+          </div>
+          <p className="mt-1 opacity-90">
+            {t('workspaces.hostDisk.hint', {
+              free: formatBytes(status.host_disk.avail_bytes),
+              defaultValue:
+                'Plus que {{free}} libres — les écritures du workspace peuvent échouer.',
+            })}
+          </p>
         </div>
       )}
 

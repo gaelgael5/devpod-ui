@@ -441,6 +441,23 @@ host_health = Table(
     Column("changed_at", DateTime(timezone=True), nullable=True),
 )
 
+# Occupation disque des hosts (migration 102) : posée par la sonde horaire
+# (nodes/disk.py), lue par node_list et l'agrégat sessions. Un host jamais sondé
+# n'a PAS de ligne — l'absence se lit « inconnu », JAMAIS « 0 % » : afficher un
+# disque vide alors qu'on n'en sait rien est pire que de ne rien afficher.
+# `error` retient la raison du dernier échec pour que l'UI puisse l'expliquer.
+host_disk = Table(
+    "host_disk",
+    metadata,
+    Column("name", Text, primary_key=True),
+    Column("total_bytes", BigInteger, nullable=True),
+    Column("used_bytes", BigInteger, nullable=True),
+    Column("avail_bytes", BigInteger, nullable=True),
+    Column("used_pct", Integer, nullable=True),
+    Column("error", Text, nullable=True),
+    Column("measured_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 # Empreinte de la dernière config agents livrée (migration 072) : le resync ne
 # rotationne/réécrit que si elle change → moins de ré-authentifications MCP.
 workspace_agent_sync = Table(

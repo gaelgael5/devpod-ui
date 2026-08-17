@@ -62,7 +62,11 @@
       "state": "État",
       "actions": "Actions"
     },
-    "noTmux": "tmux n'est pas installé sur : {{hosts}}. Les terminaux y sont en shell simple, NON persistants (une déconnexion perd la session). Installez tmux sur la machine (ex. sudo apt-get install -y tmux) puis rouvrez le terminal."
+    "noTmux": "tmux n'est pas installé sur : {{hosts}}. Les terminaux y sont en shell simple, NON persistants (une déconnexion perd la session). Installez tmux sur la machine (ex. sudo apt-get install -y tmux) puis rouvrez le terminal.",
+    "disk": {
+      "tooltip": "{{used}} utilisés sur {{total}} — {{free}} libres",
+      "free": "({{free}} libres)"
+    }
   },
   "workspaces": {
     "title": "Workspaces",
@@ -329,6 +333,10 @@
       "recreateTitle": "Recréation nécessaire pour appliquer :",
       "recreateWarning": "La recréation reconstruit le conteneur : le travail non commité est perdu.",
       "recreateNow": "Recréer maintenant"
+    },
+    "hostDisk": {
+      "title": "Disque de {{host}} à {{pct}} %",
+      "hint": "Plus que {{free}} libres — les écritures du workspace peuvent échouer."
     }
   },
   "recipes": {

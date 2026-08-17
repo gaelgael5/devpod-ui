@@ -22,6 +22,7 @@ from ..db.workspace_status import list_all_status_db, list_by_login_db
 from ..devpod.exec import NO_TMUX_SERVER_RCS, TIMEOUT_RC, warm_tunnel, ws_exec
 from ..devpod.exec import tmux as _tmux
 from ..devpod.host_exec import run_host_command
+from ..settings import get_settings
 from .registry import AttachKey, attached_index
 
 _log = structlog.get_logger(__name__)
@@ -370,4 +371,47 @@ async def _list_sessions_live(*, login: str, is_admin: bool) -> list[dict[str, A
     if is_admin:
         result.extend(await _host_sessions(attached))
     result.extend(_test_sessions(test_rows, attached))
+    await _attach_disk_usage(result)
     return result
+
+
+async def _attach_disk_usage(entries: list[dict[str, Any]]) -> None:
+    """Ajoute le ratio disque aux entrées portant une machine (hosts, ressources, VM de test).
+
+    Lecture de la table alimentée par la sonde horaire (`nodes/disk.py`) : AUCUN
+    SSH ici — l'agrégat sessions est pollé toutes les 5 s par le front, sonder le
+    disque à chaque appel saturerait les nœuds.
+
+    Un host jamais sondé n'a pas de ligne : on n'ajoute alors rien, et l'UI
+    affiche « inconnu » plutôt qu'un « 0 % » qui laisserait croire à un disque
+    vide. Best-effort : une erreur de lecture ne doit jamais casser la liste des
+    sessions, qui reste utile sans cette décoration.
+    """
+    hosts = {e["host"] for e in entries if e.get("family") in ("host", "test") and e.get("host")}
+    if not hosts:
+        return
+    try:
+        from ..db import host_disk as host_disk_db
+
+        async with _get_engine().connect() as conn:
+            usage = await host_disk_db.get_all(conn)
+    except Exception:
+        _log.warning("sessions_disk_usage_unavailable", exc_info=True)
+        return
+
+    warn_pct = get_settings().host_disk_warn_pct
+    for entry in entries:
+        row = usage.get(entry.get("host") or "")
+        if row is None or row.get("used_pct") is None:
+            continue
+        pct = int(row["used_pct"])
+        entry["disk"] = {
+            "total_bytes": row.get("total_bytes"),
+            "used_bytes": row.get("used_bytes"),
+            "avail_bytes": row.get("avail_bytes"),
+            "used_pct": pct,
+            "warn": pct >= warn_pct,
+            "measured_at": row["measured_at"].isoformat() if row.get("measured_at") else None,
+            # Dernière sonde en échec : la mesure affichée est la précédente.
+            "stale_error": row.get("error"),
+        }
