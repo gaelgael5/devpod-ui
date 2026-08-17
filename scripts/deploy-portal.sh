@@ -489,10 +489,23 @@ if [[ $SMOKE_OK -eq 1 ]]; then
     echo "  ✓ Portail opérationnel"
     echo ""
     echo "  Accès  : ${EXTERNAL}"
-    if [[ -n "${_LOCAL_USER:-}" && -n "${_LOCAL_PASS:-}" && -t 1 ]]; then
-        echo "  Login  : ${_LOCAL_USER} / ${_LOCAL_PASS}"
-    elif [[ -n "${_LOCAL_USER:-}" ]]; then
-        echo "  Login  : ${_LOCAL_USER}  (mot de passe dans ${ENV_FILE})"
+    # Le compte break-glass n'est utilisable que si le PORTAIL l'accepte :
+    # `local_auth_enabled` dépend aussi du toggle `oidc.allow_local_auth` (en base),
+    # que le .env ne reflète pas. Annoncer « Login : admin » sur une instance où
+    # l'auth locale est désactivée envoyait droit dans le mur (incident du 17/08 :
+    # une heure perdue à chercher une panne inexistante). On interroge donc
+    # l'instance qui vient de démarrer plutôt que de déduire du .env.
+    _AUTH_CFG="$(curl -sf -m 3 "http://localhost:${PORTAL_DEV_PORT:-8080}/auth/config" 2>/dev/null || true)"
+    if [[ "$_AUTH_CFG" == *'"local_auth_enabled":true'* ]]; then
+        if [[ -n "${_LOCAL_USER:-}" && -n "${_LOCAL_PASS:-}" && -t 1 ]]; then
+            echo "  Login  : ${_LOCAL_USER} / ${_LOCAL_PASS}"
+        elif [[ -n "${_LOCAL_USER:-}" ]]; then
+            echo "  Login  : ${_LOCAL_USER}  (mot de passe dans ${ENV_FILE})"
+        fi
+    elif [[ "$_AUTH_CFG" == *'"oidc_enabled":true'* ]]; then
+        echo "  Login  : via Keycloak (SSO) — authentification locale DÉSACTIVÉE"
+    elif [[ -n "$_AUTH_CFG" ]]; then
+        echo "  Login  : ⚠ ni SSO ni auth locale active — voir Admin → Authentification"
     fi
     unset _LOCAL_PASS
     echo "  Santé  : http://${IP}:8080/health"
