@@ -45,6 +45,33 @@ class OIDCClient:
     # Public interface
     # ------------------------------------------------------------------
 
+    async def end_session_url(self, post_logout_redirect_uri: str = "") -> str | None:
+        """URL de déconnexion à l'IdP (RP-Initiated Logout), ou None si non supportée.
+
+        On envoie `client_id` plutôt qu'`id_token_hint` : le jeton brut n'est
+        DÉLIBÉRÉMENT jamais conservé côté portail (seuls des claims curés le sont),
+        et la spec autorise les deux. Keycloak peut alors demander confirmation
+        avant de fermer la session — c'est le prix de ne pas stocker le jeton.
+
+        `post_logout_redirect_uri` DOIT être déclarée dans le client Keycloak
+        (« Valid post logout redirect URIs ») ; omise, l'IdP affiche simplement sa
+        page de déconnexion. Best-effort : None si la découverte échoue ou si
+        l'IdP n'expose pas `end_session_endpoint` — l'appelant retombe alors sur
+        une déconnexion locale seule, jamais sur une erreur.
+        """
+        try:
+            discovery = await self._discover()
+        except Exception as exc:  # IdP injoignable : on ne casse pas le logout
+            _log.warning("oidc_end_session_discovery_failed", error=str(exc))
+            return None
+        endpoint = discovery.get("end_session_endpoint")
+        if not endpoint:
+            return None
+        params = {"client_id": self._client_id}
+        if post_logout_redirect_uri:
+            params["post_logout_redirect_uri"] = post_logout_redirect_uri
+        return f"{endpoint}?{urlencode(params)}"
+
     async def authorization_url(self, session: dict[str, str]) -> str:
         """Discover endpoints, generate PKCE + state + nonce, store in session.
 

@@ -125,6 +125,8 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
     }
     # Pas de vrai jeton en login local : claims minimaux pour la page profil.
     request.session["token_claims"] = {"sub": "local", "preferred_username": settings.local_user}
+    # Break-glass : aucune session IdP à fermer, le logout reste purement local.
+    request.session["auth_method"] = "local"
     _log.info("local_login_success", login=settings.local_user)
     _fire_link_termix_accounts(settings.local_user)  # fusion comptes Termix (best-effort)
     from ..events.bus import emit_event
@@ -224,6 +226,9 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     # du max_age glissant du cookie (bug 032).
     request.session["auth_time"] = int(time.time())
     request.session["user"] = {"login": login_name, "roles": roles, "sub": sub}
+    # Origine de la session : seul un login OIDC justifie de propager la
+    # déconnexion à l'IdP (RP-Initiated Logout).
+    request.session["auth_method"] = "oidc"
     # Claims essentiels curés (jamais le jeton brut) pour affichage/copie côté profil.
     request.session["token_claims"] = curate_token_claims(claims)
     _log.info("user_logged_in", login=login_name, roles=roles)
@@ -248,6 +253,8 @@ async def logout(request: Request) -> RedirectResponse:
     session_user = request.session.get("user", {})
     login_name = session_user.get("login", "?")
     sub = session_user.get("sub", "")
+    # Lu AVANT le clear : décide si la déconnexion doit être propagée à l'IdP.
+    auth_method = request.session.get("auth_method", "")
     sid = request.session.get("session_id", "")
     if sid:
         from ..vault import session as vault_session
@@ -264,7 +271,26 @@ async def logout(request: Request) -> RedirectResponse:
             actor=login_name,
             subject={"login": login_name, "sub": sub},
         )
-    resp = RedirectResponse("/", status_code=302)
+    # Déconnexion propagée à l'IdP : sans elle, seule la session LOCALE se ferme.
+    # Le cookie SSO Keycloak survit, et le clic suivant sur « OIDC » ré-authentifie
+    # en silence sans afficher la mire — on ne peut plus changer de compte.
+    # Uniquement pour une session issue d'OIDC (le login local n'a rien à fermer
+    # côté IdP), et best-effort : toute défaillance retombe sur la redirection
+    # locale plutôt que de laisser l'utilisateur connecté.
+    target = "/"
+    cfg = load_global()
+    oidc_cfg = cfg.auth.oidc
+    if auth_method == "oidc" and oidc_cfg.sso_logout and oidc_cfg.issuer and oidc_cfg.client_id:
+        try:
+            post_logout = (cfg.server.external_url or "").rstrip("/") or ""
+            end_session = await _get_oidc_client().end_session_url(post_logout)
+            if end_session:
+                target = end_session
+                _log.info("oidc_sso_logout", login=login_name)
+        except Exception as exc:
+            _log.warning("oidc_sso_logout_failed", login=login_name, error=str(exc))
+
+    resp = RedirectResponse(target, status_code=302)
     # Expire aussi un éventuel cookie de session legacy host-only (posé avant
     # COOKIE_DOMAIN) ; le SessionMiddleware, lui, ne supprime que celui sur son domaine.
     resp.delete_cookie("portal_session", path="/")

@@ -111,6 +111,14 @@ class OidcConfig(BaseModel):
     # Quand False : le login local break-glass (LOCAL_USER/.env) est désactivé,
     # même si LOCAL_USER/LOCAL_PASSWORD_HASH sont présents dans .env.
     allow_local_auth: bool = True
+    # Déconnexion propagée à l'IdP (RP-Initiated Logout, OIDC Session Management).
+    # Sans elle, se déconnecter du portail ne ferme QUE la session locale : le
+    # cookie SSO Keycloak survit, et le clic suivant sur « OIDC » ré-authentifie
+    # en silence sans jamais afficher la mire — impossible de changer de compte.
+    # ⚠ La déconnexion est propagée à TOUTES les applications du realm (Grafana,
+    # Termix…) : c'est le comportement attendu d'un logout SSO, mais il se coupe
+    # ici si on préfère ne fermer que la session du portail.
+    sso_logout: bool = True
 
 
 class AuthConfig(BaseModel):

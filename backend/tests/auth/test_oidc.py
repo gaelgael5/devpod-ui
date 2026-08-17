@@ -206,3 +206,68 @@ async def test_validate_raises_on_expired_token() -> None:
                 state=session["oidc_state"],
                 session=session,
             )
+
+
+# ─── RP-Initiated Logout (déconnexion propagée à l'IdP) ──────────────────────
+# Sans elle, le logout ne ferme que la session LOCALE : le cookie SSO de l'IdP
+# survit et le clic suivant sur « OIDC » ré-authentifie en silence, sans mire —
+# on ne peut plus changer de compte.
+
+_END_SESSION = f"{ISSUER}/protocol/openid-connect/logout"
+_DOC_WITH_LOGOUT = {**DISCOVERY_DOC, "end_session_endpoint": _END_SESSION}
+
+
+def _logout_client() -> object:
+    from portal.auth.oidc import OIDCClient
+
+    return OIDCClient(
+        issuer=ISSUER,
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        redirect_uri=REDIRECT_URI,
+    )
+
+
+@pytest.mark.asyncio
+async def test_end_session_url_carries_client_id_and_post_logout() -> None:
+    """`client_id` plutôt qu'`id_token_hint` : le jeton brut n'est jamais stocké."""
+    client = _logout_client()
+    with respx.mock:
+        respx.get(DISCOVERY_URL).mock(return_value=httpx.Response(200, json=_DOC_WITH_LOGOUT))
+        url = await client.end_session_url("https://portal.test")
+
+    assert url is not None
+    assert url.startswith(_END_SESSION)
+    assert f"client_id={CLIENT_ID}" in url
+    assert "post_logout_redirect_uri=https%3A%2F%2Fportal.test" in url
+    assert "id_token_hint" not in url  # jeton brut jamais conservé côté portail
+
+
+@pytest.mark.asyncio
+async def test_end_session_url_omits_post_logout_when_absent() -> None:
+    client = _logout_client()
+    with respx.mock:
+        respx.get(DISCOVERY_URL).mock(return_value=httpx.Response(200, json=_DOC_WITH_LOGOUT))
+        url = await client.end_session_url("")
+
+    assert url is not None
+    assert "post_logout_redirect_uri" not in url
+
+
+@pytest.mark.asyncio
+async def test_end_session_url_none_when_idp_has_no_endpoint() -> None:
+    """IdP sans `end_session_endpoint` → None : l'appelant retombe sur le logout local."""
+    client = _logout_client()
+    with respx.mock:
+        respx.get(DISCOVERY_URL).mock(return_value=httpx.Response(200, json=DISCOVERY_DOC))
+        assert await client.end_session_url("https://portal.test") is None
+
+
+@pytest.mark.asyncio
+async def test_end_session_url_none_when_discovery_fails() -> None:
+    """IdP injoignable → None, jamais d'exception : se déconnecter ne doit pas
+    échouer parce que Keycloak est tombé (sinon l'utilisateur reste connecté)."""
+    client = _logout_client()
+    with respx.mock:
+        respx.get(DISCOVERY_URL).mock(side_effect=httpx.ConnectError("idp down"))
+        assert await client.end_session_url("https://portal.test") is None
