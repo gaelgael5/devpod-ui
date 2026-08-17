@@ -317,6 +317,18 @@
     "card": {
       "collapse": "Collapse {{name}}",
       "expand": "Expand {{name}}"
+    },
+    "edit": {
+      "menu": "Configuration…",
+      "title": "{{name}} configuration",
+      "description": "Changes are saved immediately. Some only take effect after recreating the workspace.",
+      "save": "Save",
+      "saved": "Configuration saved",
+      "needsRecreate": "Saved — recreate to apply",
+      "addedRecipes": "Recipes added ({{list}}) — recreate to install them",
+      "recreateTitle": "Recreation required to apply:",
+      "recreateWarning": "Recreating rebuilds the container: uncommitted work is lost.",
+      "recreateNow": "Recreate now"
     }
   },
   "recipes": {

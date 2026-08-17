@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..certificates import service as cert_svc
-from ..config.models import GitCredential, UserConfig, WorkspaceSpec
+from ..config.models import GitCredential, ProfileRef, SourceSpec, UserConfig, WorkspaceSpec
 from ..config.store import (
     load_global,
     load_user,
@@ -259,6 +259,90 @@ async def add_workspace(
         await save_user(user.login, cfg)
     _log.info("workspace_added", login=user.login, name=workspace.name)
     return workspace.model_dump(mode="json")
+
+
+class _WorkspacePatch(BaseModel):
+    """Édition de la config d'un workspace existant — champs tous optionnels.
+
+    Seuls les champs EXPLICITEMENT fournis sont appliqués (`model_fields_set`) :
+    un PATCH partiel ne doit jamais effacer le reste de la config, même erreur que
+    celle déjà corrigée côté `POST /workspaces/{name}/up`. `name` est absent
+    volontairement : renommer changerait le ws_id, donc l'identité du conteneur.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str | None = None
+    branch: str | None = None
+    git_credential: str | None = None
+    host: str | None = None
+    recipes: list[str] | None = None
+    start_recipes: list[str] | None = None
+    init_recipes: list[str] | None = None
+    recipe_volumes: list[str] | None = None
+    extra_sources: list[SourceSpec] | None = None
+    profile: ProfileRef | None = None
+    agents: list[str] | None = None
+    memory_limit: str | None = None
+    env: dict[str, str] | None = None
+    ssh_key: bool | None = None
+    default_start: str | None = None
+
+
+@router.patch("/workspaces/{name}")
+async def patch_workspace(
+    name: str,
+    body: _WorkspacePatch,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, object]:
+    """Édite la configuration d'un workspace existant, sans rien redémarrer.
+
+    Persiste la nouvelle spec et RETOURNE l'impact : `requires_recreate` liste les
+    champs qui n'auront d'effet qu'après reconstruction de l'image (recettes,
+    profil, mémoire…), `requires_restart` ceux qu'un simple stop/start applique.
+    L'appelant décide — on ne recrée JAMAIS un conteneur dans le dos de
+    l'utilisateur (une recréation détruit le travail non commité).
+    """
+    from ..devpod.spec_changes import added_recipes, requires_recreate, requires_restart
+
+    patch = body.model_dump(exclude_unset=True)
+    async with user_config_lock(user.login):
+        cfg = await load_user(user.login)
+        idx = next((i for i, ws in enumerate(cfg.workspaces) if ws.name == name), None)
+        if idx is None:
+            raise HTTPException(status_code=404, detail=f"Workspace {name!r} introuvable")
+        current = cfg.workspaces[idx]
+        try:
+            updated = WorkspaceSpec.model_validate({**current.model_dump(), **patch})
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        recreate = requires_recreate(current, updated)
+        restart = requires_restart(current, updated)
+        added = added_recipes(current, updated)
+        if not recreate and not restart and updated == current:
+            # Rien n'a bougé : on évite une écriture (et un event) inutiles.
+            return {
+                "spec": current.model_dump(mode="json"),
+                "requires_recreate": [],
+                "requires_restart": [],
+                "added_recipes": [],
+            }
+        cfg.workspaces[idx] = updated
+        await save_user(user.login, cfg)
+    _log.info(
+        "workspace_config_updated",
+        login=user.login,
+        name=name,
+        changed=sorted(patch),
+        requires_recreate=recreate,
+        added_recipes=added,
+    )
+    return {
+        "spec": updated.model_dump(mode="json"),
+        "requires_recreate": recreate,
+        "requires_restart": restart,
+        "added_recipes": added,
+    }
 
 
 class _WorkspaceAgentsPatch(BaseModel):

@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
-  Bot, FileText, FolderOpen, Key, MessageSquare, MoreVertical, Pin, PlusCircle, Sparkles, TerminalSquare,
+  Bot, FileText, FolderOpen, Key, MessageSquare, MoreVertical, Pin, PlusCircle, Settings2, Sparkles, TerminalSquare,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -35,6 +35,8 @@ interface Props {
   onManageGroups?: () => void
   /** Gestion des skills placées dans le workspace (running uniquement). */
   onManageSkills?: () => void
+  /** Édition de la config du workspace (disponible quel que soit le statut). */
+  onEditConfig?: () => void
   /** Épingle « garder actif » (6016436b) : exempte des suggestions d'arrêt. */
   keepActive?: boolean
 }
@@ -42,7 +44,7 @@ interface Props {
 /** Menu "⋮" du workspace : SSH, messages, logs, groupes, initializers, VM de test, agents MCP. */
 export default function WorkspaceActionsMenu({
   wsName, running, agents = [], onAddVm, onOpenShell, onShowSshKey,
-  onOpenMessages, onOpenLogs, onManageGroups, onManageSkills, keepActive = false,
+  onOpenMessages, onOpenLogs, onManageGroups, onManageSkills, onEditConfig, keepActive = false,
 }: Props) {
   const { t } = useTranslation()
   const { data: initializers = [] } = useWorkspaceInitializers(running ? wsName : undefined)
@@ -106,6 +108,12 @@ export default function WorkspaceActionsMenu({
           <FileText className="h-3.5 w-3.5" />
           {t('workspaces.logs.button')}
         </DropdownMenuItem>
+        {onEditConfig && (
+          <DropdownMenuItem className="gap-2" onSelect={onEditConfig}>
+            <Settings2 className="h-4 w-4" />
+            {t('workspaces.edit.menu', { defaultValue: 'Configuration…' })}
+          </DropdownMenuItem>
+        )}
         {onManageGroups && (
           <DropdownMenuItem className="gap-2" onSelect={onManageGroups}>
             <FolderOpen className="h-3.5 w-3.5" />

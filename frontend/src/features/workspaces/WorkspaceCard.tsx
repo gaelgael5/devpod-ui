@@ -20,6 +20,7 @@ import { openTerminalTab } from '@/features/terminal/openTerminalTab'
 import WorkspaceActionsMenu from './WorkspaceActionsMenu'
 import { CreateSessionDialogHost } from './CreateSessionDialog'
 import WorkspaceSkillsDialog from '@/features/skills/WorkspaceSkillsDialog'
+import WorkspaceEditDialog from './WorkspaceEditDialog'
 import { useWorkspaceSessions, useDeleteSession } from './useWorkspaceSessions'
 import {
   DropdownMenu,
@@ -79,6 +80,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const [agentMsgOpen, setAgentMsgOpen] = useState(false)
   const [addSessionOpen, setAddSessionOpen] = useState(false)
   const [skillsOpen, setSkillsOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   // Confirmation de suppression d'une session (le tmux et ses agents meurent) :
   // on ne supprime jamais sur simple clic dans le menu.
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null)
@@ -351,6 +353,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             onOpenLogs={() => setLogsOpen(true)}
             onManageGroups={onManageGroups}
             onManageSkills={() => setSkillsOpen(true)}
+            onEditConfig={() => setEditOpen(true)}
             keepActive={status.keep_active === true}
           />
         </div>
@@ -382,6 +385,14 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
       )}
       {skillsOpen && (
         <WorkspaceSkillsDialog wsName={spec.name} onClose={() => setSkillsOpen(false)} />
+      )}
+      {editOpen && (
+        <WorkspaceEditDialog
+          spec={spec}
+          open
+          onOpenChange={setEditOpen}
+          onRecreate={onRecreate}
+        />
       )}
       <Dialog open={sessionToDelete !== null} onOpenChange={(o) => { if (!o) setSessionToDelete(null) }}>
         <DialogContent className="sm:max-w-md">

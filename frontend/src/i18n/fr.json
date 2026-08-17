@@ -317,6 +317,18 @@
     "card": {
       "collapse": "Replier {{name}}",
       "expand": "Déplier {{name}}"
+    },
+    "edit": {
+      "menu": "Configuration…",
+      "title": "Configuration de {{name}}",
+      "description": "Les modifications sont enregistrées immédiatement. Certaines ne prennent effet qu'après recréation du workspace.",
+      "save": "Enregistrer",
+      "saved": "Configuration enregistrée",
+      "needsRecreate": "Modification enregistrée — recréez pour l'appliquer",
+      "addedRecipes": "Recettes ajoutées ({{list}}) — recréez pour les installer",
+      "recreateTitle": "Recréation nécessaire pour appliquer :",
+      "recreateWarning": "La recréation reconstruit le conteneur : le travail non commité est perdu.",
+      "recreateNow": "Recréer maintenant"
     }
   },
   "recipes": {
