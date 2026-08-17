@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { AlertTriangle, Loader2 } from 'lucide-react'
@@ -16,6 +16,7 @@ import {
 import { useRecipes } from '@/features/recipes/useRecipes'
 import OrderedRecipePicker from '@/features/recipes/OrderedRecipePicker'
 import { useHosts } from '@/features/admin/useHosts'
+import { useUserStore } from '@/store/user'
 import { useProfiles } from '@/features/profiles/hooks/useProfiles'
 import type { WorkspaceSpec } from './types'
 import { useUpdateWorkspace, type WorkspacePatch } from './useUpdateWorkspace'
@@ -46,7 +47,24 @@ export default function WorkspaceEditDialog({ spec, open, onOpenChange, onRecrea
   const { data: recipes = [] } = useRecipes('install')
   const { data: hosts = [] } = useHosts()
   const { data: profiles = [] } = useProfiles()
+  const isAdmin = useUserStore((s) => s.isAdmin())
   const update = useUpdateWorkspace(spec.name)
+
+  // Seuls les nœuds DÉDIÉS aux workspaces sont proposés : un workspace ne peut
+  // pas tourner sur une VM de test (éphémère, liée à un autre workspace), sur un
+  // serveur de ressources (service partagé permanent) ni sur « autres ». Le
+  // défaut d'`usage` est `workspaces` — mêmes règles qu'à la création.
+  const workspaceHosts = useMemo(() => {
+    const eligible = hosts.filter((h) => (h.usage ?? 'workspaces') === 'workspaces')
+    // Le nœud ACTUEL est conservé dans la liste même s'il n'est plus éligible
+    // (usage changé depuis, host retiré du filtre) : sans ça le select
+    // retomberait sur « — » et enregistrer déplacerait le workspace en silence.
+    const current = spec.host
+    if (current && !eligible.some((h) => h.name === current)) {
+      return [{ name: current, type: 'ssh' as const }, ...eligible]
+    }
+    return eligible
+  }, [hosts, spec.host])
 
   const [branch, setBranch] = useState(spec.branch ?? '')
   const [host, setHost] = useState(spec.host ?? '')
@@ -122,22 +140,28 @@ export default function WorkspaceEditDialog({ spec, open, onOpenChange, onRecrea
             />
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="edit-host">{t('workspaces.form.host')}</Label>
-            <select
-              id="edit-host"
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
-            >
-              <option value="">—</option>
-              {hosts.map((h) => (
-                <option key={h.name} value={h.name}>
-                  {h.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Sélecteur de nœud : réservé aux admins, comme à la création.
+              `/admin/hosts` exige le rôle admin — l'afficher à un simple
+              utilisateur donnait une liste vide et un 403 à chaque ouverture.
+              Un non-admin ne choisit pas son nœud : le portail applique le défaut. */}
+          {isAdmin && workspaceHosts.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-host">{t('workspaces.form.node')}</Label>
+              <select
+                id="edit-host"
+                className="h-9 rounded-md border bg-background px-3 text-sm"
+                value={host}
+                onChange={(e) => setHost(e.target.value)}
+              >
+                <option value="">—</option>
+                {workspaceHosts.map((h) => (
+                  <option key={h.name} value={h.name}>
+                    {h.name} {h.default ? '(default)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="edit-profile">{t('workspaces.form.profile')}</Label>

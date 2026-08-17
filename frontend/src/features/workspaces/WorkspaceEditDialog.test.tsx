@@ -13,12 +13,24 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { renderWithProviders } from '@/test/renderWithProviders'
 import WorkspaceEditDialog from './WorkspaceEditDialog'
 import type { WorkspaceSpec } from './types'
+import { useUserStore } from '@/store/user'
 
 const patchMock = vi.fn()
+
+// Un nœud de chaque usage : seuls ceux dédiés aux workspaces doivent être proposés.
+const HOSTS = [
+  { name: 'node-ws-1', type: 'ssh', usage: 'workspaces', default: true },
+  { name: 'node-ws-2', type: 'ssh' },                      // usage absent ⇒ workspaces
+  { name: 'vm-test-42', type: 'ssh', usage: 'tests' },
+  { name: 'srv-ressources', type: 'ssh', usage: 'ressources' },
+  { name: 'divers', type: 'ssh', usage: 'autres' },
+  { name: 'portail', type: 'ssh', usage: 'portail' },
+]
 
 vi.mock('@/shared/api/client', () => ({
   apiFetchJson: vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === 'PATCH') return patchMock(url, init)
+    if (url.includes('/admin/hosts')) return HOSTS
     return []
   }),
   apiFetchVoid: vi.fn(async () => undefined),
@@ -122,5 +134,54 @@ describe('WorkspaceEditDialog', () => {
 
     await waitFor(() => expect(patchMock).toHaveBeenCalled())
     expect(screen.queryByTestId('edit-recreate-warning')).not.toBeInTheDocument()
+  })
+})
+
+describe('WorkspaceEditDialog — sélecteur de nœud', () => {
+  function asAdmin(isAdmin: boolean) {
+    useUserStore.setState({
+      user: { login: 'alice', roles: [], is_admin: isAdmin },
+    } as never)
+  }
+
+  it('ne propose que les nœuds dédiés aux workspaces', async () => {
+    asAdmin(true)
+    renderWithProviders(dialog())
+
+    const select = await screen.findByLabelText(/nœud|node/i)
+    const options = [...select.querySelectorAll('option')].map((o) => o.textContent?.trim())
+
+    expect(options.join(' ')).toContain('node-ws-1')
+    expect(options.join(' ')).toContain('node-ws-2') // usage absent ⇒ workspaces
+    // Ni tests, ni ressources, ni autres, ni portail.
+    expect(options.join(' ')).not.toContain('vm-test-42')
+    expect(options.join(' ')).not.toContain('srv-ressources')
+    expect(options.join(' ')).not.toContain('divers')
+    expect(options.join(' ')).not.toContain('portail')
+  })
+
+  it('est masqué pour un non-admin (/admin/hosts lui est interdit)', async () => {
+    asAdmin(false)
+    renderWithProviders(dialog())
+
+    await screen.findByLabelText(/branch/i) // le dialogue est bien rendu
+    expect(screen.queryByLabelText(/nœud|node/i)).not.toBeInTheDocument()
+  })
+
+  it('conserve le nœud courant même s’il n’est plus éligible', async () => {
+    asAdmin(true)
+    const onDeprecatedHost = { ...SPEC, host: 'srv-ressources' }
+    renderWithProviders(
+      <WorkspaceEditDialog
+        spec={onDeprecatedHost}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    const select = await screen.findByLabelText(/nœud|node/i)
+    // Sans ça, le select retomberait sur « — » et enregistrer déplacerait
+    // le workspace en silence.
+    expect(select).toHaveValue('srv-ressources')
   })
 })
