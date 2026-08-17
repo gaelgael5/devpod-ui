@@ -1,4 +1,4 @@
-"""Occupation disque des hosts : table `host_disk`.
+"""Occupation disque, mémoire et charge CPU des hosts : table `host_disk`.
 
 Alimentée par la sonde horaire (`nodes/disk.py`), lue par `node_list` et
 l'agrégat sessions. Sert aussi l'alerte « host presque plein » de la vue
@@ -31,6 +31,11 @@ def upgrade() -> None:
         sa.Column("used_bytes", sa.BigInteger(), nullable=True),
         sa.Column("avail_bytes", sa.BigInteger(), nullable=True),
         sa.Column("used_pct", sa.Integer(), nullable=True),
+        sa.Column("mem_total_bytes", sa.BigInteger(), nullable=True),
+        sa.Column("mem_used_bytes", sa.BigInteger(), nullable=True),
+        sa.Column("mem_pct", sa.Integer(), nullable=True),
+        sa.Column("cpu_pct", sa.Integer(), nullable=True),
+        sa.Column("cpu_cores", sa.Integer(), nullable=True),
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column(
             "measured_at",

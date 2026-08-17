@@ -66,6 +66,13 @@
     "disk": {
       "tooltip": "{{used}} utilisés sur {{total}} — {{free}} libres",
       "free": "({{free}} libres)"
+    },
+    "metrics": {
+      "disk": "Disque",
+      "memory": "Mém.",
+      "cpu": "CPU",
+      "memoryTooltip": "{{used}} utilisés sur {{total}} (hors cache récupérable)",
+      "cpuTooltip": "Charge moyenne 1 min sur {{cores}} cœur(s)"
     }
   },
   "workspaces": {

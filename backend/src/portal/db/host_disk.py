@@ -23,22 +23,24 @@ async def get_all(conn: AsyncConnection) -> dict[str, dict[str, Any]]:
 
 
 async def record_usage(
-    conn: AsyncConnection,
-    name: str,
-    *,
-    total: int,
-    used: int,
-    avail: int,
-    used_pct: int,
-    now: datetime,
+    conn: AsyncConnection, name: str, metrics: dict[str, Any], now: datetime
 ) -> None:
-    """Enregistre une mesure réussie (efface l'erreur précédente)."""
+    """Enregistre une mesure réussie (efface l'erreur précédente).
+
+    Mémoire et CPU sont optionnels : un noyau dont `/proc/meminfo` est illisible
+    ne doit pas faire perdre le taux de remplissage disque, qui porte l'alerte.
+    """
     values: dict[str, Any] = {
         "name": name,
-        "total_bytes": total,
-        "used_bytes": used,
-        "avail_bytes": avail,
-        "used_pct": used_pct,
+        "total_bytes": metrics["total"],
+        "used_bytes": metrics["used"],
+        "avail_bytes": metrics["avail"],
+        "used_pct": metrics["used_pct"],
+        "mem_total_bytes": metrics.get("mem_total"),
+        "mem_used_bytes": metrics.get("mem_used"),
+        "mem_pct": metrics.get("mem_pct"),
+        "cpu_pct": metrics.get("cpu_pct"),
+        "cpu_cores": metrics.get("cpu_cores"),
         "error": None,
         "measured_at": now,
     }

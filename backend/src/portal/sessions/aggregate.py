@@ -106,12 +106,62 @@ async def _workspace_entry(
     ]
 
 
+# Délai de PREMIÈRE PEINTURE : au-delà, on rend la main avec ce qu'on a. Les
+# sondes non abouties continuent en fond et alimentent `_ws_probe_cache` — le
+# poll suivant (8 s) les affiche. Sans cette borne, l'ouverture de la fenêtre
+# attendait la sonde la plus lente : jusqu'à 30 s sur un workspace injoignable,
+# fenêtre vide pendant tout ce temps.
+FIRST_PAINT_TIMEOUT_S = 2.0
+
+
 async def _workspace_sessions(
     refs: list[dict[str, Any]], status_map: dict[str, dict[str, Any]], attached: set[AttachKey]
 ) -> list[dict[str, Any]]:
-    """Sonde tous les workspaces déclarés en concurrence, aplati en une liste."""
-    batches = await asyncio.gather(*(_workspace_entry(ref, status_map, attached) for ref in refs))
-    return [entry for batch in batches for entry in batch]
+    """Sonde les workspaces en concurrence, borné par le délai de première peinture.
+
+    Les workspaces `stopped` sont écartés d'emblée : `_workspace_entry` ne les
+    sonde pas, autant ne pas créer la tâche. Ceux dont la sonde n'a pas répondu
+    à temps rendent une entrée `pending` — l'UI affiche « … » au lieu d'affirmer
+    à tort qu'il n'y a aucune session.
+    """
+    active = [
+        ref
+        for ref in refs
+        if (status_map.get(f"{ref['login']}-{ref['name']}") or {}).get("status") != "stopped"
+    ]
+    if not active:
+        return []
+
+    tasks = {
+        asyncio.create_task(_workspace_entry(ref, status_map, attached)): ref for ref in active
+    }
+    done, pending = await asyncio.wait(tasks.keys(), timeout=FIRST_PAINT_TIMEOUT_S)
+
+    out: list[dict[str, Any]] = []
+    for task in done:
+        try:
+            out.extend(task.result())
+        except Exception:
+            _log.warning("sessions_workspace_probe_failed", ws=tasks[task].get("name"), exc_info=True)
+    for task in pending:
+        ref = tasks[task]
+        # Référencée : sans ça le GC peut annuler la sonde avant qu'elle
+        # n'alimente le cache, et l'entrée resterait « pending » indéfiniment.
+        _background_probes.add(task)
+        task.add_done_callback(_background_probes.discard)
+        ws_id = f"{ref['login']}-{ref['name']}"
+        out.append(
+            {
+                "family": "workspace",
+                "target": ws_id,
+                "owner": ref["login"],
+                "host": (status_map.get(ws_id) or {}).get("host_name") or ref.get("host"),
+                "session": None,
+                "attached": False,
+                "pending": True,
+            }
+        )
+    return out
 
 
 # Marqueur imprimé par la sonde quand tmux n'est pas installé sur le host —
@@ -144,7 +194,9 @@ async def _probe_host_tmux(host: Any) -> list[str] | Literal["no-tmux"] | None:
     return [s for s in out.strip().splitlines() if s]
 
 
-async def _host_sessions(attached: set[AttachKey]) -> list[dict[str, Any]]:
+async def _host_sessions(
+    attached: set[AttachKey], health: dict[str, dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
     """Nœuds admin joignables en terminal (type ssh) — vue admin uniquement.
 
     Les terminaux host tournent dans tmux : chaque host est sondé (concurrence,
@@ -157,10 +209,32 @@ async def _host_sessions(attached: set[AttachKey]) -> list[dict[str, Any]]:
     from ..config.store import load_global
 
     hosts = [h for h in load_global().hosts if h.type == "ssh" and h.usage != "tests"]
-    probed = await asyncio.gather(*(_probe_host_tmux(h) for h in hosts))
+    # Un host que la sonde de vivacité (15 s) sait INJOIGNABLE n'est pas sondé :
+    # ouvrir un SSH vers une machine morte coûtait 8 s de timeout par host, payés
+    # à chaque ouverture de la fenêtre sessions. On le déclare injoignable tout de
+    # suite. `reachable` NULL (jamais sondé) → on tente, comme avant.
+    health = health or {}
+    dead = {h.name for h in hosts if health.get(h.name, {}).get("reachable") is False}
+    live = [h for h in hosts if h.name not in dead]
+    probed_live = await asyncio.gather(*(_probe_host_tmux(h) for h in live))
+    by_name = dict(zip((h.name for h in live), probed_live, strict=True))
+    probed = [None if h.name in dead else by_name[h.name] for h in hosts]
 
     out: list[dict[str, Any]] = []
     for host, sessions in zip(hosts, probed, strict=True):
+        if host.name in dead:
+            out.append(
+                {
+                    "family": "host",
+                    "target": host.name,
+                    "owner": "admin",
+                    "host": host.name,
+                    "session": None,
+                    "attached": False,
+                    "unreachable": True,
+                }
+            )
+            continue
         if isinstance(sessions, list) and sessions:
             out.extend(
                 {
@@ -191,22 +265,42 @@ async def _host_sessions(attached: set[AttachKey]) -> list[dict[str, Any]]:
 
 
 def _test_sessions(
-    rows: list[tuple[str, str, str, str]], attached: set[AttachKey]
+    rows: list[tuple[str, str, str, str]],
+    attached: set[AttachKey],
+    known_hosts: set[str] | None = None,
+    health: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """VM de test attachées à un workspace (owner = login du workspace lié)."""
+    """VM de test attachées à un workspace (owner = login du workspace lié).
+
+    Les lignes ORPHELINES sont écartées : `workspace_test_hosts` n'est purgée que
+    par la suppression via le portail (`remove_test_host`), donc une VM détruite
+    autrement — destroy Proxmox manuel, échec du script, workspace supprimé —
+    laisse une ligne qui s'affichait comme une session normale. Ces fantômes
+    proposaient un terminal vers une machine qui n'existe plus. La source de
+    vérité est la config des hosts : plus de host déclaré ⇒ plus de VM.
+
+    Une VM déclarée mais que la sonde de vivacité sait injoignable est conservée
+    (elle peut être simplement éteinte) mais marquée — on ne la fait pas passer
+    pour disponible.
+    """
+    health = health or {}
     out: list[dict[str, Any]] = []
     for login, workspace_name, host_name, _alias in rows:
-        out.append(
-            {
-                "family": "test",
-                "target": host_name,
-                "owner": login,
-                "host": host_name,
-                "workspace": workspace_name,
-                "session": None,
-                "attached": ("test", host_name, None) in attached,
-            }
-        )
+        if known_hosts is not None and host_name not in known_hosts:
+            _log.info("sessions_test_host_orphan_skipped", host=host_name, workspace=workspace_name)
+            continue
+        entry: dict[str, Any] = {
+            "family": "test",
+            "target": host_name,
+            "owner": login,
+            "host": host_name,
+            "workspace": workspace_name,
+            "session": None,
+            "attached": ("test", host_name, None) in attached,
+        }
+        if health.get(host_name, {}).get("reachable") is False:
+            entry["unreachable"] = True
+        out.append(entry)
     return out
 
 
@@ -366,11 +460,29 @@ async def _list_sessions_live(*, login: str, is_admin: bool) -> list[dict[str, A
     # interroge, best-effort, sans bloquer.
     _warm_running_tunnels(refs, status_map)
 
+    # Vivacité des hosts, lue UNE fois : évite de sonder en SSH des machines que
+    # la boucle de liveness (15 s) sait déjà mortes — c'était le gros du temps
+    # d'ouverture de la fenêtre (8 s de timeout par host injoignable).
+    from ..db import host_health as host_health_db
+
+    health: dict[str, dict[str, Any]] = {}
+    known_hosts: set[str] | None = None
+    try:
+        from ..config.store import load_global
+
+        known_hosts = {h.name for h in load_global().hosts}
+        async with _get_engine().connect() as conn:
+            health = await host_health_db.get_all(conn)
+    except Exception:
+        # Sans ces données on retombe sur le comportement historique (tout sonder,
+        # ne rien filtrer) : dégradé mais correct.
+        _log.warning("sessions_health_unavailable", exc_info=True)
+
     result: list[dict[str, Any]] = []
     result.extend(await _workspace_sessions(refs, status_map, attached))
     if is_admin:
-        result.extend(await _host_sessions(attached))
-    result.extend(_test_sessions(test_rows, attached))
+        result.extend(await _host_sessions(attached, health))
+    result.extend(_test_sessions(test_rows, attached, known_hosts, health))
     await _attach_disk_usage(result)
     return result
 
@@ -415,3 +527,17 @@ async def _attach_disk_usage(entries: list[dict[str, Any]]) -> None:
             # Dernière sonde en échec : la mesure affichée est la précédente.
             "stale_error": row.get("error"),
         }
+        # Mémoire et CPU relevés par la même sonde. Champs séparés et
+        # indépendamment optionnels : un noyau sans /proc/meminfo exploitable
+        # perd la mémoire, pas le disque.
+        if row.get("mem_pct") is not None:
+            entry["memory"] = {
+                "total_bytes": row.get("mem_total_bytes"),
+                "used_bytes": row.get("mem_used_bytes"),
+                "used_pct": int(row["mem_pct"]),
+            }
+        if row.get("cpu_pct") is not None:
+            entry["cpu"] = {
+                "used_pct": int(row["cpu_pct"]),
+                "cores": row.get("cpu_cores"),
+            }

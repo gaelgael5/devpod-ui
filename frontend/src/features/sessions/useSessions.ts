@@ -21,6 +21,24 @@ export interface SessionEntry {
    *  Absent = jamais sondé — on n'affiche alors RIEN plutôt qu'un faux « 0 % ».
    *  Alimenté par la sonde horaire du portail, pas par une mesure à la volée. */
   disk?: DiskUsage
+  /** Mémoire de la machine. « Utilisé » exclut le cache récupérable. */
+  memory?: MemoryUsage
+  /** Charge CPU ramenée au nombre de cœurs : 100 % = tous les cœurs saturés. */
+  cpu?: CpuUsage
+  /** Sonde tmux non aboutie dans le délai de première peinture : l'UI affiche
+   *  « … » plutôt que d'affirmer à tort qu'il n'y a aucune session. */
+  pending?: boolean
+}
+
+export interface MemoryUsage {
+  total_bytes: number | null
+  used_bytes: number | null
+  used_pct: number
+}
+
+export interface CpuUsage {
+  used_pct: number
+  cores: number | null
 }
 
 export interface DiskUsage {

@@ -205,7 +205,11 @@ async def test_entries_carry_host_of_the_node(
             self.usage = usage
 
     class _Cfg:
-        hosts = [_Host("node1", "ssh")]
+        # La VM de test est DÉCLARÉE : à la création, routes/test_vm y ajoute le
+        # HostConfig, et la suppression retire config + ligne dans la même
+        # transaction. Une ligne sans host déclaré est un orphelin, désormais
+        # écarté de l'agrégat — le stub doit refléter cet invariant.
+        hosts = [_Host("node1", "ssh"), _Host("testvm-1", "ssh", "tests")]
 
     monkeypatch.setattr(aggregate, "list_workspace_refs", _refs(("alice", "ws", "node2")))
     monkeypatch.setattr(
@@ -426,3 +430,38 @@ async def test_host_without_tmux_flagged(monkeypatch: pytest.MonkeyPatch, patch_
     assert len(hosts) == 1
     assert hosts[0]["session"] is None
     assert hosts[0]["no_tmux"] is True
+
+
+@pytest.mark.asyncio
+async def test_orphan_test_host_row_is_not_listed(
+    monkeypatch: pytest.MonkeyPatch, patch_common
+) -> None:
+    """Une VM de test détruite hors portail laisse une ligne `workspace_test_hosts`
+    (seul `remove_test_host` la purge). Elle s'affichait comme une session normale
+    et proposait un terminal vers une machine inexistante — le fantôme signalé le
+    17/08. La config des hosts fait foi : plus de host déclaré ⇒ plus de VM."""
+
+    async def _all_tests(conn: Any):
+        return [
+            ("bob", "bob-ws", "testvm-vivante", "ok"),
+            ("bob", "bob-ws", "testvm-detruite", "ghost"),
+        ]
+
+    class _Host:
+        def __init__(self, name: str, type: str, usage: str = "workspaces") -> None:
+            self.name = name
+            self.type = type
+            self.usage = usage
+
+    class _Cfg:
+        # `testvm-detruite` n'est plus déclarée : son HostConfig a été retiré.
+        hosts = [_Host("testvm-vivante", "ssh", "tests")]
+
+    monkeypatch.setattr(aggregate, "list_workspace_refs", _refs())
+    monkeypatch.setattr(aggregate, "list_all_status_db", _statuses())
+    monkeypatch.setattr(aggregate, "list_all_test_hosts", _all_tests)
+    monkeypatch.setattr("portal.config.store.load_global", lambda: _Cfg())
+
+    targets = {r["target"] for r in await aggregate.list_sessions(login="admin", is_admin=True)}
+    assert "testvm-vivante" in targets
+    assert "testvm-detruite" not in targets

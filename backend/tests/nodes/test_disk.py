@@ -79,3 +79,55 @@ def test_threshold_crossing_is_detectable() -> None:
     assert below is not None and at is not None
     assert below[3] == 89
     assert at[3] == 90
+
+
+# ─── Mémoire et charge CPU (mêmes sonde et connexion SSH que le disque) ───────
+
+from portal.nodes.disk import _section, parse_loadavg, parse_meminfo  # noqa: E402
+
+MEMINFO = """MemTotal:       16333372 kB
+MemFree:          521840 kB
+MemAvailable:    9876543 kB
+Buffers:          123456 kB
+Cached:          6543210 kB
+"""
+
+
+def test_memory_used_excludes_reclaimable_cache() -> None:
+    """« Utilisé » = total − MemAvailable, PAS total − MemFree : le cache est
+    récupérable, le compter comme occupé afficherait ~97 % sur une machine saine."""
+    parsed = parse_meminfo(MEMINFO)
+    assert parsed is not None
+    total, used = parsed
+    assert total == 16333372 * 1024
+    assert used == (16333372 - 9876543) * 1024
+    # Le calcul naïf (total − MemFree) donnerait un tout autre chiffre.
+    assert used != (16333372 - 521840) * 1024
+
+
+def test_memory_needs_both_total_and_available() -> None:
+    assert parse_meminfo("") is None
+    assert parse_meminfo("MemTotal: 100 kB\n") is None  # MemAvailable absent
+    assert parse_meminfo("MemAvailable: 100 kB\n") is None
+
+
+def test_load_is_normalised_by_core_count() -> None:
+    """Une charge de 4 sur 8 cœurs = 50 %, comparable d'une machine à l'autre."""
+    parsed = parse_loadavg("4.00 3.10 2.50 2/300 1234\n8\n")
+    assert parsed == (4.0, 8)
+
+
+def test_load_rejects_incomplete_output() -> None:
+    assert parse_loadavg("") is None
+    assert parse_loadavg("4.00 3.10 2.50 2/300 1234\n") is None  # nproc manquant
+    assert parse_loadavg("pas-un-nombre\n8\n") is None
+
+
+def test_sections_are_isolated() -> None:
+    """Les trois mesures arrivent dans une seule sortie : le découpage ne doit
+    pas laisser une section déborder sur la suivante."""
+    out = "@@DF\nligne-df\n@@MEM\nligne-mem\n@@CPU\nligne-cpu\n"
+    assert _section(out, "DF").strip() == "ligne-df"
+    assert _section(out, "MEM").strip() == "ligne-mem"
+    assert _section(out, "CPU").strip() == "ligne-cpu"
+    assert _section(out, "ABSENT") == ""

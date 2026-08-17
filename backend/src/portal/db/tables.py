@@ -454,6 +454,14 @@ host_disk = Table(
     Column("used_bytes", BigInteger, nullable=True),
     Column("avail_bytes", BigInteger, nullable=True),
     Column("used_pct", Integer, nullable=True),
+    # Mémoire et charge CPU relevées par la MÊME sonde (une seule connexion SSH).
+    # « Utilisé » mémoire = total − MemAvailable (le cache est récupérable).
+    # cpu_pct = charge 1 min ramenée au nombre de cœurs : 100 % = cœurs saturés.
+    Column("mem_total_bytes", BigInteger, nullable=True),
+    Column("mem_used_bytes", BigInteger, nullable=True),
+    Column("mem_pct", Integer, nullable=True),
+    Column("cpu_pct", Integer, nullable=True),
+    Column("cpu_cores", Integer, nullable=True),
     Column("error", Text, nullable=True),
     Column("measured_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
