@@ -313,7 +313,11 @@
       "copy": "Copier",
       "copied": "Copié !"
     },
-    "skillsMenu": "Skills du workspace…"
+    "skillsMenu": "Skills du workspace…",
+    "card": {
+      "collapse": "Replier {{name}}",
+      "expand": "Déplier {{name}}"
+    }
   },
   "recipes": {
     "title": "Recettes",

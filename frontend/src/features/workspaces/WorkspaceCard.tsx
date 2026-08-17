@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, Code2, Loader2, Mail, MoonStar, Pin, Play, Plus, Square, SquareTerminal, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Code2, Loader2, Mail, MoonStar, Pin, Play, Plus, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -36,6 +36,7 @@ import { usePendingCounts } from './useAgentMessages'
 import { STATUS_TONE_CLASS } from './statusTone'
 import type { TestHost } from './useTestVm'
 import { useWorkspaceOps } from './useWorkspaceOps'
+import { useUserPreferences, useSetPreference } from '@/shared/hooks/useUserPreferences'
 
 /** Durée lisible depuis un ISO : "3 h", "45 min", "2 j". */
 function idleDurationLabel(iso: string): string {
@@ -113,11 +114,38 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const showIdleSuggestion =
     s === 'running' && status.stop_suggested === true && status.keep_active !== true
 
+  // Carte repliée, persistée par utilisateur (même mécanique que les groupes).
+  // Absence de préférence ⇒ dépliée : on ne cache jamais quelque chose par défaut.
+  // Replié, on masque les recettes et les machines de test — le volumineux —, mais
+  // JAMAIS le nom, le statut ni les actions : la carte doit rester pilotable sans
+  // avoir à la déplier.
+  const { data: prefs } = useUserPreferences()
+  const setPreference = useSetPreference()
+  const collapseKey = `workspaces.card.${spec.name}.collapse`
+  const collapsed = prefs?.[collapseKey] === true
+
   return (
     <div className="rounded-lg border bg-card p-4" data-testid={`workspace-card-${spec.name}`}>
       <div className="mb-2 flex items-start justify-between gap-2">
         <div>
-          <div className="font-semibold text-foreground">{spec.name}</div>
+          <button
+            type="button"
+            className="flex items-center gap-1.5 font-semibold text-foreground hover:text-primary transition-colors"
+            onClick={() => setPreference.mutate({ key: collapseKey, value: !collapsed })}
+            aria-expanded={!collapsed}
+            aria-label={t(collapsed ? 'workspaces.card.expand' : 'workspaces.card.collapse', {
+              name: spec.name,
+              defaultValue: collapsed ? 'Déplier {{name}}' : 'Replier {{name}}',
+            })}
+            data-testid={`workspace-collapse-${spec.name}`}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4 shrink-0" />
+            ) : (
+              <ChevronDown className="h-4 w-4 shrink-0" />
+            )}
+            {spec.name}
+          </button>
           <div className="text-xs text-muted-foreground">{spec.source}</div>
           {/* Sources git additionnelles (extra_sources) : sinon un workspace multi-repo
               n'affiche que sa source principale (le 2e dépôt semblait « perdu »). */}
@@ -163,7 +191,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         <AgentMessagesPanel open onOpenChange={(o) => { if (!o) setAgentMsgOpen(false) }} />
       )}
 
-      {spec.recipes.length > 0 && (
+      {!collapsed && spec.recipes.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-1">
           {spec.recipes.map((r) => (
             <span
@@ -328,7 +356,15 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         </div>
       </div>
 
-      <HostServicesSection wsName={spec.name} enabled={s === 'running'} onOpenSsh={openTestHostTab} />
+      {/* Replié : machines de test masquées. `enabled` reste piloté par le statut —
+          on ne coupe pas les requêtes en cours, on ne fait que ne pas les afficher. */}
+      {!collapsed && (
+        <HostServicesSection
+          wsName={spec.name}
+          enabled={s === 'running'}
+          onOpenSsh={openTestHostTab}
+        />
+      )}
 
       {spec.ssh_key && (
         <SshKeyDialog
