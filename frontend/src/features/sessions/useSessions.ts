@@ -34,11 +34,15 @@ export interface MemoryUsage {
   total_bytes: number | null
   used_bytes: number | null
   used_pct: number
+  /** Date PROPRE à la mémoire : les trois familles ont des cadences distinctes
+   *  (disque 1 h, mémoire 5 min, CPU 30 s) — une date commune mentirait. */
+  measured_at?: string | null
 }
 
 export interface CpuUsage {
   used_pct: number
   cores: number | null
+  measured_at?: string | null
 }
 
 export interface DiskUsage {

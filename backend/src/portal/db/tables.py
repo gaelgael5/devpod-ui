@@ -441,8 +441,8 @@ host_health = Table(
     Column("changed_at", DateTime(timezone=True), nullable=True),
 )
 
-# Occupation disque des hosts (migration 102) : posée par la sonde horaire
-# (nodes/disk.py), lue par node_list et l'agrégat sessions. Un host jamais sondé
+# Disque, mémoire et charge CPU des hosts (migrations 102/103) : posés par la sonde
+# (nodes/metrics.py), lue par node_list et l'agrégat sessions. Un host jamais sondé
 # n'a PAS de ligne — l'absence se lit « inconnu », JAMAIS « 0 % » : afficher un
 # disque vide alors qu'on n'en sait rien est pire que de ne rien afficher.
 # `error` retient la raison du dernier échec pour que l'UI puisse l'expliquer.
@@ -462,7 +462,14 @@ host_disk = Table(
     Column("mem_pct", Integer, nullable=True),
     Column("cpu_pct", Integer, nullable=True),
     Column("cpu_cores", Integer, nullable=True),
+    # Une date PAR famille (migration 103) : les trois cadences diffèrent
+    # (1 h / 5 min / 30 s), un horodatage unique ferait passer un disque vieux
+    # d'une heure pour aussi frais qu'un CPU de 30 s.
+    Column("disk_measured_at", DateTime(timezone=True), nullable=True),
+    Column("mem_measured_at", DateTime(timezone=True), nullable=True),
+    Column("cpu_measured_at", DateTime(timezone=True), nullable=True),
     Column("error", Text, nullable=True),
+    # Date de la dernière sonde, quelle qu'elle soit (diagnostic).
     Column("measured_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 

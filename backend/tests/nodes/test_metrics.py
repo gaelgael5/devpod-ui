@@ -8,7 +8,7 @@ silence sur un disque plein (incident du 17/08 : host-dev-01 à 100 %, zéro ale
 
 from __future__ import annotations
 
-from portal.nodes.disk import parse_df
+from portal.nodes.metrics import parse_df
 
 # Sortie type de `df -PB1 /var/lib/docker` (octets bruts, format POSIX).
 REAL = """Filesystem       1B-blocks         Used    Available Capacity Mounted on
@@ -83,7 +83,7 @@ def test_threshold_crossing_is_detectable() -> None:
 
 # ─── Mémoire et charge CPU (mêmes sonde et connexion SSH que le disque) ───────
 
-from portal.nodes.disk import _section, parse_loadavg, parse_meminfo  # noqa: E402
+from portal.nodes.metrics import _section, parse_loadavg, parse_meminfo  # noqa: E402
 
 MEMINFO = """MemTotal:       16333372 kB
 MemFree:          521840 kB
@@ -131,3 +131,37 @@ def test_sections_are_isolated() -> None:
     assert _section(out, "MEM").strip() == "ligne-mem"
     assert _section(out, "CPU").strip() == "ligne-cpu"
     assert _section(out, "ABSENT") == ""
+
+
+# ─── Cadences distinctes servies par une seule boucle ────────────────────────
+
+from portal.nodes.metrics import build_command, due_sections  # noqa: E402
+
+
+def test_command_carries_only_requested_sections() -> None:
+    """Un tick CPU (30 s) ne doit pas relire `df` sur toutes les machines."""
+    cpu_only = build_command(["CPU"])
+    assert "@@CPU" in cpu_only
+    assert "@@DF" not in cpu_only
+    assert "meminfo" not in cpu_only
+
+    full = build_command(["DF", "MEM", "CPU"])
+    assert "@@DF" in full and "@@MEM" in full and "@@CPU" in full
+
+
+def test_due_sections_follows_each_cadence() -> None:
+    """Chaque famille n'est relevée qu'à l'échéance de SA cadence."""
+    # Rien d'échu : 10 s après le dernier relevé, seul le CPU (30 s) ne l'est pas encore.
+    assert due_sections({"DF": 10, "MEM": 10, "CPU": 10}) == []
+    # 40 s : le CPU seul.
+    assert due_sections({"DF": 40, "MEM": 40, "CPU": 40}) == ["CPU"]
+    # 6 min : mémoire + CPU, toujours pas le disque.
+    assert set(due_sections({"DF": 400, "MEM": 400, "CPU": 400})) == {"MEM", "CPU"}
+    # 2 h : tout.
+    assert set(due_sections({"DF": 7200, "MEM": 7200, "CPU": 7200})) == {"DF", "MEM", "CPU"}
+
+
+def test_everything_is_due_on_first_tick() -> None:
+    """Au démarrage l'écran ne doit pas attendre une heure pour afficher le disque."""
+    inf = float("inf")
+    assert set(due_sections({"DF": inf, "MEM": inf, "CPU": inf})) == {"DF", "MEM", "CPU"}

@@ -1,4 +1,4 @@
-"""Occupation disque des hosts, posée par la sonde horaire (nodes/disk.py).
+"""Disque, mémoire et charge CPU des hosts, posées par la sonde périodique (nodes/metrics.py).
 
 Absence de ligne = jamais sondé. `error` non nul = dernière sonde en échec (la
 mesure précédente est alors conservée : un host momentanément injoignable ne doit
@@ -27,23 +27,33 @@ async def record_usage(
 ) -> None:
     """Enregistre une mesure réussie (efface l'erreur précédente).
 
-    Mémoire et CPU sont optionnels : un noyau dont `/proc/meminfo` est illisible
-    ne doit pas faire perdre le taux de remplissage disque, qui porte l'alerte.
+    Écriture PARTIELLE : seules les familles réellement relevées lors de ce tick
+    sont écrites. Les trois cadences diffèrent (1 h / 5 min / 30 s) — un tick CPU
+    qui écraserait le disque avec des NULL effacerait la mesure horaire et ferait
+    disparaître l'alerte de remplissage. Chaque famille porte sa propre date.
     """
-    values: dict[str, Any] = {
-        "name": name,
-        "total_bytes": metrics["total"],
-        "used_bytes": metrics["used"],
-        "avail_bytes": metrics["avail"],
-        "used_pct": metrics["used_pct"],
-        "mem_total_bytes": metrics.get("mem_total"),
-        "mem_used_bytes": metrics.get("mem_used"),
-        "mem_pct": metrics.get("mem_pct"),
-        "cpu_pct": metrics.get("cpu_pct"),
-        "cpu_cores": metrics.get("cpu_cores"),
-        "error": None,
-        "measured_at": now,
-    }
+    values: dict[str, Any] = {"name": name, "error": None, "measured_at": now}
+    if metrics.get("used_pct") is not None:
+        values.update(
+            total_bytes=metrics["total"],
+            used_bytes=metrics["used"],
+            avail_bytes=metrics["avail"],
+            used_pct=metrics["used_pct"],
+            disk_measured_at=now,
+        )
+    if metrics.get("mem_pct") is not None:
+        values.update(
+            mem_total_bytes=metrics.get("mem_total"),
+            mem_used_bytes=metrics.get("mem_used"),
+            mem_pct=metrics["mem_pct"],
+            mem_measured_at=now,
+        )
+    if metrics.get("cpu_pct") is not None:
+        values.update(
+            cpu_pct=metrics["cpu_pct"],
+            cpu_cores=metrics.get("cpu_cores"),
+            cpu_measured_at=now,
+        )
     await conn.execute(
         pg_insert(host_disk)
         .values(**values)

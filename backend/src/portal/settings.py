@@ -86,11 +86,17 @@ class AppSettings(BaseSettings):
     host_liveness_interval_s: float = 15.0
     host_liveness_failures: int = 3
 
-    # Occupation disque des hosts : sonde HORAIRE (un disque se remplit lentement,
-    # une mesure par heure suffit et évite d'ouvrir un SSH par host en continu) et
-    # seuil d'alerte affiché dans la vue workspaces. Contrairement à la vivacité,
-    # pas d'hystérésis : un taux d'occupation ne « hoquette » pas.
+    # Métriques des hosts (disque / mémoire / CPU). Pas d'hystérésis contrairement
+    # à la vivacité : un taux d'occupation ne « hoquette » pas.
+    # Cadences PAR famille, toutes servies par une seule boucle et une seule
+    # connexion SSH par tick (la boucle bat au pas de la plus fréquente) :
+    #   disque  1 h   — se remplit lentement, c'est l'alerte de fond ;
+    #   mémoire 5 min — bouge, mais pas à la seconde ;
+    #   CPU     30 s  — la charge n'a d'intérêt que fraîche.
+    # 0 désactive une famille ; les trois à 0 arrêtent la boucle.
     host_disk_interval_s: float = 3600.0
+    host_metrics_mem_interval_s: float = 300.0
+    host_metrics_cpu_interval_s: float = 30.0
     host_disk_warn_pct: int = 90
 
     # Suggestion d'arrêt des workspaces inactifs (enabler 6016436b) : seuil d'idle

@@ -16,6 +16,7 @@ mesure, accompagnée de l'erreur (cf. db/host_disk.record_error).
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -38,11 +39,21 @@ DF_COMMAND = "df -PB1 /var/lib/docker 2>/dev/null || df -PB1 /"
 # ambiguïté. `/proc/meminfo` plutôt que `free` (format stable, pas de locale) ;
 # `/proc/loadavg` + `nproc` pour ramener la charge à un pourcentage comparable
 # d'une machine à l'autre.
-METRICS_COMMAND = (
-    "echo '@@DF'; " + DF_COMMAND + "; "
-    "echo '@@MEM'; cat /proc/meminfo 2>/dev/null | head -5; "
-    "echo '@@CPU'; cat /proc/loadavg 2>/dev/null; nproc 2>/dev/null || echo 1"
-)
+_SECTIONS = {
+    "DF": DF_COMMAND,
+    "MEM": "cat /proc/meminfo 2>/dev/null | head -5",
+    "CPU": "cat /proc/loadavg 2>/dev/null; nproc 2>/dev/null || echo 1",
+}
+
+
+def build_command(sections: list[str]) -> str:
+    """Commande de sonde ne portant QUE les sections dues à ce tick.
+
+    Les trois familles ont des cadences différentes ; n'embarquer que le
+    nécessaire garde le tick CPU (30 s) minuscule au lieu de relire `df` sur
+    toutes les machines deux fois par minute.
+    """
+    return "; ".join(f"echo '@@{name}'; {_SECTIONS[name]}" for name in sections if name in _SECTIONS)
 
 # Timeout court : la sonde ne doit pas retenir un slot d'exécution du host.
 PROBE_TIMEOUT_S = 20.0
@@ -121,43 +132,36 @@ def _section(out: str, name: str) -> str:
     return rest.split("@@", 1)[0]
 
 
-async def probe_host(host: HostConfig) -> dict[str, Any] | None:
-    """Mesure disque + mémoire + charge d'un host. None si le disque est illisible.
+async def probe_host(host: HostConfig, sections: list[str] | None = None) -> dict[str, Any] | None:
+    """Mesure les familles demandées sur un host. None si rien n'est exploitable.
 
-    Le disque est la mesure PIVOT : sans lui la sonde est un échec. Mémoire et
-    charge sont optionnelles — un noyau sans `/proc/meminfo` exploitable ne doit
-    pas faire perdre le taux de remplissage, qui est l'alerte importante.
+    Chaque famille est indépendante : un noyau sans `/proc/meminfo` lisible ne
+    doit pas faire perdre le taux de remplissage disque, qui porte l'alerte.
     """
     from ..devpod.host_exec import run_host_command
 
-    rc, out, err = await run_host_command(host, METRICS_COMMAND, timeout=PROBE_TIMEOUT_S)
+    sections = sections or ["DF", "MEM", "CPU"]
+    rc, out, err = await run_host_command(
+        host, build_command(sections), timeout=PROBE_TIMEOUT_S
+    )
     if rc != 0:
         raise RuntimeError((err or out or f"sonde rc={rc}").strip()[:200])
 
-    disk = parse_df(_section(out, "DF") or out)
-    if disk is None:
-        return None
-    total, used, avail, pct = disk
-    metrics: dict[str, Any] = {
-        "total": total,
-        "used": used,
-        "avail": avail,
-        "used_pct": pct,
-        "mem_total": None,
-        "mem_used": None,
-        "mem_pct": None,
-        "cpu_pct": None,
-        "cpu_cores": None,
-    }
+    metrics: dict[str, Any] = {}
+    if "DF" in sections:
+        disk = parse_df(_section(out, "DF") or out)
+        if disk is not None:
+            total, used, avail, pct = disk
+            metrics.update(total=total, used=used, avail=avail, used_pct=pct)
 
-    mem = parse_meminfo(_section(out, "MEM"))
+    mem = parse_meminfo(_section(out, "MEM")) if "MEM" in sections else None
     if mem is not None:
         mem_total, mem_used = mem
         metrics["mem_total"] = mem_total
         metrics["mem_used"] = mem_used
         metrics["mem_pct"] = round(mem_used * 100 / mem_total)
 
-    cpu = parse_loadavg(_section(out, "CPU"))
+    cpu = parse_loadavg(_section(out, "CPU")) if "CPU" in sections else None
     if cpu is not None:
         load1, cores = cpu
         metrics["cpu_cores"] = cores
@@ -166,11 +170,30 @@ async def probe_host(host: HostConfig) -> dict[str, Any] | None:
         # valeur brute dise quoi que ce soit d'utile au-delà.
         metrics["cpu_pct"] = min(999, round(load1 * 100 / cores))
 
-    return metrics
+    return metrics or None
 
 
-async def run_disk_pass() -> None:
+def due_sections(elapsed: dict[str, float]) -> list[str]:
+    """Familles dont la cadence est échue, d'après le temps écoulé depuis leur
+    dernier relevé. Un intervalle <= 0 désactive la famille."""
+    st = get_settings()
+    cadences = {
+        "DF": st.host_disk_interval_s,
+        "MEM": st.host_metrics_mem_interval_s,
+        "CPU": st.host_metrics_cpu_interval_s,
+    }
+    return [
+        name
+        for name, period in cadences.items()
+        if period > 0 and elapsed.get(name, float("inf")) >= period
+    ]
+
+
+async def run_disk_pass(sections: list[str] | None = None) -> None:
     """Une passe : sonde tous les hosts SSH enrôlés, persiste le résultat.
+
+    `sections` limite le relevé aux familles dues (cf. `due_sections`) — un tick
+    CPU n'embarque pas `df`.
 
     Les sondes réseau sont lancées AVANT d'acquérir la connexion DB — aucune
     connexion du pool n'est retenue pendant les timeouts (même règle que la
@@ -188,7 +211,7 @@ async def run_disk_pass() -> None:
 
     async def _one(h: HostConfig) -> tuple[str, object]:
         try:
-            return h.name, await probe_host(h)
+            return h.name, await probe_host(h, sections)
         except Exception as exc:  # noqa: BLE001 — best-effort, l'erreur est persistée
             return h.name, exc
 
@@ -205,27 +228,55 @@ async def run_disk_pass() -> None:
                 _log.warning("host_disk_probe_failed", host=name, error=str(res))
                 continue
             if res is None:
-                await host_disk_db.record_error(conn, name, "sortie df illisible", now)
+                await host_disk_db.record_error(conn, name, "sortie de sonde illisible", now)
                 continue
-            pct = int(res["used_pct"])
             await host_disk_db.record_usage(conn, name, res, now)
-            if pct >= warn_pct:
+            pct = res.get("used_pct")
+            if pct is not None and pct >= warn_pct:
                 _log.warning(
                     "host_disk_high",
                     host=name,
                     used_pct=pct,
-                    avail_bytes=res["avail"],
+                    avail_bytes=res.get("avail"),
                     threshold=warn_pct,
                 )
         await host_disk_db.prune_absent(conn, {h.name for h in hosts})
 
 
-async def disk_loop() -> None:
-    """Boucle de fond : une passe toutes les `host_disk_interval_s` (1 h par défaut)."""
-    interval = get_settings().host_disk_interval_s
+async def metrics_loop() -> None:
+    """Boucle unique cadencée sur la famille la plus fréquente.
+
+    UNE boucle et UNE connexion SSH par tick plutôt que trois boucles
+    concurrentes : à chaque réveil on n'embarque que les familles échues. Le CPU
+    (30 s) rythme la boucle, la mémoire (5 min) et le disque (1 h) s'y greffent
+    quand leur tour vient. Le multiplexage SSH (ControlMaster) rend les ticks
+    suivants bon marché.
+    """
+    st = get_settings()
+    periods = [
+        p
+        for p in (
+            st.host_disk_interval_s,
+            st.host_metrics_mem_interval_s,
+            st.host_metrics_cpu_interval_s,
+        )
+        if p > 0
+    ]
+    if not periods:
+        return
+    tick = min(periods)
+    # `inf` au démarrage : tout est dû au premier réveil, l'écran n'attend pas
+    # une heure pour afficher le disque.
+    last: dict[str, float] = {}
     while True:
-        try:
-            await run_disk_pass()
-        except Exception as exc:  # noqa: BLE001 — une boucle de fond ne doit jamais mourir
-            _log.exception("host_disk_pass_failed", error=str(exc))
-        await asyncio.sleep(interval)
+        now = time.monotonic()
+        elapsed = {name: now - last.get(name, float("-inf")) for name in ("DF", "MEM", "CPU")}
+        sections = due_sections(elapsed)
+        if sections:
+            try:
+                await run_disk_pass(sections)
+                for name in sections:
+                    last[name] = now
+            except Exception as exc:  # noqa: BLE001 — une boucle de fond ne meurt jamais
+                _log.exception("host_metrics_pass_failed", error=str(exc), sections=sections)
+        await asyncio.sleep(tick)

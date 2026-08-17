@@ -487,10 +487,15 @@ async def _list_sessions_live(*, login: str, is_admin: bool) -> list[dict[str, A
     return result
 
 
+def _iso(value: Any) -> str | None:
+    """Horodatage ISO, ou None — jamais de date inventée pour une mesure absente."""
+    return value.isoformat() if value is not None and hasattr(value, "isoformat") else None
+
+
 async def _attach_disk_usage(entries: list[dict[str, Any]]) -> None:
     """Ajoute le ratio disque aux entrées portant une machine (hosts, ressources, VM de test).
 
-    Lecture de la table alimentée par la sonde horaire (`nodes/disk.py`) : AUCUN
+    Lecture de la table alimentée par la sonde périodique (`nodes/metrics.py`) : AUCUN
     SSH ici — l'agrégat sessions est pollé toutes les 5 s par le front, sonder le
     disque à chaque appel saturerait les nœuds.
 
@@ -523,7 +528,10 @@ async def _attach_disk_usage(entries: list[dict[str, Any]]) -> None:
             "avail_bytes": row.get("avail_bytes"),
             "used_pct": pct,
             "warn": pct >= warn_pct,
-            "measured_at": row["measured_at"].isoformat() if row.get("measured_at") else None,
+            # Date PROPRE au disque : les trois familles ont des cadences
+            # différentes, un horodatage commun ferait passer une mesure horaire
+            # pour aussi fraîche qu'un CPU de 30 s.
+            "measured_at": _iso(row.get("disk_measured_at") or row.get("measured_at")),
             # Dernière sonde en échec : la mesure affichée est la précédente.
             "stale_error": row.get("error"),
         }
@@ -535,9 +543,11 @@ async def _attach_disk_usage(entries: list[dict[str, Any]]) -> None:
                 "total_bytes": row.get("mem_total_bytes"),
                 "used_bytes": row.get("mem_used_bytes"),
                 "used_pct": int(row["mem_pct"]),
+                "measured_at": _iso(row.get("mem_measured_at")),
             }
         if row.get("cpu_pct") is not None:
             entry["cpu"] = {
                 "used_pct": int(row["cpu_pct"]),
                 "cores": row.get("cpu_cores"),
+                "measured_at": _iso(row.get("cpu_measured_at")),
             }

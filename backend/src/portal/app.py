@@ -318,13 +318,18 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 from .nodes.liveness import liveness_loop
 
                 _liveness_task = asyncio.create_task(liveness_loop())
-                # Occupation disque des hosts : passe horaire. Un disque plein
-                # bloque tout (écritures en échec) et se voit venir des heures à
-                # l'avance — encore faut-il regarder. 0 désactive la sonde.
-                if get_settings().host_disk_interval_s > 0:
-                    from .nodes.disk import disk_loop
+                # Disque / mémoire / CPU des hosts : une seule boucle, trois
+                # cadences (1 h / 5 min / 30 s). Un disque plein bloque tout et
+                # se voit venir des heures à l'avance — encore faut-il regarder.
+                _st = get_settings()
+                if (
+                    _st.host_disk_interval_s > 0
+                    or _st.host_metrics_mem_interval_s > 0
+                    or _st.host_metrics_cpu_interval_s > 0
+                ):
+                    from .nodes.metrics import metrics_loop
 
-                    _disk_task = asyncio.create_task(disk_loop())
+                    _disk_task = asyncio.create_task(metrics_loop())
                 # Suggestion d'arrêt des workspaces inactifs (enabler 6016436b) :
                 # détection + alerte, jamais d'arrêt automatique.
                 from .sessions.idle import idle_suggestions_loop
