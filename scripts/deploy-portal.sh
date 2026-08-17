@@ -34,6 +34,29 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# ─── Survie à la perte de la session (incident du 16/08) ─────────────────────
+# Le script s'arrête lui-même (`docker compose down`) : lancé depuis une session
+# Termix — dont le conteneur fait partie de la stack — il se coupe la branche.
+# La session meurt, SIGHUP tue le script entre le `down` et la fin du `up -d`,
+# et la stack reste à moitié debout (postgres+loki seuls, portail absent,
+# migrations jamais jouées). Un lien mobile qui tombe produit le même résultat.
+#
+# On ignore donc SIGHUP, et on journalise tout dans un fichier : même si le
+# terminal disparaît, le déploiement va au bout et reste diagnosticable.
+# `DEPLOY_NO_DETACH=1` désactive ce filet (CI, débogage pas à pas).
+trap '' HUP
+if [[ "${DEPLOY_NO_DETACH:-0}" != "1" ]]; then
+    DEPLOY_LOG="${DEPLOY_LOG:-/tmp/deploy-portal.$(date +%Y%m%d-%H%M%S).log}"
+    # tee dans un `setsid` : le pipe survit à la mort du terminal (sans quoi une
+    # écriture sur un pty fermé remonte EIO et `set -e` avorte le script).
+    if [[ -z "${_DEPLOY_LOGGING:-}" ]]; then
+        export _DEPLOY_LOGGING=1
+        echo "==> Journal du déploiement : ${DEPLOY_LOG}"
+        echo "    (si la session tombe : tail -f ${DEPLOY_LOG})"
+        exec > >(setsid tee -a "$DEPLOY_LOG") 2>&1
+    fi
+fi
+
 # ─── Configuration ────────────────────────────────────────────────────────────
 REPO_URL="${REPO_URL:-https://github.com/gaelgael5/devpod-ui.git}"
 APP_DIR="${APP_DIR:-/opt/workspace-portal}"
@@ -405,8 +428,39 @@ docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
 
 echo ""
 echo "==> Migrations Alembic..."
+# Attente d'un conteneur portail EXÉCUTABLE avant de migrer : juste après
+# `up -d` il peut encore démarrer (ou redémarrer en boucle). Sans cette
+# attente, `exec` échouait, `set -e` avortait le déploiement AVANT la
+# migration, et la stack restait servie avec un schéma en retard — panne
+# silencieuse, car le smoke /health qui suit ne teste pas le schéma.
+_MIGRATE_READY=0
+for _i in $(seq 1 24); do   # 24 × 5 s = 120 s
+    if docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" \
+        exec -T portal true >/dev/null 2>&1; then
+        _MIGRATE_READY=1
+        break
+    fi
+    sleep 5
+done
+if [[ $_MIGRATE_READY -eq 0 ]]; then
+    echo "ERREUR : conteneur 'portal' injoignable après 120 s — migrations NON jouées." >&2
+    echo "         Diagnostic : docker compose -f ${COMPOSE_FILE} logs --tail=80 portal" >&2
+    exit 1
+fi
+
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" \
     exec -T portal uv run alembic upgrade head
+
+# Vérification explicite : `upgrade` peut sortir 0 sans avoir atteint head si
+# la base a été tamponnée à côté. On refuse de déclarer le déploiement bon sur
+# un schéma en retard — c'est exactement le trou par lequel l'incident est passé.
+if ! docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" \
+    exec -T portal uv run alembic current 2>/dev/null | grep -q '(head)'; then
+    echo "ERREUR : le schéma n'est pas à head après migration." >&2
+    echo "         Voir : docker compose -f ${COMPOSE_FILE} exec -T portal uv run alembic current" >&2
+    exit 1
+fi
+echo "    Schéma à jour (head)."
 
 # ─── 5) Smoke /health ─────────────────────────────────────────────────────────
 echo ""
