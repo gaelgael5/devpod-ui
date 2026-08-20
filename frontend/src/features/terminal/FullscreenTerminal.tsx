@@ -64,7 +64,26 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       fontFamily: "'Courier New', monospace",
       fontSize: 13,
       theme: { background: '#0d0d1a', foreground: '#e0e0ff', cursor: '#e0e0ff' },
+      // Requis par l'addon unicode-graphemes : `terminal.unicode` est une API
+      // « proposed » de xterm. Sans ce drapeau, loadAddon LÈVE — et l'exception
+      // remontait au rendu React, faisant avaler toute la page terminal par
+      // l'ErrorBoundary (panne du 20/08 : plus aucune fenêtre SSH ne s'ouvrait).
+      allowProposedApi: true,
     })
+    // Les addons sont des AMÉLIORATIONS : aucun ne doit pouvoir empêcher le
+    // terminal de s'afficher. On isole donc chaque chargement — l'échec part en
+    // console.warn (remonté à Loki via Faro) et le terminal reste utilisable.
+    // `fit` est la seule exception : sans lui le terminal est inexploitable.
+    const loadOptional = (name: string, make: () => Parameters<typeof terminal.loadAddon>[0]) => {
+      try {
+        terminal.loadAddon(make())
+        return true
+      } catch (err) {
+        console.warn(`[terminal] addon ${name} non chargé`, err)
+        return false
+      }
+    }
+
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     // Liens cliquables : les outils en ligne de commande affichent des URL
@@ -72,20 +91,23 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // main — pénible, et la sélection xterm ne survit pas au redraw d'un TUI.
     // L'addon gère les URL coupées par le retour à la ligne, ce qu'un simple
     // clic sur du texte brut ne saurait pas faire.
-    terminal.loadAddon(new WebLinksAddon((_event, uri) => openTerminalLink(uri)))
+    loadOptional('web-links', () => new WebLinksAddon((_event, uri) => openTerminalLink(uri)))
     // Largeur des caractères : sans cet addon, xterm applique les tables Unicode 6
     // et calcule mal la largeur des emoji et des caractères larges (CJK). Une
     // largeur fausse décale TOUT le redessin d'un TUI — cadres brisés, curseur à
     // côté. Les sorties d'agents et de Termix en sont pleines.
-    terminal.loadAddon(new UnicodeGraphemesAddon())
-    terminal.unicode.activeVersion = '15-graphemes'
+    if (loadOptional('unicode-graphemes', () => new UnicodeGraphemesAddon())) {
+      terminal.unicode.activeVersion = '15-graphemes'
+    }
     // Recherche dans le scrollback.
     const searchAddon = new SearchAddon()
-    terminal.loadAddon(searchAddon)
-    searchRef.current = searchAddon
-    const resultsDisposable = searchAddon.onDidChangeResults((r) =>
-      setSearchResults({ resultIndex: r.resultIndex, resultCount: r.resultCount }),
-    )
+    const searchOk = loadOptional('search', () => searchAddon)
+    searchRef.current = searchOk ? searchAddon : null
+    const resultsDisposable = searchOk
+      ? searchAddon.onDidChangeResults((r) =>
+          setSearchResults({ resultIndex: r.resultIndex, resultCount: r.resultCount }),
+        )
+      : { dispose: () => {} }
 
     if (termRef.current) {
       terminal.open(termRef.current)

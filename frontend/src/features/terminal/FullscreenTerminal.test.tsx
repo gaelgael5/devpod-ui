@@ -28,7 +28,10 @@ class MockTerminal {
     return { dispose: vi.fn() }
   })
 
-  constructor() {
+  options: Record<string, unknown>
+
+  constructor(options: Record<string, unknown> = {}) {
+    this.options = options
     terminals.push(this)
   }
 
@@ -40,8 +43,8 @@ class MockTerminal {
 }
 
 vi.mock('@xterm/xterm', () => ({
-  Terminal: vi.fn(function () {
-    return new MockTerminal()
+  Terminal: vi.fn(function (options?: Record<string, unknown>) {
+    return new MockTerminal(options)
   }),
 }))
 vi.mock('@xterm/addon-fit', () => ({
@@ -134,5 +137,41 @@ describe('FullscreenTerminal — copy-on-select', () => {
     writeText.mockClear()
     fireEvent.click(screen.getByRole('button', { name: /copier|copy/i }))
     expect(writeText).toHaveBeenCalledWith('texte choisi')
+  })
+})
+
+describe('FullscreenTerminal — robustesse des addons', () => {
+  it('active allowProposedApi (requis par l’addon unicode)', () => {
+    // Panne du 20/08 : sans ce drapeau, `terminal.unicode` étant une API
+    // « proposed », loadAddon LÈVE et l'exception remonte au rendu React —
+    // l'ErrorBoundary avale alors toute la page terminal et plus aucune
+    // fenêtre SSH ne s'ouvre. Le drapeau est donc un invariant, pas un détail.
+    render(
+      <I18nextProvider i18n={i18n}>
+        <FullscreenTerminal wsPath="/me/workspaces/x/ssh" />
+      </I18nextProvider>,
+    )
+    expect(terminals.at(-1)?.options.allowProposedApi).toBe(true)
+  })
+
+  it('un addon qui échoue n’empêche pas le terminal de s’afficher', () => {
+    // Les addons sont des améliorations : leur échec doit dégrader, pas casser.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { container } = render(
+      <I18nextProvider i18n={i18n}>
+        <FullscreenTerminal wsPath="/me/workspaces/x/ssh" />
+      </I18nextProvider>,
+    )
+    const term = terminals.at(-1)
+    expect(term).toBeDefined()
+
+    // Rejoue un chargement d'addon en échec comme le ferait xterm.
+    term!.loadAddon.mockImplementationOnce(() => {
+      throw new Error('You must set the allowProposedApi option to true')
+    })
+
+    // Le conteneur du terminal est bien rendu malgré tout.
+    expect(container.querySelector('div')).toBeTruthy()
+    warn.mockRestore()
   })
 })
