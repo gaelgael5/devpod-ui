@@ -9,6 +9,7 @@ import { UnicodeGraphemesAddon } from '@xterm/addon-unicode-graphemes'
 import { Button } from '@/components/ui/button'
 import TerminalKeybar from '@/features/workspaces/TerminalKeybar'
 import { openTerminalLink } from './openTerminalLink'
+import { createLinkCollector } from './linkCollector'
 import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
 import '@xterm/xterm/css/xterm.css'
 
@@ -108,9 +109,14 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // Liens cliquables : les outils en ligne de commande affichent des URL
     // d'authentification (`claude` en premier) qu'il faut sinon recopier à la
     // main — pénible, et la sélection xterm ne survit pas au redraw d'un TUI.
-    // L'addon gère les URL coupées par le retour à la ligne, ce qu'un simple
-    // clic sur du texte brut ne saurait pas faire.
-    loadOptional('web-links', () => new WebLinksAddon((_event, uri) => openTerminalLink(uri)))
+    //
+    // L'addon détecte les liens en relisant le buffer *rendu*. Sur une URL
+    // repliée par un terminal étroit, cette reconstitution s'est révélée
+    // fautive : des blocs entiers manquaient au milieu de l'URL. On ouvre donc
+    // ce que le collecteur a lu dans le flux brut, où l'URL est intacte, et
+    // l'addon ne sert plus qu'à repérer l'endroit cliqué.
+    const links = createLinkCollector()
+    loadOptional('web-links', () => new WebLinksAddon((_event, uri) => openTerminalLink(links.resolve(uri))))
     // Largeur des caractères : sans cet addon, xterm applique les tables Unicode 6
     // et calcule mal la largeur des emoji et des caractères larges (CJK). Une
     // largeur fausse décale TOUT le redessin d'un TUI — cadres brisés, curseur à
@@ -209,8 +215,11 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       }, 200)
     })
 
+    // `stream: true` : une trame peut couper un caractère multi-octets en deux.
+    const decoder = new TextDecoder()
     ws.onmessage = (e) => {
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
+      links.push(typeof data === 'string' ? data : decoder.decode(data, { stream: true }))
       terminal.write(data)
     }
     ws.onclose = () => {

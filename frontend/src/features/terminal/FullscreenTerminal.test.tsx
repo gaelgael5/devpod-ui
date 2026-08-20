@@ -57,6 +57,18 @@ vi.mock('@xterm/addon-fit', () => ({
   }),
 }))
 
+// Le gestionnaire de clic sur lien, capturé : l'addon réel n'est jamais activé
+// (loadAddon est un mock), donc on l'appelle directement pour simuler un clic.
+let linkHandler: ((event: unknown, uri: string) => void) | null = null
+vi.mock('@xterm/addon-web-links', () => ({
+  WebLinksAddon: vi.fn(function (handler: (event: unknown, uri: string) => void) {
+    linkHandler = handler
+    return { activate: vi.fn(), dispose: vi.fn() }
+  }),
+}))
+
+const sockets: MockWebSocket[] = []
+
 class MockWebSocket {
   static OPEN = 1
   readyState = 1
@@ -67,6 +79,10 @@ class MockWebSocket {
   onmessage: ((e: unknown) => void) | null = null
   onclose: (() => void) | null = null
   onerror: (() => void) | null = null
+
+  constructor() {
+    sockets.push(this)
+  }
 }
 
 const writeText = vi.fn(() => Promise.resolve())
@@ -74,6 +90,8 @@ const writeText = vi.fn(() => Promise.resolve())
 beforeEach(() => {
   vi.useFakeTimers()
   terminals.length = 0
+  sockets.length = 0
+  linkHandler = null
   writeText.mockClear()
   vi.stubGlobal('WebSocket', MockWebSocket)
   Object.defineProperty(navigator, 'clipboard', {
@@ -219,5 +237,40 @@ describe('FullscreenTerminal — ajustement gardé', () => {
     window.dispatchEvent(new Event('resize'))
 
     expect(fit).not.toHaveBeenCalled()
+  })
+})
+
+describe('FullscreenTerminal — liens du flux', () => {
+  const AUTH_URL =
+    'https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e' +
+    '&response_type=code&scope=org%3Acreate_api_key+user%3Aprofile' +
+    '&state=puGyxuUpf7QyKJFbvSK3vINUjVrNik60OipNHknuvy0'
+
+  it('ouvre l’URL lue dans le flux, pas celle mutilée par le repli', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    renderTerminal()
+
+    // Le serveur envoie l'URL entière ; xterm la repliera à l'écran.
+    act(() => {
+      sockets[0].onmessage?.({ data: `Use the url below:\n\n${AUTH_URL}\n` })
+    })
+
+    // Ce que le détecteur remonte au clic, reconstitué depuis un buffer replié.
+    act(() => {
+      linkHandler?.({}, 'https://claude.ai/oauth/authorize?code=true&cliened-5944d1962f5e=')
+    })
+
+    expect(open).toHaveBeenCalledWith(AUTH_URL, '_blank', 'noopener,noreferrer')
+  })
+
+  it('ouvre le lien tel quel quand le flux n’en connaît pas de meilleur', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    renderTerminal()
+
+    act(() => {
+      linkHandler?.({}, 'https://dev.yoops.org/portal')
+    })
+
+    expect(open).toHaveBeenCalledWith('https://dev.yoops.org/portal', '_blank', 'noopener,noreferrer')
   })
 })
