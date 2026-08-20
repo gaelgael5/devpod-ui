@@ -140,7 +140,18 @@
         "arrowLeft": "Arrow left",
         "arrowRight": "Arrow right",
         "tab": "Tab",
-        "tabTitle": "Send the Tab key (completion)"
+        "tabTitle": "Send the Tab key (completion)",
+        "search": "Search",
+        "searchTitle": "Search in terminal (Ctrl+Shift+F)"
+      },
+      "search": {
+        "placeholder": "Search…",
+        "label": "Search in terminal",
+        "none": "none",
+        "many": "{{count}}+",
+        "previous": "Previous",
+        "next": "Next",
+        "close": "Close search"
       }
     },
     "initializers": {

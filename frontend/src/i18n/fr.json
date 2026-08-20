@@ -140,7 +140,18 @@
         "arrowLeft": "Flèche gauche",
         "arrowRight": "Flèche droite",
         "tab": "Tab",
-        "tabTitle": "Envoyer la touche Tab (complétion)"
+        "tabTitle": "Envoyer la touche Tab (complétion)",
+        "search": "Rechercher",
+        "searchTitle": "Rechercher dans le terminal (Ctrl+Maj+F)"
+      },
+      "search": {
+        "placeholder": "Rechercher…",
+        "label": "Rechercher dans le terminal",
+        "none": "aucun",
+        "many": "{{count}}+",
+        "previous": "Précédent",
+        "next": "Suivant",
+        "close": "Fermer la recherche"
       }
     },
     "initializers": {

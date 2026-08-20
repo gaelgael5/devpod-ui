@@ -4,9 +4,12 @@ import { RotateCw } from 'lucide-react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { SearchAddon } from '@xterm/addon-search'
+import { UnicodeGraphemesAddon } from '@xterm/addon-unicode-graphemes'
 import { Button } from '@/components/ui/button'
 import TerminalKeybar from '@/features/workspaces/TerminalKeybar'
 import { openTerminalLink } from './openTerminalLink'
+import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
 import '@xterm/xterm/css/xterm.css'
 
 interface Props {
@@ -36,6 +39,9 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
   // Dernière sélection non vide : la sélection xterm est volatile (toute frappe,
   // resize ou reset d'écran l'efface) — on la mémorise pour le bouton Copier.
   const lastSelectionRef = useRef('')
+  const searchRef = useRef<SearchAddon | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchResults, setSearchResults] = useState<SearchResults | null>(null)
   const [disconnected, setDisconnected] = useState(false)
   const [epoch, setEpoch] = useState(0)
   const tRef = useRef(t)
@@ -67,6 +73,19 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // L'addon gère les URL coupées par le retour à la ligne, ce qu'un simple
     // clic sur du texte brut ne saurait pas faire.
     terminal.loadAddon(new WebLinksAddon((_event, uri) => openTerminalLink(uri)))
+    // Largeur des caractères : sans cet addon, xterm applique les tables Unicode 6
+    // et calcule mal la largeur des emoji et des caractères larges (CJK). Une
+    // largeur fausse décale TOUT le redessin d'un TUI — cadres brisés, curseur à
+    // côté. Les sorties d'agents et de Termix en sont pleines.
+    terminal.loadAddon(new UnicodeGraphemesAddon())
+    terminal.unicode.activeVersion = '15-graphemes'
+    // Recherche dans le scrollback.
+    const searchAddon = new SearchAddon()
+    terminal.loadAddon(searchAddon)
+    searchRef.current = searchAddon
+    const resultsDisposable = searchAddon.onDidChangeResults((r) =>
+      setSearchResults({ resultIndex: r.resultIndex, resultCount: r.resultCount }),
+    )
 
     if (termRef.current) {
       terminal.open(termRef.current)
@@ -173,11 +192,13 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       dataDisposable.dispose()
       resizeDisposable.dispose()
       selectionDisposable.dispose()
+      resultsDisposable.dispose()
       clearTimeout(copyTimer)
       ws.close()
       terminal.dispose()
       wsRef.current = null
       terminalRef.current = null
+      searchRef.current = null
     }
   }, [wsPath, resize, epoch])
 
@@ -187,8 +208,41 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     terminalRef.current?.focus()
   }
 
+  // Ctrl/Cmd+Maj+F : Ctrl+F seul appartient au shell distant (recherche de
+  // l'historique, navigation d'un TUI) — l'intercepter le priverait d'une touche.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  function closeSearch() {
+    setSearchOpen(false)
+    setSearchResults(null)
+    // Les surlignages survivraient à la fermeture de la barre.
+    searchRef.current?.clearDecorations()
+    terminalRef.current?.focus()
+  }
+
   return (
     <div className="absolute inset-0 flex flex-col bg-[#0d0d1a]">
+      {searchOpen && (
+        <TerminalSearchBar
+          results={searchResults}
+          onClose={closeSearch}
+          onFind={(term, direction) => {
+            const addon = searchRef.current
+            if (!addon) return
+            if (direction === 'next') addon.findNext(term)
+            else addon.findPrevious(term)
+          }}
+        />
+      )}
       <div className="relative min-h-0 flex-1">
         <div ref={termRef} className="absolute inset-0" />
         {disconnected && (
@@ -206,6 +260,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         )}
       </div>
       <TerminalKeybar
+        onSearch={() => setSearchOpen(true)}
         onSend={sendToTerminal}
         getSelection={() =>
           terminalRef.current?.getSelection() || lastSelectionRef.current

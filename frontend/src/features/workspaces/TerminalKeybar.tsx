@@ -8,8 +8,7 @@ import {
   Copy,
   CornerDownLeft,
   IndentIncrease,
-  OctagonX,
-} from 'lucide-react'
+  OctagonX, Search } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Props {
@@ -17,6 +16,8 @@ interface Props {
   onSend: (data: string) => void
   /** Sélection à copier : la courante, sinon la dernière non vide ('' si aucune). */
   getSelection: () => string
+  /** Ouvre la recherche. Absent = bouton masqué (terminal sans addon de recherche). */
+  onSearch?: () => void
 }
 
 /** Barre de touches/actions tactiles pour la fenêtre de session SSH.
@@ -27,7 +28,7 @@ interface Props {
  * via la WS déjà ouverte (`\x1b`, `\x03`, texte presse-papier) ; la PTY backend
  * traduit `\x03` en SIGINT du process au premier plan. Copier lit la sélection
  * xterm vers le presse-papier. Premier lot extensible (Ctrl+D, Tab, flèches…). */
-export default function TerminalKeybar({ onSend, getSelection }: Props) {
+export default function TerminalKeybar({ onSend, getSelection, onSearch }: Props) {
   const { t } = useTranslation()
 
   const paste = async () => {
@@ -132,6 +133,21 @@ export default function TerminalKeybar({ onSend, getSelection }: Props) {
         <Copy className="h-3.5 w-3.5" />
         {t('workspaces.terminals.keybar.copy')}
       </button>
+      {/* Recherche : le raccourci clavier n'existe pas sur mobile, or c'est
+          précisément la cible de cette barre. */}
+      {onSearch && (
+        <button
+          type="button"
+          className={btn}
+          onClick={onSearch}
+          title={t('workspaces.terminals.keybar.searchTitle', {
+            defaultValue: 'Rechercher dans le terminal (Ctrl+Maj+F)',
+          })}
+        >
+          <Search className="h-3.5 w-3.5" />
+          {t('workspaces.terminals.keybar.search', { defaultValue: 'Rechercher' })}
+        </button>
+      )}
     </div>
   )
 }

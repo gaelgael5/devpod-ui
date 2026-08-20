@@ -16,6 +16,9 @@ class MockTerminal {
   focus = vi.fn()
   write = vi.fn()
   loadAddon = vi.fn()
+  // API publique de xterm (ITerminal.unicode) : l'addon de graphèmes y règle la
+  // version active. Absente du mock, le composant plantait au montage.
+  unicode = { activeVersion: '11', versions: ['11'] }
   getSelection = vi.fn(() => '')
   private selectionCb: (() => void) | null = null
   onData = vi.fn(() => ({ dispose: vi.fn() }))
