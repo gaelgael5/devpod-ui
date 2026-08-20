@@ -3,8 +3,10 @@ import { useTranslation } from 'react-i18next'
 import { RotateCw } from 'lucide-react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Button } from '@/components/ui/button'
 import TerminalKeybar from '@/features/workspaces/TerminalKeybar'
+import { openTerminalLink } from './openTerminalLink'
 import '@xterm/xterm/css/xterm.css'
 
 interface Props {
@@ -59,6 +61,12 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     })
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
+    // Liens cliquables : les outils en ligne de commande affichent des URL
+    // d'authentification (`claude` en premier) qu'il faut sinon recopier à la
+    // main — pénible, et la sélection xterm ne survit pas au redraw d'un TUI.
+    // L'addon gère les URL coupées par le retour à la ligne, ce qu'un simple
+    // clic sur du texte brut ne saurait pas faire.
+    terminal.loadAddon(new WebLinksAddon((_event, uri) => openTerminalLink(uri)))
 
     if (termRef.current) {
       terminal.open(termRef.current)
