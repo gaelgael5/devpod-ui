@@ -86,6 +86,25 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
 
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
+
+    // Ajustement GARDÉ. Un `fit()` sur un conteneur de taille nulle — onglet
+    // masqué, page en arrière-plan — calcule des dimensions aberrantes et les
+    // ENVOIE à tmux via onResize : au retour, tmux a redessiné pour une largeur
+    // qui n'existe pas et tout est décalé. Le contenu étant alors mal reflowé,
+    // les URL coupées par le retour à la ligne deviennent illisibles pour la
+    // détection de liens — mêmes causes, deux symptômes (signalés le 20/08).
+    const safeFit = () => {
+      const el = termRef.current
+      if (!el || document.hidden) return
+      const { width, height } = el.getBoundingClientRect()
+      if (width < 2 || height < 2) return
+      try {
+        fitAddon.fit()
+      } catch (err) {
+        console.warn('[terminal] fit ignoré', err)
+      }
+    }
+
     // Liens cliquables : les outils en ligne de commande affichent des URL
     // d'authentification (`claude` en premier) qu'il faut sinon recopier à la
     // main — pénible, et la sélection xterm ne survit pas au redraw d'un TUI.
@@ -111,7 +130,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
 
     if (termRef.current) {
       terminal.open(termRef.current)
-      requestAnimationFrame(() => { fitAddon.fit(); terminal.focus() })
+      requestAnimationFrame(() => { safeFit(); terminal.focus() })
     }
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -200,14 +219,29 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     }
     ws.onerror = () => terminal.write(tRef.current('admin.sshTerminal.connError'))
 
-    const onResize = () => fitAddon.fit()
+    const onResize = () => safeFit()
     window.addEventListener('resize', onResize)
-    const ro = new ResizeObserver(() => fitAddon.fit())
+    const ro = new ResizeObserver(() => safeFit())
     if (termRef.current) ro.observe(termRef.current)
+
+    // Retour sur l'onglet : re-mesurer puis forcer un redessin complet. Safari
+    // mobile réduit la page en arrière-plan (barre d'adresse, clavier) et les
+    // dimensions de caractère mises en cache par xterm ne valent plus rien.
+    const onVisible = () => {
+      if (document.hidden) return
+      requestAnimationFrame(() => {
+        safeFit()
+        terminal.refresh(0, terminal.rows - 1)
+      })
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
 
     return () => {
       intentional = true
       window.removeEventListener('resize', onResize)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
       termHost?.removeEventListener('mousedown', diagMouse)
       termHost?.removeEventListener('mouseup', diagMouse)
       ro.disconnect()

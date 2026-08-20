@@ -15,6 +15,7 @@ class MockTerminal {
   dispose = vi.fn()
   focus = vi.fn()
   write = vi.fn()
+  refresh = vi.fn()
   loadAddon = vi.fn()
   // API publique de xterm (ITerminal.unicode) : l'addon de graphèmes y règle la
   // version active. Absente du mock, le composant plantait au montage.
@@ -47,9 +48,12 @@ vi.mock('@xterm/xterm', () => ({
     return new MockTerminal(options)
   }),
 }))
+const fitAddons: { fit: ReturnType<typeof vi.fn> }[] = []
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: vi.fn(function () {
-    return { fit: vi.fn() }
+    const instance = { fit: vi.fn() }
+    fitAddons.push(instance)
+    return instance
   }),
 }))
 
@@ -173,5 +177,47 @@ describe('FullscreenTerminal — robustesse des addons', () => {
     // Le conteneur du terminal est bien rendu malgré tout.
     expect(container.querySelector('div')).toBeTruthy()
     warn.mockRestore()
+  })
+})
+
+describe('FullscreenTerminal — ajustement gardé', () => {
+  /** Le FitAddon mocké le plus récent, pour observer les appels à fit(). */
+  const lastFit = () => fitAddons.at(-1)!.fit
+
+  function mountTerminal() {
+    return render(
+      <I18nextProvider i18n={i18n}>
+        <FullscreenTerminal wsPath="/me/workspaces/x/ssh" />
+      </I18nextProvider>,
+    )
+  }
+
+  it('n’ajuste pas quand l’onglet est masqué', () => {
+    mountTerminal()
+    const fit = lastFit()
+    fit.mockClear()
+
+    // Onglet en arrière-plan : un fit() calculerait des dimensions aberrantes
+    // et les enverrait à tmux, qui redessinerait pour une largeur inexistante.
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    window.dispatchEvent(new Event('resize'))
+
+    expect(fit).not.toHaveBeenCalled()
+  })
+
+  it('n’ajuste pas sur un conteneur de taille nulle', () => {
+    const { container } = mountTerminal()
+    const fit = lastFit()
+    fit.mockClear()
+
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    // jsdom rend des rects à zéro par défaut — c'est exactement le cas à écarter.
+    const host = container.querySelector('div > div') as HTMLElement
+    vi.spyOn(host, 'getBoundingClientRect').mockReturnValue({
+      width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}),
+    })
+    window.dispatchEvent(new Event('resize'))
+
+    expect(fit).not.toHaveBeenCalled()
   })
 })
