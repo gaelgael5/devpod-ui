@@ -351,3 +351,37 @@ describe('FullscreenTerminal — taille initiale', () => {
     expect(terminals[0].cols).toBe(FITTED_COLS)
   })
 })
+
+describe('FullscreenTerminal — clavier mobile', () => {
+  it('n’ouvre pas le clavier en envoyant depuis la barre', async () => {
+    renderTerminal()
+    // Le montage donne deliberement le focus au terminal ; on ne mesure que ce
+    // qui suit l'appui sur un bouton.
+    act(() => { vi.runAllTimers() })
+    terminals[0].focus.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: /échap|esc/i }))
+
+    // `focus()` place le curseur dans la zone de saisie cachee de xterm : sur
+    // iOS cela deroule le clavier, qui mange la moitie de l'ecran.
+    expect(terminals[0].focus).not.toHaveBeenCalled()
+    expect(sockets[0].send).toHaveBeenCalled()
+  })
+
+  it('n’ouvre pas le clavier en collant', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { readText: vi.fn().mockResolvedValue('texte'), writeText },
+      configurable: true,
+    })
+    renderTerminal()
+    // Le montage donne deliberement le focus au terminal ; on ne mesure que ce
+    // qui suit l'appui sur un bouton.
+    act(() => { vi.runAllTimers() })
+    terminals[0].focus.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: /coller|paste/i }))
+    await vi.waitFor(() => expect(terminals[0].paste).toHaveBeenCalled())
+
+    expect(terminals[0].focus).not.toHaveBeenCalled()
+  })
+})

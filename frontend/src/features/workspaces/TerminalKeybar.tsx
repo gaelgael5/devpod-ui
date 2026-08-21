@@ -1,3 +1,4 @@
+import type { MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowDown,
@@ -38,6 +39,18 @@ interface Props {
  * via la WS déjà ouverte (`\x1b`, `\x03`, texte presse-papier) ; la PTY backend
  * traduit `\x03` en SIGINT du process au premier plan. Copier lit la sélection
  * xterm vers le presse-papier. Premier lot extensible (Ctrl+D, Tab, flèches…). */
+/**
+ * Empeche le bouton de voler le focus au terminal.
+ *
+ * Sans cela il fallait rendre le focus a xterm apres chaque envoi — ce qui, sur
+ * mobile, rouvrait le clavier a chaque appui. Annuler le `mousedown` conserve
+ * le focus la ou il etait : le clavier reste ouvert s'il l'etait, ferme sinon.
+ * Le `click` part normalement, seul le deplacement du focus est supprime.
+ */
+function keepFocus(e: MouseEvent) {
+  e.preventDefault()
+}
+
 export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch }: Props) {
   const { t } = useTranslation()
 
@@ -80,6 +93,7 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
       <button
         type="button"
         className={btn}
+        onMouseDown={keepFocus}
         onClick={() => onSend('\x1b')}
         title={t('workspaces.terminals.keybar.escTitle')}
       >
@@ -100,6 +114,7 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
           key={key}
           type="button"
           className={btn}
+          onMouseDown={keepFocus}
           onClick={() => onSend(seq)}
           title={t(`workspaces.terminals.keybar.${key}`)}
           aria-label={t(`workspaces.terminals.keybar.${key}`)}
@@ -116,6 +131,7 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
       <button
         type="button"
         className={btn}
+        onMouseDown={keepFocus}
         onClick={() => onSend('\x02\x1b[5~')}
         title={t('workspaces.terminals.keybar.historyUpTitle')}
       >
@@ -125,6 +141,7 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
       <button
         type="button"
         className={btn}
+        onMouseDown={keepFocus}
         onClick={() => onSend('\x1b[6~')}
         title={t('workspaces.terminals.keybar.historyDownTitle')}
         aria-label={t('workspaces.terminals.keybar.historyDown')}
@@ -134,6 +151,7 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
       <button
         type="button"
         className={btn}
+        onMouseDown={keepFocus}
         onClick={() => onSend('\t')}
         title={t('workspaces.terminals.keybar.tabTitle')}
       >
@@ -143,6 +161,7 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
       <button
         type="button"
         className={btn}
+        onMouseDown={keepFocus}
         onClick={() => onSend('\x03')}
         title={t('workspaces.terminals.keybar.interruptTitle')}
       >
@@ -152,6 +171,7 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
       <button
         type="button"
         className={btn}
+        onMouseDown={keepFocus}
         onClick={paste}
         title={t('workspaces.terminals.keybar.pasteTitle')}
       >
@@ -161,6 +181,7 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
       <button
         type="button"
         className={btn}
+        onMouseDown={keepFocus}
         onClick={copy}
         title={t('workspaces.terminals.keybar.copyTitle')}
       >
@@ -173,6 +194,7 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
         <button
           type="button"
           className={btn}
+          onMouseDown={keepFocus}
           onClick={onSearch}
           title={t('workspaces.terminals.keybar.searchTitle', {
             defaultValue: 'Rechercher dans le terminal (Ctrl+Maj+F)',

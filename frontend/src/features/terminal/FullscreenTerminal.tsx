@@ -280,10 +280,13 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     }
   }, [wsPath, resize, epoch])
 
+  // Pas de `focus()` ici : sur mobile il ouvre le clavier a chaque appui sur la
+  // barre, qui mange la moitie de l'ecran alors que ces boutons existent
+  // justement pour eviter d'avoir a taper. La barre empeche deja le focus de
+  // lui echapper (mousedown annule), donc le terminal garde celui qu'il avait.
   const sendToTerminal = (data: string) => {
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(data))
-    terminalRef.current?.focus()
   }
 
   // Le collage passe par xterm et non par la WS : `paste()` normalise les sauts
@@ -292,7 +295,6 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
   // un code d'authentification arrivait abîmé dans le prompt de `claude`.
   const pasteToTerminal = (text: string) => {
     terminalRef.current?.paste(text)
-    terminalRef.current?.focus()
   }
 
   // Ctrl/Cmd+Maj+F : Ctrl+F seul appartient au shell distant (recherche de

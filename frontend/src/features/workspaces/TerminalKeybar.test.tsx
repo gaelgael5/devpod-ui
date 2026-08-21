@@ -106,6 +106,34 @@ describe('TerminalKeybar', () => {
     expect(onSend).toHaveBeenCalledWith('\x1b[6~')
   })
 
+  it('ne vole pas le focus au terminal', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <TerminalKeybar onSend={vi.fn()} onPaste={vi.fn()} getSelection={() => ''} />,
+    )
+
+    // Sans cela il fallait rendre le focus a xterm apres chaque envoi, ce qui
+    // rouvrait le clavier iOS a chaque appui — sur une barre faite justement
+    // pour eviter d'avoir a taper.
+    for (const nom of [/échap|esc/i, /flèche haut|arrow up/i, /historique|history/i]) {
+      const bouton = screen.getByRole('button', { name: nom })
+      const mousedown = new globalThis.MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+      })
+      bouton.dispatchEvent(mousedown)
+      expect(mousedown.defaultPrevented).toBe(true)
+    }
+
+    // Le clic doit continuer de partir : seul le deplacement du focus est supprime.
+    const onSend = vi.fn()
+    renderWithProviders(
+      <TerminalKeybar onSend={onSend} onPaste={vi.fn()} getSelection={() => ''} />,
+    )
+    await user.click(screen.getAllByRole('button', { name: /échap|esc/i })[1])
+    expect(onSend).toHaveBeenCalledWith('\x1b')
+  })
+
   it('copie la sélection du terminal vers le presse-papier', async () => {
     const user = userEvent.setup()
     const writeText = vi.fn().mockResolvedValue(undefined)
