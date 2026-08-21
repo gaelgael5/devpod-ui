@@ -385,3 +385,25 @@ describe('FullscreenTerminal — clavier mobile', () => {
     expect(terminals[0].focus).not.toHaveBeenCalled()
   })
 })
+
+describe('FullscreenTerminal — autofocus selon l’appareil', () => {
+  it('ne prend pas le focus sur un appareil tactile', () => {
+    // Le focus deroule le clavier iOS des l'ouverture, sur une session dont la
+    // barre de touches existe justement pour eviter d'avoir a taper.
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
+    renderTerminal()
+
+    act(() => { vi.runAllTimers() })
+
+    expect(terminals[0].focus).not.toHaveBeenCalled()
+  })
+
+  it('prend le focus quand il y a un clavier physique', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })))
+    renderTerminal()
+
+    act(() => { vi.runAllTimers() })
+
+    expect(terminals[0].focus).toHaveBeenCalled()
+  })
+})

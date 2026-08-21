@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import TerminalKeybar from '@/features/workspaces/TerminalKeybar'
 import { openTerminalLink } from './openTerminalLink'
 import { createLinkCollector } from './linkCollector'
+import { isTouchOnly } from './isTouchOnly'
 import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
 import '@xterm/xterm/css/xterm.css'
 
@@ -142,8 +143,17 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       // s'y calait pour toute la session. La seconde passe en rAF rattrape la
       // mise en page une fois stabilisée (polices, clavier mobile).
       safeFit()
-      requestAnimationFrame(() => { safeFit(); terminal.focus() })
+      requestAnimationFrame(() => {
+        safeFit()
+        // Pas d'autofocus au tactile : donner le focus a la zone de saisie
+        // cachee de xterm deroule le clavier iOS des l'ouverture de la session,
+        // qui mange la moitie de l'ecran alors que la barre de touches existe
+        // justement pour s'en passer. Au clavier physique on garde l'autofocus :
+        // sans lui il faudrait cliquer avant de pouvoir taper.
+        if (!isTouchOnly()) terminal.focus()
+      })
     }
+
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     // La taille voyage dans l'URL : le pont doit la connaître avant l'exec, un
