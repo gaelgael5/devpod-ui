@@ -124,6 +124,8 @@
       "confirmDelete": "Supprimer",
       "deleted": "Session « {{name}} » supprimée.",
       "keybar": {
+        "keyboard": "Clavier",
+        "keyboardTitle": "Afficher ou masquer le clavier",
         "esc": "Échap",
         "escTitle": "Envoyer la touche Échap",
         "interrupt": "Interrompre",

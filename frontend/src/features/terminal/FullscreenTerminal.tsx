@@ -44,6 +44,11 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
   // resize ou reset d'écran l'efface) — on la mémorise pour le bouton Copier.
   const lastSelectionRef = useRef('')
   const searchRef = useRef<SearchAddon | null>(null)
+  // Zone de saisie cachee de xterm : c'est elle, et elle seule, qu'iOS regarde
+  // pour decider d'afficher son clavier. Le bouton « clavier » de la barre la
+  // vise directement.
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const [inputFocused, setInputFocused] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null)
   const [disconnected, setDisconnected] = useState(false)
@@ -137,8 +142,17 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         )
       : { dispose: () => {} }
 
+    const onInputFocus = () => setInputFocused(true)
+    const onInputBlur = () => setInputFocused(false)
+    let input: HTMLTextAreaElement | null = null
+
     if (termRef.current) {
       terminal.open(termRef.current)
+      // Le bouton « clavier » bascule : il lui faut l'etat courant de la saisie.
+      input = terminal.textarea ?? null
+      inputRef.current = input
+      input?.addEventListener('focus', onInputFocus)
+      input?.addEventListener('blur', onInputBlur)
       // Ajustement SYNCHRONE avant d'ouvrir la WebSocket : `ssh` fixe la taille
       // du PTY distant au démarrage d'après son propre terminal, et ne la relit
       // jamais. Différé d'une frame, il partait sur les 80x24 par défaut et tmux
@@ -337,10 +351,28 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       surface?.removeEventListener('touchstart', onTouchStart)
       surface?.removeEventListener('touchmove', onTouchMove)
       surface?.removeEventListener('touchend', onTouchEnd)
+      input?.removeEventListener('focus', onInputFocus)
+      input?.removeEventListener('blur', onInputBlur)
+      inputRef.current = null
       terminalRef.current = null
       searchRef.current = null
     }
   }, [wsPath, resize, epoch])
+
+  /**
+   * Ouvre ou masque le clavier mobile.
+   *
+   * Seul chemin fiable au tactile, et c'est pour cela qu'il existe : sous tmux
+   * le defilement de l'historique appelle `preventDefault` sur `touchmove` des
+   * le premier pixel de mouvement, ce qui supprime le clic synthetise par iOS —
+   * or c'est ce clic qui donnait le focus a xterm. Un doigt ne se pose jamais
+   * parfaitement immobile : la tape sur la surface n'ouvre donc plus rien.
+   * Sans ce bouton, la session est en lecture seule.
+   */
+  const toggleKeyboard = () => {
+    if (inputFocused) inputRef.current?.blur()
+    else terminalRef.current?.focus()
+  }
 
   // Pas de `focus()` ici : sur mobile il ouvre le clavier a chaque appui sur la
   // barre, qui mange la moitie de l'ecran alors que ces boutons existent
@@ -411,6 +443,8 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         )}
       </div>
       <TerminalKeybar
+        keyboardOpen={inputFocused}
+        onToggleKeyboard={toggleKeyboard}
         onSearch={() => setSearchOpen(true)}
         onSend={sendToTerminal}
         onPaste={pasteToTerminal}

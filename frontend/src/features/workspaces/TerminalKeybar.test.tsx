@@ -151,3 +151,35 @@ describe('TerminalKeybar', () => {
     expect(toast.info).toHaveBeenCalled()
   })
 })
+
+describe('TerminalKeybar — bouton clavier', () => {
+  function props() {
+    return { onSend: vi.fn(), onPaste: vi.fn(), getSelection: () => '' }
+  }
+
+  it('masque le bouton quand la bascule n’est pas fournie', () => {
+    // Terminal sans clavier a piloter : un bouton inerte tromperait.
+    renderWithProviders(<TerminalKeybar {...props()} />)
+
+    expect(screen.queryByRole('button', { name: /^clavier$|^keyboard$/i })).toBeNull()
+  })
+
+  it('bascule et reflete l’etat ouvert', async () => {
+    const user = userEvent.setup()
+    const onToggleKeyboard = vi.fn()
+    const { rerender } = renderWithProviders(
+      <TerminalKeybar {...props()} onToggleKeyboard={onToggleKeyboard} />,
+    )
+
+    const bouton = screen.getByRole('button', { name: /^clavier$|^keyboard$/i })
+    expect(bouton).toHaveAttribute('aria-pressed', 'false')
+    await user.click(bouton)
+    expect(onToggleKeyboard).toHaveBeenCalledTimes(1)
+
+    rerender(<TerminalKeybar {...props()} onToggleKeyboard={onToggleKeyboard} keyboardOpen />)
+    expect(screen.getByRole('button', { name: /^clavier$|^keyboard$/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+})

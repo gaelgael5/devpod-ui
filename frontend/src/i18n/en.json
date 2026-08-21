@@ -124,6 +124,8 @@
       "confirmDelete": "Delete",
       "deleted": "Session “{{name}}” deleted.",
       "keybar": {
+        "keyboard": "Keyboard",
+        "keyboardTitle": "Show or hide the keyboard",
         "esc": "Esc",
         "escTitle": "Send the Escape key",
         "interrupt": "Interrupt",

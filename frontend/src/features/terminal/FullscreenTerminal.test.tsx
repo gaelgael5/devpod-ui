@@ -12,9 +12,12 @@ const terminals: MockTerminal[] = []
 class MockTerminal {
   cols = 80
   rows = 24
-  open = vi.fn()
+  // Zone de saisie cachee de xterm. Le vrai composant s'y accroche pour suivre
+  // l'etat du clavier mobile : sans elle le bouton « clavier » ne peut rien.
+  textarea: HTMLTextAreaElement = document.createElement('textarea')
+  open = vi.fn((el: HTMLElement) => el.appendChild(this.textarea))
   dispose = vi.fn()
-  focus = vi.fn()
+  focus = vi.fn(() => this.textarea.focus())
   write = vi.fn()
   refresh = vi.fn()
   // xterm normalise et encadre le texte collé, puis le fait ressortir par
@@ -502,5 +505,51 @@ describe('FullscreenTerminal — double tape', () => {
     fireEvent.touchEnd(el, { touches: [] })
 
     expect(sent()).not.toContain('\t')
+  })
+})
+
+describe('FullscreenTerminal — bouton clavier', () => {
+  /**
+   * Au tactile ce bouton est le seul chemin vers le clavier : le defilement de
+   * l'historique annule le clic que le navigateur synthetise sur la surface,
+   * donc xterm ne prend plus le focus tout seul.
+   */
+  function bouton() {
+    return screen.getByRole('button', { name: /^clavier$|^keyboard$/i })
+  }
+
+  it('donne le focus a la zone de saisie puis le retire', () => {
+    renderTerminal()
+    const saisie = terminals[0].textarea
+
+    fireEvent.click(bouton())
+    expect(document.activeElement).toBe(saisie)
+    expect(bouton()).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(bouton())
+    expect(document.activeElement).not.toBe(saisie)
+    expect(bouton()).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('suit le focus perdu sans passer par le bouton', () => {
+    // iOS masque le clavier par son propre bouton : l'etat doit suivre, sinon
+    // la bascule suivante fermerait un clavier deja ferme.
+    renderTerminal()
+    const saisie = terminals[0].textarea
+
+    fireEvent.click(bouton())
+    act(() => saisie.blur())
+
+    expect(bouton()).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('ne vole pas le focus par son propre mousedown', () => {
+    // Sans cela le bouton prendrait le focus avant le clic : la bascule lirait
+    // un etat faux et le clavier se rouvrirait au lieu de se fermer.
+    renderTerminal()
+
+    const evt = fireEvent.mouseDown(bouton())
+
+    expect(evt).toBe(false)
   })
 })

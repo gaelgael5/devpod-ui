@@ -9,6 +9,7 @@ import {
   Copy,
   CornerDownLeft,
   IndentIncrease,
+  Keyboard,
   OctagonX,
   Search,
 } from 'lucide-react'
@@ -29,6 +30,10 @@ interface Props {
    * son prompt en cours de route — le texte arrive abîmé.
    */
   onPaste: (text: string) => void
+  /** Ouvre ou masque le clavier mobile. Absent = bouton masque. */
+  onToggleKeyboard?: () => void
+  /** Le clavier est-il ouvert ? Pilote l'etat du bouton pour le lecteur d'ecran. */
+  keyboardOpen?: boolean
 }
 
 /** Barre de touches/actions tactiles pour la fenêtre de session SSH.
@@ -51,7 +56,14 @@ function keepFocus(e: MouseEvent) {
   e.preventDefault()
 }
 
-export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch }: Props) {
+export default function TerminalKeybar({
+  onSend,
+  onPaste,
+  getSelection,
+  onSearch,
+  onToggleKeyboard,
+  keyboardOpen = false,
+}: Props) {
   const { t } = useTranslation()
 
   const paste = async () => {
@@ -90,6 +102,22 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
       role="toolbar"
       aria-label={t('workspaces.terminals.keybar.esc')}
     >
+      {/* Clavier : au tactile c'est le SEUL moyen d'ecrire. La tape sur la
+          surface ne donne plus le focus a xterm — le defilement de l'historique
+          annule le clic que le navigateur en synthetise. */}
+      {onToggleKeyboard && (
+        <button
+          type="button"
+          className={btn}
+          onMouseDown={keepFocus}
+          onClick={onToggleKeyboard}
+          aria-pressed={keyboardOpen}
+          title={t('workspaces.terminals.keybar.keyboardTitle')}
+          aria-label={t('workspaces.terminals.keybar.keyboard')}
+        >
+          <Keyboard className="h-3.5 w-3.5" />
+        </button>
+      )}
       <button
         type="button"
         className={btn}
