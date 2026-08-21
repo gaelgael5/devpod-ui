@@ -14,6 +14,7 @@ délivrance du signal qui était en cause.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import fcntl
 import os
 import struct
@@ -54,6 +55,29 @@ async def _read_line(master_fd: int, timeout: float = 5.0) -> str:
     return buf.decode(errors="replace").strip()
 
 
+# Rapporte une seule fois la taille de son terminal, puis sort.
+_REPORT_ONCE = """
+import fcntl, struct, sys, termios
+rows, cols, _x, _y = struct.unpack('HHHH', fcntl.ioctl(0, termios.TIOCGWINSZ, b'\\0' * 8))
+sys.stdout.write('SIZE %dx%d\\n' % (cols, rows))
+sys.stdout.flush()
+"""
+
+
+async def _size_reported_by_child(size: tuple[int, int] | None) -> str:
+    """Lance un enfant qui annonce la taille lue au demarrage, puis nettoie."""
+    proc, master_fd = await spawn_on_pty(
+        ["python3", "-c", _REPORT_ONCE], dict(os.environ), size=size
+    )
+    try:
+        return await _read_line(master_fd)
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        os.close(master_fd)
+
+
 @pytest.fixture
 async def child():
     proc, master_fd = await spawn_on_pty(["python3", "-c", _CHILD], dict(os.environ))
@@ -91,3 +115,33 @@ async def test_les_redimensionnements_successifs_sont_tous_recus(child):
     for cols, rows in ((56, 20), (56, 12), (120, 40)):
         _set_size(master_fd, cols, rows)
         assert await _read_line(master_fd) == f"WINCH {cols}x{rows}"
+
+
+async def test_la_taille_initiale_est_posee_avant_l_exec():
+    """`ssh` lit la taille de son terminal au demarrage et ne la relit jamais.
+
+    Fournie apres l'exec, elle ne rattrape plus le PTY distant : tmux reste cale
+    sur les 80x24 par defaut d'OpenSSH pour toute la session.
+    """
+    assert await _size_reported_by_child(size=(56, 20)) == "SIZE 56x20"
+
+
+async def test_sans_taille_le_pty_reste_a_zero():
+    """Contraste : c'est cette taille nulle qui fait basculer ssh sur 80x24."""
+    assert await _size_reported_by_child(size=None) == "SIZE 0x0"
+
+
+@pytest.mark.parametrize(
+    ("cols", "rows", "attendu"),
+    [
+        (56, 20, (56, 20)),
+        (None, 20, None),
+        (56, None, None),
+        (0, 0, None),
+        (99999, 99999, (1000, 1000)),  # borne : la valeur vient du navigateur
+    ],
+)
+def test_taille_demandee_bornee(cols, rows, attendu):
+    from portal.sessions.pty_bridge import requested_size
+
+    assert requested_size(cols, rows) == attendu

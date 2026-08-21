@@ -18,7 +18,7 @@ from ..devpod.ssh_exec import devpod_ssh_key as _devpod_ssh_key
 from ..devpod.test_vm import build_testhost_ssh_command
 from ..sessions import registry
 from ..sessions.ownership import OwnershipDenied, resolve_owner
-from ..sessions.pty_bridge import run_pty_bridge
+from ..sessions.pty_bridge import requested_size, run_pty_bridge
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -38,6 +38,8 @@ async def workspace_ssh_terminal(
     shell: bool = False,
     ssh_test: str | None = None,
     owner: str | None = None,
+    cols: int | None = None,
+    rows: int | None = None,
 ) -> None:
     await websocket.accept()
     settings = get_settings()
@@ -231,7 +233,12 @@ async def workspace_ssh_terminal(
         family=term_family, target=term_target, owner=effective_owner, session=session_name
     )
     returncode = await run_pty_bridge(
-        websocket, cmd, devpod_env, live_term, log_label="ws_workspace_ssh"
+        websocket,
+        cmd,
+        devpod_env,
+        live_term,
+        log_label="ws_workspace_ssh",
+        initial_size=requested_size(cols, rows),
     )
 
     _log.info("ws_workspace_ssh_closed", ws_id=ws_id, returncode=returncode)

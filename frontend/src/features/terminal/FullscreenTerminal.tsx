@@ -136,11 +136,24 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
 
     if (termRef.current) {
       terminal.open(termRef.current)
+      // Ajustement SYNCHRONE avant d'ouvrir la WebSocket : `ssh` fixe la taille
+      // du PTY distant au démarrage d'après son propre terminal, et ne la relit
+      // jamais. Différé d'une frame, il partait sur les 80x24 par défaut et tmux
+      // s'y calait pour toute la session. La seconde passe en rAF rattrape la
+      // mise en page une fois stabilisée (polices, clavier mobile).
+      safeFit()
       requestAnimationFrame(() => { safeFit(); terminal.focus() })
     }
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${proto}//${window.location.host}${wsPath}`)
+    // La taille voyage dans l'URL : le pont doit la connaître avant l'exec, un
+    // message de contrôle arriverait trop tard.
+    const url = new URL(wsPath, window.location.origin)
+    if (resize) {
+      url.searchParams.set('cols', String(terminal.cols))
+      url.searchParams.set('rows', String(terminal.rows))
+    }
+    const ws = new WebSocket(`${proto}//${window.location.host}${url.pathname}${url.search}`)
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
     terminalRef.current = terminal

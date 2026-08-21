@@ -17,7 +17,7 @@ from ..devpod.exec import remote_tmux_command
 from ..devpod.service import _materialize_system_cert
 from ..devpod.ssh_exec import host_key_changed
 from ..sessions import registry
-from ..sessions.pty_bridge import run_pty_bridge
+from ..sessions.pty_bridge import requested_size, run_pty_bridge
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -28,7 +28,13 @@ _SESSION_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,29}$")
 
 
 @router.websocket("/hosts/{name}/ssh")
-async def host_ssh_terminal(name: str, websocket: WebSocket, session: str = "main") -> None:
+async def host_ssh_terminal(
+    name: str,
+    websocket: WebSocket,
+    session: str = "main",
+    cols: int | None = None,
+    rows: int | None = None,
+) -> None:
     await websocket.accept()
     settings = get_settings()
     cfg = load_global()
@@ -168,6 +174,7 @@ async def host_ssh_terminal(name: str, websocket: WebSocket, session: str = "mai
         {**os.environ, "TERM": "xterm-256color"},
         live_term,
         log_label="ws_ssh",
+        initial_size=requested_size(cols, rows),
     )
 
     if tmp_key_path.startswith(tempfile.gettempdir()):

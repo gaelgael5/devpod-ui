@@ -56,9 +56,22 @@ vi.mock('@xterm/xterm', () => ({
   }),
 }))
 const fitAddons: { fit: ReturnType<typeof vi.fn> }[] = []
+// Le vrai FitAddon mesure le conteneur et REDIMENSIONNE le terminal. Un mock
+// inerte laisserait passer un fit appelé trop tard : c'est précisément ce que
+// ces tests doivent attraper.
+const FITTED_COLS = 56
+const FITTED_ROWS = 20
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: vi.fn(function () {
-    const instance = { fit: vi.fn() }
+    const instance = {
+      fit: vi.fn(() => {
+        const term = terminals[terminals.length - 1]
+        if (term) {
+          term.cols = FITTED_COLS
+          term.rows = FITTED_ROWS
+        }
+      }),
+    }
     fitAddons.push(instance)
     return instance
   }),
@@ -79,6 +92,7 @@ const sockets: MockWebSocket[] = []
 class MockWebSocket {
   static OPEN = 1
   readyState = 1
+  url = ''
   binaryType = ''
   send = vi.fn()
   close = vi.fn()
@@ -87,7 +101,8 @@ class MockWebSocket {
   onclose: (() => void) | null = null
   onerror: (() => void) | null = null
 
-  constructor() {
+  constructor(url?: string) {
+    this.url = url ?? ''
     sockets.push(this)
   }
 }
@@ -96,6 +111,19 @@ const writeText = vi.fn(() => Promise.resolve())
 
 beforeEach(() => {
   vi.useFakeTimers()
+  // jsdom ne fait pas de mise en page : sans dimensions, la garde de safeFit
+  // refuse d'ajuster et les tests de taille ne mesureraient rien.
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 500,
+    height: 300,
+    top: 0,
+    left: 0,
+    bottom: 300,
+    right: 500,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  })
   terminals.length = 0
   sockets.length = 0
   linkHandler = null
@@ -108,6 +136,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
@@ -297,5 +326,28 @@ describe('FullscreenTerminal — collage', () => {
     // xterm normalise et encadre le texte, puis le ressort par onData : c'est
     // cette sortie-là qui doit atteindre la WS, jamais le presse-papier brut.
     expect(sockets[0].send).toHaveBeenCalled()
+  })
+})
+
+describe('FullscreenTerminal — taille initiale', () => {
+  it('annonce cols/rows dans l’URL avant même la connexion', () => {
+    renderTerminal()
+
+    // `ssh` dimensionne le PTY distant au démarrage d'après son propre terminal
+    // et ne le relit jamais : transmise par message de contrôle, la taille
+    // arriverait après l'exec et tmux resterait calé sur 80x24.
+    const url = new URL(sockets[0].url, 'https://portail.test')
+    expect(url.searchParams.get('cols')).toBe(String(FITTED_COLS))
+    expect(url.searchParams.get('rows')).toBe(String(FITTED_ROWS))
+    expect(url.searchParams.get('session')).toBe('main')
+  })
+
+  it('ajuste la taille avant d’ouvrir la connexion, pas une frame plus tard', () => {
+    renderTerminal()
+
+    // Différé d'une frame, le fit laissait partir la connexion — et donc `ssh`
+    // et tmux — sur les 80x24 par défaut.
+    expect(fitAddons[0].fit).toHaveBeenCalled()
+    expect(terminals[0].cols).toBe(FITTED_COLS)
   })
 })
