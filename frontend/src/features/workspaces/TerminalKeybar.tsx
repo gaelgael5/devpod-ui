@@ -5,8 +5,6 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
-  ChevronsDown,
-  ChevronsUp,
   ClipboardPaste,
   Copy,
   CornerDownLeft,
@@ -122,32 +120,6 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
           <Icon className="h-3.5 w-3.5" />
         </button>
       ))}
-      {/* Historique : dans tmux le scrollback n'appartient pas au terminal —
-          tmux occupe l'écran alterné, xterm n'accumule donc rien. Il faut passer
-          par le copy-mode, normalement au clavier : inatteignable sur mobile.
-          `prefix + PageUp` y entre ET remonte d'une page, et rejoué en copy-mode
-          il continue de remonter : un seul bouton, aucun état à suivre.
-          Échap en sort (`send-keys -X cancel`, binding par défaut). */}
-      <button
-        type="button"
-        className={btn}
-        onMouseDown={keepFocus}
-        onClick={() => onSend('\x02\x1b[5~')}
-        title={t('workspaces.terminals.keybar.historyUpTitle')}
-      >
-        <ChevronsUp className="h-3.5 w-3.5" />
-        {t('workspaces.terminals.keybar.historyUp')}
-      </button>
-      <button
-        type="button"
-        className={btn}
-        onMouseDown={keepFocus}
-        onClick={() => onSend('\x1b[6~')}
-        title={t('workspaces.terminals.keybar.historyDownTitle')}
-        aria-label={t('workspaces.terminals.keybar.historyDown')}
-      >
-        <ChevronsDown className="h-3.5 w-3.5" />
-      </button>
       <button
         type="button"
         className={btn}

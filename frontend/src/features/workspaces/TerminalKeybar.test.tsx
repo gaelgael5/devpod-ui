@@ -79,33 +79,6 @@ describe('TerminalKeybar', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
-  it('ouvre l’historique tmux avec prefixe + PageUp', async () => {
-    const user = userEvent.setup()
-    const onSend = vi.fn()
-    renderWithProviders(
-      <TerminalKeybar onSend={onSend} onPaste={vi.fn()} getSelection={() => ''} />,
-    )
-
-    await user.click(screen.getByRole('button', { name: /historique|history/i }))
-
-    // `prefix + PageUp` est lie a `copy-mode -u` : il entre dans l'historique ET
-    // remonte d'une page. Rejoue en copy-mode il continue de remonter, ce qui
-    // evite d'avoir a suivre l'etat du mode cote front.
-    expect(onSend).toHaveBeenCalledWith('\x02\x1b[5~')
-  })
-
-  it('redescend dans l’historique avec PageDown', async () => {
-    const user = userEvent.setup()
-    const onSend = vi.fn()
-    renderWithProviders(
-      <TerminalKeybar onSend={onSend} onPaste={vi.fn()} getSelection={() => ''} />,
-    )
-
-    await user.click(screen.getByRole('button', { name: /redescendre|scroll down/i }))
-
-    expect(onSend).toHaveBeenCalledWith('\x1b[6~')
-  })
-
   it('ne vole pas le focus au terminal', async () => {
     const user = userEvent.setup()
     renderWithProviders(
@@ -115,7 +88,7 @@ describe('TerminalKeybar', () => {
     // Sans cela il fallait rendre le focus a xterm apres chaque envoi, ce qui
     // rouvrait le clavier iOS a chaque appui — sur une barre faite justement
     // pour eviter d'avoir a taper.
-    for (const nom of [/échap|esc/i, /flèche haut|arrow up/i, /historique|history/i]) {
+    for (const nom of [/échap|esc/i, /flèche haut|arrow up/i, /coller|paste/i]) {
       const bouton = screen.getByRole('button', { name: nom })
       const mousedown = new globalThis.MouseEvent('mousedown', {
         bubbles: true,
