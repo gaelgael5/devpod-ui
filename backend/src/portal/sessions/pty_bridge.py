@@ -29,6 +29,46 @@ from . import registry
 _log = structlog.get_logger(__name__)
 
 
+def _attach_controlling_tty() -> None:
+    """Fait de l'enfant un leader de session et du PTY son terminal de contrôle.
+
+    Sans cela le PTY n'a aucun groupe de processus au premier plan. `TIOCSWINSZ`
+    met bien à jour la taille, mais le `SIGWINCH` qui doit suivre est adressé à
+    ce groupe — donc à personne. `ssh` conserve alors la taille lue au démarrage
+    et tmux dessine à une largeur qui n'est pas celle du navigateur.
+
+    Exécuté entre `fork` et `exec` : stdin est déjà le côté esclave du PTY. Les
+    échecs sont absorbés — mal dimensionnée, la session reste utilisable ; morte,
+    non. On ne journalise pas ici : après `fork`, y compris dans l'interpréteur,
+    seules les opérations async-signal-safe sont sûres.
+    """
+    with contextlib.suppress(OSError):
+        os.setsid()
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+
+async def spawn_on_pty(
+    cmd: list[str], env: dict[str, str]
+) -> tuple[asyncio.subprocess.Process, int]:
+    """Lance `cmd` sur un PTY neuf dont il est le terminal de contrôle.
+
+    Retourne le process et le descripteur maître (au vidage de l'appelant).
+    """
+    master_fd, slave_fd = pty.openpty()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            env=env,
+            preexec_fn=_attach_controlling_tty,
+        )
+    finally:
+        os.close(slave_fd)  # le parent n'a besoin que du maître
+    return proc, master_fd
+
+
 async def run_pty_bridge(
     websocket: WebSocket,
     cmd: list[str],
@@ -41,17 +81,7 @@ async def run_pty_bridge(
 
     Retourne le returncode du subprocess (None s'il a fallu le tuer sans code).
     """
-    master_fd, slave_fd = pty.openpty()
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=slave_fd,
-            stdout=slave_fd,
-            stderr=slave_fd,
-            env=env,
-        )
-    finally:
-        os.close(slave_fd)  # le parent n'a besoin que du master
+    proc, master_fd = await spawn_on_pty(cmd, env)
 
     def _pty_resize(cols: int, rows: int) -> None:
         with contextlib.suppress(OSError):
