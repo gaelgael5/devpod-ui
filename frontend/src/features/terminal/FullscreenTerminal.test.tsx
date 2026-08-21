@@ -457,3 +457,50 @@ describe('FullscreenTerminal — historique au geste', () => {
     expect(sent().join('')).not.toContain(LINE_UP)
   })
 })
+
+describe('FullscreenTerminal — double tape', () => {
+  function tape(x = 100, y = 100) {
+    const el = screen.getByTestId('terminal-surface')
+    fireEvent.touchStart(el, { touches: [{ clientX: x, clientY: y }] })
+    fireEvent.touchEnd(el, { touches: [] })
+  }
+
+  function sent() {
+    const dec = new TextDecoder()
+    return sockets[0].send.mock.calls
+      .map((c) => c[0])
+      .filter((d) => typeof d !== 'string')
+      .map((d) => dec.decode(d as ArrayBufferView))
+  }
+
+  it('envoie Tab sur une double tape', () => {
+    renderTerminal()
+
+    tape()
+    expect(sent()).not.toContain('\t')
+
+    tape()
+    expect(sent()).toContain('\t')
+  })
+
+  it('n’envoie rien sur une tape isolee', () => {
+    renderTerminal()
+
+    tape()
+
+    expect(sent()).not.toContain('\t')
+  })
+
+  it('n’envoie rien quand le doigt a glisse', () => {
+    // Le glissement fait defiler l'historique : il ne doit pas valoir Tab.
+    renderTerminal()
+    const el = screen.getByTestId('terminal-surface')
+
+    tape()
+    fireEvent.touchStart(el, { touches: [{ clientX: 100, clientY: 100 }] })
+    fireEvent.touchMove(el, { touches: [{ clientX: 100, clientY: 300 }] })
+    fireEvent.touchEnd(el, { touches: [] })
+
+    expect(sent()).not.toContain('\t')
+  })
+})

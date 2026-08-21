@@ -12,6 +12,7 @@ import { openTerminalLink } from './openTerminalLink'
 import { createLinkCollector } from './linkCollector'
 import { isTouchOnly } from './isTouchOnly'
 import { createHistoryScroller } from './historyScroll'
+import { createDoubleTapDetector } from './doubleTap'
 import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
 import '@xterm/xterm/css/xterm.css'
 
@@ -190,27 +191,42 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data))
       },
     })
+    // Double tape -> Tab. Tactile uniquement : au bureau le double-clic
+    // appartient a xterm, qui s'en sert pour selectionner un mot.
+    const doubleTap = createDoubleTapDetector()
+
     const surface = termRef.current
     const onWheel = (e: WheelEvent) => {
       if (scroller.wheel(e.deltaY)) e.preventDefault()
     }
     const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0]
+      doubleTap.start(t.clientX, t.clientY, e.touches.length)
       // Un seul doigt : le pincement de zoom ne doit pas devenir un defilement.
-      if (e.touches.length === 1) scroller.touchStart(e.touches[0].clientY)
+      if (e.touches.length === 1) scroller.touchStart(t.clientY)
     }
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length !== 1) return
+      const t = e.touches[0]
+      doubleTap.move(t.clientX, t.clientY)
       // Pas de preventDefault sans mouvement : l'appui long, donc la selection
       // native sur mobile, reste intact.
-      if (scroller.touchMove(e.touches[0].clientY)) e.preventDefault()
+      if (scroller.touchMove(t.clientY)) e.preventDefault()
     }
-    const onTouchEnd = () => scroller.touchEnd()
+    const onTouchEnd = (e: TouchEvent) => {
+      scroller.touchEnd()
+      if (!doubleTap.end()) return
+      // `preventDefault` supprime le zoom double-tape d'iOS ET le `dblclick`
+      // synthetise, qui declencherait la selection de mot de xterm.
+      e.preventDefault()
+      if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode('\t'))
+    }
     // `passive: false` : sans cela le navigateur refuse le preventDefault et
     // laisse son propre defilement s'ajouter au notre.
     surface?.addEventListener('wheel', onWheel, { passive: false })
     surface?.addEventListener('touchstart', onTouchStart, { passive: true })
     surface?.addEventListener('touchmove', onTouchMove, { passive: false })
-    surface?.addEventListener('touchend', onTouchEnd, { passive: true })
+    surface?.addEventListener('touchend', onTouchEnd, { passive: false })
 
     // Copy-on-select : la sélection part au presse-papier dès qu'elle se stabilise
     // (debounce du drag). Indispensable ici : la sélection xterm ne survit ni à une
