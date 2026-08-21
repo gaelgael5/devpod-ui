@@ -79,6 +79,26 @@ describe('TerminalKeybar', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
+  it('garde un nom accessible sur les boutons sans libelle', () => {
+    renderWithProviders(
+      <TerminalKeybar
+        onSend={vi.fn()}
+        onPaste={vi.fn()}
+        onSearch={vi.fn()}
+        getSelection={() => ''}
+      />,
+    )
+
+    // Copier, Coller et Rechercher n'affichent plus qu'une icone. Sans aria-label ils
+    // n'auraient plus AUCUN nom : invisibles au lecteur d'ecran, et introuvables
+    // par les tests qui les designent par leur nom.
+    for (const nom of [/^coller$|^paste$/i, /^copier$|^copy$/i, /^rechercher$|^search$/i]) {
+      const bouton = screen.getByRole('button', { name: nom })
+      expect(bouton).toHaveAccessibleName()
+      expect(bouton.textContent).toBe('')
+    }
+  })
+
   it('ne vole pas le focus au terminal', async () => {
     const user = userEvent.setup()
     renderWithProviders(

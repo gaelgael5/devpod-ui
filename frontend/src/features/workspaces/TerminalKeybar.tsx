@@ -9,7 +9,9 @@ import {
   Copy,
   CornerDownLeft,
   IndentIncrease,
-  OctagonX, Search } from 'lucide-react'
+  OctagonX,
+  Search,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Props {
@@ -146,9 +148,9 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
         onMouseDown={keepFocus}
         onClick={paste}
         title={t('workspaces.terminals.keybar.pasteTitle')}
+        aria-label={t('workspaces.terminals.keybar.paste')}
       >
         <ClipboardPaste className="h-3.5 w-3.5" />
-        {t('workspaces.terminals.keybar.paste')}
       </button>
       <button
         type="button"
@@ -156,9 +158,9 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
         onMouseDown={keepFocus}
         onClick={copy}
         title={t('workspaces.terminals.keybar.copyTitle')}
+        aria-label={t('workspaces.terminals.keybar.copy')}
       >
         <Copy className="h-3.5 w-3.5" />
-        {t('workspaces.terminals.keybar.copy')}
       </button>
       {/* Recherche : le raccourci clavier n'existe pas sur mobile, or c'est
           précisément la cible de cette barre. */}
@@ -171,9 +173,11 @@ export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch
           title={t('workspaces.terminals.keybar.searchTitle', {
             defaultValue: 'Rechercher dans le terminal (Ctrl+Maj+F)',
           })}
+          aria-label={t('workspaces.terminals.keybar.search', {
+            defaultValue: 'Rechercher',
+          })}
         >
           <Search className="h-3.5 w-3.5" />
-          {t('workspaces.terminals.keybar.search', { defaultValue: 'Rechercher' })}
         </button>
       )}
     </div>
