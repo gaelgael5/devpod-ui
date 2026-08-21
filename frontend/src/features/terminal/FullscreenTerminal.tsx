@@ -11,6 +11,7 @@ import TerminalKeybar from '@/features/workspaces/TerminalKeybar'
 import { openTerminalLink } from './openTerminalLink'
 import { createLinkCollector } from './linkCollector'
 import { isTouchOnly } from './isTouchOnly'
+import { createHistoryScroller } from './historyScroll'
 import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
 import '@xterm/xterm/css/xterm.css'
 
@@ -180,6 +181,37 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     })
     const resizeDisposable = terminal.onResize(({ cols, rows }) => sendResize(cols, rows))
 
+    // Molette et glissement remontent dans l'historique tmux. Necessaire parce
+    // que sous tmux le scrollback de xterm reste vide (ecran alterne) : sans
+    // cela le geste ne produit rien. Voir historyScroll.ts.
+    const scroller = createHistoryScroller({
+      isAlternate: () => terminal.buffer.active.type === 'alternate',
+      send: (data) => {
+        if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data))
+      },
+    })
+    const surface = termRef.current
+    const onWheel = (e: WheelEvent) => {
+      if (scroller.wheel(e.deltaY)) e.preventDefault()
+    }
+    const onTouchStart = (e: TouchEvent) => {
+      // Un seul doigt : le pincement de zoom ne doit pas devenir un defilement.
+      if (e.touches.length === 1) scroller.touchStart(e.touches[0].clientY)
+    }
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return
+      // Pas de preventDefault sans mouvement : l'appui long, donc la selection
+      // native sur mobile, reste intact.
+      if (scroller.touchMove(e.touches[0].clientY)) e.preventDefault()
+    }
+    const onTouchEnd = () => scroller.touchEnd()
+    // `passive: false` : sans cela le navigateur refuse le preventDefault et
+    // laisse son propre defilement s'ajouter au notre.
+    surface?.addEventListener('wheel', onWheel, { passive: false })
+    surface?.addEventListener('touchstart', onTouchStart, { passive: true })
+    surface?.addEventListener('touchmove', onTouchMove, { passive: false })
+    surface?.addEventListener('touchend', onTouchEnd, { passive: true })
+
     // Copy-on-select : la sélection part au presse-papier dès qu'elle se stabilise
     // (debounce du drag). Indispensable ici : la sélection xterm ne survit ni à une
     // frappe ni aux redraws des TUI, le copier différé (menu, bouton) est fragile.
@@ -285,6 +317,10 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       ws.close()
       terminal.dispose()
       wsRef.current = null
+      surface?.removeEventListener('wheel', onWheel)
+      surface?.removeEventListener('touchstart', onTouchStart)
+      surface?.removeEventListener('touchmove', onTouchMove)
+      surface?.removeEventListener('touchend', onTouchEnd)
       terminalRef.current = null
       searchRef.current = null
     }
@@ -343,7 +379,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         />
       )}
       <div className="relative min-h-0 flex-1">
-        <div ref={termRef} className="absolute inset-0" />
+        <div ref={termRef} className="absolute inset-0" data-testid="terminal-surface" />
         {disconnected && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 backdrop-blur-sm">
             <p className="text-sm text-white/80">{t('workspaces.terminals.disconnected')}</p>

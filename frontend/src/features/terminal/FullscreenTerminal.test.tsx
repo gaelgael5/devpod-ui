@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { I18nextProvider } from 'react-i18next'
 import i18n from '@/i18n'
 import FullscreenTerminal from './FullscreenTerminal'
+import { PAGE_DOWN, PAGE_PX, PAGE_UP } from './historyScroll'
 
 // Mock xterm : capture l'instance pour déclencher onSelectionChange depuis les
 // tests. jsdom ne rend pas de vrai terminal.
@@ -23,6 +24,8 @@ class MockTerminal {
   // API publique de xterm (ITerminal.unicode) : l'addon de graphèmes y règle la
   // version active. Absente du mock, le composant plantait au montage.
   unicode = { activeVersion: '11', versions: ['11'] }
+  // tmux occupe l'ecran alterne : c'est ce que le defilement au geste teste.
+  buffer = { active: { type: 'alternate' as 'normal' | 'alternate' } }
   getSelection = vi.fn(() => '')
   private selectionCb: (() => void) | null = null
   private dataCb: ((data: string) => void) | null = null
@@ -405,5 +408,48 @@ describe('FullscreenTerminal — autofocus selon l’appareil', () => {
     act(() => { vi.runAllTimers() })
 
     expect(terminals[0].focus).toHaveBeenCalled()
+  })
+})
+
+describe('FullscreenTerminal — historique au geste', () => {
+  function surface() {
+    return screen.getByTestId('terminal-surface')
+  }
+
+  function sent() {
+    const dec = new TextDecoder()
+    // Pas d'`instanceof Uint8Array` : jsdom fait cohabiter deux realms et le
+    // test comparerait a un constructeur different de celui du composant.
+    return sockets[0].send.mock.calls
+      .map((c) => c[0])
+      .filter((d) => typeof d !== 'string')
+      .map((d) => dec.decode(d as ArrayBufferView))
+  }
+
+  it('remonte dans l’historique tmux a la molette', () => {
+    renderTerminal()
+
+    fireEvent.wheel(surface(), { deltaY: -PAGE_PX })
+
+    // prefixe + PageUp : entre en copy-mode ET remonte d'une page.
+    expect(sent()).toContain(PAGE_UP)
+  })
+
+  it('redescend a la molette inverse', () => {
+    renderTerminal()
+
+    fireEvent.wheel(surface(), { deltaY: PAGE_PX })
+
+    expect(sent()).toContain(PAGE_DOWN)
+  })
+
+  it('laisse le defilement natif quand tmux n’occupe pas l’ecran alterne', () => {
+    renderTerminal()
+    terminals[0].buffer.active.type = 'normal'
+
+    fireEvent.wheel(surface(), { deltaY: -PAGE_PX * 3 })
+
+    // Sans tmux, xterm a un vrai scrollback : on ne doit rien envoyer.
+    expect(sent()).not.toContain(PAGE_UP)
   })
 })
