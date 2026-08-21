@@ -28,7 +28,7 @@ describe('TerminalKeybar', () => {
   it('envoie \\x1b (Échap) et \\x03 (Interrompre) dans le stdin', async () => {
     const user = userEvent.setup()
     const onSend = vi.fn()
-    renderWithProviders(<TerminalKeybar onSend={onSend} getSelection={() => ''} />)
+    renderWithProviders(<TerminalKeybar onSend={onSend} onPaste={vi.fn()} getSelection={() => ''} />)
 
     await user.click(screen.getByRole('button', { name: /échap|esc/i }))
     expect(onSend).toHaveBeenCalledWith('\x1b')
@@ -40,7 +40,7 @@ describe('TerminalKeybar', () => {
   it('envoie les séquences ANSI des flèches dans le stdin', async () => {
     const user = userEvent.setup()
     const onSend = vi.fn()
-    renderWithProviders(<TerminalKeybar onSend={onSend} getSelection={() => ''} />)
+    renderWithProviders(<TerminalKeybar onSend={onSend} onPaste={vi.fn()} getSelection={() => ''} />)
 
     await user.click(screen.getByRole('button', { name: /flèche haut|arrow up/i }))
     expect(onSend).toHaveBeenCalledWith('\x1b[A')
@@ -55,20 +55,28 @@ describe('TerminalKeybar', () => {
   it('envoie \\t (Tab) dans le stdin', async () => {
     const user = userEvent.setup()
     const onSend = vi.fn()
-    renderWithProviders(<TerminalKeybar onSend={onSend} getSelection={() => ''} />)
+    renderWithProviders(<TerminalKeybar onSend={onSend} onPaste={vi.fn()} getSelection={() => ''} />)
 
     await user.click(screen.getByRole('button', { name: /^tab$/i }))
     expect(onSend).toHaveBeenCalledWith('\t')
   })
 
-  it('colle le presse-papier dans le stdin', async () => {
+  it('confie le presse-papier au collage de xterm, pas au stdin brut', async () => {
     const user = userEvent.setup()
     const onSend = vi.fn()
+    const onPaste = vi.fn()
     stubClipboard({ readText: vi.fn().mockResolvedValue('salut'), writeText: vi.fn() })
-    renderWithProviders(<TerminalKeybar onSend={onSend} getSelection={() => ''} />)
+    renderWithProviders(
+      <TerminalKeybar onSend={onSend} onPaste={onPaste} getSelection={() => ''} />,
+    )
 
     await user.click(screen.getByRole('button', { name: /coller|paste/i }))
-    await waitFor(() => expect(onSend).toHaveBeenCalledWith('salut'))
+
+    // Écrit brut dans la WS, le texte échapperait à la normalisation des sauts
+    // de ligne et aux marqueurs de « bracketed paste » : un TUI le recevrait
+    // comme une rafale de frappes et le rendrait abîmé.
+    await waitFor(() => expect(onPaste).toHaveBeenCalledWith('salut'))
+    expect(onSend).not.toHaveBeenCalled()
   })
 
   it('copie la sélection du terminal vers le presse-papier', async () => {
@@ -76,7 +84,7 @@ describe('TerminalKeybar', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     stubClipboard({ readText: vi.fn(), writeText })
     renderWithProviders(
-      <TerminalKeybar onSend={vi.fn()} getSelection={() => 'ligne sélectionnée'} />
+      <TerminalKeybar onSend={vi.fn()} onPaste={vi.fn()} getSelection={() => 'ligne sélectionnée'} />
     )
 
     await user.click(screen.getByRole('button', { name: /copier|copy/i }))
@@ -88,7 +96,7 @@ describe('TerminalKeybar', () => {
     const user = userEvent.setup()
     const writeText = vi.fn()
     stubClipboard({ readText: vi.fn(), writeText })
-    renderWithProviders(<TerminalKeybar onSend={vi.fn()} getSelection={() => ''} />)
+    renderWithProviders(<TerminalKeybar onSend={vi.fn()} onPaste={vi.fn()} getSelection={() => ''} />)
 
     await user.click(screen.getByRole('button', { name: /copier|copy/i }))
     expect(writeText).not.toHaveBeenCalled()

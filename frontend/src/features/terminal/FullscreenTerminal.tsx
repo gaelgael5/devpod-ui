@@ -273,6 +273,15 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     terminalRef.current?.focus()
   }
 
+  // Le collage passe par xterm et non par la WS : `paste()` normalise les sauts
+  // de ligne (\r\n -> \r) et encadre le texte des marqueurs de « bracketed
+  // paste » lorsque l'application distante a activé le mode 2004. Envoyé brut,
+  // un code d'authentification arrivait abîmé dans le prompt de `claude`.
+  const pasteToTerminal = (text: string) => {
+    terminalRef.current?.paste(text)
+    terminalRef.current?.focus()
+  }
+
   // Ctrl/Cmd+Maj+F : Ctrl+F seul appartient au shell distant (recherche de
   // l'historique, navigation d'un TUI) — l'intercepter le priverait d'une touche.
   useEffect(() => {
@@ -327,6 +336,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       <TerminalKeybar
         onSearch={() => setSearchOpen(true)}
         onSend={sendToTerminal}
+        onPaste={pasteToTerminal}
         getSelection={() =>
           terminalRef.current?.getSelection() || lastSelectionRef.current
         }

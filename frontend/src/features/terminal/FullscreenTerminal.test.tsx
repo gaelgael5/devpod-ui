@@ -16,13 +16,20 @@ class MockTerminal {
   focus = vi.fn()
   write = vi.fn()
   refresh = vi.fn()
+  // xterm normalise et encadre le texte collé, puis le fait ressortir par
+  // onData. Le mock reproduit ce relais : sans lui, rien ne partirait vers la WS.
+  paste = vi.fn((text: string) => this.dataCb?.(text))
   loadAddon = vi.fn()
   // API publique de xterm (ITerminal.unicode) : l'addon de graphèmes y règle la
   // version active. Absente du mock, le composant plantait au montage.
   unicode = { activeVersion: '11', versions: ['11'] }
   getSelection = vi.fn(() => '')
   private selectionCb: (() => void) | null = null
-  onData = vi.fn(() => ({ dispose: vi.fn() }))
+  private dataCb: ((data: string) => void) | null = null
+  onData = vi.fn((cb: (data: string) => void) => {
+    this.dataCb = cb
+    return { dispose: vi.fn() }
+  })
   onResize = vi.fn(() => ({ dispose: vi.fn() }))
   onSelectionChange = vi.fn((cb: () => void) => {
     this.selectionCb = cb
@@ -272,5 +279,23 @@ describe('FullscreenTerminal — liens du flux', () => {
     })
 
     expect(open).toHaveBeenCalledWith('https://dev.yoops.org/portal', '_blank', 'noopener,noreferrer')
+  })
+})
+
+describe('FullscreenTerminal — collage', () => {
+  it('fait passer le presse-papier par xterm avant la WebSocket', async () => {
+    const readText = vi.fn().mockResolvedValue('code-a-coller')
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { readText, writeText },
+      configurable: true,
+    })
+    renderTerminal()
+
+    fireEvent.click(screen.getByRole('button', { name: /coller|paste/i }))
+    await vi.waitFor(() => expect(terminals[0].paste).toHaveBeenCalledWith('code-a-coller'))
+
+    // xterm normalise et encadre le texte, puis le ressort par onData : c'est
+    // cette sortie-là qui doit atteindre la WS, jamais le presse-papier brut.
+    expect(sockets[0].send).toHaveBeenCalled()
   })
 })

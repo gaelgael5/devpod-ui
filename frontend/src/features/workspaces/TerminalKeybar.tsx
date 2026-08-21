@@ -18,6 +18,14 @@ interface Props {
   getSelection: () => string
   /** Ouvre la recherche. Absent = bouton masqué (terminal sans addon de recherche). */
   onSearch?: () => void
+  /**
+   * Injecte du texte collé. Distinct de `onSend` : le collage doit passer par
+   * xterm, qui normalise les sauts de ligne et encadre le texte des marqueurs
+   * de « bracketed paste » quand l'application distante a activé le mode 2004.
+   * Sans cela, un TUI reçoit le collage comme une rafale de frappes et réécrit
+   * son prompt en cours de route — le texte arrive abîmé.
+   */
+  onPaste: (text: string) => void
 }
 
 /** Barre de touches/actions tactiles pour la fenêtre de session SSH.
@@ -28,13 +36,13 @@ interface Props {
  * via la WS déjà ouverte (`\x1b`, `\x03`, texte presse-papier) ; la PTY backend
  * traduit `\x03` en SIGINT du process au premier plan. Copier lit la sélection
  * xterm vers le presse-papier. Premier lot extensible (Ctrl+D, Tab, flèches…). */
-export default function TerminalKeybar({ onSend, getSelection, onSearch }: Props) {
+export default function TerminalKeybar({ onSend, onPaste, getSelection, onSearch }: Props) {
   const { t } = useTranslation()
 
   const paste = async () => {
     try {
       const text = await navigator.clipboard.readText()
-      if (text) onSend(text)
+      if (text) onPaste(text)
     } catch {
       toast.error(t('workspaces.terminals.keybar.pasteError'))
     }
