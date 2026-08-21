@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { I18nextProvider } from 'react-i18next'
 import i18n from '@/i18n'
 import FullscreenTerminal from './FullscreenTerminal'
-import { PAGE_DOWN, PAGE_PX, PAGE_UP } from './historyScroll'
+import { ENTER_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScroll'
 
 // Mock xterm : capture l'instance pour déclencher onSelectionChange depuis les
 // tests. jsdom ne rend pas de vrai terminal.
@@ -429,27 +429,31 @@ describe('FullscreenTerminal — historique au geste', () => {
   it('remonte dans l’historique tmux a la molette', () => {
     renderTerminal()
 
-    fireEvent.wheel(surface(), { deltaY: -PAGE_PX })
+    fireEvent.wheel(surface(), { deltaY: -LINE_PX * 2 })
+    act(() => { vi.runAllTimers() })
 
-    // prefixe + PageUp : entre en copy-mode ET remonte d'une page.
-    expect(sent()).toContain(PAGE_UP)
+    // Un jeton par frame : le PTY regroupe les ecritures rapprochees et tmux
+    // perd alors les touches repetees.
+    expect(sent()).toEqual(expect.arrayContaining([ENTER_COPY, LINE_UP]))
   })
 
   it('redescend a la molette inverse', () => {
     renderTerminal()
 
-    fireEvent.wheel(surface(), { deltaY: PAGE_PX })
+    fireEvent.wheel(surface(), { deltaY: LINE_PX })
+    act(() => { vi.runAllTimers() })
 
-    expect(sent()).toContain(PAGE_DOWN)
+    expect(sent()).toContain(LINE_DOWN)
   })
 
   it('laisse le defilement natif quand tmux n’occupe pas l’ecran alterne', () => {
     renderTerminal()
     terminals[0].buffer.active.type = 'normal'
 
-    fireEvent.wheel(surface(), { deltaY: -PAGE_PX * 3 })
+    fireEvent.wheel(surface(), { deltaY: -LINE_PX * 3 })
+    act(() => { vi.runAllTimers() })
 
     // Sans tmux, xterm a un vrai scrollback : on ne doit rien envoyer.
-    expect(sent()).not.toContain(PAGE_UP)
+    expect(sent().join('')).not.toContain(LINE_UP)
   })
 })

@@ -8,21 +8,36 @@
  *
  * L'historique vit dans le copy-mode de tmux. On traduit le geste en touches
  * plutot que d'activer `mouse on` cote tmux : celui-ci capterait les evenements
- * souris et casserait la selection de xterm, donc la copie. Ici tmux n'est pas
- * touche du tout.
+ * souris et casserait la selection de xterm, donc la copie.
  *
- * `prefix + PageUp` est lie a `copy-mode -u` : il entre dans l'historique ET
- * remonte d'une page, et rejoue il continue de remonter — d'ou l'absence d'etat
- * de mode a suivre. Sequence verifiee contre un vrai client tmux.
+ * Trois bindings tmux par defaut, verifies contre un vrai client :
+ *
+ *     prefixe + [   copy-mode              entre SANS sauter ; rejoue en
+ *                                          copy-mode, PRESERVE la position
+ *     C-Up          send-keys -X scroll-up      une ligne
+ *     C-Down        send-keys -X scroll-down    une ligne
+ *
+ * UN SEUL JETON PAR FRAME — contrainte mesuree, pas esthetique. Le PTY regroupe
+ * les ecritures rapprochees en une seule lecture, et tmux perd alors les touches
+ * repetees : 10 `C-Up` d'affilee ne font defiler que de 2 lignes, que les
+ * touches soient concatenees ou ecrites separement sans delai. Espacees, meme de
+ * 5 ms, les 10 passent. On emet donc un jeton par frame et on ecoule le reste
+ * aux frames suivantes — ce qui donne aussi un mouvement continu plutot que des
+ * sauts de page.
  */
 
-/** Prefixe tmux (Ctrl+B) puis PageUp. */
-export const PAGE_UP = '\x02\x1b[5~'
-/** PageDown seul : en copy-mode il redescend d'une page. */
-export const PAGE_DOWN = '\x1b[6~'
+/** Prefixe tmux (Ctrl+B) puis `[` : entre en copy-mode sans deplacer la vue. */
+export const ENTER_COPY = '\x02['
+/** Ctrl+Fleche haut : remonte d'une ligne. */
+export const LINE_UP = '\x1b[1;5A'
+/** Ctrl+Fleche bas : redescend d'une ligne. */
+export const LINE_DOWN = '\x1b[1;5B'
 
-/** Pixels de geste pour une page. Un cran de molette vaut ~100-120 px. */
-export const PAGE_PX = 120
+/** Pixels de geste pour une ligne — proche de la hauteur d'une ligne a 13 px. */
+export const LINE_PX = 20
+
+/** Plafond de l'accumulateur : un geste ample ne doit pas defiler pendant des secondes. */
+export const MAX_LIGNES_EN_ATTENTE = 50
 
 export interface HistoryScroller {
   /** Molette. Retourne `true` si le geste est consomme (defilement natif a supprimer). */
@@ -31,7 +46,7 @@ export interface HistoryScroller {
   touchStart(clientY: number): void
   /** Glissement en cours. Retourne `true` si le geste est consomme. */
   touchMove(clientY: number): boolean
-  /** Fin du glissement : l'accumulateur repart de zero. */
+  /** Fin du glissement. */
   touchEnd(): void
 }
 
@@ -40,39 +55,84 @@ interface Options {
   isAlternate: () => boolean
   /** Ecrit dans l'entree standard de la session. */
   send: (data: string) => void
+  /** Planifie l'emission suivante. Injectable pour les tests. */
+  schedule?: (cb: () => void) => void
 }
 
-export function createHistoryScroller({ isAlternate, send }: Options): HistoryScroller {
+const parDefaut = (cb: () => void) => {
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(cb)
+  else setTimeout(cb, 16)
+}
+
+export function createHistoryScroller({
+  isAlternate,
+  send,
+  schedule = parDefaut,
+}: Options): HistoryScroller {
   let acc = 0
   let lastY: number | null = null
+  let planifie = false
+  /** Copy-mode deja demande pour la salve en cours. */
+  let entre = false
 
-  /** `delta` positif = vers le contenu recent (page suivante). */
+  const plafond = LINE_PX * MAX_LIGNES_EN_ATTENTE
+
+  function emettre() {
+    planifie = false
+    if (!isAlternate()) {
+      acc = 0
+      entre = false
+      return
+    }
+
+    if (acc <= -LINE_PX) {
+      // L'entree en copy-mode occupe sa propre emission : concatenee a une
+      // touche de defilement, elle la ferait perdre (meme lecture PTY).
+      if (!entre) {
+        entre = true
+        send(ENTER_COPY)
+      } else {
+        acc += LINE_PX
+        send(LINE_UP)
+      }
+    } else if (acc >= LINE_PX) {
+      // Pas d'entree en copy-mode vers le bas : sinon un glissement vers le bas
+      // depuis la vue directe y ferait entrer, figeant l'affichage sans raison.
+      acc -= LINE_PX
+      send(LINE_DOWN)
+    } else {
+      entre = false
+      return
+    }
+
+    planifier()
+  }
+
+  function planifier() {
+    if (planifie) return
+    // Rien a ecouler tant qu'on n'atteint pas une ligne pleine.
+    if (acc > -LINE_PX && acc < LINE_PX) return
+    planifie = true
+    schedule(emettre)
+  }
+
+  /** `delta` positif = vers le contenu recent (on redescend). */
   function feed(delta: number): boolean {
     // Hors tampon alterne, xterm a un vrai scrollback : on le laisse faire.
     if (!isAlternate()) return false
 
-    acc += delta
-    while (acc >= PAGE_PX) {
-      acc -= PAGE_PX
-      send(PAGE_DOWN)
-    }
-    while (acc <= -PAGE_PX) {
-      acc += PAGE_PX
-      send(PAGE_UP)
-    }
-    // Consomme des que le tampon alterne est actif, meme sans page atteinte :
+    acc = Math.max(-plafond, Math.min(plafond, acc + delta))
+    planifier()
+    // Consomme des que le tampon alterne est actif, meme sans ligne atteinte :
     // sinon le reliquat de geste declencherait le defilement natif du navigateur.
     return true
   }
 
   return {
-    wheel(deltaY) {
-      return feed(deltaY)
-    },
+    wheel: (deltaY) => feed(deltaY),
 
     touchStart(clientY) {
       lastY = clientY
-      acc = 0
     },
 
     touchMove(clientY) {
@@ -85,7 +145,6 @@ export function createHistoryScroller({ isAlternate, send }: Options): HistorySc
 
     touchEnd() {
       lastY = null
-      acc = 0
     },
   }
 }

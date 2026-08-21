@@ -1,72 +1,137 @@
 /**
  * Defilement de l'historique tmux au geste.
  *
- * Le point a verrouiller : ne rien faire hors tampon alterne. Sans tmux, xterm a
- * un vrai scrollback et prendre la main casserait le defilement natif.
+ * Le point critique, mesure contre un vrai tmux : le PTY regroupe les ecritures
+ * rapprochees en une seule lecture et tmux perd alors les touches repetees — 10
+ * `C-Up` d'affilee ne defilent que de 2 lignes. D'ou un jeton par frame, et
+ * l'entree en copy-mode isolee dans sa propre emission.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { PAGE_DOWN, PAGE_PX, PAGE_UP, createHistoryScroller } from './historyScroll'
+import {
+  ENTER_COPY,
+  LINE_DOWN,
+  LINE_PX,
+  LINE_UP,
+  MAX_LIGNES_EN_ATTENTE,
+  createHistoryScroller,
+} from './historyScroll'
 
 function scroller(alternate = true) {
   const send = vi.fn()
-  return { send, s: createHistoryScroller({ isAlternate: () => alternate, send }) }
+  const frames: (() => void)[] = []
+  const s = createHistoryScroller({
+    isAlternate: () => alternate,
+    send,
+    schedule: (cb) => frames.push(cb),
+  })
+  /** Deroule les frames en attente (bornees, pour ne pas boucler sans fin). */
+  const tick = (n = 1) => {
+    for (let i = 0; i < n; i++) {
+      const f = frames.shift()
+      if (!f) break
+      f()
+    }
+  }
+  return { s, send, tick, frames }
 }
 
 describe('createHistoryScroller', () => {
-  it('remonte d’une page a la molette vers le haut', () => {
+  it('n’emet rien de synchrone : tout passe par une frame', () => {
     const { s, send } = scroller()
-    expect(s.wheel(-PAGE_PX)).toBe(true)
-    expect(send).toHaveBeenCalledExactlyOnceWith(PAGE_UP)
-  })
-
-  it('redescend d’une page a la molette vers le bas', () => {
-    const { s, send } = scroller()
-    s.wheel(PAGE_PX)
-    expect(send).toHaveBeenCalledExactlyOnceWith(PAGE_DOWN)
-  })
-
-  it('accumule les petits mouvements jusqu’a une page', () => {
-    const { s, send } = scroller()
-    for (let i = 0; i < 3; i++) s.wheel(-PAGE_PX / 4)
+    s.wheel(-LINE_PX * 3)
     expect(send).not.toHaveBeenCalled()
-
-    s.wheel(-PAGE_PX / 4)
-    expect(send).toHaveBeenCalledExactlyOnceWith(PAGE_UP)
   })
 
-  it('envoie plusieurs pages sur un geste ample', () => {
-    const { s, send } = scroller()
-    s.wheel(-PAGE_PX * 3)
-    expect(send.mock.calls.map((c) => c[0])).toEqual([PAGE_UP, PAGE_UP, PAGE_UP])
+  it('entre en copy-mode dans une emission isolee', () => {
+    const { s, send, tick } = scroller()
+    s.wheel(-LINE_PX)
+    tick()
+
+    // Concatenee a une touche de defilement, l'entree la ferait perdre.
+    expect(send).toHaveBeenCalledExactlyOnceWith(ENTER_COPY)
+  })
+
+  it('remonte ensuite d’une ligne par frame', () => {
+    const { s, send, tick } = scroller()
+    s.wheel(-LINE_PX * 3)
+    tick(10)
+
+    expect(send.mock.calls.map((c) => c[0])).toEqual([
+      ENTER_COPY,
+      LINE_UP,
+      LINE_UP,
+      LINE_UP,
+    ])
+  })
+
+  it('n’emet jamais deux jetons dans la meme frame', () => {
+    const { s, send, tick } = scroller()
+    s.wheel(-LINE_PX * 5)
+
+    tick()
+    expect(send).toHaveBeenCalledTimes(1)
+    tick()
+    expect(send).toHaveBeenCalledTimes(2)
+  })
+
+  it('redescend sans entrer en copy-mode', () => {
+    const { s, send, tick } = scroller()
+    s.wheel(LINE_PX * 2)
+    tick(10)
+
+    // Entrer en copy-mode vers le bas figerait l'affichage depuis la vue directe.
+    expect(send.mock.calls.map((c) => c[0])).toEqual([LINE_DOWN, LINE_DOWN])
+  })
+
+  it('accumule les mouvements sous le seuil d’une ligne', () => {
+    const { s, send, tick, frames } = scroller()
+    for (let i = 0; i < 3; i++) s.wheel(-LINE_PX / 4)
+    expect(frames).toHaveLength(0)
+
+    s.wheel(-LINE_PX / 4)
+    tick(4)
+    expect(send.mock.calls.map((c) => c[0])).toEqual([ENTER_COPY, LINE_UP])
   })
 
   it('ne touche a rien hors tampon alterne', () => {
-    // Sans tmux, xterm a son propre scrollback : le defilement natif doit vivre.
-    const { s, send } = scroller(false)
-    expect(s.wheel(-PAGE_PX * 2)).toBe(false)
+    const { s, send, tick } = scroller(false)
+    expect(s.wheel(-LINE_PX * 4)).toBe(false)
+    tick(5)
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('consomme le geste meme sans page atteinte', () => {
+  it('consomme le geste meme sans ligne atteinte', () => {
     // Sinon le reliquat declencherait le defilement natif du navigateur.
     const { s } = scroller()
     expect(s.wheel(-1)).toBe(true)
   })
 
-  it('remonte quand le doigt descend', () => {
-    const { s, send } = scroller()
-    s.touchStart(100)
-    s.touchMove(100 + PAGE_PX)
+  it('borne un geste ample', () => {
+    const { s, send, tick } = scroller()
+    s.wheel(-LINE_PX * 10_000)
+    tick(MAX_LIGNES_EN_ATTENTE + 50)
 
-    expect(send).toHaveBeenCalledExactlyOnceWith(PAGE_UP)
+    // Sans plafond, une impulsion ample defilerait pendant des secondes.
+    const lignes = send.mock.calls.filter((c) => c[0] === LINE_UP).length
+    expect(lignes).toBeLessThanOrEqual(MAX_LIGNES_EN_ATTENTE)
+  })
+
+  it('remonte quand le doigt descend', () => {
+    const { s, send, tick } = scroller()
+    s.touchStart(100)
+    s.touchMove(100 + LINE_PX * 2)
+    tick(5)
+
+    expect(send.mock.calls.map((c) => c[0])).toEqual([ENTER_COPY, LINE_UP, LINE_UP])
   })
 
   it('redescend quand le doigt remonte', () => {
-    const { s, send } = scroller()
+    const { s, send, tick } = scroller()
     s.touchStart(500)
-    s.touchMove(500 - PAGE_PX)
+    s.touchMove(500 - LINE_PX)
+    tick(5)
 
-    expect(send).toHaveBeenCalledExactlyOnceWith(PAGE_DOWN)
+    expect(send.mock.calls.map((c) => c[0])).toEqual([LINE_DOWN])
   })
 
   it('ignore un glissement sans depart', () => {
@@ -75,23 +140,13 @@ describe('createHistoryScroller', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('repart de zero au geste suivant', () => {
-    const { s, send } = scroller()
-    s.touchStart(100)
-    s.touchMove(100 + PAGE_PX / 2) // moitie de page, rien d'envoye
-    s.touchEnd()
-
-    s.touchStart(100)
-    s.touchMove(100 + PAGE_PX / 2) // le reliquat precedent ne doit pas s'ajouter
-    expect(send).not.toHaveBeenCalled()
-  })
-
   it('un appui long immobile n’envoie rien', () => {
     // La selection par appui long doit rester intacte sur mobile.
-    const { s, send } = scroller()
+    const { s, send, frames } = scroller()
     s.touchStart(200)
     s.touchMove(200)
 
+    expect(frames).toHaveLength(0)
     expect(send).not.toHaveBeenCalled()
   })
 })
