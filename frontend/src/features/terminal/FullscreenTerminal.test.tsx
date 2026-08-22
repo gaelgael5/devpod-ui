@@ -4,6 +4,7 @@ import { I18nextProvider } from 'react-i18next'
 import i18n from '@/i18n'
 import FullscreenTerminal from './FullscreenTerminal'
 import { ENTER_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScroll'
+import { SUPPRESSION_MS } from './selectionSuppressor'
 
 // Mock xterm : capture l'instance pour déclencher onSelectionChange depuis les
 // tests. jsdom ne rend pas de vrai terminal.
@@ -576,6 +577,41 @@ describe('FullscreenTerminal — double tape', () => {
 
     expect(terminals[0].clearSelection).toHaveBeenCalled()
     expect(removeAllRanges).toHaveBeenCalled()
+  })
+
+  it('coupe la selection sur la surface, pas seulement l’efface', () => {
+    // iOS pose sa selection apres coup : l'effacer une fois laissait la bande
+    // surlignee. Couper `user-select` l'empeche de revenir pendant la fenetre.
+    renderTerminal()
+    const el = screen.getByTestId('terminal-surface')
+
+    tape()
+    tape()
+
+    expect(el.style.getPropertyValue('user-select')).toBe('none')
+    expect(el.style.getPropertyValue('-webkit-user-select')).toBe('none')
+  })
+
+  it('rend la selection une fois la fenetre passee', () => {
+    renderTerminal()
+    const el = screen.getByTestId('terminal-surface')
+
+    tape()
+    tape()
+    act(() => vi.advanceTimersByTime(SUPPRESSION_MS))
+
+    expect(el.style.getPropertyValue('user-select')).toBe('')
+  })
+
+  it('ne coupe pas la selection sur du texte', () => {
+    // Double taper un mot le selectionne : couper la selection l'en empecherait.
+    renderTerminal()
+    const el = screen.getByTestId('terminal-surface')
+
+    tape(SUR_LE_TEXTE)
+    tape(SUR_LE_TEXTE)
+
+    expect(el.style.getPropertyValue('user-select')).toBe('')
   })
 
   it('ne touche pas a la selection sur du texte', () => {

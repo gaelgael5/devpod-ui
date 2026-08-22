@@ -14,6 +14,7 @@ import { isTouchOnly } from './isTouchOnly'
 import { createHistoryScroller } from './historyScroll'
 import { createDoubleTapDetector } from './doubleTap'
 import { isPastLineEnd } from './lineHitTest'
+import { createSelectionSuppressor } from './selectionSuppressor'
 import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
 import '@xterm/xterm/css/xterm.css'
 
@@ -214,12 +215,15 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     const doubleTap = createDoubleTapDetector()
     /** Position de la derniere tape, pour situer la double tape dans la grille. */
     let dernierePosition = { x: 0, y: 0 }
-    const effacerSelectionParasite = () => {
-      terminal.clearSelection()
-      window.getSelection()?.removeAllRanges()
-    }
 
     const surface = termRef.current
+    // iOS pose sa selection de son propre chef, et pas forcement dans la meme
+    // frame que la fin du contact : l'effacer une fois ne suffisait pas, la bande
+    // surlignee restait. On coupe donc la selection sur la surface pendant une
+    // courte fenetre, ce qui l'efface ET l'empeche de revenir.
+    const suppresseur = createSelectionSuppressor(surface, {
+      clearTerminalSelection: () => terminal.clearSelection(),
+    })
     const onWheel = (e: WheelEvent) => {
       if (scroller.wheel(e.deltaY)) e.preventDefault()
     }
@@ -248,17 +252,12 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       // vide et deplacerait le curseur de selection pour rien.
       e.preventDefault()
       if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode('\t'))
-      // iOS selectionne le mot sous le doigt a la double tape, et le fait de
-      // son propre chef : `preventDefault` ne l'en empeche pas. Dans le vide il
-      // prend la ligne entiere, d'ou une bande surlignee en travers de l'ecran,
-      // sans aucun texte a la clef. On efface les deux selections possibles —
-      // celle de xterm et celle du document.
-      //
-      // Deux passes : la seconde rattrape le cas ou iOS pose sa selection APRES
-      // la fin du contact. L'appui long, lui, n'entre jamais ici : c'est une
-      // tape ; la selection volontaire reste donc intacte.
-      effacerSelectionParasite()
-      requestAnimationFrame(effacerSelectionParasite)
+      // iOS selectionne le mot sous le doigt a la double tape, et le fait de son
+      // propre chef : `preventDefault` ne l'en empeche pas. Dans le vide il prend
+      // la ligne entiere, d'ou une bande surlignee sans rien a copier.
+      // L'appui long n'entre jamais ici — c'est une tape : la selection
+      // volontaire reste intacte.
+      suppresseur.suppress()
     }
     // `passive: false` : sans cela le navigateur refuse le preventDefault et
     // laisse son propre defilement s'ajouter au notre.
@@ -396,6 +395,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       surface?.removeEventListener('touchstart', onTouchStart)
       surface?.removeEventListener('touchmove', onTouchMove)
       surface?.removeEventListener('touchend', onTouchEnd)
+      suppresseur.dispose()
       input?.removeEventListener('focus', onInputFocus)
       input?.removeEventListener('blur', onInputBlur)
       inputRef.current = null
