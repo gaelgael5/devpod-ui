@@ -14,7 +14,7 @@ import { isTouchOnly } from './isTouchOnly'
 import { createHistoryScroller } from './historyScroll'
 import { createDoubleTapDetector } from './doubleTap'
 import { isPastLineEnd } from './lineHitTest'
-import { createSelectionSuppressor } from './selectionSuppressor'
+import { createSelectionGate } from './selectionGate'
 import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
 import '@xterm/xterm/css/xterm.css'
 
@@ -217,11 +217,10 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     let dernierePosition = { x: 0, y: 0 }
 
     const surface = termRef.current
-    // iOS pose sa selection de son propre chef, et pas forcement dans la meme
-    // frame que la fin du contact : l'effacer une fois ne suffisait pas, la bande
-    // surlignee restait. On coupe donc la selection sur la surface pendant une
-    // courte fenetre, ce qui l'efface ET l'empeche de revenir.
-    const suppresseur = createSelectionSuppressor(surface, {
+    // La selection native n'a de sens que sur du texte. On ouvre ou ferme la
+    // porte au POSE DU DOIGT : couper au `touchend` arrivait apres iOS, et la
+    // bande surlignee apparaissait avant de disparaitre.
+    const porteSelection = createSelectionGate(surface, {
       clearTerminalSelection: () => terminal.clearSelection(),
     })
     const onWheel = (e: WheelEvent) => {
@@ -231,6 +230,9 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       const t = e.touches[0]
       doubleTap.start(t.clientX, t.clientY, e.touches.length)
       dernierePosition = { x: t.clientX, y: t.clientY }
+      // Sur du texte la selection reste au systeme — c'est le seul moyen de
+      // copier au doigt. Dans le vide elle ne selectionnerait que du blanc.
+      porteSelection.set(!isPastLineEnd(terminal, t.clientX, t.clientY))
       // Un seul doigt : le pincement de zoom ne doit pas devenir un defilement.
       if (e.touches.length === 1) scroller.touchStart(t.clientY)
     }
@@ -252,12 +254,6 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       // vide et deplacerait le curseur de selection pour rien.
       e.preventDefault()
       if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode('\t'))
-      // iOS selectionne le mot sous le doigt a la double tape, et le fait de son
-      // propre chef : `preventDefault` ne l'en empeche pas. Dans le vide il prend
-      // la ligne entiere, d'ou une bande surlignee sans rien a copier.
-      // L'appui long n'entre jamais ici — c'est une tape : la selection
-      // volontaire reste intacte.
-      suppresseur.suppress()
     }
     // `passive: false` : sans cela le navigateur refuse le preventDefault et
     // laisse son propre defilement s'ajouter au notre.
@@ -395,7 +391,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       surface?.removeEventListener('touchstart', onTouchStart)
       surface?.removeEventListener('touchmove', onTouchMove)
       surface?.removeEventListener('touchend', onTouchEnd)
-      suppresseur.dispose()
+      porteSelection.dispose()
       input?.removeEventListener('focus', onInputFocus)
       input?.removeEventListener('blur', onInputBlur)
       inputRef.current = null
