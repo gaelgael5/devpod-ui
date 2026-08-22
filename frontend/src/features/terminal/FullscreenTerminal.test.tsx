@@ -60,6 +60,7 @@ class MockTerminal {
     },
   }
   getSelection = vi.fn(() => '')
+  clearSelection = vi.fn()
   private selectionCb: (() => void) | null = null
   private dataCb: ((data: string) => void) | null = null
   onData = vi.fn((cb: (data: string) => void) => {
@@ -557,6 +558,40 @@ describe('FullscreenTerminal — double tape', () => {
     fireEvent.touchEnd(el, { touches: [] })
 
     expect(sent()).not.toContain('\t')
+  })
+
+  it('efface la selection qu’iOS pose sur la ligne vide', () => {
+    // iOS selectionne de son propre chef a la double tape, `preventDefault` ne
+    // l'en empeche pas : dans le vide il prend la ligne entiere et laisse une
+    // bande surlignee en travers de l'ecran, sans rien a copier.
+    renderTerminal()
+    const removeAllRanges = vi.fn()
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      removeAllRanges,
+    } as unknown as Selection)
+
+    tape()
+    tape()
+    act(() => vi.advanceTimersByTime(50))
+
+    expect(terminals[0].clearSelection).toHaveBeenCalled()
+    expect(removeAllRanges).toHaveBeenCalled()
+  })
+
+  it('ne touche pas a la selection sur du texte', () => {
+    // Double taper un mot le selectionne : l'effacer rendrait la copie impossible.
+    renderTerminal()
+    const removeAllRanges = vi.fn()
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      removeAllRanges,
+    } as unknown as Selection)
+
+    tape(SUR_LE_TEXTE)
+    tape(SUR_LE_TEXTE)
+    act(() => vi.advanceTimersByTime(50))
+
+    expect(terminals[0].clearSelection).not.toHaveBeenCalled()
+    expect(removeAllRanges).not.toHaveBeenCalled()
   })
 
   it('ne supprime pas le geste d’une tape simple', () => {

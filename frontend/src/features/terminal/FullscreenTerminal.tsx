@@ -214,6 +214,10 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     const doubleTap = createDoubleTapDetector()
     /** Position de la derniere tape, pour situer la double tape dans la grille. */
     let dernierePosition = { x: 0, y: 0 }
+    const effacerSelectionParasite = () => {
+      terminal.clearSelection()
+      window.getSelection()?.removeAllRanges()
+    }
 
     const surface = termRef.current
     const onWheel = (e: WheelEvent) => {
@@ -244,6 +248,17 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       // vide et deplacerait le curseur de selection pour rien.
       e.preventDefault()
       if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode('\t'))
+      // iOS selectionne le mot sous le doigt a la double tape, et le fait de
+      // son propre chef : `preventDefault` ne l'en empeche pas. Dans le vide il
+      // prend la ligne entiere, d'ou une bande surlignee en travers de l'ecran,
+      // sans aucun texte a la clef. On efface les deux selections possibles —
+      // celle de xterm et celle du document.
+      //
+      // Deux passes : la seconde rattrape le cas ou iOS pose sa selection APRES
+      // la fin du contact. L'appui long, lui, n'entre jamais ici : c'est une
+      // tape ; la selection volontaire reste donc intacte.
+      effacerSelectionParasite()
+      requestAnimationFrame(effacerSelectionParasite)
     }
     // `passive: false` : sans cela le navigateur refuse le preventDefault et
     // laisse son propre defilement s'ajouter au notre.
