@@ -28,7 +28,7 @@
 #   --sshkey FICHIER      Clé publique SSH principale (défaut : auto-détectée dans ~/.ssh/)
 #   --extra-sshkey FICH   Clé publique supplémentaire à injecter (ex. clé Windows)
 #   --ciuser USER         Utilisateur cloud-init      (défaut : debian)
-#   --cpu MODELE          Modèle CPU QEMU             (défaut : x86-64-v3)
+#   --cpu MODELE          Modèle CPU QEMU             (défaut : x86-64-v3 ; ou host)
 #   --swap PCT            Swapfile en % de la RAM     (défaut : 25 ; 0 = désactivé)
 
 set -euo pipefail
@@ -51,6 +51,18 @@ CI_USER="debian"
 # x86-64-v3 expose AVX/AVX2/FMA, est supporté par les deux nœuds du cluster (Haswell + Raptor Lake),
 # et reste live-migratable entre eux — contrairement à --cpu host qui épingle au modèle exact.
 CPU_TYPE="x86-64-v3"
+# Liste fermée, alignée sur celle du descripteur UI (proxmox-clone-vm-node.json).
+# Un modèle inconnu ne serait rejeté que par `qm set`, APRÈS le clone : la VM
+# resterait créée mais à moitié configurée. On le refuse donc avant d'y toucher.
+#
+# `host` expose les extensions de virtualisation (vmx/svm), donc /dev/kvm, donc
+# la virtualisation imbriquée. En contrepartie il épingle la VM au CPU exact de
+# son hôte : plus de migration à chaud vers un hôte différent. C'est pour ça
+# qu'il reste opt-in et n'est pas le défaut.
+#
+# kvm64 est volontairement absent : il masque AVX, dont dépendent les binaires
+# compilés avec Bun (dont `claude`).
+CPU_TYPES_AUTORISES=("x86-64-v3" "host")
 PORTAL_URL=""
 PORTAL_TOKEN=""
 PORTAL_PVE_NODE=""
@@ -155,6 +167,39 @@ SWAP_MB=$(( MEMORY * SWAP_PERCENT / 100 ))
 if [[ "$SWAP_PERCENT" -gt 0 ]]; then
     [[ "$SWAP_MB" -lt "$SWAP_MIN_MB" ]] && SWAP_MB="$SWAP_MIN_MB"
     [[ "$SWAP_MB" -gt "$SWAP_MAX_MB" ]] && SWAP_MB="$SWAP_MAX_MB"
+fi
+
+# Modèle CPU : liste fermée, validée AVANT le clone (cf. CPU_TYPES_AUTORISES)
+cpu_ok=""
+for modele in "${CPU_TYPES_AUTORISES[@]}"; do
+    [[ "$CPU_TYPE" == "$modele" ]] && { cpu_ok=1; break; }
+done
+[[ -n "$cpu_ok" ]] || {
+    # IFS vaut $'\n\t' dans ce script : `${tableau[*]}` collerait les valeurs
+    # avec un saut de ligne. On assemble donc la liste explicitement.
+    liste_cpu="$(IFS='|'; echo "${CPU_TYPES_AUTORISES[*]}")"
+    echo "ERREUR : --cpu '$CPU_TYPE' invalide." >&2
+    echo "  Valeurs acceptées : ${liste_cpu//|/, }" >&2
+    echo "  Aucune VM n'a été créée." >&2
+    exit 1
+}
+
+# `host` sans nesting côté hôte donne une VM sans /dev/kvm : le modèle CPU est
+# bien passé, mais l'hyperviseur ne relaie pas les extensions. Le diagnostic
+# depuis l'invité est alors trompeur — on le signale ici, à la source.
+if [[ "$CPU_TYPE" == "host" ]]; then
+    # `|| true` obligatoire : sous `set -e`, un `cat` sur des fichiers absents
+    # (module KVM non charge) ferait echouer l'assignation, donc tout le script
+    # — avant meme le clone. Une sonde de diagnostic ne doit rien interrompre.
+    nested="$(cat /sys/module/kvm_intel/parameters/nested \
+                  /sys/module/kvm_amd/parameters/nested 2>/dev/null | head -n1 || true)"
+    if [[ "$nested" != "Y" && "$nested" != "1" ]]; then
+        echo "AVERTISSEMENT : nesting inactif sur cet hôte — la VM n'aura pas /dev/kvm." >&2
+        echo "  Activer :  echo 'options kvm-intel nested=1' > /etc/modprobe.d/kvm-intel.conf" >&2
+        echo "             modprobe -r kvm_intel && modprobe kvm_intel   (ou reboot de l'hôte)" >&2
+        echo "  Adapter kvm-intel -> kvm-amd sur un hôte AMD. La VM doit ensuite être" >&2
+        echo "  ARRÊTÉE puis redémarrée : un reboot invité ne rejoue pas la définition QEMU." >&2
+    fi
 fi
 
 # Valeur 'auto' passée par l'interface → traité comme vide (détection automatique)

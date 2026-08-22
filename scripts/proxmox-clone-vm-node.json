@@ -164,6 +164,26 @@
           "default": 25,
           "min": 0,
           "max": 100
+        },
+        {
+          "arg": "CPU_TYPE",
+          "label_fr": "Mod\u00e8le CPU",
+          "label_en": "CPU model",
+          "description_fr": "'host' expose les extensions de virtualisation \u00e0 l'invit\u00e9 (vmx/svm, donc /dev/kvm) : n\u00e9cessaire \u00e0 la virtualisation imbriqu\u00e9e (\u00e9mulateur Android, libvirt, Firecracker). En contrepartie la VM est \u00e9pingl\u00e9e au CPU de son h\u00f4te et ne peut plus migrer \u00e0 chaud vers un h\u00f4te diff\u00e9rent. Exige aussi le nesting actif sur l'h\u00f4te Proxmox.",
+          "description_en": "'host' exposes virtualization extensions to the guest (vmx/svm, hence /dev/kvm): required for nested virtualization (Android emulator, libvirt, Firecracker). In exchange the VM is pinned to its host CPU and can no longer live-migrate to a different host. Also requires nesting enabled on the Proxmox host.",
+          "type": "select",
+          "required": false,
+          "default": "x86-64-v3",
+          "options": [
+            {
+              "value": "x86-64-v3",
+              "label": "x86-64-v3 (d\u00e9faut \u2014 migrable \u00e0 chaud)"
+            },
+            {
+              "value": "host",
+              "label": "host (virtualisation imbriqu\u00e9e, non migrable)"
+            }
+          ]
         }
 
       ]
@@ -174,7 +194,7 @@
   "commands": [
     "curl -fsSL -o /tmp/proxmox-clone-vm-node.sh https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/proxmox-clone-vm-node.sh",
     "chmod +x /tmp/proxmox-clone-vm-node.sh",
-    "/tmp/proxmox-clone-vm-node.sh {NEW_VMID} '{NODE_NAME}' --ip '{IP_CIDR}' --gw '{GATEWAY}' --template '{TEMPLATE_VMID}' --storage '{STORAGE}' --dns '{DNS}' --memory {MEMORY} --cores {CORES} --disk '{DISK_EXTRA}' --swap {SWAP_PERCENT} --ciuser '{CI_USER}' --portal-url '{PORTAL_URL}' --portal-token '{PORTAL_TOKEN}' --portal-pve-node '{PORTAL_PVE_NODE}'"
+    "/tmp/proxmox-clone-vm-node.sh {NEW_VMID} '{NODE_NAME}' --ip '{IP_CIDR}' --gw '{GATEWAY}' --template '{TEMPLATE_VMID}' --storage '{STORAGE}' --dns '{DNS}' --memory {MEMORY} --cores {CORES} --disk '{DISK_EXTRA}' --swap {SWAP_PERCENT} --cpu '{CPU_TYPE}' --ciuser '{CI_USER}' --portal-url '{PORTAL_URL}' --portal-token '{PORTAL_TOKEN}' --portal-pve-node '{PORTAL_PVE_NODE}'"
   ],
   "tags": ["create_vm"]
 }
