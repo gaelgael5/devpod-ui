@@ -39,6 +39,17 @@ export const LINE_PX = 20
 /** Plafond de l'accumulateur : un geste ample ne doit pas defiler pendant des secondes. */
 export const MAX_LIGNES_EN_ATTENTE = 50
 
+/**
+ * Deplacement a franchir avant qu'un contact devienne un glissement.
+ *
+ * Sans ce seuil, `touchMove` consommait le geste des le premier pixel et
+ * l'appelant supprimait l'evenement — ce qui, sur iOS, supprime aussi le clic
+ * synthetise dont xterm a besoin pour prendre le focus et pour selectionner un
+ * mot au double-clic. Un doigt ne se pose jamais parfaitement immobile : la
+ * tape la plus franche bouge de quelques pixels, et devenait un glissement.
+ */
+export const DRAG_SLOP_PX = 12
+
 export interface HistoryScroller {
   /** Molette. Retourne `true` si le geste est consomme (defilement natif a supprimer). */
   wheel(deltaY: number): boolean
@@ -71,6 +82,10 @@ export function createHistoryScroller({
 }: Options): HistoryScroller {
   let acc = 0
   let lastY: number | null = null
+  /** Point de pose du doigt, pour mesurer le franchissement du seuil. */
+  let departY: number | null = null
+  /** Le seuil est-il franchi ? Tant que non, le contact peut encore etre une tape. */
+  let glisse = false
   let planifie = false
   /** Copy-mode deja demande pour la salve en cours. */
   let entre = false
@@ -133,10 +148,24 @@ export function createHistoryScroller({
 
     touchStart(clientY) {
       lastY = clientY
+      departY = clientY
+      glisse = false
     },
 
     touchMove(clientY) {
-      if (lastY === null) return false
+      if (lastY === null || departY === null) return false
+      // Sous le seuil, le contact reste une tape : on ne consomme rien, et le
+      // navigateur garde le droit de synthetiser son clic.
+      if (!glisse) {
+        if (Math.abs(clientY - departY) < DRAG_SLOP_PX) return false
+        // Le glissement part du point de franchissement, pas du point de pose :
+        // sinon il commencerait par un saut de la valeur du seuil. `feed(0)`
+        // n'accumule rien et repond ce que repondra la suite du geste — non
+        // consomme hors tampon alterne, ou xterm a son propre scrollback.
+        glisse = true
+        lastY = clientY
+        return feed(0)
+      }
       // Le doigt descend => on remonte dans l'historique : signe inverse.
       const consomme = feed(-(clientY - lastY))
       lastY = clientY
@@ -145,6 +174,8 @@ export function createHistoryScroller({
 
     touchEnd() {
       lastY = null
+      departY = null
+      glisse = false
     },
   }
 }

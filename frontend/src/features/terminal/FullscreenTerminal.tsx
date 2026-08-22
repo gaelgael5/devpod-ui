@@ -13,6 +13,7 @@ import { createLinkCollector } from './linkCollector'
 import { isTouchOnly } from './isTouchOnly'
 import { createHistoryScroller } from './historyScroll'
 import { createDoubleTapDetector } from './doubleTap'
+import { isPastLineEnd } from './lineHitTest'
 import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
 import '@xterm/xterm/css/xterm.css'
 
@@ -205,9 +206,14 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data))
       },
     })
-    // Double tape -> Tab. Tactile uniquement : au bureau le double-clic
-    // appartient a xterm, qui s'en sert pour selectionner un mot.
+    // Double tape -> Tab, mais SEULEMENT dans le vide apres la fin de la ligne.
+    // Sur du texte la double tape reste a xterm, qui selectionne le mot touche —
+    // c'est le seul moyen de copier au doigt. Au-dela du dernier caractere il
+    // n'y a rien a selectionner, et le geste veut dire « complete ce que je
+    // viens de taper » : Tab.
     const doubleTap = createDoubleTapDetector()
+    /** Position de la derniere tape, pour situer la double tape dans la grille. */
+    let dernierePosition = { x: 0, y: 0 }
 
     const surface = termRef.current
     const onWheel = (e: WheelEvent) => {
@@ -216,6 +222,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     const onTouchStart = (e: TouchEvent) => {
       const t = e.touches[0]
       doubleTap.start(t.clientX, t.clientY, e.touches.length)
+      dernierePosition = { x: t.clientX, y: t.clientY }
       // Un seul doigt : le pincement de zoom ne doit pas devenir un defilement.
       if (e.touches.length === 1) scroller.touchStart(t.clientY)
     }
@@ -230,8 +237,11 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     const onTouchEnd = (e: TouchEvent) => {
       scroller.touchEnd()
       if (!doubleTap.end()) return
-      // `preventDefault` supprime le zoom double-tape d'iOS ET le `dblclick`
-      // synthetise, qui declencherait la selection de mot de xterm.
+      // Sur du texte : on ne touche a rien, le `dblclick` que le navigateur
+      // synthetise fait selectionner le mot par xterm.
+      if (!isPastLineEnd(terminal, dernierePosition.x, dernierePosition.y)) return
+      // `preventDefault` supprime le `dblclick`, qui poserait ici une selection
+      // vide et deplacerait le curseur de selection pour rien.
       e.preventDefault()
       if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode('\t'))
     }
@@ -323,6 +333,21 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // dimensions de caractère mises en cache par xterm ne valent plus rien.
     const onVisible = () => {
       if (document.hidden) return
+      // Safari coupe la WebSocket en mettant la page en arriere-plan, et ne
+      // delivre pas toujours le `close` au retour : l'application se croit
+      // connectee, l'overlay de reconnexion ne s'affiche pas, et plus rien de
+      // ce qu'on tape ne part. Session figee, sans le moindre indice a l'ecran.
+      // On relit donc l'etat reel au retour plutot que d'attendre l'evenement.
+      //
+      // CONNECTING est exclu a dessein : une socket en cours d'ouverture n'est
+      // pas morte, et la remonter ici bouclerait (`focus` et `visibilitychange`
+      // arrivent ensemble).
+      if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+        // Remonte la session. tmux la reattache dans l'etat ou elle etait.
+        setDisconnected(false)
+        setEpoch((e) => e + 1)
+        return
+      }
       requestAnimationFrame(() => {
         safeFit()
         terminal.refresh(0, terminal.rows - 1)
@@ -330,12 +355,17 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
+    // Retour depuis le cache de navigation (bouton « precedent » de Safari) :
+    // la page revient telle quelle, sans `visibilitychange`, avec une socket
+    // deja morte.
+    window.addEventListener('pageshow', onVisible)
 
     return () => {
       intentional = true
       window.removeEventListener('resize', onResize)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onVisible)
+      window.removeEventListener('pageshow', onVisible)
       termHost?.removeEventListener('mousedown', diagMouse)
       termHost?.removeEventListener('mouseup', diagMouse)
       ro.disconnect()
@@ -427,7 +457,15 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         />
       )}
       <div className="relative min-h-0 flex-1">
-        <div ref={termRef} className="absolute inset-0" data-testid="terminal-surface" />
+        {/* `touch-action: manipulation` supprime le zoom double-tape d'iOS, qui
+            avalait la seconde tape et retardait le clic de la premiere. Le
+            defilement reste a notre charge : il passe par le geste, pas par le
+            defilement natif. */}
+        <div
+          ref={termRef}
+          className="absolute inset-0 touch-manipulation"
+          data-testid="terminal-surface"
+        />
         {disconnected && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 backdrop-blur-sm">
             <p className="text-sm text-white/80">{t('workspaces.terminals.disconnected')}</p>

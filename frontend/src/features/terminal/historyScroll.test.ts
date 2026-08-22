@@ -8,6 +8,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import {
+  DRAG_SLOP_PX,
   ENTER_COPY,
   LINE_DOWN,
   LINE_PX,
@@ -119,7 +120,9 @@ describe('createHistoryScroller', () => {
   it('remonte quand le doigt descend', () => {
     const { s, send, tick } = scroller()
     s.touchStart(100)
-    s.touchMove(100 + LINE_PX * 2)
+    // Le premier deplacement arme le glissement ; le defilement part de la.
+    s.touchMove(100 + DRAG_SLOP_PX)
+    s.touchMove(100 + DRAG_SLOP_PX + LINE_PX * 2)
     tick(5)
 
     expect(send.mock.calls.map((c) => c[0])).toEqual([ENTER_COPY, LINE_UP, LINE_UP])
@@ -128,10 +131,51 @@ describe('createHistoryScroller', () => {
   it('redescend quand le doigt remonte', () => {
     const { s, send, tick } = scroller()
     s.touchStart(500)
-    s.touchMove(500 - LINE_PX)
+    s.touchMove(500 - DRAG_SLOP_PX)
+    s.touchMove(500 - DRAG_SLOP_PX - LINE_PX)
     tick(5)
 
     expect(send.mock.calls.map((c) => c[0])).toEqual([LINE_DOWN])
+  })
+
+  it('ne consomme pas un micro-mouvement de tape', () => {
+    // Consomme, le geste perdrait le clic que le navigateur en synthetise —
+    // donc le focus de xterm, donc le clavier mobile et la selection de mot.
+    const { s, send } = scroller()
+    s.touchStart(300)
+
+    expect(s.touchMove(300 + DRAG_SLOP_PX - 1)).toBe(false)
+    expect(s.touchMove(300 - DRAG_SLOP_PX + 1)).toBe(false)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('ne defile pas du saut du seuil', () => {
+    // Le glissement doit partir du point de franchissement : sinon le contenu
+    // sauterait de la valeur du seuil des que le doigt bouge assez.
+    const { s, send, tick } = scroller()
+    s.touchStart(300)
+    s.touchMove(300 + DRAG_SLOP_PX)
+    tick(5)
+
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('redemande le seuil apres un relachement', () => {
+    // Sinon la tape qui suit un glissement serait prise pour sa continuation.
+    const { s, send, tick } = scroller()
+    s.touchStart(300)
+    s.touchMove(300 + DRAG_SLOP_PX)
+    s.touchMove(300 + DRAG_SLOP_PX + LINE_PX * 2)
+    s.touchEnd()
+    // Les lignes en attente s'ecoulent frame par frame : on vide avant de
+    // mesurer, sinon c'est le geste precedent qu'on lirait.
+    tick(10)
+    send.mockClear()
+
+    s.touchStart(300)
+    expect(s.touchMove(300 + DRAG_SLOP_PX - 1)).toBe(false)
+    tick(5)
+    expect(send).not.toHaveBeenCalled()
   })
 
   it('ignore un glissement sans depart', () => {

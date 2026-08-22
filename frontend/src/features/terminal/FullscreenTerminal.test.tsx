@@ -8,6 +8,8 @@ import { ENTER_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScroll'
 // Mock xterm : capture l'instance pour déclencher onSelectionChange depuis les
 // tests. jsdom ne rend pas de vrai terminal.
 const terminals: MockTerminal[] = []
+/** Largeur d'une colonne dans le mock ; la hauteur de ligne en vaut le double. */
+const CELL_PX = 10
 
 class MockTerminal {
   cols = 80
@@ -15,7 +17,29 @@ class MockTerminal {
   // Zone de saisie cachee de xterm. Le vrai composant s'y accroche pour suivre
   // l'etat du clavier mobile : sans elle le bouton « clavier » ne peut rien.
   textarea: HTMLTextAreaElement = document.createElement('textarea')
-  open = vi.fn((el: HTMLElement) => el.appendChild(this.textarea))
+  /**
+   * Zone de rendu, cherchee par le hit-test des gestes. Une colonne fait
+   * `CELL_PX` de large et une ligne `CELL_PX * 2` de haut, quel que soit le fit :
+   * une tape en (x, y) tombe donc sur la colonne `x / CELL_PX`.
+   */
+  screen: HTMLDivElement = Object.assign(document.createElement('div'), {
+    className: 'xterm-screen',
+  })
+  element: HTMLElement | undefined
+  /** Contenu de toute ligne du tampon. */
+  ligne = 'ls -la'
+  open = vi.fn((el: HTMLElement) => {
+    this.element = el
+    el.appendChild(this.textarea)
+    el.appendChild(this.screen)
+    this.screen.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: this.cols * CELL_PX,
+        height: this.rows * CELL_PX * 2,
+      }) as DOMRect
+  })
   dispose = vi.fn()
   focus = vi.fn(() => this.textarea.focus())
   write = vi.fn()
@@ -28,7 +52,13 @@ class MockTerminal {
   // version active. Absente du mock, le composant plantait au montage.
   unicode = { activeVersion: '11', versions: ['11'] }
   // tmux occupe l'ecran alterne : c'est ce que le defilement au geste teste.
-  buffer = { active: { type: 'alternate' as 'normal' | 'alternate' } }
+  buffer = {
+    active: {
+      type: 'alternate' as 'normal' | 'alternate',
+      viewportY: 0,
+      getLine: () => ({ translateToString: () => this.ligne }),
+    },
+  }
   getSelection = vi.fn(() => '')
   private selectionCb: (() => void) | null = null
   private dataCb: ((data: string) => void) | null = null
@@ -96,7 +126,10 @@ vi.mock('@xterm/addon-web-links', () => ({
 const sockets: MockWebSocket[] = []
 
 class MockWebSocket {
+  static CONNECTING = 0
   static OPEN = 1
+  static CLOSING = 2
+  static CLOSED = 3
   readyState = 1
   url = ''
   binaryType = ''
@@ -462,7 +495,15 @@ describe('FullscreenTerminal — historique au geste', () => {
 })
 
 describe('FullscreenTerminal — double tape', () => {
-  function tape(x = 100, y = 100) {
+  /**
+   * Le mock affiche « ls -la » sur chaque ligne : les colonnes 0 a 5 portent du
+   * texte, au-dela c'est le vide. A `CELL_PX` par colonne, x=25 tombe sur le
+   * texte et x=200 loin apres la fin de la ligne.
+   */
+  const SUR_LE_TEXTE = 2.5 * CELL_PX
+  const APRES_LA_LIGNE = 20 * CELL_PX
+
+  function tape(x = APRES_LA_LIGNE, y = 10) {
     const el = screen.getByTestId('terminal-surface')
     fireEvent.touchStart(el, { touches: [{ clientX: x, clientY: y }] })
     fireEvent.touchEnd(el, { touches: [] })
@@ -476,7 +517,7 @@ describe('FullscreenTerminal — double tape', () => {
       .map((d) => dec.decode(d as ArrayBufferView))
   }
 
-  it('envoie Tab sur une double tape', () => {
+  it('envoie Tab sur une double tape apres la fin de la ligne', () => {
     renderTerminal()
 
     tape()
@@ -484,6 +525,17 @@ describe('FullscreenTerminal — double tape', () => {
 
     tape()
     expect(sent()).toContain('\t')
+  })
+
+  it('laisse la selection de mot a xterm sur du texte', () => {
+    // Double taper un mot doit le selectionner — seul moyen de copier au doigt.
+    // Envoyer Tab la, ou seulement supprimer l'evenement, volerait ce geste.
+    renderTerminal()
+
+    tape(SUR_LE_TEXTE)
+    tape(SUR_LE_TEXTE)
+
+    expect(sent()).not.toContain('\t')
   })
 
   it('n’envoie rien sur une tape isolee', () => {
@@ -500,11 +552,23 @@ describe('FullscreenTerminal — double tape', () => {
     const el = screen.getByTestId('terminal-surface')
 
     tape()
-    fireEvent.touchStart(el, { touches: [{ clientX: 100, clientY: 100 }] })
-    fireEvent.touchMove(el, { touches: [{ clientX: 100, clientY: 300 }] })
+    fireEvent.touchStart(el, { touches: [{ clientX: APRES_LA_LIGNE, clientY: 10 }] })
+    fireEvent.touchMove(el, { touches: [{ clientX: APRES_LA_LIGNE, clientY: 210 }] })
     fireEvent.touchEnd(el, { touches: [] })
 
     expect(sent()).not.toContain('\t')
+  })
+
+  it('ne supprime pas le geste d’une tape simple', () => {
+    // Supprimer l'evenement tuerait le clic synthetise par le navigateur, donc
+    // le focus de xterm : plus de clavier mobile, plus de selection.
+    renderTerminal()
+    const el = screen.getByTestId('terminal-surface')
+
+    fireEvent.touchStart(el, { touches: [{ clientX: APRES_LA_LIGNE, clientY: 10 }] })
+    const permis = fireEvent.touchEnd(el, { touches: [] })
+
+    expect(permis).toBe(true)
   })
 })
 
@@ -551,5 +615,57 @@ describe('FullscreenTerminal — bouton clavier', () => {
     const evt = fireEvent.mouseDown(bouton())
 
     expect(evt).toBe(false)
+  })
+})
+
+describe('FullscreenTerminal — retour sur la session', () => {
+  /** Simule un retour au premier plan (onglet, ou retour arriere de Safari). */
+  function revenir() {
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      vi.advanceTimersByTime(50)
+    })
+  }
+
+  it('reconnecte quand la socket est morte pendant l’absence', () => {
+    // Safari coupe la WebSocket en arriere-plan sans toujours delivrer `close` :
+    // sans cette relecture, la session restait figee et muette.
+    renderTerminal()
+    sockets[0].readyState = MockWebSocket.CLOSED
+
+    revenir()
+
+    expect(sockets).toHaveLength(2)
+  })
+
+  it('reconnecte aussi au retour depuis le cache de navigation', () => {
+    renderTerminal()
+    sockets[0].readyState = MockWebSocket.CLOSED
+
+    act(() => {
+      window.dispatchEvent(new Event('pageshow'))
+      vi.advanceTimersByTime(50)
+    })
+
+    expect(sockets).toHaveLength(2)
+  })
+
+  it('ne reconnecte pas une socket vivante', () => {
+    renderTerminal()
+
+    revenir()
+
+    expect(sockets).toHaveLength(1)
+  })
+
+  it('ne reconnecte pas une socket en cours d’ouverture', () => {
+    // `focus` et `visibilitychange` arrivent ensemble : remonter ici bouclerait.
+    renderTerminal()
+    sockets[0].readyState = MockWebSocket.CONNECTING
+
+    revenir()
+    revenir()
+
+    expect(sockets).toHaveLength(1)
   })
 })
