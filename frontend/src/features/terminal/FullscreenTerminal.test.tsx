@@ -2,7 +2,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { I18nextProvider } from 'react-i18next'
 import i18n from '@/i18n'
-import FullscreenTerminal from './FullscreenTerminal'
+import FullscreenTerminal, { AJUSTEMENT_MS } from './FullscreenTerminal'
 import { ENTER_COPY, EXIT_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScroll'
 
 // Mock xterm : capture l'instance pour déclencher onSelectionChange depuis les
@@ -186,6 +186,7 @@ beforeEach(() => {
     toJSON: () => ({}),
   })
   terminals.length = 0
+  fitAddons.length = 0
   sockets.length = 0
   linkHandler = null
   writeText.mockClear()
@@ -880,5 +881,63 @@ describe('FullscreenTerminal — retour du copy-mode', () => {
 
     expect(envoye()).not.toContain(EXIT_COPY)
     expect(envoye()).toContain('a')
+  })
+})
+
+describe('FullscreenTerminal — stabilite de l’affichage au redimensionnement', () => {
+  /**
+   * L'ouverture du clavier mobile n'est pas un evenement unique : le viewport
+   * retrecit par paliers pendant toute l'animation. Ajuster a chaque palier
+   * envoyait une rafale de SIGWINCH a tmux, qui redessinait a chacun — d'ou
+   * l'affichage entrelace, deux lignes se marchant dessus.
+   */
+  /** Monte, puis laisse retomber les ajustements du montage lui-meme. */
+  function monterStabilise() {
+    renderTerminal()
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+  }
+
+  function rafaleDeRedimensionnements(n: number) {
+    for (let i = 0; i < n; i++) {
+      act(() => {
+        window.dispatchEvent(new Event('resize'))
+        vi.advanceTimersByTime(10)
+      })
+    }
+  }
+
+  it('ne se recale qu’une fois pour toute une rafale', () => {
+    monterStabilise()
+    const fit = fitAddons[0].fit
+    fit.mockClear()
+
+    rafaleDeRedimensionnements(12)
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS))
+
+    expect(fit).toHaveBeenCalledTimes(1)
+  })
+
+  it('attend la fin de la rafale avant de se recaler', () => {
+    // Se recaler au milieu, c'est se caler sur une taille intermediaire que le
+    // clavier va encore faire bouger.
+    monterStabilise()
+    const fit = fitAddons[0].fit
+    fit.mockClear()
+
+    rafaleDeRedimensionnements(3)
+
+    expect(fit).not.toHaveBeenCalled()
+  })
+
+  it('redessine tout apres s’etre recale', () => {
+    // Les tailles intermediaires laissent des residus a l'ecran : sans redessin
+    // complet, ce sont eux qu'on prend pour un affichage instable.
+    monterStabilise()
+    terminals[0].refresh.mockClear()
+
+    rafaleDeRedimensionnements(2)
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS))
+
+    expect(terminals[0].refresh).toHaveBeenCalled()
   })
 })

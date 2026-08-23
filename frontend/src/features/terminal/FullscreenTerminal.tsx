@@ -36,6 +36,14 @@ interface Props {
  * WebSocket + overlay de reconnexion + barre de touches. La cible est fournie via
  * `wsPath`, ce qui couvre indifféremment session/shell/VM de test/host Docker.
  */
+/**
+ * Delai avant de se recaler sur une nouvelle taille.
+ *
+ * Assez long pour couvrir l'animation d'ouverture du clavier mobile, assez
+ * court pour que le terminal ne reste pas visiblement mal dimensionne.
+ */
+export const AJUSTEMENT_MS = 150
+
 export default function FullscreenTerminal({ wsPath, title, resize = true }: Props) {
   const { t } = useTranslation()
   const termRef = useRef<HTMLDivElement>(null)
@@ -244,7 +252,14 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       )
       setDisconnected(true)
     })
-    const resizeDisposable = terminal.onResize(({ cols, rows }) => sendResize(cols, rows))
+    let resizeLogs = 0
+    const resizeDisposable = terminal.onResize(({ cols, rows }) => {
+      if (resizeLogs < 15) {
+        resizeLogs++
+        console.warn(`terminal_diag: resize ${JSON.stringify({ cols, rows })}`)
+      }
+      sendResize(cols, rows)
+    })
 
     // Double tape -> Tab, mais SEULEMENT dans le vide apres la fin de la ligne.
     // Sur du texte la double tape reste a xterm, qui selectionne le mot touche —
@@ -380,9 +395,33 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     }
     ws.onerror = () => terminal.write(tRef.current('admin.sshTerminal.connError'))
 
-    const onResize = () => safeFit()
+    /**
+     * Ajustement differe.
+     *
+     * L'ouverture du clavier mobile n'est pas un evenement unique : le viewport
+     * retrecit par paliers pendant toute l'animation. Ajuster a chaque palier
+     * envoyait une rafale de SIGWINCH a tmux, qui redessinait a chacun — d'ou
+     * un affichage entrelace, deux lignes se marchant dessus. On attend que la
+     * taille se stabilise avant de se recaler une seule fois.
+     *
+     * Le premier ajustement, lui, reste synchrone au montage : `ssh` fixe la
+     * taille du PTY distant au demarrage et ne la relit jamais.
+     */
+    let ajustement: ReturnType<typeof setTimeout> | undefined
+    const planifierAjustement = () => {
+      clearTimeout(ajustement)
+      ajustement = setTimeout(() => {
+        safeFit()
+        // Redessin complet : les tailles intermediaires laissent des residus,
+        // et Safari mobile garde en cache des dimensions de caractere qui ne
+        // valent plus rien apres le changement.
+        terminal.refresh(0, terminal.rows - 1)
+      }, AJUSTEMENT_MS)
+    }
+
+    const onResize = planifierAjustement
     window.addEventListener('resize', onResize)
-    const ro = new ResizeObserver(() => safeFit())
+    const ro = new ResizeObserver(planifierAjustement)
     if (termRef.current) ro.observe(termRef.current)
 
     // Retour sur l'onglet : re-mesurer puis forcer un redessin complet. Safari
@@ -419,6 +458,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
 
     return () => {
       intentional = true
+      clearTimeout(ajustement)
       window.removeEventListener('resize', onResize)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onVisible)
