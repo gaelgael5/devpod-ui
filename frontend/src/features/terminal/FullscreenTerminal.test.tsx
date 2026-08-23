@@ -96,6 +96,11 @@ class MockTerminal {
     this.selectionCb?.()
   }
 
+  /** Simule une frappe au clavier : xterm la ressort par `onData`. */
+  simulateData(data: string) {
+    this.dataCb?.(data)
+  }
+
   /** Selection posee sur du vide : active, mais sans texte a en tirer. */
   simulateEmptySelection() {
     this.selectionActive = true
@@ -788,5 +793,32 @@ describe('FullscreenTerminal — session perdue', () => {
 
     expect(sockets[0].send).toHaveBeenCalled()
     expect(screen.queryByText(/déconnect|disconnect/i)).toBeNull()
+  })
+})
+
+describe('FullscreenTerminal — frappe clavier', () => {
+  /**
+   * `onData` porte la frappe au clavier : le chemin le plus direct, et le
+   * dernier a rester muet. Taper sur une socket fermee ne produisait RIEN — ni
+   * caractere a l'ecran, ni message — et rien ne disait si le fautif etait le
+   * clavier ou la session.
+   */
+  it('envoie la frappe quand la session est vivante', () => {
+    renderTerminal()
+
+    act(() => terminals[0].simulateData('a'))
+
+    expect(sockets[0].send).toHaveBeenCalled()
+    expect(screen.queryByText(/déconnect|disconnect/i)).toBeNull()
+  })
+
+  it('signale la session perdue au lieu d’avaler la frappe', () => {
+    renderTerminal()
+    sockets[0].readyState = MockWebSocket.CLOSED
+
+    act(() => terminals[0].simulateData('a'))
+
+    expect(sockets[0].send).not.toHaveBeenCalled()
+    expect(screen.getByText(/déconnect|disconnect/i)).toBeInTheDocument()
   })
 })

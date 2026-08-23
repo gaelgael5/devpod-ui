@@ -143,8 +143,14 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         )
       : { dispose: () => {} }
 
-    const onInputFocus = () => setInputFocused(true)
-    const onInputBlur = () => setInputFocused(false)
+    const onInputFocus = () => {
+      console.warn('terminal_diag: saisie_focus')
+      setInputFocused(true)
+    }
+    const onInputBlur = () => {
+      console.warn('terminal_diag: saisie_blur')
+      setInputFocused(false)
+    }
     let input: HTMLTextAreaElement | null = null
 
     if (termRef.current) {
@@ -192,8 +198,29 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     ws.onopen = () => sendResize(terminal.cols, terminal.rows)
 
     const encoder = new TextEncoder()
+    /** Frappes clavier : le chemin le plus direct, et le dernier reste muet. */
+    let dataLogs = 0
     const dataDisposable = terminal.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data))
+      if (dataLogs < 10) {
+        dataLogs++
+        console.warn(
+          `terminal_diag: data ${JSON.stringify({
+            chars: data.length,
+            readyState: ws.readyState,
+          })}`,
+        )
+      }
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(encoder.encode(data))
+        return
+      }
+      // Taper sur une socket fermee ne produisait RIEN : ni caractere a
+      // l'ecran, ni message. Le clavier repond, la session non, et rien ne dit
+      // laquelle des deux est en cause.
+      console.warn(
+        `terminal_diag: frappe_sur_socket_fermee ${JSON.stringify({ readyState: ws.readyState })}`,
+      )
+      setDisconnected(true)
     })
     const resizeDisposable = terminal.onResize(({ cols, rows }) => sendResize(cols, rows))
 
