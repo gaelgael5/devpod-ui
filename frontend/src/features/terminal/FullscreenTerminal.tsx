@@ -288,21 +288,26 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       const text = terminal.getSelection()
       if (selLogs < 10) {
         selLogs++
-        console.warn(`terminal_diag: selection_change ${JSON.stringify({ chars: text.length })}`)
+        console.warn(
+          `terminal_diag: selection_change ${JSON.stringify({
+            chars: text.length,
+            active: terminal.hasSelection(),
+          })}`,
+        )
       }
-      // Une selection qui ne contient que du blanc n'a rien a copier : c'est la
-      // bande surlignee que xterm pose quand la double tape tombe apres la fin
-      // de la ligne. On l'annule ICI, au seul moment ou l'on sait qu'elle
-      // existe — tous les nettoyages accroches au geste arrivaient avant elle,
-      // d'ou une bande qui apparaissait puis disparaissait.
+      // La bande surlignee en travers de l'ecran est une selection de xterm qui
+      // ne couvre que du vide. Son texte est '' et non une suite d'espaces :
+      // `getSelection` traduit les lignes en les rognant a droite. Tester le
+      // contenu ne pouvait donc rien attraper — mesure cote Loki : 29
+      // `selection_change` d'affilee, tous a `chars: 0`, alors que la bande
+      // etait bien visible.
       //
-      // `clearSelection` relance cet evenement avec une selection vide, que la
-      // ligne suivante ecarte : pas de boucle.
-      if (text && !text.trim()) {
-        terminal.clearSelection()
+      // On interroge donc l'ETAT de la selection, pas son texte. `clearSelection`
+      // relance l'evenement, mais `hasSelection` est alors faux : pas de boucle.
+      if (!text) {
+        if (terminal.hasSelection()) terminal.clearSelection()
         return
       }
-      if (!text) return
       lastSelectionRef.current = text
       clearTimeout(copyTimer)
       copyTimer = setTimeout(() => {

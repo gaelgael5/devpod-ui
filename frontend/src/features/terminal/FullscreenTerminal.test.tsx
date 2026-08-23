@@ -60,7 +60,17 @@ class MockTerminal {
     },
   }
   getSelection = vi.fn(() => '')
-  clearSelection = vi.fn()
+  /**
+   * xterm rogne les lignes a droite : une selection qui ne couvre que du vide
+   * a un texte VIDE tout en restant active — et dessinee. Le mock doit donc
+   * porter les deux etats separement, sinon il ne peut pas reproduire le bug.
+   */
+  selectionActive = false
+  hasSelection = vi.fn(() => this.selectionActive)
+  clearSelection = vi.fn(() => {
+    this.selectionActive = false
+    this.simulateSelection('')
+  })
   private selectionCb: (() => void) | null = null
   private dataCb: ((data: string) => void) | null = null
   onData = vi.fn((cb: (data: string) => void) => {
@@ -84,6 +94,12 @@ class MockTerminal {
   simulateSelection(text: string) {
     this.getSelection.mockReturnValue(text)
     this.selectionCb?.()
+  }
+
+  /** Selection posee sur du vide : active, mais sans texte a en tirer. */
+  simulateEmptySelection() {
+    this.selectionActive = true
+    this.simulateSelection('')
   }
 }
 
@@ -671,62 +687,56 @@ describe('FullscreenTerminal — retour sur la session', () => {
   })
 })
 
-describe('FullscreenTerminal — selection de blanc', () => {
+describe('FullscreenTerminal — selection de vide', () => {
   /**
-   * La bande surlignee en travers de l'ecran n'est pas une selection native —
-   * xterm.css pose `user-select: none` sur `.xterm`, elle y est impossible.
-   * C'est xterm qui la dessine, quand la double tape tombe apres la fin de la
-   * ligne. Elle ne contient que du blanc : rien a copier.
+   * La bande surlignee en travers de l'ecran est une selection de xterm posee
+   * sur du vide. Son texte est '' et non une suite d'espaces — xterm rogne les
+   * lignes a droite. C'est ce qui rendait le bug insaisissable : mesure Loki,
+   * 29 `selection_change` d'affilee a `chars: 0`, bande bien visible.
    */
-  it('annule une selection qui ne contient que du blanc', () => {
+  it('annule une selection active mais sans texte', () => {
     renderTerminal()
 
-    terminals[0].simulateSelection('      ')
+    terminals[0].simulateEmptySelection()
 
     expect(terminals[0].clearSelection).toHaveBeenCalled()
   })
 
-  it('annule aussi une selection de tabulations et de sauts de ligne', () => {
+  it('ne fait rien quand aucune selection n’est active', () => {
+    // L'evenement part aussi quand une selection DISPARAIT : re-effacer la
+    // relancerait sans fin.
     renderTerminal()
 
-    terminals[0].simulateSelection('\t\n  ')
+    terminals[0].simulateSelection('')
 
-    expect(terminals[0].clearSelection).toHaveBeenCalled()
+    expect(terminals[0].clearSelection).not.toHaveBeenCalled()
+  })
+
+  it('ne boucle pas sur l’annulation', () => {
+    // `clearSelection` relance l'evenement : `hasSelection` est alors faux.
+    renderTerminal()
+
+    terminals[0].simulateEmptySelection()
+
+    expect(terminals[0].clearSelection).toHaveBeenCalledTimes(1)
   })
 
   it('garde une selection de texte', () => {
     // C'est la selection utile : celle qu'on vient de faire pour copier.
     renderTerminal()
+    terminals[0].selectionActive = true
 
     terminals[0].simulateSelection('ls -la')
 
     expect(terminals[0].clearSelection).not.toHaveBeenCalled()
   })
 
-  it('garde une selection de texte entouree d’espaces', () => {
+  it('ne copie pas une selection de vide', () => {
     renderTerminal()
 
-    terminals[0].simulateSelection('  ls -la  ')
-
-    expect(terminals[0].clearSelection).not.toHaveBeenCalled()
-  })
-
-  it('ne copie pas une selection de blanc', () => {
-    // Sans l'annulation, le presse-papier serait ecrase par des espaces.
-    renderTerminal()
-
-    terminals[0].simulateSelection('      ')
+    terminals[0].simulateEmptySelection()
     act(() => vi.advanceTimersByTime(300))
 
     expect(writeText).not.toHaveBeenCalled()
-  })
-
-  it('ne boucle pas sur l’annulation', () => {
-    // `clearSelection` relance l'evenement : la selection vide doit s'arreter la.
-    renderTerminal()
-    terminals[0].clearSelection.mockImplementation(() => terminals[0].simulateSelection(''))
-
-    expect(() => terminals[0].simulateSelection('   ')).not.toThrow()
-    expect(terminals[0].clearSelection).toHaveBeenCalledTimes(1)
   })
 })
