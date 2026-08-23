@@ -32,6 +32,7 @@ from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
 from .routes.event_schemas import router as event_schemas_router
 from .routes.host_grants import router as host_grants_router
+from .routes.host_recipes import router as host_recipes_admin_router
 from .routes.host_secrets import router as host_secrets_router
 from .routes.jinja_template_sources import router_admin as jinja_sources_admin_router
 from .routes.jinja_templates import router as jinja_templates_router
@@ -486,6 +487,8 @@ def create_app() -> FastAPI:
     app.include_router(nodes_router, prefix="/admin")
     app.include_router(proxmox_router, prefix="/admin")
     app.include_router(recipes_admin_router, prefix="/admin")
+    # Recettes appliquees SUR une machine (scope=host), distinctes du catalogue.
+    app.include_router(host_recipes_admin_router, prefix="/admin")
     app.include_router(recipe_sources_admin_router, prefix="/admin")
     app.include_router(profile_sources_admin_router, prefix="/admin")
     app.include_router(ssh_proxy_router, prefix="/admin")
