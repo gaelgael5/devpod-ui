@@ -32,6 +32,16 @@ export const ENTER_COPY = '\x02['
 export const LINE_UP = '\x1b[1;5A'
 /** Ctrl+Fleche bas : redescend d'une ligne. */
 export const LINE_DOWN = '\x1b[1;5B'
+/**
+ * Sortie du copy-mode. `q` y est lie dans les deux jeux de bindings tmux
+ * (emacs et vi), contrairement a Echap.
+ *
+ * Sans sortie explicite, tmux RESTE en copy-mode apres le geste : il y absorbe
+ * la saisie au lieu de la transmettre a l'application, et l'utilisateur tape
+ * dans le vide sans comprendre pourquoi — la frappe part bien cote navigateur,
+ * elle meurt cote tmux.
+ */
+export const EXIT_COPY = 'q'
 
 /** Pixels de geste pour une ligne — proche de la hauteur d'une ligne a 13 px. */
 export const LINE_PX = 20
@@ -59,6 +69,12 @@ export interface HistoryScroller {
   touchMove(clientY: number): boolean
   /** Fin du glissement. */
   touchEnd(): void
+  /**
+   * Quitte le copy-mode si un geste y a fait entrer. Retourne `true` si une
+   * sortie vient d'etre emise — l'appelant doit alors espacer ce qu'il envoie
+   * ensuite (cf. la note sur les lectures PTY groupees).
+   */
+  exitCopyMode(): boolean
 }
 
 interface Options {
@@ -89,6 +105,8 @@ export function createHistoryScroller({
   let planifie = false
   /** Copy-mode deja demande pour la salve en cours. */
   let entre = false
+  /** tmux est-il en copy-mode ? Persiste APRES le geste, contrairement a `entre`. */
+  let enCopyMode = false
 
   const plafond = LINE_PX * MAX_LIGNES_EN_ATTENTE
 
@@ -105,6 +123,7 @@ export function createHistoryScroller({
       // touche de defilement, elle la ferait perdre (meme lecture PTY).
       if (!entre) {
         entre = true
+        enCopyMode = true
         send(ENTER_COPY)
       } else {
         acc += LINE_PX
@@ -176,6 +195,16 @@ export function createHistoryScroller({
       lastY = null
       departY = null
       glisse = false
+    },
+
+    exitCopyMode() {
+      if (!enCopyMode) return false
+      enCopyMode = false
+      entre = false
+      // Ce qui restait a defiler n'a plus de sens une fois le mode quitte.
+      acc = 0
+      send(EXIT_COPY)
+      return true
     },
   }
 }

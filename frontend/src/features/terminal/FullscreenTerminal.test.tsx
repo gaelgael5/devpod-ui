@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { I18nextProvider } from 'react-i18next'
 import i18n from '@/i18n'
 import FullscreenTerminal from './FullscreenTerminal'
-import { ENTER_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScroll'
+import { ENTER_COPY, EXIT_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScroll'
 
 // Mock xterm : capture l'instance pour déclencher onSelectionChange depuis les
 // tests. jsdom ne rend pas de vrai terminal.
@@ -820,5 +820,65 @@ describe('FullscreenTerminal — frappe clavier', () => {
 
     expect(sockets[0].send).not.toHaveBeenCalled()
     expect(screen.getByText(/déconnect|disconnect/i)).toBeInTheDocument()
+  })
+})
+
+describe('FullscreenTerminal — retour du copy-mode', () => {
+  /**
+   * Le geste de defilement fait entrer tmux en copy-mode, ou la saisie est
+   * ABSORBEE au lieu d'atteindre l'application. L'utilisateur qui remonte dans
+   * l'historique puis se remet a taper ne voyait plus rien s'inscrire, alors
+   * que sa frappe partait bel et bien.
+   */
+  function defiler() {
+    const el = screen.getByTestId('terminal-surface')
+    fireEvent.touchStart(el, { touches: [{ clientX: 100, clientY: 100 }] })
+    fireEvent.touchMove(el, { touches: [{ clientX: 100, clientY: 160 }] })
+    fireEvent.touchMove(el, { touches: [{ clientX: 100, clientY: 400 }] })
+    fireEvent.touchEnd(el, { touches: [] })
+    act(() => vi.advanceTimersByTime(200))
+  }
+
+  function envoye() {
+    const dec = new TextDecoder()
+    return sockets[0].send.mock.calls
+      .map((c) => c[0])
+      .filter((d) => typeof d !== 'string')
+      .map((d) => dec.decode(d as ArrayBufferView))
+  }
+
+  it('quitte le copy-mode avant de transmettre la frappe', () => {
+    renderTerminal()
+    defiler()
+    sockets[0].send.mockClear()
+
+    act(() => terminals[0].simulateData('a'))
+
+    expect(envoye()).toContain(EXIT_COPY)
+  })
+
+  it('transmet quand meme la frappe', () => {
+    // La sortie du mode ne doit pas manger le caractere : il arrive a la frame
+    // suivante, tmux perdant les touches ecrites dans la meme lecture PTY.
+    renderTerminal()
+    defiler()
+    sockets[0].send.mockClear()
+
+    act(() => terminals[0].simulateData('a'))
+    act(() => vi.advanceTimersByTime(50))
+
+    expect(envoye()).toContain('a')
+  })
+
+  it('n’envoie pas de sortie sans defilement prealable', () => {
+    // `q` sur une application qui n'est pas en copy-mode y ecrirait un
+    // caractere bien reel.
+    renderTerminal()
+    sockets[0].send.mockClear()
+
+    act(() => terminals[0].simulateData('a'))
+
+    expect(envoye()).not.toContain(EXIT_COPY)
+    expect(envoye()).toContain('a')
   })
 })

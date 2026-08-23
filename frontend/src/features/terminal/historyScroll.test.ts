@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   DRAG_SLOP_PX,
   ENTER_COPY,
+  EXIT_COPY,
   LINE_DOWN,
   LINE_PX,
   LINE_UP,
@@ -192,5 +193,83 @@ describe('createHistoryScroller', () => {
 
     expect(frames).toHaveLength(0)
     expect(send).not.toHaveBeenCalled()
+  })
+})
+
+describe('createHistoryScroller — sortie du copy-mode', () => {
+  /**
+   * tmux RESTE en copy-mode apres le geste : il y absorbe la saisie au lieu de
+   * la transmettre a l'application. L'utilisateur qui remonte dans l'historique
+   * puis se remet a taper ne voit plus rien s'inscrire — la frappe part bien
+   * cote navigateur, elle meurt cote tmux.
+   */
+  it('quitte le copy-mode ou un geste a fait entrer', () => {
+    const { s, send, tick } = scroller()
+    s.touchStart(100)
+    s.touchMove(100 + DRAG_SLOP_PX)
+    s.touchMove(100 + DRAG_SLOP_PX + LINE_PX * 2)
+    tick(10)
+    s.touchEnd()
+    send.mockClear()
+
+    expect(s.exitCopyMode()).toBe(true)
+    expect(send).toHaveBeenCalledWith(EXIT_COPY)
+  })
+
+  it('ne fait rien si aucun geste n’y a fait entrer', () => {
+    // Envoyer `q` a une application qui n'est pas en copy-mode y ecrirait un
+    // caractere bien reel.
+    const { s, send } = scroller()
+
+    expect(s.exitCopyMode()).toBe(false)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('ne sort qu’une fois', () => {
+    const { s, send, tick } = scroller()
+    s.touchStart(100)
+    s.touchMove(100 + DRAG_SLOP_PX)
+    s.touchMove(100 + DRAG_SLOP_PX + LINE_PX * 2)
+    tick(10)
+    s.exitCopyMode()
+    send.mockClear()
+
+    expect(s.exitCopyMode()).toBe(false)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('abandonne le defilement restant en sortant', () => {
+    // Ces lignes n'ont plus de sens hors du mode, et elles y rentreraient.
+    const { s, send, tick } = scroller()
+    s.touchStart(100)
+    s.touchMove(100 + DRAG_SLOP_PX)
+    s.touchMove(100 + DRAG_SLOP_PX + LINE_PX * 20)
+    // Une frame suffit a emettre l'entree en copy-mode ; les 20 lignes, elles,
+    // restent en attente — c'est justement ce qu'on veut voir abandonne.
+    tick(1)
+    s.exitCopyMode()
+    send.mockClear()
+
+    tick(30)
+
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('peut y rentrer de nouveau apres etre sorti', () => {
+    const { s, send, tick } = scroller()
+    s.touchStart(100)
+    s.touchMove(100 + DRAG_SLOP_PX)
+    s.touchMove(100 + DRAG_SLOP_PX + LINE_PX * 2)
+    tick(10)
+    s.exitCopyMode()
+    s.touchEnd()
+    send.mockClear()
+
+    s.touchStart(100)
+    s.touchMove(100 + DRAG_SLOP_PX)
+    s.touchMove(100 + DRAG_SLOP_PX + LINE_PX * 2)
+    tick(10)
+
+    expect(send.mock.calls.map((c) => c[0])).toContain(ENTER_COPY)
   })
 })

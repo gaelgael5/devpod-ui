@@ -198,6 +198,16 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     ws.onopen = () => sendResize(terminal.cols, terminal.rows)
 
     const encoder = new TextEncoder()
+    // Molette et glissement remontent dans l'historique tmux. Necessaire parce
+    // que sous tmux le scrollback de xterm reste vide (ecran alterne) : sans
+    // cela le geste ne produit rien. Voir historyScroll.ts.
+    const scroller = createHistoryScroller({
+      isAlternate: () => terminal.buffer.active.type === 'alternate',
+      send: (data) => {
+        if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data))
+      },
+    })
+
     /** Frappes clavier : le chemin le plus direct, et le dernier reste muet. */
     let dataLogs = 0
     const dataDisposable = terminal.onData((data) => {
@@ -211,6 +221,18 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         )
       }
       if (ws.readyState === WebSocket.OPEN) {
+        // Le geste de defilement a fait entrer tmux en copy-mode, ou la saisie
+        // est absorbee au lieu d'atteindre l'application : on en sort avant de
+        // laisser passer la frappe. Sans ca, l'utilisateur qui remonte dans
+        // l'historique puis se remet a taper ne voit plus rien s'inscrire.
+        if (scroller.exitCopyMode()) {
+          // Une frame d'ecart : tmux perd les touches ecrites dans la meme
+          // lecture PTY (cf. l'en-tete de historyScroll).
+          requestAnimationFrame(() => {
+            if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data))
+          })
+          return
+        }
         ws.send(encoder.encode(data))
         return
       }
@@ -224,15 +246,6 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     })
     const resizeDisposable = terminal.onResize(({ cols, rows }) => sendResize(cols, rows))
 
-    // Molette et glissement remontent dans l'historique tmux. Necessaire parce
-    // que sous tmux le scrollback de xterm reste vide (ecran alterne) : sans
-    // cela le geste ne produit rien. Voir historyScroll.ts.
-    const scroller = createHistoryScroller({
-      isAlternate: () => terminal.buffer.active.type === 'alternate',
-      send: (data) => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data))
-      },
-    })
     // Double tape -> Tab, mais SEULEMENT dans le vide apres la fin de la ligne.
     // Sur du texte la double tape reste a xterm, qui selectionne le mot touche —
     // c'est le seul moyen de copier au doigt. Au-dela du dernier caractere il
