@@ -141,8 +141,6 @@
         "arrowDown": "Flèche bas",
         "arrowLeft": "Flèche gauche",
         "arrowRight": "Flèche droite",
-        "tab": "Tab",
-        "tabTitle": "Envoyer la touche Tab (complétion)",
         "search": "Rechercher",
         "searchTitle": "Rechercher dans le terminal (Ctrl+Maj+F)"
       },

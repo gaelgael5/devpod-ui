@@ -52,13 +52,14 @@ describe('TerminalKeybar', () => {
     expect(onSend).toHaveBeenCalledWith('\x1b[D')
   })
 
-  it('envoie \\t (Tab) dans le stdin', async () => {
-    const user = userEvent.setup()
-    const onSend = vi.fn()
-    renderWithProviders(<TerminalKeybar onSend={onSend} onPaste={vi.fn()} getSelection={() => ''} />)
+  it('n’expose plus de bouton Tab', () => {
+    // Retire de la barre : au tactile, la double tape apres la fin de la ligne
+    // envoie Tab, et la place gagnee compte sur un ecran de telephone.
+    renderWithProviders(
+      <TerminalKeybar onSend={vi.fn()} onPaste={vi.fn()} getSelection={() => ''} />,
+    )
 
-    await user.click(screen.getByRole('button', { name: /^tab$/i }))
-    expect(onSend).toHaveBeenCalledWith('\t')
+    expect(screen.queryByRole('button', { name: /^tab$/i })).toBeNull()
   })
 
   it('confie le presse-papier au collage de xterm, pas au stdin brut', async () => {
@@ -89,10 +90,16 @@ describe('TerminalKeybar', () => {
       />,
     )
 
-    // Copier, Coller et Rechercher n'affichent plus qu'une icone. Sans aria-label ils
-    // n'auraient plus AUCUN nom : invisibles au lecteur d'ecran, et introuvables
-    // par les tests qui les designent par leur nom.
-    for (const nom of [/^coller$|^paste$/i, /^copier$|^copy$/i, /^rechercher$|^search$/i]) {
+    // Plus aucun bouton n'affiche de libelle. Sans aria-label ils n'auraient
+    // AUCUN nom : invisibles au lecteur d'ecran, et introuvables par les tests
+    // qui les designent par leur nom.
+    for (const nom of [
+      /^coller$|^paste$/i,
+      /^copier$|^copy$/i,
+      /^rechercher$|^search$/i,
+      /^échap$|^esc$/i,
+      /^interrompre$|^interrupt$/i,
+    ]) {
       const bouton = screen.getByRole('button', { name: nom })
       expect(bouton).toHaveAccessibleName()
       expect(bouton.textContent).toBe('')

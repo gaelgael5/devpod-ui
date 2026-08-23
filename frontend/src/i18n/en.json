@@ -141,8 +141,6 @@
         "arrowDown": "Arrow down",
         "arrowLeft": "Arrow left",
         "arrowRight": "Arrow right",
-        "tab": "Tab",
-        "tabTitle": "Send the Tab key (completion)",
         "search": "Search",
         "searchTitle": "Search in terminal (Ctrl+Shift+F)"
       },

@@ -8,7 +8,6 @@ import {
   ClipboardPaste,
   Copy,
   CornerDownLeft,
-  IndentIncrease,
   Keyboard,
   OctagonX,
   Search,
@@ -124,9 +123,9 @@ export default function TerminalKeybar({
         onMouseDown={keepFocus}
         onClick={() => onSend('\x1b')}
         title={t('workspaces.terminals.keybar.escTitle')}
+        aria-label={t('workspaces.terminals.keybar.esc')}
       >
         <CornerDownLeft className="h-3.5 w-3.5" />
-        {t('workspaces.terminals.keybar.esc')}
       </button>
       {/* Flèches : séquences ANSI CSI (mode curseur normal) — navigation dans les
           menus/CLI interactifs depuis un écran tactile. */}
@@ -154,21 +153,11 @@ export default function TerminalKeybar({
         type="button"
         className={btn}
         onMouseDown={keepFocus}
-        onClick={() => onSend('\t')}
-        title={t('workspaces.terminals.keybar.tabTitle')}
-      >
-        <IndentIncrease className="h-3.5 w-3.5" />
-        {t('workspaces.terminals.keybar.tab')}
-      </button>
-      <button
-        type="button"
-        className={btn}
-        onMouseDown={keepFocus}
         onClick={() => onSend('\x03')}
         title={t('workspaces.terminals.keybar.interruptTitle')}
+        aria-label={t('workspaces.terminals.keybar.interrupt')}
       >
         <OctagonX className="h-3.5 w-3.5" />
-        {t('workspaces.terminals.keybar.interrupt')}
       </button>
       <button
         type="button"
