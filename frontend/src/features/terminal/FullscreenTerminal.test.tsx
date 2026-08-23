@@ -560,53 +560,6 @@ describe('FullscreenTerminal — double tape', () => {
     expect(sent()).not.toContain('\t')
   })
 
-  it('ferme la selection des le doigt pose dans le vide', () => {
-    // Fermer au `touchend` arrivait apres iOS : la bande surlignee apparaissait
-    // avant de disparaitre. Fermee au pose du doigt, elle ne nait jamais — et
-    // une seule tape suffit, sans attendre la seconde.
-    renderTerminal()
-    const el = screen.getByTestId('terminal-surface')
-
-    tape()
-
-    expect(el.style.getPropertyValue('user-select')).toBe('none')
-    expect(el.style.getPropertyValue('-webkit-user-select')).toBe('none')
-  })
-
-  it('laisse la selection ouverte sur du texte', () => {
-    // Double tape et appui long y selectionnent : seul moyen de copier au doigt.
-    renderTerminal()
-    const el = screen.getByTestId('terminal-surface')
-
-    tape(SUR_LE_TEXTE)
-    tape(SUR_LE_TEXTE)
-
-    expect(el.style.getPropertyValue('user-select')).toBe('')
-  })
-
-  it('rouvre la selection des qu’un doigt revient sur du texte', () => {
-    renderTerminal()
-    const el = screen.getByTestId('terminal-surface')
-
-    tape()
-    tape(SUR_LE_TEXTE)
-
-    expect(el.style.getPropertyValue('user-select')).toBe('')
-  })
-
-  it('efface la selection qu’iOS aurait deja posee', () => {
-    renderTerminal()
-    const removeAllRanges = vi.fn()
-    vi.spyOn(window, 'getSelection').mockReturnValue({
-      removeAllRanges,
-    } as unknown as Selection)
-
-    tape()
-
-    expect(terminals[0].clearSelection).toHaveBeenCalled()
-    expect(removeAllRanges).toHaveBeenCalled()
-  })
-
   it('ne supprime pas le geste d’une tape simple', () => {
     // Supprimer l'evenement tuerait le clic synthetise par le navigateur, donc
     // le focus de xterm : plus de clavier mobile, plus de selection.
@@ -715,5 +668,65 @@ describe('FullscreenTerminal — retour sur la session', () => {
     revenir()
 
     expect(sockets).toHaveLength(1)
+  })
+})
+
+describe('FullscreenTerminal — selection de blanc', () => {
+  /**
+   * La bande surlignee en travers de l'ecran n'est pas une selection native —
+   * xterm.css pose `user-select: none` sur `.xterm`, elle y est impossible.
+   * C'est xterm qui la dessine, quand la double tape tombe apres la fin de la
+   * ligne. Elle ne contient que du blanc : rien a copier.
+   */
+  it('annule une selection qui ne contient que du blanc', () => {
+    renderTerminal()
+
+    terminals[0].simulateSelection('      ')
+
+    expect(terminals[0].clearSelection).toHaveBeenCalled()
+  })
+
+  it('annule aussi une selection de tabulations et de sauts de ligne', () => {
+    renderTerminal()
+
+    terminals[0].simulateSelection('\t\n  ')
+
+    expect(terminals[0].clearSelection).toHaveBeenCalled()
+  })
+
+  it('garde une selection de texte', () => {
+    // C'est la selection utile : celle qu'on vient de faire pour copier.
+    renderTerminal()
+
+    terminals[0].simulateSelection('ls -la')
+
+    expect(terminals[0].clearSelection).not.toHaveBeenCalled()
+  })
+
+  it('garde une selection de texte entouree d’espaces', () => {
+    renderTerminal()
+
+    terminals[0].simulateSelection('  ls -la  ')
+
+    expect(terminals[0].clearSelection).not.toHaveBeenCalled()
+  })
+
+  it('ne copie pas une selection de blanc', () => {
+    // Sans l'annulation, le presse-papier serait ecrase par des espaces.
+    renderTerminal()
+
+    terminals[0].simulateSelection('      ')
+    act(() => vi.advanceTimersByTime(300))
+
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
+  it('ne boucle pas sur l’annulation', () => {
+    // `clearSelection` relance l'evenement : la selection vide doit s'arreter la.
+    renderTerminal()
+    terminals[0].clearSelection.mockImplementation(() => terminals[0].simulateSelection(''))
+
+    expect(() => terminals[0].simulateSelection('   ')).not.toThrow()
+    expect(terminals[0].clearSelection).toHaveBeenCalledTimes(1)
   })
 })

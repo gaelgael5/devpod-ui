@@ -14,7 +14,6 @@ import { isTouchOnly } from './isTouchOnly'
 import { createHistoryScroller } from './historyScroll'
 import { createDoubleTapDetector } from './doubleTap'
 import { isPastLineEnd } from './lineHitTest'
-import { createSelectionGate } from './selectionGate'
 import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
 import '@xterm/xterm/css/xterm.css'
 
@@ -217,12 +216,6 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     let dernierePosition = { x: 0, y: 0 }
 
     const surface = termRef.current
-    // La selection native n'a de sens que sur du texte. On ouvre ou ferme la
-    // porte au POSE DU DOIGT : couper au `touchend` arrivait apres iOS, et la
-    // bande surlignee apparaissait avant de disparaitre.
-    const porteSelection = createSelectionGate(surface, {
-      clearTerminalSelection: () => terminal.clearSelection(),
-    })
     const onWheel = (e: WheelEvent) => {
       if (scroller.wheel(e.deltaY)) e.preventDefault()
     }
@@ -230,9 +223,6 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       const t = e.touches[0]
       doubleTap.start(t.clientX, t.clientY, e.touches.length)
       dernierePosition = { x: t.clientX, y: t.clientY }
-      // Sur du texte la selection reste au systeme — c'est le seul moyen de
-      // copier au doigt. Dans le vide elle ne selectionnerait que du blanc.
-      porteSelection.set(!isPastLineEnd(terminal, t.clientX, t.clientY))
       // Un seul doigt : le pincement de zoom ne doit pas devenir un defilement.
       if (e.touches.length === 1) scroller.touchStart(t.clientY)
     }
@@ -299,6 +289,18 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       if (selLogs < 10) {
         selLogs++
         console.warn(`terminal_diag: selection_change ${JSON.stringify({ chars: text.length })}`)
+      }
+      // Une selection qui ne contient que du blanc n'a rien a copier : c'est la
+      // bande surlignee que xterm pose quand la double tape tombe apres la fin
+      // de la ligne. On l'annule ICI, au seul moment ou l'on sait qu'elle
+      // existe — tous les nettoyages accroches au geste arrivaient avant elle,
+      // d'ou une bande qui apparaissait puis disparaissait.
+      //
+      // `clearSelection` relance cet evenement avec une selection vide, que la
+      // ligne suivante ecarte : pas de boucle.
+      if (text && !text.trim()) {
+        terminal.clearSelection()
+        return
       }
       if (!text) return
       lastSelectionRef.current = text
@@ -391,7 +393,6 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       surface?.removeEventListener('touchstart', onTouchStart)
       surface?.removeEventListener('touchmove', onTouchMove)
       surface?.removeEventListener('touchend', onTouchEnd)
-      porteSelection.dispose()
       input?.removeEventListener('focus', onInputFocus)
       input?.removeEventListener('blur', onInputBlur)
       inputRef.current = null
