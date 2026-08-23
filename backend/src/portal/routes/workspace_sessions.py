@@ -20,6 +20,7 @@ from ..devpod.exec import TMUX_SOCK_DETECT as _TMUX_SOCK_DETECT
 from ..devpod.exec import tmux as _tmux
 from ..events.bus import emit_event
 from ..recipes.models import _RECIPE_ID_RE
+from ..sessions import registry
 from ..sessions.aggregate import invalidate_sessions_cache, probe_workspace_sessions
 from ..sessions.diff_probe import note_session_closed, note_session_created
 
@@ -82,6 +83,30 @@ class CreateSessionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
     start_recipe: str | None = None
+
+
+@router.get("/workspaces/{name}/sessions/{session}/clients")
+async def session_clients(
+    name: str, session: str, user: UserInfo = Depends(require_user)
+) -> dict[str, int]:
+    """Combien de terminaux du portail regardent cette session tmux.
+
+    Deux appareils sur la même session, c'est tmux qui cale la fenêtre sur le
+    client le plus récemment actif : l'écran le plus petit reçoit des lignes
+    trop longues et se retrouve déformé, sans que rien ne l'explique. Le front
+    s'en sert pour le dire.
+    """
+    _validate_ws_name(name)
+    if not _SESSION_NAME_RE.fullmatch(session):
+        raise HTTPException(status_code=422, detail=f"Invalid session name {session!r}")
+    return {
+        "clients": registry.count_attached(
+            family="workspace",
+            target=f"{user.login}-{name}",
+            session=session,
+            owner=user.login,
+        )
+    }
 
 
 @router.post("/workspaces/{name}/sessions", status_code=201)

@@ -107,6 +107,7 @@
       "newSession": "New session",
       "sessionsMenu": "Sessions ({{count}})",
       "noSession": "No active session",
+      "sharedSession": "This session is also open on another device. tmux sizes the window to the most recently active client, so the smaller screen may look garbled.",
       "noSessionAction": "Create a session",
       "createTitle": "New session",
       "nameLabel": "Name",

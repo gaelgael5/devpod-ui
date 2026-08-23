@@ -129,6 +129,24 @@ def attached_index(*, owner: str | None) -> set[AttachKey]:
     return {(t.family, t.target, t.session) for t in terms}
 
 
+def count_attached(*, family: Family, target: str, session: str | None, owner: str) -> int:
+    """Nombre de terminaux vivants sur cette session, pour ce propriétaire.
+
+    Sert à prévenir l'utilisateur qu'il regarde la même session tmux depuis deux
+    appareils : tmux cale alors la fenêtre sur le client le plus récemment actif
+    (`window-size latest`), et l'écran le plus petit reçoit des lignes trop
+    longues — affichage déformé sans cause visible.
+
+    Ne compte que les terminaux de CETTE instance du portail : un client attaché
+    par un autre chemin (ssh direct, autre instance) reste invisible.
+    """
+    return sum(
+        1
+        for t in _terminals.values()
+        if t.family == family and t.target == target and t.session == session and t.owner == owner
+    )
+
+
 def clear() -> None:
     """Tests uniquement : vide le registre entre deux cas."""
     _terminals.clear()

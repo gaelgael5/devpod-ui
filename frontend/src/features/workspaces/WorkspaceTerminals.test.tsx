@@ -173,3 +173,50 @@ describe('WorkspaceTerminals — clavier mobile', () => {
     )
   })
 })
+
+describe('WorkspaceTerminals — session ouverte sur deux appareils', () => {
+  /**
+   * tmux cale la fenetre sur le client le plus recemment actif : l'ecran le plus
+   * petit recoit des lignes trop longues et se retrouve deforme. Rien ne
+   * l'expliquait a l'utilisateur, qui n'y voyait qu'un affichage casse.
+   */
+  function monter(clients: number) {
+    server.use(
+      http.get('/me/workspaces/:name/sessions', () => HttpResponse.json(['s1'])),
+      http.get('/me/workspaces/:name/start-recipes', () => HttpResponse.json([])),
+      http.get('/me/workspaces/:name/sessions/:session/clients', () =>
+        HttpResponse.json({ clients }),
+      ),
+    )
+    renderPage('/workspaces/myapp/terminals?session=s1')
+  }
+
+  it('avertit quand un autre appareil regarde la meme session', async () => {
+    monter(2)
+
+    expect(await screen.findByTestId('session-partagee')).toBeInTheDocument()
+  })
+
+  it('n’avertit pas pour notre seul terminal', async () => {
+    // Le notre compte pour un : avertir des le premier client crierait au loup
+    // en permanence.
+    monter(1)
+
+    await screen.findByTestId('term')
+    expect(screen.queryByTestId('session-partagee')).toBeNull()
+  })
+
+  it('n’avertit pas quand le compte est inconnu', async () => {
+    server.use(
+      http.get('/me/workspaces/:name/sessions', () => HttpResponse.json(['s1'])),
+      http.get('/me/workspaces/:name/start-recipes', () => HttpResponse.json([])),
+      http.get('/me/workspaces/:name/sessions/:session/clients', () =>
+        HttpResponse.json({ detail: 'boom' }, { status: 500 }),
+      ),
+    )
+    renderPage('/workspaces/myapp/terminals?session=s1')
+
+    await screen.findByTestId('term')
+    expect(screen.queryByTestId('session-partagee')).toBeNull()
+  })
+})

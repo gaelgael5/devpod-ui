@@ -107,6 +107,7 @@
       "newSession": "Nouvelle session",
       "sessionsMenu": "Sessions ({{count}})",
       "noSession": "Aucune session active",
+      "sharedSession": "Cette session est aussi ouverte sur un autre appareil. tmux cale l'affichage sur le dernier écran actif : le plus petit des deux peut se retrouver déformé.",
       "noSessionAction": "Créer une session",
       "createTitle": "Nouvelle session",
       "nameLabel": "Nom",
