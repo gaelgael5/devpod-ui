@@ -90,15 +90,16 @@ describe('TerminalKeybar', () => {
       />,
     )
 
-    // Plus aucun bouton n'affiche de libelle. Sans aria-label ils n'auraient
-    // AUCUN nom : invisibles au lecteur d'ecran, et introuvables par les tests
-    // qui les designent par leur nom.
+    // Ces boutons n'affichent qu'une icone. Sans aria-label ils n'auraient AUCUN
+    // nom : invisibles au lecteur d'ecran, et introuvables par les tests qui les
+    // designent par leur nom. (Echap fait exception : il porte « esc » en clair,
+    // pour ne pas se confondre avec Entree — voir le describe dedie.)
     for (const nom of [
       /^coller$|^paste$/i,
       /^copier$|^copy$/i,
       /^rechercher$|^search$/i,
-      /^échap$|^esc$/i,
       /^interrompre$|^interrupt$/i,
+      /^entrée$|^enter$/i,
     ]) {
       const bouton = screen.getByRole('button', { name: nom })
       expect(bouton).toHaveAccessibleName()
@@ -237,5 +238,60 @@ describe('TerminalKeybar — barre sur une seule ligne', () => {
     for (const bouton of boutons) {
       expect(bouton.className).toContain('shrink-0')
     }
+  })
+})
+
+describe('TerminalKeybar — Entree et Echap', () => {
+  function rendre(onSend = vi.fn()) {
+    renderWithProviders(
+      <TerminalKeybar onSend={onSend} onPaste={vi.fn()} getSelection={() => ''} />,
+    )
+    return onSend
+  }
+
+  it('envoie un retour chariot, pas un saut de ligne', async () => {
+    // `\r` est ce qu'un terminal attend et ce que xterm emet sur la touche du
+    // clavier physique ; `\n` laisserait la ligne non validee.
+    const user = userEvent.setup()
+    const onSend = rendre()
+
+    await user.click(screen.getByRole('button', { name: /^entrée$|^enter$/i }))
+
+    expect(onSend).toHaveBeenCalledWith('\r')
+  })
+
+  it('envoie bien Echap sur le bouton Echap', async () => {
+    const user = userEvent.setup()
+    const onSend = rendre()
+
+    await user.click(screen.getByRole('button', { name: /^échap$|^esc$/i }))
+
+    expect(onSend).toHaveBeenCalledWith('\x1b')
+  })
+
+  it('place Entree juste apres les fleches', async () => {
+    // C'est la qu'on la cherche quand on vient de naviguer dans un menu.
+    rendre()
+
+    const noms = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? '')
+    // La derniere fleche, quel que soit l'ordre des quatre.
+    const derniereFleche = noms.map((n) => /flèche|arrow/i.test(n)).lastIndexOf(true)
+    const entree = noms.findIndex((n) => /^entrée$|^enter$/i.test(n))
+
+    expect(derniereFleche).toBeGreaterThan(0)
+    expect(entree).toBe(derniereFleche + 1)
+  })
+
+  it('distingue Echap d’Entree a l’oeil', () => {
+    // Les deux portaient la meme icone de retour chariot. Entree la garde ;
+    // Echap s'ecrit, faute d'icone qui dise « echap ».
+    rendre()
+
+    const echap = screen.getByRole('button', { name: /^échap$|^esc$/i })
+    const entree = screen.getByRole('button', { name: /^entrée$|^enter$/i })
+
+    expect(echap.textContent?.trim().toLowerCase()).toBe('esc')
+    expect(entree.querySelector('svg')).not.toBeNull()
+    expect(entree.textContent?.trim()).toBe('')
   })
 })

@@ -141,6 +141,8 @@
         "arrowDown": "Arrow down",
         "arrowLeft": "Arrow left",
         "arrowRight": "Arrow right",
+        "enter": "Enter",
+        "enterTitle": "Submit the line (Enter)",
         "search": "Search",
         "searchTitle": "Search in terminal (Ctrl+Shift+F)"
       },

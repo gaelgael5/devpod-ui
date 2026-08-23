@@ -130,7 +130,11 @@ export default function TerminalKeybar({
         title={t('workspaces.terminals.keybar.escTitle')}
         aria-label={t('workspaces.terminals.keybar.esc')}
       >
-        <CornerDownLeft className="h-3.5 w-3.5" />
+        {/* Le seul bouton qui garde du texte, et c'est deliberé : `CornerDownLeft`
+            portait l'icone du RETOUR CHARIOT, donc celle d'Entree — d'ou la
+            confusion. Aucun jeu d'icones ne propose de symbole pour « echap » ;
+            les claviers de terminal mobile l'ecrivent tous en toutes lettres. */}
+        <span className="font-mono text-[11px] uppercase leading-none tracking-wide">esc</span>
       </button>
       {/* Flèches : séquences ANSI CSI (mode curseur normal) — navigation dans les
           menus/CLI interactifs depuis un écran tactile. */}
@@ -154,6 +158,18 @@ export default function TerminalKeybar({
           <Icon className="h-3.5 w-3.5" />
         </button>
       ))}
+      {/* Entree : `\r` (retour chariot) et non `\n` — c'est ce qu'un terminal
+          attend, et ce que xterm emet sur la touche du clavier physique. */}
+      <button
+        type="button"
+        className={btn}
+        onMouseDown={keepFocus}
+        onClick={() => onSend('\r')}
+        title={t('workspaces.terminals.keybar.enterTitle')}
+        aria-label={t('workspaces.terminals.keybar.enter')}
+      >
+        <CornerDownLeft className="h-3.5 w-3.5" />
+      </button>
       <button
         type="button"
         className={btn}

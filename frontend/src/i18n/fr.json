@@ -141,6 +141,8 @@
         "arrowDown": "Flèche bas",
         "arrowLeft": "Flèche gauche",
         "arrowRight": "Flèche droite",
+        "enter": "Entrée",
+        "enterTitle": "Valider la ligne (Entrée)",
         "search": "Rechercher",
         "searchTitle": "Rechercher dans le terminal (Ctrl+Maj+F)"
       },
