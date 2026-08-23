@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { I18nextProvider } from 'react-i18next'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import i18n from '@/i18n'
@@ -45,5 +45,59 @@ describe('TerminalPage', () => {
     renderAt('/terminal')
     expect(screen.queryByTestId('term')).not.toBeInTheDocument()
     expect(screen.getByText(/invalide|invalid/i)).toBeInTheDocument()
+  })
+})
+
+describe('TerminalPage — clavier mobile', () => {
+  /**
+   * Le clavier iOS se pose PAR-DESSUS la page sans la redimensionner : `100vh`
+   * ne bouge pas, et tout le bas du terminal — prompt, ligne de statut tmux,
+   * barre de touches — passe dessous. Seul `visualViewport` le voit.
+   */
+  function poserVisualViewport(hauteur: number) {
+    const cbs = new Set<() => void>()
+    const vue = {
+      height: hauteur,
+      addEventListener: (_t: string, cb: () => void) => cbs.add(cb),
+      removeEventListener: (_t: string, cb: () => void) => cbs.delete(cb),
+    }
+    vi.stubGlobal('visualViewport', vue)
+    return {
+      retrecir(nouvelle: number) {
+        vue.height = nouvelle
+        cbs.forEach((cb) => cb())
+      },
+    }
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('borne la page a la hauteur visible', () => {
+    poserVisualViewport(800)
+
+    renderAt('/terminal?ws=%2Fadmin%2Fhosts%2Fh1%2Fssh')
+
+    expect(screen.getByTestId('terminal-page')).toHaveStyle({ height: '800px' })
+  })
+
+  it('retrecit quand le clavier s’ouvre', () => {
+    const vue = poserVisualViewport(800)
+    renderAt('/terminal?ws=%2Fadmin%2Fhosts%2Fh1%2Fssh')
+
+    act(() => vue.retrecir(420))
+
+    expect(screen.getByTestId('terminal-page')).toHaveStyle({ height: '420px' })
+  })
+
+  it('garde 100vh sans l’API', () => {
+    // Navigateur sans `visualViewport` : on ne remplace pas le dimensionnement
+    // d'origine par une hauteur inventee.
+    vi.stubGlobal('visualViewport', undefined)
+
+    renderAt('/terminal?ws=%2Fadmin%2Fhosts%2Fh1%2Fssh')
+
+    expect(screen.getByTestId('terminal-page')).toHaveStyle({ height: '100vh' })
   })
 })
