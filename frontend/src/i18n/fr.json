@@ -133,6 +133,7 @@
         "paste": "Coller",
         "pasteTitle": "Coller le presse-papier dans la session",
         "pasteError": "Presse-papier inaccessible",
+        "pasteEmpty": "Presse-papier vide",
         "copy": "Copier",
         "copyTitle": "Copier la sélection du terminal",
         "copyEmpty": "Aucune sélection à copier",

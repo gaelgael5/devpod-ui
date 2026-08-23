@@ -421,13 +421,35 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     else terminalRef.current?.focus()
   }
 
+  /**
+   * La session peut-elle encore recevoir ? Sinon on le DIT.
+   *
+   * Avant, tout ce qui partait de la barre — touche, collage — etait jete en
+   * silence quand la socket n'etait pas ouverte : le bouton ne faisait
+   * simplement « rien », sans le moindre indice a l'ecran. Impossible de
+   * distinguer un bouton casse d'une session perdue, et c'est exactement la
+   * question qu'on s'est posee. On bascule donc sur l'overlay de reconnexion,
+   * qui existe deja et porte son bouton.
+   */
+  const sessionVivante = (): boolean => {
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) return true
+    console.warn(
+      `terminal_diag: envoi_sur_socket_fermee ${JSON.stringify({
+        readyState: ws?.readyState ?? null,
+      })}`,
+    )
+    setDisconnected(true)
+    return false
+  }
+
   // Pas de `focus()` ici : sur mobile il ouvre le clavier a chaque appui sur la
   // barre, qui mange la moitie de l'ecran alors que ces boutons existent
   // justement pour eviter d'avoir a taper. La barre empeche deja le focus de
   // lui echapper (mousedown annule), donc le terminal garde celui qu'il avait.
   const sendToTerminal = (data: string) => {
-    const ws = wsRef.current
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(data))
+    if (!sessionVivante()) return
+    wsRef.current?.send(new TextEncoder().encode(data))
   }
 
   // Le collage passe par xterm et non par la WS : `paste()` normalise les sauts
@@ -435,6 +457,10 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
   // paste » lorsque l'application distante a activé le mode 2004. Envoyé brut,
   // un code d'authentification arrivait abîmé dans le prompt de `claude`.
   const pasteToTerminal = (text: string) => {
+    // Le collage traverse xterm, qui le ressort par `onData` vers la socket :
+    // sur une socket fermee il disparaissait sans un mot, apres que l'utilisateur
+    // ait pourtant valide l'invite « Coller » du systeme.
+    if (!sessionVivante()) return
     terminalRef.current?.paste(text)
   }
 

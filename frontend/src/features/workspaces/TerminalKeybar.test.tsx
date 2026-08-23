@@ -22,6 +22,7 @@ beforeEach(() => {
   vi.mocked(toast.success).mockClear()
   vi.mocked(toast.error).mockClear()
   vi.mocked(toast.info).mockClear()
+  vi.mocked(toast.info).mockClear()
 })
 
 describe('TerminalKeybar', () => {
@@ -293,5 +294,23 @@ describe('TerminalKeybar — Entree et Echap', () => {
     expect(echap.textContent?.trim().toLowerCase()).toBe('esc')
     expect(entree.querySelector('svg')).not.toBeNull()
     expect(entree.textContent?.trim()).toBe('')
+  })
+})
+
+describe('TerminalKeybar — presse-papier vide', () => {
+  it('le dit au lieu de ne rien faire', async () => {
+    // Sans ce retour, le bouton restait muet et rien ne distinguait un
+    // presse-papier vide d'une panne.
+    const user = userEvent.setup()
+    const onPaste = vi.fn()
+    stubClipboard({ readText: vi.fn().mockResolvedValue(''), writeText: vi.fn() })
+    renderWithProviders(
+      <TerminalKeybar onSend={vi.fn()} onPaste={onPaste} getSelection={() => ''} />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /^coller$|^paste$/i }))
+
+    expect(onPaste).not.toHaveBeenCalled()
+    expect(toast.info).toHaveBeenCalled()
   })
 })

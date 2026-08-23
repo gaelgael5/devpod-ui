@@ -740,3 +740,53 @@ describe('FullscreenTerminal — selection de vide', () => {
     expect(writeText).not.toHaveBeenCalled()
   })
 })
+
+describe('FullscreenTerminal — session perdue', () => {
+  /**
+   * Avant, tout ce qui partait de la barre etait jete en silence quand la
+   * socket n'etait pas ouverte : le bouton ne faisait « rien », sans le moindre
+   * indice a l'ecran. Impossible de distinguer un bouton casse d'une session
+   * perdue.
+   */
+  function keybar(nom: RegExp) {
+    return screen.getByRole('button', { name: nom })
+  }
+
+  it('signale la session perdue au lieu de jeter la touche', () => {
+    renderTerminal()
+    sockets[0].readyState = MockWebSocket.CLOSED
+
+    fireEvent.click(keybar(/^échap$|^esc$/i))
+
+    expect(sockets[0].send).not.toHaveBeenCalled()
+    expect(screen.getByText(/déconnect|disconnect/i)).toBeInTheDocument()
+  })
+
+  it('n’envoie pas un collage dans le vide', async () => {
+    // L'utilisateur a valide l'invite « Coller » du systeme : lui rendre le
+    // silence est le pire des retours.
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText, readText: vi.fn(() => Promise.resolve('ls -la')) },
+      configurable: true,
+    })
+    renderTerminal()
+    sockets[0].readyState = MockWebSocket.CLOSED
+
+    fireEvent.click(keybar(/^coller$|^paste$/i))
+    // La lecture du presse-papier est asynchrone : sans ce relais, l'assertion
+    // passerait avant que le collage ait seulement ete tente.
+    await act(async () => {})
+
+    expect(terminals[0].paste).not.toHaveBeenCalled()
+    expect(screen.getByText(/déconnect|disconnect/i)).toBeInTheDocument()
+  })
+
+  it('laisse passer la touche quand la session est vivante', () => {
+    renderTerminal()
+
+    fireEvent.click(keybar(/^échap$|^esc$/i))
+
+    expect(sockets[0].send).toHaveBeenCalled()
+    expect(screen.queryByText(/déconnect|disconnect/i)).toBeNull()
+  })
+})

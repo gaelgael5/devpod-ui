@@ -133,6 +133,7 @@
         "paste": "Paste",
         "pasteTitle": "Paste the clipboard into the session",
         "pasteError": "Clipboard unavailable",
+        "pasteEmpty": "Clipboard is empty",
         "copy": "Copy",
         "copyTitle": "Copy the terminal selection",
         "copyEmpty": "No selection to copy",

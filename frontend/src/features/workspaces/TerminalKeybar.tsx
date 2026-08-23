@@ -68,7 +68,13 @@ export default function TerminalKeybar({
   const paste = async () => {
     try {
       const text = await navigator.clipboard.readText()
-      if (text) onPaste(text)
+      // Presse-papier vide : sans ce retour, le bouton ne faisait « rien » et
+      // rien ne distinguait ce cas d'une panne.
+      if (!text) {
+        toast.info(t('workspaces.terminals.keybar.pasteEmpty'))
+        return
+      }
+      onPaste(text)
     } catch {
       toast.error(t('workspaces.terminals.keybar.pasteError'))
     }
