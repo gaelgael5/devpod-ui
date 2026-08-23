@@ -190,3 +190,52 @@ describe('TerminalKeybar — bouton clavier', () => {
     )
   })
 })
+
+describe('TerminalKeybar — barre sur une seule ligne', () => {
+  /**
+   * Sur un ecran de telephone, un retour a la ligne volait une deuxieme rangee
+   * de hauteur juste au-dessus du clavier. La barre tient donc sur une ligne et
+   * se fait defiler au doigt quand elle deborde.
+   */
+  function barre() {
+    renderWithProviders(
+      <TerminalKeybar
+        onSend={vi.fn()}
+        onPaste={vi.fn()}
+        getSelection={() => ''}
+        onSearch={vi.fn()}
+        onToggleKeyboard={vi.fn()}
+      />,
+    )
+    return screen.getByRole('toolbar')
+  }
+
+  it('ne renvoie pas les boutons a la ligne', () => {
+    expect(barre().className).toContain('flex-nowrap')
+  })
+
+  it('laisse defiler horizontalement', () => {
+    expect(barre().className).toContain('overflow-x-auto')
+  })
+
+  it('masque la barre de defilement', () => {
+    // Elle mangerait une partie de la hauteur utile ; le geste suffit.
+    expect(barre().className).toContain('scrollbar-none')
+  })
+
+  it('retient le geste en bout de course', () => {
+    // Sans cela, continuer le geste declenche la navigation arriere de Safari.
+    expect(barre().className).toContain('overscroll-x-contain')
+  })
+
+  it('empeche la compression des boutons', () => {
+    // Sans `shrink-0`, flex les ecrase au lieu de laisser la barre defiler.
+    barre()
+
+    const boutons = screen.getAllByRole('button')
+    expect(boutons.length).toBeGreaterThan(5)
+    for (const bouton of boutons) {
+      expect(bouton.className).toContain('shrink-0')
+    }
+  })
+})

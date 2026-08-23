@@ -102,3 +102,15 @@
 .bash-editor .token.operator { color: #d4d4d4; }
 .bash-editor .token.punctuation { color: #d4d4d4; }
 .bash-editor .token.shebang.important { color: #569cd6; font-weight: bold; }
+
+/* Défilement sans barre visible — barre de touches tactile du terminal.
+   Le geste au doigt suffit sur mobile, et une barre horizontale mangerait une
+   partie de la hauteur utile juste au-dessus du clavier. Les trois graphies
+   sont nécessaires : chaque moteur a la sienne. */
+.scrollbar-none {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* Edge ancien */
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none; /* WebKit, dont Safari iOS */
+}

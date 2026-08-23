@@ -90,14 +90,19 @@ export default function TerminalKeybar({
 
   // Cibles tactiles confortables sur mobile (min 36px), plus compactes en desktop.
   const btn =
-    'inline-flex min-h-9 min-w-9 items-center justify-center gap-1 rounded border ' +
+    'inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center gap-1 rounded border ' +
     'border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white/80 transition-colors ' +
     'hover:bg-white/15 active:bg-white/25 focus:outline-none focus-visible:ring-1 ' +
     'focus-visible:ring-white/40 sm:min-h-0 sm:min-w-0 sm:px-2.5 sm:py-1 sm:text-xs'
 
   return (
     <div
-      className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-white/10 bg-[#0d0d1a] px-2 py-1.5"
+      // Une seule ligne, qu'on fait defiler au doigt quand elle deborde : sur un
+      // ecran de telephone, le retour a la ligne volait une deuxieme rangee de
+      // hauteur juste au-dessus du clavier. `overscroll-x-contain` empeche le
+      // geste de deborder en navigation arriere de Safari une fois en bout de
+      // course. La barre de defilement elle-meme est masquee (`scrollbar-none`).
+      className="flex shrink-0 flex-nowrap items-center gap-1.5 overflow-x-auto overscroll-x-contain scrollbar-none border-t border-white/10 bg-[#0d0d1a] px-2 py-1.5"
       role="toolbar"
       aria-label={t('workspaces.terminals.keybar.esc')}
     >
