@@ -1,0 +1,13 @@
+id: kimi-code
+key: 99fe03e2-2ad1-4a10-a543-47ebca0c0db4
+version: 1.0.0
+description: "Install Kimi Code CLI (agent de terminal @moonshot-ai/kimi-code, commande `kimi`). Auth /login ; nécessite Node.js 22.19+."
+type: install
+# Persistance de l'auth/état (~/.kimi-code) : le dev ne refait pas /login à chaque
+# recréation du workspace. optional=true → l'utilisateur l'active à la création,
+# même convention que la mémoire de claude-code / copilot-cli.
+memory-volume:
+  name: kimi-code
+  optional: true
+  mapping:
+    target: /home/vscode/.kimi-code

@@ -670,3 +670,113 @@ def test_require_user_blocks_unauthenticated(tmp_path: Path) -> None:
     finally:
         os.environ.pop("DEV_MODE", None)
         mod._settings = None
+
+
+# ─── PATCH /me/workspaces/{name} — édition de la config d'un workspace ────────
+
+
+def test_patch_workspace_updates_config_and_flags_recreate(tmp_path: Path) -> None:
+    """Ajouter une recette impose une recréation : c'est une feature devcontainer,
+    elle n'existe nulle part tant que l'image n'est pas reconstruite."""
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    ws = {"name": "myapp", "source": "git@github.com:user/repo.git", "recipes": ["python"]}
+    with TestClient(app) as client:
+        client.post("/me/workspaces", json=ws)
+        resp = client.patch(
+            "/me/workspaces/myapp", json={"recipes": ["python", "claude-code"]}
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["requires_recreate"] == ["recipes"]
+    assert body["added_recipes"] == ["claude-code"]
+    assert body["spec"]["recipes"] == ["python", "claude-code"]
+
+
+def test_patch_workspace_persists_the_change(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    ws = {"name": "myapp", "source": "git@github.com:user/repo.git"}
+    with TestClient(app) as client:
+        client.post("/me/workspaces", json=ws)
+        client.patch("/me/workspaces/myapp", json={"memory_limit": "2g"})
+    with TestClient(app) as client:
+        stored = next(w for w in client.get("/me/workspaces").json() if w["name"] == "myapp")
+    assert stored["memory_limit"] == "2g"
+
+
+def test_patch_workspace_partial_never_erases_other_fields(tmp_path: Path) -> None:
+    """Un PATCH partiel ne doit pas effacer le reste de la config — même piège que
+    celui déjà corrigé sur POST /workspaces/{name}/up."""
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    ws = {
+        "name": "myapp",
+        "source": "git@github.com:user/repo.git",
+        "branch": "main",
+        "recipes": ["python"],
+        "agents": ["claude"],
+    }
+    with TestClient(app) as client:
+        client.post("/me/workspaces", json=ws)
+        resp = client.patch("/me/workspaces/myapp", json={"branch": "feature/x"})
+    spec = resp.json()["spec"]
+    assert spec["branch"] == "feature/x"
+    assert spec["source"] == "git@github.com:user/repo.git"
+    assert spec["recipes"] == ["python"]
+    assert spec["agents"] == ["claude"]
+
+
+def test_patch_workspace_restart_only_change_is_not_a_recreate(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    ws = {"name": "myapp", "source": "git@github.com:user/repo.git", "branch": "main"}
+    with TestClient(app) as client:
+        client.post("/me/workspaces", json=ws)
+        resp = client.patch("/me/workspaces/myapp", json={"branch": "dev"})
+    body = resp.json()
+    assert body["requires_recreate"] == []
+    assert body["requires_restart"] == ["branch"]
+
+
+def test_patch_workspace_noop_reports_no_impact(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    ws = {"name": "myapp", "source": "git@github.com:user/repo.git", "recipes": ["python"]}
+    with TestClient(app) as client:
+        client.post("/me/workspaces", json=ws)
+        resp = client.patch("/me/workspaces/myapp", json={"recipes": ["python"]})
+    body = resp.json()
+    assert body["requires_recreate"] == []
+    assert body["requires_restart"] == []
+    assert body["added_recipes"] == []
+
+
+def test_patch_workspace_unknown_returns_404(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        resp = client.patch("/me/workspaces/ghost", json={"branch": "x"})
+    assert resp.status_code == 404
+
+
+def test_patch_workspace_rejects_rename_and_unknown_fields(tmp_path: Path) -> None:
+    """`name` est hors du modèle : renommer changerait le ws_id, donc l'identité
+    du conteneur — ce n'est pas une édition de config."""
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    ws = {"name": "myapp", "source": "git@github.com:user/repo.git"}
+    with TestClient(app) as client:
+        client.post("/me/workspaces", json=ws)
+        assert client.patch("/me/workspaces/myapp", json={"name": "autre"}).status_code == 422
+        assert client.patch("/me/workspaces/myapp", json={"nope": 1}).status_code == 422
+
+
+def test_patch_workspace_rejects_invalid_value(tmp_path: Path) -> None:
+    _provision_alice(tmp_path)
+    app = _make_app(tmp_path)
+    ws = {"name": "myapp", "source": "git@github.com:user/repo.git"}
+    with TestClient(app) as client:
+        client.post("/me/workspaces", json=ws)
+        resp = client.patch("/me/workspaces/myapp", json={"memory_limit": "beaucoup"})
+    assert resp.status_code == 422

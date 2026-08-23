@@ -18,6 +18,8 @@ from portal.routes._ssrf import check_ssrf, pinned_get, resolve_pinned
 _PUBLIC = ("1.2.3.4", 0)
 _LOOPBACK = ("127.0.0.1", 0)
 _METADATA = ("169.254.169.254", 0)
+_CGNAT = ("100.64.0.1", 0)  # RFC 6598 — plage du tailnet Tailscale (spec 17/18)
+_CGNAT_V4_MAPPED = ("::ffff:100.64.0.1", 0)
 
 
 def _addrinfo(*sockaddrs: tuple[str, int]) -> list[tuple]:
@@ -30,7 +32,7 @@ def test_resolve_pinned_returns_validated_ip() -> None:
 
 
 def test_resolve_pinned_blocks_internal_addresses() -> None:
-    for sockaddr in (_LOOPBACK, _METADATA):
+    for sockaddr in (_LOOPBACK, _METADATA, _CGNAT, _CGNAT_V4_MAPPED):
         with patch(
             "portal.routes._ssrf._socket.getaddrinfo", return_value=_addrinfo(sockaddr)
         ):

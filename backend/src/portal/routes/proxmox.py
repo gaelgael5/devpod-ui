@@ -167,6 +167,26 @@ def find_identifier_arg(spec: dict[str, object]) -> str | None:
     return None
 
 
+def spec_arg_defaults(spec: dict[str, object]) -> dict[str, str]:
+    """Valeurs `default` déclarées dans la spec (args + groupes `sub`), en str.
+
+    Sert de base aux args de création : un arg déclaré avec un `default` s'applique
+    même si les `test_host_params` stockés — saisis AVANT l'ajout de cet arg à la
+    spec — ne le portent pas. Sans ça, un nouvel arg (ex. SWAP_PERCENT) partait en
+    placeholder littéral au script. L'arg identifiant est exclu (jamais de défaut).
+    """
+    raw_args = spec.get("args", [])
+    args = raw_args if isinstance(raw_args, list) else []
+    out: dict[str, str] = {}
+    for arg in _flatten_args(args):
+        if arg.get("identifier") is True or "default" not in arg:
+            continue
+        name = arg.get("arg")
+        if isinstance(name, str):
+            out[name] = str(arg["default"])
+    return out
+
+
 async def _ssh_stream(node: Hypervisor, commands: list[str]) -> AsyncIterator[bytes]:
     """Exécute des commandes shell sur le nœud SSH et streame stdout+stderr."""
     script = "set -euo pipefail\n" + "\n".join(commands) + "\n"
@@ -203,6 +223,9 @@ async def _ssh_stream(node: Hypervisor, commands: list[str]) -> AsyncIterator[by
                 proc.kill()
 
     if proc.returncode != 0:
+        # Le flux part au navigateur ; on trace AUSSI côté serveur pour que l'échec
+        # d'un script d'hyperviseur soit diagnosticable a posteriori (Loki).
+        _log.warning("ssh_stream_nonzero_exit", node=node.name, returncode=proc.returncode)
         yield f"\n[ERROR] Script terminé avec le code {proc.returncode}\n".encode()
 
 
@@ -227,6 +250,17 @@ def _substitute(template: str, args: dict[str, str]) -> str:
         return shlex.quote(args[key])
 
     return _SUBST_PLACEHOLDER_RE.sub(_repl, template)
+
+
+def missing_placeholders(templates: list[str], args: dict[str, str]) -> set[str]:
+    """Placeholders `{KEY}` référencés dans les templates mais absents des args.
+
+    Permet d'échouer TÔT et clairement quand la config d'un type d'hyperviseur ne
+    fournit pas un paramètre attendu par le script (sinon `{KEY}` part littéral au
+    script, qui le rejette avec un message cryptique — cf. SWAP_PERCENT).
+    """
+    referenced = {m.group(1) for t in templates for m in _SUBST_PLACEHOLDER_RE.finditer(t)}
+    return referenced - set(args)
 
 
 async def _run_destroy_script(cfg: GlobalConfig, host_cfg: HostConfig) -> None:

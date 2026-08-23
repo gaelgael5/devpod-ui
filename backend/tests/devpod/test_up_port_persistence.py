@@ -73,6 +73,12 @@ class _FakeExposure:
     async def release_port(self, port: int) -> None:
         self.released.append(port)
 
+    async def allocate_ssh_port(self, ws_id: str) -> int:
+        return self.next_port + 10000
+
+    async def release_ssh_port(self, port: int) -> None:
+        self.released.append(port)
+
     async def expose(self, ws_id: str, node_ip: str, host_port: int, **kwargs: Any) -> str:
         return f"https://ws-{ws_id}.dev.yoops.org"
 

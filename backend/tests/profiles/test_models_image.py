@@ -35,3 +35,19 @@ def test_image_rejects_garbage() -> None:
     ):
         with pytest.raises(ValidationError):
             ProfileBody(name="P", image=ref)
+
+
+def test_image_user_default_empty() -> None:
+    assert ProfileBody(name="P").image_user == ""
+    assert ProfileBody(name="P", image_user="  ").image_user == ""
+
+
+def test_image_user_accepts_valid_logins() -> None:
+    for u in ("vscode", "dev", "node", "app_user", "user-1"):
+        assert ProfileBody(name="P", image_user=u).image_user == u
+
+
+def test_image_user_rejects_invalid() -> None:
+    for bad in ("Root", "1abc", "a b", "user!", "x" * 40):
+        with pytest.raises(ValidationError):
+            ProfileBody(name="P", image_user=bad)

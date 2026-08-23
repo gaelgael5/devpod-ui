@@ -1,4 +1,5 @@
 """Erreur métier des primitives devpod (isolée pour éviter les cycles d'import)."""
+
 from __future__ import annotations
 
 

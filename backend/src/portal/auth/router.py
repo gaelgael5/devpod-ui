@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import os
 import tempfile
 import time
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import bcrypt as _bcrypt
 import structlog
@@ -26,6 +29,20 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 _oidc_client: OIDCClient | None = None
 _oidc_client_key: tuple[str, str, str] | None = None
+
+# Tâches fire-and-forget de fusion des comptes Termix au login (spec 18) : gardées le
+# temps de leur exécution pour ne pas être ramassées par le GC.
+_link_tasks: set[asyncio.Task[None]] = set()
+
+
+def _fire_link_termix_accounts(login: str) -> None:
+    """Lance (sans bloquer le login) la tentative de fusion interne↔OIDC des comptes
+    Termix de `login`. Best-effort, silencieux si Termix indisponible."""
+    from ..bastion.servers import try_link_accounts_for_user
+
+    task = asyncio.create_task(try_link_accounts_for_user(login))
+    _link_tasks.add(task)
+    task.add_done_callback(_link_tasks.discard)
 
 
 class LocalLoginRequest(BaseModel):
@@ -91,7 +108,10 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
     if not valid:
         _log.warning("local_login_failed", username=credentials.username)
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    await provision_user(login=settings.local_user, sub="local", data_root=_data_root())
+    # Login local = admin (rôle admin attribué en session ci-dessous) → persiste is_admin.
+    await provision_user(
+        login=settings.local_user, sub="local", data_root=_data_root(), is_admin=True
+    )
     request.session.setdefault("session_id", str(uuid.uuid4()))
     # Horodatage de login absolu : borne l'âge maximal de la session indépendamment
     # du max_age glissant du cookie (bug 032).
@@ -103,8 +123,41 @@ async def local_login(request: Request, credentials: LocalLoginRequest) -> dict[
         "roles": [settings.oidc_admin_role],
         "sub": "local",
     }
+    # Pas de vrai jeton en login local : claims minimaux pour la page profil.
+    request.session["token_claims"] = {"sub": "local", "preferred_username": settings.local_user}
+    # Break-glass : aucune session IdP à fermer, le logout reste purement local.
+    request.session["auth_method"] = "local"
     _log.info("local_login_success", login=settings.local_user)
+    _fire_link_termix_accounts(settings.local_user)  # fusion comptes Termix (best-effort)
+    from ..events.bus import emit_event
+
+    await emit_event(
+        "user.connected",
+        actor=settings.local_user,
+        subject={"login": settings.local_user, "sub": "local", "email": "", "identity": ""},
+    )
     return {"ok": True}
+
+
+# Claims OIDC exposés à l'utilisateur sur sa page profil (affichage + copie, ex.
+# copier le `sub` pour le coller dans le champ Identité OBO ou d'autres apps).
+_EXPOSED_CLAIMS = ("sub", "email", "preferred_username", "name", "iss", "aud", "exp", "iat")
+
+
+def curate_token_claims(claims: Mapping[str, Any]) -> dict[str, str]:
+    """Sous-ensemble sûr des claims OIDC à persister en session pour la page profil.
+
+    On ne garde JAMAIS le jeton brut ni l'access_token (bearer) : uniquement des
+    claims d'identité essentiels, courts, en chaînes (une liste comme `aud` est
+    jointe). Destiné à l'affichage/copie, pas à une ré-authentification.
+    """
+
+    def _s(v: Any) -> str:
+        if isinstance(v, (list, tuple)):
+            return ", ".join(str(x) for x in v)
+        return "" if v is None else str(v)
+
+    return {k: _s(claims[k]) for k in _EXPOSED_CLAIMS if k in claims}
 
 
 @router.get("/oidc")
@@ -163,20 +216,45 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
             _log.info("oidc_login_matched_by_email", derived=login_name, matched=matched)
             login_name = matched
 
-    await provision_user(login=login_name, sub=sub, data_root=_data_root(), email=email)
+    is_admin = get_settings().oidc_admin_role in roles
+    await provision_user(
+        login=login_name, sub=sub, data_root=_data_root(), email=email, is_admin=is_admin
+    )
 
     request.session.setdefault("session_id", str(uuid.uuid4()))
     # Horodatage de login absolu : borne l'âge maximal de la session indépendamment
     # du max_age glissant du cookie (bug 032).
     request.session["auth_time"] = int(time.time())
     request.session["user"] = {"login": login_name, "roles": roles, "sub": sub}
+    # Origine de la session : seul un login OIDC justifie de propager la
+    # déconnexion à l'IdP (RP-Initiated Logout).
+    request.session["auth_method"] = "oidc"
+    # Claims essentiels curés (jamais le jeton brut) pour affichage/copie côté profil.
+    request.session["token_claims"] = curate_token_claims(claims)
     _log.info("user_logged_in", login=login_name, roles=roles)
+    _fire_link_termix_accounts(login_name)  # fusion comptes Termix (best-effort, spec 18)
+    # Rafraîchissement d'identité à chaque login OIDC : re-synchronise l'aval
+    # (ex. upsert du user dans Termix), idempotent. Best-effort (hors txn).
+    from ..db.engine import _get_engine
+    from ..db.user_config import get_user_actor
+    from ..events.bus import emit_event
+
+    async with _get_engine().connect() as conn:
+        identity = await get_user_actor(login_name, conn) or ""
+    subject = {"login": login_name, "sub": sub, "email": email, "identity": identity}
+    await emit_event("user.refreshed", actor=login_name, subject=subject)
+    # Ouverture d'une session de connexion (distinct du rafraîchissement d'identité).
+    await emit_event("user.connected", actor=login_name, subject=subject)
     return RedirectResponse("/", status_code=302)
 
 
 @router.get("/logout")
 async def logout(request: Request) -> RedirectResponse:
-    login_name = request.session.get("user", {}).get("login", "?")
+    session_user = request.session.get("user", {})
+    login_name = session_user.get("login", "?")
+    sub = session_user.get("sub", "")
+    # Lu AVANT le clear : décide si la déconnexion doit être propagée à l'IdP.
+    auth_method = request.session.get("auth_method", "")
     sid = request.session.get("session_id", "")
     if sid:
         from ..vault import session as vault_session
@@ -184,7 +262,35 @@ async def logout(request: Request) -> RedirectResponse:
         vault_session.clear_session(sid)
     request.session.clear()
     _log.info("user_logged_out", login=login_name)
-    resp = RedirectResponse("/", status_code=302)
+    # Fermeture de la session de connexion (best-effort, hors txn ; skip si anonyme).
+    if login_name != "?":
+        from ..events.bus import emit_event
+
+        await emit_event(
+            "user.disconnected",
+            actor=login_name,
+            subject={"login": login_name, "sub": sub},
+        )
+    # Déconnexion propagée à l'IdP : sans elle, seule la session LOCALE se ferme.
+    # Le cookie SSO Keycloak survit, et le clic suivant sur « OIDC » ré-authentifie
+    # en silence sans afficher la mire — on ne peut plus changer de compte.
+    # Uniquement pour une session issue d'OIDC (le login local n'a rien à fermer
+    # côté IdP), et best-effort : toute défaillance retombe sur la redirection
+    # locale plutôt que de laisser l'utilisateur connecté.
+    target = "/"
+    cfg = load_global()
+    oidc_cfg = cfg.auth.oidc
+    if auth_method == "oidc" and oidc_cfg.sso_logout and oidc_cfg.issuer and oidc_cfg.client_id:
+        try:
+            post_logout = (cfg.server.external_url or "").rstrip("/") or ""
+            end_session = await _get_oidc_client().end_session_url(post_logout)
+            if end_session:
+                target = end_session
+                _log.info("oidc_sso_logout", login=login_name)
+        except Exception as exc:
+            _log.warning("oidc_sso_logout_failed", login=login_name, error=str(exc))
+
+    resp = RedirectResponse(target, status_code=302)
     # Expire aussi un éventuel cookie de session legacy host-only (posé avant
     # COOKIE_DOMAIN) ; le SessionMiddleware, lui, ne supprime que celui sur son domaine.
     resp.delete_cookie("portal_session", path="/")
@@ -244,8 +350,13 @@ async def resolve_login_by_email(email: str, email_verified: object = None) -> s
     return logins[0] if logins else None
 
 
-async def provision_user(login: str, sub: str, data_root: Path, email: str = "") -> None:
-    """Crée le répertoire + config YAML initiale si absent, upsert la row users. Idempotent."""
+async def provision_user(
+    login: str, sub: str, data_root: Path, email: str = "", is_admin: bool = False
+) -> None:
+    """Crée le répertoire + config YAML initiale si absent, upsert la row users. Idempotent.
+
+    `is_admin` (rôle OIDC) est persisté à CHAQUE login (création ET mise à jour) afin
+    de pouvoir pousser aux admins hors contexte de requête (migration 101)."""
     validate_username(login)
     user_dir = data_root / "users" / login
     config_path = user_dir / "config.yaml"
@@ -290,7 +401,13 @@ async def provision_user(login: str, sub: str, data_root: Path, email: str = "")
             # INSERT atomique (même famille que bug 010) : deux callbacks de
             # login concurrents du même user ne doivent pas lever UniqueViolation.
             # DO NOTHING préserve la ligne existante (et son secret_ns).
-            values = {"login": login, "version": "1", "secret_ns": secret_ns_str, "email": email}
+            values = {
+                "login": login,
+                "version": "1",
+                "secret_ns": secret_ns_str,
+                "email": email,
+                "is_admin": is_admin,
+            }
             if sub:
                 values["sub"] = sub
             result = await conn.execute(
@@ -303,7 +420,24 @@ async def provision_user(login: str, sub: str, data_root: Path, email: str = "")
                 from ..mcp.devpod_bootstrap import ensure_devpod_backend
 
                 await ensure_devpod_backend(conn, login)
+                # Émis DANS la transaction de création (atomique avec la row users) :
+                # déclencheur de provisioning aval (ex. créer le user dans Termix).
+                from ..db.user_config import get_user_actor
+                from ..events.bus import emit_event
+
+                identity = await get_user_actor(login, conn) or ""
+                await emit_event(
+                    "user.created",
+                    actor=login,
+                    subject={"login": login, "sub": sub, "email": email, "identity": identity},
+                    dedup_key=f"user:{login}",
+                    conn=conn,
+                )
             else:
+                # Rôle admin re-synchronisé à chaque login (perte/gain de rôle reflétée).
+                await conn.execute(
+                    update(users).where(users.c.login == login).values(is_admin=is_admin)
+                )
                 if email:
                     await conn.execute(
                         update(users).where(users.c.login == login).values(email=email)

@@ -5,6 +5,10 @@ services:
       dockerfile: deploy/Dockerfile
     image: workspace-portal:latest
     restart: unless-stopped
+    # PID 1 = tini (bug 813f425f) : moissonne les orphelins re-parentés
+    # (masters ControlMaster expirés, ProxyCommand…) — sans init, ils
+    # s'accumulaient en zombies jusqu'à saturer pids-limit (panne du 04/08).
+    init: true
     env_file: /data/.env
     environment:
       # Noms des rôles Keycloak (realm_access.roles) du realm Yoops, différents
@@ -18,6 +22,10 @@ services:
       - /data/.devpod:/root/.devpod
     networks:
       - internal
+    # Bastion SSH (opt-in PORTAL_BASTION_ENABLED) : Termix s'y connecte. Inerte
+    # tant que le bastion n'écoute pas. Restreindre à l'IP LAN si besoin de durcir.
+    ports:
+      - "2222:2222"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 30s

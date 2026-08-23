@@ -16,13 +16,22 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # l'émission comme à l'abonnement. Convention : domaine.verbe_au_passé.
 EVENT_TYPES: frozenset[str] = frozenset(
     {
+        "user.created",
+        "user.refreshed",
+        "user.connected",
+        "user.disconnected",
+        "user.deleted",
+        "user.paused",
+        "user.resumed",
         "workspace.created",
+        "workspace.updated",
         "workspace.deleted",
         "workspace.stopped",
         "workspace.restarted",
         "session.created",
         "session.closed",
         "test_server.created",
+        "test_server.updated",
         "test_server.deleted",
         "compose_service.started",
         "compose_service.stopped",

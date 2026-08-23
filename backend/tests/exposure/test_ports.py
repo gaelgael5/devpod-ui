@@ -78,13 +78,63 @@ async def test_provisioning_row_protects_port_across_registry_restart(db_engine)
     from portal.exposure.ports import PortRegistry
 
     async with _get_engine().begin() as conn:
-        await upsert_status_db(
-            "alice-app1", "provisioning", conn, login="alice", host_port=40000
-        )
+        await upsert_status_db("alice-app1", "provisioning", conn, login="alice", host_port=40000)
 
     fresh_registry = PortRegistry()  # simulate restart : _reserved vide
     port = await fresh_registry.allocate("alice-app2")
     assert port == 40001
+
+
+# ---------------------------------------------------------------------------
+# Registre SSH (spec 18 T1) : plage dédiée 50000-59999, colonne ssh_port,
+# indépendant du registre openvscode (host_port / 40000-49999).
+# ---------------------------------------------------------------------------
+
+
+def _ssh_registry():  # noqa: ANN202
+    from portal.exposure.ports import PortRegistry
+
+    return PortRegistry(port_min=50000, port_max=59999, column="ssh_port")
+
+
+@pytest.mark.asyncio
+async def test_ssh_registry_allocates_in_ssh_range(db_engine) -> None:
+    port = await _ssh_registry().allocate("alice-myapp")
+    assert 50000 <= port <= 59999
+
+
+@pytest.mark.asyncio
+async def test_ssh_registry_reads_ssh_port_column(db_engine) -> None:
+    """Le registre SSH exclut les ssh_port déjà en DB (pas les host_port)."""
+    from portal.db.engine import _get_engine
+    from portal.db.workspace_status import upsert_status_db
+
+    async with _get_engine().begin() as conn:
+        await upsert_status_db("alice-other", "running", conn, login="alice", ssh_port=50000)
+
+    port = await _ssh_registry().allocate("alice-myapp")
+    assert port == 50001
+
+
+@pytest.mark.asyncio
+async def test_ssh_and_openvscode_registries_are_independent(db_engine) -> None:
+    """Un host_port occupé ne bloque pas le registre SSH, et inversement."""
+    from portal.db.engine import _get_engine
+    from portal.db.workspace_status import upsert_status_db
+    from portal.exposure.ports import PortRegistry
+
+    async with _get_engine().begin() as conn:
+        # workspace avec host_port=40000 ET ssh_port=59999 posés.
+        await upsert_status_db(
+            "alice-app", "running", conn, login="alice", host_port=40000, ssh_port=59999
+        )
+
+    # Le registre openvscode ignore ssh_port → 40000 pris, renvoie 40001.
+    ov = await PortRegistry().allocate("alice-new")
+    assert ov == 40001
+    # Le registre SSH ignore host_port → 59999 pris, renvoie 50000 (premier libre).
+    ssh = await _ssh_registry().allocate("alice-new")
+    assert ssh == 50000
 
 
 # ---------------------------------------------------------------------------

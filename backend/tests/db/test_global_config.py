@@ -3,6 +3,7 @@
 Couvre : round-trip save/load, cache warm/invalidate, idempotence,
 hosts + hypervisors + hypervisor_types persistés et récupérés.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -91,6 +92,22 @@ def full_cfg() -> GlobalConfig:
                 "module": "devpod-test",
                 "push_token": "${vault://bloc/loki-token}",
                 "grafana_oauth_client_secret": "gf-secret-xyz",
+            },
+            "events_producer": {
+                "enabled": True,
+                "workflow_base_url": "https://workflow.example.com",
+                "source_id": "11111111-2222-3333-4444-555555555555",
+                "secret_slug": "wf-hmac-test",
+                "source_uri": "urn:yoops:test",
+                "events": ["workspace.created", "workspace.deleted"],
+            },
+            "bastion": {
+                "enabled": True,
+                "api_url": "https://termix.example.com",
+                "host": "portal",
+                "port": 2223,
+                "role": "devs",
+                "apikey_secret": "termix-apikey-test",
             },
             "hypervisor_types": [
                 {
@@ -194,6 +211,64 @@ async def test_logs_config_survives_double_save(db_conn, minimal_cfg, full_cfg):
 
     assert result.logs.enabled is True
     assert result.logs.grafana_url == "http://192.168.10.196:3001"
+
+
+@pytest.mark.asyncio
+async def test_bastion_config_defaults_when_unset(db_conn, minimal_cfg):
+    await save_global_db(minimal_cfg, db_conn)
+    result = await load_global_db(db_conn)
+
+    assert result.bastion.enabled is False
+    assert result.bastion.api_url == ""
+    assert result.bastion.host == ""
+    assert result.bastion.port == 2222
+    assert result.bastion.role == ""
+    assert result.bastion.apikey_secret == "termix-apikey"
+
+
+@pytest.mark.asyncio
+async def test_bastion_config_survives_double_save(db_conn, minimal_cfg, full_cfg):
+    # Régression : `bastion` était accepté par PUT /admin/bastion-config mais
+    # jamais persisté → config perdue au redémarrage suivant du portail
+    # (provisioning Termix silencieusement inactif, sshd non redémarré).
+    await save_global_db(minimal_cfg, db_conn)
+    await save_global_db(full_cfg, db_conn)
+    result = await load_global_db(db_conn)
+
+    assert result.bastion.enabled is True
+    assert result.bastion.api_url == "https://termix.example.com"
+    assert result.bastion.host == "portal"
+    assert result.bastion.port == 2223
+    assert result.bastion.role == "devs"
+    assert result.bastion.apikey_secret == "termix-apikey-test"
+
+
+@pytest.mark.asyncio
+async def test_events_producer_defaults_when_unset(db_conn, minimal_cfg):
+    await save_global_db(minimal_cfg, db_conn)
+    result = await load_global_db(db_conn)
+
+    assert result.events_producer.enabled is False
+    assert result.events_producer.workflow_base_url == ""
+    assert result.events_producer.source_id == ""
+    assert result.events_producer.secret_slug == "workflow_events_hmac"
+    assert result.events_producer.source_uri == "urn:yoops:devpod"
+    assert result.events_producer.events == []
+
+
+@pytest.mark.asyncio
+async def test_events_producer_survives_double_save(db_conn, minimal_cfg, full_cfg):
+    # Régression : même trou de persistance que `bastion` (section RAM-only).
+    await save_global_db(minimal_cfg, db_conn)
+    await save_global_db(full_cfg, db_conn)
+    result = await load_global_db(db_conn)
+
+    assert result.events_producer.enabled is True
+    assert result.events_producer.workflow_base_url == "https://workflow.example.com"
+    assert result.events_producer.source_id == "11111111-2222-3333-4444-555555555555"
+    assert result.events_producer.secret_slug == "wf-hmac-test"
+    assert result.events_producer.source_uri == "urn:yoops:test"
+    assert result.events_producer.events == ["workspace.created", "workspace.deleted"]
 
 
 @pytest.mark.asyncio

@@ -17,6 +17,9 @@ _IMAGE_RE = re.compile(
     r"(@sha256:[a-f0-9]{64})?$"  # digest
 )
 
+# Nom d'utilisateur POSIX (login du conteneur).
+_USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+
 
 class ProfileBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -26,8 +29,20 @@ class ProfileBody(BaseModel):
     # de partir d'une image outillée (ex. mcr.microsoft.com/devcontainers/python)
     # et de ne cocher des recettes que pour les manques.
     image: str = ""
+    # Utilisateur du conteneur pour cette image (possède le socket tmux + reçoit
+    # authorized_keys du composant ssh-access, spec 18 T1). Vide = "vscode" (image
+    # de base devcontainer). À renseigner si l'image de profil utilise un autre user.
+    image_user: str = ""
     extensions: list[str] = Field(default_factory=list)
     settings: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("image_user")
+    @classmethod
+    def validate_image_user(cls, v: str) -> str:
+        v = v.strip()
+        if v and not _USER_RE.fullmatch(v):
+            raise ValueError(f"invalid container user: {v!r}")
+        return v
 
     @field_validator("image")
     @classmethod

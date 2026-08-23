@@ -9,21 +9,26 @@ from __future__ import annotations
 
 import asyncio
 import re
+import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, field_validator
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..compose import service as csvc
 from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor
 from ..config.store import load_global, load_user
-from ..db.engine import _get_engine
+from ..db.engine import _get_engine, get_conn
 from ..db.global_config import save_global_db, set_cached_global
+from ..db.mcp_audit import record as _audit_record
 from ..db.test_hosts import (
     assign_test_host,
     count_owned_test_hosts,
@@ -64,8 +69,20 @@ from ..messages.renderer import build_host_context
 from ..messages.service import delete_message as msg_delete
 from ..messages.service import render_and_create
 from ..net import build_resolve_fqdn, resolve_ipv4
-from ..secrets.system import delete_system_secret, store_system_cert, store_system_secret
+from ..secrets.system import (
+    delete_system_secret,
+    reveal_system_secret,
+    store_system_cert,
+    store_system_secret,
+)
 from ..settings import get_settings
+from ..vault.pin import (
+    PinLockedError,
+    PinNotSetupError,
+    PinWrongError,
+    VaultDisabledError,
+    unlock_pin,
+)
 from .proxmox import (
     _fetch_spec,
     _run_destroy_script,
@@ -73,14 +90,23 @@ from .proxmox import (
     _ssh_stream,
     _substitute,
     find_identifier_arg,
+    missing_placeholders,
     resolve_node_script,
+    spec_arg_defaults,
 )
+from .vault import _sid
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["test-vm"])
 
 _VMID_RE = re.compile(r"^[0-9]{1,9}$")
 _WS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
+# Utilisateur SSH POSIX ; hôte = IPv4 ou nom DNS. Strict pour éviter toute
+# injection dans `<user>@<host>` (utilisé en commande ssh côté portail/container).
+_SSH_USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+_SSH_HOST_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,253}[A-Za-z0-9])?$")
+_PIN_RE = re.compile(r"^\d{6}$")
+_AUDIT_ROOT_PW_REVEAL = "me.test_host.root_password.reveal"
 
 
 def _usable_type_names(cfg: GlobalConfig) -> set[str]:
@@ -263,13 +289,183 @@ class CreateTestVmRequest(BaseModel):
     vmid: str
 
 
+@dataclass
+class _CreateJob:
+    """Job de provisioning d'une VM de test, DÉCOUPLÉ de la requête HTTP.
+
+    Le provisioning tourne en tâche de fond et écrit ici sa progression + son
+    statut. Perdre la connexion cliente n'interrompt PAS le job : la machine est
+    enregistrée quoi qu'il arrive ; l'IHM se contente de poller cet état.
+    """
+
+    login: str
+    chunks: list[bytes] = field(default_factory=list)
+    status: str = "running"  # running | ok | failed
+    finished_at: datetime | None = None
+
+    def write(self, data: bytes) -> None:
+        self.chunks.append(data)
+
+    def finish(self, status: str) -> None:
+        self.status = status
+        self.finished_at = datetime.now(UTC)
+
+    def text(self) -> str:
+        return b"".join(self.chunks).decode("utf-8", errors="replace")
+
+
+# Registre des jobs de création en cours/récents (clé = job_id). Les tâches sont
+# référencées fortement (une tâche asyncio non référencée peut être GC avant la fin).
+_create_jobs: dict[str, _CreateJob] = {}
+_create_tasks: set[asyncio.Task[None]] = set()
+_JOB_RETENTION_S = 900.0
+
+
+def _purge_finished_jobs() -> None:
+    """Retire les jobs terminés depuis plus de _JOB_RETENTION_S (anti-fuite mémoire)."""
+    now = datetime.now(UTC)
+    stale = [
+        jid
+        for jid, j in _create_jobs.items()
+        if j.finished_at is not None and (now - j.finished_at).total_seconds() > _JOB_RETENTION_S
+    ]
+    for jid in stale:
+        _create_jobs.pop(jid, None)
+
+
+async def _provision_test_vm(
+    job: _CreateJob,
+    *,
+    login: str,
+    ws: str,
+    node: Hypervisor,
+    commands: list[str],
+    display: list[str],
+    alias: str,
+    vmid: str,
+) -> None:
+    """Provisionne la VM et ENREGISTRE la machine. Tâche de fond indépendante de la
+    requête : une déconnexion cliente ne l'interrompt pas (la machine est ajoutée)."""
+    try:
+        header = "==> Création VM de test\n" + "\n".join(f"    {c}" for c in display) + "\n\n"
+        job.write(header.encode("utf-8"))
+        _log.info("test_vm_provision_start", login=login, ws=ws, node=node.name, vmid=vmid)
+        buf = bytearray()
+        # Miroir vers Loki, ligne par ligne : la progression du provisioning (script de
+        # clone) devient observable en centralisé (Grafana/Loki), sans dépendre du flux
+        # navigateur. Seule la phase CLONE est journalisée — la sortie de _init_vm_ssh
+        # (plus bas) contient le mot de passe root et ne doit JAMAIS partir dans Loki.
+        line_buf = ""
+        async for chunk in _ssh_stream(node, commands):
+            buf.extend(chunk)
+            job.write(chunk)
+            line_buf += chunk.decode("utf-8", errors="replace")
+            while "\n" in line_buf:
+                line, line_buf = line_buf.split("\n", 1)
+                line = line.rstrip("\r")
+                if line.strip():
+                    _log.info("test_vm_provision_out", vmid=vmid, ws=ws, line=line)
+        if line_buf.strip():
+            _log.info("test_vm_provision_out", vmid=vmid, ws=ws, line=line_buf.rstrip("\r"))
+
+        # Extrait borné de la sortie pour tracer côté serveur la cause d'un échec.
+        output = buf.decode("utf-8", errors="replace")
+        tail = output[-2000:]
+        result: dict[str, Any] | None = parse_last_json(output)
+        if result is None:
+            _log.warning(
+                "test_vm_create_failed", login=login, ws=ws, node=node.name, vmid=vmid,
+                reason="no_json_result", output_tail=tail,
+            )
+            job.write(b"\n==> ERREUR : pas de resultat JSON du script de creation\n")
+            job.finish("failed")
+            return
+        host = map_result_to_host(result, vmid, node.name)
+        if not host.name:
+            _log.warning(
+                "test_vm_create_failed", login=login, ws=ws, node=node.name, vmid=vmid,
+                reason="no_hostname", output_tail=tail,
+            )
+            job.write(b"\n==> ERREUR : le script n'a pas retourne de nom d'hote\n")
+            job.finish("failed")
+            return
+
+        new_cfg = load_global()
+        if any(h.name == host.name for h in new_cfg.hosts):
+            _log.warning(
+                "test_vm_create_failed", login=login, ws=ws, node=node.name, vmid=vmid,
+                reason="host_name_conflict", host=host.name,
+            )
+            job.write(f"\n==> ERREUR : un host nomme {host.name!r} existe deja\n".encode())
+            job.finish("failed")
+            return
+        new_cfg.hosts.append(host)
+        async with _get_engine().begin() as conn:
+            await save_global_db(new_cfg, conn)
+            await assign_test_host(login, ws, host.name, alias, conn)
+        set_cached_global(new_cfg)  # après commit réussi seulement (bug 034)
+
+        await emit_event(
+            "test_server.created", actor=login, workspace=ws,
+            subject={
+                "host_name": host.name, "alias": alias,
+                "address": host.address, "hypervisor": node.name,
+            },
+        )
+        _log.info(
+            "test_vm_create_done", login=login, ws=ws, host=host.name, alias=alias, vmid=vmid
+        )
+
+        # Message contextuel pour les agents (non-bloquant).
+        try:
+            user_cfg = await load_user(login)
+            ctx = build_host_context(
+                owner_login=login, workspace_name=ws, host_name=host.name,
+                alias=alias, address=host.address, culture=user_cfg.culture,
+            )
+            async with _get_engine().begin() as conn:
+                msg_id = await render_and_create(
+                    conn, key="test_host_available", culture=user_cfg.culture,
+                    owner_login=login, workspace_name=ws, msg_type="test_host", ctx=ctx,
+                )
+                if msg_id is not None:
+                    await set_test_host_message_id(host.name, msg_id, conn)
+        except Exception:
+            _log.warning("test_host_message_create_failed", host=host.name, exc_info=True)
+
+        job.write(
+            f"\n==> VM de test '{host.name}' creee et attachee au workspace '{ws}'\n".encode()
+        )
+        async for msg in _init_vm_ssh(login, ws, host, node, alias):
+            job.write(msg)
+
+        # Auto-start : uniquement si le SSH portail a été activé (host_cert_slug posé).
+        if host_cert_ready(load_global().hosts, host.name):
+            auto_user_cfg = await load_user(login)
+            async with _get_engine().begin() as conn:
+                async for line in csvc.deploy_auto_start_templates(
+                    conn, owner_login=login, secret_ns=auto_user_cfg.secret_ns, node_id=host.name,
+                ):
+                    job.write(line.encode())
+        job.finish("ok")
+    except Exception:
+        _log.error("test_vm_provision_crashed", login=login, ws=ws, vmid=vmid, exc_info=True)
+        job.write(b"\n==> ERREUR interne du provisioning (voir logs serveur)\n")
+        job.finish("failed")
+
+
 @router.post("/workspaces/{ws}/test-vm")
 async def create_test_vm(
     ws: str,
     body: CreateTestVmRequest,
     user: UserInfo = Depends(require_user),
-) -> StreamingResponse:
-    """Crée une VM de test, l'enregistre (usage=tests) et l'associe au workspace."""
+) -> JSONResponse:
+    """Lance la création d'une VM de test EN TÂCHE DE FOND et retourne un job_id (202).
+
+    Le provisioning (clone + enregistrement de la machine + init SSH) est découplé de
+    cette requête : perdre la connexion n'interrompt PAS la création — la machine est
+    enregistrée quoi qu'il arrive. L'IHM poll la progression via GET .../test-vm/create/{job_id}.
+    """
     if not _WS_NAME_RE.fullmatch(ws):
         raise HTTPException(status_code=422, detail="Invalid workspace name")
     if not _VMID_RE.fullmatch(body.vmid):
@@ -295,7 +491,11 @@ async def create_test_vm(
     commands_raw: list[str] = spec.get("commands", [])  # type: ignore[assignment]
     settings = get_settings()
     login = user.login
-    args = build_test_vm_args(dict(hyp_type.test_host_params), identifier_arg, body.vmid)
+    # Défauts déclarés par la spec EN BASE, surchargés par les params stockés du type :
+    # un arg ajouté à la spec après coup (ex. SWAP_PERCENT=25) s'applique même si les
+    # params n'ont pas été re-saisis (sinon placeholder littéral → script en échec).
+    merged_params = {**spec_arg_defaults(spec), **dict(hyp_type.test_host_params)}
+    args = build_test_vm_args(merged_params, identifier_arg, body.vmid)
     args["PORTAL_URL"] = cfg.server.external_url
     args["PORTAL_TOKEN"] = settings.portal_api_key
     args["PORTAL_PVE_NODE"] = node.name
@@ -311,95 +511,69 @@ async def create_test_vm(
     alias = next_test_alias([a for _, a in detailed])
     args = substitute_param_vars(args, {"N": str(n), "N+1": str(n + 1)})
 
+    # Fail-fast : un placeholder {KEY} du script sans valeur dans les paramètres du
+    # type d'hyperviseur partirait littéral au script (échec cryptique). On le
+    # détecte ici avec un message actionnable (ex. SWAP_PERCENT manquant).
+    missing = missing_placeholders(commands_raw, args)
+    if missing:
+        _log.warning(
+            "test_vm_create_missing_params",
+            login=login,
+            ws=ws,
+            node=node.name,
+            hypervisor_type=node.hypervisor_type,
+            missing=sorted(missing),
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Paramètres manquants pour le type d'hyperviseur "
+                f"{node.hypervisor_type!r} : {', '.join(sorted(missing))}. "
+                "Renseignez-les dans les paramètres du type (/admin/hypervisor-types)."
+            ),
+        )
+
     commands = [_substitute(c, args) for c in commands_raw]
     display = [_substitute(c, {**args, "PORTAL_TOKEN": "***"}) for c in commands_raw]
 
     _log.info("test_vm_create", login=login, ws=ws, node=node.name, vmid=body.vmid)
 
-    async def _stream() -> AsyncIterator[bytes]:
-        header = "==> Création VM de test\n" + "\n".join(f"    {c}" for c in display) + "\n\n"
-        yield header.encode("utf-8")
-        buf = bytearray()
-        async for chunk in _ssh_stream(node, commands):
-            buf.extend(chunk)
-            yield chunk
-
-        result: dict[str, Any] | None = parse_last_json(buf.decode("utf-8", errors="replace"))
-        if result is None:
-            yield b"\n==> ERREUR : pas de resultat JSON du script de creation\n"
-            return
-        host = map_result_to_host(result, body.vmid, node.name)
-        if not host.name:
-            yield b"\n==> ERREUR : le script n'a pas retourne de nom d'hote\n"
-            return
-
-        new_cfg = load_global()
-        if any(h.name == host.name for h in new_cfg.hosts):
-            yield f"\n==> ERREUR : un host nomme {host.name!r} existe deja\n".encode()
-            return
-        new_cfg.hosts.append(host)
-        async with _get_engine().begin() as conn:
-            await save_global_db(new_cfg, conn)
-            await assign_test_host(login, ws, host.name, alias, conn)
-        set_cached_global(new_cfg)  # après commit réussi seulement (bug 034)
-
-        await emit_event(
-            "test_server.created",
-            actor=login,
-            workspace=ws,
-            subject={
-                "host_name": host.name,
-                "alias": alias,
-                "address": host.address,
-                "hypervisor": node.name,
-            },
+    _purge_finished_jobs()
+    job = _CreateJob(login=login)
+    job_id = uuid.uuid4().hex
+    _create_jobs[job_id] = job
+    task = asyncio.create_task(
+        _provision_test_vm(
+            job,
+            login=login,
+            ws=ws,
+            node=node,
+            commands=commands,
+            display=display,
+            alias=alias,
+            vmid=body.vmid,
         )
+    )
+    _create_tasks.add(task)
+    task.add_done_callback(_create_tasks.discard)
+    return JSONResponse({"job_id": job_id}, status_code=202)
 
-        # Message contextuel pour les agents (non-bloquant).
-        try:
-            user_cfg = await load_user(login)
-            ctx = build_host_context(
-                owner_login=login,
-                workspace_name=ws,
-                host_name=host.name,
-                alias=alias,
-                address=host.address,
-                culture=user_cfg.culture,
-            )
-            async with _get_engine().begin() as conn:
-                msg_id = await render_and_create(
-                    conn,
-                    key="test_host_available",
-                    culture=user_cfg.culture,
-                    owner_login=login,
-                    workspace_name=ws,
-                    msg_type="test_host",
-                    ctx=ctx,
-                )
-                if msg_id is not None:
-                    await set_test_host_message_id(host.name, msg_id, conn)
-        except Exception:
-            _log.warning("test_host_message_create_failed", host=host.name, exc_info=True)
 
-        yield (f"\n==> VM de test '{host.name}' creee et attachee au workspace '{ws}'\n").encode()
+@router.get("/workspaces/{ws}/test-vm/create/{job_id}")
+async def get_test_vm_create_progress(
+    ws: str,
+    job_id: str,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, Any]:
+    """Progression d'un job de création : log accumulé + statut (running|ok|failed).
 
-        async for msg in _init_vm_ssh(login, ws, host, node, alias):
-            yield msg
-
-        # Auto-start : uniquement si le SSH portail a bien été activé (host_cert_slug
-        # posé par _init_vm_ssh) — sinon les services compose ne sont pas déployables.
-        if host_cert_ready(load_global().hosts, host.name):
-            auto_user_cfg = await load_user(login)
-            async with _get_engine().begin() as conn:
-                async for line in csvc.deploy_auto_start_templates(
-                    conn,
-                    owner_login=login,
-                    secret_ns=auto_user_cfg.secret_ns,
-                    node_id=host.name,
-                ):
-                    yield line.encode()
-
-    return StreamingResponse(_stream(), media_type="text/plain; charset=utf-8")
+    L'IHM poll cet endpoint. Le job survit à la déconnexion cliente ; il est conservé
+    ~15 min après la fin pour la reconnexion, puis purgé.
+    """
+    job = _create_jobs.get(job_id)
+    if job is None or job.login != user.login:
+        raise HTTPException(status_code=404, detail="job de création introuvable")
+    return {"status": job.status, "log": job.text()}
 
 
 @router.delete("/workspaces/{ws}/test-vm/{host_name}", status_code=204)
@@ -536,7 +710,220 @@ async def resolve_test_vm_ip(
         _log.warning("test_vm_ssh_config_refresh_failed", host=host_name, exc_info=True)
 
     _log.info("test_vm_ip_resolved", login=login, ws=ws, host=host_name, fqdn=fqdn, ip=new_ip)
+    await emit_event(
+        "test_server.updated",
+        actor=login,
+        workspace=ws,
+        subject={
+            "host_name": host_name,
+            "alias": alias,
+            "address": new_address,
+            "password_changed": False,
+        },
+    )
     return {"ip": new_ip, "fqdn": fqdn}
+
+
+class UpdateConnectionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str
+    host: str
+    # None = ne pas toucher au mot de passe stocké ; une valeur remplace le secret.
+    password: str | None = None
+
+
+@router.put("/workspaces/{ws}/test-vm/{host_name}/connection")
+async def update_test_vm_connection(
+    ws: str,
+    host_name: str,
+    body: UpdateConnectionBody,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, str]:
+    """Édite les paramètres de connexion MÉMORISÉS d'une machine de test.
+
+    Met à jour `host.address = <username>@<host>` (et réécrit le bloc `~/.ssh/config`
+    du container) ; si `password` est fourni, remplace le secret root stocké côté
+    portail. N'agit PAS sur la VM : c'est le pendant manuel de `resolve-ip` pour
+    recoller l'état portail à la réalité (IP DHCP dérivée, identifiants changés).
+    Réservé au workspace PROPRIÉTAIRE de la VM.
+    """
+    if not _WS_NAME_RE.fullmatch(ws):
+        raise HTTPException(status_code=422, detail="Invalid workspace name")
+    if not _PROXMOX_NAME_RE.fullmatch(host_name):
+        raise HTTPException(status_code=422, detail="Invalid host name")
+
+    username = body.username.strip()
+    host = body.host.strip()
+    if not _SSH_USER_RE.fullmatch(username):
+        raise HTTPException(status_code=422, detail="Invalid SSH username")
+    if not _SSH_HOST_RE.fullmatch(host):
+        raise HTTPException(status_code=422, detail="Invalid host address")
+
+    login = user.login
+    async with _get_engine().connect() as conn:
+        detailed = await list_test_hosts_detailed(login, ws, conn)
+        owned = await is_owned_test_host(login, ws, host_name, conn)
+    alias = next((a for n, a in detailed if n == host_name), None)
+    if alias is None:
+        raise HTTPException(
+            status_code=404, detail=f"Test host {host_name!r} not found for workspace {ws!r}"
+        )
+    if not owned:
+        raise HTTPException(
+            status_code=403,
+            detail="Cette VM vous est partagée : seul son propriétaire peut la modifier.",
+        )
+
+    cfg = load_global()
+    host_cfg = next((h for h in cfg.hosts if h.name == host_name), None)
+    if host_cfg is None:
+        raise HTTPException(status_code=404, detail=f"Host {host_name!r} not found")
+    if host_cfg.type != "ssh":
+        raise HTTPException(
+            status_code=409, detail="Seuls les hosts de test SSH ont des paramètres éditables"
+        )
+
+    new_address = f"{username}@{host}"
+    cfg.hosts = [
+        h.model_copy(update={"address": new_address}) if h.name == host_name else h
+        for h in cfg.hosts
+    ]
+    async with _get_engine().begin() as conn:
+        await save_global_db(cfg, conn)
+        if body.password is not None:
+            # Mémorisé en clair côté portail comme à la création (secret système local).
+            await store_system_secret(
+                slug=f"host.{host_name}.root-password",
+                label=f"Root password — {host_name}",
+                value=body.password,
+                storage_type="local",
+                vault_identifier="",
+                conn=conn,
+            )
+    set_cached_global(cfg)  # après commit réussi seulement (bug 034)
+
+    # Réécrit le bloc ~/.ssh/config du container avec la nouvelle adresse (best-effort).
+    try:
+        await run_ssh_capture(login, f"{login}-{ws}", build_container_ssh_config_cmd(alias, host))
+    except Exception:
+        _log.warning("test_vm_ssh_config_refresh_failed", host=host_name, exc_info=True)
+
+    _log.info(
+        "test_vm_connection_updated",
+        login=login,
+        ws=ws,
+        host=host_name,
+        password_changed=body.password is not None,
+    )
+    await emit_event(
+        "test_server.updated",
+        actor=login,
+        workspace=ws,
+        subject={
+            "host_name": host_name,
+            "alias": alias,
+            "address": new_address,
+            "password_changed": body.password is not None,
+        },
+    )
+    return {"alias": alias, "name": host_name, "ip": host, "user": username, "vmid": host_cfg.vmid}
+
+
+class RevealRootPasswordBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pin: str
+
+    @field_validator("pin")
+    @classmethod
+    def _validate_pin(cls, v: str) -> str:
+        if not _PIN_RE.fullmatch(v):
+            raise ValueError("PIN must be exactly 6 digits")
+        return v
+
+
+async def _audit_root_pw(
+    conn: AsyncConnection, login: str, host: str, status: str, error: str | None
+) -> None:
+    await _audit_record(
+        conn,
+        apikey_id=None,
+        owner_login=login,
+        namespaced_name=_AUDIT_ROOT_PW_REVEAL,
+        backend_id=host,
+        backend_key_id=None,
+        latency_ms=None,
+        status=status,
+        error=error,
+    )
+
+
+async def _audit_root_pw_denied(login: str, host: str, error: str) -> None:
+    """Trace un refus dans une transaction DÉDIÉE (le 4xx rollback la conn requête)."""
+    try:
+        async with _get_engine().begin() as conn:
+            await _audit_root_pw(conn, login, host, "denied", error)
+    except Exception:
+        _log.warning("test_vm_root_pw_audit_failed", host=host, exc_info=True)
+
+
+@router.post("/workspaces/{ws}/test-vm/{host_name}/root-password/reveal")
+async def reveal_test_vm_root_password(
+    ws: str,
+    host_name: str,
+    body: RevealRootPasswordBody,
+    request: Request,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str]:
+    """Renvoie le mot de passe root d'une machine de test après validation du PIN.
+
+    Ownership et existence du host résolus AVANT le PIN : un accès non autorisé ou un
+    host inconnu ne consomme pas de tentative (le lockout protège le PIN, pas le
+    routage). Chaque tentative — accordée ou refusée — est tracée dans l'audit.
+    """
+    if not _WS_NAME_RE.fullmatch(ws):
+        raise HTTPException(status_code=422, detail="Invalid workspace name")
+    if not _PROXMOX_NAME_RE.fullmatch(host_name):
+        raise HTTPException(status_code=422, detail="Invalid host name")
+
+    login = user.login
+    if not await is_owned_test_host(login, ws, host_name, conn):
+        raise HTTPException(
+            status_code=404, detail=f"Test host {host_name!r} not found for workspace {ws!r}"
+        )
+
+    try:
+        await unlock_pin(login, body.pin, _sid(request), conn)
+    except VaultDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except PinLockedError as exc:
+        await _audit_root_pw_denied(login, host_name, "pin_locked")
+        raise HTTPException(
+            status_code=423,
+            detail={
+                "message": "PIN temporarily locked",
+                "seconds_remaining": exc.seconds_remaining,
+            },
+        ) from exc
+    except PinWrongError as exc:
+        await _audit_root_pw_denied(login, host_name, "pin_wrong")
+        _log.warning("test_vm_root_password_reveal_denied", host=host_name, by=login)
+        raise HTTPException(status_code=403, detail="Incorrect PIN") from exc
+    except PinNotSetupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        value = await reveal_system_secret(f"host.{host_name}.root-password", conn)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"Root password of {host_name!r} not stored"
+        ) from exc
+
+    await _audit_root_pw(conn, login, host_name, "ok", None)
+    _log.info("test_vm_root_password_revealed", host=host_name, by=login)
+    return {"value": value}
 
 
 @router.get("/workspaces/{ws}/test-hosts/{host_name}/stacks")

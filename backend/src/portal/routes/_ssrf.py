@@ -24,6 +24,12 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 from fastapi import HTTPException
 
+# RFC 6598 (Carrier-Grade NAT) : ni is_private ni is_reserved ne la couvrent
+# (vérifié ipaddress stdlib) — c'est pourtant la plage du tailnet Tailscale
+# (spec 17/18, accès distant aux nodes) : sans ce blocage explicite, une URL
+# d'automate pourrait cibler un service HTTP interne du tailnet.
+_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+
 
 def resolve_pinned(url: str) -> str:
     """Valide l'URL et retourne l'IP (str) à laquelle se connecter.
@@ -52,6 +58,10 @@ def resolve_pinned(url: str) -> str:
             ip = ipaddress.ip_address(sa[0])
         except ValueError:
             continue
+        # CGNAT n'est ni is_private ni is_reserved côté stdlib : vérifié aussi sur
+        # la forme IPv4-mapped (::ffff:100.64.x.x), qui échapperait sinon comme
+        # is_private le fait déjà pour les autres plages privées.
+        v4 = ip.ipv4_mapped if isinstance(ip, ipaddress.IPv6Address) else ip
         if (
             ip.is_loopback
             or ip.is_link_local
@@ -59,6 +69,7 @@ def resolve_pinned(url: str) -> str:
             or ip.is_multicast
             or ip.is_reserved
             or ip.is_unspecified
+            or (v4 is not None and v4 in _CGNAT)
         ):
             raise HTTPException(
                 status_code=422,
@@ -76,6 +87,59 @@ def resolve_pinned(url: str) -> str:
 def check_ssrf(url: str) -> None:
     """Validation seule (sans fetch) — même contrat d'erreurs que resolve_pinned."""
     resolve_pinned(url)
+
+
+async def pinned_request(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    content: bytes | None = None,
+    timeout: float = 10.0,
+    max_bytes: int | None = None,
+) -> httpx.Response:
+    """Requête `method` épinglée sur l'IP validée (anti DNS rebinding, anti-SSRF).
+
+    Généralise `pinned_get` aux verbes à corps (POST/PUT/PATCH/DELETE), pour les
+    appels sortants des automates. Redirections désactivées (une 30x re-résoudrait
+    le DNS). Le hostname d'origine reste en header Host et en SNI. Le corps de
+    réponse est borné par `max_bytes` (streaming).
+    """
+    pinned_ip = await asyncio.to_thread(resolve_pinned, url)
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    host_literal = f"[{host}]" if ":" in host else host
+    ip_literal = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+    if parsed.port is None:
+        host_header, netloc = host_literal, ip_literal
+    else:
+        host_header, netloc = f"{host_literal}:{parsed.port}", f"{ip_literal}:{parsed.port}"
+    pinned_url = urlunparse(parsed._replace(netloc=netloc))
+    extensions = {"sni_hostname": host} if parsed.scheme == "https" else {}
+    req_headers = {**(headers or {}), "Host": host_header}
+    request = client.build_request(
+        method.upper(),
+        pinned_url,
+        headers=req_headers,
+        content=content,
+        extensions=extensions,
+        timeout=timeout,
+    )
+    response = await client.send(request, stream=True, follow_redirects=False)
+    try:
+        chunks: list[bytes] = []
+        read = 0
+        async for chunk in response.aiter_bytes():
+            chunks.append(chunk)
+            read += len(chunk)
+            if max_bytes is not None and read >= max_bytes:
+                break
+        body = b"".join(chunks)
+        response._content = body[:max_bytes] if max_bytes is not None else body  # noqa: SLF001
+    finally:
+        await response.aclose()
+    return response
 
 
 async def pinned_get(

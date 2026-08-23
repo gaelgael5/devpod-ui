@@ -1,0 +1,13 @@
+id: copilot-cli
+key: 829c418a-451a-42d2-bb0e-23767cfc7777
+version: 1.0.0
+description: "Install GitHub Copilot CLI (agent de terminal @github/copilot). Auth device-flow ; nécessite Node.js 22+."
+type: install
+# Persistance de l'auth/état (~/.copilot) : le dev ne refait pas /login à chaque
+# recréation du workspace. optional=true → l'utilisateur l'active à la création,
+# même convention que la mémoire de claude-code.
+memory-volume:
+  name: copilot-cli
+  optional: true
+  mapping:
+    target: /home/vscode/.copilot

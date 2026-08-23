@@ -62,7 +62,8 @@ def build_test_host_views(
     """Vue API des machines de test : `(host_name, alias)` + infos du `HostConfig`.
 
     `detailed` est déjà trié par numéro d'alias. Une association orpheline (host retiré
-    de la config) est ignorée. L'IP est dérivée de `address` (`<user>@<ip>`).
+    de la config) est ignorée. L'IP et l'utilisateur SSH sont dérivés de `address`
+    (`<user>@<ip>`) ; `user` vide si l'adresse n'a pas de partie `<user>@`.
     """
     by_name = {h.name: h for h in hosts}
     views: list[dict[str, str]] = []
@@ -70,8 +71,17 @@ def build_test_host_views(
         host = by_name.get(host_name)
         if host is None:
             continue
-        ip = host.address.split("@", 1)[-1] if host.address else ""
-        views.append({"alias": alias, "name": host_name, "ip": ip, "vmid": host.vmid})
+        user, sep, ip_part = host.address.partition("@")
+        ip = ip_part if sep else user
+        views.append(
+            {
+                "alias": alias,
+                "name": host_name,
+                "ip": ip if host.address else "",
+                "user": user if (sep and host.address) else "",
+                "vmid": host.vmid,
+            }
+        )
     return views
 
 

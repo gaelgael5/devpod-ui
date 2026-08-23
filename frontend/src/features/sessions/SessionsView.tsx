@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useUserStore } from '@/store/user'
 import { useCreateSession } from '@/features/workspaces/useWorkspaceSessions'
+import ResourceMetrics from './ResourceMetrics'
 import { openTerminalTab } from '@/features/terminal/openTerminalTab'
 import { useIsMobile } from '@/shared/hooks/useMediaQuery'
 import { useCloseSession, useSessions, type SessionEntry } from './useSessions'
@@ -214,13 +215,26 @@ export default function SessionsView() {
               <button
                 type="button"
                 onClick={() => toggleGroup(key)}
-                className="flex w-full items-center gap-1.5 border-b bg-muted/40 px-3 py-2 text-left text-xs font-semibold"
+                className="flex w-full items-start gap-1.5 border-b bg-muted/40 px-3 py-2 text-left text-xs font-semibold"
                 aria-expanded={groupOpen}
               >
-                {groupOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                {g.host ?? t('sessions.hostUnknown')}
-                <span className="font-normal text-muted-foreground">
-                  {t('sessions.count', { n: g.entries.length })}
+                {groupOpen ? <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+                <span className="min-w-0">
+                  <span className="flex items-center gap-1.5">
+                    {g.host ?? t('sessions.hostUnknown')}
+                    <span className="font-normal text-muted-foreground">
+                      {t('sessions.count', { n: g.entries.length })}
+                    </span>
+                  </span>
+                  {/* Disque, mémoire et charge de la machine SOUS son nom : une
+                      machine, une mesure — plutôt que répété sur chaque session.
+                      Rien n'est rendu pour une machine jamais sondée. */}
+                  {(() => {
+                    const src = g.entries.find((e) => e.disk || e.memory || e.cpu)
+                    return src ? (
+                      <ResourceMetrics disk={src.disk} memory={src.memory} cpu={src.cpu} />
+                    ) : null
+                  })()}
                 </span>
               </button>
               {groupOpen && (

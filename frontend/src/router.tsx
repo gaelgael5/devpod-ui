@@ -12,9 +12,16 @@ import {
   AdminHypervisorTypes,
   AdminJinjaTemplates,
   AdminLogs,
+  AdminBastion,
+  AdminTermix,
+  AdminUsers,
   AdminNetwork,
   AdminOidc,
   AdminProfileEditor,
+  AdminAutomations,
+  AutomationEditor,
+  AdminContracts,
+  AdminEvents,
   AdminProfileSources,
   AdminProxmox,
   AdminRecipes,
@@ -176,8 +183,38 @@ export const router = createBrowserRouter([
         element: <AdminGuard><Wrap><AdminLogs /></Wrap></AdminGuard>,
       },
       {
+        path: '/admin/bastion',
+        element: <AdminGuard><Wrap><AdminBastion /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/termix-instances',
+        element: <AdminGuard><Wrap><AdminTermix /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/users',
+        element: <AdminGuard><Wrap><AdminUsers /></Wrap></AdminGuard>,
+      },
+      {
         path: '/admin/workflow',
         element: <AdminGuard><Wrap><AdminWorkflow /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/automations',
+        element: <AdminGuard><Wrap><AdminAutomations /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/automations/contracts',
+        element: <AdminGuard><Wrap><AdminContracts /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/automations/events',
+        element: <AdminGuard><Wrap><AdminEvents /></Wrap></AdminGuard>,
+      },
+      {
+        // Édition d'une règle en page pleine ('new' = création) ; les routes
+        // statiques /contracts et /events priment sur ce segment dynamique.
+        path: '/admin/automations/:automationId',
+        element: <AdminGuard><Wrap><AutomationEditor /></Wrap></AdminGuard>,
       },
       { path: '/profile', element: <Wrap><ProfilePage /></Wrap> },
       { path: '/compose', element: <Wrap><ComposeGallery /></Wrap> },

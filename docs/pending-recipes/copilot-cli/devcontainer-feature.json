@@ -1,0 +1,6 @@
+{
+  "id": "copilot-cli",
+  "version": "1.0.0",
+  "name": "GitHub Copilot CLI",
+  "description": "Install GitHub Copilot CLI (agent de terminal @github/copilot). Auth device-flow avec ta licence Copilot ; nécessite Node.js 22+."
+}

@@ -3,7 +3,14 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useProfile, useUpdateProfile } from './useProfile'
+import { useSetPreference, useUserPreferences } from '@/shared/hooks/useUserPreferences'
+import {
+  browserTimezone,
+  formatInstant,
+  supportedTimezones,
+  TIMEZONE_PREF_KEY,
+} from '@/shared/hooks/useUserTimezone'
+import { useMyTermixInstances, useProfile, useTokenClaims, useUpdateProfile } from './useProfile'
 import type { UserProfile } from './useProfile'
 
 /** Attend le profil puis monte le formulaire : l'état est initialisé au montage
@@ -12,7 +19,149 @@ import type { UserProfile } from './useProfile'
 export default function ProfilePage() {
   const { data: profile, isLoading } = useProfile()
   if (isLoading || !profile) return <p className="text-muted-foreground">…</p>
-  return <ProfileForm profile={profile} />
+  return (
+    <div className="max-w-lg">
+      <ProfileForm profile={profile} />
+      <TimezoneBlock />
+      <TermixInstancesBlock />
+      <TokenClaimsBlock />
+    </div>
+  )
+}
+
+/** Serveurs Termix de l'utilisateur (lecture seule, spec 18 T4b). */
+function TermixInstancesBlock() {
+  const { t } = useTranslation()
+  const { data, isLoading } = useMyTermixInstances()
+  if (isLoading) return null
+  return (
+    <section className="mt-8">
+      <h2 className="text-lg font-semibold">{t('profile.termix.title')}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{t('profile.termix.hint')}</p>
+      {!data?.length ? (
+        <p className="mt-2 text-sm text-muted-foreground">{t('profile.termix.none')}</p>
+      ) : (
+        <ul className="mt-2 space-y-1.5">
+          {data.map((i) => (
+            <li key={i.id} className="rounded-md border px-3 py-2 text-sm">
+              <span className="font-medium">{i.name}</span>
+              <a
+                href={i.url}
+                target="_blank"
+                rel="noreferrer"
+                className="ml-2 text-xs text-muted-foreground underline hover:text-foreground"
+              >
+                {i.url}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+/** Choix du fuseau horaire d'affichage (préférence `ui.timezone`). Vide = fuseau
+ *  du navigateur. Persisté immédiatement (mise à jour optimiste). */
+function TimezoneBlock() {
+  const { t } = useTranslation()
+  const { data } = useUserPreferences()
+  const setPref = useSetPreference()
+  const current = typeof data?.[TIMEZONE_PREF_KEY] === 'string' ? (data[TIMEZONE_PREF_KEY] as string) : ''
+  const zones = supportedTimezones()
+  const effective = current || browserTimezone()
+
+  return (
+    <section className="mt-10 border-t pt-6">
+      <h2 className="mb-1 text-lg font-semibold">{t('profile.timezone.title')}</h2>
+      <p className="mb-4 text-sm text-muted-foreground">{t('profile.timezone.intro')}</p>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="tz">{t('profile.timezone.label')}</Label>
+        <select
+          id="tz"
+          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          value={current}
+          onChange={(e) => setPref.mutate({ key: TIMEZONE_PREF_KEY, value: e.target.value })}
+        >
+          <option value="">{t('profile.timezone.browserDefault', { tz: browserTimezone() })}</option>
+          {zones.map((z) => (
+            <option key={z} value={z}>
+              {z}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">
+          {t('profile.timezone.preview', { value: formatInstant(new Date().toISOString(), effective) })}
+        </p>
+      </div>
+    </section>
+  )
+}
+
+/** Ordre d'affichage des claims (sub en tête = ancre d'identité / clé de matching). */
+const CLAIM_ORDER = ['sub', 'preferred_username', 'email', 'name', 'iss', 'aud', 'exp', 'iat']
+
+function CopyButton({ value }: { value: string }) {
+  const { t } = useTranslation()
+  const [copied, setCopied] = useState(false)
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => {
+        navigator.clipboard.writeText(value).then(() => {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        })
+      }}
+    >
+      {copied ? t('profile.token.copied') : t('profile.token.copy')}
+    </Button>
+  )
+}
+
+/** Bloc « Jeton d'identité (OIDC) » : claims essentiels + boutons copier. Le jeton
+ *  brut n'est jamais exposé (seuls les claims curés persistés au login). */
+function TokenClaimsBlock() {
+  const { t } = useTranslation()
+  const { data, isLoading } = useTokenClaims()
+  const claims = data?.claims ?? {}
+  const keys = [
+    ...CLAIM_ORDER.filter((k) => k in claims),
+    ...Object.keys(claims).filter((k) => !CLAIM_ORDER.includes(k)),
+  ]
+
+  return (
+    <section className="mt-10 border-t pt-6">
+      <h2 className="mb-1 text-lg font-semibold">{t('profile.token.title')}</h2>
+      <p className="mb-4 text-sm text-muted-foreground">{t('profile.token.intro')}</p>
+
+      {isLoading && <p className="text-sm text-muted-foreground">…</p>}
+      {!isLoading && keys.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t('profile.token.empty')}</p>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {keys.map((key) => (
+          <div
+            key={key}
+            className={`flex items-center gap-2 rounded-md border p-2 ${
+              key === 'sub' ? 'bg-muted/50' : ''
+            }`}
+          >
+            <span className="w-40 shrink-0 font-mono text-xs text-muted-foreground">{key}</span>
+            <code className="flex-1 truncate font-mono text-sm" title={claims[key]}>
+              {claims[key]}
+            </code>
+            <CopyButton value={claims[key]} />
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-3 text-xs text-muted-foreground">{t('profile.token.subHint')}</p>
+    </section>
+  )
 }
 
 function ProfileForm({ profile }: { profile: UserProfile }) {

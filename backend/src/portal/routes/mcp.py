@@ -5,9 +5,11 @@ from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
+from ..config.store import load_global
 from ..db import mcp as db
 from ..db.engine import get_conn
 from ..db.mcp_audit import list_for_owner as audit_list
@@ -17,8 +19,9 @@ from ..db.mcp_catalog import (
     set_quarantine,
 )
 from ..db.mcp_catalog import list_primitives as list_catalog_primitives
-from ..mcp import models, service
+from ..mcp import models, oauth_flow, service
 from ..mcp.monitor import get_health, monitor_backend_once, probe_backend_key
+from ..mcp.oauth_client import OAuthClientError
 from ..mcp.rest_config import set_rest_tools
 
 _log = structlog.get_logger(__name__)
@@ -101,7 +104,8 @@ async def update_backend_route(
         conn, user.login, backend_id,
         name=body.name, url=body.url, transport=body.transport, enabled=body.enabled,
         auth_scheme=body.auth_scheme, forward_identity=body.forward_identity,
-        app_url=body.app_url, quarantine_disabled=body.quarantine_disabled,
+        app_url=body.app_url, oauth_auth_url=body.oauth_auth_url,
+        quarantine_disabled=body.quarantine_disabled,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="backend introuvable")
@@ -143,6 +147,79 @@ async def delete_backend_route(
 ) -> None:
     if not await db.delete_backend(conn, user.login, backend_id):
         raise HTTPException(status_code=404, detail="backend introuvable")
+
+
+# ─── OAuth client (backends auth_scheme=oauth) ────────────────────────────────
+
+
+def _oauth_close_page(ok: bool, message: str) -> HTMLResponse:
+    """Page de fin de flux, pensée pour une fenêtre popup : notifie l'ouvreur et se ferme."""
+    kind = "mcp-oauth-success" if ok else "mcp-oauth-error"
+    safe = message.replace("<", "&lt;").replace("&", "&amp;")
+    html = (
+        "<!doctype html><meta charset='utf-8'><body style='font-family:sans-serif;padding:2rem'>"
+        f"<p>{safe}</p><script>"
+        f"try{{window.opener&&window.opener.postMessage({{type:'{kind}'}},'*')}}catch(e){{}}"
+        "setTimeout(function(){window.close()},1200);</script></body>"
+    )
+    return HTMLResponse(html, status_code=200 if ok else 400)
+
+
+@router.post("/mcp/backends/{backend_id}/oauth/authorize")
+async def oauth_authorize_route(
+    backend_id: _BackendId,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str]:
+    backend = await db.get_backend(conn, user.login, backend_id)
+    if backend is None:
+        raise HTTPException(status_code=404, detail="backend introuvable")
+    if backend.get("auth_scheme") != "oauth":
+        raise HTTPException(status_code=422, detail="le backend n'est pas en auth_scheme=oauth")
+    external_url = load_global().server.external_url
+    try:
+        url = await oauth_flow.start_authorization(conn, backend, user.login, external_url)
+    except (oauth_flow.OAuthFlowError, OAuthClientError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"authorization_url": url}
+
+
+@router.get("/mcp/oauth/callback")
+async def oauth_callback_route(
+    state: str = Query(...),
+    code: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> HTMLResponse:
+    if error:
+        return _oauth_close_page(False, f"Autorisation refusée : {error}")
+    if not code:
+        return _oauth_close_page(False, "Réponse d'autorisation incomplète (code manquant).")
+    try:
+        await oauth_flow.complete_authorization(conn, state, code, user.login)
+    except (oauth_flow.OAuthFlowError, OAuthClientError) as exc:
+        _log.warning("mcp_oauth_callback_failed", login=user.login, error=str(exc))
+        return _oauth_close_page(False, f"Connexion échouée : {exc}")
+    return _oauth_close_page(True, "Connexion réussie. Vous pouvez fermer cette fenêtre.")
+
+
+@router.get("/mcp/backends/{backend_id}/oauth/status")
+async def oauth_status_route(
+    backend_id: _BackendId,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    return await oauth_flow.get_status(conn, backend_id, user.login)
+
+
+@router.delete("/mcp/backends/{backend_id}/oauth/token", status_code=204)
+async def oauth_disconnect_route(
+    backend_id: _BackendId,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> None:
+    await oauth_flow.disconnect(conn, backend_id, user.login)
 
 
 # ─── Clés de service ──────────────────────────────────────────────────────────

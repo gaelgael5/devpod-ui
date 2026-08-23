@@ -35,6 +35,9 @@ import {
 } from './api'
 
 const NO_PROFILE = '__none__'
+// Sentinelle « suivre le profil exposé par défaut » pour une clef workspace :
+// la choisir efface la surcharge persistante (profile_id=null côté API).
+const WS_DEFAULT = '__default__'
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -217,13 +220,12 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
   const del = useDeleteApikey()
   const setProfile = useSetApikeyProfile()
   const { data: profiles = [] } = useProfiles()
+  // Profil exposé par défaut (exposition exclusive : 0 ou 1) — libellé de l'option
+  // « suivre le défaut » d'une clef workspace.
+  const defaultProfileName = profiles.find((p) => p.exposed_in_workspaces)?.name ?? null
   const { data: me } = useSession()
   const [confirmDel, setConfirmDel] = useState(false)
   const [rotatedToken, setRotatedToken] = useState<string | null>(null)
-
-  const profileName = apikey.profile_id
-    ? profiles.find((p) => p.id === apikey.profile_id)?.name ?? apikey.profile_id
-    : null
 
   // Nom du workspace derrière une clef Claude Code (ws_id = `${login}-${name}`).
   const wsName =
@@ -317,20 +319,13 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
         </div>
       </div>
 
-      {/* Clef workspace (spec 35) : le profil est géré par le portail, pas d'édition
-          manuelle — on affiche le profil en lecture seule, la révocation reste possible. */}
-      {!apikey.revoked && apikey.workspace_ref && profileName && (
-        <div className="mt-2 flex items-center gap-2 border-l pl-3">
-          <span className="text-xs text-muted-foreground shrink-0">{t('mcp.apikeys.profile')}</span>
-          <Badge variant="outline" className="text-xs shrink-0">{profileName}</Badge>
-        </div>
-      )}
-
+      {/* Clef personnelle : profil libre (peut être « aucun »). */}
       {!apikey.revoked && !apikey.workspace_ref && (
         <div className="mt-2 flex items-center gap-2 border-l pl-3">
           <span className="text-xs text-muted-foreground shrink-0">{t('mcp.apikeys.profile')}</span>
           <Select
             value={apikey.profile_id ?? NO_PROFILE}
+            disabled={setProfile.isPending}
             onValueChange={(v) => {
               if (v === undefined || v === null) return
               setProfile.mutate(
@@ -349,8 +344,46 @@ function ApikeyCard({ apikey }: { apikey: MCPApikey }) {
               ))}
             </SelectContent>
           </Select>
-          {profileName && (
-            <Badge variant="outline" className="text-xs shrink-0">{profileName}</Badge>
+        </div>
+      )}
+
+      {/* Clef workspace (spec 35) : profil surchargeable et PERSISTANT. Sans choix,
+          la ligne suit le profil « exposé par défaut » ; un choix explicite est
+          mémorisé et survit à la rotation. Changer le profil ne rotationne PAS le
+          token — l'agent en session n'est pas déconnecté, seule la liste d'outils
+          change au prochain tools/list. La sentinelle « défaut » efface la surcharge. */}
+      {!apikey.revoked && apikey.workspace_ref && (
+        <div className="mt-2 flex items-center gap-2 border-l pl-3">
+          <span className="text-xs text-muted-foreground shrink-0">{t('mcp.apikeys.profile')}</span>
+          <Select
+            value={apikey.profile_pinned ? (apikey.profile_id ?? WS_DEFAULT) : WS_DEFAULT}
+            disabled={setProfile.isPending}
+            onValueChange={(v) => {
+              if (v === undefined || v === null) return
+              setProfile.mutate(
+                { id: apikey.id, profile_id: v === WS_DEFAULT ? null : v },
+                { onError: (e) => toast.error(e instanceof Error ? e.message : t('errors.generic')) },
+              )
+            }}
+          >
+            <SelectTrigger className="h-7 text-xs flex-1">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={WS_DEFAULT}>
+                {defaultProfileName
+                  ? t('mcp.apikeys.followDefault', { name: defaultProfileName })
+                  : t('mcp.apikeys.followDefaultNone')}
+              </SelectItem>
+              {profiles.map((p) => (
+                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {apikey.profile_pinned && (
+            <Badge variant="outline" className="text-xs shrink-0" title={t('mcp.apikeys.pinnedHint')}>
+              {t('mcp.apikeys.pinned')}
+            </Badge>
           )}
         </div>
       )}

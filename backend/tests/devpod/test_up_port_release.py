@@ -79,6 +79,12 @@ async def test_up_releases_port_when_write_devcontainer_fails(
         async def release_port(self, port: int) -> None:
             self.released.append(port)
 
+        async def allocate_ssh_port(self, ws_id: str) -> int:
+            return 51000
+
+        async def release_ssh_port(self, port: int) -> None:
+            self.released.append(port)
+
     exposure = _FakeExposure()
     svc = DevPodService(global_cfg=global_cfg, devpod_bin=fake_devpod_bin, exposure=exposure)
 
@@ -96,4 +102,6 @@ async def test_up_releases_port_when_write_devcontainer_fails(
     with pytest.raises(RuntimeError, match="devcontainer write failed"):
         await svc.up(login="alice", ws_spec=ws)
 
-    assert exposure.released == [41000]
+    # Les DEUX ports réservés avant le build (host_port + ssh_port, spec 18 T1)
+    # sont relâchés quand _write_devcontainer échoue avant le démarrage de la tâche.
+    assert exposure.released == [41000, 51000]

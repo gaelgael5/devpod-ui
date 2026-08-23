@@ -58,20 +58,70 @@ def _obj(
 _STR = {"type": "string"}
 _STR_OR_NULL = {"type": ["string", "null"]}
 
+# Identité du propriétaire, injectée dans les events workspace/session (comme user.*)
+# pour matcher les systèmes tiers (Termix : clé = `sub`). Tous optionnels.
+_OWNER = {"login": _STR, "sub": _STR, "email": _STR, "identity": _STR}
+
 # dataSchema par type interne (les champs métier vivent à la racine de l'enveloppe :
 # `actor` et `workspace` de l'AppEvent + les clés du `subject`).
 _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
+    # Identité utilisateur : `sub` (ancre OIDC) = clé de matching côté systèmes tiers.
+    "user.created": _obj(
+        ["actor", "login", "sub"],
+        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR, "identity": _STR},
+    ),
+    "user.refreshed": _obj(
+        ["actor", "login", "sub"],
+        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR, "identity": _STR},
+    ),
+    # Session de connexion ouverte / fermée (login OIDC ou local ; logout).
+    "user.connected": _obj(
+        ["actor", "login", "sub"],
+        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR, "identity": _STR},
+    ),
+    "user.disconnected": _obj(
+        ["actor", "login", "sub"],
+        {"actor": _STR, "login": _STR, "sub": _STR},
+    ),
+    # Cycle de vie compte devpod (émetteurs à câbler quand la désactivation/suppression
+    # d'utilisateur existera) : deleted = compte retiré ; paused = désactivé ; resumed = réactivé.
+    "user.deleted": _obj(
+        ["actor", "login", "sub"],
+        {"actor": _STR, "login": _STR, "sub": _STR},
+    ),
+    "user.paused": _obj(
+        ["actor", "login", "sub"],
+        {"actor": _STR, "login": _STR, "sub": _STR},
+    ),
+    "user.resumed": _obj(
+        ["actor", "login", "sub"],
+        {"actor": _STR, "login": _STR, "sub": _STR},
+    ),
     "workspace.created": _obj(
         ["actor", "workspace", "ws_id", "node"],
-        {"actor": _STR, "workspace": _STR, "ws_id": _STR, "node": _STR},
+        {"actor": _STR, "workspace": _STR, "ws_id": _STR, "node": _STR, **_OWNER},
     ),
     "workspace.restarted": _obj(
         ["actor", "workspace", "ws_id", "node"],
-        {"actor": _STR, "workspace": _STR, "ws_id": _STR, "node": _STR},
+        {"actor": _STR, "workspace": _STR, "ws_id": _STR, "node": _STR, **_OWNER},
+    ),
+    # Émis par le rattrapage (backfill) et l'injection d'event de test pour signaler
+    # qu'un workspace « a bougé » sans transition de cycle de vie (re-synchro Termix).
+    "workspace.updated": _obj(
+        ["actor", "workspace", "ws_id"],
+        {
+            "actor": _STR,
+            "workspace": _STR,
+            "ws_id": _STR,
+            "node": _STR_OR_NULL,
+            "address": _STR_OR_NULL,
+            "status": _STR_OR_NULL,
+            **_OWNER,
+        },
     ),
     "workspace.stopped": _obj(
         ["actor", "workspace", "ws_id"],
-        {"actor": _STR, "workspace": _STR, "ws_id": _STR},
+        {"actor": _STR, "workspace": _STR, "ws_id": _STR, **_OWNER},
     ),
     "workspace.deleted": _obj(
         ["actor", "workspace", "ws_id"],
@@ -80,6 +130,7 @@ _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
             "workspace": _STR,
             "ws_id": _STR,
             "recovery_branch": _STR_OR_NULL,
+            **_OWNER,
         },
     ),
     "session.created": _obj(
@@ -129,6 +180,17 @@ _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
             "alias": _STR,
             "address": _STR,
             "hypervisor": _STR,
+        },
+    ),
+    "test_server.updated": _obj(
+        ["actor", "workspace", "host_name", "alias", "address"],
+        {
+            "actor": _STR,
+            "workspace": _STR,
+            "host_name": _STR,
+            "alias": _STR,
+            "address": _STR,
+            "password_changed": {"type": "boolean"},
         },
     ),
     "test_server.deleted": _obj(
@@ -206,3 +268,20 @@ def schema_versions(event_code: str) -> list[int] | None:
     if event_code not in DATA_SCHEMA_BY_CODE:
         return None
     return [_EVENT_VERSION]
+
+
+def variables_for(event_type: str) -> list[str]:
+    """Variables de template disponibles pour un event (namespace `event.*`).
+
+    Dérivées du dataSchema : `event.type` + un `event.<champ>` par propriété métier.
+    Contextuel : `event.workspace` n'apparaît que pour les events qui en portent un
+    (schéma), pas pour `user.created` par exemple.
+    """
+    schema = _DATA_SCHEMA_BY_TYPE.get(event_type)
+    props = list(schema["properties"].keys()) if schema else []
+    return ["event.type", *(f"event.{p}" for p in props)]
+
+
+def variables_by_type() -> dict[str, list[str]]:
+    """Catalogue {type interne → variables} pour l'IHM (palette contextuelle)."""
+    return {t: variables_for(t) for t in sorted(EVENT_TYPES)}

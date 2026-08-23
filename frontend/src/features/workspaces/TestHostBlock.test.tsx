@@ -192,6 +192,80 @@ describe('TestHostBlock — liens (clé → URL) du menu ⋮', () => {
   })
 })
 
+describe('TestHostBlock — édition des paramètres de connexion (menu ⋮)', () => {
+  const HOST_WITH_USER: TestHost = { ...HOST, user: 'debian' }
+
+  it('« Éditer les paramètres… » pré-remplit et enregistre sans mot de passe (PUT)', async () => {
+    let putBody: unknown = null
+    server.use(
+      http.put('/me/workspaces/:ws/test-vm/:host/connection', async ({ request }) => {
+        putBody = await request.json()
+        return HttpResponse.json({
+          alias: 'test1', name: HOST.name, ip: '10.0.0.9', user: 'root', vmid: '114',
+        })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(
+      <TestHostBlock wsName="ws1" host={HOST_WITH_USER} deployments={[]} onOpenSsh={vi.fn()} />
+    )
+
+    await user.click(screen.getByRole('button', { name: /actions/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /éditer les paramètres|edit parameters/i }),
+    )
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+    const usernameInput = screen.getByLabelText(/utilisateur|username/i) as HTMLInputElement
+    const hostInput = screen.getByLabelText(/hôte|host \(/i) as HTMLInputElement
+    expect(usernameInput.value).toBe('debian')
+    expect(hostInput.value).toBe('192.168.10.160')
+
+    await user.clear(usernameInput)
+    await user.type(usernameInput, 'root')
+    await user.clear(hostInput)
+    await user.type(hostInput, '10.0.0.9')
+    await user.click(screen.getByRole('button', { name: /^enregistrer$|^save$/i }))
+
+    // Mot de passe laissé vide → absent du payload (secret inchangé).
+    await waitFor(() => expect(putBody).toEqual({ username: 'root', host: '10.0.0.9' }))
+  })
+
+  it('révèle le mot de passe root derrière le PIN puis le copie', async () => {
+    server.use(
+      http.post('/me/workspaces/:ws/test-vm/:host/root-password/reveal', async ({ request }) => {
+        const body = (await request.json()) as { pin: string }
+        if (body.pin !== '123456') return new HttpResponse('bad pin', { status: 403 })
+        return HttpResponse.json({ value: 's3cr3t-root' })
+      }),
+    )
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    renderWithProviders(
+      <TestHostBlock wsName="ws1" host={HOST} deployments={[]} onOpenSsh={vi.fn()} />
+    )
+
+    await user.click(screen.getByRole('button', { name: /actions/i }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: /éditer les paramètres|edit parameters/i }),
+    )
+    await user.click(
+      await screen.findByRole('button', { name: /révéler \(pin requis\)|reveal \(pin required\)/i }),
+    )
+    await user.type(screen.getByPlaceholderText(/pin/i), '123456')
+    await user.click(screen.getByRole('button', { name: /^révéler$|^reveal$/i }))
+
+    const pwInput = (await screen.findByLabelText(/mot de passe root|root password/i)) as HTMLInputElement
+    await waitFor(() => expect(pwInput.value).toBe('s3cr3t-root'))
+
+    await user.click(
+      screen.getByRole('button', { name: /copier le mot de passe|copy password/i }),
+    )
+    expect(writeText).toHaveBeenCalledWith('s3cr3t-root')
+  })
+})
+
 describe('TestHostBlock — bloc partagé (sharedFrom)', () => {
   const SHARED: TestHost = { ...HOST, sharedFrom: 'owner-ws' }
 
@@ -208,6 +282,7 @@ describe('TestHostBlock — bloc partagé (sharedFrom)', () => {
     expect(screen.queryByText(/^delete$|^supprimer$/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/^share…$|^partager…$/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/resolve ip|résoudre l'ip/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/éditer les paramètres|edit parameters/i)).not.toBeInTheDocument()
   })
 
   it('affiche les services sans aucun bouton d’action (lecture seule)', () => {

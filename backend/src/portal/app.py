@@ -21,14 +21,17 @@ from .mcp.monitor import monitor_loop
 from .mcp.server import build_server as _build_mcp_server
 from .routes import compose as compose_routes
 from .routes.admin import router as admin_router
+from .routes.admin_users import router as admin_users_router
 from .routes.agent_messages import router as agent_messages_router
 from .routes.agent_types import admin_router as agent_types_admin_router
 from .routes.agent_types import me_router as agent_types_me_router
 from .routes.applications import router as applications_router
+from .routes.automations import router as automations_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
 from .routes.event_schemas import router as event_schemas_router
+from .routes.host_grants import router as host_grants_router
 from .routes.host_secrets import router as host_secrets_router
 from .routes.jinja_template_sources import router_admin as jinja_sources_admin_router
 from .routes.jinja_templates import router as jinja_templates_router
@@ -53,11 +56,14 @@ from .routes.recipes import router_public as recipes_public_router
 from .routes.resource_hosts import me_router as resource_hosts_me_router
 from .routes.secrets import router_admin as secrets_admin_router
 from .routes.secrets import router_me as secrets_me_router
+from .routes.service_bastion import router as service_bastion_router
+from .routes.service_ssh import router as service_ssh_router
 from .routes.sessions import router as sessions_router
 from .routes.skill_placements import router as skill_placements_router
 from .routes.skills import router as skills_router
 from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
+from .routes.termix import router as termix_instances_router
 from .routes.test_vm import router as test_vm_router
 from .routes.vault import router as vault_router
 from .routes.vscode_proxy import router as vscode_proxy_router
@@ -197,6 +203,27 @@ async def _maintenance_sweep_loop(interval_s: float = 3600.0) -> None:
                 _log.info("revoked_apikeys_purged", count=purged_keys)
         except Exception:
             _log.warning("revoked_apikey_purge_failed", exc_info=True)
+        try:
+            from datetime import UTC, datetime, timedelta
+
+            from .db import automation_run as _ar
+
+            cutoff = datetime.now(UTC) - timedelta(days=7)
+            async with _get_engine().begin() as conn:
+                purged_runs = await _ar.purge_older_than(conn, cutoff)
+            if purged_runs:
+                _log.info("automation_runs_purged", count=purged_runs)
+        except Exception:
+            _log.warning("automation_run_purge_failed", exc_info=True)
+        try:
+            # Observabilité de la fuite de pids (bug 813f425f, panne du 04/08) :
+            # une courbe `total` qui monte sans redescendre = fuite ; les zombies
+            # comptent dans pids-limit. Sert de vérification du correctif.
+            from .devpod.procgroup import process_census
+
+            _log.info("portal_process_census", **process_census())
+        except Exception:
+            _log.warning("process_census_failed", exc_info=True)
         await asyncio.sleep(interval_s)
 
 
@@ -228,6 +255,13 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             from .secrets.system import ensure_system_user
 
             await ensure_system_user(conn)
+
+            # Bastion sshd : démarré/arrêté selon la config DB (plus d'.env). À chaud
+            # via PUT /admin/bastion-config ; ici au boot.
+            from .bastion.runtime import apply as apply_bastion
+
+            cached_b = get_optional_cached_global()
+            apply_bastion(bool(cached_b and cached_b.bastion.enabled))
 
             # Backend MCP interne devpod : enregistrement idempotent + catalogue.
             from .mcp.devpod_bootstrap import bootstrap_devpod
@@ -270,7 +304,10 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             _agent_reconcile_task: asyncio.Task[None] | None = None
             _outbox_task: asyncio.Task[None] | None = None
             _liveness_task: asyncio.Task[None] | None = None
+            _disk_task: asyncio.Task[None] | None = None
             _idle_task: asyncio.Task[None] | None = None
+            _session_diff_task: asyncio.Task[None] | None = None
+            _automation_task: asyncio.Task[None] | None = None
             if settings_obj.database_url:
                 _monitor_task = asyncio.create_task(
                     monitor_loop(settings_obj.mcp_monitor_interval_s)
@@ -281,6 +318,18 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 from .nodes.liveness import liveness_loop
 
                 _liveness_task = asyncio.create_task(liveness_loop())
+                # Disque / mémoire / CPU des hosts : une seule boucle, trois
+                # cadences (1 h / 5 min / 30 s). Un disque plein bloque tout et
+                # se voit venir des heures à l'avance — encore faut-il regarder.
+                _st = get_settings()
+                if (
+                    _st.host_disk_interval_s > 0
+                    or _st.host_metrics_mem_interval_s > 0
+                    or _st.host_metrics_cpu_interval_s > 0
+                ):
+                    from .nodes.metrics import metrics_loop
+
+                    _disk_task = asyncio.create_task(metrics_loop())
                 # Suggestion d'arrêt des workspaces inactifs (enabler 6016436b) :
                 # détection + alerte, jamais d'arrêt automatique.
                 from .sessions.idle import idle_suggestions_loop
@@ -291,6 +340,16 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 from .events.egress import outbox_worker_loop
 
                 _outbox_task = asyncio.create_task(outbox_worker_loop())
+                # Émetteur de diff sur la sonde tmux : détecte les sessions
+                # créées/tuées hors du portail et les journalise (best-effort).
+                from .sessions.diff_probe import diff_probe_loop
+
+                _session_diff_task = asyncio.create_task(diff_probe_loop())
+                # Runner d'automates : consomme le journal app_event par curseur et
+                # appelle les opérations de contrats (epic Termix T3).
+                from .automations.runner import runner_loop
+
+                _automation_task = asyncio.create_task(runner_loop())
                 # Spec 35b T6 : les conteneurs restés running pendant une
                 # indisponibilité du portail peuvent porter une config agents
                 # périmée — réconciliation best-effort, throttlée, en fond.
@@ -306,12 +365,20 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     _agent_reconcile_task,
                     _outbox_task,
                     _liveness_task,
+                    _disk_task,
                     _idle_task,
+                    _session_diff_task,
+                    _automation_task,
                 ):
                     if _task is not None:
                         _task.cancel()
                         with contextlib.suppress(asyncio.CancelledError):
                             await _task
+                # Bastion sshd : arrêt propre du process supervisé.
+                with contextlib.suppress(Exception):
+                    from .bastion.runtime import stop as stop_bastion
+
+                    stop_bastion()
                 # Bus d'événements : annule les livraisons en attente et oublie le
                 # singleton — deux apps successives (tests TestClient) ne doivent
                 # pas cumuler leurs abonnements.
@@ -409,6 +476,12 @@ def create_app() -> FastAPI:
     app.include_router(event_schemas_router)
     app.include_router(recipes_me_router, prefix="/me")
     app.include_router(admin_router, prefix="/admin")
+    app.include_router(automations_router, prefix="/admin/automations")
+    app.include_router(service_ssh_router, prefix="/admin/service")
+    app.include_router(service_bastion_router, prefix="/admin/service")
+    app.include_router(termix_instances_router, prefix="/admin")
+    app.include_router(host_grants_router, prefix="/admin")
+    app.include_router(admin_users_router, prefix="/admin")
     app.include_router(host_secrets_router, prefix="/admin")
     app.include_router(nodes_router, prefix="/admin")
     app.include_router(proxmox_router, prefix="/admin")

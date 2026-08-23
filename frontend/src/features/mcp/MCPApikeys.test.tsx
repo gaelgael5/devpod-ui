@@ -1,9 +1,15 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { renderWithProviders } from '@/test/renderWithProviders'
 import MCPApikeys from './MCPApikeys'
+
+// jsdom ne supporte pas hasPointerCapture/scrollIntoView (utilisés par Radix Select).
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn()
+  Element.prototype.scrollIntoView = vi.fn()
+})
 
 describe('MCPApikeys', () => {
   it('affiche l\'état vide quand aucune apikey', async () => {
@@ -54,12 +60,13 @@ describe('MCPApikeys', () => {
     renderWithProviders(<MCPApikeys />)
 
     expect(await screen.findByText('Laptop')).toBeInTheDocument()
-    // Le nom du profil apparaît deux fois : badge de la ligne + valeur du sélecteur.
-    expect(await screen.findAllByText('Perso')).toHaveLength(2)
+    // Le profil sélectionné s'affiche dans le sélecteur.
+    expect(await screen.findByText('Perso')).toBeInTheDocument()
   })
 
-  it('une clef workspace affiche le badge et pas le sélecteur de profil (spec 35)', async () => {
+  it('une clef workspace expose un sélecteur de profil éditable qui surcharge le défaut sans rotation', async () => {
     const { server } = await import('@/test/server')
+    let patchBody: unknown = null
     server.use(
       http.get('/me/mcp/apikeys', () =>
         HttpResponse.json([
@@ -73,9 +80,103 @@ describe('MCPApikeys', () => {
       http.get('/me/mcp/profiles', () =>
         HttpResponse.json([
           {
-            id: 'p1', owner_login: 'alice', name: 'Perso',
+            id: 'p1', owner_login: 'alice', name: 'Claude code',
             description: '', created_at: '', updated_at: null,
             exposed_in_workspaces: true,
+          },
+          {
+            id: 'p2', owner_login: 'alice', name: 'Claude web',
+            description: '', created_at: '', updated_at: null,
+            exposed_in_workspaces: false,
+          },
+        ]),
+      ),
+      http.patch('/me/mcp/apikeys/wk1/profile', async ({ request }) => {
+        patchBody = await request.json()
+        return HttpResponse.json({ id: 'wk1', profile_id: 'p2' })
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<MCPApikeys />)
+
+    // Badge « workspace » + ws_id visibles, ET un sélecteur de profil éditable.
+    expect(await screen.findByText(/workspace/i)).toBeInTheDocument()
+    expect(screen.getByText('alice-myapp')).toBeInTheDocument()
+    const combo = screen.getByRole('combobox')
+    expect(combo).toBeInTheDocument()
+
+    // Basculer le profil de la ligne → PATCH sans rotation (aucun appel /rotate).
+    await user.click(combo)
+    await user.click(await screen.findByRole('option', { name: 'Claude web' }))
+    await waitFor(() => expect(patchBody).toEqual({ profile_id: 'p2' }))
+
+    // La révocation reste disponible.
+    expect(screen.getByRole('button', { name: /revoke/i })).toBeInTheDocument()
+  })
+
+  it('clef workspace surchargée (profile_pinned) : badge affiché, revenir au défaut envoie profile_id null', async () => {
+    const { server } = await import('@/test/server')
+    let patchBody: unknown = null
+    server.use(
+      http.get('/me/mcp/apikeys', () =>
+        HttpResponse.json([
+          {
+            id: 'wk1', owner_login: 'alice', label: 'ws claude', profile_id: 'p2',
+            revoked: false, created_at: '', last_used_at: null,
+            workspace_ref: 'alice-myapp', profile_pinned: true,
+          },
+        ]),
+      ),
+      http.get('/me/mcp/profiles', () =>
+        HttpResponse.json([
+          {
+            id: 'p1', owner_login: 'alice', name: 'Claude code',
+            description: '', created_at: '', updated_at: null, exposed_in_workspaces: true,
+          },
+          {
+            id: 'p2', owner_login: 'alice', name: 'Claude web',
+            description: '', created_at: '', updated_at: null, exposed_in_workspaces: false,
+          },
+        ]),
+      ),
+      http.patch('/me/mcp/apikeys/wk1/profile', async ({ request }) => {
+        patchBody = await request.json()
+        return HttpResponse.json({ id: 'wk1', profile_id: 'p1' })
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<MCPApikeys />)
+
+    // Badge « surchargé » présent (le workspace ne suit plus le défaut).
+    expect(await screen.findByText(/overridden|surchargé/i)).toBeInTheDocument()
+    // Le sélecteur montre le profil fixé, pas le défaut.
+    expect(screen.getByText('Claude web')).toBeInTheDocument()
+
+    // « Default: Claude code » → efface la surcharge (profile_id null).
+    await user.click(screen.getByRole('combobox'))
+    await user.click(await screen.findByRole('option', { name: /default.*claude code|par défaut.*claude code/i }))
+    await waitFor(() => expect(patchBody).toEqual({ profile_id: null }))
+  })
+
+  it('clef workspace non surchargée : suit le profil exposé par défaut, aucun badge', async () => {
+    const { server } = await import('@/test/server')
+    server.use(
+      http.get('/me/mcp/apikeys', () =>
+        HttpResponse.json([
+          {
+            id: 'wk1', owner_login: 'alice', label: 'ws claude', profile_id: 'p1',
+            revoked: false, created_at: '', last_used_at: null,
+            workspace_ref: 'alice-myapp', profile_pinned: false,
+          },
+        ]),
+      ),
+      http.get('/me/mcp/profiles', () =>
+        HttpResponse.json([
+          {
+            id: 'p1', owner_login: 'alice', name: 'Claude code',
+            description: '', created_at: '', updated_at: null, exposed_in_workspaces: true,
           },
         ]),
       ),
@@ -83,14 +184,9 @@ describe('MCPApikeys', () => {
 
     renderWithProviders(<MCPApikeys />)
 
-    // Badge « workspace » + ws_id visibles.
-    expect(await screen.findByText(/workspace/i)).toBeInTheDocument()
-    expect(screen.getByText('alice-myapp')).toBeInTheDocument()
-    // Pas de sélecteur de profil (géré par le portail) — profil affiché en lecture seule.
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
-    expect(screen.getByText('Perso')).toBeInTheDocument()
-    // La révocation reste disponible.
-    expect(screen.getByRole('button', { name: /revoke/i })).toBeInTheDocument()
+    // L'option « suivre le défaut » nomme le profil exposé ; pas de badge surchargé.
+    expect(await screen.findByText(/default.*claude code|par défaut.*claude code/i)).toBeInTheDocument()
+    expect(screen.queryByText(/overridden|surchargé/i)).not.toBeInTheDocument()
   })
 
   it('rote une clef bearer : ancienne révoquée, nouveau token affiché une fois', async () => {

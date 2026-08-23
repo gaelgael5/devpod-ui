@@ -562,7 +562,44 @@ async def workspace_status(
         await _attach_idle_state(st, user.login, name, ws_id)
     except Exception:
         _log.debug("workspace_idle_state_unavailable", ws_id=ws_id, exc_info=True)
+    # Alerte « disque du host presque plein » : un nœud saturé fait échouer les
+    # écritures du workspace sans que rien ne le dise (incident du 17/08 :
+    # host-dev-01 à 100 %, zéro signal). Dérivée de la sonde horaire, jamais
+    # sondée ici. Best-effort : une décoration ne doit pas casser le statut.
+    try:
+        await _attach_host_disk(st)
+    except Exception:
+        _log.debug("workspace_host_disk_unavailable", ws_id=ws_id, exc_info=True)
     return st
+
+
+async def _attach_host_disk(st: dict[str, Any]) -> None:
+    """Pose `host_disk` sur le statut quand le nœud du workspace est mesuré.
+
+    Lit la table alimentée par la passe horaire — aucun SSH dans le chemin de
+    polling du front. Absence de mesure ⇒ champ absent : l'UI n'affiche rien
+    plutôt qu'un faux « 0 % ».
+    """
+    from ..db import host_disk as host_disk_db
+    from ..db.engine import _get_engine
+    from ..settings import get_settings
+
+    host_name = st.get("host_name")
+    if not host_name:
+        return
+    async with _get_engine().connect() as conn:
+        row = (await host_disk_db.get_all(conn)).get(str(host_name))
+    if row is None or row.get("used_pct") is None:
+        return
+    pct = int(row["used_pct"])
+    st["host_disk"] = {
+        "host": host_name,
+        "used_pct": pct,
+        "avail_bytes": row.get("avail_bytes"),
+        "total_bytes": row.get("total_bytes"),
+        "warn": pct >= get_settings().host_disk_warn_pct,
+        "measured_at": row["measured_at"].isoformat() if row.get("measured_at") else None,
+    }
 
 
 async def _attach_idle_state(

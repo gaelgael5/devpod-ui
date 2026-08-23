@@ -1,4 +1,5 @@
 """CRUD base de données pour les groupes de workspaces."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -22,13 +23,51 @@ def _validate_group_name(name: str) -> str:
 
 async def list_groups(login: str, conn: AsyncConnection) -> list[dict[str, Any]]:
     rows = (
-        await conn.execute(
-            select(workspace_group)
-            .where(workspace_group.c.login == login)
-            .order_by(workspace_group.c.name)
+        (
+            await conn.execute(
+                select(workspace_group)
+                .where(workspace_group.c.login == login)
+                .order_by(workspace_group.c.name)
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     return [dict(r) for r in rows]
+
+
+async def get_groups_for_workspace(
+    login: str, workspace_name: str, conn: AsyncConnection
+) -> list[str]:
+    """Groupes d'un workspace (tableau `workspaces.groups`) ; [] si absent."""
+    row = (
+        await conn.execute(
+            select(workspaces.c.groups).where(
+                workspaces.c.login == login,
+                workspaces.c.name == workspace_name,
+            )
+        )
+    ).scalar_one_or_none()
+    return list(row or [])
+
+
+async def list_workspace_names_in_group(
+    login: str, group_name: str, conn: AsyncConnection
+) -> list[str]:
+    """Noms des workspaces du user portant `group_name` dans leur tableau `groups`."""
+    rows = (
+        (
+            await conn.execute(
+                select(workspaces.c.name).where(
+                    workspaces.c.login == login,
+                    text(":gname = ANY(groups)").bindparams(gname=group_name),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows)
 
 
 async def create_group(login: str, name: str, conn: AsyncConnection) -> dict[str, Any]:
@@ -85,9 +124,7 @@ async def rename_group(
     return dict(row)
 
 
-async def delete_group(
-    group_id: int, login: str, conn: AsyncConnection
-) -> bool:
+async def delete_group(group_id: int, login: str, conn: AsyncConnection) -> bool:
     existing = (
         await conn.execute(
             select(workspace_group.c.name).where(
@@ -104,7 +141,9 @@ async def delete_group(
     # Refuser si des workspaces appartiennent encore à ce groupe
     ws_count = (
         await conn.execute(
-            select(func.count()).select_from(workspaces).where(
+            select(func.count())
+            .select_from(workspaces)
+            .where(
                 workspaces.c.login == login,
                 text(":gname = ANY(groups)").bindparams(gname=group_name),
             )
@@ -141,7 +180,9 @@ async def set_workspace_groups(
                         workspace_group.c.name.in_(group_names),
                     )
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         unknown = set(group_names) - existing_names
         if unknown:

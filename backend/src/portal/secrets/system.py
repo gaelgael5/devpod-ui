@@ -110,6 +110,23 @@ async def reveal_system_secret(slug: str, conn: AsyncConnection) -> str:
     return await _harpo_get_secret(slug, row["vault_identifier"])
 
 
+async def list_system_secrets(conn: AsyncConnection) -> list[dict[str, str]]:
+    """Liste les secrets système : [{slug, label, secret_type, storage_type}]. Sans valeur."""
+    rows = (
+        await conn.execute(
+            select(
+                harpo_secrets.c.slug,
+                harpo_secrets.c.label,
+                harpo_secrets.c.secret_type,
+                harpo_secrets.c.storage_type,
+            )
+            .where(harpo_secrets.c.owner_login == _SYSTEM_LOGIN)
+            .order_by(harpo_secrets.c.label)
+        )
+    ).mappings().all()
+    return [dict(r) for r in rows]
+
+
 async def delete_system_secret(slug: str, conn: AsyncConnection) -> None:
     """Supprime l'entrée harpo_secrets pour __system__ (no-op si absent)."""
     await conn.execute(

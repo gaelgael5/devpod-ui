@@ -17,13 +17,22 @@ def test_type_inconnu_rejete() -> None:
 
 def test_registre_contient_les_types_attendus() -> None:
     assert {
+        "user.created",
+        "user.refreshed",
+        "user.connected",
+        "user.disconnected",
+        "user.deleted",
+        "user.paused",
+        "user.resumed",
         "workspace.created",
+        "workspace.updated",
         "workspace.deleted",
         "workspace.stopped",
         "workspace.restarted",
         "session.created",
         "session.closed",
         "test_server.created",
+        "test_server.updated",
         "test_server.deleted",
         "compose_service.started",
         "compose_service.stopped",

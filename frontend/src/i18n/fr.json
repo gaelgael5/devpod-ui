@@ -62,7 +62,18 @@
       "state": "État",
       "actions": "Actions"
     },
-    "noTmux": "tmux n'est pas installé sur : {{hosts}}. Les terminaux y sont en shell simple, NON persistants (une déconnexion perd la session). Installez tmux sur la machine (ex. sudo apt-get install -y tmux) puis rouvrez le terminal."
+    "noTmux": "tmux n'est pas installé sur : {{hosts}}. Les terminaux y sont en shell simple, NON persistants (une déconnexion perd la session). Installez tmux sur la machine (ex. sudo apt-get install -y tmux) puis rouvrez le terminal.",
+    "disk": {
+      "tooltip": "{{used}} utilisés sur {{total}} — {{free}} libres",
+      "free": "({{free}} libres)"
+    },
+    "metrics": {
+      "disk": "Disque",
+      "memory": "Mém.",
+      "cpu": "CPU",
+      "memoryTooltip": "{{used}} utilisés sur {{total}} (hors cache récupérable)",
+      "cpuTooltip": "Charge moyenne 1 min sur {{cores}} cœur(s)"
+    }
   },
   "workspaces": {
     "title": "Workspaces",
@@ -113,6 +124,8 @@
       "confirmDelete": "Supprimer",
       "deleted": "Session « {{name}} » supprimée.",
       "keybar": {
+        "keyboard": "Clavier",
+        "keyboardTitle": "Afficher ou masquer le clavier",
         "esc": "Échap",
         "escTitle": "Envoyer la touche Échap",
         "interrupt": "Interrompre",
@@ -120,6 +133,7 @@
         "paste": "Coller",
         "pasteTitle": "Coller le presse-papier dans la session",
         "pasteError": "Presse-papier inaccessible",
+        "pasteEmpty": "Presse-papier vide",
         "copy": "Copier",
         "copyTitle": "Copier la sélection du terminal",
         "copyEmpty": "Aucune sélection à copier",
@@ -128,8 +142,19 @@
         "arrowDown": "Flèche bas",
         "arrowLeft": "Flèche gauche",
         "arrowRight": "Flèche droite",
-        "tab": "Tab",
-        "tabTitle": "Envoyer la touche Tab (complétion)"
+        "enter": "Entrée",
+        "enterTitle": "Valider la ligne (Entrée)",
+        "search": "Rechercher",
+        "searchTitle": "Rechercher dans le terminal (Ctrl+Maj+F)"
+      },
+      "search": {
+        "placeholder": "Rechercher…",
+        "label": "Rechercher dans le terminal",
+        "none": "aucun",
+        "many": "{{count}}+",
+        "previous": "Précédent",
+        "next": "Suivant",
+        "close": "Fermer la recherche"
       }
     },
     "initializers": {
@@ -196,6 +221,26 @@
       "copied": "URL copiée",
       "copyFailed": "Impossible de copier l'URL",
       "saveFailed": "Échec de l'enregistrement du lien"
+    },
+    "testHostConn": {
+      "menu": "Éditer les paramètres…",
+      "title": "Paramètres de {{alias}}",
+      "description": "Paramètres de connexion mémorisés par le portail. Utile pour recoller à une VM dont l'IP a changé. N'agit pas sur la VM elle-même.",
+      "username": "Utilisateur",
+      "host": "Hôte (IP ou nom)",
+      "password": "Mot de passe root",
+      "passwordPlaceholder": "laisser vide = inchangé",
+      "reveal": "Révéler (PIN requis)",
+      "revealConfirm": "Révéler",
+      "pinPlaceholder": "PIN à 6 chiffres",
+      "copyPassword": "Copier le mot de passe",
+      "passwordCopied": "Mot de passe copié",
+      "copyFailed": "Impossible de copier le mot de passe",
+      "revealFailed": "Échec de la révélation du mot de passe",
+      "save": "Enregistrer",
+      "saved": "Paramètres enregistrés",
+      "saveFailed": "Échec de l'enregistrement des paramètres",
+      "cancel": "Annuler"
     },
     "testHostStacks": {
       "stacksTitle": "Autres stacks Docker sur la machine",
@@ -293,7 +338,27 @@
       "copy": "Copier",
       "copied": "Copié !"
     },
-    "skillsMenu": "Skills du workspace…"
+    "skillsMenu": "Skills du workspace…",
+    "card": {
+      "collapse": "Replier {{name}}",
+      "expand": "Déplier {{name}}"
+    },
+    "edit": {
+      "menu": "Configuration…",
+      "title": "Configuration de {{name}}",
+      "description": "Les modifications sont enregistrées immédiatement. Certaines ne prennent effet qu'après recréation du workspace.",
+      "save": "Enregistrer",
+      "saved": "Configuration enregistrée",
+      "needsRecreate": "Modification enregistrée — recréez pour l'appliquer",
+      "addedRecipes": "Recettes ajoutées ({{list}}) — recréez pour les installer",
+      "recreateTitle": "Recréation nécessaire pour appliquer :",
+      "recreateWarning": "La recréation reconstruit le conteneur : le travail non commité est perdu.",
+      "recreateNow": "Recréer maintenant"
+    },
+    "hostDisk": {
+      "title": "Disque de {{host}} à {{pct}} %",
+      "hint": "Plus que {{free}} libres — les écritures du workspace peuvent échouer."
+    }
   },
   "recipes": {
     "title": "Recettes",
@@ -693,6 +758,61 @@
       "saved": "Durées de session mises à jour.",
       "invalid": "Durées invalides (minimum 1 minute).",
       "absoluteBelowIdle": "La durée maximale doit être ≥ à l'inactivité."
+    },
+    "bastion": {
+      "navLabel": "Bastion Termix",
+      "title": "Bastion SSH → Termix",
+      "intro": "Accès Termix aux workspaces via un bastion SSH. Le toggle démarre/arrête le sshd bastion à chaud ; le provisioning Termix (host + partage) s'active dès que l'URL, l'hôte et le rôle sont posés.",
+      "enabled": "Activer le bastion",
+      "enabledHint": "Démarre le sshd bastion (:2222). Sans URL/hôte/rôle, seul le sshd tourne (pas de provisioning Termix).",
+      "apiUrl": "URL Termix",
+      "apiUrlHint": "URL externe de l'API Termix pour le provisioning (credential + host + partage).",
+      "host": "Hôte du bastion (SSH)",
+      "port": "Port",
+      "hostHint": "IP/host que Termix vise pour se connecter au bastion (IP LAN du portail).",
+      "role": "Rôle Termix",
+      "roleHint": "Nom du rôle (créé dans Termix) auquel chaque host workspace est partagé. Les users portent ce rôle (assignation ou OIDC_ROLE_MAP).",
+      "apikeySecret": "Secret de l'apikey",
+      "apikeySecretHint": "Slug du secret système contenant l'apikey admin Termix (tmx_…).",
+      "missing": "URL, hôte et rôle sont requis pour activer le provisioning.",
+      "save": "Enregistrer",
+      "saved": "Config bastion enregistrée"
+    },
+    "termix": {
+      "navLabel": "Instances Termix",
+      "title": "Registre d'instances Termix",
+      "intro": "Serveurs Termix connus du portail. Chaque instance porte son URL, l'apikey admin (secret système) et l'éventuel client OIDC Keycloak. L'instance par défaut est utilisée quand aucune n'est explicitement choisie.",
+      "add": "Ajouter une instance",
+      "edit": "Modifier l'instance",
+      "empty": "Aucune instance Termix enregistrée.",
+      "dialogHint": "L'apikey n'est jamais affichée : on référence un secret système existant.",
+      "name": "Nom",
+      "url": "URL Termix",
+      "apikeySecret": "Secret apikey",
+      "apikeySecretPlaceholder": "Choisir un secret système…",
+      "apikeySecretHint": "Secret système portant l'apikey admin Termix (tmx_…). Se gère dans l'écran des secrets d'automate.",
+      "oidcClientId": "Client OIDC Keycloak",
+      "oidcClientIdHint": "Identifiant du client Keycloak de cette instance Termix (optionnel).",
+      "isDefault": "Instance par défaut",
+      "isDefaultHint": "Une seule instance peut être par défaut ; l'activer décoche les autres.",
+      "defaultBadge": "défaut"
+    },
+    "users": {
+      "navLabel": "Utilisateurs",
+      "title": "Utilisateurs",
+      "intro": "Rattachement de chaque utilisateur à une instance Termix (sinon l'instance par défaut est héritée) et gestion des hosts SSH qui lui sont partagés.",
+      "empty": "Aucun utilisateur.",
+      "login": "Login",
+      "name": "Nom",
+      "instance": "Instances Termix",
+      "inheritDefault": "Instance par défaut (héritée)",
+      "hostGrants": "Hosts SSH",
+      "hostGrantsTitle": "Hosts SSH partagés à {{login}}",
+      "hostGrantsHint": "Cocher les hosts SSH (workspaces publiés) auxquels cet utilisateur a accès dans Termix.",
+      "noHosts": "Aucun host SSH publié pour le moment.",
+      "addInstance": "Ajouter…",
+      "provisioning": "Provisioning en cours…",
+      "remove": "Retirer {{name}}"
     }
   },
   "errors": {
@@ -1006,11 +1126,15 @@
       "allowNoneTools": "Tout interdire",
       "allowReadOnlyTools": "Lecture seule",
       "noToolsCatalog": "Aucun tool indexé (backend non synchronisé).",
-      "exposedToWorkspaces": "Exposé aux workspaces",
+      "exposedToWorkspaces": "Exposé par défaut aux workspaces",
       "unexposeTitle": "Ne plus exposer « {{name}} » ?",
       "unexposeWarning": "Le décochage révoque immédiatement les clefs MCP des workspaces dérivées de ce profil et régénère à chaud les fichiers de configuration des agents.",
       "unexposeConfirm": "Révoquer et retirer",
-      "unexposeDone": "Profil retiré des workspaces — {{count}} workspace(s) affecté(s)."
+      "unexposeDone": "Profil retiré des workspaces — {{count}} workspace(s) affecté(s).",
+      "exposeSwapTitle": "Exposer « {{name}} » aux workspaces ?",
+      "exposeSwapWarning": "Un seul profil peut être exposé à la fois : « {{previous}} » sera décoché et ses clefs MCP révoquées. Les agents en cours de travail seront déconnectés et devront relancer leur session (ou faire /mcp) pour reprendre.",
+      "exposeSwapConfirm": "Basculer et déconnecter",
+      "exposeSwapped": "« {{name}} » n’est plus exposé — agents à reconnecter."
     },
     "oauth": {
       "openSettings": "Ouvrir →",
@@ -1219,7 +1343,11 @@
       "rotateNeedsRunning": "Démarrez le workspace pour roter sa clef (le nouveau token y est réinjecté).",
       "rotatedTitle": "Clef rotée",
       "rotatedWarning": "L'ancienne clef est révoquée. Copiez la nouvelle maintenant — elle ne sera plus affichée.",
-      "rotatedReinjected": "Clef rotée et réinjectée dans le workspace {{ws}} — l'ancienne génération expire après la fenêtre de grâce."
+      "rotatedReinjected": "Clef rotée et réinjectée dans le workspace {{ws}} — l'ancienne génération expire après la fenêtre de grâce.",
+      "followDefault": "Par défaut : {{name}}",
+      "followDefaultNone": "Par défaut (aucun profil exposé)",
+      "pinned": "surchargé",
+      "pinnedHint": "Profil fixé sur ce workspace — conservé même après une rotation de clef. Choisir « Par défaut » pour re-suivre le profil exposé."
     },
     "saving": "Enregistrement…",
     "save": "Enregistrer"
@@ -1384,7 +1512,27 @@
     "identityHint": "GUID propagé aux services (workflow, rag, doc) quand un backend a « Propager mon identité » activé, pour vous attribuer les objets créés par vos agents. Générez-le (ou saisissez-en un) et posez la MÊME valeur côté service. Laissé vide : aucune identité propagée.",
     "save": "Enregistrer",
     "saved": "Modifications enregistrées.",
-    "saveError": "Erreur lors de la sauvegarde."
+    "saveError": "Erreur lors de la sauvegarde.",
+    "token": {
+      "title": "Jeton d'identité (OIDC)",
+      "intro": "Propriétés essentielles du jeton reçu à la connexion. Le jeton brut n'est jamais exposé.",
+      "empty": "Aucun claim disponible (connecte-toi via OIDC).",
+      "copy": "Copier",
+      "copied": "Copié",
+      "subHint": "Copie le « sub » et colle-le dans le champ Identité ci-dessus (matching OBO), ou dans les autres applications (docflow, rag, workflow)."
+    },
+    "timezone": {
+      "title": "Fuseau horaire",
+      "intro": "Fuseau utilisé pour afficher les dates et heures dans l'interface.",
+      "label": "Fuseau",
+      "browserDefault": "Fuseau du navigateur ({{tz}})",
+      "preview": "Exemple : {{value}}"
+    },
+    "termix": {
+      "title": "Mes serveurs Termix",
+      "hint": "Termix est l'interface web qui vous donne un accès SSH/terminal à vos workspaces. Voici le ou les serveurs Termix associés à votre compte (jusqu'à 3, pour la redondance et les migrations). L'association est gérée par un administrateur.",
+      "none": "Aucun serveur Termix associé (le serveur par défaut sera utilisé)."
+    }
   },
   "agentMessages": {
     "title": "Demandes inter-agents",
@@ -1490,6 +1638,195 @@
         "verified": "vérifiée",
         "unverified": "non vérifiée"
       }
+    }
+  },
+  "automations": {
+    "navLabel": "Automates",
+    "title": "Automates",
+    "intro": "Sur un event du journal, appeler une opération d'un contrat OpenAPI. Évaluation par ordre de priorité, curseur persistant, anti-rejeu.",
+    "new": "Nouvel automate",
+    "empty": "Aucun automate.",
+    "pending": "{{n}} en attente",
+    "runsBtn": "Historique",
+    "confirmDelete": "Supprimer l'automate « {{label}} » ?",
+    "deleted": "Automate supprimé",
+    "sim": {
+      "title": "Simulation :",
+      "host": "Host a bougé",
+      "workspace": "Workspace a bougé",
+      "session": "Session a bougé",
+      "backfill": "Rattraper les existants",
+      "injected": "Event injecté : {{code}}",
+      "backfilled": "Rattrapage : {{users}} users, {{hosts}} hosts, {{workspaces}} workspaces, {{sessions}} sessions",
+      "user": "User a bougé"
+    },
+    "form": {
+      "newTitle": "Nouvel automate",
+      "editTitle": "Modifier l'automate",
+      "label": "Libellé",
+      "events": "Events déclencheurs",
+      "contract": "Contrat",
+      "operation": "Opération",
+      "url": "URL cible",
+      "method": "Méthode",
+      "bodyTemplate": "Corps (modèle)",
+      "bodyHint": "Variables : {actor} {workspace} {type} {subject.xxx} — inconnu laissé intact.",
+      "headers": "En-têtes",
+      "addHeader": "Ajouter",
+      "headerName": "Nom",
+      "headerValue": "Valeur",
+      "secret": "secret",
+      "delay": "Débounce (minutes)",
+      "delayHint": "0 = immédiat. Fenêtre glissante : attend que l'event décante.",
+      "stopChain": "Stop chain (consomme l'event)",
+      "active": "Actif",
+      "missing": "Libellé, events, contrat, opération et URL sont requis.",
+      "created": "Automate créé",
+      "updated": "Automate mis à jour",
+      "tabGeneral": "Général",
+      "tabFilter": "Filtre",
+      "tabCall": "Appel",
+      "slug": "Slug",
+      "slugHint": "Identifiant stable, dérivé du libellé. Modifiable.",
+      "priority": "Priorité",
+      "priorityHint": "Ordre d'évaluation (plus petit = plus prioritaire).",
+      "variables": "Variables",
+      "headerPrefix": "Préfixe",
+      "headerPrefixHint": "Préfixe de valeur (ex. « Bearer »)",
+      "enabled": "Actif",
+      "required": "Requis",
+      "chooseSecret": "— choisir un secret —",
+      "newSecret": "Nouveau secret",
+      "secretSlug": "Slug",
+      "secretLabel": "Libellé",
+      "secretValue": "Valeur",
+      "createSecret": "Créer",
+      "secretCreated": "Secret créé",
+      "filterIntro": "Appel d'API préliminaire (ex. « l'utilisateur existe-t-il ? »). On teste l'appel, puis on pose une règle d'évaluation qui conditionne l'exécution de l'onglet Appel.",
+      "filterTest": "Tester l'appel",
+      "filterTesting": "Appel…",
+      "filterStatus": "Statut",
+      "filterNoResult": "Aucun appel testé.",
+      "filterError": "Erreur",
+      "headersShared": "En-têtes partagés avec l'onglet Appel (l'apikey sert au filtre et à l'appel).",
+      "secretSystemHint": "Secret système (admin), résolu par l'automate en tâche de fond — distinct de tes secrets de profil (chiffrés par ton PIN, non lisibles en arrière-plan). Saisis la valeur brute (ex. « tmx_… », sans « Bearer »).",
+      "evaluation": "Évaluation",
+      "evalHint": "Règle appliquée à la réponse : JSONPath (avec {variable}) puis opérateur. Si la règle ne passe pas, l'appel de l'onglet Appel n'est pas exécuté.",
+      "jsonpath": "Expression JSONPath",
+      "operator": "Opérateur",
+      "operatorNone": "— aucune évaluation —",
+      "opExists": "existe",
+      "opEquals": "égal à",
+      "opNotEquals": "différent de",
+      "expected": "Valeur attendue",
+      "sampleValues": "Valeurs de test (pour l'essai)",
+      "evalResult": "Évaluation",
+      "evalPass": "✓ passe",
+      "evalFail": "✗ ne passe pas",
+      "evalMatches": "match(s)",
+      "evalTest": "Tester l'appel + l'évaluation",
+      "opNotExists": "n'existe pas"
+    },
+    "runs": {
+      "title": "Historique — {{label}}",
+      "manual": "manuel",
+      "replay": "Rejouer",
+      "replayed": "Rejoué",
+      "clear": "Vider l'historique",
+      "cleared": "Historique vidé",
+      "empty": "Aucune exécution.",
+      "trace": "Trace ({{n}} nœuds)"
+    },
+    "contracts": {
+      "navLabel": "Contrats OpenAPI",
+      "title": "Contrats OpenAPI",
+      "intro": "Contrats importés (réutilisables) décrivant les opérations appelables par les automates.",
+      "import": "Importer",
+      "importTitle": "Importer un contrat",
+      "label": "Libellé",
+      "sourceUrl": "URL du contrat",
+      "pasteSpec": "…ou coller le spec (JSON)",
+      "pasteHint": "Si collé, l'URL est ignorée (import manuel, pas de refresh).",
+      "doImport": "Importer",
+      "imported": "Contrat importé",
+      "invalidJson": "JSON invalide",
+      "needUrlOrSpec": "Fournir une URL ou un spec",
+      "operations": "Opérations",
+      "refresh": "Rafraîchir",
+      "refreshed": "Contrat rafraîchi",
+      "deleted": "Contrat supprimé",
+      "confirmDelete": "Supprimer le contrat « {{label}} » ?",
+      "empty": "Aucun contrat.",
+      "editTitle": "Éditer le contrat",
+      "editUrlHint": "Changer l'URL re-télécharge la spec. Vider l'URL fige le contrat (import manuel).",
+      "updated": "Contrat mis à jour",
+      "category": "Catégorie",
+      "categoryPlaceholder": "ex. Termix, Interne…",
+      "uncategorized": "Sans catégorie"
+    },
+    "events": {
+      "navLabel": "Journal d'events",
+      "title": "Journal d'events",
+      "intro": "Tous les events stockés dans le journal (app_event), récent d'abord. #seq = l'id de curseur des automates.",
+      "filter": "Type",
+      "allTypes": "— tous —",
+      "empty": "Aucun event.",
+      "replayFromHere": "Réévaluer d'ici",
+      "replayHint": "Repositionne le curseur global juste avant cet event pour tout réévaluer.",
+      "replayConfirm": "Réévaluer toutes les règles à partir de l'event #{{seq}} ? Le curseur global recule et les runs concernés sont effacés.",
+      "replayed": "Curseur repositionné ({{automations}} automate(s)) — réévaluation au prochain balayage.",
+      "filterAll": "Tous",
+      "filterNone": "Aucun",
+      "selectedCount": "{{n}} type(s) sélectionné(s)",
+      "pageSize": "Par page",
+      "prev": "← Plus récents",
+      "next": "Plus anciens →",
+      "page": "Page {{n}}"
+    },
+    "cursor": "curseur #{{seq}}",
+    "cursorHint": "Position du curseur de l'automate (dernier seq traité)",
+    "tree": {
+      "title": "Arbre de la règle",
+      "intro": "Blocs évalués en séquence : filtre (porte) → appels → blocs enfants. Un filtre non passé saute le sous-arbre et continue au bloc frère suivant.",
+      "empty": "Aucun bloc — la règle ne fait rien.",
+      "addBlock": "Ajouter un bloc",
+      "block": "Bloc",
+      "blockLabel": "Libellé du bloc (optionnel)",
+      "removeBlock": "Supprimer le bloc",
+      "filter": "Filtre",
+      "noFilter": "Aucun filtre — le bloc passe toujours.",
+      "condition": "Condition (appel + évaluation)",
+      "addCondition": "Ajouter une condition",
+      "addGroup": "Ajouter un groupe",
+      "wrapGroup": "Envelopper dans un groupe",
+      "and": "ET — toutes les conditions",
+      "or": "OU — au moins une condition",
+      "calls": "Appels",
+      "addCall": "Ajouter un appel",
+      "callName": "Nom",
+      "callNameHint": "réponse exposée aux blocs aval : {{name}}.champ",
+      "children": "Blocs enfants",
+      "addChild": "Ajouter un bloc enfant",
+      "filterBody": "Corps de l'appel de filtre (optionnel)",
+      "noContract": "— contrat (optionnel) —",
+      "passes": "passe",
+      "blocked": "bloqué",
+      "summary": "{{blocks}} bloc(s), {{calls}} appel(s)"
+    },
+    "editor": {
+      "back": "← Automates",
+      "notFound": "Automate introuvable.",
+      "missing": "Libellé et events déclencheurs sont requis.",
+      "headersShared": "En-têtes partagés par TOUS les appels et filtres de la règle.",
+      "sampleVars": "Valeurs d'exemple",
+      "sampleVarsHint": "Utilisées par les boutons « Tester l'appel » pour rendre les {variable} ; à l'exécution ce sont celles de l'event.",
+      "eventVars": "Variables exposées par ces events (cliquer pour copier) :"
+    },
+    "operators": {
+      "exists": "existe",
+      "not_exists": "n'existe pas",
+      "equals": "égale",
+      "not_equals": "différent"
     }
   }
 }

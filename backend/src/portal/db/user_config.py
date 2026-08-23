@@ -21,7 +21,13 @@ from ..config.models import (
     WorkspaceExpose,
     WorkspaceSpec,
 )
-from .tables import git_credentials, users, workspace_extra_sources, workspaces
+from .tables import (
+    git_credentials,
+    user_termix_instance,
+    users,
+    workspace_extra_sources,
+    workspaces,
+)
 
 _log = structlog.get_logger(__name__)
 
@@ -39,6 +45,51 @@ class UserNotProvisionedError(Exception):
             f"User {login!r} has no users row and no readable config.yaml — re-login required"
         )
         self.login = login
+
+
+async def owner_identity_subject(login: str) -> dict[str, str]:
+    """`{login, sub, email, identity}` du propriétaire — pour enrichir les events.
+
+    Ouvre sa propre connexion (émission d'event best-effort, hors txn). Champs
+    absents rendus "" (jamais None → pas de placeholder littéral côté template).
+    """
+    from .engine import _get_engine
+
+    async with _get_engine().connect() as conn:
+        row = (
+            await conn.execute(
+                select(users.c.sub, users.c.email, users.c.identity).where(users.c.login == login)
+            )
+        ).first()
+    sub, email, identity = row if row is not None else (None, None, None)
+    return {
+        "login": login,
+        "sub": sub or "",
+        "email": email or "",
+        "identity": identity or "",
+    }
+
+
+async def list_admin_logins(conn: AsyncConnection) -> list[str]:
+    """Logins des utilisateurs admin (`users.is_admin`, persisté au login OIDC).
+
+    Sert à pousser des connexions Termix aux admins (hosts d'infra, ressources) hors
+    contexte de requête — le rôle OIDC n'étant pas disponible ailleurs (migration 101)."""
+    rows = (
+        (await conn.execute(select(users.c.login).where(users.c.is_admin.is_(True))))
+        .scalars()
+        .all()
+    )
+    return list(rows)
+
+
+async def is_admin_db(login: str, conn: AsyncConnection) -> bool:
+    """True si l'utilisateur est admin (`users.is_admin`, posé au login OIDC)."""
+    return bool(
+        (
+            await conn.execute(select(users.c.is_admin).where(users.c.login == login))
+        ).scalar_one_or_none()
+    )
 
 
 async def get_user_actor(login: str, conn: AsyncConnection) -> str | None:
@@ -97,6 +148,61 @@ async def ensure_user_db(login: str, conn: AsyncConnection) -> None:
     )
     if (result.rowcount or 0) > 0:
         _log.info("user_db_row_lazy_created", login=login)
+
+
+async def user_exists_db(login: str, conn: AsyncConnection) -> bool:
+    """True si la row users existe (garde de validation, spec 18 T3)."""
+    return (
+        await conn.execute(select(users.c.login).where(users.c.login == login))
+    ).scalar_one_or_none() is not None
+
+
+async def get_workspace_profile_ref_db(
+    login: str, name: str, conn: AsyncConnection
+) -> tuple[str, str] | None:
+    """(scope, slug) du profil d'un workspace, ou None si sans profil (spec 18 T5)."""
+    row = (
+        (
+            await conn.execute(
+                select(workspaces.c.profile_scope, workspaces.c.profile_slug).where(
+                    workspaces.c.login == login, workspaces.c.name == name
+                )
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None or not row["profile_scope"] or not row["profile_slug"]:
+        return None
+    return (row["profile_scope"], row["profile_slug"])
+
+
+async def list_users_db(conn: AsyncConnection) -> list[dict[str, Any]]:
+    """Tous les users pour la page Utilisateurs admin (spec 18 T4b).
+
+    Agrège les instances Termix rattachées (N-N) dans `termix_instance_ids`.
+    """
+    uti = user_termix_instance
+    rows = (
+        (
+            await conn.execute(
+                select(
+                    users.c.login,
+                    users.c.email,
+                    users.c.display_name,
+                    func.array_remove(func.array_agg(uti.c.instance_id), None).label(
+                        "termix_instance_ids"
+                    ),
+                )
+                .select_from(users.outerjoin(uti, users.c.login == uti.c.login))
+                .group_by(users.c.login, users.c.email, users.c.display_name)
+                .order_by(users.c.login)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(r) for r in rows]
 
 
 async def list_workspace_refs(login: str | None, conn: AsyncConnection) -> list[dict[str, Any]]:

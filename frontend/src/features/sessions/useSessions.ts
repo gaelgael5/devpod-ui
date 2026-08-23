@@ -17,6 +17,44 @@ export interface SessionEntry {
   orphan?: boolean
   /** tmux absent sur ce host : terminal en shell simple, session NON persistante. */
   no_tmux?: boolean
+  /** Occupation disque de la machine (hosts, ressources, VM de test).
+   *  Absent = jamais sondé — on n'affiche alors RIEN plutôt qu'un faux « 0 % ».
+   *  Alimenté par la sonde horaire du portail, pas par une mesure à la volée. */
+  disk?: DiskUsage
+  /** Mémoire de la machine. « Utilisé » exclut le cache récupérable. */
+  memory?: MemoryUsage
+  /** Charge CPU ramenée au nombre de cœurs : 100 % = tous les cœurs saturés. */
+  cpu?: CpuUsage
+  /** Sonde tmux non aboutie dans le délai de première peinture : l'UI affiche
+   *  « … » plutôt que d'affirmer à tort qu'il n'y a aucune session. */
+  pending?: boolean
+}
+
+export interface MemoryUsage {
+  total_bytes: number | null
+  used_bytes: number | null
+  used_pct: number
+  /** Date PROPRE à la mémoire : les trois familles ont des cadences distinctes
+   *  (disque 1 h, mémoire 5 min, CPU 30 s) — une date commune mentirait. */
+  measured_at?: string | null
+}
+
+export interface CpuUsage {
+  used_pct: number
+  cores: number | null
+  measured_at?: string | null
+}
+
+export interface DiskUsage {
+  total_bytes: number | null
+  used_bytes: number | null
+  avail_bytes: number | null
+  used_pct: number
+  /** Au-dessus du seuil configuré (90 % par défaut) — décidé par le serveur. */
+  warn: boolean
+  measured_at: string | null
+  /** Dernière sonde en échec : la valeur affichée est la précédente. */
+  stale_error?: string | null
 }
 
 /** Vue centralisée des sessions actives (conteneurs, hosts, VM de test).

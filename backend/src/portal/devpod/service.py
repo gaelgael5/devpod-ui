@@ -81,6 +81,28 @@ if TYPE_CHECKING:
 
 _log = structlog.get_logger(__name__)
 
+# Redaction d'un éventuel `://user:secret@host` dans la sortie devpod avant de la
+# logguer (défense en profondeur : le token vit normalement dans un fichier 0600,
+# pas dans stdout, mais on ne prend pas le risque).
+_REDACT_URL_CRED = re.compile(r"://([^:/@\s]+):[^@/\s]+@")
+
+
+def _read_log_tail(path: Path, *, max_chars: int = 2000) -> str:
+    """Dernières lignes d'un log devpod, redigées et aplaties en une ligne.
+
+    Sert à rendre visible la cause d'un `devpod up` en échec (ex. `fatal:` du
+    clone) directement dans structlog/Loki — le blob complet reste persisté à
+    part. Best-effort : chaîne vide si le fichier est illisible.
+    """
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    text = _REDACT_URL_CRED.sub(r"://\1:***@", text)
+    tail = text[-max_chars:]
+    return " | ".join(line for line in tail.splitlines() if line.strip())
+
+
 # Verrous de lifecycle par ws_id (bug 003). Sérialisent TOUTE opération lifecycle
 # (up/stop/delete + _run_up_task) sur un même workspace, contrairement au verrou de
 # runner.py qui n'entoure que l'exécution du subprocess devpod. Ordre d'acquisition
@@ -276,6 +298,15 @@ class DevPodService:
         tmp_key_path = ""
         task_created = False
         host_port: int | None = None
+        ssh_port: int | None = None  # spec 18 T1 : port SSH publié sur l'IP du node
+        ssh_pubkey: str | None = None
+        # Initialisées AVANT le `try` : son `finally` les lit pour le nettoyage.
+        # Placées à l'intérieur, elles restaient non liées si un `await` du début du
+        # bloc échouait (cert système, provider, allocation de port, validation des
+        # agents) — le `finally` levait alors un UnboundLocalError qui REMPLAÇAIT
+        # l'erreur réelle et rendait l'échec indiagnosticable (reconnexions du 04/08).
+        git_ssh_key_path = ""
+        git_cred_home = ""  # HOME temporaire du credential store PAT (nettoyé après l'up)
         try:
             if host_cfg.type == "ssh" and host_cfg.host_cert_slug:
                 tmp_key_path = await _materialize_system_cert(host_cfg.host_cert_slug, login)
@@ -314,6 +345,20 @@ class DevPodService:
                 else:
                     host_port = await self._exposure.allocate_port(ws_id)
 
+                # Accès SSH par workspace (spec 18 T1, option A : le portail définit
+                # toujours l'environnement en mode exposition). Port dédié (réutilisé
+                # du même row au re-up, sinon alloué) + clé du workspace (idempotente,
+                # générée avant le build pour être injectée dans authorized_keys).
+                from ..bastion.provision import ensure_ws_ssh_pubkey
+
+                raw_ssh = existing_row.get("ssh_port") if existing_row is not None else None
+                ssh_port = (
+                    int(raw_ssh)
+                    if raw_ssh is not None
+                    else await self._exposure.allocate_ssh_port(ws_id)
+                )
+                ssh_pubkey = await ensure_ws_ssh_pubkey(login, ws_id)
+
             # Spec 35b : validation des agents demandés (échec 422 si inconnu/
             # désactivé, host incompatible, ou external_url manquante). La LIVRAISON
             # des fichiers a lieu APRÈS readiness, par écriture directe dans le
@@ -341,12 +386,6 @@ class DevPodService:
                     )
                 agent_ids = list(ws_spec.agents)
 
-            # Initialisés AVANT tout await susceptible d'échouer : le `finally` de ce
-            # bloc les lit pour le nettoyage, et les laisser non liés masquerait l'erreur
-            # réelle par un UnboundLocalError.
-            git_ssh_key_path = ""
-            git_cred_home = ""  # HOME temporaire du credential store PAT (nettoyé après l'up)
-
             # Sources additionnelles : celles authentifiées par PAT sont clonées
             # post-readiness (via ws_exec) pour éviter le panic du serveur git-credentials
             # de devpod (v0.6.15). Les autres restent dans le postCreateCommand.
@@ -368,6 +407,7 @@ class DevPodService:
                 or profile
                 or ws_spec.recipe_volumes
                 or memory_limit
+                or ssh_port is not None  # spec 18 T1 : composant ssh-access injecté
             )
             if needs_devcontainer:
                 # mkdtemp/copytree/write_text sont bloquants (plusieurs répertoires de
@@ -382,14 +422,28 @@ class DevPodService:
                     profile=profile,
                     recipe_volumes=ws_spec.recipe_volumes or None,
                     memory_limit=memory_limit or None,
+                    ssh_port=ssh_port,
+                    ssh_pubkey=ssh_pubkey,
+                    # Utilisateur du devcontainer (possède le socket tmux + reçoit
+                    # authorized_keys) : image_user du profil si défini, sinon
+                    # "vscode" (image de base devcontainer).
+                    ws_user=(profile.image_user if profile is not None else "") or "vscode",
                 )
 
             # Les env vars utilisateur (secrets) sont fusionnées ici, injectées dans
             # le subprocess env UNIQUEMENT — jamais dans devcontainer.json ni dans les logs.
             subprocess_env = {**base_env, **ws_spec.env}
 
-            # Résolution du credential git pour l'injection dans devpod up
+            # Résolution du credential git pour l'injection dans devpod up.
+            # On retire d'abord l'userinfo de l'URL (ex. Azure `org@dev.azure.com`) :
+            # sinon git clone chercherait un credential pour l'utilisateur `org`,
+            # que le credential store (username `oauth2`/`cred.username`) ne matche
+            # pas → auth refusée. L'auth vient du credential injecté, pas de l'URL.
             effective_source = ws_spec.source
+            if effective_source:
+                from .git import strip_http_userinfo
+
+                effective_source = strip_http_userinfo(effective_source)
             if ws_spec.git_credential and ws_spec.source:
                 try:
                     user_cfg = await load_user(login)
@@ -451,7 +505,11 @@ class DevPodService:
             # repasse jamais à NULL pendant le devpod up (jusqu'à 30 min), donc
             # _used_ports() protège le port même après la perte de _reserved
             # (restart du portail, _reset_service).
-            await self._write_status(ws_id, "provisioning", login=login, host_port=host_port)
+            # ssh_port persisté dès le provisioning (comme host_port) : le registre
+            # SSH le lit depuis workspace_status pour protéger le port durablement.
+            await self._write_status(
+                ws_id, "provisioning", login=login, host_port=host_port, ssh_port=ssh_port
+            )
 
             task = asyncio.create_task(
                 self._run_up_task(
@@ -504,6 +562,8 @@ class DevPodService:
                 # n'a jamais démarré : jamais persisté en DB, il faut le relâcher
                 # explicitement (bug 037), sinon il reste réservé jusqu'au restart.
                 await self._exposure.release_port(host_port)
+            if not task_created and ssh_port is not None and self._exposure is not None:
+                await self._exposure.release_ssh_port(ssh_port)
 
     def _devpod_state_exists(self, ws_id: str, login: str) -> bool:
         """Vérifie si devpod connaît ce workspace (état local présent).
@@ -537,7 +597,16 @@ class DevPodService:
         except ValueError:
             _log.warning("reconcile_ws_spec_not_found", ws_id=ws_id, login=login)
         except Exception as exc:
-            _log.warning("reconcile_reconnect_failed", ws_id=ws_id, error=str(exc))
+            # exc_info : sans le traceback, un échec de reconnexion n'est pas
+            # diagnosticable a posteriori — `str(exc)` seul avait laissé les
+            # reconnexions du 04/08 sans cause identifiable.
+            _log.warning(
+                "reconcile_reconnect_failed",
+                ws_id=ws_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+                exc_info=True,
+            )
 
     async def fail_stale_provisioning(self) -> None:
         """Au démarrage : bascule en `failed` les lignes `provisioning` orphelines.
@@ -637,9 +706,13 @@ class DevPodService:
         """Reconnexion forcée d'un workspace dont le conteneur tourne (portal_reload, modèle a).
 
         Lance la reconnexion (devpod up détecte le container existant et relance le
-        tunnel) en arrière-plan et rend la main immédiatement.
+        tunnel) en arrière-plan et rend la main immédiatement. Référencée dans
+        _background_tasks (comme up()) : une tâche non référencée peut être
+        ramassée par le GC avant son terme, perdant silencieusement la reconnexion.
         """
-        asyncio.create_task(self._reconnect_workspace(ws_id, login))  # noqa: RUF006
+        task = asyncio.create_task(self._reconnect_workspace(ws_id, login))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _cancel_up_task(self, ws_id: str) -> None:
         """Annule un `up` en cours pour ws_id et attend sa terminaison (bug 003).
@@ -699,12 +772,24 @@ class DevPodService:
                 return
             await self._write_status_if_exists(ws_id, "stopped", login=login)
             _log.info("workspace_stopped", ws_id=ws_id, login=login)
+            from ..db.user_config import owner_identity_subject
+
             await emit_event(
                 "workspace.stopped",
                 actor=login,
                 workspace=ws_id.removeprefix(f"{login}-"),
-                subject={"ws_id": ws_id},
+                subject={**await owner_identity_subject(login), "ws_id": ws_id},
             )
+            # Nettoyage Termix au stop (spec 18 T5) : le host node_ip:ssh_port devient
+            # injoignable → on retire host+credential côté Termix, mais on GARDE la clé
+            # SSH (purge_state=False) pour un restart propre. Best-effort.
+            from ..bastion import provision as _bastion
+
+            try:
+                if _bastion.enabled():
+                    await _bastion.deprovision_workspace(login, ws_id, purge_state=False)
+            except Exception:
+                _log.warning("bastion_deprovision_on_stop_failed", ws_id=ws_id, exc_info=True)
 
     async def delete(self, login: str, ws_id: str, *, shelve: bool = True) -> dict[str, Any]:
         """Supprime un workspace (force). Shelve le travail en attente si shelve=True."""
@@ -754,12 +839,28 @@ class DevPodService:
                 await revoke_workspace_keys(conn, login, ws_id)
             await self._purge_agent_config(login, ws_id, ws_name)
             _log.info("workspace_deleted", ws_id=ws_id, login=login, recovery_branch=branch)
+            from ..db.user_config import owner_identity_subject
+
             await emit_event(
                 "workspace.deleted",
                 actor=login,
                 workspace=ws_name,
-                subject={"ws_id": ws_id, "recovery_branch": branch},
+                subject={
+                    **await owner_identity_subject(login),
+                    "ws_id": ws_id,
+                    "recovery_branch": branch,
+                },
             )
+            # Déprovision Termix DIRECTE (spec 18 T5) — pas via automate : retire
+            # host + credential sur toutes les instances + le secret d'état.
+            # Best-effort : jamais bloquant pour la suppression.
+            from ..bastion import provision as _bastion
+
+            try:
+                if _bastion.enabled():
+                    await _bastion.deprovision_workspace(login, ws_id)
+            except Exception:
+                _log.warning("bastion_deprovision_on_delete_failed", ws_id=ws_id, exc_info=True)
             return {"deleted": True, "recovery_branch": branch}
 
     async def _purge_agent_config(self, login: str, ws_id: str, ws_name: str) -> None:
@@ -849,6 +950,9 @@ class DevPodService:
         extra_mounts: list[str] | None = None,
         extra_post_create: list[str] | None = None,
         memory_limit: str | None = None,
+        ssh_port: int | None = None,
+        ssh_pubkey: str | None = None,
+        ws_user: str = "vscode",
     ) -> Path:
         """Écrit devcontainer.json + Feature dirs dans un tmpdir. Retourne le chemin du JSON."""
         user_dir = safe_user_path(login, "devpod")
@@ -954,6 +1058,18 @@ class DevPodService:
             # (struct devcontainer config) ; appliqué à la (re)construction.
             if memory_limit:
                 content["runArgs"] = [f"--memory={memory_limit}"]
+
+            # Composants système (spec 18 T1) : accès SSH par workspace publié sur
+            # l'IP du node. Injecté quand une clé + un port SSH sont fournis (mode
+            # exposition). AJOUTE features/runArgs (--publish)/postStartCommand (sshd).
+            if ssh_port is not None and ssh_pubkey:
+                from ..wscomponents.devcontainer import inject_components
+
+                inject_components(
+                    content,
+                    tmp_dir,
+                    {"ssh_port": str(ssh_port), "ssh_pubkey": ssh_pubkey, "ws_user": ws_user},
+                )
 
             mounts: list[str] = []
             if recipe_volumes and recipes:
@@ -1473,9 +1589,23 @@ class DevPodService:
             # delete concurrent aurait supprimée (bug 003).
             await self._write_status_if_exists(ws_id, status, login=login, **extra)
             if returncode != 0:
-                _log.warning("workspace_up_failed", ws_id=ws_id, returncode=returncode)
+                # Tail de la sortie devpod (clone/build) pour ne plus être aveugle
+                # sur un up qui plante — le blob complet reste persisté par ailleurs.
+                output_tail = await asyncio.to_thread(_read_log_tail, log_path)
+                _log.warning(
+                    "workspace_up_failed",
+                    ws_id=ws_id,
+                    returncode=returncode,
+                    output_tail=output_tail,
+                )
             else:
                 _log.info("workspace_up_done", ws_id=ws_id, login=login)
+                # Le `up` vient d'appliquer le profil : l'utilisateur du conteneur a
+                # pu changer (image_user). On oublie la valeur cachée AVANT toute
+                # opération post-readiness, qui passe par ws_exec sous cet utilisateur.
+                from .ws_user import invalidate as _invalidate_ws_user
+
+                _invalidate_ws_user(ws_id)
                 # Sources additionnelles en PAT : clonées ici, conteneur prêt (ws_exec
                 # joignable), hors du tunnel git-credentials devpod qui panique en setup.
                 if deferred_sources:
@@ -1485,12 +1615,71 @@ class DevPodService:
                 # aucun recreate — rejoué à chaque up, donc un restart suffit.
                 if agents:
                     await self._push_agent_files_safe(login, ws_id, agents, mcp_url, project_root)
+                # ForceCommand ssh-access (spec 18 T1) rafraîchie à chaque up (spec
+                # 35b) : les workspaces existants prennent la version courante au
+                # restart, sans recreate. Gatée dans la commande sur la présence du
+                # script (no-op hors T1). Best-effort : jamais bloquant.
+                try:
+                    from ..wscomponents.registry import tmux_attach_refresh_cmd
+                    from .exec import ws_exec
+
+                    rc, out = await ws_exec(login, ws_id, tmux_attach_refresh_cmd())
+                    if rc != 0:
+                        _log.warning(
+                            "ws_tmux_attach_refresh_failed", ws_id=ws_id, rc=rc, output=out[-300:]
+                        )
+                except Exception:
+                    _log.warning("ws_tmux_attach_refresh_crashed", ws_id=ws_id, exc_info=True)
+                # Clé SSH du workspace rafraîchie à chaque up (même motif) : le hash
+                # de prebuild devpod ignore le contenu des features → une image en
+                # cache peut porter une clé périmée après un delete/recreate (le
+                # delete purge l'état, le up regénère une clé neuve). Gatée dans la
+                # commande sur le sshd_config du composant (no-op hors T1).
+                # Best-effort : jamais bloquant.
+                try:
+                    from ..bastion.provision import ensure_ws_ssh_pubkey, resolve_ws_user
+                    from ..wscomponents.registry import authorized_keys_refresh_cmd
+                    from .exec import ws_exec
+
+                    pubkey = await ensure_ws_ssh_pubkey(login, ws_id)
+                    # Foyer cible = celui de ws_user (image_user du profil) : ws_exec
+                    # demande toujours `vscode`, donc $HOME n'est PAS le bon foyer
+                    # quand le profil définit un autre utilisateur.
+                    ws_user = await resolve_ws_user(login, ws_id)
+                    rc, out = await ws_exec(
+                        login, ws_id, authorized_keys_refresh_cmd(pubkey, ws_user)
+                    )
+                    if rc != 0:
+                        _log.warning(
+                            "ws_authorized_keys_refresh_failed",
+                            ws_id=ws_id,
+                            rc=rc,
+                            output=out[-300:],
+                        )
+                except Exception:
+                    _log.warning("ws_authorized_keys_refresh_crashed", ws_id=ws_id, exc_info=True)
+                from ..db.user_config import owner_identity_subject
+
                 await emit_event(
                     lifecycle_event,
                     actor=login,
                     workspace=ws_id.removeprefix(f"{login}-"),
-                    subject={"ws_id": ws_id, "node": host_name},
+                    subject={
+                        **await owner_identity_subject(login),
+                        "ws_id": ws_id,
+                        "node": host_name,
+                    },
                 )
+                # Provisioning Termix DIRECT (spec 18 T5) — pas via automate (couplage
+                # assumé) : au up réussi, (re)crée + partage le host node_ip:ssh_port
+                # sur les instances des accessors. Best-effort : jamais bloquant.
+                from ..bastion import provision as _bastion
+
+                try:
+                    if _bastion.enabled():
+                        await _bastion.provision_workspace(login, ws_id)
+                except Exception:
+                    _log.warning("bastion_provision_on_up_failed", ws_id=ws_id, exc_info=True)
         except Exception as exc:
             await self._write_status_if_exists(
                 ws_id, "failed", login=login, error=type(exc).__name__

@@ -1,14 +1,16 @@
 """Routes /me/workspace-groups — groupes de workspaces utilisateur."""
+
 from __future__ import annotations
 
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
+from ..bastion import provision as bastion
 from ..db import workspace_groups as wg_db
 from ..db.engine import get_conn
 
@@ -89,6 +91,7 @@ async def create_workspace_group(
 async def rename_workspace_group(
     group_id: int,
     body: GroupRenameBody,
+    background_tasks: BackgroundTasks,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
@@ -105,6 +108,8 @@ async def rename_workspace_group(
     if result is None:
         raise HTTPException(status_code=404, detail="Groupe introuvable")
     _log.info("workspace_group_renamed", login=user.login, group_id=group_id, new_name=body.name)
+    # Pousse le nouveau dossier Termix aux workspaces démarrés du groupe (après commit).
+    background_tasks.add_task(bastion.reprovision_group_if_running, user.login, body.name)
     return result
 
 
@@ -124,13 +129,12 @@ async def delete_workspace_group(
 async def set_workspace_groups(
     workspace_name: str,
     body: WorkspaceGroupsBody,
+    background_tasks: BackgroundTasks,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
     try:
-        found = await wg_db.set_workspace_groups(
-            user.login, workspace_name, body.groups, conn
-        )
+        found = await wg_db.set_workspace_groups(user.login, workspace_name, body.groups, conn)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not found:
@@ -140,5 +144,9 @@ async def set_workspace_groups(
         login=user.login,
         workspace=workspace_name,
         groups=body.groups,
+    )
+    # Pousse le dossier Termix (workspace-<groupe>) si le workspace est démarré (après commit).
+    background_tasks.add_task(
+        bastion.reprovision_workspace_if_running, user.login, f"{user.login}-{workspace_name}"
     )
     return {"workspace": workspace_name, "groups": body.groups}

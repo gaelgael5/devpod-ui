@@ -9,13 +9,14 @@ import httpx
 import structlog
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
+from ..bastion import servers as bastion_servers
 from ..certificates.docker_bundle import (
     host_bundle_dir,
     materialize_host_bundle,
@@ -278,6 +279,66 @@ async def put_admin_logs_config(
     _BG_TASKS.add(task)
     task.add_done_callback(_BG_TASKS.discard)
     return _logs_config_out(cfg)
+
+
+# ─── Bastion SSH → Termix ───────────────────────────────────────────────────
+# Config éditable via l'IHM (plus d'.env). `enabled` démarre/arrête le sshd bastion
+# à chaud ; api_url + host + role activent le provisioning Termix au cycle de vie ws.
+
+
+class BastionConfigUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    api_url: str = ""
+    host: str = ""
+    port: int = 2222
+    role: str = ""
+    apikey_secret: str = "termix-apikey"
+
+
+def _bastion_config_out(cfg: GlobalConfig) -> dict[str, object]:
+    b = cfg.bastion
+    return {
+        "enabled": b.enabled,
+        "api_url": b.api_url,
+        "host": b.host,
+        "port": b.port,
+        "role": b.role,
+        "apikey_secret": b.apikey_secret,
+    }
+
+
+@router.get("/bastion-config")
+async def get_admin_bastion_config(user: UserInfo = Depends(require_admin)) -> dict[str, object]:
+    return _bastion_config_out(load_global())
+
+
+@router.put("/bastion-config")
+async def put_admin_bastion_config(
+    body: BastionConfigUpdateRequest,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    """Édite la config bastion et applique le toggle sshd À CHAUD (démarrage/arrêt)."""
+    cfg = load_global()
+    cfg.bastion = cfg.bastion.model_copy(
+        update={
+            "enabled": body.enabled,
+            "api_url": body.api_url.strip(),
+            "host": body.host.strip(),
+            "port": body.port,
+            "role": body.role.strip(),
+            "apikey_secret": body.apikey_secret.strip() or "termix-apikey",
+        }
+    )
+    await save_global_db(cfg, conn)
+    set_cached_global(cfg)
+    from ..bastion.runtime import apply as apply_bastion
+
+    apply_bastion(cfg.bastion.enabled)
+    _log.info("bastion_config_updated", by=user.login, enabled=body.enabled)
+    return _bastion_config_out(cfg)
 
 
 # ─── Producteur d'events workflow (relais egress signé HMAC) ────────────────
@@ -895,6 +956,7 @@ async def list_hosts(user: UserInfo = Depends(require_admin)) -> list[dict[str, 
 async def add_host(
     body: HostCreateRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, object]:
@@ -947,6 +1009,8 @@ async def add_host(
     await save_global_db(cfg, conn)
     set_cached_global(cfg)
     _log.info("host_added", name=body.name, by=user.login)
+    # Pousse le serveur vers Termix (dossier selon usage) après commit (best-effort).
+    background_tasks.add_task(bastion_servers.sync_server_host, body.name)
     return host.model_dump(mode="json")
 
 
@@ -955,6 +1019,7 @@ async def update_host(
     name: str,
     body: HostCreateRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, object]:
@@ -1020,12 +1085,15 @@ async def update_host(
     await save_global_db(cfg, conn)
     set_cached_global(cfg)
     _log.info("host_updated", name=name, by=user.login)
+    # Re-pousse le serveur (ip/user/usage/clé ont pu changer → dossier/cible) après commit.
+    background_tasks.add_task(bastion_servers.sync_server_host, name)
     return host.model_dump(mode="json")
 
 
 @router.delete("/hosts/{name}", status_code=204)
 async def delete_host(
     name: str,
+    background_tasks: BackgroundTasks,
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
@@ -1088,6 +1156,8 @@ async def delete_host(
     await save_global_db(cfg, conn)
     set_cached_global(cfg)
     _log.info("host_deleted", name=name, by=user.login, workspaces_deleted=len(rows))
+    # Retire le serveur de Termix chez tous ses destinataires après commit (best-effort).
+    background_tasks.add_task(bastion_servers.deprovision_server_host, name)
 
 
 @router.get("/hosts/{name}/workspaces")

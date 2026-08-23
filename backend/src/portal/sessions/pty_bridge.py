@@ -29,19 +29,56 @@ from . import registry
 _log = structlog.get_logger(__name__)
 
 
-async def run_pty_bridge(
-    websocket: WebSocket,
+def _attach_controlling_tty() -> None:
+    """Fait de l'enfant un leader de session et du PTY son terminal de contrôle.
+
+    Sans cela le PTY n'a aucun groupe de processus au premier plan. `TIOCSWINSZ`
+    met bien à jour la taille, mais le `SIGWINCH` qui doit suivre est adressé à
+    ce groupe — donc à personne. `ssh` conserve alors la taille lue au démarrage
+    et tmux dessine à une largeur qui n'est pas celle du navigateur.
+
+    Exécuté entre `fork` et `exec` : stdin est déjà le côté esclave du PTY. Les
+    échecs sont absorbés — mal dimensionnée, la session reste utilisable ; morte,
+    non. On ne journalise pas ici : après `fork`, y compris dans l'interpréteur,
+    seules les opérations async-signal-safe sont sûres.
+    """
+    with contextlib.suppress(OSError):
+        os.setsid()
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+
+def requested_size(cols: int | None, rows: int | None) -> tuple[int, int] | None:
+    """Taille demandée par le client, bornée. `None` si non fournie.
+
+    Bornes hautes : la valeur vient du navigateur et finit dans un `ioctl`.
+    """
+    if not cols or not rows:
+        return None
+    return (max(1, min(cols, 1000)), max(1, min(rows, 1000)))
+
+
+def set_pty_size(fd: int, cols: int, rows: int) -> None:
+    with contextlib.suppress(OSError):
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+
+
+async def spawn_on_pty(
     cmd: list[str],
     env: dict[str, str],
-    live_term: registry.LiveTerminal,
-    *,
-    log_label: str,
-) -> int | None:
-    """Lance `cmd` sur un PTY et fait le pont avec `websocket` jusqu'à fermeture.
+    size: tuple[int, int] | None = None,
+) -> tuple[asyncio.subprocess.Process, int]:
+    """Lance `cmd` sur un PTY neuf dont il est le terminal de contrôle.
 
-    Retourne le returncode du subprocess (None s'il a fallu le tuer sans code).
+    `size` (cols, rows) est posée AVANT l'exec : `ssh` lit la taille de son
+    terminal au démarrage pour dimensionner le PTY distant, et ne la relit
+    jamais. Fournie trop tard, elle ne rattrape plus tmux, qui s'est déjà calé
+    sur les 80x24 par défaut d'OpenSSH.
+
+    Retourne le process et le descripteur maître (au vidage de l'appelant).
     """
     master_fd, slave_fd = pty.openpty()
+    if size:
+        set_pty_size(master_fd, *size)
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -49,17 +86,30 @@ async def run_pty_bridge(
             stdout=slave_fd,
             stderr=slave_fd,
             env=env,
+            preexec_fn=_attach_controlling_tty,
         )
     finally:
-        os.close(slave_fd)  # le parent n'a besoin que du master
+        os.close(slave_fd)  # le parent n'a besoin que du maître
+    return proc, master_fd
+
+
+async def run_pty_bridge(
+    websocket: WebSocket,
+    cmd: list[str],
+    env: dict[str, str],
+    live_term: registry.LiveTerminal,
+    *,
+    log_label: str,
+    initial_size: tuple[int, int] | None = None,
+) -> int | None:
+    """Lance `cmd` sur un PTY et fait le pont avec `websocket` jusqu'à fermeture.
+
+    Retourne le returncode du subprocess (None s'il a fallu le tuer sans code).
+    """
+    proc, master_fd = await spawn_on_pty(cmd, env, initial_size)
 
     def _pty_resize(cols: int, rows: int) -> None:
-        with contextlib.suppress(OSError):
-            fcntl.ioctl(
-                master_fd,
-                termios.TIOCSWINSZ,
-                struct.pack("HHHH", rows, cols, 0, 0),
-            )
+        set_pty_size(master_fd, cols, rows)
 
     async def _ws_to_pty() -> None:
         try:

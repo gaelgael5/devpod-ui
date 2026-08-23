@@ -3,6 +3,7 @@
 Un fichier YAML par opération sous /data/operations/. Écriture atomique
 (tempfile + os.replace). Source de vérité = filesystem (pas de DB).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -60,9 +61,7 @@ def _get_operation_sync(operation_id: str) -> dict[str, Any] | None:
     return result if isinstance(result, dict) else None
 
 
-def _list_operations_sync(
-    owner_login: str, workspace: str | None
-) -> list[dict[str, Any]]:
+def _list_operations_sync(owner_login: str, workspace: str | None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for path in _operations_root().glob("*.yaml"):
         op = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -108,9 +107,7 @@ async def update_operation(operation_id: str, **fields: Any) -> dict[str, Any]:
     return op
 
 
-async def list_operations(
-    owner_login: str, workspace: str | None = None
-) -> list[dict[str, Any]]:
+async def list_operations(owner_login: str, workspace: str | None = None) -> list[dict[str, Any]]:
     return await asyncio.to_thread(_list_operations_sync, owner_login, workspace)
 
 
@@ -120,9 +117,7 @@ async def run_operation_now(operation_id: str, work: Callable[[], Awaitable[Any]
         result = await work()
         await update_operation(operation_id, state="done", progress=100, result=result)
     except Exception as exc:
-        await update_operation(
-            operation_id, state="failed", error=f"{type(exc).__name__}: {exc}"
-        )
+        await update_operation(operation_id, state="failed", error=f"{type(exc).__name__}: {exc}")
 
 
 async def launch_operation(

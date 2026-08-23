@@ -111,6 +111,14 @@ class OidcConfig(BaseModel):
     # Quand False : le login local break-glass (LOCAL_USER/.env) est désactivé,
     # même si LOCAL_USER/LOCAL_PASSWORD_HASH sont présents dans .env.
     allow_local_auth: bool = True
+    # Déconnexion propagée à l'IdP (RP-Initiated Logout, OIDC Session Management).
+    # Sans elle, se déconnecter du portail ne ferme QUE la session locale : le
+    # cookie SSO Keycloak survit, et le clic suivant sur « OIDC » ré-authentifie
+    # en silence sans jamais afficher la mire — impossible de changer de compte.
+    # ⚠ La déconnexion est propagée à TOUTES les applications du realm (Grafana,
+    # Termix…) : c'est le comportement attendu d'un logout SSO, mais il se coupe
+    # ici si on préfère ne fermer que la session du portail.
+    sso_logout: bool = True
 
 
 class AuthConfig(BaseModel):
@@ -253,6 +261,23 @@ class CloudflareManagerConfig(BaseModel):
     api_key: str = ""
 
 
+class BastionConfig(BaseModel):
+    """Bastion SSH → Termix (éditable via l'IHM admin, plus d'.env à la main).
+
+    `enabled` pilote le sshd bastion (démarré/arrêté à chaud par l'app). Le provisioning
+    Termix (credential+host+partage) n'est actif que si api_url + host + role sont posés.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    api_url: str = ""  # URL externe Termix (ex. https://termix.yoops.org)
+    host: str = ""  # IP/host que Termix vise en SSH (IP LAN du portail)
+    port: int = 2222
+    role: str = ""  # nom du rôle Termix cible du partage
+    apikey_secret: str = "termix-apikey"  # slug du secret système portant l'apikey tmx_
+
+
 class LogsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -309,6 +334,7 @@ class GlobalConfig(BaseModel):
     cloudflare_manager: CloudflareManagerConfig = Field(default_factory=CloudflareManagerConfig)
     logs: LogsConfig = Field(default_factory=LogsConfig)
     events_producer: EventsProducerConfig = Field(default_factory=EventsProducerConfig)
+    bastion: BastionConfig = Field(default_factory=BastionConfig)
 
     @model_validator(mode="before")
     @classmethod

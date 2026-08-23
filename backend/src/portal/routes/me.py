@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..certificates import service as cert_svc
-from ..config.models import GitCredential, UserConfig, WorkspaceSpec
+from ..config.models import GitCredential, ProfileRef, SourceSpec, UserConfig, WorkspaceSpec
 from ..config.store import (
     load_global,
     load_user,
@@ -96,6 +96,24 @@ async def get_profile(
     return await _read_profile(conn, user.login)
 
 
+@router.get("/token-claims")
+async def get_token_claims(
+    request: Request,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, object]:
+    """Claims essentiels du jeton OIDC de la session (affichage/copie sur la page profil).
+
+    Ne renvoie JAMAIS le jeton brut ni l'access_token : uniquement le sous-ensemble
+    curé persisté au login (`token_claims`). Le `sub` (ancre d'identité) est garanti
+    même sur une session antérieure à cette fonctionnalité.
+    """
+    claims = dict(request.session.get("token_claims") or {})
+    sub = (request.session.get("user") or {}).get("sub")
+    if sub and not claims.get("sub"):
+        claims["sub"] = str(sub)
+    return {"claims": claims}
+
+
 @router.patch("/profile")
 async def patch_profile(
     body: _ProfilePatch,
@@ -166,6 +184,22 @@ async def get_current_user(user: UserInfo = Depends(require_user)) -> dict[str, 
     }
 
 
+@router.get("/termix-instances")
+async def get_my_termix_instances(
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[dict[str, object]]:
+    """Serveurs Termix effectifs de l'utilisateur (lecture seule, spec 18 T4b).
+
+    Résolus (rattachés explicitement, sinon défaut). Champs publics uniquement —
+    jamais l'apikey.
+    """
+    from ..db import user_termix_instance as uti
+
+    resolved = await uti.resolve_instances_for_user(conn, user.login)
+    return [{"id": i["id"], "name": i["name"], "url": i["url"]} for i in resolved]
+
+
 @router.get("/logs-config")
 async def get_logs_config(_user: UserInfo = Depends(require_user)) -> dict[str, object]:
     """Expose les paramètres Grafana nécessaires au frontend (pas de secrets)."""
@@ -225,6 +259,90 @@ async def add_workspace(
         await save_user(user.login, cfg)
     _log.info("workspace_added", login=user.login, name=workspace.name)
     return workspace.model_dump(mode="json")
+
+
+class _WorkspacePatch(BaseModel):
+    """Édition de la config d'un workspace existant — champs tous optionnels.
+
+    Seuls les champs EXPLICITEMENT fournis sont appliqués (`model_fields_set`) :
+    un PATCH partiel ne doit jamais effacer le reste de la config, même erreur que
+    celle déjà corrigée côté `POST /workspaces/{name}/up`. `name` est absent
+    volontairement : renommer changerait le ws_id, donc l'identité du conteneur.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str | None = None
+    branch: str | None = None
+    git_credential: str | None = None
+    host: str | None = None
+    recipes: list[str] | None = None
+    start_recipes: list[str] | None = None
+    init_recipes: list[str] | None = None
+    recipe_volumes: list[str] | None = None
+    extra_sources: list[SourceSpec] | None = None
+    profile: ProfileRef | None = None
+    agents: list[str] | None = None
+    memory_limit: str | None = None
+    env: dict[str, str] | None = None
+    ssh_key: bool | None = None
+    default_start: str | None = None
+
+
+@router.patch("/workspaces/{name}")
+async def patch_workspace(
+    name: str,
+    body: _WorkspacePatch,
+    user: UserInfo = Depends(require_user),
+) -> dict[str, object]:
+    """Édite la configuration d'un workspace existant, sans rien redémarrer.
+
+    Persiste la nouvelle spec et RETOURNE l'impact : `requires_recreate` liste les
+    champs qui n'auront d'effet qu'après reconstruction de l'image (recettes,
+    profil, mémoire…), `requires_restart` ceux qu'un simple stop/start applique.
+    L'appelant décide — on ne recrée JAMAIS un conteneur dans le dos de
+    l'utilisateur (une recréation détruit le travail non commité).
+    """
+    from ..devpod.spec_changes import added_recipes, requires_recreate, requires_restart
+
+    patch = body.model_dump(exclude_unset=True)
+    async with user_config_lock(user.login):
+        cfg = await load_user(user.login)
+        idx = next((i for i, ws in enumerate(cfg.workspaces) if ws.name == name), None)
+        if idx is None:
+            raise HTTPException(status_code=404, detail=f"Workspace {name!r} introuvable")
+        current = cfg.workspaces[idx]
+        try:
+            updated = WorkspaceSpec.model_validate({**current.model_dump(), **patch})
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        recreate = requires_recreate(current, updated)
+        restart = requires_restart(current, updated)
+        added = added_recipes(current, updated)
+        if not recreate and not restart and updated == current:
+            # Rien n'a bougé : on évite une écriture (et un event) inutiles.
+            return {
+                "spec": current.model_dump(mode="json"),
+                "requires_recreate": [],
+                "requires_restart": [],
+                "added_recipes": [],
+            }
+        cfg.workspaces[idx] = updated
+        await save_user(user.login, cfg)
+    _log.info(
+        "workspace_config_updated",
+        login=user.login,
+        name=name,
+        changed=sorted(patch),
+        requires_recreate=recreate,
+        added_recipes=added,
+    )
+    return {
+        "spec": updated.model_dump(mode="json"),
+        "requires_recreate": recreate,
+        "requires_restart": restart,
+        "added_recipes": added,
+    }
 
 
 class _WorkspaceAgentsPatch(BaseModel):

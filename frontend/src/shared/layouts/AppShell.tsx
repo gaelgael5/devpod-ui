@@ -144,8 +144,26 @@ export default function AppShell() {
                   <DropdownMenuItem onClick={() => navigate('/admin/logs')}>
                     {t('admin.logs.navLabel')}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/bastion')}>
+                    {t('admin.bastion.navLabel')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/termix-instances')}>
+                    {t('admin.termix.navLabel')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/users')}>
+                    {t('admin.users.navLabel')}
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/workflow')}>
                     {t('admin.workflow.navLabel')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/automations')}>
+                    {t('automations.navLabel')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/automations/contracts')}>
+                    {t('automations.contracts.navLabel')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/automations/events')}>
+                    {t('automations.events.navLabel')}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
                     {t('admin.oidc.navLabel')}

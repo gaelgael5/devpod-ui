@@ -21,6 +21,7 @@ from ..devpod.exec import tmux as _tmux
 from ..events.bus import emit_event
 from ..recipes.models import _RECIPE_ID_RE
 from ..sessions.aggregate import invalidate_sessions_cache, probe_workspace_sessions
+from ..sessions.diff_probe import note_session_closed, note_session_created
 
 _log = structlog.get_logger(__name__)
 router = APIRouter(tags=["workspace-sessions"])
@@ -177,6 +178,9 @@ async def create_session(
         workspace=name,
         subject={"session": req.name, "start_recipe": req.start_recipe},
     )
+    # Session connue du portail : la sonde de diff ne la ré-émettra pas comme
+    # « apparue hors-portail ».
+    note_session_created(ws_id, req.name)
     return {"name": req.name}
 
 
@@ -202,3 +206,4 @@ async def delete_session(
     await emit_event(
         "session.closed", actor=user.login, workspace=name, subject={"session": session_name}
     )
+    note_session_closed(ws_id, session_name)

@@ -27,6 +27,12 @@ http://{$BASE_DOMAIN} {
     }
 }
 
+# Termix (termix.yoops.org) : exposé HORS Caddy — le Cloudflare Tunnel pointe
+# directement sur le conteneur Termix (port hôte TERMIX_DEV_PORT). L'auth n'est PAS
+# déléguée au portail (cookie de session scellé sur base_domain, non transmis à un
+# autre parent que .yoops.org) : Termix fait son PROPRE OIDC contre Keycloak
+# (variables OIDC_* du service termix dans docker-compose.dev.yml).
+
 # Workspaces (ws-*.{$BASE_DOMAIN}) : routes ajoutées dynamiquement par le portail
 # via l'API admin Caddy (forward_auth interne + reverse_proxy vers node_ip:host_port),
 # sur le serveur srv0 ci-dessus (le seul à écouter :80).

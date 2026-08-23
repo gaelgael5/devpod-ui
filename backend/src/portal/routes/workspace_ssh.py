@@ -18,7 +18,7 @@ from ..devpod.ssh_exec import devpod_ssh_key as _devpod_ssh_key
 from ..devpod.test_vm import build_testhost_ssh_command
 from ..sessions import registry
 from ..sessions.ownership import OwnershipDenied, resolve_owner
-from ..sessions.pty_bridge import run_pty_bridge
+from ..sessions.pty_bridge import requested_size, run_pty_bridge
 from ..settings import get_settings
 
 _log = structlog.get_logger(__name__)
@@ -38,6 +38,8 @@ async def workspace_ssh_terminal(
     shell: bool = False,
     ssh_test: str | None = None,
     owner: str | None = None,
+    cols: int | None = None,
+    rows: int | None = None,
 ) -> None:
     await websocket.accept()
     settings = get_settings()
@@ -181,12 +183,18 @@ async def workspace_ssh_terminal(
     proxy_cmd = f"{shlex.quote(devpod_bin)} ssh --stdio {shlex.quote(ws_id)}"
     key_path = _devpod_ssh_key(effective_owner)
     identity_args = ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
+    # Utilisateur du conteneur (`image_user` du profil) — le terminal doit ouvrir
+    # la session sous le MÊME compte que celui qui possède le socket tmux et
+    # l'`authorized_keys` posés par le composant `ssh-access`.
+    from ..devpod.ws_user import resolve_ws_user
+
+    ws_user = await resolve_ws_user(effective_owner, ws_id)
     cmd = [
         "ssh",
         "-t",
         "-t",
         *identity_args,
-        *control_ssh_args(ws_id),
+        *control_ssh_args(ws_id, ws_user),
         "-o",
         f"ProxyCommand={proxy_cmd}",
         "-o",
@@ -194,7 +202,7 @@ async def workspace_ssh_terminal(
         "-o",
         "UserKnownHostsFile=/dev/null",
         "--",
-        "vscode@devpod-ws",
+        f"{ws_user}@devpod-ws",
         tmux_cmd,
     ]
 
@@ -225,7 +233,12 @@ async def workspace_ssh_terminal(
         family=term_family, target=term_target, owner=effective_owner, session=session_name
     )
     returncode = await run_pty_bridge(
-        websocket, cmd, devpod_env, live_term, log_label="ws_workspace_ssh"
+        websocket,
+        cmd,
+        devpod_env,
+        live_term,
+        log_label="ws_workspace_ssh",
+        initial_size=requested_size(cols, rows),
     )
 
     _log.info("ws_workspace_ssh_closed", ws_id=ws_id, returncode=returncode)

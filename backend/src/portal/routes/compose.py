@@ -310,7 +310,39 @@ async def create_deployment_stream(
         except ComposeServiceError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    _log.info(
+        "compose_deploy_start",
+        uid=uid,
+        name=body.name,
+        node=body.node_id,
+        template=body.template_id,
+    )
+
     async def _gen() -> AsyncIterator[bytes]:
+        # Miroir Loki ligne par ligne : la sortie du déploiement (docker compose up)
+        # devient observable en centralisé (Grafana/Loki), sans dépendre du flux
+        # navigateur. deploy_stream ne yield que des messages + la sortie compose —
+        # les valeurs résolues des secrets ne sont jamais yieldées (écrites en fichier).
+        line_buf = ""
+
+        def _mirror(text: str, *, flush: bool = False) -> None:
+            nonlocal line_buf
+            line_buf += text
+            while "\n" in line_buf:
+                line, line_buf = line_buf.split("\n", 1)
+                line = line.rstrip("\r")
+                if line.strip():
+                    _log.info(
+                        "compose_deploy_out",
+                        uid=uid, name=body.name, node=body.node_id, line=line,
+                    )
+            if flush and line_buf.strip():
+                _log.info(
+                    "compose_deploy_out", uid=uid, name=body.name, node=body.node_id,
+                    line=line_buf.rstrip("\r"),
+                )
+                line_buf = ""
+
         try:
             async for chunk in csvc.deploy_stream(
                 uid=uid,
@@ -325,8 +357,13 @@ async def create_deployment_stream(
                 compose_to_write=compose_to_write,
             ):
                 yield chunk.encode()
+                _mirror(chunk)
+            _mirror("", flush=True)
         except ComposeServiceError as exc:
             # deploy_stream a déjà retiré la réservation sur ce chemin.
+            _log.warning(
+                "compose_deploy_failed", uid=uid, name=body.name, node=body.node_id, error=str(exc)
+            )
             yield f"__ERROR__:{exc}\n".encode()
         except Exception as exc:
             _log.exception("deploy_stream_unexpected", exc=repr(exc))

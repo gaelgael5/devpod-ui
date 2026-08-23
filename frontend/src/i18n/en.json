@@ -62,7 +62,18 @@
       "state": "State",
       "actions": "Actions"
     },
-    "noTmux": "tmux is not installed on: {{hosts}}. Terminals there run a plain shell, NOT persistent (a disconnect loses the session). Install tmux on the machine (e.g. sudo apt-get install -y tmux) then reopen the terminal."
+    "noTmux": "tmux is not installed on: {{hosts}}. Terminals there run a plain shell, NOT persistent (a disconnect loses the session). Install tmux on the machine (e.g. sudo apt-get install -y tmux) then reopen the terminal.",
+    "disk": {
+      "tooltip": "{{used}} used of {{total}} — {{free}} free",
+      "free": "({{free}} free)"
+    },
+    "metrics": {
+      "disk": "Disk",
+      "memory": "Mem.",
+      "cpu": "CPU",
+      "memoryTooltip": "{{used}} used of {{total}} (excluding reclaimable cache)",
+      "cpuTooltip": "1-min load average across {{cores}} core(s)"
+    }
   },
   "workspaces": {
     "title": "Workspaces",
@@ -113,6 +124,8 @@
       "confirmDelete": "Delete",
       "deleted": "Session “{{name}}” deleted.",
       "keybar": {
+        "keyboard": "Keyboard",
+        "keyboardTitle": "Show or hide the keyboard",
         "esc": "Esc",
         "escTitle": "Send the Escape key",
         "interrupt": "Interrupt",
@@ -120,6 +133,7 @@
         "paste": "Paste",
         "pasteTitle": "Paste the clipboard into the session",
         "pasteError": "Clipboard unavailable",
+        "pasteEmpty": "Clipboard is empty",
         "copy": "Copy",
         "copyTitle": "Copy the terminal selection",
         "copyEmpty": "No selection to copy",
@@ -128,8 +142,19 @@
         "arrowDown": "Arrow down",
         "arrowLeft": "Arrow left",
         "arrowRight": "Arrow right",
-        "tab": "Tab",
-        "tabTitle": "Send the Tab key (completion)"
+        "enter": "Enter",
+        "enterTitle": "Submit the line (Enter)",
+        "search": "Search",
+        "searchTitle": "Search in terminal (Ctrl+Shift+F)"
+      },
+      "search": {
+        "placeholder": "Search…",
+        "label": "Search in terminal",
+        "none": "none",
+        "many": "{{count}}+",
+        "previous": "Previous",
+        "next": "Next",
+        "close": "Close search"
       }
     },
     "initializers": {
@@ -196,6 +221,26 @@
       "copied": "URL copied",
       "copyFailed": "Failed to copy URL",
       "saveFailed": "Failed to save link"
+    },
+    "testHostConn": {
+      "menu": "Edit parameters…",
+      "title": "{{alias}} parameters",
+      "description": "Connection parameters remembered by the portal. Useful to reconnect to a VM whose IP changed. Does not act on the VM itself.",
+      "username": "Username",
+      "host": "Host (IP or name)",
+      "password": "Root password",
+      "passwordPlaceholder": "leave empty = unchanged",
+      "reveal": "Reveal (PIN required)",
+      "revealConfirm": "Reveal",
+      "pinPlaceholder": "6-digit PIN",
+      "copyPassword": "Copy password",
+      "passwordCopied": "Password copied",
+      "copyFailed": "Failed to copy password",
+      "revealFailed": "Failed to reveal password",
+      "save": "Save",
+      "saved": "Parameters saved",
+      "saveFailed": "Failed to save parameters",
+      "cancel": "Cancel"
     },
     "testHostStacks": {
       "stacksTitle": "Other Docker stacks on the machine",
@@ -293,7 +338,27 @@
       "copy": "Copy",
       "copied": "Copied!"
     },
-    "skillsMenu": "Workspace skills…"
+    "skillsMenu": "Workspace skills…",
+    "card": {
+      "collapse": "Collapse {{name}}",
+      "expand": "Expand {{name}}"
+    },
+    "edit": {
+      "menu": "Configuration…",
+      "title": "{{name}} configuration",
+      "description": "Changes are saved immediately. Some only take effect after recreating the workspace.",
+      "save": "Save",
+      "saved": "Configuration saved",
+      "needsRecreate": "Saved — recreate to apply",
+      "addedRecipes": "Recipes added ({{list}}) — recreate to install them",
+      "recreateTitle": "Recreation required to apply:",
+      "recreateWarning": "Recreating rebuilds the container: uncommitted work is lost.",
+      "recreateNow": "Recreate now"
+    },
+    "hostDisk": {
+      "title": "{{host}} disk at {{pct}}%",
+      "hint": "Only {{free}} free — workspace writes may fail."
+    }
   },
   "recipes": {
     "title": "Recipes",
@@ -693,6 +758,61 @@
       "saved": "Session durations updated.",
       "invalid": "Invalid durations (minimum 1 minute).",
       "absoluteBelowIdle": "The maximum lifetime must be ≥ the idle timeout."
+    },
+    "bastion": {
+      "navLabel": "Termix bastion",
+      "title": "SSH bastion → Termix",
+      "intro": "Termix access to workspaces via an SSH bastion. The toggle starts/stops the bastion sshd live; Termix provisioning (host + share) activates once URL, host and role are set.",
+      "enabled": "Enable bastion",
+      "enabledHint": "Starts the bastion sshd (:2222). Without URL/host/role, only the sshd runs (no Termix provisioning).",
+      "apiUrl": "Termix URL",
+      "apiUrlHint": "External Termix API URL for provisioning (credential + host + share).",
+      "host": "Bastion host (SSH)",
+      "port": "Port",
+      "hostHint": "IP/host Termix connects to for the bastion (portal LAN IP).",
+      "role": "Termix role",
+      "roleHint": "Role name (created in Termix) each workspace host is shared to. Users carry this role (assignment or OIDC_ROLE_MAP).",
+      "apikeySecret": "Apikey secret",
+      "apikeySecretHint": "Slug of the system secret holding the Termix admin apikey (tmx_…).",
+      "missing": "URL, host and role are required to enable provisioning.",
+      "save": "Save",
+      "saved": "Bastion config saved"
+    },
+    "termix": {
+      "navLabel": "Termix instances",
+      "title": "Termix instance registry",
+      "intro": "Termix servers known to the portal. Each instance carries its URL, the admin apikey (system secret) and an optional Keycloak OIDC client. The default instance is used when none is explicitly selected.",
+      "add": "Add instance",
+      "edit": "Edit instance",
+      "empty": "No Termix instance registered.",
+      "dialogHint": "The apikey is never shown: an existing system secret is referenced.",
+      "name": "Name",
+      "url": "Termix URL",
+      "apikeySecret": "Apikey secret",
+      "apikeySecretPlaceholder": "Pick a system secret…",
+      "apikeySecretHint": "System secret holding the Termix admin apikey (tmx_…). Managed in the automation secrets screen.",
+      "oidcClientId": "Keycloak OIDC client",
+      "oidcClientIdHint": "Keycloak client id for this Termix instance (optional).",
+      "isDefault": "Default instance",
+      "isDefaultHint": "Only one instance can be default; enabling it unsets the others.",
+      "defaultBadge": "default"
+    },
+    "users": {
+      "navLabel": "Users",
+      "title": "Users",
+      "intro": "Attach each user to a Termix instance (otherwise the default instance is inherited) and manage the SSH hosts shared with them.",
+      "empty": "No users.",
+      "login": "Login",
+      "name": "Name",
+      "instance": "Termix instances",
+      "inheritDefault": "Default instance (inherited)",
+      "hostGrants": "SSH hosts",
+      "hostGrantsTitle": "SSH hosts shared with {{login}}",
+      "hostGrantsHint": "Check the SSH hosts (published workspaces) this user may access in Termix.",
+      "noHosts": "No published SSH host yet.",
+      "addInstance": "Add…",
+      "provisioning": "Provisioning…",
+      "remove": "Remove {{name}}"
     }
   },
   "errors": {
@@ -1006,11 +1126,15 @@
       "allowNoneTools": "Allow none",
       "allowReadOnlyTools": "Read-only",
       "noToolsCatalog": "No tools indexed yet (backend not synced).",
-      "exposedToWorkspaces": "Exposed to workspaces",
+      "exposedToWorkspaces": "Exposed by default to workspaces",
       "unexposeTitle": "Stop exposing “{{name}}”?",
       "unexposeWarning": "Unchecking immediately revokes the workspace MCP keys derived from this profile and regenerates the agent configuration files on the fly.",
       "unexposeConfirm": "Revoke and remove",
-      "unexposeDone": "Profile removed from workspaces — {{count}} workspace(s) affected."
+      "unexposeDone": "Profile removed from workspaces — {{count}} workspace(s) affected.",
+      "exposeSwapTitle": "Expose “{{name}}” to workspaces?",
+      "exposeSwapWarning": "Only one profile can be exposed at a time: “{{previous}}” will be unchecked and its MCP keys revoked. Agents currently working will be disconnected and must restart their session (or run /mcp) to resume.",
+      "exposeSwapConfirm": "Switch and disconnect",
+      "exposeSwapped": "“{{name}}” is no longer exposed — agents need to reconnect."
     },
     "oauth": {
       "openSettings": "Open →",
@@ -1219,7 +1343,11 @@
       "rotateNeedsRunning": "Start the workspace to rotate its key (the new token is re-injected into it).",
       "rotatedTitle": "Key rotated",
       "rotatedWarning": "The old key is revoked. Copy the new one now — it will not be shown again.",
-      "rotatedReinjected": "Key rotated and re-injected into workspace {{ws}} — the previous generation expires after the grace window."
+      "rotatedReinjected": "Key rotated and re-injected into workspace {{ws}} — the previous generation expires after the grace window.",
+      "followDefault": "Default: {{name}}",
+      "followDefaultNone": "Default (no exposed profile)",
+      "pinned": "overridden",
+      "pinnedHint": "Profile pinned on this workspace — kept even after a key rotation. Pick “Default” to follow the exposed profile again."
     },
     "saving": "Saving…",
     "save": "Save"
@@ -1384,7 +1512,27 @@
     "identityHint": "GUID forwarded to services (workflow, rag, doc) when a backend has \"Forward my identity\" enabled, to attribute objects created by your agents to you. Generate one (or enter one) and set the SAME value on the service side. Left empty: no identity forwarded.",
     "save": "Save",
     "saved": "Changes saved.",
-    "saveError": "Failed to save changes."
+    "saveError": "Failed to save changes.",
+    "token": {
+      "title": "Identity token (OIDC)",
+      "intro": "Essential properties of the token received at login. The raw token is never exposed.",
+      "empty": "No claims available (sign in via OIDC).",
+      "copy": "Copy",
+      "copied": "Copied",
+      "subHint": "Copy the \"sub\" and paste it into the Identity field above (OBO matching), or into the other apps (docflow, rag, workflow)."
+    },
+    "timezone": {
+      "title": "Time zone",
+      "intro": "Time zone used to display dates and times across the interface.",
+      "label": "Time zone",
+      "browserDefault": "Browser time zone ({{tz}})",
+      "preview": "Example: {{value}}"
+    },
+    "termix": {
+      "title": "My Termix servers",
+      "hint": "Termix is the web interface giving you SSH/terminal access to your workspaces. Here are the Termix server(s) linked to your account (up to 3, for redundancy and migrations). The association is managed by an administrator.",
+      "none": "No Termix server linked (the default server will be used)."
+    }
   },
   "agentMessages": {
     "title": "Inter-agent requests",
@@ -1490,6 +1638,195 @@
         "verified": "verified",
         "unverified": "unverified"
       }
+    }
+  },
+  "automations": {
+    "navLabel": "Automations",
+    "title": "Automations",
+    "intro": "On a journal event, call an OpenAPI contract operation. Priority-ordered evaluation, persistent cursor, replay protection.",
+    "new": "New automation",
+    "empty": "No automations.",
+    "pending": "{{n}} pending",
+    "runsBtn": "History",
+    "confirmDelete": "Delete automation \"{{label}}\"?",
+    "deleted": "Automation deleted",
+    "sim": {
+      "title": "Simulation:",
+      "host": "Host moved",
+      "workspace": "Workspace moved",
+      "session": "Session moved",
+      "backfill": "Backfill existing",
+      "injected": "Event injected: {{code}}",
+      "backfilled": "Backfill: {{users}} users, {{hosts}} hosts, {{workspaces}} workspaces, {{sessions}} sessions",
+      "user": "User moved"
+    },
+    "form": {
+      "newTitle": "New automation",
+      "editTitle": "Edit automation",
+      "label": "Label",
+      "events": "Trigger events",
+      "contract": "Contract",
+      "operation": "Operation",
+      "url": "Target URL",
+      "method": "Method",
+      "bodyTemplate": "Body (template)",
+      "bodyHint": "Variables: {actor} {workspace} {type} {subject.xxx} — unknown left intact.",
+      "headers": "Headers",
+      "addHeader": "Add",
+      "headerName": "Name",
+      "headerValue": "Value",
+      "secret": "secret",
+      "delay": "Debounce (minutes)",
+      "delayHint": "0 = immediate. Sliding window: waits for the event to settle.",
+      "stopChain": "Stop chain (consume event)",
+      "active": "Active",
+      "missing": "Label, events, contract, operation and URL are required.",
+      "created": "Automation created",
+      "updated": "Automation updated",
+      "tabGeneral": "General",
+      "tabFilter": "Filter",
+      "tabCall": "Call",
+      "slug": "Slug",
+      "slugHint": "Stable identifier, derived from the label. Editable.",
+      "priority": "Priority",
+      "priorityHint": "Evaluation order (smaller = higher priority).",
+      "variables": "Variables",
+      "headerPrefix": "Prefix",
+      "headerPrefixHint": "Value prefix (e.g. “Bearer”)",
+      "enabled": "Enabled",
+      "required": "Required",
+      "chooseSecret": "— pick a secret —",
+      "newSecret": "New secret",
+      "secretSlug": "Slug",
+      "secretLabel": "Label",
+      "secretValue": "Value",
+      "createSecret": "Create",
+      "secretCreated": "Secret created",
+      "filterIntro": "Preliminary API call (e.g. “does the user exist?”). Test the call, then set an evaluation rule that gates the Call tab.",
+      "filterTest": "Test call",
+      "filterTesting": "Calling…",
+      "filterStatus": "Status",
+      "filterNoResult": "No call tested yet.",
+      "filterError": "Error",
+      "headersShared": "Headers shared with the Call tab (the apikey serves both filter and call).",
+      "secretSystemHint": "System (admin) secret, resolved by the automation in the background — distinct from your profile secrets (PIN-encrypted, unreadable in the background). Enter the raw value (e.g. “tmx_…”, without “Bearer”).",
+      "evaluation": "Evaluation",
+      "evalHint": "Rule applied to the response: JSONPath (with {variable}) then operator. If the rule fails, the Call tab request is not executed.",
+      "jsonpath": "JSONPath expression",
+      "operator": "Operator",
+      "operatorNone": "— no evaluation —",
+      "opExists": "exists",
+      "opEquals": "equals",
+      "opNotEquals": "not equals",
+      "expected": "Expected value",
+      "sampleValues": "Test values (for the trial)",
+      "evalResult": "Evaluation",
+      "evalPass": "✓ passes",
+      "evalFail": "✗ does not pass",
+      "evalMatches": "match(es)",
+      "evalTest": "Test call + evaluation",
+      "opNotExists": "does not exist"
+    },
+    "runs": {
+      "title": "History — {{label}}",
+      "manual": "manual",
+      "replay": "Replay",
+      "replayed": "Replayed",
+      "clear": "Clear history",
+      "cleared": "History cleared",
+      "empty": "No runs.",
+      "trace": "Trace ({{n}} nodes)"
+    },
+    "contracts": {
+      "navLabel": "OpenAPI contracts",
+      "title": "OpenAPI contracts",
+      "intro": "Imported (reusable) contracts describing operations callable by automations.",
+      "import": "Import",
+      "importTitle": "Import a contract",
+      "label": "Label",
+      "sourceUrl": "Contract URL",
+      "pasteSpec": "…or paste the spec (JSON)",
+      "pasteHint": "If pasted, the URL is ignored (manual import, no refresh).",
+      "doImport": "Import",
+      "imported": "Contract imported",
+      "invalidJson": "Invalid JSON",
+      "needUrlOrSpec": "Provide a URL or a spec",
+      "operations": "Operations",
+      "refresh": "Refresh",
+      "refreshed": "Contract refreshed",
+      "deleted": "Contract deleted",
+      "confirmDelete": "Delete contract \"{{label}}\"?",
+      "empty": "No contracts.",
+      "editTitle": "Edit contract",
+      "editUrlHint": "Changing the URL re-fetches the spec. Clearing the URL freezes the contract (manual import).",
+      "updated": "Contract updated",
+      "category": "Category",
+      "categoryPlaceholder": "e.g. Termix, Internal…",
+      "uncategorized": "Uncategorized"
+    },
+    "events": {
+      "navLabel": "Event journal",
+      "title": "Event journal",
+      "intro": "All events stored in the journal (app_event), newest first. #seq is the automations' cursor id.",
+      "filter": "Type",
+      "allTypes": "— all —",
+      "empty": "No event.",
+      "replayFromHere": "Re-evaluate from here",
+      "replayHint": "Move the global cursor just before this event to re-evaluate everything.",
+      "replayConfirm": "Re-evaluate all rules from event #{{seq}}? The global cursor rewinds and the affected runs are cleared.",
+      "replayed": "Cursor repositioned ({{automations}} automation(s)) — re-evaluation on next sweep.",
+      "filterAll": "All",
+      "filterNone": "None",
+      "selectedCount": "{{n}} type(s) selected",
+      "pageSize": "Per page",
+      "prev": "← Newer",
+      "next": "Older →",
+      "page": "Page {{n}}"
+    },
+    "cursor": "cursor #{{seq}}",
+    "cursorHint": "Automation cursor position (last processed seq)",
+    "tree": {
+      "title": "Rule tree",
+      "intro": "Blocks run in sequence: filter (gate) → calls → child blocks. A failed filter skips the subtree and continues with the next sibling.",
+      "empty": "No blocks — the rule does nothing.",
+      "addBlock": "Add block",
+      "block": "Block",
+      "blockLabel": "Block label (optional)",
+      "removeBlock": "Remove block",
+      "filter": "Filter",
+      "noFilter": "No filter — the block always passes.",
+      "condition": "Condition (call + evaluation)",
+      "addCondition": "Add condition",
+      "addGroup": "Add group",
+      "wrapGroup": "Wrap in group",
+      "and": "AND — all conditions",
+      "or": "OR — at least one condition",
+      "calls": "Calls",
+      "addCall": "Add call",
+      "callName": "Name",
+      "callNameHint": "response exposed to downstream blocks: {{name}}.field",
+      "children": "Child blocks",
+      "addChild": "Add child block",
+      "filterBody": "Filter call body (optional)",
+      "noContract": "— contract (optional) —",
+      "passes": "passes",
+      "blocked": "blocked",
+      "summary": "{{blocks}} block(s), {{calls}} call(s)"
+    },
+    "editor": {
+      "back": "← Automations",
+      "notFound": "Automation not found.",
+      "missing": "Label and trigger events are required.",
+      "headersShared": "Headers shared by ALL calls and filters of the rule.",
+      "sampleVars": "Sample values",
+      "sampleVarsHint": "Used by the “Test call” buttons to render {variable}; at run time the event values are used.",
+      "eventVars": "Variables exposed by these events (click to copy):"
+    },
+    "operators": {
+      "exists": "exists",
+      "not_exists": "does not exist",
+      "equals": "equals",
+      "not_equals": "not equals"
     }
   }
 }

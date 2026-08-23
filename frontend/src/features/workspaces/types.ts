@@ -52,6 +52,16 @@ export interface WorkspaceStatus {
   idle_since?: string
   /** Inactif au-delà du seuil : proposer l'arrêt (jamais automatique). */
   stop_suggested?: boolean
+  /** Occupation disque du nœud portant le workspace (sonde horaire du portail).
+   *  Absent = jamais mesuré. `warn` est décidé par le serveur (seuil configurable). */
+  host_disk?: {
+    host: string
+    used_pct: number
+    avail_bytes: number | null
+    total_bytes: number | null
+    warn: boolean
+    measured_at: string | null
+  }
 }
 
 export const TRANSIENT: ReadonlySet<WorkspaceStatusValue> = new Set([

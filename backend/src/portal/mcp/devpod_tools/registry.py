@@ -1188,6 +1188,116 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
         },
         "scope": "write",
     },
+    "automation_rule_list": {
+        "description": (
+            "Liste les règles d'automates (slug, label, actif, events déclencheurs, "
+            "position, stop_chain, debounce). "
+            "Impact: read-only — aucune mutation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {},
+        },
+        "scope": "admin",
+    },
+    "automation_rule_get": {
+        "description": (
+            "Lit une règle d'automate par son slug : métadonnées, arbre de règle "
+            "(blocs récursifs filtre ET/OU → appels nommés → enfants) et en-têtes "
+            "(les secrets restent des références, jamais révélés). "
+            "Impact: read-only — aucune mutation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["slug"],
+            "properties": {
+                "slug": {"type": "string", "description": "Slug de la règle."},
+            },
+        },
+        "scope": "admin",
+    },
+    "automation_rule_upsert": {
+        "description": (
+            "Crée ou modifie une règle d'automate par son slug. Champs partiels : "
+            "seuls ceux fournis sont modifiés ; création = label + event_types requis. "
+            "`tree` = arbre de règle {version:1, blocks:[{label, filter, calls, "
+            "blocks}]} — filter = feuille {url, http_method, body?, jsonpath, "
+            "operator(exists|not_exists|equals|not_equals), expected?} ou groupe "
+            "{op:and|or, items:[…]} imbriqué ; calls = [{name (unique, sert de racine "
+            "de variables {name.champ} pour les blocs aval), url, http_method, "
+            "body_template?, headers?}] ; chaque appel/feuille porte ses en-têtes "
+            "headers:[{name, value? XOR secret_ref? (`${system://slug}`), "
+            "value_prefix?, enabled?}] ; blocks = enfants récursifs exécutés si le "
+            "filtre passe. Templates : variables d'event ({event.*}, {subject.*}) + "
+            "réponses nommées. "
+            "À la création le curseur part du sommet du journal (events à venir "
+            "uniquement — backfill explicite pour rattraper l'existant) et la règle "
+            "est inactive sauf `active:true`. "
+            "Impact: write-safe — modifie la config des automates, aucun appel émis "
+            "immédiatement."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["slug"],
+            "properties": {
+                "slug": {"type": "string", "description": "Slug (identifiant stable)."},
+                "label": {"type": "string", "description": "Libellé lisible."},
+                "event_types": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Types d'events déclencheurs (registre fermé).",
+                },
+                "tree": {
+                    "type": "object",
+                    "description": "Arbre de règle (schéma RuleTree v1, cf. description).",
+                },
+                "active": {"type": "boolean", "description": "Active/désactive la règle."},
+                "stop_chain": {
+                    "type": "boolean",
+                    "description": "Exécution OK → event consommé pour les priorités basses.",
+                },
+                "delay_minutes": {
+                    "type": "integer",
+                    "description": "Débounce en minutes (fenêtre glissante).",
+                },
+            },
+        },
+        "scope": "admin",
+    },
+    "openapi_contract_list": {
+        "description": (
+            "Liste les contrats OpenAPI enregistrés (cibles d'appel des automates) : "
+            "id, label (nom), url (source_url), catégorie, version. "
+            "Impact: read-only — aucune mutation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {},
+        },
+        "scope": "admin",
+    },
+    "openapi_contract_get": {
+        "description": (
+            "Paramétrage complet d'un contrat OpenAPI (par id ou label) : "
+            "métadonnées, serveurs (base URLs) et opérations appelables "
+            "(operation_id, méthode, path, résumé, squelette de corps, en-têtes "
+            "d'auth). "
+            "Impact: read-only — aucune mutation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["contract"],
+            "properties": {
+                "contract": {"type": "string", "description": "Id ou label du contrat."},
+            },
+        },
+        "scope": "admin",
+    },
 }
 
 

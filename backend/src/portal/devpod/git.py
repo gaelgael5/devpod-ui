@@ -51,6 +51,24 @@ def write_token_credential_store(
     return home, env
 
 
+def strip_http_userinfo(url: str) -> str:
+    """Retire le userinfo (`user@`) d'une URL git http(s).
+
+    Azure DevOps sert des URLs de clone avec l'organisation en userinfo
+    (`https://org@dev.azure.com/...`). Passée telle quelle à `git clone`, git
+    demande un credential pour l'utilisateur `org`, que le credential store
+    (écrit sous `cred.username`/`oauth2`) ne matche pas → auth refusée en
+    non-interactif (le clone plante alors que le listing des branches, lui,
+    passe via `http.extraHeader` username-agnostique). L'userinfo est cosmétique
+    — l'auth vient du credential injecté — donc on le retire. URLs ssh/`git@` et
+    URLs sans userinfo : inchangées.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or "@" not in parsed.netloc:
+        return url
+    return urlunparse(parsed._replace(netloc=parsed.netloc.rsplit("@", 1)[-1]))
+
+
 def _canonical_http_git_url(url: str) -> str:
     """Force le suffixe `.git` sur une URL git http(s) (slash final retiré).
 

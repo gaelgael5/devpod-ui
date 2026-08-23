@@ -208,3 +208,70 @@ async def test_isolation_between_owners(db_conn: AsyncConnection) -> None:
 
     # les clefs de bob restent listées sous bob uniquement
     assert all(r["owner_login"] == "alice" for r in await list_apikeys(db_conn, "alice"))
+
+
+# ─── Surcharge persistante du profil d'un workspace (survit à la rotation) ────
+
+
+async def test_rotate_uses_workspace_override_over_exposed_default(
+    db_conn: AsyncConnection,
+) -> None:
+    """Un workspace surchargé prend SON profil, pas l'exposé par défaut — et ce
+    choix survit à une nouvelle rotation (le cœur du besoin)."""
+    from portal.db.mcp_profiles import set_workspace_profile_override
+
+    await _user(db_conn)
+    await _exposed_profile(db_conn, "alice", "p1", "défaut")
+    await insert_profile(db_conn, id="p2", owner_login="alice", name="choisi")
+
+    # L'utilisateur fixe p2 sur ce workspace (non exposé par défaut).
+    await set_workspace_profile_override(db_conn, "alice", "alice-api", "p2")
+
+    keys = await rotate_workspace_keys(db_conn, "alice", "alice-api")
+    assert len(keys) == 1
+    assert keys[0].profile_id == "p2"
+    assert keys[0].profile_name == "choisi"
+
+    # Deuxième rotation : le choix persiste (ne retombe pas sur l'exposé p1).
+    keys2 = await rotate_workspace_keys(db_conn, "alice", "alice-api")
+    assert [k.profile_id for k in keys2] == ["p2"]
+
+
+async def test_rotate_follows_default_when_no_override(db_conn: AsyncConnection) -> None:
+    """Sans surcharge, le workspace suit le profil exposé par défaut (cas nominal)."""
+    await _user(db_conn)
+    await _exposed_profile(db_conn, "alice", "p1", "défaut")
+
+    keys = await rotate_workspace_keys(db_conn, "alice", "alice-api")
+    assert [k.profile_id for k in keys] == ["p1"]
+
+
+async def test_revoke_workspace_keys_clears_override(db_conn: AsyncConnection) -> None:
+    """Suppression du workspace : la surcharge est oubliée (ws_id réutilisé repart du défaut)."""
+    from portal.db.mcp_profiles import (
+        get_workspace_profile_override,
+        set_workspace_profile_override,
+    )
+
+    await _user(db_conn)
+    await _exposed_profile(db_conn, "alice", "p1")
+    await set_workspace_profile_override(db_conn, "alice", "alice-api", "p1")
+
+    await revoke_workspace_keys(db_conn, "alice", "alice-api")
+    assert await get_workspace_profile_override(db_conn, "alice", "alice-api") is None
+
+
+async def test_override_dropped_when_profile_deleted(db_conn: AsyncConnection) -> None:
+    """FK CASCADE : supprimer le profil retire la surcharge → retour au défaut."""
+    from portal.db.mcp_profiles import (
+        delete_profile,
+        get_workspace_profile_override,
+        set_workspace_profile_override,
+    )
+
+    await _user(db_conn)
+    await insert_profile(db_conn, id="p2", owner_login="alice", name="choisi")
+    await set_workspace_profile_override(db_conn, "alice", "alice-api", "p2")
+
+    await delete_profile(db_conn, "alice", "p2")
+    assert await get_workspace_profile_override(db_conn, "alice", "alice-api") is None

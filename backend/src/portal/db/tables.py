@@ -83,6 +83,20 @@ global_config = Table(
     # CloudflareManagerConfig
     Column("cf_url", Text, nullable=False, server_default=""),
     Column("cf_api_key", Text, nullable=False, server_default=""),
+    # EventsProducerConfig (relais d'events signé HMAC vers le module workflow), migration 093.
+    Column("events_enabled", Boolean, nullable=False, server_default="false"),
+    Column("events_workflow_base_url", Text, nullable=False, server_default=""),
+    Column("events_source_id", Text, nullable=False, server_default=""),
+    Column("events_secret_slug", Text, nullable=False, server_default="workflow_events_hmac"),
+    Column("events_source_uri", Text, nullable=False, server_default="urn:yoops:devpod"),
+    Column("events_types", ARRAY(Text), nullable=False, server_default="{}"),
+    # BastionConfig (sshd bastion + provisioning Termix), migration 093.
+    Column("bastion_enabled", Boolean, nullable=False, server_default="false"),
+    Column("bastion_api_url", Text, nullable=False, server_default=""),
+    Column("bastion_host", Text, nullable=False, server_default=""),
+    Column("bastion_port", Integer, nullable=False, server_default="2222"),
+    Column("bastion_role", Text, nullable=False, server_default=""),
+    Column("bastion_apikey_secret", Text, nullable=False, server_default="termix-apikey"),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
@@ -193,6 +207,9 @@ users = Table(
     # get_user_actor). Nécessaire pour les comptes LOCAUX (sans sub), qui peuvent ainsi
     # se donner un identifiant portable aligné sur les services. UNIQUE (anti-collision).
     Column("identity", Text, nullable=True, unique=True),
+    # Rôle admin (claim OIDC) persisté à chaque login → permet de pousser aux admins
+    # (hosts d'infra, serveurs de ressources) hors contexte de requête. Migration 101.
+    Column("is_admin", Boolean, nullable=False, server_default="false"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
@@ -387,6 +404,8 @@ workspace_status = Table(
     Column("status", Text, nullable=False),
     Column("login", Text, nullable=False, server_default=""),
     Column("host_port", Integer, nullable=True),
+    # Port SSH par workspace publié sur l'IP du node (spec 18 T1), plage 50000-59999.
+    Column("ssh_port", Integer, nullable=True),
     Column("host_type", Text, nullable=True),
     Column("host_name", Text, nullable=True),
     Column("url", Text, nullable=True),
@@ -420,6 +439,38 @@ host_health = Table(
     Column("reachable", Boolean, nullable=True),
     Column("last_seen", DateTime(timezone=True), nullable=True),
     Column("changed_at", DateTime(timezone=True), nullable=True),
+)
+
+# Disque, mémoire et charge CPU des hosts (migrations 102/103) : posés par la sonde
+# (nodes/metrics.py), lue par node_list et l'agrégat sessions. Un host jamais sondé
+# n'a PAS de ligne — l'absence se lit « inconnu », JAMAIS « 0 % » : afficher un
+# disque vide alors qu'on n'en sait rien est pire que de ne rien afficher.
+# `error` retient la raison du dernier échec pour que l'UI puisse l'expliquer.
+host_disk = Table(
+    "host_disk",
+    metadata,
+    Column("name", Text, primary_key=True),
+    Column("total_bytes", BigInteger, nullable=True),
+    Column("used_bytes", BigInteger, nullable=True),
+    Column("avail_bytes", BigInteger, nullable=True),
+    Column("used_pct", Integer, nullable=True),
+    # Mémoire et charge CPU relevées par la MÊME sonde (une seule connexion SSH).
+    # « Utilisé » mémoire = total − MemAvailable (le cache est récupérable).
+    # cpu_pct = charge 1 min ramenée au nombre de cœurs : 100 % = cœurs saturés.
+    Column("mem_total_bytes", BigInteger, nullable=True),
+    Column("mem_used_bytes", BigInteger, nullable=True),
+    Column("mem_pct", Integer, nullable=True),
+    Column("cpu_pct", Integer, nullable=True),
+    Column("cpu_cores", Integer, nullable=True),
+    # Une date PAR famille (migration 103) : les trois cadences diffèrent
+    # (1 h / 5 min / 30 s), un horodatage unique ferait passer un disque vieux
+    # d'une heure pour aussi frais qu'un CPU de 30 s.
+    Column("disk_measured_at", DateTime(timezone=True), nullable=True),
+    Column("mem_measured_at", DateTime(timezone=True), nullable=True),
+    Column("cpu_measured_at", DateTime(timezone=True), nullable=True),
+    Column("error", Text, nullable=True),
+    # Date de la dernière sonde, quelle qu'elle soit (diagnostic).
+    Column("measured_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
 # Empreinte de la dernière config agents livrée (migration 072) : le resync ne
@@ -551,6 +602,9 @@ mcp_backend = Table(
     Column("enabled", Boolean, nullable=False, server_default="true"),
     # URL web optionnelle de l'application (lien « ouvrir » dans la liste).
     Column("app_url", Text, nullable=False, server_default=""),
+    # auth_scheme="oauth" : URL du serveur d'autorisation si elle diffère de l'URL
+    # du MCP ; vide = découverte auto (.well-known/oauth-protected-resource).
+    Column("oauth_auth_url", Text, nullable=False, server_default=""),
     # Opt-out de la protection anti rug-pull (quarantaine sur redéfinition, spec 23).
     # false par défaut : protection active. true = backend de confiance (service
     # exposé par l'utilisateur lui-même) → jamais de quarantaine, levée au resync.
@@ -604,6 +658,22 @@ mcp_profile_entry = Table(
     # null = tous les tools, [] = aucun, [...] = subset explicite.
     Column("tools", JSONB, nullable=True),
     UniqueConstraint("profile_id", "backend_id", name="uq_mcp_profile_entry"),
+)
+
+# Surcharge PERSISTANTE du profil d'un workspace (fiche persistance des choix) :
+# le profil « exposé par défaut » alimente un workspace tant que l'utilisateur ne
+# choisit rien ; dès qu'il fixe un profil sur la ligne (écran Client API Keys),
+# ce choix est mémorisé ici et survit à la rotation des clefs (qui, elle, ne
+# consulte que cette table quand une ligne existe). ws_id = convention "{login}-{name}"
+# (pas de FK dure, comme workspace_ref) ; FK profil = CASCADE (profil supprimé →
+# la surcharge disparaît → le workspace re-suit le défaut).
+mcp_workspace_profile = Table(
+    "mcp_workspace_profile",
+    metadata,
+    Column("ws_id", Text, primary_key=True),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("profile_id", Text, ForeignKey("mcp_profile.id", ondelete="CASCADE"), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
 mcp_apikey = Table(
@@ -724,6 +794,62 @@ mcp_oauth_authcode = Table(
     Column("profile_id", Text, nullable=True),  # profil sélectionné sur l'écran de consentement
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("used", Boolean, nullable=False, server_default="false"),
+)
+
+# ─── MCP Gateway OAuth CLIENT (la gateway consomme un backend OAuth) ──────────
+# Distinct de mcp_oauth_* ci-dessus (gateway = serveur d'autorisation). Ici la
+# gateway est CLIENT OAuth 2.1 d'un backend amont (ex. Confluence). Auth par
+# utilisateur, enregistrement dynamique (DCR), PKCE.
+
+# Client OAuth enregistré (DCR) + métadonnées AS découvertes, un par backend.
+mcp_backend_oauth_client = Table(
+    "mcp_backend_oauth_client",
+    metadata,
+    Column(
+        "backend_id",
+        Text,
+        ForeignKey("mcp_backend.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("issuer", Text, nullable=False),
+    Column("authorization_endpoint", Text, nullable=False),
+    Column("token_endpoint", Text, nullable=False),
+    Column("registration_endpoint", Text, nullable=True),
+    Column("client_id", Text, nullable=False),
+    # Secret client éventuel (DCR confidentiel) chiffré KEK ; NULL = client public (PKCE seul).
+    Column("client_secret_enc", LargeBinary, nullable=True),
+    Column("scopes", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Token OAuth par (backend, utilisateur) — access + refresh chiffrés KEK.
+mcp_backend_oauth_token = Table(
+    "mcp_backend_oauth_token",
+    metadata,
+    Column("backend_id", Text, ForeignKey("mcp_backend.id", ondelete="CASCADE"), nullable=False),
+    Column("user_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("access_token_enc", LargeBinary, nullable=False),
+    Column("refresh_token_enc", LargeBinary, nullable=True),
+    Column("expires_at", DateTime(timezone=True), nullable=True),  # NULL = pas d'expiration connue
+    Column("scopes", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("backend_id", "user_login", name="uq_mcp_backend_oauth_token"),
+)
+
+# Requête d'autorisation en vol (entre le clic « Connecter » et le callback) :
+# state anti-CSRF lié à (backend, user) + verifier PKCE. TTL court, usage unique.
+mcp_backend_oauth_pending = Table(
+    "mcp_backend_oauth_pending",
+    metadata,
+    Column("state", Text, primary_key=True),  # aléatoire, opaque
+    Column("backend_id", Text, ForeignKey("mcp_backend.id", ondelete="CASCADE"), nullable=False),
+    Column("user_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("code_verifier", Text, nullable=False),
+    Column("redirect_uri", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
 )
 
 # ─── Compose Gallery : sources de la galerie ─────────────────────────────────
@@ -907,6 +1033,192 @@ workflow_event_outbox = Table(
     Column("next_attempt_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("delivered_at", DateTime(timezone=True), nullable=True),
     Index("idx_workflow_event_outbox_due", "status", "next_attempt_at"),
+)
+
+
+# Journal durable et interne de chaque event métier (source consommée par les
+# automates locaux). Écrit **inconditionnellement** à l'émission — indépendant de
+# l'activation du producteur workflow (invariant 1 de l'epic Termix). `seq` donne
+# l'ordre total et sert de curseur aux automates. Pas de FK sur workspace : le
+# payload est auto-porteur (un event de suppression survit à l'objet disparu).
+# `consumed_by` porte le chaînage stop_chain du moteur d'automates (renseigné à
+# la consommation). `dedup_key` = clé naturelle de dédup exploitée en aval
+# (once-per-version côté automation_run), pas une contrainte d'unicité ici : le
+# journal enregistre tous les faits, y compris répétés.
+app_event = Table(
+    "app_event",
+    metadata,
+    Column("seq", BigInteger, primary_key=True, autoincrement=True),
+    Column("event_id", Text, nullable=False),
+    Column("event_type", Text, nullable=False),
+    Column("actor", Text, nullable=False),
+    Column("workspace", Text, nullable=True),
+    Column("subject", JSONB, nullable=False, server_default="{}"),
+    Column("correlation_id", Text, nullable=True),
+    Column("dedup_key", Text, nullable=True),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("consumed_by", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index("idx_app_event_type", "event_type"),
+    Index("idx_app_event_workspace", "workspace"),
+)
+
+
+# ─── Automates (port docflow, epic Termix T3) ─────────────────────────────────
+#
+# Contrats OpenAPI stockés globalement (réutilisables) : décrivent les opérations
+# appelables. Un automate consomme le journal `app_event` par curseur et, pour un
+# event retenu, résout puis appelle une opération d'un contrat.
+
+openapi_contract = Table(
+    "openapi_contract",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("label", Text, nullable=False),
+    # Catégorie libre pour trier/regrouper les contrats dans l'IHM (vide = « Sans catégorie »).
+    Column("category", Text, nullable=False, server_default=""),
+    Column("source_url", Text, nullable=True),  # null = import manuel (pas de refresh)
+    Column("version", Text, nullable=False, server_default=""),  # info.version (affichage)
+    Column("raw_spec", JSONB, nullable=False),  # contrat OpenAPI complet
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Registre d'instances Termix (spec 18 T2) : une instance = un serveur Termix
+# (URL + apikey admin en secret système). Un user est rattaché à une instance ;
+# `is_default` désigne l'instance héritée par défaut (au plus une à True).
+termix_instance = Table(
+    "termix_instance",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("name", Text, nullable=False, unique=True),
+    Column("url", Text, nullable=False),
+    # Slug du secret système portant l'apikey admin `tmx_` de cette instance.
+    Column("apikey_secret", Text, nullable=False),
+    # client_id OIDC Keycloak de l'instance (référence/affichage ; l'OIDC est
+    # configuré côté Termix, le portail n'en a pas besoin pour provisionner).
+    Column("oidc_client_id", Text, nullable=False, server_default=""),
+    Column("is_default", Boolean, nullable=False, server_default="false"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Rattachement user→instances Termix (spec 18 T4b). N-N plafonnée à 3 côté appli
+# (fallback/migration) : un user peut être servi par jusqu'à 3 serveurs Termix,
+# le provisioning fan-out réplique ses hosts sur chacun. Vide = héritage de
+# l'instance `is_default`. CASCADE des deux côtés.
+user_termix_instance = Table(
+    "user_termix_instance",
+    metadata,
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "instance_id",
+        Text,
+        ForeignKey("termix_instance.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Portée user→host SSH (spec 18 T3). N-N pure : quel user a accès à quel host
+# Termix (= un workspace SSH publié, identifié par `ws_id`). Consulté par le
+# provisioning (T5) pour partager le host aux seuls users accordés, et par le
+# sélecteur de host de la page Utilisateurs (T4). PK composite (login, ws_id) ;
+# CASCADE des deux côtés (suppression user ou workspace ⇒ grants effacés).
+user_host_grant = Table(
+    "user_host_grant",
+    metadata,
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "ws_id",
+        Text,
+        ForeignKey("workspace_status.ws_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Un automate = « sur tel(s) event(s), exécute l'arbre de règle `tree` ».
+# `position` = ordre d'évaluation global (drag&drop) ; `stop_chain` = chaîne de
+# responsabilité (match + exécution OK → event consommé, priorités inférieures
+# bloquées). Créé désactivé (`active=false`). `delay_minutes` = débounce en
+# fenêtre glissante. `tree` (migration 094) = blocs récursifs {filtre ET/OU
+# imbriqué → appels nommés → blocs enfants}, schéma automations/tree.py.
+automation = Table(
+    "automation",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("label", Text, nullable=False),
+    # Identifiant lisible et stable côté IHM (prérempli du label normalisé).
+    Column("slug", Text, nullable=False, server_default=""),
+    Column("active", Boolean, nullable=False, server_default="false"),
+    Column("position", Integer, nullable=False, server_default="0"),
+    Column("stop_chain", Boolean, nullable=False, server_default="false"),
+    Column("event_types", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("delay_minutes", Integer, nullable=False, server_default="0"),
+    Column("tree", JSONB, nullable=False, server_default='{"version": 1, "blocks": []}'),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index("idx_automation_position", "position"),
+    Index("uq_automation_slug", "slug", unique=True),
+)
+
+# Portée : les workspaces auxquels l'automate s'applique. `workspace = '*'` = tous.
+# Jamais vide (au moins une portée). Un event de workspace W déclenche les automates
+# de portée W ET ceux de portée '*'.
+automation_scope = Table(
+    "automation_scope",
+    metadata,
+    Column("automation_id", Text, ForeignKey("automation.id", ondelete="CASCADE"), nullable=False),
+    Column("workspace", Text, nullable=False),
+    UniqueConstraint("automation_id", "workspace", name="uq_automation_scope"),
+)
+
+# Les en-têtes d'appel vivent désormais DANS l'arbre (`automation.tree`), par
+# appel/filtre (migration 095) — plus de table `automation_header`.
+
+# Curseur de progression sur `app_event.seq` (anti-rejeu, reprise sans perte).
+automation_cursor = Table(
+    "automation_cursor",
+    metadata,
+    Column(
+        "automation_id",
+        Text,
+        ForeignKey("automation.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("last_seq", BigInteger, nullable=False, server_default="0"),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Trace d'exécution (historique borné + rejeu). Anti-rejeu : index unique partiel
+# (automation_id, dedup_key) sur les runs AUTOMATIQUES uniquement (manual=false) —
+# un automate ne s'exécute qu'une fois par version ; un rejeu manuel est toujours
+# autorisé (n'entre pas dans l'unicité).
+automation_run = Table(
+    "automation_run",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("automation_id", Text, ForeignKey("automation.id", ondelete="CASCADE"), nullable=False),
+    Column("event_seq", BigInteger, nullable=False),
+    Column("dedup_key", Text, nullable=False),
+    Column("status", Text, nullable=False),  # ok | failed | skipped
+    Column("http_status", Integer, nullable=True),
+    Column("request_preview", Text, nullable=True),
+    Column("response_preview", Text, nullable=True),
+    Column("error", Text, nullable=True),
+    Column("manual", Boolean, nullable=False, server_default="false"),
+    # Trace structurée du parcours de l'arbre (un item par nœud exécuté), migration 094.
+    Column("trace", JSONB, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index(
+        "uq_automation_run_auto_dedup",
+        "automation_id",
+        "dedup_key",
+        unique=True,
+        postgresql_where=text("manual = false"),
+    ),
+    Index("idx_automation_run_history", "automation_id", "created_at"),
 )
 
 

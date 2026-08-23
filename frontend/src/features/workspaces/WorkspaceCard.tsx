@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, Code2, Loader2, Mail, MoonStar, Pin, Play, Plus, Square, SquareTerminal, Trash2 } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, Code2, Loader2, Mail, MoonStar, Pin, Play, Plus, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,6 +20,8 @@ import { openTerminalTab } from '@/features/terminal/openTerminalTab'
 import WorkspaceActionsMenu from './WorkspaceActionsMenu'
 import { CreateSessionDialogHost } from './CreateSessionDialog'
 import WorkspaceSkillsDialog from '@/features/skills/WorkspaceSkillsDialog'
+import WorkspaceEditDialog from './WorkspaceEditDialog'
+import { formatBytes } from '@/features/sessions/formatBytes'
 import { useWorkspaceSessions, useDeleteSession } from './useWorkspaceSessions'
 import {
   DropdownMenu,
@@ -36,6 +38,7 @@ import { usePendingCounts } from './useAgentMessages'
 import { STATUS_TONE_CLASS } from './statusTone'
 import type { TestHost } from './useTestVm'
 import { useWorkspaceOps } from './useWorkspaceOps'
+import { useUserPreferences, useSetPreference } from '@/shared/hooks/useUserPreferences'
 
 /** Durée lisible depuis un ISO : "3 h", "45 min", "2 j". */
 function idleDurationLabel(iso: string): string {
@@ -78,6 +81,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const [agentMsgOpen, setAgentMsgOpen] = useState(false)
   const [addSessionOpen, setAddSessionOpen] = useState(false)
   const [skillsOpen, setSkillsOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   // Confirmation de suppression d'une session (le tmux et ses agents meurent) :
   // on ne supprime jamais sur simple clic dans le menu.
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null)
@@ -113,11 +117,38 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
   const showIdleSuggestion =
     s === 'running' && status.stop_suggested === true && status.keep_active !== true
 
+  // Carte repliée, persistée par utilisateur (même mécanique que les groupes).
+  // Absence de préférence ⇒ dépliée : on ne cache jamais quelque chose par défaut.
+  // Replié, on masque les recettes et les machines de test — le volumineux —, mais
+  // JAMAIS le nom, le statut ni les actions : la carte doit rester pilotable sans
+  // avoir à la déplier.
+  const { data: prefs } = useUserPreferences()
+  const setPreference = useSetPreference()
+  const collapseKey = `workspaces.card.${spec.name}.collapse`
+  const collapsed = prefs?.[collapseKey] === true
+
   return (
     <div className="rounded-lg border bg-card p-4" data-testid={`workspace-card-${spec.name}`}>
       <div className="mb-2 flex items-start justify-between gap-2">
         <div>
-          <div className="font-semibold text-foreground">{spec.name}</div>
+          <button
+            type="button"
+            className="flex items-center gap-1.5 font-semibold text-foreground hover:text-primary transition-colors"
+            onClick={() => setPreference.mutate({ key: collapseKey, value: !collapsed })}
+            aria-expanded={!collapsed}
+            aria-label={t(collapsed ? 'workspaces.card.expand' : 'workspaces.card.collapse', {
+              name: spec.name,
+              defaultValue: collapsed ? 'Déplier {{name}}' : 'Replier {{name}}',
+            })}
+            data-testid={`workspace-collapse-${spec.name}`}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4 shrink-0" />
+            ) : (
+              <ChevronDown className="h-4 w-4 shrink-0" />
+            )}
+            {spec.name}
+          </button>
           <div className="text-xs text-muted-foreground">{spec.source}</div>
           {/* Sources git additionnelles (extra_sources) : sinon un workspace multi-repo
               n'affiche que sa source principale (le 2e dépôt semblait « perdu »). */}
@@ -163,7 +194,7 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         <AgentMessagesPanel open onOpenChange={(o) => { if (!o) setAgentMsgOpen(false) }} />
       )}
 
-      {spec.recipes.length > 0 && (
+      {!collapsed && spec.recipes.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-1">
           {spec.recipes.map((r) => (
             <span
@@ -173,6 +204,32 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
               {r}
             </span>
           ))}
+        </div>
+      )}
+
+      {/* Disque du nœud presque plein : un host saturé fait échouer les écritures
+          du workspace sans autre signal (incident du 17/08 — host-dev-01 à 100 %,
+          rien à l'écran). Affiché même replié : c'est une alerte, pas un détail. */}
+      {status.host_disk?.warn && (
+        <div
+          className="mb-3 rounded-md border border-destructive/50 bg-destructive/10 p-2.5 text-xs text-destructive"
+          data-testid="host-disk-warning"
+        >
+          <div className="flex items-center gap-1.5 font-medium">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            {t('workspaces.hostDisk.title', {
+              host: status.host_disk.host,
+              pct: status.host_disk.used_pct,
+              defaultValue: 'Disque de {{host}} à {{pct}} %',
+            })}
+          </div>
+          <p className="mt-1 opacity-90">
+            {t('workspaces.hostDisk.hint', {
+              free: formatBytes(status.host_disk.avail_bytes),
+              defaultValue:
+                'Plus que {{free}} libres — les écritures du workspace peuvent échouer.',
+            })}
+          </p>
         </div>
       )}
 
@@ -323,12 +380,21 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
             onOpenLogs={() => setLogsOpen(true)}
             onManageGroups={onManageGroups}
             onManageSkills={() => setSkillsOpen(true)}
+            onEditConfig={() => setEditOpen(true)}
             keepActive={status.keep_active === true}
           />
         </div>
       </div>
 
-      <HostServicesSection wsName={spec.name} enabled={s === 'running'} onOpenSsh={openTestHostTab} />
+      {/* Replié : machines de test masquées. `enabled` reste piloté par le statut —
+          on ne coupe pas les requêtes en cours, on ne fait que ne pas les afficher. */}
+      {!collapsed && (
+        <HostServicesSection
+          wsName={spec.name}
+          enabled={s === 'running'}
+          onOpenSsh={openTestHostTab}
+        />
+      )}
 
       {spec.ssh_key && (
         <SshKeyDialog
@@ -346,6 +412,14 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
       )}
       {skillsOpen && (
         <WorkspaceSkillsDialog wsName={spec.name} onClose={() => setSkillsOpen(false)} />
+      )}
+      {editOpen && (
+        <WorkspaceEditDialog
+          spec={spec}
+          open
+          onOpenChange={setEditOpen}
+          onRecreate={onRecreate}
+        />
       )}
       <Dialog open={sessionToDelete !== null} onOpenChange={(o) => { if (!o) setSessionToDelete(null) }}>
         <DialogContent className="sm:max-w-md">

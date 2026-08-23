@@ -13,7 +13,9 @@ import shlex
 import structlog
 
 from ..config.store import load_global, safe_user_path
+from .procgroup import kill_process_group, spawn_group
 from .ssh_exec import control_ssh_args, devpod_ssh_key
+from .ws_user import resolve_ws_user
 
 _log = structlog.get_logger(__name__)
 
@@ -67,16 +69,24 @@ async def ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0) -
         "DEVPOD_HOME": str(safe_user_path(login, "devpod")),
         "HOME": os.environ.get("HOME", "/root"),
     }
+    # Utilisateur du conteneur (`image_user` du profil) : celui pour lequel le
+    # composant `ssh-access` a posé authorized_keys et que `AllowUsers` autorise.
+    # Résolution cachée (TTL court) : ws_exec est appelé en rafale par les sondes
+    # de sessions et la trentaine de primitives MCP.
+    ws_user = await resolve_ws_user(login, ws_id)
     key_path = devpod_ssh_key(login)
     identity_args = ["-i", key_path, "-o", "IdentitiesOnly=yes"] if key_path else []
-    proc = await asyncio.create_subprocess_exec(
+    # spawn_group + kill_process_group (bug 813f425f) : au timeout, tuer AUSSI le
+    # ProxyCommand `devpod ssh --stdio` et sa descendance — proc.kill() seul les
+    # laissait orphelins (vivants si pendus, zombies à leur mort, fuite de pids).
+    proc = await spawn_group(
         "ssh",
         "-o",
         "LogLevel=ERROR",
         "-o",
         "BatchMode=yes",
         *identity_args,
-        *control_ssh_args(ws_id),
+        *control_ssh_args(ws_id, ws_user),
         "-o",
         f"ProxyCommand={proxy_cmd}",
         "-o",
@@ -84,7 +94,7 @@ async def ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0) -
         "-o",
         "UserKnownHostsFile=/dev/null",
         "--",
-        "vscode@devpod-ws",
+        f"{ws_user}@devpod-ws",
         command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -93,8 +103,7 @@ async def ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0) -
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
-        proc.kill()
-        await proc.wait()
+        await kill_process_group(proc)
         # Libellé = contrat : create_session détecte le timeout par sous-chaîne.
         return TIMEOUT_RC, "SSH command timed out"
     output = (stdout.decode(errors="replace") + stderr.decode(errors="replace")).strip()

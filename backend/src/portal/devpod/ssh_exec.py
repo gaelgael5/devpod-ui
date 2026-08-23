@@ -15,6 +15,7 @@ from pathlib import Path
 import structlog
 
 from ..config.store import load_global, safe_user_path
+from .ws_user import DEFAULT_WS_USER
 
 _log = structlog.get_logger(__name__)
 
@@ -25,7 +26,7 @@ _CONTROL_DIR = Path("/tmp/portal-ssh-cm")  # noqa: S108 — socket local du port
 SSH_CONTROL_PERSIST = "300"  # secondes d'inactivité avant fermeture du master
 
 
-def control_ssh_args(ws_id: str) -> list[str]:
+def control_ssh_args(ws_id: str, ws_user: str = DEFAULT_WS_USER) -> list[str]:
     """Options de multiplexage SSH partagées pour un workspace (un master par ws_id).
 
     Le 1er `ssh` monte le tunnel (handshake mTLS via `devpod ssh --stdio` une seule
@@ -33,11 +34,14 @@ def control_ssh_args(ws_id: str) -> list[str]:
     quasi-instantanée. `ControlPersist` ferme le master après inactivité.
 
     Le `ControlPath` NE PEUT PAS dériver du host nominal : il est identique pour tous
-    les workspaces (`vscode@devpod-ws`), donc `%C` collisionnerait entre workspaces.
-    On le clé donc sur un hash de `ws_id` (unique : `login-name`).
+    les workspaces (`<user>@devpod-ws`), donc `%C` collisionnerait entre workspaces.
+    On le clé donc sur un hash de `ws_user@ws_id`. L'utilisateur EN FAIT PARTIE :
+    il appartient à l'identité de la connexion SSH, et un master ouvert sous
+    l'ancien utilisateur serait sinon réutilisé après un changement d'`image_user`
+    (la session repartirait silencieusement sous le mauvais compte).
     """
     _CONTROL_DIR.mkdir(mode=0o700, exist_ok=True)
-    digest = hashlib.sha256(ws_id.encode()).hexdigest()[:16]
+    digest = hashlib.sha256(f"{ws_user}@{ws_id}".encode()).hexdigest()[:16]
     return _control_args(str(_CONTROL_DIR / digest))
 
 
@@ -92,9 +96,19 @@ def devpod_ssh_key(login: str) -> str | None:
 
 
 def build_ssh_argv(
-    ws_id: str, remote_cmd: str, *, devpod_bin: str, key_path: str | None
+    ws_id: str,
+    remote_cmd: str,
+    *,
+    devpod_bin: str,
+    key_path: str | None,
+    ws_user: str = DEFAULT_WS_USER,
 ) -> list[str]:
-    """Construit l'argv ssh avec ProxyCommand devpod (sans PTY)."""
+    """Construit l'argv ssh avec ProxyCommand devpod (sans PTY).
+
+    `ws_user` = utilisateur du conteneur (`image_user` du profil) : celui pour
+    lequel le composant `ssh-access` a posé `authorized_keys` et que `AllowUsers`
+    autorise. Le supposer `vscode` cassait les profils à image personnalisée.
+    """
     if ws_id.startswith("-"):
         raise ValueError(f"invalid workspace SSH host: {ws_id!r}")
     proxy_cmd = f"{shlex.quote(devpod_bin)} ssh --stdio {shlex.quote(ws_id)}"
@@ -106,7 +120,7 @@ def build_ssh_argv(
         "-o",
         "LogLevel=ERROR",
         *identity_args,
-        *control_ssh_args(ws_id),
+        *control_ssh_args(ws_id, ws_user),
         "-o",
         f"ProxyCommand={proxy_cmd}",
         "-o",
@@ -114,7 +128,7 @@ def build_ssh_argv(
         "-o",
         "UserKnownHostsFile=/dev/null",
         "--",
-        "vscode@devpod-ws",
+        f"{ws_user}@devpod-ws",
         remote_cmd,
     ]
 
@@ -159,9 +173,15 @@ async def run_ssh_capture(
     login: str, ws_id: str, remote_cmd: str, *, timeout: float = 60.0
 ) -> tuple[int, str, str]:
     """Exécute `remote_cmd` dans le workspace via SSH, capture (rc, stdout, stderr)."""
+    from .ws_user import resolve_ws_user
+
     cfg = load_global()
     argv = build_ssh_argv(
-        ws_id, remote_cmd, devpod_bin=cfg.devpod.binary, key_path=devpod_ssh_key(login)
+        ws_id,
+        remote_cmd,
+        devpod_bin=cfg.devpod.binary,
+        key_path=devpod_ssh_key(login),
+        ws_user=await resolve_ws_user(login, ws_id),
     )
     proc = await asyncio.create_subprocess_exec(
         *argv,

@@ -1,16 +1,26 @@
 # Lessons apprises — max 50 lignes : consolider dans une leçon existante plutôt qu'ajouter.
 
+## [workflow]
+- « Enchaîne jusqu'au bout » N'EST PAS un feu vert pour des choix d'archi contestés (ex. bastion dans le portail vs à côté ; provisioning en dur vs via automates). Verrouiller EXPLICITEMENT chaque décision d'archi avant de coder, même sous pression d'avancer — l'utilisateur est architecte.
+- Ne JAMAIS expliquer un comportement runtime par déduction : lire les logs Loki d'abord (corrigé 2x sur Termix — le « nettoyage » supposé était en fait admin=False + une course de clics). Un état IHM ≠ l'état serveur : croiser les deux avant de conclure.
+
 ## [backend]
 - Pas de synchro auto des recettes au démarrage — choix admin (`POST /admin/recipes/sync`), demandé 3x.
 - `get_cached_global()` raise si DB vide → crash lifespan avant le yield ; `get_optional_cached_global()` quand None est valide.
 - Shell-out ssh : `openssh-client` dans l'image, `PATH=/usr/sbin:...`, vérifier `returncode`+stderr après `communicate()` ; httpx : `resp.json()` DANS le `async with` ; bridge IPv6 → patcher `socket.getaddrinfo` (AF_INET d'abord, pas de fallback httpx).
 - Auth locale possible (`allow_local_auth`) : un user local n'a PAS de `users.sub` → ne jamais supposer un sub (OBO).
+- Toute variable lue par un `finally` s'initialise AVANT le `try` (sinon UnboundLocalError qui REMPLACE l'erreur réelle) ; un `except` qui logge `str(exc)` sans `exc_info` rend la panne indiagnosticable.
 - `PORTAL_VAULT_KEK` : un `info=` HKDF distinct par consommateur (domain separation) ; `VaultClient.whoami()` n'existe pas sur vault.yoops.org (`_resolve_wallet_id()` + `_parsed.*`).
 
 ## [frontend]
-- lucide-react ≥1.0 a renommé des icônes — import inexistant = crash silencieux, vérifier `tsc --noEmit`.
+- Typecheck local = `tsc -b` (comme `npm run build`), PAS `tsc --noEmit` : avec project references (tsconfig.app.json), `--noEmit` sur la racine ne traverse rien et laisse passer des erreurs (`exactOptionalPropertyTypes`, narrowing d'optional chaining) qui cassent le build Docker.
+- lucide-react ≥1.0 a renommé des icônes — import inexistant = crash silencieux, vérifier `tsc -b`.
 - Jamais de nom de rôle en dur (config serveur) : le backend expose `is_admin` ; en changeant une valeur configurable, grepper ses littéraux dans TOUT le repo.
 - `DialogFooter` 3 boutons : `flex-col-reverse` tronque sous 640px → div custom `sm:justify-between`.
+
+## [bastion/termix]
+- Les effets d'une (dé)association se diffent sur les instances EFFECTIVES (`resolve_instances_for_user`, vide = héritage du défaut), jamais sur les explicites — sinon deprovision puis resync (qui ré-hérite le défaut) se contredisent dans la même requête (« serveur de test qui réapparaît »). Termix nomme les comptes OIDC d'après `name_path` (défaut upstream `name`, re-sync à chaque login), PAS l'email : tout matching `username=email` exige `name_path=email` côté SSO — détecté via `GET /users/oidc-config/admin` et remonté en warning. Les `termix_warnings` du PUT doivent être AFFICHÉS (toast) : best-effort invisible = bug invisible.
+- Termix stocke à 0 TOUT flag omis au POST host (`x ? 1 : 0`) : envoyer explicitement `enableSsh`+`connectionType` (le gate réel de l'app iOS, modèle multi-protocole) ET `enableTerminal`/`enableFileManager`. Tout changement du payload `create_host` ⇒ bump `_REC_V` (provision.py) : les recs de version antérieure ne sont plus « same » → recréation unique des hosts existants au prochain sync.
 
 ## [devpod/service]
 - `--devcontainer-path` : devpod préfixe `content/` et efface `{workspace_dir}` → uploader dans `workspaces/.devpod-portal-dc/{ws_id}/` + chemin relatif `../../`.
@@ -37,7 +47,7 @@
 ## [config/api]
 - JAMAIS `save_global()` depuis un process externe (cache bootstrap vide → écrase la config réelle) : API admin du portail qui tourne, sinon UPDATE SQL ciblé + restart.
 - Modèle+DB ≠ configurable : vérifier que la route PUT existe ; avant un nouveau champ, vérifier qu'un existant ne porte pas la valeur ; update partiel via `model_fields_set` (jamais les défauts DTO).
-- Router : routes littérales AVANT paramétrées (`/x/readme` avant `/x/{name}`) ; `/data/.env` : doubler `$` (`$$`) ; clé YAML à tiret → `model_validator(mode="before")` ; `EVENT_TYPES` → sync `events/schemas.py` + 2 tests figés.
+- Router : routes littérales AVANT paramétrées (`/x/readme` avant `/x/{name}`) ; `/data/.env` : doubler `$` (`$$`) ; clé YAML à tiret → `model_validator(mode="before")` ; `EVENT_TYPES` → sync `events/schemas.py` + 2 tests figés. Op longue (provisioning) en `StreamingResponse` = le travail s'annule à la déconnexion client (mobile/4G surtout) → tâche de fond détachée + `job_id` + polling ; une mutation ne doit JAMAIS dépendre du maintien de la connexion.
 
 ## [observability/deploy]
 - Alloy `faro.receiver` n'écoute que `/collect` → `handle_path /faro/*` (retire le préfixe) ; les filtres `logs_query` doivent suivre les labels réellement posés par Alloy.
@@ -45,6 +55,6 @@
 - Cloudflare : bundle JS périmé possible après redeploy (hard refresh d'abord) ; 502 brandé sur UN chemin = routage Tunnel, pas l'app (curl direct pour isoler). L'ordre des étapes d'un script de deploy est une sémantique.
 
 ## [tests]
-- `TestClient` : tout appel reste DANS le `with` (sinon post-shutdown, fuite d'event loop vers le test suivant) ; un test rouge peut tester un comportement disparu — grep le code réel d'abord.
-- WebSocket : la session stub pose `auth_time` (sinon 4001 avant toute logique) ; sortir du `with websocket_connect` annule le handler ; pont PTY testé avec un vrai subprocess inerte (`sleep`).
+- Front : vérifier avec `tsc -b` (ou `npm run build`), pas `tsc --noEmit` — l'incrémental de `--noEmit` rate des erreurs (ex. type utilisé non importé) que le build/dev-deploy rejette, même si vitest/eslint passent.
+- `TestClient` : tout appel reste DANS le `with` (sinon post-shutdown, fuite d'event loop vers le test suivant) ; un test rouge peut tester un comportement disparu — grep le code réel d'abord. Ne jamais piper pytest dans `tail` (perd la liste des FAILED) : rediriger `grep '^FAILED'` dans un fichier, diff vs baseline pour prouver zéro régression. WebSocket : la session stub pose `auth_time` (sinon 4001 avant toute logique) ; sortir du `with websocket_connect` annule le handler ; pont PTY testé avec un vrai subprocess inerte (`sleep`).
 - test1 : `uv sync --extra dev` obligatoire (sinon tests DB skippés silencieusement) — exiger des PASSED explicites ; tables FK `users.login` → seeder `users` d'abord ; `(await coro)["k"]`, pas `await coro["k"]`.

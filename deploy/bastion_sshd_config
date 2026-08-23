@@ -1,0 +1,32 @@
+# sshd du bastion (dans le conteneur portail) — relais SSH → workspace via devpod.
+# Durci : uniquement clé publique, root en forced-commands-only, aucun forwarding,
+# aucun shell (le ForceCommand vient d'authorized_keys). Port dédié (pas 22).
+
+Port 2222
+AddressFamily any
+ListenAddress 0.0.0.0
+
+HostKey /data/bastion/ssh_host_ed25519_key
+PidFile /run/sshd-bastion.pid
+
+# Seul root, et SEULEMENT avec une commande forcée (jamais de shell root).
+PermitRootLogin forced-commands-only
+AllowUsers root
+
+# Auth : clé publique uniquement.
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+AuthorizedKeysFile /data/bastion/authorized_keys
+
+# Aucun forwarding ni canal secondaire — c'est un relais, rien d'autre.
+AllowTcpForwarding no
+AllowStreamLocalForwarding no
+AllowAgentForwarding no
+X11Forwarding no
+PermitTunnel no
+GatewayPorts no
+PermitUserEnvironment no
+
+LogLevel VERBOSE

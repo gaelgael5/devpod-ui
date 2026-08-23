@@ -13,6 +13,8 @@ export interface TestHost {
   alias: string
   name: string
   ip: string
+  /** Utilisateur SSH (partie `<user>@` de l'adresse). Vide si l'adresse est nue. */
+  user?: string
   vmid: string
   /** Non vide = VM partagée-vers ce workspace depuis le workspace nommé (bloc en
    *  lecture seule : accès SSH sans contrôle du cycle de vie). */
@@ -60,6 +62,44 @@ export function useResolveTestHostIp(wsName: string) {
   })
 }
 
+/** Édite les paramètres de connexion mémorisés d'une machine de test (host/username/
+ *  password). `password` omis = secret inchangé ; fourni = remplace le mot de passe root. */
+export function useUpdateTestHostConn(wsName: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (args: { hostName: string; username: string; host: string; password?: string }) => {
+      const body: Record<string, string> = { username: args.username, host: args.host }
+      if (args.password !== undefined) body.password = args.password
+      return apiFetchJson<TestHost>(
+        `/me/workspaces/${encodeURIComponent(wsName)}/test-vm/${encodeURIComponent(args.hostName)}/connection`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      )
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['me', 'workspaces', wsName, 'test-hosts'] }),
+  })
+}
+
+/** Révèle le mot de passe root d'une machine de test, gardé par le PIN vault.
+ *  Valeur éphémère, jamais mise en cache de query. */
+export function useRevealTestHostRootPassword(wsName: string) {
+  return useMutation({
+    mutationFn: (args: { hostName: string; pin: string }) =>
+      apiFetchJson<{ value: string }>(
+        `/me/workspaces/${encodeURIComponent(wsName)}/test-vm/${encodeURIComponent(args.hostName)}/root-password/reveal`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: args.pin }),
+        },
+      ),
+  })
+}
+
 export function useTestHypervisors(enabled: boolean) {
   return useQuery<TestHypervisor[]>({
     queryKey: ['me', 'test-hypervisors'],
@@ -86,7 +126,20 @@ export interface CreateTestVmState {
   error: string | null
 }
 
-/** Crée une VM de test en streamant les logs (mêmes mécaniques que useDestroyVm). */
+interface CreateJobStart { job_id: string }
+interface CreateJobProgress { status: 'running' | 'ok' | 'failed'; log: string }
+
+const POLL_INTERVAL_MS = 1500
+// Le provisioning tourne côté serveur indépendamment : quelques polls ratés
+// (blip réseau, mise en arrière-plan mobile) ne doivent pas faire abandonner —
+// la machine est ajoutée quoi qu'il arrive. On n'abandonne qu'après N échecs consécutifs.
+const MAX_CONSECUTIVE_POLL_FAILURES = 6
+
+/**
+ * Crée une VM de test. Le backend provisionne EN TÂCHE DE FOND (202 + job_id) et
+ * l'IHM poll la progression : perdre la connexion (navigation, 4G, arrière-plan)
+ * n'interrompt plus la création — la machine finit toujours par être enregistrée.
+ */
 export function useCreateTestVm() {
   const qc = useQueryClient()
   const [state, setState] = useState<CreateTestVmState>({
@@ -100,26 +153,36 @@ export function useCreateTestVm() {
   const execute = useCallback(async (wsName: string, hypervisor: string, vmid: string) => {
     setState({ logs: '', running: true, done: false, error: null })
     try {
-      const res = await apiFetch(`/me/workspaces/${wsName}/test-vm`, {
+      const { job_id } = await apiFetchJson<CreateJobStart>(`/me/workspaces/${wsName}/test-vm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hypervisor, vmid }),
       })
-      if (!res.ok) {
-        const text = await res.text().catch(() => '')
-        throw new Error(text || `HTTP ${res.status}`)
+      let failures = 0
+      for (;;) {
+        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS))
+        let prog: CreateJobProgress
+        try {
+          prog = await apiFetchJson<CreateJobProgress>(
+            `/me/workspaces/${wsName}/test-vm/create/${job_id}`,
+          )
+          failures = 0
+        } catch (e) {
+          if (++failures >= MAX_CONSECUTIVE_POLL_FAILURES) throw e
+          continue
+        }
+        setState(s => ({ ...s, logs: prog.log }))
+        if (prog.status !== 'running') {
+          setState(s => ({
+            ...s,
+            logs: prog.log,
+            running: false,
+            done: true,
+            error: prog.status === 'failed' ? 'La création a échoué (voir le journal).' : null,
+          }))
+          break
+        }
       }
-      const reader = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let accum = ''
-      while (true) {
-        const { done: streamDone, value } = await reader.read()
-        if (streamDone) break
-        accum += decoder.decode(value, { stream: true })
-        const snap = accum
-        setState(s => ({ ...s, logs: snap }))
-      }
-      setState(s => ({ ...s, logs: accum, running: false, done: true }))
       qc.invalidateQueries({ queryKey: ['me', 'workspaces', wsName, 'test-hosts'] })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
