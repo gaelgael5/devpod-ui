@@ -1,6 +1,6 @@
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nextProvider } from 'react-i18next'
@@ -113,5 +113,63 @@ describe('bug : ?session ne doit pas retomber sur la première session', () => {
     )
     renderPage('/workspaces/myapp/terminals?session=ghost')
     await waitFor(() => expect(screen.getByTestId('term')).toHaveTextContent('devpod1'))
+  })
+})
+
+describe('WorkspaceTerminals — clavier mobile', () => {
+  /**
+   * Meme cause que sur la page terminal plein ecran : le clavier iOS se pose
+   * PAR-DESSUS la page sans la redimensionner, donc `h-screen` laissait tout le
+   * bas — prompt compris — sous le clavier. Les logs l'ont montre : la frappe
+   * partait bien (`readyState: 1`), elle etait juste invisible.
+   */
+  function poserVisualViewport(hauteur: number) {
+    const cbs = new Set<() => void>()
+    const vue = {
+      height: hauteur,
+      addEventListener: (_t: string, cb: () => void) => cbs.add(cb),
+      removeEventListener: (_t: string, cb: () => void) => cbs.delete(cb),
+    }
+    vi.stubGlobal('visualViewport', vue)
+    return {
+      retrecir(nouvelle: number) {
+        vue.height = nouvelle
+        cbs.forEach((cb) => cb())
+      },
+    }
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('borne la page a la hauteur visible', async () => {
+    poserVisualViewport(800)
+
+    renderPage()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('workspace-terminals')).toHaveStyle({ height: '800px' }),
+    )
+  })
+
+  it('retrecit quand le clavier s’ouvre', async () => {
+    const vue = poserVisualViewport(800)
+    renderPage()
+    await screen.findByTestId('workspace-terminals')
+
+    act(() => vue.retrecir(401))
+
+    expect(screen.getByTestId('workspace-terminals')).toHaveStyle({ height: '401px' })
+  })
+
+  it('garde 100vh sans l’API', async () => {
+    vi.stubGlobal('visualViewport', undefined)
+
+    renderPage()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('workspace-terminals')).toHaveStyle({ height: '100vh' }),
+    )
   })
 })
