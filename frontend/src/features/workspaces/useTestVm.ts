@@ -43,8 +43,15 @@ export function useDeleteTestHost(wsName: string) {
       )
       if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`)
     },
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ['me', 'workspaces', wsName, 'test-hosts'] }),
+    // Une machine supprimee disparait de PARTOUT. Elle est listee a trois
+    // endroits — la carte du workspace, l'administration des hosts, la page des
+    // sessions — et n'invalider que la premiere la laissait visible ailleurs,
+    // avec des actions qui echouaient sur une machine inexistante.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['me', 'workspaces', wsName, 'test-hosts'] })
+      qc.invalidateQueries({ queryKey: ['admin', 'hosts'] })
+      qc.invalidateQueries({ queryKey: ['sessions'] })
+    },
   })
 }
 
