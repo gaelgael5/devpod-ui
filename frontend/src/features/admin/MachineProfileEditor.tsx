@@ -15,7 +15,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import HypervisorArgsForm from './HypervisorArgsForm'
 import { useTypeScriptSpec, flattenArgs } from './useProxmoxScript'
 import { useAdminRecipes } from './useAdminRecipes'
-import { useSaveMachineProfile, type MachineProfile } from './useMachineProfiles'
+import {
+  nomDeploiementLibre,
+  useSaveMachineProfile,
+  type MachineProfile,
+} from './useMachineProfiles'
+import { useTemplates } from '@/features/compose/hooks/useCompose'
 
 interface Props {
   profile: MachineProfile
@@ -36,6 +41,7 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
   const enregistrer = useSaveMachineProfile()
   const { spec } = useTypeScriptSpec(brouillon.hypervisor_type)
   const { recipesQuery } = useAdminRecipes()
+  const { data: templates = [] } = useTemplates()
 
   const nouveau = !profile.slug
   const recettes = recipesQuery.data ?? []
@@ -185,10 +191,92 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
             </Select>
           </TabsContent>
 
-          <TabsContent value="services" className="pt-3">
-            <p className="text-sm text-muted-foreground">
-              {t('admin.machineProfiles.servicesSoon')}
-            </p>
+          <TabsContent value="services" className="flex flex-col gap-2 pt-3">
+            {/* Un service est un TEMPLATE COMPOSE existant : il porte deja son
+                compose, ses parametres types et sa version. On saisit ici ses
+                valeurs et le nom sous lequel il sera deploye. */}
+            {brouillon.services.map((sv, i) => {
+              const tpl = templates.find((x) => x.id === sv.template_id)
+              return (
+                <div
+                  key={sv.deployment_id}
+                  className="rounded border p-2"
+                  data-testid={`service-${sv.deployment_id}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium">{tpl?.name ?? sv.template_id}</span>
+                    <Button
+                      size="icon" variant="ghost" className="h-6 w-6 text-destructive"
+                      onClick={() =>
+                        set('services', brouillon.services.filter((_, j) => j !== i))
+                      }
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <div className="mt-1.5">
+                    <Label className="text-xs">{t('admin.machineProfiles.deploymentId')}</Label>
+                    {/* Deux instances du meme template doivent pouvoir coexister :
+                        c'est ce nom qui les distingue. */}
+                    <Input
+                      className="h-8"
+                      value={sv.deployment_id}
+                      onChange={(e) => {
+                        const suite = [...brouillon.services]
+                        suite[i] = { ...sv, deployment_id: e.target.value }
+                        set('services', suite)
+                      }}
+                    />
+                  </div>
+                  {(tpl?.parameters ?? []).map((param) => (
+                    <div key={param.key} className="mt-1.5">
+                      <Label className="text-xs">
+                        {param.label}
+                        {param.required && ' *'}
+                      </Label>
+                      <Input
+                        className="h-8"
+                        placeholder={param.default ?? ''}
+                        value={sv.params[param.key] ?? ''}
+                        onChange={(e) => {
+                          const suite = [...brouillon.services]
+                          suite[i] = {
+                            ...sv,
+                            params: { ...sv.params, [param.key]: e.target.value },
+                          }
+                          set('services', suite)
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+            <Select
+              value=""
+              onValueChange={(id) => {
+                set('services', [
+                  ...brouillon.services,
+                  {
+                    template_id: id,
+                    deployment_id: nomDeploiementLibre(
+                      id,
+                      brouillon.services.map((x) => x.deployment_id),
+                    ),
+                    params: {},
+                  },
+                ])
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t('admin.machineProfiles.addService')} />
+              </SelectTrigger>
+              <SelectContent>
+                {templates.map((tpl) => (
+                  <SelectItem key={tpl.id} value={tpl.id}>{tpl.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </TabsContent>
         </Tabs>
 

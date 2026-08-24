@@ -845,7 +845,6 @@
       "tabRecipes": "Recettes",
       "tabServices": "Services",
       "addRecipe": "Ajouter une recette…",
-      "servicesSoon": "Les services Docker lancés au démarrage se déclarent ici. Éditeur à venir.",
       "noSpec": "Spec du script indisponible pour ce type d'hyperviseur.",
       "noHypervisorType": "Aucun type d'hyperviseur : les paramètres d'un profil sont typés par la spec de son script.",
       "counts": "{{recipes}} recette(s) · {{services}} service(s)",
@@ -854,7 +853,9 @@
       "type": {
         "test": "Test",
         "ressources": "Ressources"
-      }
+      },
+      "deploymentId": "Nom du déploiement",
+      "addService": "Ajouter un service…"
     }
   },
   "errors": {

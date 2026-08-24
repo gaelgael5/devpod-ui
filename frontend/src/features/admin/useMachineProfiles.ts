@@ -69,3 +69,18 @@ export function profilVide(hypervisorType: string): MachineProfile {
     services: [],
   }
 }
+
+/**
+ * Nom de déploiement libre pour un template donné.
+ *
+ * Deux déploiements de même nom sont refusés par le modèle — même répertoire
+ * distant, même projet compose, le second écraserait le premier. Autant ne pas
+ * les proposer : la seconde instance d'un template devient `<id>-2`.
+ */
+export function nomDeploiementLibre(templateId: string, pris: Iterable<string>): string {
+  const occupes = new Set(pris)
+  if (!occupes.has(templateId)) return templateId
+  let n = 2
+  while (occupes.has(`${templateId}-${n}`)) n++
+  return `${templateId}-${n}`
+}

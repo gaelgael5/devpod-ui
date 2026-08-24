@@ -845,7 +845,6 @@
       "tabRecipes": "Recipes",
       "tabServices": "Services",
       "addRecipe": "Add a recipe…",
-      "servicesSoon": "Docker services started at boot are declared here. Editor coming.",
       "noSpec": "Script spec unavailable for this hypervisor type.",
       "noHypervisorType": "No hypervisor type: a profile's parameters are typed by its script spec.",
       "counts": "{{recipes}} recipe(s) · {{services}} service(s)",
@@ -854,7 +853,9 @@
       "type": {
         "test": "Test",
         "ressources": "Resources"
-      }
+      },
+      "deploymentId": "Deployment name",
+      "addService": "Add a service…"
     }
   },
   "errors": {
