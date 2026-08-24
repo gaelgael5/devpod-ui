@@ -730,6 +730,38 @@ else
 fi
 rm -f "$HARDEN_TMP"
 
+# ─── A.10d — Accès à /dev/kvm (enabler ab83a2e9) ─────────────────────────────
+# `--cpu host` expose les extensions de virtualisation à l'invité, donc
+# /dev/kvm. Mais le périphérique appartient à un groupe, et sans y être
+# l'utilisateur le voit sans pouvoir s'en servir : l'émulateur Android échoue
+# alors sur « pas d'accès à /dev/kvm », après avoir été installé.
+#
+# Le nom du groupe n'est PAS codé en dur. Il est créé par udev à l'apparition
+# du périphérique et varie selon la distribution : on lit celui du fichier.
+if [[ "$CPU_TYPE" == "host" ]]; then
+    echo ""
+    echo "==> A.10d — Accès à /dev/kvm pour ${CI_USER}..."
+
+    ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
+set -e
+if [ ! -e /dev/kvm ]; then
+    # Nesting inactif côté hôte Proxmox : le script l'a déjà signalé au
+    # démarrage. Rien à faire ici, et surtout pas d'échec de plus.
+    echo "    /dev/kvm absent — nesting inactif côté hôte, rien à donner."
+    exit 0
+fi
+GROUPE=\$(stat -c %G /dev/kvm)
+if id -nG ${CI_USER} | tr ' ' '\n' | grep -qx "\$GROUPE"; then
+    echo "    ${CI_USER} est déjà dans le groupe \$GROUPE."
+else
+    ${SUDO} usermod -aG "\$GROUPE" ${CI_USER}
+    echo "    ${CI_USER} ajouté au groupe \$GROUPE."
+fi
+REMOTE
+
+    echo "    Effectif au prochain démarrage de session (déjà le cas pour une VM neuve)."
+fi
+
 # ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
 echo ""
 echo "==> A.11 — Vérification du hostname et de /etc/hosts..."
