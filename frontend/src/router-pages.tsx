@@ -11,6 +11,9 @@ export const TerminalPage = lazy(() => import('@/features/terminal/TerminalPage'
 export const RecipeCatalog = lazy(() => import('@/features/recipes/RecipeCatalog'))
 export const AdminHosts = lazy(() => import('@/features/admin/AdminHosts'))
 export const AdminRecipes = lazy(() => import('@/features/admin/AdminRecipes'))
+export const AdminMachineProfiles = lazy(
+  () => import('@/features/admin/AdminMachineProfiles'),
+)
 export const AdminProxmox = lazy(() => import('@/features/admin/AdminProxmox'))
 export const AdminHypervisorTypes = lazy(() => import('@/features/admin/AdminHypervisorTypes'))
 export const AdminAgentTypes = lazy(() => import('@/features/admin/AdminAgentTypes'))

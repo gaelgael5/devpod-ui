@@ -180,6 +180,9 @@ export default function AppShell() {
                   <DropdownMenuItem onClick={() => navigate('/admin/hosts')}>
                     {t('admin.hosts')}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/admin/machine-profiles')}>
+                    {t('admin.machineProfiles.navLabel')}
+                  </DropdownMenuItem>
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
                       <Images size={14} className="mr-2" />

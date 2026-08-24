@@ -830,6 +830,31 @@
       "opDone": "Recette appliquée.",
       "opFailed": "L'application a échoué.",
       "btn": "Recettes"
+    },
+    "machineProfiles": {
+      "navLabel": "Profils de machine",
+      "title": "Profils de machine",
+      "description": "Modèles prêts à l'emploi : paramètres de création, recettes à installer et services à lancer. Un profil se choisit au moment de créer une machine.",
+      "new": "Nouveau profil",
+      "empty": "Aucun profil. Sans profil, aucune machine de test ne peut être créée.",
+      "label": "Libellé",
+      "slug": "Identifiant (slug)",
+      "machineType": "Type de machine",
+      "hypervisorType": "Type d'hyperviseur",
+      "tabParams": "Paramètres",
+      "tabRecipes": "Recettes",
+      "tabServices": "Services",
+      "addRecipe": "Ajouter une recette…",
+      "servicesSoon": "Les services Docker lancés au démarrage se déclarent ici. Éditeur à venir.",
+      "noSpec": "Spec du script indisponible pour ce type d'hyperviseur.",
+      "noHypervisorType": "Aucun type d'hyperviseur : les paramètres d'un profil sont typés par la spec de son script.",
+      "counts": "{{recipes}} recette(s) · {{services}} service(s)",
+      "saved": "Profil enregistré.",
+      "deleted": "Profil supprimé.",
+      "type": {
+        "test": "Test",
+        "ressources": "Ressources"
+      }
     }
   },
   "errors": {

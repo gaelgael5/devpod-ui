@@ -830,6 +830,31 @@
       "opDone": "Recipe applied.",
       "opFailed": "Application failed.",
       "btn": "Recipes"
+    },
+    "machineProfiles": {
+      "navLabel": "Machine profiles",
+      "title": "Machine profiles",
+      "description": "Ready-made templates: creation parameters, recipes to install and services to start. A profile is picked when creating a machine.",
+      "new": "New profile",
+      "empty": "No profile yet. Without one, no test machine can be created.",
+      "label": "Label",
+      "slug": "Identifier (slug)",
+      "machineType": "Machine type",
+      "hypervisorType": "Hypervisor type",
+      "tabParams": "Parameters",
+      "tabRecipes": "Recipes",
+      "tabServices": "Services",
+      "addRecipe": "Add a recipe…",
+      "servicesSoon": "Docker services started at boot are declared here. Editor coming.",
+      "noSpec": "Script spec unavailable for this hypervisor type.",
+      "noHypervisorType": "No hypervisor type: a profile's parameters are typed by its script spec.",
+      "counts": "{{recipes}} recipe(s) · {{services}} service(s)",
+      "saved": "Profile saved.",
+      "deleted": "Profile deleted.",
+      "type": {
+        "test": "Test",
+        "ressources": "Resources"
+      }
     }
   },
   "errors": {

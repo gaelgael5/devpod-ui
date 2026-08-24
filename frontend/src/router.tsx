@@ -25,6 +25,7 @@ import {
   AdminProfileSources,
   AdminProxmox,
   AdminRecipes,
+  AdminMachineProfiles,
   AdminSessions,
   AdminWorkflow,
   ApplicationsPage,
@@ -137,6 +138,12 @@ export const router = createBrowserRouter([
       {
         path: '/admin/hosts',
         element: <AdminGuard><Wrap><AdminHosts /></Wrap></AdminGuard>,
+      },
+      {
+        // `/admin/profiles` est deja pris par les profils VS Code : les profils
+        // de MACHINE ont leur propre chemin.
+        path: '/admin/machine-profiles',
+        element: <AdminGuard><Wrap><AdminMachineProfiles /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/recipes',
