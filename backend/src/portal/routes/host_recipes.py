@@ -63,13 +63,18 @@ async def _load_host_recipes(login: str, conn: AsyncConnection) -> dict[str, Rec
     return await load_recipes_as_dict(login, conn)
 
 
-def _read_install_script(recipe_id: str) -> str | None:
+def _read_install_script(recipe_id: str, login: str) -> str | None:
     """Contenu de `install.sh`, ou None si la recette n'en porte pas.
 
     Lu depuis le catalogue synchronisé sur disque, jamais depuis la requête.
+
+    Le `login` est celui de l'appelant, et il est OBLIGATOIRE : `locate_recipe_dir`
+    cherche d'abord dans le catalogue personnel via `safe_user_path`, qui valide
+    le login par regex et LÈVE sur une chaîne vide. Passer `""` faisait donc
+    remonter un 500 au lieu de trouver la recette partagée.
     """
     # `locate_recipe_dir` applique déjà la garde anti-traversal via safe_user_path.
-    directory = locate_recipe_dir("", recipe_id)
+    directory = locate_recipe_dir(login, recipe_id)
     if directory is None:
         return None
     script: Path = directory / "install.sh"
@@ -151,7 +156,7 @@ async def _lancer_application(
         # dans le journal d'une operation lancee pour rien.
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    script = _read_install_script(recipe_id)
+    script = _read_install_script(recipe_id, login)
     if script is None:
         raise HTTPException(
             status_code=422, detail=f"Recette {recipe_id!r} sans install.sh — rien a appliquer"

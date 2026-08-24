@@ -95,7 +95,7 @@ class TestApplication:
     def test_lance_une_operation(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
         # Une recette de 20 Go depasse tout timeout HTTP : la requete rend la
         # main sur un identifiant d'operation, jamais sur le resultat.
-        monkeypatch.setattr(host_recipes, "_read_install_script", lambda _id: "echo ok")
+        monkeypatch.setattr(host_recipes, "_read_install_script", lambda _id, _login: "echo ok")
         monkeypatch.setattr(host_recipes, "_launch", _stub_launch("op-123"))
 
         res = client.post("/admin/hosts/test1/recipes/android-emulator")
@@ -125,7 +125,7 @@ class TestApplication:
         assert res.status_code in (404, 422)
 
     def test_script_absent(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(host_recipes, "_read_install_script", lambda _id: None)
+        monkeypatch.setattr(host_recipes, "_read_install_script", lambda _id, _login: None)
 
         res = client.post("/admin/hosts/test1/recipes/android-emulator")
 
@@ -161,7 +161,7 @@ class TestParametres:
             return "op"
 
         monkeypatch.setattr(host_recipes, "_launch", _jamais)
-        monkeypatch.setattr(host_recipes, "_read_install_script", lambda _id: "echo ok")
+        monkeypatch.setattr(host_recipes, "_read_install_script", lambda _id, _login: "echo ok")
 
         res = client.post(
             "/admin/hosts/test1/recipes/android-emulator", json={"options": {"boom": "x"}}
@@ -173,7 +173,7 @@ class TestParametres:
     def test_transmet_les_options_declarees(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(host_recipes, "_read_install_script", lambda _id: "echo ok")
+        monkeypatch.setattr(host_recipes, "_read_install_script", lambda _id, _login: "echo ok")
         monkeypatch.setattr(host_recipes, "_launch", _stub_launch("op-7"))
 
         res = client.post(
@@ -181,3 +181,19 @@ class TestParametres:
         )
 
         assert res.status_code == 202
+
+
+class TestLectureDuScript:
+    """`_read_install_script` s'exerce ici SANS mock : c'est le mock qui avait
+    laisse passer un appel avec un login vide, ou `safe_user_path` leve — un 500
+    la ou on attendait « recette introuvable »."""
+
+    def test_login_valide_et_recette_absente_rend_none(self) -> None:
+        # Le comportement attendu : None, jamais une exception.
+        assert host_recipes._read_install_script("recette-qui-nexiste-pas", "admin") is None
+
+    def test_login_vide_ferait_lever_la_garde(self) -> None:
+        # Ce que faisait le code avant correction. On le documente pour que le
+        # jour ou quelqu'un re-simplifie l'appel, le test le rattrape.
+        with pytest.raises(ValueError, match="Invalid login"):
+            host_recipes.locate_recipe_dir("", "android-emulator")
