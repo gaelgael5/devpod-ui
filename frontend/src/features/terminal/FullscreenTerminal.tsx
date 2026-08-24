@@ -155,8 +155,18 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       console.warn('terminal_diag: saisie_focus')
       setInputFocused(true)
     }
-    const onInputBlur = () => {
-      console.warn('terminal_diag: saisie_blur')
+    const onInputBlur = (e: FocusEvent) => {
+      // QUI prend le focus est la seule chose qui manque pour comprendre : les
+      // logs montrent le focus perdu quelques centaines de ms apres l'avoir
+      // pris, en boucle, sans que rien ne dise vers quoi il part.
+      const cible = e.relatedTarget instanceof Element ? e.relatedTarget : document.activeElement
+      console.warn(
+        `terminal_diag: saisie_blur ${JSON.stringify({
+          vers: cible instanceof Element ? cible.tagName.toLowerCase() : null,
+          classe: cible instanceof Element ? cible.className.toString().slice(0, 80) : null,
+          testid: cible instanceof Element ? cible.getAttribute('data-testid') : null,
+        })}`,
+      )
       setInputFocused(false)
     }
     let input: HTMLTextAreaElement | null = null
