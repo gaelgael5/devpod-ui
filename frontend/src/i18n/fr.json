@@ -814,6 +814,19 @@
       "addInstance": "Ajouter…",
       "provisioning": "Provisioning en cours…",
       "remove": "Retirer {{name}}"
+    },
+    "hostRecipes": {
+      "title": "Recettes — {{host}}",
+      "description": "Recettes applicables à cette machine, d'après la famille qu'elles déclarent viser. Elles s'exécutent avec les droits d'administration.",
+      "none": "Aucune recette du catalogue ne vise la famille de cette machine.",
+      "apply": "Appliquer",
+      "reapply": "Ré-appliquer",
+      "installed": "installée",
+      "outdated": "version {{version}} posée",
+      "opRunning": "Application en cours — une recette lourde peut prendre plusieurs dizaines de minutes.",
+      "opDone": "Recette appliquée.",
+      "opFailed": "L'application a échoué.",
+      "btn": "Recettes"
     }
   },
   "errors": {

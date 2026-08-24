@@ -42,6 +42,7 @@ from .routes.mcp_profiles import router as mcp_profiles_router
 from .routes.me import router as me_router
 from .routes.nodes import router as nodes_router
 from .routes.oauth import router as oauth_router
+from .routes.operations import router as operations_admin_router
 from .routes.plugins import get_openvsx
 from .routes.plugins import router as plugins_router
 from .routes.preferences import router as preferences_router
@@ -489,6 +490,7 @@ def create_app() -> FastAPI:
     app.include_router(recipes_admin_router, prefix="/admin")
     # Recettes appliquees SUR une machine (scope=host), distinctes du catalogue.
     app.include_router(host_recipes_admin_router, prefix="/admin")
+    app.include_router(operations_admin_router, prefix="/admin")
     app.include_router(recipe_sources_admin_router, prefix="/admin")
     app.include_router(profile_sources_admin_router, prefix="/admin")
     app.include_router(ssh_proxy_router, prefix="/admin")
