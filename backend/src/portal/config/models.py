@@ -182,6 +182,97 @@ class DevpodConfig(BaseModel):
     client_cert_path: str = "/data/certs/portal"
 
 
+_PROFILE_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$")
+# Meme forme que la `key` de `RecipeMeta`, qu'on reference ici.
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+class ProfileRecipe(BaseModel):
+    """Une recette a poser sur la machine, avec ses parametres.
+
+    Referencee par `key` — l'UUID stable de `RecipeMeta` — et non par `id` : un
+    identifiant se renomme au catalogue, la cle survit. C'est deja le choix fait
+    par `installs_after`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    # Valeurs des options declarees par la recette. Choisir une recette sans
+    # pouvoir la parametrer n'aurait pas de sens : l'AVD, la RAM, le niveau
+    # d'API se decident au profil. Validees contre la declaration a
+    # l'application (`resolve_options`).
+    options: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, v: str) -> str:
+        if not _UUID_RE.fullmatch(v):
+            raise ValueError(f"recipe key {v!r} must be a valid UUID")
+        return v.lower()
+
+
+class MachineProfile(BaseModel):
+    """Modele de machine : parametres figes + recettes a poser.
+
+    Remplace le jeu unique `test_host_params` porte par le type d'hyperviseur.
+    Les parametres n'ont de sens que contre la spec d'un type donne — un profil
+    « 8 Go / cpu host » ne veut rien dire hors de Proxmox — d'ou le rattachement
+    obligatoire.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str
+    label: str
+    # `ressources` est stocke des maintenant mais pas encore exploite a la
+    # creation : la colonne existe, l'usage viendra.
+    machine_type: Literal["test", "ressources"] = "test"
+    hypervisor_type: str
+    # Args du script de creation, tels que declares par la spec du type.
+    params: dict[str, str] = Field(default_factory=dict)
+    # Appliquees DANS CET ORDRE apres la creation : une dependance se pose avant
+    # celle qui l'utilise.
+    recipes: list[ProfileRecipe] = Field(default_factory=list)
+
+    @field_validator("slug")
+    @classmethod
+    def validate_slug(cls, v: str) -> str:
+        if not _PROFILE_SLUG_RE.fullmatch(v):
+            raise ValueError(f"slug {v!r} must match {_PROFILE_SLUG_RE.pattern}")
+        return v
+
+    @field_validator("label")
+    @classmethod
+    def validate_label(cls, v: str) -> str:
+        # Le slug est technique ; c'est le label que l'utilisateur lit.
+        if not v.strip():
+            raise ValueError("label must not be empty")
+        return v.strip()
+
+    @field_validator("hypervisor_type")
+    @classmethod
+    def validate_hypervisor_type(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("hypervisor_type is required: params are typed by the script spec")
+        return v.strip()
+
+    @field_validator("recipes")
+    @classmethod
+    def refuse_doublon(cls, v: list[ProfileRecipe]) -> list[ProfileRecipe]:
+        """Deux entrees pour une meme recette : la derniere gagnerait en silence,
+        et rien ne dirait laquelle de ses options s'applique."""
+        vues: set[str] = set()
+        for recette in v:
+            if recette.key in vues:
+                raise ValueError(f"doublon de recette dans le profil : {recette.key}")
+            vues.add(recette.key)
+        return v
+
+
 class HostConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -205,6 +296,10 @@ class HostConfig(BaseModel):
     # ressources (service partagé permanent, sans workspace propriétaire — spec 33),
     # ou autres (inventaire simple : ni workspaces, ni services compose).
     usage: Literal["workspaces", "tests", "portail", "ressources", "autres"] = "workspaces"
+    # Profil avec lequel la machine a ete montee. Sans cette reference, on ne
+    # sait pas six mois plus tard ce qui a ete pose dessus ni avec quels
+    # parametres. Vide pour les machines anterieures aux profils.
+    profile_slug: str = ""
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")

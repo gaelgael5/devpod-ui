@@ -401,6 +401,25 @@ recipes = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
+# ─── Profils de machine (remplacent test_host_params) ────────────────────────
+
+machine_profiles = Table(
+    "machine_profiles",
+    metadata,
+    Column("slug", Text, primary_key=True),
+    Column("label", Text, nullable=False),
+    # `ressources` est stocke mais pas encore exploite a la creation.
+    Column("machine_type", Text, nullable=False, server_default="test"),
+    # Obligatoire : les params sont types par la spec du script de ce type.
+    Column("hypervisor_type", Text, nullable=False),
+    Column("params", JSONB, nullable=False, server_default="{}"),
+    # [{key, options}] — l'ORDRE compte, d'ou un tableau JSON.
+    Column("recipes", JSONB, nullable=False, server_default="[]"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+
 # ─── Tour 6 : workspace_status ───────────────────────────────────────────────
 
 workspace_status = Table(
