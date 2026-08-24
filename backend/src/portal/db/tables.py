@@ -391,6 +391,12 @@ recipes = Table(
     Column("options", JSONB, nullable=False, server_default="{}"),
     Column("requires_secrets", JSONB, nullable=False, server_default="[]"),
     Column("installs_after", ARRAY(Text), nullable=False, server_default="{}"),
+    # Portée MACHINE de la recette (workspace | host) et familles visées.
+    # `host_scope` et non `scope` : la colonne `scope` ci-dessus désigne la
+    # portée du CATALOGUE (partagé / propre à un utilisateur), tout autre chose.
+    Column("host_scope", Text, nullable=False, server_default="workspace"),
+    Column("host_usages", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("preconditions", JSONB, nullable=False, server_default="[]"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )

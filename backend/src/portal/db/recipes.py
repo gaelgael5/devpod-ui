@@ -1,4 +1,5 @@
 """Persistance recipes (métadonnées uniquement — scripts restent sur filesystem)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -26,6 +27,12 @@ def _row_to_meta(row: dict[str, Any]) -> RecipeMeta:
             "options": row["options"] or {},
             "requires_secrets": row["requires_secrets"] or [],
             "installs_after": list(row["installs_after"] or []),
+            # Sans ces trois-la, une recette declarant `scope: host` revenait de
+            # la base en `workspace` : invisible sur toute machine, alors meme
+            # qu'elle figurait au catalogue.
+            "scope": row.get("host_scope") or "workspace",
+            "host_usages": list(row.get("host_usages") or []),
+            "preconditions": row.get("preconditions") or [],
         }
     )
 
@@ -40,9 +47,7 @@ async def upsert_recipe_db(
     existing = (
         await conn.execute(
             select(recipes.c.id).where(
-                (recipes.c.id == meta.id)
-                & (recipes.c.scope == scope)
-                & (recipes.c.login_key == lk)
+                (recipes.c.id == meta.id) & (recipes.c.scope == scope) & (recipes.c.login_key == lk)
             )
         )
     ).scalar_one_or_none()
@@ -59,6 +64,9 @@ async def upsert_recipe_db(
         "options": {k: v.model_dump() for k, v in meta.options.items()},
         "requires_secrets": [s.model_dump() for s in meta.requires_secrets],
         "installs_after": list(meta.installs_after),
+        "host_scope": meta.scope,
+        "host_usages": list(meta.host_usages),
+        "preconditions": [p.model_dump() for p in meta.preconditions],
     }
     if existing is None:
         await conn.execute(insert(recipes).values(**vals))
@@ -68,9 +76,7 @@ async def upsert_recipe_db(
         await conn.execute(
             update(recipes)
             .where(
-                (recipes.c.id == meta.id)
-                & (recipes.c.scope == scope)
-                & (recipes.c.login_key == lk)
+                (recipes.c.id == meta.id) & (recipes.c.scope == scope) & (recipes.c.login_key == lk)
             )
             .values(**update_vals)
         )
@@ -99,24 +105,28 @@ async def get_recipe_db(
 ) -> RecipeMeta | None:
     lk = _login_key(login)
     row = (
-        await conn.execute(
-            select(recipes).where(
-                (recipes.c.id == recipe_id)
-                & (recipes.c.scope == scope)
-                & (recipes.c.login_key == lk)
+        (
+            await conn.execute(
+                select(recipes).where(
+                    (recipes.c.id == recipe_id)
+                    & (recipes.c.scope == scope)
+                    & (recipes.c.login_key == lk)
+                )
             )
         )
-    ).mappings().one_or_none()
+        .mappings()
+        .one_or_none()
+    )
     return _row_to_meta(dict(row)) if row is not None else None
 
 
 async def find_recipe_dependents(key: str, conn: AsyncConnection) -> list[str]:
     """Retourne les recipe_id qui ont `key` dans leur installs_after."""
     rows = (
-        await conn.execute(
-            select(recipes.c.id).where(any_(recipes.c.installs_after) == key)
-        )
-    ).scalars().all()
+        (await conn.execute(select(recipes.c.id).where(any_(recipes.c.installs_after) == key)))
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
@@ -132,9 +142,7 @@ async def delete_recipe_db(
     lk = _login_key(login)
     result = await conn.execute(
         delete(recipes).where(
-            (recipes.c.id == recipe_id)
-            & (recipes.c.scope == scope)
-            & (recipes.c.login_key == lk)
+            (recipes.c.id == recipe_id) & (recipes.c.scope == scope) & (recipes.c.login_key == lk)
         )
     )
     return result.rowcount > 0
@@ -165,6 +173,7 @@ async def load_recipes_from_dir_to_db(
             await upsert_recipe_db(meta, scope, login, conn)
         except Exception as exc:
             import structlog as _sl
+
             _sl.get_logger(__name__).warning(
                 "recipe_sync_skip", path=str(meta_file), error=str(exc)
             )
