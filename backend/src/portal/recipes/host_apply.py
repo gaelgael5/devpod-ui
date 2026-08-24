@@ -18,6 +18,7 @@ portail, qu'on restaure une sauvegarde ou qu'on touche la machine à la main.
 from __future__ import annotations
 
 import base64
+import re
 import shlex
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -82,7 +83,37 @@ def parse_state(out: str) -> dict[str, RecipeState]:
     return etat
 
 
-def build_apply_script(meta: RecipeMeta, script: str) -> str:
+# Une valeur d'option traverse un shell distant privilegie. On la borne a ce
+# qu'un parametre de recette a legitimement besoin d'etre : pas de saut de
+# ligne (qui couperait l'affectation et ferait passer la suite pour une
+# commande), pas de caractere de controle.
+_OPTION_VALUE_RE = re.compile(r"^[A-Za-z0-9 ._/:@+-]{0,255}$")
+
+
+def resolve_options(meta: RecipeMeta, fournies: dict[str, str]) -> dict[str, str]:
+    """Valeurs finales des parametres, defauts declares compris.
+
+    Valide CONTRE LA DECLARATION : un nom absent de la meta est refuse, faute de
+    quoi n'importe quel nom arriverait dans l'environnement du script.
+    """
+    for nom in fournies:
+        if nom not in meta.options:
+            raise HostApplyError(
+                f"option {nom!r} inconnue pour la recette {meta.id!r} — "
+                f"declarees : {', '.join(sorted(meta.options)) or 'aucune'}"
+            )
+    resolues: dict[str, str] = {}
+    for nom, declaration in meta.options.items():
+        valeur = fournies.get(nom, declaration.default)
+        if not _OPTION_VALUE_RE.fullmatch(valeur):
+            raise HostApplyError(
+                f"valeur invalide pour l'option {nom!r} de {meta.id!r} : {valeur!r}"
+            )
+        resolues[nom] = valeur
+    return resolues
+
+
+def build_apply_script(meta: RecipeMeta, script: str, options: dict[str, str]) -> str:
     """Script d'installation suivi de la pose de la sentinelle.
 
     `set -e` et l'enchaînement font que la sentinelle n'est posée QUE si
@@ -92,6 +123,13 @@ def build_apply_script(meta: RecipeMeta, script: str) -> str:
     Le script voyage en base64 : il traverse un shell distant, et tout guillemet
     ou saut de ligne y serait réinterprété.
     """
+    # Les parametres passent par l'ENVIRONNEMENT, en valeurs quotees : jamais
+    # par substitution textuelle dans la commande, ou une valeur bien choisie
+    # deviendrait du code.
+    exports = "".join(
+        f"export RECIPE_OPT_{nom.upper()}={shlex.quote(valeur)}\n"
+        for nom, valeur in sorted(options.items())
+    )
     encode = base64.b64encode(script.encode("utf-8")).decode("ascii")
     racine = shlex.quote(SENTINEL_ROOT)
     sentinelle = shlex.quote(f"{SENTINEL_ROOT}/{meta.id}.done")
@@ -101,6 +139,7 @@ def build_apply_script(meta: RecipeMeta, script: str) -> str:
         "D=$(mktemp -d)\n"
         "trap 'rm -rf \"$D\"' EXIT\n"
         f"printf %s '{encode}' | base64 -d > \"$D/install.sh\"\n"
+        f"{exports}"
         'sh "$D/install.sh"\n'
         f"mkdir -p {racine}\n"
         f"printf '%s %s\\n' {version} \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" > {sentinelle}\n"
@@ -113,6 +152,7 @@ async def apply_recipe_to_host(
     host_usage: str,
     script: str,
     run: Runner,
+    options: dict[str, str] | None = None,
 ) -> ApplyResult:
     """Pose la recette sur la machine, ou explique pourquoi elle ne l'est pas.
 
@@ -147,7 +187,8 @@ async def apply_recipe_to_host(
         if pose and pose.version == meta.version:
             return ApplyResult(changed=False, version=meta.version)
 
-    rc, out, err = await run(build_apply_script(meta, script), timeout=APPLY_TIMEOUT_S)
+    resolues = resolve_options(meta, options or {})
+    rc, out, err = await run(build_apply_script(meta, script, resolues), timeout=APPLY_TIMEOUT_S)
     if rc != 0:
         raise HostApplyError(f"échec de l'application de {meta.id!r} (code {rc}) : {err or out}")
     return ApplyResult(changed=True, version=meta.version)

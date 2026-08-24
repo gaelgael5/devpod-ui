@@ -20,6 +20,7 @@ from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
@@ -36,9 +37,19 @@ from ..recipes.host_apply import (
     apply_recipe_to_host,
     build_state_probe,
     parse_state,
+    resolve_options,
 )
 from ..recipes.initializers import locate_recipe_dir
 from ..recipes.models import _RECIPE_ID_RE, RecipeMeta
+
+
+class ApplyRecipeRequest(BaseModel):
+    """Parametres de la recette. Valides contre sa declaration cote service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    options: dict[str, str] = Field(default_factory=dict)
+
 
 router = APIRouter(tags=["host-recipes"])
 log = structlog.get_logger(__name__)
@@ -129,6 +140,7 @@ async def list_host_recipes(
 async def apply_host_recipe(
     name: str,
     recipe_id: str,
+    body: ApplyRecipeRequest | None = None,
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
@@ -145,6 +157,13 @@ async def apply_host_recipe(
     catalogue = await _load_host_recipes(user.login, conn)
     meta = _require_applicable(catalogue.get(recipe_id), recipe_id, host)
 
+    try:
+        resolve_options(meta, body.options if body else {})
+    except HostApplyError as exc:
+        # Refuse tout de suite : une option invalide n'a pas a etre decouverte
+        # dans le journal d'une operation lancee pour rien.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     script = _read_install_script(recipe_id)
     if script is None:
         raise HTTPException(
@@ -156,7 +175,13 @@ async def apply_host_recipe(
             return await run_host_command(host, command, timeout=timeout)
 
         try:
-            result = await apply_recipe_to_host(meta, host_usage=host.usage, script=script, run=run)
+            result = await apply_recipe_to_host(
+                meta,
+                host_usage=host.usage,
+                script=script,
+                run=run,
+                options=body.options if body else {},
+            )
         except HostApplyError as exc:
             # Le message porte déjà la cause exploitable (précondition, code retour).
             raise RuntimeError(str(exc)) from exc

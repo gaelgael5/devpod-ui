@@ -32,6 +32,7 @@ def _recipes() -> dict[str, RecipeMeta]:
                 "version": "1.2.0",
                 "scope": "host",
                 "host_usages": ["tests"],
+                "options": {"api": {"default": "35"}},
             }
         ),
         "prometheus": RecipeMeta.model_validate(
@@ -144,3 +145,39 @@ def _stub_launch(oid: str):
         return oid
 
     return _launch
+
+
+class TestParametres:
+    def test_refuse_une_option_non_declaree_avant_de_lancer(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Une option invalide n'a pas a etre decouverte dans le journal d'une
+        # operation lancee pour rien.
+        lance = False
+
+        async def _jamais(**kwargs: Any) -> str:
+            nonlocal lance
+            lance = True
+            return "op"
+
+        monkeypatch.setattr(host_recipes, "_launch", _jamais)
+        monkeypatch.setattr(host_recipes, "_read_install_script", lambda _id: "echo ok")
+
+        res = client.post(
+            "/admin/hosts/test1/recipes/android-emulator", json={"options": {"boom": "x"}}
+        )
+
+        assert res.status_code == 422
+        assert lance is False
+
+    def test_transmet_les_options_declarees(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(host_recipes, "_read_install_script", lambda _id: "echo ok")
+        monkeypatch.setattr(host_recipes, "_launch", _stub_launch("op-7"))
+
+        res = client.post(
+            "/admin/hosts/test1/recipes/android-emulator", json={"options": {"api": "34"}}
+        )
+
+        assert res.status_code == 202
