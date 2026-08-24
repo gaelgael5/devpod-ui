@@ -237,3 +237,80 @@ describe('SessionsView', () => {
     expect(body).toEqual({ family: 'host', target: 'node1', owner: 'admin', session: 'ops' })
   })
 })
+
+describe('SessionsView — mesures de la machine', () => {
+  /**
+   * Elles n'avaient ete branchees que sur la vue mobile, alors que c'est sur
+   * grand ecran qu'il y a le plus de place pour les lire.
+   */
+  const AVEC_MESURES = [
+    {
+      ...SESSIONS[0],
+      disk: { used_pct: 62, warn: false, used_bytes: 62e9, total_bytes: 100e9, avail_bytes: 38e9 },
+      memory: { used_pct: 41, used_bytes: 4.1e9, total_bytes: 10e9 },
+      cpu: { used_pct: 12 },
+    },
+  ]
+
+  function forcerLargeur(mobile: boolean) {
+    const orig = window.matchMedia
+    window.matchMedia = ((q: string) => ({
+      matches: mobile,
+      media: q,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia
+    return () => {
+      window.matchMedia = orig
+    }
+  }
+
+  it('affiche les mesures sur le tableau desktop', async () => {
+    const restaurer = forcerLargeur(false)
+    try {
+      server.use(http.get('/sessions', () => HttpResponse.json(AVEC_MESURES)))
+      renderWithProviders(<SessionsView />)
+
+      expect(await screen.findByTestId('resource-metrics')).toBeInTheDocument()
+      expect(screen.getByTestId('metric-disk')).toBeInTheDocument()
+      expect(screen.getByTestId('metric-memory')).toBeInTheDocument()
+      expect(screen.getByTestId('metric-cpu')).toBeInTheDocument()
+    } finally {
+      restaurer()
+    }
+  })
+
+  it('n’affiche rien pour une machine jamais sondee', async () => {
+    // Une jauge a zero ferait croire a une machine au repos, pas a une absence
+    // de mesure.
+    const restaurer = forcerLargeur(false)
+    try {
+      server.use(http.get('/sessions', () => HttpResponse.json(SESSIONS)))
+      renderWithProviders(<SessionsView />)
+
+      // Les groupes sont replies par defaut : on attend l'en-tete, pas une
+      // ligne du corps.
+      await screen.findAllByRole('button', { expanded: false })
+      expect(screen.queryByTestId('resource-metrics')).toBeNull()
+    } finally {
+      restaurer()
+    }
+  })
+
+  it('les affiche toujours sur mobile', async () => {
+    // Non-regression : le correctif ajoute le desktop, il ne retire pas mobile.
+    const restaurer = forcerLargeur(true)
+    try {
+      server.use(http.get('/sessions', () => HttpResponse.json(AVEC_MESURES)))
+      renderWithProviders(<SessionsView />)
+
+      expect(await screen.findByTestId('resource-metrics')).toBeInTheDocument()
+    } finally {
+      restaurer()
+    }
+  })
+})
