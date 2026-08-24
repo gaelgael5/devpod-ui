@@ -146,7 +146,9 @@
         "enter": "Entrée",
         "enterTitle": "Valider la ligne (Entrée)",
         "search": "Rechercher",
-        "searchTitle": "Rechercher dans le terminal (Ctrl+Maj+F)"
+        "searchTitle": "Rechercher dans le terminal (Ctrl+Maj+F)",
+        "refresh": "Rafraîchir l'affichage",
+        "refreshTitle": "Forcer tmux à tout redessiner (affichage décalé)"
       },
       "search": {
         "placeholder": "Rechercher…",

@@ -10,6 +10,7 @@ import {
   CornerDownLeft,
   Keyboard,
   OctagonX,
+  RefreshCw,
   Search,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -33,6 +34,8 @@ interface Props {
   onToggleKeyboard?: () => void
   /** Le clavier est-il ouvert ? Pilote l'etat du bouton pour le lecteur d'ecran. */
   keyboardOpen?: boolean
+  /** Force tmux a tout redessiner. Absent = bouton masque. */
+  onRefreshDisplay?: () => void
 }
 
 /** Barre de touches/actions tactiles pour la fenêtre de session SSH.
@@ -62,6 +65,7 @@ export default function TerminalKeybar({
   onSearch,
   onToggleKeyboard,
   keyboardOpen = false,
+  onRefreshDisplay,
 }: Props) {
   const { t } = useTranslation()
 
@@ -206,6 +210,21 @@ export default function TerminalKeybar({
       >
         <Copy className="h-3.5 w-3.5" />
       </button>
+      {/* Recours quand l'affichage a divergé : deux clients tmux de tailles
+          differentes, un resize manqué, et l'ecran garde des rendus anciens.
+          Sans ce bouton l'utilisateur n'a que la fermeture de session. */}
+      {onRefreshDisplay && (
+        <button
+          type="button"
+          className={btn}
+          onMouseDown={keepFocus}
+          onClick={onRefreshDisplay}
+          title={t('workspaces.terminals.keybar.refreshTitle')}
+          aria-label={t('workspaces.terminals.keybar.refresh')}
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+        </button>
+      )}
       {/* Recherche : le raccourci clavier n'existe pas sur mobile, or c'est
           précisément la cible de cette barre. */}
       {onSearch && (

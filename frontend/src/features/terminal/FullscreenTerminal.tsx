@@ -57,6 +57,8 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
   // pour decider d'afficher son clavier. Le bouton « clavier » de la barre la
   // vise directement.
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  /** Publie le rafraichissement d'affichage, defini dans l'effet (ws + terminal). */
+  const refreshRef = useRef<(() => void) | null>(null)
   const [inputFocused, setInputFocused] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null)
@@ -225,6 +227,30 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         ws.send(JSON.stringify({ type: 'resize', cols, rows }))
     }
     ws.onopen = () => sendResize(terminal.cols, terminal.rows)
+
+    /**
+     * Force tmux a tout redessiner.
+     *
+     * Quand la fenetre tmux et le terminal divergent — deux clients de tailles
+     * differentes, un resize manque — l'ecran garde des rendus anciens : des
+     * barres de statut empilees, des lignes qui se marchent dessus. tmux ne
+     * redessine que sur changement de taille, et renvoyer la MEME taille ne
+     * declenche rien.
+     *
+     * D'ou l'aller-retour : une taille volontairement fausse, puis la vraie a
+     * la frame suivante. Deux SIGWINCH, un redessin complet. Espacer les deux
+     * est necessaire — le PTY regroupe les ecritures rapprochees et tmux perd
+     * alors le second (meme contrainte que le defilement de l'historique).
+     */
+    refreshRef.current = () => {
+      safeFit()
+      const { cols, rows } = terminal
+      sendResize(cols, Math.max(1, rows - 1))
+      requestAnimationFrame(() => {
+        sendResize(cols, rows)
+        terminal.refresh(0, terminal.rows - 1)
+      })
+    }
 
     const encoder = new TextEncoder()
     // Molette et glissement remontent dans l'historique tmux. Necessaire parce
@@ -502,6 +528,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       input?.removeEventListener('focus', onInputFocus)
       input?.removeEventListener('blur', onInputBlur)
       inputRef.current = null
+      refreshRef.current = null
       terminalRef.current = null
       searchRef.current = null
     }
@@ -625,6 +652,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         )}
       </div>
       <TerminalKeybar
+        onRefreshDisplay={() => refreshRef.current?.()}
         keyboardOpen={inputFocused}
         onToggleKeyboard={toggleKeyboard}
         onSearch={() => setSearchOpen(true)}

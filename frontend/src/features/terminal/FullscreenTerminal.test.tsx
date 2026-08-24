@@ -941,3 +941,49 @@ describe('FullscreenTerminal — stabilite de l’affichage au redimensionnement
     expect(terminals[0].refresh).toHaveBeenCalled()
   })
 })
+
+describe('FullscreenTerminal — rafraichir l’affichage', () => {
+  /**
+   * Quand la fenetre tmux et le terminal divergent, l'ecran garde des rendus
+   * anciens — des barres de statut empilees. tmux ne redessine que sur
+   * changement de taille : renvoyer la MEME ne declenche rien.
+   */
+  function resizesEnvoyes() {
+    return sockets[0].send.mock.calls
+      .map((c) => c[0])
+      .filter((d): d is string => typeof d === 'string')
+      .map((d) => JSON.parse(d) as { type: string; cols: number; rows: number })
+      .filter((m) => m.type === 'resize')
+  }
+
+  function rafraichir() {
+    fireEvent.click(screen.getByRole('button', { name: /rafraîchir|refresh/i }))
+  }
+
+  it('envoie une taille differente puis la vraie', () => {
+    renderTerminal()
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+    sockets[0].send.mockClear()
+
+    rafraichir()
+    act(() => vi.advanceTimersByTime(50))
+
+    const envoyes = resizesEnvoyes()
+    expect(envoyes).toHaveLength(2)
+    expect(envoyes[0].rows).not.toBe(envoyes[1].rows)
+    // La derniere doit etre la VRAIE : rester sur la fausse laisserait le PTY
+    // distant d'une ligne trop court.
+    expect(envoyes[1].rows).toBe(terminals[0].rows)
+  })
+
+  it('redessine le terminal', () => {
+    renderTerminal()
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+    terminals[0].refresh.mockClear()
+
+    rafraichir()
+    act(() => vi.advanceTimersByTime(50))
+
+    expect(terminals[0].refresh).toHaveBeenCalled()
+  })
+})

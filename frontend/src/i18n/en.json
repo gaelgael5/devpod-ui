@@ -146,7 +146,9 @@
         "enter": "Enter",
         "enterTitle": "Submit the line (Enter)",
         "search": "Search",
-        "searchTitle": "Search in terminal (Ctrl+Shift+F)"
+        "searchTitle": "Search in terminal (Ctrl+Shift+F)",
+        "refresh": "Refresh display",
+        "refreshTitle": "Force tmux to redraw everything (garbled display)"
       },
       "search": {
         "placeholder": "Search…",
