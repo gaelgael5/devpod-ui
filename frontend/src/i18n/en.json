@@ -204,7 +204,8 @@
       "deleting": "Deleting…",
       "deleted": "Test machine deleted",
       "deleteFailed": "Deletion failed",
-      "launchService": "Launch a service"
+      "launchService": "Launch a service",
+      "recipes": "Apply a recipe…"
     },
     "testHostLinks": {
       "manage": "Manage links…",

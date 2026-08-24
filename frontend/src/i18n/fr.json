@@ -204,7 +204,8 @@
       "deleting": "Suppression…",
       "deleted": "Machine de test supprimée",
       "deleteFailed": "Échec de la suppression",
-      "launchService": "Démarrer un service"
+      "launchService": "Démarrer un service",
+      "recipes": "Appliquer une recette…"
     },
     "testHostLinks": {
       "manage": "Gérer les liens…",

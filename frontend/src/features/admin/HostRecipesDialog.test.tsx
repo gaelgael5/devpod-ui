@@ -32,6 +32,54 @@ function catalogue(body: unknown) {
   server.use(http.get('/admin/hosts/:name/recipes', () => HttpResponse.json(body)))
 }
 
+describe('HostRecipesDialog — routes selon le proprietaire', () => {
+  /**
+   * Poser une recette de la galerie sur SA machine de test ne passe pas par un
+   * administrateur : la garde cote serveur est la PROPRIETE, pas le role. Le
+   * dialog doit donc viser `/me` quand un workspace est fourni.
+   */
+  function renderAvecWorkspace(ws?: string) {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    })
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <HostRecipesDialog hostName="test1" wsName={ws} onClose={vi.fn()} />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    )
+  }
+
+  it('vise /me quand la machine appartient a un workspace', async () => {
+    let vue: string | null = null
+    server.use(
+      http.get('/me/workspaces/:ws/test-hosts/:host/recipes', ({ request }) => {
+        vue = new URL(request.url).pathname
+        return HttpResponse.json({ installed: {}, available: [] })
+      }),
+    )
+
+    renderAvecWorkspace('termix-mobile')
+
+    await waitFor(() => expect(vue).toBe('/me/workspaces/termix-mobile/test-hosts/test1/recipes'))
+  })
+
+  it('vise /admin sans workspace', async () => {
+    let vue: string | null = null
+    server.use(
+      http.get('/admin/hosts/:host/recipes', ({ request }) => {
+        vue = new URL(request.url).pathname
+        return HttpResponse.json({ installed: {}, available: [] })
+      }),
+    )
+
+    renderAvecWorkspace(undefined)
+
+    await waitFor(() => expect(vue).toBe('/admin/hosts/test1/recipes'))
+  })
+})
+
 describe('HostRecipesDialog', () => {
   it('liste les recettes applicables', async () => {
     catalogue({

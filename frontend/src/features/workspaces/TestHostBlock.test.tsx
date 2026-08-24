@@ -317,3 +317,23 @@ describe('stoppedLast — workspaces arrêtés en fin de groupe', () => {
     )
   })
 })
+
+describe('TestHostBlock — appliquer une recette', () => {
+  /**
+   * C'est SA machine de test : l'entree doit etre la pour un utilisateur
+   * ordinaire, pas seulement pour un administrateur.
+   */
+  it('propose d’appliquer une recette sans etre administrateur', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <TestHostBlock wsName="ws1" host={HOST} deployments={[]} onOpenSsh={vi.fn()} />,
+    )
+
+    const menus = screen.getAllByRole('button')
+    await user.click(menus[menus.length - 1])
+
+    expect(
+      await screen.findByRole('menuitem', { name: /appliquer une recette|apply a recipe/i }),
+    ).toBeInTheDocument()
+  })
+})

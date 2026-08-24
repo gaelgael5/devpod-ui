@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..auth.rbac import UserInfo, require_admin
+from ..auth.rbac import UserInfo, require_admin, require_user
 from ..config.models import HostConfig
 from ..config.store import load_global
 from ..db.engine import get_conn
@@ -116,18 +116,11 @@ def _require_applicable(meta: RecipeMeta | None, recipe_id: str, host: HostConfi
     return meta
 
 
-@router.get("/hosts/{name}/recipes")
-async def list_host_recipes(
-    name: str,
-    user: UserInfo = Depends(require_admin),
-    conn: AsyncConnection = Depends(get_conn),
+async def _catalogue_pour_host(
+    host: HostConfig, login: str, conn: AsyncConnection
 ) -> dict[str, Any]:
-    """Recettes applicables à cette machine, et celles qu'elle porte déjà."""
-    host = _load_host(name)
-    if host is None:
-        raise HTTPException(status_code=404, detail=f"Host {name!r} introuvable")
-
-    catalogue = await _load_host_recipes(user.login, conn)
+    """Recettes applicables a cette machine, et celles qu'elle porte deja."""
+    catalogue = await _load_host_recipes(login, conn)
     available = [
         {"id": m.id, "version": m.version, "description": m.description}
         for m in catalogue.values()
@@ -136,29 +129,23 @@ async def list_host_recipes(
     return {"installed": await _probe_state(host), "available": available}
 
 
-@router.post("/hosts/{name}/recipes/{recipe_id}", status_code=202)
-async def apply_host_recipe(
-    name: str,
+async def _lancer_application(
+    host: HostConfig,
     recipe_id: str,
-    body: ApplyRecipeRequest | None = None,
-    user: UserInfo = Depends(require_admin),
-    conn: AsyncConnection = Depends(get_conn),
-) -> dict[str, str]:
-    """Lance l'application et rend la main sur un identifiant d'opération."""
+    options: dict[str, str],
+    login: str,
+    conn: AsyncConnection,
+) -> str:
+    """Valide puis lance l'application ; retourne l'identifiant d'operation."""
     if not _RECIPE_ID_RE.fullmatch(recipe_id):
         raise HTTPException(
             status_code=422, detail=f"Identifiant de recette invalide: {recipe_id!r}"
         )
-
-    host = _load_host(name)
-    if host is None:
-        raise HTTPException(status_code=404, detail=f"Host {name!r} introuvable")
-
-    catalogue = await _load_host_recipes(user.login, conn)
+    catalogue = await _load_host_recipes(login, conn)
     meta = _require_applicable(catalogue.get(recipe_id), recipe_id, host)
 
     try:
-        resolve_options(meta, body.options if body else {})
+        resolve_options(meta, options)
     except HostApplyError as exc:
         # Refuse tout de suite : une option invalide n'a pas a etre decouverte
         # dans le journal d'une operation lancee pour rien.
@@ -167,7 +154,7 @@ async def apply_host_recipe(
     script = _read_install_script(recipe_id)
     if script is None:
         raise HTTPException(
-            status_code=422, detail=f"Recette {recipe_id!r} sans install.sh — rien à appliquer"
+            status_code=422, detail=f"Recette {recipe_id!r} sans install.sh — rien a appliquer"
         )
 
     async def work() -> dict[str, Any]:
@@ -176,18 +163,13 @@ async def apply_host_recipe(
 
         try:
             result = await apply_recipe_to_host(
-                meta,
-                host_usage=host.usage,
-                script=script,
-                run=run,
-                options=body.options if body else {},
+                meta, host_usage=host.usage, script=script, run=run, options=options
             )
         except HostApplyError as exc:
-            # Le message porte déjà la cause exploitable (précondition, code retour).
             raise RuntimeError(str(exc)) from exc
         await emit_event(
             "host_recipe.applied",
-            actor=user.login,
+            actor=login,
             subject={
                 "host": host.name,
                 "recipe": meta.id,
@@ -198,7 +180,84 @@ async def apply_host_recipe(
         return {"changed": result.changed, "version": result.version}
 
     operation_id = await _launch(
-        kind="host_recipe_apply", workspace=host.name, owner_login=user.login, work=work
+        kind="host_recipe_apply", workspace=host.name, owner_login=login, work=work
     )
     log.info("host_recipe_apply_started", host=host.name, recipe=meta.id, operation=operation_id)
-    return {"operation_id": operation_id}
+    return operation_id
+
+
+@router.get("/hosts/{name}/recipes")
+async def list_host_recipes(
+    name: str,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Recettes applicables a cette machine, et celles qu'elle porte deja."""
+    host = _load_host(name)
+    if host is None:
+        raise HTTPException(status_code=404, detail=f"Host {name!r} introuvable")
+    return await _catalogue_pour_host(host, user.login, conn)
+
+
+@router.post("/hosts/{name}/recipes/{recipe_id}", status_code=202)
+async def apply_host_recipe(
+    name: str,
+    recipe_id: str,
+    body: ApplyRecipeRequest | None = None,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str]:
+    """Lance l'application et rend la main sur un identifiant d'operation."""
+    host = _load_host(name)
+    if host is None:
+        raise HTTPException(status_code=404, detail=f"Host {name!r} introuvable")
+    options = body.options if body else {}
+    oid = await _lancer_application(host, recipe_id, options, user.login, conn)
+    return {"operation_id": oid}
+
+
+# ─── Variante utilisateur : machines de test d'un workspace qu'il possede ─────
+#
+# Poser une recette de la galerie sur SA machine de test n'a pas a passer par un
+# administrateur — c'est sa machine. La garde n'est donc pas le role mais la
+# PROPRIETE : `_require_ws_and_host` verifie que la VM est bien attachee a un
+# workspace de cet utilisateur. Le reste — familles declarees, preconditions,
+# validation des parametres — est rigoureusement le meme code que cote admin.
+
+me_router = APIRouter(tags=["host-recipes"])
+
+
+async def _host_de_mon_workspace(ws: str, host_name: str, login: str) -> HostConfig:
+    from .test_vm import _require_ws_and_host
+
+    await _require_ws_and_host(ws, host_name, login)
+    host = _load_host(host_name)
+    if host is None:
+        raise HTTPException(status_code=404, detail=f"Machine {host_name!r} introuvable")
+    return host
+
+
+@me_router.get("/workspaces/{ws}/test-hosts/{host_name}/recipes")
+async def list_my_test_host_recipes(
+    ws: str,
+    host_name: str,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    host = await _host_de_mon_workspace(ws, host_name, user.login)
+    return await _catalogue_pour_host(host, user.login, conn)
+
+
+@me_router.post("/workspaces/{ws}/test-hosts/{host_name}/recipes/{recipe_id}", status_code=202)
+async def apply_my_test_host_recipe(
+    ws: str,
+    host_name: str,
+    recipe_id: str,
+    body: ApplyRecipeRequest | None = None,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, str]:
+    host = await _host_de_mon_workspace(ws, host_name, user.login)
+    options = body.options if body else {}
+    oid = await _lancer_application(host, recipe_id, options, user.login, conn)
+    return {"operation_id": oid}

@@ -19,26 +19,39 @@ export interface HostRecipesResponse {
   available: HostRecipe[]
 }
 
-export function useHostRecipes(hostName: string | null) {
+/**
+ * Base d'URL des recettes d'une machine.
+ *
+ * Avec un workspace, on passe par `/me` : poser une recette de la galerie sur
+ * SA machine de test n'a pas a passer par un administrateur — c'est sa machine,
+ * et la garde cote serveur est la PROPRIETE, pas le role. Sans workspace, on
+ * est dans l'administration des hosts, ou la garde est le role.
+ */
+function basePath(hostName: string | null, wsName?: string): string {
+  const host = encodeURIComponent(hostName ?? '')
+  return wsName
+    ? `/me/workspaces/${encodeURIComponent(wsName)}/test-hosts/${host}/recipes`
+    : `/admin/hosts/${host}/recipes`
+}
+
+export function useHostRecipes(hostName: string | null, wsName?: string) {
   return useQuery({
-    queryKey: ['host-recipes', hostName],
-    queryFn: () =>
-      apiFetchJson<HostRecipesResponse>(
-        `/admin/hosts/${encodeURIComponent(hostName ?? '')}/recipes`,
-      ),
+    queryKey: ['host-recipes', wsName ?? null, hostName],
+    queryFn: () => apiFetchJson<HostRecipesResponse>(basePath(hostName, wsName)),
     enabled: !!hostName,
   })
 }
 
-export function useApplyHostRecipe(hostName: string | null) {
+export function useApplyHostRecipe(hostName: string | null, wsName?: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ recipeId, options }: { recipeId: string; options?: Record<string, string> }) =>
       apiFetchJson<{ operation_id: string }>(
-        `/admin/hosts/${encodeURIComponent(hostName ?? '')}/recipes/${encodeURIComponent(recipeId)}`,
+        `${basePath(hostName, wsName)}/${encodeURIComponent(recipeId)}`,
         { method: 'POST', body: JSON.stringify({ options: options ?? {} }) },
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['host-recipes', hostName] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['host-recipes', wsName ?? null, hostName] }),
   })
 }
 

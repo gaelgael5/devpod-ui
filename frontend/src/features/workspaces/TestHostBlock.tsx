@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Copy, ExternalLink, Link2, MoreVertical, Pencil, PlayCircle, RefreshCw, Share2,
+  Copy, ExternalLink, Link2, MoreVertical, Package, Pencil, PlayCircle, RefreshCw, Share2,
   TerminalSquare, Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import HostRecipesDialog from '@/features/admin/HostRecipesDialog'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -48,6 +49,7 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
   const [linksOpen, setLinksOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [connOpen, setConnOpen] = useState(false)
+  const [recipesOpen, setRecipesOpen] = useState(false)
   const { data: links = [] } = useTestHostLinks(wsName, host.name)
   // Bloc partagé-VERS ce workspace : accès SSH seul, pas de contrôle du cycle de
   // vie de la VM (ni suppression, ni resolve-ip, ni re-partage).
@@ -117,6 +119,12 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
               <TerminalSquare className="h-3.5 w-3.5" />
               {t('workspaces.testHosts.openSsh')}
             </DropdownMenuItem>
+            {!shared && (
+              <DropdownMenuItem onSelect={() => setRecipesOpen(true)} className="gap-2">
+                <Package className="h-3.5 w-3.5" />
+                {t('workspaces.testHosts.recipes')}
+              </DropdownMenuItem>
+            )}
             {!shared && (
               <DropdownMenuItem onSelect={handleResolve} className="gap-2">
                 <RefreshCw className="h-3.5 w-3.5" />
@@ -223,6 +231,11 @@ export default function TestHostBlock({ wsName, host, deployments, onOpenSsh }: 
         />
       )}
 
+      <HostRecipesDialog
+        hostName={recipesOpen ? host.name : null}
+        wsName={wsName}
+        onClose={() => setRecipesOpen(false)}
+      />
       {connOpen && (
         <TestHostConnDialog
           wsName={wsName}
