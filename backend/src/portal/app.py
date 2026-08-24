@@ -37,6 +37,8 @@ from .routes.host_recipes import router as host_recipes_admin_router
 from .routes.host_secrets import router as host_secrets_router
 from .routes.jinja_template_sources import router_admin as jinja_sources_admin_router
 from .routes.jinja_templates import router as jinja_templates_router
+from .routes.machine_profiles import me_router as machine_profiles_me_router
+from .routes.machine_profiles import router as machine_profiles_admin_router
 from .routes.mcp import router as mcp_router
 from .routes.mcp_discovery import router as mcp_discovery_router
 from .routes.mcp_profiles import router as mcp_profiles_router
@@ -494,6 +496,9 @@ def create_app() -> FastAPI:
     # Machines de test d'un workspace : la garde est la PROPRIETE, pas le role.
     app.include_router(host_recipes_me_router, prefix="/me")
     app.include_router(operations_admin_router, prefix="/admin")
+    app.include_router(machine_profiles_admin_router, prefix="/admin")
+    # Lecture ouverte : c'est l'utilisateur qui choisit son profil en creant sa machine.
+    app.include_router(machine_profiles_me_router, prefix="/me")
     app.include_router(recipe_sources_admin_router, prefix="/admin")
     app.include_router(profile_sources_admin_router, prefix="/admin")
     app.include_router(ssh_proxy_router, prefix="/admin")
