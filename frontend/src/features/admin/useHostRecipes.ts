@@ -48,7 +48,14 @@ export function useApplyHostRecipe(hostName: string | null, wsName?: string) {
     mutationFn: ({ recipeId, options }: { recipeId: string; options?: Record<string, string> }) =>
       apiFetchJson<{ operation_id: string }>(
         `${basePath(hostName, wsName)}/${encodeURIComponent(recipeId)}`,
-        { method: 'POST', body: JSON.stringify({ options: options ?? {} }) },
+        {
+          method: 'POST',
+          // Sans cet en-tete, FastAPI recoit le corps comme une CHAINE et
+          // repond 422 « Input should be a valid dictionary » : le JSON part
+          // bien, mais rien ne dit au serveur que c'en est.
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ options: options ?? {} }),
+        },
       ),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['host-recipes', wsName ?? null, hostName] }),
