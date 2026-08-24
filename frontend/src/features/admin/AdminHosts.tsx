@@ -21,6 +21,7 @@ import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDes
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import TestHostParamsDialog from './TestHostParamsDialog'
+import HostRecipesDialog from './HostRecipesDialog'
 import { openTerminalTab } from '@/features/terminal/openTerminalTab'
 
 /** Ouvre le terminal SSH d'un host Docker dans un onglet plein écran. */
@@ -364,6 +365,8 @@ type HostActions = {
   onDelete: (h: HostConfig) => void
   onSsh: (h: HostConfig) => void
   onBootstrap: (h: HostConfig) => void
+  /** Ouvre les recettes applicables a cette machine (scope host). */
+  onRecipes: (h: HostConfig) => void
 }
 
 function TestHostsGroupedSection({
@@ -472,6 +475,13 @@ function TestHostsGroupedSection({
                               <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => actions.onDelete(host)}>
                                 <Trash2 className="h-3 w-3" />
                               </Button>
+                              {/* Recettes de MACHINE : elles s'executent avec les droits
+                                  d'administration, la liste ne montre que celles qui declarent
+                                  viser la famille de cette machine. */}
+                              <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
+                                onClick={() => actions.onRecipes(host)}>
+                                {t('admin.hostRecipes.btn')}
+                              </Button>
                               {!host.host_cert_slug && (
                                 <Button size="sm" variant="outline"
                                   className="h-6 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
@@ -565,6 +575,13 @@ function OtherHostsSection({
             <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => actions.onDelete(host)}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
+            {/* Recettes de MACHINE : elles s'executent avec les droits
+                d'administration, la liste ne montre que celles qui declarent
+                viser la famille de cette machine. */}
+            <Button size="sm" variant="outline" className="h-7 px-2 text-xs"
+              onClick={() => actions.onRecipes(host)}>
+              {t('admin.hostRecipes.btn')}
+            </Button>
             {host.type === 'ssh' && !host.host_cert_slug && (
               <Button size="sm" variant="outline"
                 className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
@@ -623,6 +640,13 @@ function ResourceHostsSection({
               </Button>
               <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => actions.onDelete(host)}>
                 <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+              {/* Recettes de MACHINE : elles s'executent avec les droits
+                  d'administration, la liste ne montre que celles qui declarent
+                  viser la famille de cette machine. */}
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs"
+                onClick={() => actions.onRecipes(host)}>
+                {t('admin.hostRecipes.btn')}
               </Button>
               {!host.host_cert_slug && (
                 <Button size="sm" variant="outline"
@@ -692,6 +716,8 @@ export default function AdminHosts() {
   const [destroyTarget, setDestroyTarget] = useState<HostConfig | null>(null)
   const [form, setForm] = useState<HostCreatePayload>(EMPTY)
   const [bootstrapTarget, setBootstrapTarget] = useState<HostConfig | null>(null)
+  // Machine dont on regarde les recettes applicables (dialog).
+  const [recipesFor, setRecipesFor] = useState<string | null>(null)
   const destroyVm = useDestroyVm()
   // Garde d'identité : quel target a déjà lancé son destroy. Remplace un flag
   // booléen écrit par les handlers — react-hooks/refs l'interdit pour une
@@ -847,6 +873,7 @@ export default function AdminHosts() {
           onDelete: confirmDelete,
           onSsh: (h) => openHostSsh(h.name),
           onBootstrap: setBootstrapTarget,
+          onRecipes: (h) => setRecipesFor(h.name),
         }
         return (
           <>
@@ -1092,6 +1119,8 @@ export default function AdminHosts() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <HostRecipesDialog hostName={recipesFor} onClose={() => setRecipesFor(null)} />
 
       {bootstrapTarget && (
         <BootstrapSshDialog

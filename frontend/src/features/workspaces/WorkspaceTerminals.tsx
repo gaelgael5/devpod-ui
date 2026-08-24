@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Terminal } from 'lucide-react'
+import { Terminal, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import WorkspaceSessionTerminal from './WorkspaceSessionTerminal'
 import CreateSessionDialog from './CreateSessionDialog'
 import {
+  useSessionClients,
   useWorkspaceSessions,
   useWorkspaceStartRecipes,
 } from './useWorkspaceSessions'
@@ -42,6 +43,10 @@ export default function WorkspaceTerminals() {
           ? urlSession
           : (sessions[0] ?? null)
 
+  // Notre propre terminal compte pour un : le partage commence a deux.
+  const { data: clients } = useSessionClients(wsName, selected)
+  const partagee = (clients?.clients ?? 0) >= 2
+
   // Titre d'onglet distinctif : chaque session s'ouvre dans son propre onglet,
   // sans ça ils s'appellent tous « DevPod Portal ».
   useEffect(() => {
@@ -60,6 +65,20 @@ export default function WorkspaceTerminals() {
       style={{ height: hauteurVisible ?? '100vh' }}
       data-testid="workspace-terminals"
     >
+      {/* Deux appareils sur la meme session : tmux cale la fenetre sur le client
+          le plus recemment actif, et l'ecran le plus petit recoit des lignes
+          trop longues. Rien ne l'expliquait a l'utilisateur, qui n'y voyait
+          qu'un affichage casse. */}
+      {partagee && (
+        <div
+          role="status"
+          className="flex shrink-0 items-start gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+          data-testid="session-partagee"
+        >
+          <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{t('workspaces.terminals.sharedSession')}</span>
+        </div>
+      )}
       {/* Zone terminal — position:relative donne des dimensions explicites à xterm */}
       <div className="relative min-h-0 min-w-0 flex-1">
         {selected ? (

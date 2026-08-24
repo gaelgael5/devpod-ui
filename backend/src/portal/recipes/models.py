@@ -27,6 +27,64 @@ _UUID_RE = re.compile(
 )
 
 
+# Familles de machines, reprises telles quelles de `HostConfig.usage` : une
+# recette de host ne peut viser que des destinations que le portail connaît
+# déjà. Toute divergence entre les deux listes rendrait une recette applicable
+# à une famille inexistante — ou l'inverse.
+HostUsage = Literal["workspaces", "tests", "portail", "ressources", "autres"]
+
+
+# Chemin absolu, sans métacaractère shell : ces valeurs finissent dans une
+# commande exécutée à distance avec les droits d'administration.
+_ABS_PATH_RE = re.compile(r"^/[A-Za-z0-9._/ -]{0,255}$")
+_ARCH_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+
+
+class RecipePrecondition(BaseModel):
+    """Ce qu'une machine doit offrir pour qu'une recette de host y soit posée.
+
+    Vérifiée avant tout téléchargement : une recette de 20 Go qui échoue en
+    cours de route laisse la machine à moitié faite et l'administrateur sans
+    explication.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Espace libre exigé, en Go, sur `disk_path`.
+    disk_free_gb: int | None = Field(default=None, ge=1)
+    disk_path: str = "/"
+    # Chemin qui doit exister (ex. /dev/kvm pour l'émulateur Android).
+    path_exists: str = ""
+    # Architecture attendue, telle que `uname -m` la rapporte.
+    arch: str = ""
+
+    @field_validator("disk_path", "path_exists")
+    @classmethod
+    def validate_path(cls, v: str) -> str:
+        if v and not _ABS_PATH_RE.fullmatch(v):
+            raise ValueError(f"path {v!r} must be absolute and free of shell metacharacters")
+        if _has_traversal(v):
+            raise ValueError(f"path {v!r} must not contain '..'")
+        return v
+
+    @field_validator("arch")
+    @classmethod
+    def validate_arch(cls, v: str) -> str:
+        if v and not _ARCH_RE.fullmatch(v):
+            raise ValueError(f"arch {v!r} must match {_ARCH_RE.pattern}")
+        return v
+
+    @model_validator(mode="after")
+    def check_not_empty(self) -> RecipePrecondition:
+        """Une précondition qui ne vérifie rien passerait toujours : c'est une
+        fausse garantie, pire que pas de garantie du tout."""
+        if self.disk_free_gb is None and not self.path_exists and not self.arch:
+            raise ValueError(
+                "a precondition must check at least one of: disk_free_gb, path_exists, arch"
+            )
+        return self
+
+
 class RecipeOption(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -152,6 +210,18 @@ class RecipeMeta(BaseModel):
     id: str
     key: str = Field(default_factory=lambda: str(uuid.uuid4()))
     type: Literal["install", "start", "initialize"] = "install"
+    # Où la recette s'installe. `type` dit QUAND (install/start/initialize),
+    # `scope` dit OÙ — les deux sont orthogonaux, d'où un champ séparé plutôt
+    # qu'un quatrième type.
+    #
+    # `workspace` par défaut : tout le catalogue existant reste valide et
+    # inchangé, sans migration. Une recette de host s'exécute sur la machine
+    # avec les droits d'administration, là où le conteneur bornait les dégâts.
+    scope: Literal["workspace", "host"] = "workspace"
+    # Familles de machines que la recette sait viser (scope=host uniquement).
+    host_usages: list[HostUsage] = Field(default_factory=list)
+    # Vérifiées sur la machine avant tout téléchargement (scope=host uniquement).
+    preconditions: list[RecipePrecondition] = Field(default_factory=list)
     version: str = "1.0.0"
     description: str = ""
     options: dict[str, RecipeOption] = Field(default_factory=dict)
@@ -165,6 +235,39 @@ class RecipeMeta(BaseModel):
     # de masquer BaseModel.copy().
     copies: list[CopyOp] = Field(default_factory=list, alias="copy")
     transform: list[TransformOp] = Field(default_factory=list)
+
+    @field_validator("host_usages")
+    @classmethod
+    def dedupe_host_usages(cls, v: list[str]) -> list[str]:
+        """Dédoublonne en gardant le premier ordre d'apparition."""
+        return list(dict.fromkeys(v))
+
+    @model_validator(mode="after")
+    def check_scope_coherence(self) -> RecipeMeta:
+        """Portée et familles vont ensemble, dans les deux sens.
+
+        Sans famille déclarée, une recette de host serait applicable partout ou
+        nulle part — deux mauvaises réponses pour de l'exécution privilégiée.
+        Et des familles sur une recette de workspace trahissent une méta
+        incohérente : on la refuse plutôt que d'ignorer le champ en silence.
+        """
+        if self.scope == "host" and not self.host_usages:
+            raise ValueError("host_usages must list at least one family when scope is 'host'")
+        if self.scope != "host" and self.host_usages:
+            raise ValueError("host_usages requires scope 'host'")
+        # Hors scope host, elles ne seraient jamais vérifiées : la déclaration
+        # serait trompeuse.
+        if self.scope != "host" and self.preconditions:
+            raise ValueError("preconditions require scope 'host'")
+        return self
+
+    def applies_to_host(self, usage: str) -> bool:
+        """La recette peut-elle viser une machine de cette famille ?
+
+        Faux pour toute recette de workspace : c'est le garde-fou qui empêche le
+        catalogue existant de devenir applicable sur une machine par accident.
+        """
+        return self.scope == "host" and usage in self.host_usages
 
     @field_validator("id")
     @classmethod

@@ -107,6 +107,7 @@
       "newSession": "New session",
       "sessionsMenu": "Sessions ({{count}})",
       "noSession": "No active session",
+      "sharedSession": "This session is also open on another device. tmux sizes the window to the most recently active client, so the smaller screen may look garbled.",
       "noSessionAction": "Create a session",
       "createTitle": "New session",
       "nameLabel": "Name",
@@ -813,6 +814,19 @@
       "addInstance": "Add…",
       "provisioning": "Provisioning…",
       "remove": "Remove {{name}}"
+    },
+    "hostRecipes": {
+      "title": "Recipes — {{host}}",
+      "description": "Recipes that target this machine's family. They run with administrative rights.",
+      "none": "No catalogue recipe targets this machine's family.",
+      "apply": "Apply",
+      "reapply": "Re-apply",
+      "installed": "installed",
+      "outdated": "version {{version}} installed",
+      "opRunning": "Applying — a large recipe can take tens of minutes.",
+      "opDone": "Recipe applied.",
+      "opFailed": "Application failed.",
+      "btn": "Recipes"
     }
   },
   "errors": {

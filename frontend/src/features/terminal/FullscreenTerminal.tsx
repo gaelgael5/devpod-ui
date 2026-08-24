@@ -151,12 +151,33 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         )
       : { dispose: () => {} }
 
+    // Borne comme les autres sondes. Sans elle, une session ou le focus oscille
+    // — precisement le defaut qu'on cherchait a voir — inonde la collecte de
+    // logs en continu, et le motif interessant se noie dans sa propre trace.
+    // Douze suffisent a lire l'oscillation.
+    let focusLogs = 0
+    const tracerFocus = (message: string) => {
+      if (focusLogs >= 12) return
+      focusLogs++
+      console.warn(message)
+    }
+
     const onInputFocus = () => {
-      console.warn('terminal_diag: saisie_focus')
+      tracerFocus('terminal_diag: saisie_focus')
       setInputFocused(true)
     }
-    const onInputBlur = () => {
-      console.warn('terminal_diag: saisie_blur')
+    const onInputBlur = (e: FocusEvent) => {
+      // QUI prend le focus est la seule chose qui manque pour comprendre : les
+      // logs montrent le focus perdu quelques centaines de ms apres l'avoir
+      // pris, en boucle, sans que rien ne dise vers quoi il part.
+      const cible = e.relatedTarget instanceof Element ? e.relatedTarget : document.activeElement
+      tracerFocus(
+        `terminal_diag: saisie_blur ${JSON.stringify({
+          vers: cible instanceof Element ? cible.tagName.toLowerCase() : null,
+          classe: cible instanceof Element ? cible.className.toString().slice(0, 80) : null,
+          testid: cible instanceof Element ? cible.getAttribute('data-testid') : null,
+        })}`,
+      )
       setInputFocused(false)
     }
     let input: HTMLTextAreaElement | null = null
