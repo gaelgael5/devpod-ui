@@ -25,6 +25,7 @@ def _row_to_profile(row: dict[str, Any]) -> MachineProfile:
             "hypervisor_type": row["hypervisor_type"],
             "params": row["params"] or {},
             "recipes": row["recipes"] or [],
+            "services": row["services"] or [],
         }
     )
 
@@ -37,6 +38,7 @@ def _to_values(profile: MachineProfile) -> dict[str, Any]:
         "hypervisor_type": profile.hypervisor_type,
         "params": dict(profile.params),
         "recipes": [r.model_dump() for r in profile.recipes],
+        "services": [s.model_dump() for s in profile.services],
     }
 
 

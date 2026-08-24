@@ -215,6 +215,39 @@ class ProfileRecipe(BaseModel):
         return v.lower()
 
 
+class ProfileService(BaseModel):
+    """Un service Docker a lancer au demarrage de la machine.
+
+    On reference un TEMPLATE COMPOSE existant — ceux que « Lancer un service »
+    deploie deja a la main — plutot qu'une image brute : le template porte son
+    compose, ses parametres types et sa version. Reinventer une liste d'images
+    ici dupliquerait tout cela pour moins bien.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    template_id: str
+    # Nom du deploiement : projet docker compose et repertoire distant. Deux
+    # instances du meme template sur une machine doivent pouvoir coexister,
+    # d'ou un nom distinct du template. Vide = celui du template.
+    deployment_id: str = ""
+    # Valeurs des `parameters` declares par le template.
+    params: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def defaut_deployment_id(self) -> ProfileService:
+        if not self.deployment_id:
+            object.__setattr__(self, "deployment_id", self.template_id)
+        return self
+
+    @field_validator("template_id", "deployment_id")
+    @classmethod
+    def validate_slugs(cls, v: str) -> str:
+        if v and not _PROFILE_SLUG_RE.fullmatch(v):
+            raise ValueError(f"{v!r} must match {_PROFILE_SLUG_RE.pattern}")
+        return v
+
+
 class MachineProfile(BaseModel):
     """Modele de machine : parametres figes + recettes a poser.
 
@@ -237,6 +270,8 @@ class MachineProfile(BaseModel):
     # Appliquees DANS CET ORDRE apres la creation : une dependance se pose avant
     # celle qui l'utilise.
     recipes: list[ProfileRecipe] = Field(default_factory=list)
+    # Services Docker lances au demarrage, dans l'ordre declare.
+    services: list[ProfileService] = Field(default_factory=list)
 
     @field_validator("slug")
     @classmethod
@@ -270,6 +305,18 @@ class MachineProfile(BaseModel):
             if recette.key in vues:
                 raise ValueError(f"doublon de recette dans le profil : {recette.key}")
             vues.add(recette.key)
+        return v
+
+    @field_validator("services")
+    @classmethod
+    def refuse_doublon_de_deploiement(cls, v: list[ProfileService]) -> list[ProfileService]:
+        """Deux deploiements de meme nom, c'est le meme repertoire distant et le
+        meme projet compose : le second ecraserait le premier en silence."""
+        vus: set[str] = set()
+        for service in v:
+            if service.deployment_id in vus:
+                raise ValueError(f"doublon de deploiement dans le profil : {service.deployment_id}")
+            vus.add(service.deployment_id)
         return v
 
 

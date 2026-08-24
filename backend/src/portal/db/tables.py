@@ -415,6 +415,8 @@ machine_profiles = Table(
     Column("params", JSONB, nullable=False, server_default="{}"),
     # [{key, options}] — l'ORDRE compte, d'ou un tableau JSON.
     Column("recipes", JSONB, nullable=False, server_default="[]"),
+    # [{template_id, deployment_id, params}] — services lances au demarrage.
+    Column("services", JSONB, nullable=False, server_default="[]"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
