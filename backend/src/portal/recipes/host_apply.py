@@ -41,6 +41,28 @@ APPLY_TIMEOUT_S = 3600.0
 Runner = Callable[..., Awaitable[tuple[int, str, str]]]
 
 
+# Sequences ANSI : le script colore ses messages, et remontes tels quels les
+# codes s'affichaient en clair dans l'interface.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# Au-dela, une bulle d'erreur ne sert plus personne — `sdkmanager` est bavard.
+_SORTIE_MAX = 2000
+
+
+def nettoyer_sortie(brut: str) -> str:
+    """Rend une sortie de script lisible par un humain dans l'interface.
+
+    Retire les couleurs, condense les lignes vides d'un preflight verbeux, et
+    borne la longueur en gardant la FIN : c'est la derniere ligne qui porte la
+    cause.
+    """
+    sans_ansi = _ANSI_RE.sub("", brut)
+    lignes = [ligne.rstrip() for ligne in sans_ansi.splitlines()]
+    condense = "\n".join(ligne for ligne in lignes if ligne)
+    if len(condense) <= _SORTIE_MAX:
+        return condense
+    return "…" + condense[-(_SORTIE_MAX - 1) :]
+
+
 class HostApplyError(Exception):
     """Refus ou échec d'application, avec un message exploitable tel quel."""
 
@@ -174,7 +196,9 @@ async def apply_recipe_to_host(
     if meta.preconditions:
         rc, out, err = await run(build_check_command(meta.preconditions), timeout=PROBE_TIMEOUT_S)
         if rc != 0:
-            raise HostApplyError(f"vérification des préconditions impossible : {err or out}")
+            raise HostApplyError(
+                f"vérification des préconditions impossible : {nettoyer_sortie(err or out)}"
+            )
         manquantes = parse_check_output(out)
         if manquantes:
             raise HostApplyError(
@@ -190,5 +214,6 @@ async def apply_recipe_to_host(
     resolues = resolve_options(meta, options or {})
     rc, out, err = await run(build_apply_script(meta, script, resolues), timeout=APPLY_TIMEOUT_S)
     if rc != 0:
-        raise HostApplyError(f"échec de l'application de {meta.id!r} (code {rc}) : {err or out}")
+        cause = nettoyer_sortie(err or out)
+        raise HostApplyError(f"échec de l'application de {meta.id!r} (code {rc}) : {cause}")
     return ApplyResult(changed=True, version=meta.version)

@@ -55,10 +55,14 @@ class RecipePrecondition(BaseModel):
     disk_path: str = "/"
     # Chemin qui doit exister (ex. /dev/kvm pour l'émulateur Android).
     path_exists: str = ""
+    # Chemin qui doit être lisible ET inscriptible par l'utilisateur qui
+    # applique. Un fichier de périphérique peut exister sans être accessible :
+    # /dev/kvm appartient au groupe `kvm`, et l'émulateur échoue sans y être.
+    path_writable: str = ""
     # Architecture attendue, telle que `uname -m` la rapporte.
     arch: str = ""
 
-    @field_validator("disk_path", "path_exists")
+    @field_validator("disk_path", "path_exists", "path_writable")
     @classmethod
     def validate_path(cls, v: str) -> str:
         if v and not _ABS_PATH_RE.fullmatch(v):
@@ -78,9 +82,15 @@ class RecipePrecondition(BaseModel):
     def check_not_empty(self) -> RecipePrecondition:
         """Une précondition qui ne vérifie rien passerait toujours : c'est une
         fausse garantie, pire que pas de garantie du tout."""
-        if self.disk_free_gb is None and not self.path_exists and not self.arch:
+        if (
+            self.disk_free_gb is None
+            and not self.path_exists
+            and not self.path_writable
+            and not self.arch
+        ):
             raise ValueError(
-                "a precondition must check at least one of: disk_free_gb, path_exists, arch"
+                "a precondition must check at least one of: "
+                "disk_free_gb, path_exists, path_writable, arch"
             )
         return self
 
