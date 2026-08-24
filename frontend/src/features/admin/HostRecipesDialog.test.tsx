@@ -126,21 +126,18 @@ describe('HostRecipesDialog', () => {
     expect(await screen.findByTestId('etat-android-emulator')).toHaveTextContent('0.9.0')
   })
 
-  it('envoie un corps JSON typé, pas une chaine', async () => {
-    // Sans `Content-Type: application/json`, FastAPI recoit le corps comme une
-    // CHAINE et repond 422 « Input should be a valid dictionary » : le JSON
-    // part bien, mais rien ne dit au serveur que c'en est.
+  it('n’envoie aucun corps quand il n’y a pas d’option', async () => {
+    // Le parametre est optionnel cote serveur : un corps vide mal type valait
+    // un 422 « Input should be a valid dictionary » pour rien.
     const user = userEvent.setup()
-    let contentType: string | null = null
-    let corps: unknown = null
+    let brut: string | null = null
     catalogue({
       installed: {},
       available: [{ id: 'android-emulator', version: '1.0.0', description: '' }],
     })
     server.use(
       http.post('/admin/hosts/:name/recipes/:id', async ({ request }) => {
-        contentType = request.headers.get('content-type')
-        corps = await request.json()
+        brut = await request.text()
         return HttpResponse.json({ operation_id: 'op-1' }, { status: 202 })
       }),
     )
@@ -148,8 +145,7 @@ describe('HostRecipesDialog', () => {
 
     await user.click(await screen.findByRole('button', { name: /appliquer|^apply$/i }))
 
-    await waitFor(() => expect(contentType).toMatch(/application\/json/))
-    expect(corps).toEqual({ options: {} })
+    await waitFor(() => expect(brut).toBe(''))
   })
 
   it('rend compte de l’application jusqu’a son terme', async () => {

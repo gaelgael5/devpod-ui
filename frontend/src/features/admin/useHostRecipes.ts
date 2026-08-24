@@ -48,14 +48,19 @@ export function useApplyHostRecipe(hostName: string | null, wsName?: string) {
     mutationFn: ({ recipeId, options }: { recipeId: string; options?: Record<string, string> }) =>
       apiFetchJson<{ operation_id: string }>(
         `${basePath(hostName, wsName)}/${encodeURIComponent(recipeId)}`,
-        {
-          method: 'POST',
-          // Sans cet en-tete, FastAPI recoit le corps comme une CHAINE et
-          // repond 422 « Input should be a valid dictionary » : le JSON part
-          // bien, mais rien ne dit au serveur que c'en est.
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ options: options ?? {} }),
-        },
+        // Sans option a transmettre, on n'envoie AUCUN corps : le parametre est
+        // optionnel cote serveur, et un corps vide mal type valait un 422
+        // « Input should be a valid dictionary » pour rien. Moins il y a de
+        // corps, moins il y a de facons de le mal former.
+        options && Object.keys(options).length > 0
+          ? {
+              method: 'POST',
+              // Obligatoire des qu'il y a un corps : sans lui FastAPI le
+              // recoit comme une CHAINE et refuse d'en extraire les champs.
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ options }),
+            }
+          : { method: 'POST' },
       ),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['host-recipes', wsName ?? null, hostName] }),
