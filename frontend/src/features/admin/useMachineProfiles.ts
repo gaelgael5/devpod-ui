@@ -20,7 +20,11 @@ export interface ProfileService {
 export interface MachineProfile {
   slug: string
   label: string
-  machine_type: 'test' | 'ressources'
+  /**
+   * Meme vocabulaire que l'usage d'un host, a un detail pres : la machine de
+   * test s'ecrit `test` ici (valeur historique) et `tests` la-bas.
+   */
+  machine_type: 'test' | 'ressources' | 'workspaces' | 'autres'
   hypervisor_type: string
   params: Record<string, string>
   recipes: ProfileRecipe[]

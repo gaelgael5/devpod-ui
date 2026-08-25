@@ -856,14 +856,31 @@
       "saved": "Profile saved.",
       "deleted": "Profile deleted.",
       "type": {
-        "test": "Test",
-        "ressources": "Resources"
+        "workspaces": "Workspaces",
+        "test": "Test machine",
+        "ressources": "Shared resources",
+        "autres": "Other"
       },
       "deploymentId": "Deployment name",
       "addService": "Add a service…"
     },
     "argsForm": {
       "templating": "— variables: {count++} or <N+1> (next machine number), <N>, <NEW_VMID>"
+    },
+    "orphans": {
+      "btn": "Purge orphans",
+      "title": "Orphan deployments",
+      "hint": "These deployments point at a machine that no longer exists. Their containers went with it — only database rows remain, and they reappear as-is on the next machine bearing the same name. No \"compose down\" is attempted.",
+      "loading": "Searching…",
+      "empty": "No orphan deployment.",
+      "colNode": "Machine",
+      "colName": "Deployment",
+      "colTemplate": "Template",
+      "colOwner": "Owner",
+      "cancel": "Cancel",
+      "confirm": "Purge ({{count}})",
+      "purged": "{{count}} orphan deployment(s) purged",
+      "purgeFailed": "Purge failed"
     }
   },
   "errors": {

@@ -9,6 +9,7 @@ const QK = {
   nodes: () => ['compose', 'nodes'] as const,
   deployments: () => ['compose', 'deployments'] as const,
   logs: (id: string) => ['compose', 'logs', id] as const,
+  orphans: () => ['compose', 'orphans'] as const,
 }
 
 export function useTemplates(tag?: string) {
@@ -22,6 +23,33 @@ export function useNodes() {
 }
 export function useDeployments() {
   return useQuery({ queryKey: QK.deployments(), queryFn: api.listDeployments, refetchInterval: 10_000 })
+}
+
+/**
+ * Deploiements orphelins : leur noeud a disparu de l'inventaire. Charges a la
+ * demande (`enabled`) — c'est une operation de maintenance, pas une donnee de
+ * page a rafraichir en continu.
+ */
+export function useOrphanDeployments(enabled: boolean) {
+  return useQuery({
+    queryKey: QK.orphans(),
+    queryFn: api.listOrphanDeployments,
+    enabled,
+    staleTime: 0,
+  })
+}
+
+export function usePurgeOrphanDeployments() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: api.purgeOrphanDeployments,
+    onSuccess: () => {
+      // Les listes par noeud affichaient les memes lignes : les invalider aussi.
+      qc.invalidateQueries({ queryKey: QK.orphans() })
+      qc.invalidateQueries({ queryKey: QK.deployments() })
+      qc.invalidateQueries({ queryKey: ['admin', 'hosts'] })
+    },
+  })
 }
 
 export function useDeploymentLogs(uid: string, enabled: boolean) {

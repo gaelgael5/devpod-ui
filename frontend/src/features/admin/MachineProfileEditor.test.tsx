@@ -297,3 +297,22 @@ describe('MachineProfileEditor — libelle du type d’hyperviseur', () => {
     expect(screen.queryByText('proxmox')).toBeNull()
   })
 })
+
+describe('MachineProfileEditor — type de machine', () => {
+  /**
+   * Un profil ne sert pas qu'aux machines de test : il doit pouvoir decrire une
+   * machine qui hebergera des workspaces, ou une machine libre. Radix Select
+   * n'ouvre pas sa liste sous jsdom — on verifie donc que chaque valeur est
+   * acceptee et rendue avec SON libelle, ce qui couvre le tour complet.
+   */
+  it.each([
+    ['workspaces', /^Workspaces$/],
+    ['test', /Machine de test|Test machine/],
+    ['ressources', /Ressources partag|Shared resources/],
+    ['autres', /^Autres$|^Other$/],
+  ] as const)('affiche le libelle du type %s', async (type, libelle) => {
+    renderEditor({ ...VIDE, machine_type: type })
+
+    expect(await screen.findByText(libelle)).toBeInTheDocument()
+  })
+})

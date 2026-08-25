@@ -13,6 +13,7 @@ from ..auth.rbac import UserInfo, require_admin, require_user
 from ..compose import db as cdb
 from ..compose import service as csvc
 from ..compose.models import ComposeDeployment, ComposeTemplate, validate_slug
+from ..compose.orphans import select_orphans
 from ..compose.ports import PortConflict
 from ..compose.service import ComposeServiceError
 from ..compose.validation import TemplateValidationError, first_service_name, validate_template
@@ -247,6 +248,48 @@ async def create_deployment(
     except ComposeServiceError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return dep.model_dump(mode="json")
+
+
+# Declarees AVANT `/deployments/{deployment_id}` : sinon « orphans » serait pris
+# pour un identifiant de deploiement.
+@router.get("/deployments/orphans")
+async def list_orphan_deployments(
+    user: Annotated[UserInfo, Depends(require_admin)],
+    conn: Annotated[AsyncConnection, Depends(get_conn)],
+) -> list[dict[str, Any]]:
+    """Deploiements dont le noeud n'est plus dans l'inventaire.
+
+    Lecture seule : la purge se demande explicitement, apres avoir vu la liste.
+    """
+    connus = [h.name for h in load_global().hosts]
+    orphelins = select_orphans(await cdb.list_deployments(conn, owner_login=None), connus)
+    return [d.model_dump(mode="json") for d in orphelins]
+
+
+@router.delete("/deployments/orphans")
+async def purge_orphan_deployments(
+    user: Annotated[UserInfo, Depends(require_admin)],
+    conn: Annotated[AsyncConnection, Depends(get_conn)],
+) -> dict[str, Any]:
+    """Oublie les deploiements des noeuds disparus.
+
+    Aucun `compose down` : la cible SSH n'existe plus, c'est precisement ce qui
+    fait d'eux des orphelins. On ne supprime que des lignes en base.
+    """
+    connus = [h.name for h in load_global().hosts]
+    orphelins = select_orphans(await cdb.list_deployments(conn, owner_login=None), connus)
+    for dep in orphelins:
+        await cdb.delete_deployment(conn, dep.uid)
+    _log.info(
+        "compose_orphans_purged",
+        count=len(orphelins),
+        nodes=sorted({d.node_id for d in orphelins}),
+        by=user.login,
+    )
+    return {
+        "purged": len(orphelins),
+        "nodes": sorted({d.node_id for d in orphelins}),
+    }
 
 
 @router.post("/deployments/stream")

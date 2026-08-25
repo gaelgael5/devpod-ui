@@ -43,6 +43,15 @@ export function listNodes(): Promise<NodeRef[]> {
 export function listDeployments(): Promise<ComposeDeployment[]> {
   return apiFetchJson<ComposeDeployment[]>('/api/compose/deployments')
 }
+/** Deploiements dont le noeud n'est plus dans l'inventaire (admin). */
+export function listOrphanDeployments(): Promise<ComposeDeployment[]> {
+  return apiFetchJson<ComposeDeployment[]>('/api/compose/deployments/orphans')
+}
+export function purgeOrphanDeployments(): Promise<{ purged: number; nodes: string[] }> {
+  return apiFetchJson<{ purged: number; nodes: string[] }>('/api/compose/deployments/orphans', {
+    method: 'DELETE',
+  })
+}
 export function createDeployment(body: DeploymentCreateBody): Promise<ComposeDeployment> {
   return apiFetchJson<ComposeDeployment>('/api/compose/deployments', {
     method: 'POST', headers: J, body: JSON.stringify(body),

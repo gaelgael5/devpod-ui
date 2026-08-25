@@ -856,14 +856,31 @@
       "saved": "Profil enregistré.",
       "deleted": "Profil supprimé.",
       "type": {
-        "test": "Test",
-        "ressources": "Ressources"
+        "workspaces": "Workspaces",
+        "test": "Machine de test",
+        "ressources": "Ressources partagées",
+        "autres": "Autres"
       },
       "deploymentId": "Nom du déploiement",
       "addService": "Ajouter un service…"
     },
     "argsForm": {
       "templating": "— variables : {count++} ou <N+1> (n° de la prochaine machine), <N>, <NEW_VMID>"
+    },
+    "orphans": {
+      "btn": "Purger les orphelins",
+      "title": "Déploiements orphelins",
+      "hint": "Ces déploiements pointent vers une machine qui n'existe plus. Leurs conteneurs sont partis avec elle : il ne reste que des lignes en base, qui ressortent à l'identique sur la machine suivante portant le même nom. Aucun « compose down » n'est tenté.",
+      "loading": "Recherche…",
+      "empty": "Aucun déploiement orphelin.",
+      "colNode": "Machine",
+      "colName": "Déploiement",
+      "colTemplate": "Template",
+      "colOwner": "Propriétaire",
+      "cancel": "Annuler",
+      "confirm": "Purger ({{count}})",
+      "purged": "{{count}} déploiement(s) orphelin(s) purgé(s)",
+      "purgeFailed": "La purge a échoué"
     }
   },
   "errors": {

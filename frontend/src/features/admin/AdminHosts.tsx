@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils'
 import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useRevealCiPassword, useTestHostsSummary, type HostConfig, type HostCreatePayload, type HostUserWorkspaces, type UserTestGroup } from './useHosts'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
+import OrphanDeploymentsDialog from './OrphanDeploymentsDialog'
 import TestHostParamsDialog from './TestHostParamsDialog'
 import HostRecipesDialog from './HostRecipesDialog'
 import { openTerminalTab } from '@/features/terminal/openTerminalTab'
@@ -711,6 +712,7 @@ export default function AdminHosts() {
   const [mode, setMode] = useState<DialogMode>('add')
   const [showCert, setShowCert] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
+  const [orphansOpen, setOrphansOpen] = useState(false)
   const [testParamsOpen, setTestParamsOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [destroyTarget, setDestroyTarget] = useState<HostConfig | null>(null)
@@ -852,6 +854,11 @@ export default function AdminHosts() {
           <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
             {t('admin.generate.btn')}
           </Button>
+          {/* La purge vit sur cette page parce que « orphelin » se definit par
+              rapport a l'inventaire qu'elle presente. */}
+          <Button size="sm" variant="outline" onClick={() => setOrphansOpen(true)}>
+            {t('admin.orphans.btn')}
+          </Button>
           <Button size="sm" onClick={openAdd}>{t('admin.addHost')}</Button>
         </div>
       </div>
@@ -956,6 +963,8 @@ export default function AdminHosts() {
         onClose={() => setGenerateOpen(false)}
         onGenerated={handleGenerated}
       />
+
+      <OrphanDeploymentsDialog open={orphansOpen} onClose={() => setOrphansOpen(false)} />
 
       <TestHostParamsDialog
         open={testParamsOpen}

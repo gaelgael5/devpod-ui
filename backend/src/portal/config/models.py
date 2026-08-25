@@ -261,9 +261,11 @@ class MachineProfile(BaseModel):
 
     slug: str
     label: str
-    # `ressources` est stocke des maintenant mais pas encore exploite a la
-    # creation : la colonne existe, l'usage viendra.
-    machine_type: Literal["test", "ressources"] = "test"
+    # Meme vocabulaire que `HostConfig.usage`, a un detail pres : la machine de
+    # test s'ecrit `test` ici (valeur historique, deja en base) et `tests` la-bas.
+    # Seul `test` est exploite a la creation ; les autres se declarent des
+    # maintenant, l'usage viendra.
+    machine_type: Literal["test", "ressources", "workspaces", "autres"] = "test"
     hypervisor_type: str
     # Args du script de creation, tels que declares par la spec du type.
     params: dict[str, str] = Field(default_factory=dict)

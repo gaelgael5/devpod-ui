@@ -136,10 +136,16 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
             >
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
+                {/* Meme ordre que l'usage d'un host, sans « portail » : le
+                    portail ne se cree pas depuis un profil. */}
+                <SelectItem value="workspaces">
+                  {t('admin.machineProfiles.type.workspaces')}
+                </SelectItem>
                 <SelectItem value="test">{t('admin.machineProfiles.type.test')}</SelectItem>
                 <SelectItem value="ressources">
                   {t('admin.machineProfiles.type.ressources')}
                 </SelectItem>
+                <SelectItem value="autres">{t('admin.machineProfiles.type.autres')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
