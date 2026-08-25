@@ -43,6 +43,24 @@ def referenced_vars(compose_content: str) -> set[str]:
     return set(_VAR_RE.findall(compose_content))
 
 
+# Même grammaire que `_VAR_RE`, mais l'opérateur est capturé : c'est lui qui dit
+# si la variable a une valeur de repli.
+_VAR_FORM_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-+?][^}]*)?\}")
+
+
+def required_vars(compose_content: str) -> set[str]:
+    """Variables sans repli : `${VAR}`, `${VAR:?msg}`, `${VAR?msg}`.
+
+    `${VAR:-defaut}`, `${VAR-defaut}` et `${VAR:+alt}` s'en passent — les exiger
+    ferait échouer un déploiement parfaitement viable.
+    """
+    besoins: set[str] = set()
+    for nom, suffixe in _VAR_FORM_RE.findall(compose_content):
+        if suffixe == "" or suffixe.lstrip(":").startswith("?"):
+            besoins.add(nom)
+    return besoins
+
+
 def first_service_name(compose_content: str) -> str | None:
     """Nom du premier service défini dans le compose (ordre du document).
 

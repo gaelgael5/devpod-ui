@@ -42,7 +42,7 @@ from .models import ComposeDeployment, ComposeTemplate, DeploymentStatus
 from .override_builder import build_override
 from .port_aliases import parse_port_aliases, rewrite_compose_ports
 from .ports import PortConflict, allocate_ports, check_ports
-from .validation import referenced_vars
+from .validation import PORTAL_INJECTED_VARS, referenced_vars, required_vars
 
 _log = structlog.get_logger(__name__)
 
@@ -121,6 +121,43 @@ def foreign_env_keys(template: ComposeTemplate, env_values: dict[str, str]) -> l
     """
     declared = {p.key for p in template.parameters}
     return sorted(k for k in env_values if k not in declared)
+
+
+# Où l'utilisateur va renseigner ce qui manque. Le message d'erreur d'un
+# déploiement doit mener à l'écran qui le répare, pas décrire un symptôme.
+_OU_CONFIGURER: dict[str, str] = {
+    "LOKI_URL": "Admin → Gestion → Logs, « URL de push des logs »",
+    "METRICS_URL": "Admin → Gestion → Logs, « URL de push des métriques »",
+}
+_OU_PAR_DEFAUT = "Admin → Gestion → Logs (chaîne d'observabilité désactivée)"
+
+
+def _require_injected_vars(
+    template: ComposeTemplate, env_values: dict[str, str], host: HostConfig
+) -> None:
+    """Refuse un déploiement dont une variable fournie par le PORTAIL manque.
+
+    Les collecteurs gardent leurs variables obligatoires (`${METRICS_URL:?…}`) :
+    sans cible, ne pas démarrer vaut mieux que pousser dans le vide. Mais
+    l'erreur remontait alors de `docker compose`, qui refuse AVANT de créer le
+    conteneur — donc pas de conteneur, pas de logs, aucune cause lisible. Le
+    portail sait avant d'essayer que la variable n'est pas configurée : il le
+    dit, et il dit où la renseigner.
+
+    Une variable saisie par l'utilisateur (paramètre du template) fait l'affaire
+    tout autant que la valeur injectée.
+    """
+    besoins = required_vars(template.compose_content) & PORTAL_INJECTED_VARS
+    if not besoins:
+        return
+    fournies = set(_log_context_vars(host)) | {k for k, v in env_values.items() if v.strip()}
+    manquantes = sorted(besoins - fournies)
+    if not manquantes:
+        return
+    details = ", ".join(f"{v} ({_OU_CONFIGURER.get(v, _OU_PAR_DEFAUT)})" for v in manquantes)
+    raise ComposeServiceError(
+        f"{template.name} attend des variables que le portail ne fournit pas : {details}"
+    )
 
 
 def _reject_foreign_env_keys(template: ComposeTemplate, env_values: dict[str, str]) -> None:
@@ -330,6 +367,7 @@ async def deploy(
     host = _host_for_node(node_id)
     _reject_foreign_env_keys(template, env_values)
     _validate_secret_refs(template, env_values)
+    _require_injected_vars(template, env_values, host)
 
     # Réservation précoce (bug 015) : l'allocation et l'INSERT de la ligne
     # « created » (porteuse des host_ports) se font dans une transaction courte
@@ -551,6 +589,7 @@ async def deploy_stream(
     host = _host_for_node(node_id)
     _reject_foreign_env_keys(template, env_values)
     _validate_secret_refs(template, env_values)
+    _require_injected_vars(template, env_values, host)
     resolved = resolve_env_values(owner_login, secret_ns, env_values)
     rdir = _remote_dir(name)
 
