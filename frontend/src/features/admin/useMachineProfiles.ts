@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetchJson, apiFetchVoid } from '@/shared/api/client'
 
+export { slugifier } from '@/shared/slug'
+
 /** Une recette à poser sur la machine, avec les valeurs de ses options. */
 export interface ProfileRecipe {
   key: string

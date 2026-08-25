@@ -18,6 +18,7 @@ import { useAdminRecipes } from './useAdminRecipes'
 import type { RecipeOption } from '@/features/recipes/types'
 import {
   nomDeploiementLibre,
+  slugifier,
   useSaveMachineProfile,
   type MachineProfile,
 } from './useMachineProfiles'
@@ -45,6 +46,10 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
   const { data: templates = [] } = useTemplates()
 
   const nouveau = !profile.slug
+  // Le slug suit le libelle tant qu'on n'y a pas touche : le derive
+  // automatiquement evite d'avoir a l'inventer, mais une saisie manuelle ne
+  // doit pas etre ecrasee au caractere suivant.
+  const [slugManuel, setSlugManuel] = useState(false)
   const recettes = recipesQuery.data ?? []
 
   function set<K extends keyof MachineProfile>(clef: K, valeur: MachineProfile[K]) {
@@ -74,7 +79,17 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <Label>{t('admin.machineProfiles.label')}</Label>
-            <Input value={brouillon.label} onChange={(e) => set('label', e.target.value)} />
+            <Input
+              value={brouillon.label}
+              onChange={(e) => {
+                const label = e.target.value
+                setBrouillon((b) => ({
+                  ...b,
+                  label,
+                  slug: nouveau && !slugManuel ? slugifier(label) : b.slug,
+                }))
+              }}
+            />
           </div>
           <div>
             <Label>{t('admin.machineProfiles.slug')}</Label>
@@ -83,7 +98,10 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
             <Input
               value={brouillon.slug}
               disabled={!nouveau}
-              onChange={(e) => set('slug', e.target.value)}
+              onChange={(e) => {
+                setSlugManuel(true)
+                set('slug', e.target.value)
+              }}
             />
           </div>
           <div>
@@ -125,6 +143,13 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
           </TabsList>
 
           <TabsContent value="params" className="pt-3">
+            {/* Le nom de la machine se declare ICI, comme les autres args du
+                script. Il est fige par le profil : sans variable, toutes les
+                machines qui en sortent porteraient le meme nom et la seconde
+                creation echouerait sur un conflit. D'ou le rappel. */}
+            <p className="mb-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              {t('admin.machineProfiles.varsHint')}
+            </p>
             {spec ? (
               <HypervisorArgsForm
                 args={flattenArgs(spec.args)}

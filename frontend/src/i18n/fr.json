@@ -858,7 +858,8 @@
         "ressources": "Ressources"
       },
       "deploymentId": "Nom du déploiement",
-      "addService": "Ajouter un service…"
+      "addService": "Ajouter un service…",
+      "varsHint": "Les valeurs acceptent des variables : <N+1> (numéro de la prochaine machine du workspace), <N>, et les autres paramètres par leur nom (ex. <NEW_VMID>). Un nom de machine sans variable serait identique pour toutes les machines du profil — la deuxième création échouerait."
     }
   },
   "errors": {

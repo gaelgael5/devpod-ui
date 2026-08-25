@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { slugifier } from '@/shared/slug'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,12 +11,9 @@ import { useAdminHypervisorTypes, type HypervisorTypeConfig } from './useAdminHy
 
 const EMPTY: HypervisorTypeConfig = { label: '', name: '', add_script: '', destroy_script: '' }
 
-function labelToKey(label: string): string {
-  return label
-    .replace(/[^a-z0-9-]/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-}
+// `labelToKey` SUPPRIMAIT les majuscules au lieu de les convertir : « Proxmox »
+// devenait « roxmox ». `slugifier` les met en minuscules et retire les accents.
+const labelToKey = slugifier
 
 export default function AdminHypervisorTypes() {
   const { t } = useTranslation()

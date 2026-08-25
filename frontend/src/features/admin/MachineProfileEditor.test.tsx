@@ -14,7 +14,7 @@ import { I18nextProvider } from 'react-i18next'
 import i18n from '@/i18n'
 import { server } from '@/test/server'
 import MachineProfileEditor from './MachineProfileEditor'
-import { nomDeploiementLibre, type MachineProfile } from './useMachineProfiles'
+import { nomDeploiementLibre, slugifier, type MachineProfile } from './useMachineProfiles'
 
 const VIDE: MachineProfile = {
   slug: 'android-test',
@@ -74,6 +74,49 @@ function renderEditor(profile: MachineProfile = VIDE) {
     </QueryClientProvider>,
   )
 }
+
+describe('slugifier', () => {
+  /**
+   * Le serveur n'accepte que `^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$`. Deriver le
+   * slug du libelle evite d'avoir a l'inventer — et d'echouer a la validation.
+   */
+  it('met en minuscules et remplace les espaces', () => {
+    expect(slugifier('Machine Android')).toBe('machine-android')
+  })
+
+  it('retire les accents', () => {
+    // Decomposition NFD : la regle vaut pour tout l'alphabet latin, sans table
+    // de conversion caractere par caractere.
+    expect(slugifier('Éditeur de tests')).toBe('editeur-de-tests')
+    expect(slugifier('Café Noël')).toBe('cafe-noel')
+  })
+
+  it('condense les separateurs', () => {
+    expect(slugifier('a  --  b')).toBe('a-b')
+  })
+
+  it('ne laisse pas de tiret aux extremites', () => {
+    // La regex du serveur exige une lettre ou un chiffre aux deux bouts.
+    expect(slugifier('  Test !  ')).toBe('test')
+  })
+
+  it('supprime la ponctuation', () => {
+    expect(slugifier("Machine d'Alice (v2)")).toBe('machine-d-alice-v2')
+  })
+
+  it('borne la longueur sans finir par un tiret', () => {
+    // Tronquer peut laisser un tiret final, que le serveur refuserait.
+    const long = slugifier('a'.repeat(38) + ' ' + 'b'.repeat(10))
+
+    expect(long.length).toBeLessThanOrEqual(40)
+    expect(long.endsWith('-')).toBe(false)
+  })
+
+  it('rend une chaine vide pour un libelle sans caractere utile', () => {
+    // A l'appelant de refuser : le bouton d'enregistrement exige un slug.
+    expect(slugifier('!!!')).toBe('')
+  })
+})
 
 describe('nomDeploiementLibre', () => {
   /**
@@ -151,5 +194,43 @@ describe('MachineProfileEditor — identite', () => {
     const champs = screen.getAllByRole('textbox')
     const slug = champs.find((c) => (c as HTMLInputElement).value === 'android-test')
     expect(slug).toBeDisabled()
+  })
+})
+
+describe('MachineProfileEditor — slug derive du libelle', () => {
+  const VIERGE: MachineProfile = { ...VIDE, slug: '', label: '' }
+
+  it('preremplit le slug pendant la saisie du libelle', async () => {
+    const user = userEvent.setup()
+    renderEditor(VIERGE)
+
+    const champs = screen.getAllByRole('textbox')
+    await user.type(champs[0], 'Machine Android')
+
+    expect((champs[1] as HTMLInputElement).value).toBe('machine-android')
+  })
+
+  it('n’ecrase pas un slug saisi a la main', async () => {
+    // Sinon la saisie manuelle disparaitrait au caractere suivant du libelle.
+    const user = userEvent.setup()
+    renderEditor(VIERGE)
+
+    const champs = screen.getAllByRole('textbox')
+    await user.type(champs[1], 'mon-slug')
+    await user.type(champs[0], 'Autre chose')
+
+    expect((champs[1] as HTMLInputElement).value).toBe('mon-slug')
+  })
+
+  it('ne touche pas au slug d’un profil existant', async () => {
+    // Le slug est l'identite : les machines creees en gardent la reference.
+    const user = userEvent.setup()
+    renderEditor()
+
+    const champs = screen.getAllByRole('textbox')
+    await user.clear(champs[0])
+    await user.type(champs[0], 'Renomme')
+
+    expect((champs[1] as HTMLInputElement).value).toBe('android-test')
   })
 })
