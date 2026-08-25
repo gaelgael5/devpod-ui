@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from datetime import datetime
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -314,6 +315,20 @@ async def host_full_info(
         )
     ).mappings().first()
     return (row["login"], row["workspace_name"], row["alias"] or "") if row else None
+
+
+async def test_host_creation_dates(conn: AsyncConnection) -> dict[str, datetime]:
+    """Date de creation de chaque host de test, par nom (ligne propriétaire).
+
+    Un nom de machine se réemploie : c'est cette date qui permet de dire qu'un
+    déploiement plus ancien que la machine ne peut pas y tourner.
+    """
+    rows = (
+        await conn.execute(
+            select(_t.c.host_name, _t.c.created_at).where(_t.c.shared_from_workspace.is_(None))
+        )
+    ).mappings().all()
+    return {r["host_name"]: r["created_at"] for r in rows if r["created_at"] is not None}
 
 
 async def get_test_host_message_id(

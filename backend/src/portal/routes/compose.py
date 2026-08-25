@@ -20,7 +20,7 @@ from ..compose.validation import TemplateValidationError, first_service_name, va
 from ..config.models import HostConfig
 from ..config.store import load_global, load_user
 from ..db.engine import _get_engine, get_conn
-from ..db.test_hosts import host_full_info
+from ..db.test_hosts import host_full_info, test_host_creation_dates
 from ..messages import db as mdb
 from ..messages.models import WorkspaceMessage
 from ..schemas.compose import (
@@ -250,6 +250,15 @@ async def create_deployment(
     return dep.model_dump(mode="json")
 
 
+async def _orphelins(conn: AsyncConnection) -> list[ComposeDeployment]:
+    """Deploiements qui ne peuvent pas tourner la ou ils prétendent tourner."""
+    return select_orphans(
+        await cdb.list_deployments(conn, owner_login=None),
+        [h.name for h in load_global().hosts],
+        await test_host_creation_dates(conn),
+    )
+
+
 # Declarees AVANT `/deployments/{deployment_id}` : sinon « orphans » serait pris
 # pour un identifiant de deploiement.
 @router.get("/deployments/orphans")
@@ -261,9 +270,7 @@ async def list_orphan_deployments(
 
     Lecture seule : la purge se demande explicitement, apres avoir vu la liste.
     """
-    connus = [h.name for h in load_global().hosts]
-    orphelins = select_orphans(await cdb.list_deployments(conn, owner_login=None), connus)
-    return [d.model_dump(mode="json") for d in orphelins]
+    return [d.model_dump(mode="json") for d in await _orphelins(conn)]
 
 
 @router.delete("/deployments/orphans")
@@ -276,8 +283,7 @@ async def purge_orphan_deployments(
     Aucun `compose down` : la cible SSH n'existe plus, c'est precisement ce qui
     fait d'eux des orphelins. On ne supprime que des lignes en base.
     """
-    connus = [h.name for h in load_global().hosts]
-    orphelins = select_orphans(await cdb.list_deployments(conn, owner_login=None), connus)
+    orphelins = await _orphelins(conn)
     for dep in orphelins:
         await cdb.delete_deployment(conn, dep.uid)
     _log.info(

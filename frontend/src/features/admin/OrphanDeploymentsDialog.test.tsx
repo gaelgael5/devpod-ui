@@ -67,3 +67,24 @@ describe('OrphanDeploymentsDialog', () => {
     expect(screen.queryByText(/orphelin|orphan/i)).toBeNull()
   })
 })
+
+describe('OrphanDeploymentsDialog — nom de machine reemploye', () => {
+  /**
+   * Une VM supprimee puis recreee sous le meme nom fait reapparaitre les lignes
+   * de l'ancienne. Le backend les distingue par leur date ; l'UI doit les
+   * presenter comme les autres orphelins.
+   */
+  it('liste une ligne anterieure a la machine qui la porte', async () => {
+    renderDialog([
+      {
+        ...ORPHELIN,
+        id: 'alloy-devpod',
+        node_id: 'host-test-106-1',
+        created_at: '2026-07-03T08:54:09Z',
+      },
+    ])
+
+    expect(await screen.findByText('alloy-devpod')).toBeInTheDocument()
+    expect(screen.getByText('host-test-106-1')).toBeInTheDocument()
+  })
+})
