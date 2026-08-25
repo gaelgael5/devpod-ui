@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..compose import service as csvc
+from ..compose.db import get_deployment_by_name_node, get_template
 from ..config.models import (
     _PROXMOX_NAME_RE,
     GlobalConfig,
@@ -78,7 +79,7 @@ from ..messages.renderer import build_host_context
 from ..messages.service import delete_message as msg_delete
 from ..messages.service import render_and_create
 from ..net import build_resolve_fqdn, resolve_ipv4
-from ..profiles.provisioning import apply_profile_recipes
+from ..profiles.provisioning import apply_profile_recipes, deploy_profile_services
 from ..routes.host_recipes import _read_install_script as _read_recipe_script
 from ..secrets.system import (
     delete_system_secret,
@@ -505,6 +506,49 @@ async def _provision_test_vm(
                 read_script=lambda rid: _read_recipe_script(rid, login),
             ):
                 job.write(ligne.encode())
+
+        # Services du profil, avant l'auto-start : le profil est un choix
+        # explicite pour CETTE machine, l'auto-start une preference globale.
+        if profile is not None and profile.services:
+            live_services = load_global()
+            host_srv = next((h for h in live_services.hosts if h.name == host.name), host)
+            srv_user_cfg = await load_user(login)
+            async with _get_engine().begin() as conn:
+                modeles: dict[str, object] = {}
+                for service in profile.services:
+                    tpl = await get_template(conn, service.template_id)
+                    if tpl is not None:
+                        modeles[service.template_id] = tpl
+
+                async def _deja(nom: str, _conn: AsyncConnection = conn) -> bool:
+                    return await get_deployment_by_name_node(_conn, nom, host.name) is not None
+
+                async def _deploy(
+                    *,
+                    name: str,
+                    template: Any,
+                    node_id: str,
+                    env_values: dict[str, str],
+                    _conn: AsyncConnection = conn,
+                ) -> object:
+                    return await csvc.deploy(
+                        _conn,
+                        name=name,
+                        template=template,
+                        node_id=node_id,
+                        owner_login=login,
+                        secret_ns=srv_user_cfg.secret_ns,
+                        env_values=env_values,
+                    )
+
+                async for ligne in deploy_profile_services(
+                    profile,
+                    host=host_srv,
+                    templates=modeles,
+                    deploy=_deploy,
+                    already_deployed=_deja,
+                ):
+                    job.write(ligne.encode())
 
         # Auto-start : uniquement si le SSH portail a été activé (host_cert_slug posé).
         if host_cert_ready(load_global().hosts, host.name):

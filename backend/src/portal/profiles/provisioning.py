@@ -80,3 +80,67 @@ async def apply_profile_recipes(
             yield f"==> Recette {meta.id} posee.\n"
         else:
             yield f"==> Recette {meta.id} deja presente dans cette version.\n"
+
+
+# Déploiement d'un template compose, injecté pour les tests : `deploy` parle à
+# une vraie machine par SSH.
+Deployer = Callable[..., Awaitable[object]]
+
+
+async def deploy_profile_services(
+    profile: MachineProfile,
+    *,
+    host: HostConfig,
+    templates: dict[str, object],
+    deploy: Deployer,
+    already_deployed: Callable[[str], Awaitable[bool]],
+) -> AsyncIterator[str]:
+    """Démarre les services déclarés par le profil, DANS L'ORDRE.
+
+    L'ordre compte : un collecteur peut devoir démarrer avant ce qu'il observe.
+
+    Ne redéploie jamais un service déjà présent sous ce nom — même règle que
+    l'auto-start : idempotence signifie ne rien faire, pas écraser. Un échec
+    n'interrompt pas la suite, pour la même raison que les recettes.
+    """
+    if not profile.services:
+        return
+
+    for service in profile.services:
+        modele = templates.get(service.template_id)
+        if modele is None:
+            # Template retiré de la galerie depuis la création du profil.
+            yield (
+                f"==> AVERTISSEMENT : template {service.template_id!r} absent "
+                "de la galerie, ignore\n"
+            )
+            _log.warning(
+                "profile_service_template_missing",
+                template=service.template_id,
+                host=host.name,
+            )
+            continue
+
+        if await already_deployed(service.deployment_id):
+            yield f"==> Service {service.deployment_id} deja deploye.\n"
+            continue
+
+        yield f"==> Service {service.deployment_id} ({service.template_id})...\n"
+        try:
+            await deploy(
+                name=service.deployment_id,
+                template=modele,
+                node_id=host.name,
+                env_values=dict(service.params),
+            )
+        except Exception as exc:
+            yield f"==> ECHEC du service {service.deployment_id} : {exc}\n"
+            _log.warning(
+                "profile_service_failed",
+                service=service.deployment_id,
+                host=host.name,
+                exc=repr(exc),
+            )
+            continue
+
+        yield f"==> Service {service.deployment_id} demarre.\n"
