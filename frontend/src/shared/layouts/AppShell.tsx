@@ -150,9 +150,6 @@ export default function AppShell() {
                       <DropdownMenuItem onClick={() => navigate('/admin/logs')}>
                         {t('admin.logs.navLabel')}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => navigate('/admin/termix-instances')}>
-                        {t('admin.termix.navLabel')}
-                      </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => navigate('/admin/bastion')}>
                         {t('admin.bastion.navLabel')}
                       </DropdownMenuItem>
@@ -161,6 +158,9 @@ export default function AppShell() {
                       </DropdownMenuItem>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
+                  <DropdownMenuItem onClick={() => navigate('/admin/termix-instances')}>
+                    {t('admin.termix.navLabel')}
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/users')}>
                     {t('admin.users.navLabel')}
                   </DropdownMenuItem>
