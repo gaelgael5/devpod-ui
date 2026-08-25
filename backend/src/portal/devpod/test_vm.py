@@ -3,6 +3,7 @@
 Parties pures (mapping résultat → HostConfig, construction des args) ; l'exécution
 SSH et la persistance vivent dans la route `/me`.
 """
+
 from __future__ import annotations
 
 import json
@@ -14,23 +15,37 @@ from ..config.models import HostConfig
 from .exec import remote_tmux_command
 
 _VAR_RE = re.compile(r"<([^<>]+)>")
+# Masque de numerotation : `{count++}` vaut le numero de la PROCHAINE machine du
+# workspace, comme `<N+1>`. Les deux `+` sont ce qui le distingue d'un
+# placeholder de script (`_SUBST_PLACEHOLDER_RE`, `\{[A-Za-z_]\w*\}`) : `{count}`
+# seul en aurait la forme et creerait une ambiguite, on ne le reconnait donc pas.
+_COUNT_MASK_RE = re.compile(r"\{count\+\+\}")
 
 
-def substitute_param_vars(
-    args: dict[str, str], extra: dict[str, str]
-) -> dict[str, str]:
+def substitute_param_vars(args: dict[str, str], extra: dict[str, str]) -> dict[str, str]:
     """Remplace les `<NOM>` dans chaque valeur par la variable correspondante.
 
     Les variables disponibles sont les autres args (par nom, ex. `<NEW_VMID>`) plus
     celles fournies dans `extra` (ex. `N`, `N+1`). Une variable inconnue est laissée
     telle quelle (pas d'erreur).
+
+    Le masque `{count++}` est accepté comme synonyme de `<N+1>` : c'est la forme
+    attendue pour numéroter un nom de machine (`Host-Test-{count++}`).
     """
     variables = {**args, **extra}
 
     def _repl(m: re.Match[str]) -> str:
         return variables.get(m.group(1), m.group(0))
 
-    return {k: _VAR_RE.sub(_repl, v) for k, v in args.items()}
+    def _rendu(valeur: str) -> str:
+        # Le masque d'abord : sa valeur est un nombre, qui ne peut pas contenir
+        # de `<NOM>` a resoudre ensuite.
+        suivant = extra.get("N+1")
+        if suivant is not None:
+            valeur = _COUNT_MASK_RE.sub(suivant, valeur)
+        return _VAR_RE.sub(_repl, valeur)
+
+    return {k: _rendu(v) for k, v in args.items()}
 
 
 def parse_last_json(output: str) -> dict[str, object] | None:
@@ -47,9 +62,7 @@ def parse_last_json(output: str) -> dict[str, object] | None:
     return None
 
 
-def build_test_vm_args(
-    params: dict[str, str], identifier_arg: str, vmid: str
-) -> dict[str, str]:
+def build_test_vm_args(params: dict[str, str], identifier_arg: str, vmid: str) -> dict[str, str]:
     """Args d'exécution : le paramétrage figé du type + l'identifiant fourni."""
     args = dict(params)
     args[identifier_arg] = vmid
@@ -121,9 +134,7 @@ def build_testhost_ssh_command(
     )
 
 
-def map_result_to_host(
-    result: dict[str, object], vmid: str, proxmox_node: str
-) -> HostConfig:
+def map_result_to_host(result: dict[str, object], vmid: str, proxmox_node: str) -> HostConfig:
     """Convertit le JSON émis par le script de création en HostConfig `usage=tests`."""
     name = str(result.get("name") or "")
     address = str(result.get("address") or "")

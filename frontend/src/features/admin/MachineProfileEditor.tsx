@@ -143,19 +143,13 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
           </TabsList>
 
           <TabsContent value="params" className="pt-3">
-            {/* Le nom de la machine se declare ICI, comme les autres args du
-                script. Il est fige par le profil : sans variable, toutes les
-                machines qui en sortent porteraient le meme nom et la seconde
-                creation echouerait sur un conflit. D'ou le rappel. */}
-            <p className="mb-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-              {t('admin.machineProfiles.varsHint')}
-            </p>
             {spec ? (
               <HypervisorArgsForm
                 args={flattenArgs(spec.args)}
                 values={brouillon.params}
                 onChange={(k, v) => set('params', { ...brouillon.params, [k]: v })}
                 excludeIdentifier
+                templating
               />
             ) : (
               <p className="text-sm text-muted-foreground">
