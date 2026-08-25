@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, LayoutGrid, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images, SquareTerminal } from 'lucide-react'
+import { LayoutDashboard, LayoutGrid, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images, SquareTerminal, Zap, Server } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   DropdownMenu,
@@ -153,36 +153,56 @@ export default function AppShell() {
                   <DropdownMenuItem onClick={() => navigate('/admin/users')}>
                     {t('admin.users.navLabel')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/workflow')}>
-                    {t('admin.workflow.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/automations')}>
-                    {t('automations.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/automations/contracts')}>
-                    {t('automations.contracts.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/automations/events')}>
-                    {t('automations.events.navLabel')}
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
                     {t('admin.oidc.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/hypervisor-types')}>
-                    {t('admin.hypervisorTypes')}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/agent-types')}>
                     {t('admin.agentTypes.navLabel')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/hypervisors')}>
-                    {t('admin.hypervisors')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/hosts')}>
-                    {t('admin.hosts')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/machine-profiles')}>
-                    {t('admin.machineProfiles.navLabel')}
-                  </DropdownMenuItem>
+                  {/* Le menu admin s'etait allonge au fil des ecrans : les
+                      quatre pages qui tournent autour des evenements et les
+                      quatre qui decrivent le parc tiennent chacune dans un
+                      sous-menu, comme les galeries. */}
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Zap size={14} className="mr-2" />
+                      {t('admin.eventsMenu')}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onClick={() => navigate('/admin/workflow')}>
+                        {t('admin.workflow.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/automations')}>
+                        {t('automations.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/automations/contracts')}>
+                        {t('automations.contracts.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/automations/events')}>
+                        {t('automations.events.navLabel')}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Server size={14} className="mr-2" />
+                      {t('admin.machinesMenu')}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onClick={() => navigate('/admin/hypervisor-types')}>
+                        {t('admin.hypervisorTypes')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/hypervisors')}>
+                        {t('admin.hypervisors')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/hosts')}>
+                        {t('admin.hosts')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/machine-profiles')}>
+                        {t('admin.machineProfiles.navLabel')}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
                       <Images size={14} className="mr-2" />

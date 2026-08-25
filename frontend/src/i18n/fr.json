@@ -399,6 +399,8 @@
   },
   "admin": {
     "hosts": "Hôtes Docker",
+    "eventsMenu": "Événements",
+    "machinesMenu": "Machines",
     "galleries": "Galeries",
     "sharedRecipes": "Galerie scripts",
     "proxmox": "Nœuds Proxmox",
