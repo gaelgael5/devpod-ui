@@ -402,12 +402,21 @@ async def get_hypervisor_type_script(
     name: str,
     user: UserInfo = Depends(require_admin),
 ) -> dict[str, object]:
-    """Spec JSON brute d'un type (sans résolution SSH des options dynamiques)."""
+    """Spec JSON d'un type, options dynamiques résolues sur les machines du type.
+
+    Un `option_script` décrit les valeurs disponibles *sur l'hyperviseur* (les
+    templates Proxmox clonables, par exemple) : sans l'exécuter, la liste se
+    réduit au seul `auto` déclaré en dur dans la spec. On l'exécute donc sur
+    toutes les machines qui portent ce type ; sans machine enregistrée, la spec
+    part telle quelle.
+    """
     cfg = load_global()
     ht = next((t for t in cfg.hypervisor_types if t.name == name), None)
     if ht is None:
         raise HTTPException(status_code=404, detail=f"Hypervisor type {name!r} not found")
-    return await _fetch_spec_for_type(ht)
+    spec = await _fetch_spec_for_type(ht)
+    await resolve_option_scripts(spec, [n for n in cfg.hypervisors if n.hypervisor_type == name])
+    return spec
 
 
 class TestHostParamsRequest(BaseModel):
@@ -661,34 +670,69 @@ async def _fetch_spec(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
     return await _fetch_spec_for_type(hyp_type)
 
 
-async def resolve_node_script(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
-    """Spec du node avec les options dynamiques (`option_script`) résolues via SSH."""
-    spec = await _fetch_spec(node, cfg)
+def parse_option_lines(output: str) -> list[dict[str, str]]:
+    """Sortie d'un `option_script` → options. Une ligne `valeur|libellé`, ou la
+    valeur seule quand elle fait aussi office de libellé."""
+    options: list[dict[str, str]] = []
+    for ligne in output.strip().splitlines():
+        ligne = ligne.strip()
+        if not ligne:
+            continue
+        if "|" in ligne:
+            val, _, lbl = ligne.partition("|")
+            options.append({"value": val.strip(), "label": lbl.strip()})
+        else:
+            options.append({"value": ligne, "label": ligne})
+    return options
 
+
+async def resolve_option_scripts(
+    spec: dict[str, object],
+    nodes: list[Hypervisor],
+) -> None:
+    """Résout les `option_script` de la spec **en place**, sur les machines données.
+
+    Plusieurs machines d'un même type peuvent proposer des valeurs différentes
+    (des templates Proxmox, par exemple) : on interroge chacune et on fusionne,
+    en dédupliquant sur la valeur — deux nœuds d'un même cluster voient le même
+    `/etc/pve` et renverraient deux fois la même liste.
+
+    Une machine injoignable ne fait pas échouer la spec : les autres répondent.
+    L'erreur n'est remontée à l'UI que si AUCUNE valeur n'a pu être obtenue,
+    sinon un nœud éteint masquerait une liste par ailleurs correcte.
+    """
     for arg in _flatten_args(spec.get("args", [])):  # type: ignore[arg-type]
         option_script = arg.get("option_script")
         if not option_script:
             continue
-        try:
-            output = await _ssh_run(node, str(option_script))
-            dynamic: list[dict[str, str]] = []
-            for v in output.strip().splitlines():
-                v = v.strip()
-                if not v:
+        dynamic: list[dict[str, str]] = []
+        vues: set[str] = set()
+        erreurs: list[str] = []
+        for node in nodes:
+            try:
+                output = await _ssh_run(node, str(option_script))
+            except Exception as exc:
+                erreurs.append(f"{node.name}: {exc}")
+                _log.warning(
+                    "option_script_failed", node=node.name, arg=arg.get("arg"), error=str(exc)
+                )
+                continue
+            for option in parse_option_lines(output):
+                if option["value"] in vues:
                     continue
-                if "|" in v:
-                    val, _, lbl = v.partition("|")
-                    dynamic.append({"value": val.strip(), "label": lbl.strip()})
-                else:
-                    dynamic.append({"value": v, "label": v})
-            raw_opts = arg.get("options") or []
-            existing: list[dict[str, str]] = raw_opts if isinstance(raw_opts, list) else []
-            arg["options"] = existing + dynamic
-        except Exception as exc:
-            err = str(exc)
-            _log.warning("option_script_failed", node=node.name, arg=arg.get("arg"), error=err)
-            arg["_option_script_error"] = err
+                vues.add(option["value"])
+                dynamic.append(option)
+        raw_opts = arg.get("options") or []
+        existing: list[dict[str, str]] = raw_opts if isinstance(raw_opts, list) else []
+        arg["options"] = existing + dynamic
+        if erreurs and not dynamic:
+            arg["_option_script_error"] = "; ".join(erreurs)
 
+
+async def resolve_node_script(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
+    """Spec du node avec les options dynamiques (`option_script`) résolues via SSH."""
+    spec = await _fetch_spec(node, cfg)
+    await resolve_option_scripts(spec, [node])
     return spec
 
 

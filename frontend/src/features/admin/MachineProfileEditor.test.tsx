@@ -67,7 +67,7 @@ function renderEditor(profile: MachineProfile = VIDE, args: unknown[] = []) {
       <I18nextProvider i18n={i18n}>
         <MachineProfileEditor
           profile={profile}
-          hypervisorTypes={['proxmox']}
+          hypervisorTypes={[{ name: 'proxmox', label: 'Proxmox4vm' }]}
           onClose={vi.fn()}
         />
       </I18nextProvider>
@@ -282,5 +282,18 @@ describe('MachineProfileEditor — valeurs par defaut de la spec', () => {
 
     expect(await screen.findByDisplayValue('alice')).toBeInTheDocument()
     expect(screen.queryByDisplayValue('debian')).toBeNull()
+  })
+})
+
+describe('MachineProfileEditor — libelle du type d’hyperviseur', () => {
+  /**
+   * Le `name` est une clef technique (« roxmox4vm » pour un slug mal derive) :
+   * c'est le libelle qui se lit dans le selecteur.
+   */
+  it('affiche le libelle, pas le nom technique', async () => {
+    renderEditor()
+
+    expect(await screen.findByText('Proxmox4vm')).toBeInTheDocument()
+    expect(screen.queryByText('proxmox')).toBeNull()
   })
 })

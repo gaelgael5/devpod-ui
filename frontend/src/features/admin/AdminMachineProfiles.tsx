@@ -111,7 +111,7 @@ export default function AdminMachineProfiles() {
       {edite && (
         <MachineProfileEditor
           profile={edite}
-          hypervisorTypes={types.map((ty) => ty.name)}
+          hypervisorTypes={types.map((ty) => ({ name: ty.name, label: ty.label }))}
           onClose={() => setEdite(null)}
         />
       )}

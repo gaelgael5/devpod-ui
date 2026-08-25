@@ -335,7 +335,13 @@ export default function AdminProxmox() {
                   <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{n.address}</td>
                   <td className="px-4 py-2 text-muted-foreground">{n.ssh_user}</td>
                   <td className="px-4 py-2 text-muted-foreground">{n.pve_node}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{n.hypervisor_type || '—'}</td>
+                  {/* Le libelle, pas la clef technique : le `name` peut etre
+                      un slug (« roxmox4vm ») que personne ne reconnait. */}
+                  <td className="px-4 py-2 text-muted-foreground">
+                    {hypervisorTypes.find((ht) => ht.name === n.hypervisor_type)?.label
+                      || n.hypervisor_type
+                      || '—'}
+                  </td>
                   <td className="px-4 py-2 text-right flex items-center justify-end gap-1">
                     <Button size="sm" variant="ghost" onClick={() => handleEditOpen(n)}>
                       {t('workspaces.actions.edit')}

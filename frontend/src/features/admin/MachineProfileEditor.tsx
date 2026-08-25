@@ -26,7 +26,12 @@ import { useTemplates } from '@/features/compose/hooks/useCompose'
 
 interface Props {
   profile: MachineProfile
-  hypervisorTypes: string[]
+  /**
+   * Types proposes dans le selecteur. Le couple complet, pas le seul `name` :
+   * c'est le libelle qui se lit (« Proxmox4vm »), le `name` n'est que la clef
+   * technique stockee dans le profil.
+   */
+  hypervisorTypes: { name: string; label: string }[]
   onClose: () => void
 }
 
@@ -146,8 +151,8 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
             >
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {hypervisorTypes.map((n) => (
-                  <SelectItem key={n} value={n}>{n}</SelectItem>
+                {hypervisorTypes.map((ty) => (
+                  <SelectItem key={ty.name} value={ty.name}>{ty.label || ty.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
