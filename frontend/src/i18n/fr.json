@@ -188,7 +188,10 @@
       "loadError": "Échec du chargement des hyperviseurs.",
       "create": "Créer",
       "cancel": "Annuler",
-      "close": "Fermer"
+      "close": "Fermer",
+      "profile": "Profil de machine",
+      "selectProfile": "Choisir un profil…",
+      "profileHint": "Le profil fixe les paramètres, les recettes installées et les services démarrés."
     },
     "testHosts": {
       "actionsMenu": "Actions",

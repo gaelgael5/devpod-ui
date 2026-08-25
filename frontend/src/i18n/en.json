@@ -188,7 +188,10 @@
       "loadError": "Failed to load hypervisors.",
       "create": "Create",
       "cancel": "Cancel",
-      "close": "Close"
+      "close": "Close",
+      "profile": "Machine profile",
+      "selectProfile": "Pick a profile…",
+      "profileHint": "The profile sets the parameters, the recipes installed and the services started."
     },
     "testHosts": {
       "actionsMenu": "Actions",
