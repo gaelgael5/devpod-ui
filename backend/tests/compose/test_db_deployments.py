@@ -4,6 +4,7 @@ from portal.compose import db
 
 def test_row_to_deployment() -> None:
     row = {
+        "uid": "00000000-0000-0000-0000-000000000001",
         "id": "d1", "template_id": "t", "template_version": "1", "node_id": "n",
         "owner_login": "alice", "env_values": {"A": "${vault://x/y}"}, "host_ports": [3000],
         "status": "running", "last_error": None, "created_at": None, "updated_at": None,

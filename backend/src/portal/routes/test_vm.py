@@ -24,7 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..compose import service as csvc
-from ..compose.db import get_deployment_by_name_node, get_template
+from ..compose.db import (
+    delete_deployments_for_node,
+    get_deployment_by_name_node,
+    get_template,
+)
 from ..config.models import (
     _PROXMOX_NAME_RE,
     GlobalConfig,
@@ -768,11 +772,17 @@ async def delete_test_vm(
     except Exception:
         _log.warning("test_vm_ssh_config_cleanup_failed", host=host_name, exc_info=True)
 
-    # 3-5. Nettoyage portail (secret root, association → libère l'alias, host config).
+    # 3-6. Nettoyage portail (secret root, association → libère l'alias, host config,
+    #      déploiements compose).
     async with _get_engine().begin() as conn:
         message_id = await get_test_host_message_id(host_name, conn)
         await delete_system_secret(f"host.{host_name}.root-password", conn)
         await remove_test_host(host_name, conn)
+        # Les conteneurs sont partis avec la VM : sans ca leurs lignes lui
+        # survivent et ressortent sur la machine suivante qui porte le meme nom.
+        purges = await delete_deployments_for_node(conn, host_name)
+        if purges:
+            _log.info("test_vm_deployments_purged", host=host_name, count=purges)
         if host_cfg is not None:
             cfg.hosts = [h for h in cfg.hosts if h.name != host_name]
             await save_global_db(cfg, conn)

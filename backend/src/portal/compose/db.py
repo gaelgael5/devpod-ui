@@ -236,6 +236,22 @@ async def delete_deployment(conn: AsyncConnection, uid: str) -> None:
     await conn.execute(delete(compose_deployment).where(compose_deployment.c.uid == uid))
 
 
+async def delete_deployments_for_node(conn: AsyncConnection, node_id: str) -> int:
+    """Oublie tous les déploiements d'un nœud. Retourne le nombre de lignes.
+
+    Pour un nœud DÉTRUIT : les conteneurs sont partis avec lui, il ne reste que
+    des lignes en base. Sans ce nettoyage elles survivent au nœud et ressortent
+    telles quelles sur la machine suivante qui porte le même nom — l'utilisateur
+    y voit des services « en cours d'exécution » qui n'existent plus.
+
+    N'exécute AUCUN `compose down` : la cible SSH n'existe plus.
+    """
+    result = await conn.execute(
+        delete(compose_deployment).where(compose_deployment.c.node_id == node_id)
+    )
+    return int(result.rowcount or 0)
+
+
 def _node_lock_key(node_id: str) -> int:
     """Clé advisory 64 bits signée, stable, dérivée du node_id."""
     digest = hashlib.blake2b(node_id.encode(), digest_size=8).digest()
