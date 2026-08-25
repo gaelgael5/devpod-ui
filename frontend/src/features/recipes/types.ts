@@ -9,6 +9,13 @@ export interface MemoryVolumeSpec {
   mapping: { target: string }
 }
 
+/** Une option declaree par une recette : ce qu'un profil peut y regler. */
+export interface RecipeOption {
+  type: string
+  default: string
+  description: string
+}
+
 export interface Recipe {
   id: string
   key: string
@@ -21,4 +28,5 @@ export interface Recipe {
   install_script?: string
   builtin?: boolean
   memory_volume?: MemoryVolumeSpec | null
+  options?: Record<string, RecipeOption>
 }

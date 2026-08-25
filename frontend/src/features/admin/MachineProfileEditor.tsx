@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import HypervisorArgsForm from './HypervisorArgsForm'
 import { useTypeScriptSpec, flattenArgs } from './useProxmoxScript'
 import { useAdminRecipes } from './useAdminRecipes'
+import type { RecipeOption } from '@/features/recipes/types'
 import {
   nomDeploiementLibre,
   useSaveMachineProfile,
@@ -39,7 +40,7 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
   const { t } = useTranslation()
   const [brouillon, setBrouillon] = useState<MachineProfile>(profile)
   const enregistrer = useSaveMachineProfile()
-  const { spec } = useTypeScriptSpec(brouillon.hypervisor_type)
+  const { data: spec } = useTypeScriptSpec(brouillon.hypervisor_type)
   const { recipesQuery } = useAdminRecipes()
   const { data: templates = [] } = useTemplates()
 
@@ -126,7 +127,7 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
           <TabsContent value="params" className="pt-3">
             {spec ? (
               <HypervisorArgsForm
-                args={flattenArgs(spec)}
+                args={flattenArgs(spec.args)}
                 values={brouillon.params}
                 onChange={(k, v) => set('params', { ...brouillon.params, [k]: v })}
                 excludeIdentifier
@@ -156,7 +157,7 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
                       <Trash2 className="h-3 w-3" />
                     </Button>
                   </div>
-                  {Object.entries(meta?.options ?? {}).map(([clef, decl]) => (
+                  {Object.entries(meta?.options ?? {}).map(([clef, decl]: [string, RecipeOption]) => (
                     <div key={clef} className="mt-1.5">
                       <Label className="text-xs">{clef}</Label>
                       <Input
