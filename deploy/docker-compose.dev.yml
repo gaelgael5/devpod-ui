@@ -110,8 +110,9 @@ services:
     command:
       - -storageDataPath=/victoria-metrics-data
       # Retention alignee sur l'usage : voir venir une saturation, pas faire de
-      # la capacity planning a l'annee.
-      - -retentionPeriod=3
+      # la capacity planning a l'annee. Sans unite, VictoriaMetrics compte en
+      # MOIS — d'ou le `w` explicite.
+      - -retentionPeriod=3w
       - -httpListenAddr=:8428
     volumes:
       - vm_data:/victoria-metrics-data
