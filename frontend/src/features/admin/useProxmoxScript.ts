@@ -47,6 +47,19 @@ export function flattenArgs(args: ScriptArgOrSub[]): ScriptArg[] {
   return args.flatMap(a => a.type === 'sub' ? a.args : [a])
 }
 
+/**
+ * Valeurs par défaut d'une spec : `default` déclaré, sinon la première option
+ * d'une liste fermée — un select laissé vide n'affiche rien et se sauvegarde
+ * sans valeur, alors que la spec en propose une.
+ */
+export function valeursParDefaut(args: ScriptArgOrSub[]): Record<string, string> {
+  const base: Record<string, string> = {}
+  for (const a of flattenArgs(args)) {
+    base[a.arg] = a.default !== undefined ? String(a.default) : (a.options?.[0]?.value ?? '')
+  }
+  return base
+}
+
 export interface ScriptSpec {
   args: ScriptArgOrSub[]
   commands: string[]

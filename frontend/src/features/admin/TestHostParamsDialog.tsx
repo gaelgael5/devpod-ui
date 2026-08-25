@@ -14,7 +14,9 @@ import HypervisorArgsForm from './HypervisorArgsForm'
 import {
   useAdminHypervisorTypes, useSaveTestHostParams, type HypervisorTypeConfig,
 } from './useAdminHypervisorTypes'
-import { useTypeScriptSpec, flattenArgs, type ScriptSpec } from './useProxmoxScript'
+import {
+  useTypeScriptSpec, flattenArgs, valeursParDefaut, type ScriptSpec,
+} from './useProxmoxScript'
 
 interface Props {
   open: boolean
@@ -80,11 +82,7 @@ export default function TestHostParamsDialog({ open, onClose }: Props) {
 
   const initial = useMemo<Record<string, string>>(() => {
     if (!spec) return {}
-    const base: Record<string, string> = {}
-    for (const a of flattenArgs(spec.args)) {
-      base[a.arg] = a.default !== undefined ? String(a.default) : (a.options?.[0]?.value ?? '')
-    }
-    return { ...base, ...(selectedType?.test_host_params ?? {}) }
+    return { ...valeursParDefaut(spec.args), ...(selectedType?.test_host_params ?? {}) }
   }, [spec, selectedType])
 
   return (

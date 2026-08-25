@@ -26,12 +26,12 @@ const VIDE: MachineProfile = {
   services: [],
 }
 
-function renderEditor(profile: MachineProfile = VIDE) {
+function renderEditor(profile: MachineProfile = VIDE, args: unknown[] = []) {
   server.use(
     // La spec du script alimente l'onglet Parametres ; sans handler, MSW
     // journalise une requete non interceptee a chaque rendu.
     http.get('/admin/hypervisor-types/:name/script', () =>
-      HttpResponse.json({ args: [], commands: [] }),
+      HttpResponse.json({ args, commands: [] }),
     ),
     http.get('/admin/recipes', () =>
       HttpResponse.json([
@@ -232,5 +232,55 @@ describe('MachineProfileEditor — slug derive du libelle', () => {
     await user.type(champs[0], 'Renomme')
 
     expect((champs[1] as HTMLInputElement).value).toBe('android-test')
+  })
+})
+
+describe('MachineProfileEditor — valeurs par defaut de la spec', () => {
+  /**
+   * Un profil s'ouvre sur ce que le script propose. Sans ca les listes fermees
+   * (source du template, stockage, type de CPU) s'affichent blanches et le
+   * profil s'enregistre sans valeur, alors que la spec en a une utilisable.
+   */
+  const ARGS = [
+    {
+      arg: 'NEW_VMID',
+      identifier: true,
+      label_fr: 'VMID',
+      label_en: 'VMID',
+      type: 'select',
+      options: [{ value: 'auto', label: 'auto' }],
+    },
+    {
+      arg: 'TEMPLATE_VMID',
+      label_fr: 'Source template',
+      label_en: 'Source template',
+      type: 'select',
+      default: 'auto',
+      options: [{ value: 'auto', label: 'auto (dernier template)' }],
+    },
+    { arg: 'CI_USER', label_fr: 'Utilisateur', label_en: 'User', type: 'string', default: 'debian' },
+  ]
+
+  it('preremplit les champs avec les defauts du script', async () => {
+    renderEditor(VIDE, ARGS)
+
+    expect(await screen.findByDisplayValue('debian')).toBeInTheDocument()
+    expect(await screen.findByText('auto (dernier template)')).toBeInTheDocument()
+  })
+
+  it('ne prerempli pas l’identifiant — le vmid se choisit machine par machine', async () => {
+    renderEditor(VIDE, ARGS)
+
+    await screen.findByDisplayValue('debian')
+    // `excludeIdentifier` masque le champ ; ce qui compte ici est qu'aucune
+    // valeur ne se glisse dans les params du profil.
+    expect(screen.queryByText('VMID')).toBeNull()
+  })
+
+  it('ne remplace pas une valeur deja enregistree', async () => {
+    renderEditor({ ...VIDE, params: { CI_USER: 'alice' } }, ARGS)
+
+    expect(await screen.findByDisplayValue('alice')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('debian')).toBeNull()
   })
 })

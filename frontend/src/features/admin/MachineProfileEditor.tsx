@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import HypervisorArgsForm from './HypervisorArgsForm'
-import { useTypeScriptSpec, flattenArgs } from './useProxmoxScript'
+import { useTypeScriptSpec, flattenArgs, valeursParDefaut } from './useProxmoxScript'
 import { useAdminRecipes } from './useAdminRecipes'
 import type { RecipeOption } from '@/features/recipes/types'
 import {
@@ -56,8 +56,27 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
     setBrouillon((b) => ({ ...b, [clef]: valeur }))
   }
 
+  // Un profil s'ouvre avec les valeurs que le JSON du script propose, pas vide :
+  // sinon les listes fermees (source du template, stockage, type de CPU)
+  // s'affichent blanches et se sauvegardent sans valeur, alors que la spec en a
+  // une utilisable. Derive plutot qu'ecrit dans le state : la spec arrive apres
+  // le montage, et un setState en effet relance un rendu pour rien.
+  const defauts = useMemo(() => {
+    if (!spec) return {}
+    const d = valeursParDefaut(spec.args)
+    // L'identifiant (vmid) se choisit machine par machine : le figer dans un
+    // profil ecraserait le choix fait a la creation.
+    for (const a of flattenArgs(spec.args)) if (a.identifier) delete d[a.arg]
+    return d
+  }, [spec])
+  // Les choix enregistres priment sur les defauts, jamais l'inverse.
+  const params = useMemo(
+    () => ({ ...defauts, ...brouillon.params }),
+    [defauts, brouillon.params],
+  )
+
   function valider() {
-    toast.promise(enregistrer.mutateAsync(brouillon), {
+    toast.promise(enregistrer.mutateAsync({ ...brouillon, params }), {
       loading: '…',
       success: () => {
         onClose()
@@ -145,9 +164,9 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
           <TabsContent value="params" className="pt-3">
             {spec ? (
               <HypervisorArgsForm
-                args={flattenArgs(spec.args)}
-                values={brouillon.params}
-                onChange={(k, v) => set('params', { ...brouillon.params, [k]: v })}
+                args={spec.args}
+                values={params}
+                onChange={(k, v) => set('params', { ...params, [k]: v })}
                 excludeIdentifier
                 templating
               />
