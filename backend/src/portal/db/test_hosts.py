@@ -317,7 +317,7 @@ async def host_full_info(
     return (row["login"], row["workspace_name"], row["alias"] or "") if row else None
 
 
-async def test_host_creation_dates(conn: AsyncConnection) -> dict[str, datetime]:
+async def list_test_host_creation_dates(conn: AsyncConnection) -> dict[str, datetime]:
     """Date de creation de chaque host de test, par nom (ligne propriétaire).
 
     Un nom de machine se réemploie : c'est cette date qui permet de dire qu'un
@@ -331,17 +331,24 @@ async def test_host_creation_dates(conn: AsyncConnection) -> dict[str, datetime]
     return {r["host_name"]: r["created_at"] for r in rows if r["created_at"] is not None}
 
 
-async def get_test_host_message_id(
-    host_name: str, conn: AsyncConnection
-) -> int | None:
-    """Retourne le message_id du host de test (ligne propriétaire), ou None."""
-    return (
+async def list_test_host_message_ids(host_name: str, conn: AsyncConnection) -> list[int]:
+    """message_id des lignes PROPRIÉTAIRES d'un host de test.
+
+    Une liste, pas une valeur unique : rien en base n'empêche deux workspaces
+    de posséder un host du même nom, et c'est arrivé — une suppression côté
+    admin retirait le host de la config sans détacher ses associations, et la
+    machine suivante à porter ce nom en créait une seconde. `scalar_one_or_none`
+    levait alors `MultipleResultsFound` au beau milieu de la suppression, le
+    seul chemin qui aurait permis de nettoyer.
+    """
+    rows = (
         await conn.execute(
             select(_t.c.message_id).where(
                 (_t.c.host_name == host_name) & (_t.c.shared_from_workspace.is_(None))
             )
         )
-    ).scalar_one_or_none()
+    ).all()
+    return [r[0] for r in rows if r[0] is not None]
 
 
 async def set_test_host_message_id(

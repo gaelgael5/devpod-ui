@@ -46,10 +46,10 @@ from ..db.test_hosts import (
     assign_test_host,
     count_owned_test_hosts,
     delete_test_host_link,
-    get_test_host_message_id,
     is_owned_test_host,
     list_shared_targets,
     list_test_host_links,
+    list_test_host_message_ids,
     list_test_hosts_detailed,
     list_test_hosts_with_share,
     next_test_alias,
@@ -781,7 +781,7 @@ async def delete_test_vm(
     # 3-6. Nettoyage portail (secret root, association → libère l'alias, host config,
     #      déploiements compose).
     async with _get_engine().begin() as conn:
-        message_id = await get_test_host_message_id(host_name, conn)
+        message_ids = await list_test_host_message_ids(host_name, conn)
         await delete_system_secret(f"host.{host_name}.root-password", conn)
         await remove_test_host(host_name, conn)
         # Les conteneurs sont partis avec la VM : sans ca leurs lignes lui
@@ -792,7 +792,8 @@ async def delete_test_vm(
         if host_cfg is not None:
             cfg.hosts = [h for h in cfg.hosts if h.name != host_name]
             await save_global_db(cfg, conn)
-        await msg_delete(conn, message_id)
+        for message_id in message_ids:
+            await msg_delete(conn, message_id)
     if host_cfg is not None:
         set_cached_global(cfg)  # après commit réussi seulement (bug 034)
 

@@ -20,7 +20,7 @@ from ..compose.validation import TemplateValidationError, first_service_name, va
 from ..config.models import HostConfig
 from ..config.store import load_global, load_user
 from ..db.engine import _get_engine, get_conn
-from ..db.test_hosts import host_full_info, test_host_creation_dates
+from ..db.test_hosts import host_full_info, list_test_host_creation_dates
 from ..messages import db as mdb
 from ..messages.models import WorkspaceMessage
 from ..schemas.compose import (
@@ -255,7 +255,7 @@ async def _orphelins(conn: AsyncConnection) -> list[ComposeDeployment]:
     return select_orphans(
         await cdb.list_deployments(conn, owner_login=None),
         [h.name for h in load_global().hosts],
-        await test_host_creation_dates(conn),
+        await list_test_host_creation_dates(conn),
     )
 
 

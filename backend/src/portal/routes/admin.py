@@ -1159,8 +1159,30 @@ async def delete_host(
     # 4. Retirer le host de la config
     cfg.hosts = [h for h in cfg.hosts if h.name != name]
     await save_global_db(cfg, conn)
+
+    # 5. Detacher ce qui reference le host par son NOM. Sans ca, une VM de test
+    #    supprimee d'ici laissait son association de workspace et ses
+    #    deploiements compose derriere elle : la machine suivante a porter ce
+    #    nom heritait des lignes de l'ancienne, et la suppression cote workspace
+    #    echouait sur `MultipleResultsFound` — le seul chemin qui aurait permis
+    #    de nettoyer.
+    from ..compose.db import delete_deployments_for_node
+    from ..db.test_hosts import list_test_host_message_ids, remove_test_host
+    from ..messages.service import delete_message as _msg_delete
+
+    for message_id in await list_test_host_message_ids(name, conn):
+        await _msg_delete(conn, message_id)
+    await remove_test_host(name, conn)
+    purges = await delete_deployments_for_node(conn, name)
+
     set_cached_global(cfg)
-    _log.info("host_deleted", name=name, by=user.login, workspaces_deleted=len(rows))
+    _log.info(
+        "host_deleted",
+        name=name,
+        by=user.login,
+        workspaces_deleted=len(rows),
+        deployments_purged=purges,
+    )
     # Retire le serveur de Termix chez tous ses destinataires après commit (best-effort).
     background_tasks.add_task(bastion_servers.deprovision_server_host, name)
 
