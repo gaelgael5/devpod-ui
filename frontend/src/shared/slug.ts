@@ -23,3 +23,13 @@ export function slugifier(label: string): string {
     // La troncature peut laisser un tiret final.
     .replace(/-+$/, '')
 }
+
+/**
+ * Slug d'une action d'hyperviseur tel qu'il sera ENREGISTRÉ : préfixé par le
+ * type, sans redoubler le préfixe. Même règle que `qualify_action_slug` côté
+ * backend — deux types peuvent proposer un « reboot » sans se confondre.
+ */
+export function qualifierSlugAction(typeName: string, slug: string): string {
+  const prefixe = `${typeName}-`
+  return slug.startsWith(prefixe) ? slug : prefixe + slug
+}

@@ -2,12 +2,25 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiFetchJson } from '@/shared/api/client'
 
+export interface HypervisorAction {
+  label: string
+  slug: string
+  /** URL du descripteur JSON, meme format que `add_script`. */
+  script: string
+  /**
+   * Local a l'edition : le slug a ete saisi a la main, il ne suit plus le
+   * libelle. Jamais envoye au backend (`extra="forbid"` le refuserait).
+   */
+  slugManuel?: boolean
+}
+
 export interface HypervisorTypeConfig {
   label: string
   name: string
   add_script: string
   destroy_script: string
   test_host_params?: Record<string, string>
+  actions?: HypervisorAction[]
 }
 
 /** Enregistre le paramétrage host de test d'un type d'hyperviseur. */

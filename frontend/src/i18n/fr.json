@@ -875,6 +875,15 @@
       "confirm": "Purger ({{count}})",
       "purged": "{{count}} déploiement(s) orphelin(s) purgé(s)",
       "purgeFailed": "La purge a échoué"
+    },
+    "hypervisorActions": {
+      "title": "Actions",
+      "hint": "Scripts supplémentaires proposés par ce type, au-delà de créer et détruire. Chacun est un descripteur JSON du même format que le script de création.",
+      "empty": "Aucune action enregistrée.",
+      "add": "Ajouter une action",
+      "remove": "Retirer l'action",
+      "labelPlaceholder": "Redémarrer la VM",
+      "savedAs": "Enregistré sous"
     }
   },
   "errors": {

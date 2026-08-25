@@ -875,6 +875,15 @@
       "confirm": "Purge ({{count}})",
       "purged": "{{count}} orphan deployment(s) purged",
       "purgeFailed": "Purge failed"
+    },
+    "hypervisorActions": {
+      "title": "Actions",
+      "hint": "Extra scripts offered by this type, beyond create and destroy. Each one is a JSON descriptor in the same format as the creation script.",
+      "empty": "No action registered.",
+      "add": "Add an action",
+      "remove": "Remove action",
+      "labelPlaceholder": "Reboot the VM",
+      "savedAs": "Saved as"
     }
   },
   "errors": {

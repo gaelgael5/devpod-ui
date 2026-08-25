@@ -7,9 +7,19 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
-import { useAdminHypervisorTypes, type HypervisorTypeConfig } from './useAdminHypervisorTypes'
+import {
+  useAdminHypervisorTypes, type HypervisorAction, type HypervisorTypeConfig,
+} from './useAdminHypervisorTypes'
+import HypervisorActionsBlock from './HypervisorActionsBlock'
 
-const EMPTY: HypervisorTypeConfig = { label: '', name: '', add_script: '', destroy_script: '' }
+const EMPTY: HypervisorTypeConfig = {
+  label: '', name: '', add_script: '', destroy_script: '', actions: [],
+}
+
+/** `slugManuel` n'existe que le temps de la saisie : le backend le refuserait. */
+function sansEtatLocal(actions: HypervisorAction[]): HypervisorAction[] {
+  return actions.map(({ label, slug, script }) => ({ label, slug, script }))
+}
 
 // `labelToKey` SUPPRIMAIT les majuscules au lieu de les convertir : « Proxmox »
 // devenait « roxmox ». `slugifier` les met en minuscules et retire les accents.
@@ -28,6 +38,7 @@ export default function AdminHypervisorTypes() {
     label: '',
     add_script: '',
     destroy_script: '',
+    actions: [],
   })
 
   function handleClose(o: boolean) {
@@ -37,7 +48,12 @@ export default function AdminHypervisorTypes() {
 
   function handleEditOpen(ht: HypervisorTypeConfig) {
     setEditTarget(ht)
-    setEditForm({ label: ht.label, add_script: ht.add_script, destroy_script: ht.destroy_script })
+    setEditForm({
+      label: ht.label,
+      add_script: ht.add_script,
+      destroy_script: ht.destroy_script,
+      actions: ht.actions ?? [],
+    })
     setEditOpen(true)
   }
 
@@ -52,14 +68,20 @@ export default function AdminHypervisorTypes() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    addType.mutate(form, { onSuccess: () => handleClose(false) })
+    addType.mutate(
+      { ...form, actions: sansEtatLocal(form.actions ?? []) },
+      { onSuccess: () => handleClose(false) },
+    )
   }
 
   function handleEditSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!editTarget) return
     updateType.mutate(
-      { name: editTarget.name, body: editForm },
+      {
+        name: editTarget.name,
+        body: { ...editForm, actions: sansEtatLocal(editForm.actions ?? []) },
+      },
       { onSuccess: () => handleEditClose(false) },
     )
   }
@@ -118,7 +140,7 @@ export default function AdminHypervisorTypes() {
 
       {/* ─── Dialogue ajout ───────────────────────────────────────────────── */}
       <Dialog open={open} onOpenChange={handleClose}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('admin.addHypervisorType')}</DialogTitle>
           </DialogHeader>
@@ -164,6 +186,11 @@ export default function AdminHypervisorTypes() {
                 placeholder="https://exemple.com/scripts/destroy-vm.json"
               />
             </div>
+            <HypervisorActionsBlock
+              typeName={form.name}
+              actions={form.actions ?? []}
+              onChange={(actions) => setForm((f) => ({ ...f, actions }))}
+            />
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => handleClose(false)}>
                 {t('workspaces.confirm.cancel')}
@@ -178,7 +205,7 @@ export default function AdminHypervisorTypes() {
 
       {/* ─── Dialogue édition ─────────────────────────────────────────────── */}
       <Dialog open={editOpen} onOpenChange={handleEditClose}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('admin.editHypervisorType')} — {editTarget?.name}</DialogTitle>
           </DialogHeader>
@@ -213,6 +240,11 @@ export default function AdminHypervisorTypes() {
                 placeholder="https://exemple.com/scripts/destroy-vm.json"
               />
             </div>
+            <HypervisorActionsBlock
+              typeName={editTarget?.name ?? ''}
+              actions={editForm.actions ?? []}
+              onChange={(actions) => setEditForm((f) => ({ ...f, actions }))}
+            />
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => handleEditClose(false)}>
                 {t('workspaces.confirm.cancel')}

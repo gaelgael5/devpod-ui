@@ -15,7 +15,15 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..auth.rbac import UserInfo, require_admin
-from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor, HypervisorType
+from ..config.models import (
+    _PROXMOX_NAME_RE,
+    GlobalConfig,
+    HostConfig,
+    Hypervisor,
+    HypervisorAction,
+    HypervisorType,
+    qualify_action_slug,
+)
 from ..config.store import load_global, save_global
 from ..devpod.name_mask import resolve_count_mask
 from ..settings import get_settings
@@ -340,6 +348,25 @@ class HypervisorTypeRequest(BaseModel):
     name: str
     add_script: str = ""
     destroy_script: str = ""
+    actions: list[HypervisorAction] = []
+
+
+def _actions_qualifiees(name: str, actions: list[HypervisorAction]) -> list[HypervisorAction]:
+    """Prefixe le slug de chaque action par le type, et refuse les doublons.
+
+    Deux actions du meme slug donneraient deux entrees indiscernables dans la
+    liste — et, le jour ou on les executera, une cible ambigue.
+    """
+    sorties = [
+        a.model_copy(update={"slug": qualify_action_slug(name, a.slug)}) for a in actions
+    ]
+    slugs = [a.slug for a in sorties]
+    doublons = sorted({s for s in slugs if slugs.count(s) > 1})
+    if doublons:
+        raise HTTPException(
+            status_code=422, detail=f"slug d'action en double : {', '.join(doublons)}"
+        )
+    return sorties
 
 
 @router.get("/hypervisor-types")
@@ -368,6 +395,7 @@ async def add_hypervisor_type(
         name=body.name,
         add_script=body.add_script,
         destroy_script=body.destroy_script,
+        actions=_actions_qualifiees(body.name, body.actions),
     )
     cfg.hypervisor_types.append(ht)
     await save_global(cfg)
@@ -391,6 +419,7 @@ async def update_hypervisor_type(
         add_script=body.add_script,
         destroy_script=body.destroy_script,
         test_host_params=ht.test_host_params,  # préservé (réglé via /test-params)
+        actions=_actions_qualifiees(name, body.actions),
     )
     cfg.hypervisor_types = [updated if t.name == name else t for t in cfg.hypervisor_types]
     await save_global(cfg)

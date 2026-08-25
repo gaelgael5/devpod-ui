@@ -354,6 +354,46 @@ class HostConfig(BaseModel):
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
 
 
+_ACTION_SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
+
+
+class HypervisorAction(BaseModel):
+    """Script supplémentaire attaché à un type d'hyperviseur.
+
+    La création et la destruction sont deux actions parmi d'autres — redémarrer,
+    étendre un disque, prendre un snapshot. Elles se déclarent ici plutôt que
+    dans le code : chacune est un descripteur JSON du même format que le script
+    de création, donc paramétrable et exécutable de la même façon.
+
+    Le `slug` est QUALIFIÉ par le type (`<type>-<slug>`) : deux types peuvent
+    proposer un « reboot » sans que leurs actions se confondent.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str
+    slug: str
+    # URL du descripteur JSON, même format que `add_script`.
+    script: str = ""
+
+    @field_validator("slug")
+    @classmethod
+    def validate_slug(cls, v: str) -> str:
+        if not _ACTION_SLUG_RE.fullmatch(v):
+            raise ValueError(f"slug {v!r} must match ^[a-z0-9]([a-z0-9-]{{0,38}}[a-z0-9])?$")
+        return v
+
+
+def qualify_action_slug(type_name: str, slug: str) -> str:
+    """`<type>-<slug>`, sans redoubler le préfixe s'il est déjà là.
+
+    Idempotent : ré-enregistrer un type ne doit pas transformer `proxmox-reboot`
+    en `proxmox-proxmox-reboot`.
+    """
+    prefixe = f"{type_name}-"
+    return slug if slug.startswith(prefixe) else prefixe + slug
+
+
 class HypervisorType(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -363,6 +403,8 @@ class HypervisorType(BaseModel):
     destroy_script: str = ""
     # Valeurs par défaut des args pour créer un host de test (sauf l'identifiant).
     test_host_params: dict[str, str] = Field(default_factory=dict)
+    # Actions supplémentaires (au-delà de créer/détruire), déclarées par l'admin.
+    actions: list[HypervisorAction] = Field(default_factory=list)
 
     @field_validator("name")
     @classmethod
