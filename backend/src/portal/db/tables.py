@@ -51,6 +51,8 @@ global_config = Table(
     Column("logs_enabled", Boolean, nullable=False, server_default="false"),
     Column("logs_loki_push_url", Text, nullable=False, server_default=""),
     Column("logs_loki_query_url", Text, nullable=False, server_default=""),
+    # TSDB des metriques machine (endpoint remote_write) — migration 108.
+    Column("logs_metrics_push_url", Text, nullable=False, server_default=""),
     Column("logs_grafana_url", Text, nullable=False, server_default=""),
     Column("logs_module", Text, nullable=False, server_default="devpod"),
     Column("logs_push_token", Text, nullable=False, server_default=""),

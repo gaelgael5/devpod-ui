@@ -540,7 +540,9 @@
       "pushTokenHint": "Optional — only if Loki requires auth. Literal value or ${vault://...}/${env://...} reference. Leave empty to keep the current one.",
       "missingUrls": "Loki push URL and query URL are required to enable centralized logs.",
       "save": "Save",
-      "saved": "Logs configuration saved"
+      "saved": "Logs configuration saved",
+      "metricsPushUrl": "Metrics push URL (remote_write)",
+      "metricsPushUrlHint": "remote_write endpoint of the TSDB. Injected into metrics collectors as METRICS_URL, the way LOKI_URL is injected into log collectors — changing it realigns already-deployed collectors. Empty: no metrics collector will start."
     },
     "workflow": {
       "navLabel": "Workflow",

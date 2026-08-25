@@ -210,6 +210,9 @@ class LogsConfigUpdateRequest(BaseModel):
     enabled: bool
     loki_push_url: str = ""
     loki_query_url: str = ""
+    # TSDB des metriques machine (endpoint remote_write). Optionnelle : la
+    # chaine des logs vit sans, et inversement.
+    metrics_push_url: str = ""
     grafana_url: str = ""
     module: str = "devpod"
     push_token: str = ""  # vide = conserve le token existant (littéral ou ${vault://...})
@@ -220,6 +223,7 @@ def _logs_config_out(cfg: GlobalConfig) -> dict[str, object]:
         "enabled": cfg.logs.enabled,
         "loki_push_url": cfg.logs.loki_push_url or "",
         "loki_query_url": cfg.logs.loki_query_url or "",
+        "metrics_push_url": cfg.logs.metrics_push_url or "",
         "grafana_url": cfg.logs.grafana_url or "",
         "module": cfg.logs.module,
         "has_push_token": bool(cfg.logs.push_token),
@@ -255,6 +259,7 @@ async def put_admin_logs_config(
             "enabled": body.enabled,
             "loki_push_url": body.loki_push_url.strip() or None,
             "loki_query_url": body.loki_query_url.strip() or None,
+            "metrics_push_url": body.metrics_push_url.strip() or None,
             "grafana_url": body.grafana_url.strip() or None,
             "module": body.module.strip() or "devpod",
             "push_token": new_token,

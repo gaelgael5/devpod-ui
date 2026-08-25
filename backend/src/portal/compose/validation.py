@@ -30,7 +30,9 @@ _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?[-+?][^}]*)?\}")
 
 # Variables de contexte injectées par le portail à chaque déploiement
 # (compose/service.py _log_context_vars) : toujours considérées déclarées.
-PORTAL_INJECTED_VARS: frozenset[str] = frozenset({"LOKI_URL", "HOSTNAME", "MODULE", "ROLE"})
+PORTAL_INJECTED_VARS: frozenset[str] = frozenset(
+    {"LOKI_URL", "METRICS_URL", "HOSTNAME", "MODULE", "ROLE"}
+)
 
 
 class TemplateValidationError(Exception):

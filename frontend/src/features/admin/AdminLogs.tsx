@@ -14,6 +14,7 @@ function LogsForm({ initial }: { initial: LogsConfig }) {
   const [enabled, setEnabled] = useState(initial.enabled)
   const [lokiPushUrl, setLokiPushUrl] = useState(initial.loki_push_url)
   const [lokiQueryUrl, setLokiQueryUrl] = useState(initial.loki_query_url)
+  const [metricsPushUrl, setMetricsPushUrl] = useState(initial.metrics_push_url)
   const [grafanaUrl, setGrafanaUrl] = useState(initial.grafana_url)
   const [module, setModule] = useState(initial.module)
   const [pushToken, setPushToken] = useState('')
@@ -26,6 +27,7 @@ function LogsForm({ initial }: { initial: LogsConfig }) {
         enabled,
         loki_push_url: lokiPushUrl,
         loki_query_url: lokiQueryUrl,
+        metrics_push_url: metricsPushUrl,
         grafana_url: grafanaUrl,
         module,
         push_token: pushToken || undefined,
@@ -83,6 +85,20 @@ function LogsForm({ initial }: { initial: LogsConfig }) {
           placeholder="http://loki:3100"
         />
         <p className="text-xs text-muted-foreground">{t('admin.logs.lokiQueryUrlHint')}</p>
+      </div>
+
+      {/* Chaine des metriques : independante de celle des logs. Le portail
+          injecte cette URL aux collecteurs comme il injecte LOKI_URL, pour
+          pouvoir les realigner quand l'adresse derive. */}
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="logs-metrics-push-url">{t('admin.logs.metricsPushUrl')}</Label>
+        <Input
+          id="logs-metrics-push-url"
+          value={metricsPushUrl}
+          onChange={(e) => setMetricsPushUrl(e.target.value)}
+          placeholder="http://192.168.10.164:8428/api/v1/write"
+        />
+        <p className="text-xs text-muted-foreground">{t('admin.logs.metricsPushUrlHint')}</p>
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -144,9 +160,10 @@ export default function AdminLogs() {
   const suggested = network?.workspace_host
     ? {
         loki_push_url: `http://${network.workspace_host}:3100/loki/api/v1/push`,
+        metrics_push_url: `http://${network.workspace_host}:8428/api/v1/write`,
         grafana_url: `http://${network.workspace_host}:3001`,
       }
-    : { loki_push_url: '', grafana_url: '' }
+    : { loki_push_url: '', metrics_push_url: '', grafana_url: '' }
   // Nom du service Docker (interne au réseau `internal`, fixe pour tout déploiement
   // de ce dépôt) — contrairement aux URLs ci-dessus, ne dépend pas de la machine.
   const suggestedLokiQueryUrl = 'http://loki:3100'
@@ -155,6 +172,7 @@ export default function AdminLogs() {
     ...data,
     loki_push_url: data.loki_push_url || suggested.loki_push_url,
     loki_query_url: data.loki_query_url || suggestedLokiQueryUrl,
+    metrics_push_url: data.metrics_push_url || suggested.metrics_push_url,
     grafana_url: data.grafana_url || suggested.grafana_url,
   }
 

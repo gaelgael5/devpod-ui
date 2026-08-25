@@ -60,6 +60,8 @@ async def test_get_returns_current_config() -> None:
         "enabled": True,
         "loki_push_url": "http://192.168.10.196:3100/loki/api/v1/push",
         "loki_query_url": "http://loki:3100",
+        # Chaine des metriques : independante de celle des logs, non reglee ici.
+        "metrics_push_url": "",
         "grafana_url": "https://log.dev.yoops.org",
         "module": "devpod",
         "has_push_token": False,

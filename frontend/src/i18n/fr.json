@@ -540,7 +540,9 @@
       "pushTokenHint": "Optionnel — uniquement si Loki exige une auth. Valeur littérale ou référence ${vault://...}/${env://...}. Laisser vide pour conserver l'actuel.",
       "missingUrls": "L'URL de push et l'URL de requête Loki sont requises pour activer les logs centralisés.",
       "save": "Enregistrer",
-      "saved": "Configuration des logs enregistrée"
+      "saved": "Configuration des logs enregistrée",
+      "metricsPushUrl": "URL de push des métriques (remote_write)",
+      "metricsPushUrlHint": "Endpoint remote_write du TSDB. Injecté aux collecteurs de métriques sous le nom METRICS_URL, comme LOKI_URL l'est aux collecteurs de logs — changer cette valeur réaligne les collecteurs déjà déployés. Vide : aucun collecteur de métriques ne démarrera."
     },
     "workflow": {
       "navLabel": "Workflow",

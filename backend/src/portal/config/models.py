@@ -470,6 +470,12 @@ class LogsConfig(BaseModel):
     enabled: bool = False
     loki_push_url: str | None = None
     loki_query_url: str | None = None
+    # TSDB des metriques machine (endpoint `remote_write`). Vit dans ce bloc
+    # parce que c'est le meme sujet — l'observabilite du parc — et que les
+    # collecteurs des deux chaines recoivent leurs variables du meme endroit.
+    # Non renseignee : le portail n'injecte pas METRICS_URL, les collecteurs de
+    # metriques refusent de demarrer plutot que de tourner dans le vide.
+    metrics_push_url: str | None = None
     grafana_url: str | None = None
     module: str = "devpod"
     push_token: str | None = None  # littéral ou ${vault://...}/${env://...}
