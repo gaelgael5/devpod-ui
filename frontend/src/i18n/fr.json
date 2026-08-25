@@ -399,6 +399,7 @@
   },
   "admin": {
     "hosts": "Hôtes Docker",
+    "manageMenu": "Gestion",
     "eventsMenu": "Événements",
     "machinesMenu": "Machines",
     "galleries": "Galeries",
@@ -575,17 +576,6 @@
       "save": "Enregistrer",
       "saved": "Configuration du relais Workflow enregistrée"
     },
-    "testHostParams": {
-      "btn": "Paramétrage host de test",
-      "title": "Paramétrage du host de test",
-      "type": "Type d'hyperviseur",
-      "selectType": "Choisir un type…",
-      "loading": "Chargement…",
-      "save": "Enregistrer",
-      "cancel": "Annuler",
-      "saved": "Paramétrage enregistré",
-      "varsHint": "Variables substituées à la création : <NEW_VMID> (id de la VM), <N+1> (n° de la VM de test du workspace). Ex. : host-test-<NEW_VMID>-<N+1>"
-    },
     "editHost": "Modifier l'hôte",
     "addRecipe": "Ajouter une recette",
     "gallery": "Galerie",
@@ -618,7 +608,11 @@
       "running": "En cours…",
       "addGenerated": "Ajouter ce host",
       "resultFound": "Configuration du host extraite de la sortie du script.",
-      "resultMissing": "Script terminé mais aucun résultat JSON trouvé dans la dernière ligne."
+      "resultMissing": "Script terminé mais aucun résultat JSON trouvé dans la dernière ligne.",
+      "profileTitle": "Profil de machine",
+      "noProfileInGroup": "Aucun",
+      "noProfile": "Créer sans profil — saisir tous les paramètres",
+      "missingHint": "Le profil fige les autres paramètres. Seuls ceux-ci restent à renseigner."
     },
     "addProxmox": "Ajout d'hyperviseur",
     "editProxmox": "Modifier l'hyperviseur",

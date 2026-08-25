@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, LayoutGrid, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images, SquareTerminal, Zap, Server } from 'lucide-react'
+import { LayoutDashboard, LayoutGrid, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images, SquareTerminal, Zap, Server, SlidersHorizontal } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   DropdownMenu,
@@ -135,26 +135,34 @@ export default function AppShell() {
               {isAdmin && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => navigate('/admin/network')}>
-                    {t('admin.network.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/sessions')}>
-                    {t('admin.sessions.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/logs')}>
-                    {t('admin.logs.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/bastion')}>
-                    {t('admin.bastion.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/termix-instances')}>
-                    {t('admin.termix.navLabel')}
-                  </DropdownMenuItem>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <SlidersHorizontal size={14} className="mr-2" />
+                      {t('admin.manageMenu')}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onClick={() => navigate('/admin/network')}>
+                        {t('admin.network.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/sessions')}>
+                        {t('admin.sessions.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/logs')}>
+                        {t('admin.logs.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/termix-instances')}>
+                        {t('admin.termix.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/bastion')}>
+                        {t('admin.bastion.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
+                        {t('admin.oidc.navLabel')}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                   <DropdownMenuItem onClick={() => navigate('/admin/users')}>
                     {t('admin.users.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
-                    {t('admin.oidc.navLabel')}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/agent-types')}>
                     {t('admin.agentTypes.navLabel')}

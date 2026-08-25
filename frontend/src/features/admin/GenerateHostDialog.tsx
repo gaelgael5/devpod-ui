@@ -18,12 +18,21 @@ import {
 } from './useProxmoxScript'
 import { apiFetch } from '@/shared/api/client'
 import type { HostConfig } from './useHosts'
+import { useMachineProfiles, type MachineProfile } from './useMachineProfiles'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Step =
   | { kind: 'select' }
-  | { kind: 'params'; node: HypervisorConfig }
+  | { kind: 'profils'; node: HypervisorConfig }
+  | {
+      kind: 'params'
+      node: HypervisorConfig
+      /** Valeurs deja decidees (profil + defauts de la spec). */
+      preset: Record<string, string>
+      /** Restreint le formulaire a ces args. Absent = formulaire complet. */
+      onlyArgs?: ScriptArg[]
+    }
   | { kind: 'log'; node: HypervisorConfig; args: Record<string, string> }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -34,6 +43,15 @@ function argLabel(arg: ScriptArg | ScriptSubArg): string {
 
 function argDescription(arg: ScriptArg): string | undefined {
   return i18n.language.startsWith('fr') ? arg.description_fr : arg.description_en
+}
+
+/**
+ * Args obligatoires qu'aucune valeur ne renseigne. Le profil fige le reste :
+ * les reafficher n'apporterait rien, et allongerait un ecran ou seul ce qui
+ * manque demande une decision.
+ */
+function argsManquants(args: ScriptArgOrSub[], values: Record<string, string>): ScriptArg[] {
+  return flattenArgs(args).filter(a => a.required && !values[a.arg])
 }
 
 function initValues(args: ScriptArgOrSub[]): Record<string, string> {
@@ -120,14 +138,102 @@ function StepSelect({
   )
 }
 
-// ─── Step 2 : formulaire de paramètres ────────────────────────────────────────
+// ─── Step 2 : arbre des profils de machine ────────────────────────────────────
+
+/** Ordre d'affichage des groupes. `portail` n'y figure pas : le portail ne se
+ *  cree pas depuis un profil. */
+const GROUPES = ['workspaces', 'test', 'ressources', 'autres'] as const
+
+function StepProfils({
+  node,
+  onChoose,
+  onBack,
+}: {
+  node: HypervisorConfig
+  /** `null` = creation libre, sans profil. */
+  onChoose: (profil: MachineProfile | null, spec: ScriptSpec) => void
+  onBack: () => void
+}) {
+  const { t } = useTranslation()
+  const { data: spec, isLoading: specLoading } = useScriptSpec(node.name)
+  const { data: profils = [], isLoading } = useMachineProfiles()
+
+  // Un profil est type par la spec du script de SON hyperviseur : en proposer
+  // un d'un autre type produirait des args que le script ne connait pas.
+  const compatibles = profils.filter(p => p.hypervisor_type === node.hypervisor_type)
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>{t('admin.generate.profileTitle')} — {node.name}</DialogTitle>
+      </DialogHeader>
+
+      <div className="flex flex-col gap-3 py-1">
+        {(isLoading || specLoading) && <p className="text-sm text-muted-foreground">…</p>}
+
+        {!isLoading && GROUPES.map(groupe => {
+          const duGroupe = compatibles.filter(p => p.machine_type === groupe)
+          return (
+            <div key={groupe}>
+              <p className="mb-1 text-xs font-medium text-muted-foreground">
+                {t(`admin.machineProfiles.type.${groupe}`)}
+              </p>
+              {duGroupe.length === 0 ? (
+                <p className="pl-3 text-xs text-muted-foreground/70">
+                  {t('admin.generate.noProfileInGroup')}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-1 pl-3">
+                  {duGroupe.map(p => (
+                    <button
+                      key={p.slug}
+                      type="button"
+                      disabled={!spec}
+                      onClick={() => spec && onChoose(p, spec)}
+                      className="flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-muted disabled:opacity-50"
+                    >
+                      <span className="font-medium">{p.label}</span>
+                      <span className="font-mono text-xs text-muted-foreground">{p.slug}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        {/* Sans profil, on retombe sur la saisie complete : supprimer cette
+            porte de sortie rendrait l'hyperviseur inutilisable tant qu'aucun
+            profil n'existe pour son type. */}
+        <button
+          type="button"
+          disabled={!spec}
+          onClick={() => spec && onChoose(null, spec)}
+          className="mt-1 rounded-md border border-dashed px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+        >
+          {t('admin.generate.noProfile')}
+        </button>
+      </div>
+
+      <DialogFooter>
+        <Button variant="outline" onClick={onBack}>{t('admin.generate.back')}</Button>
+      </DialogFooter>
+    </>
+  )
+}
+
+// ─── Step 3 : formulaire de paramètres ────────────────────────────────────────
 
 function StepParams({
   node,
+  preset,
+  onlyArgs,
   onExecute,
   onBack,
 }: {
   node: HypervisorConfig
+  preset: Record<string, string>
+  onlyArgs?: ScriptArg[]
   onExecute: (args: Record<string, string>) => void
   onBack: () => void
 }) {
@@ -148,7 +254,14 @@ function StepParams({
       )}
 
       {spec && (
-        <StepParamsForm node={node} spec={spec} onExecute={onExecute} onBack={onBack} />
+        <StepParamsForm
+          node={node}
+          spec={spec}
+          preset={preset}
+          onlyArgs={onlyArgs}
+          onExecute={onExecute}
+          onBack={onBack}
+        />
       )}
 
       {!spec && !isLoading && (
@@ -166,16 +279,24 @@ function StepParams({
 function StepParamsForm({
   node,
   spec,
+  preset,
+  onlyArgs,
   onExecute,
   onBack,
 }: {
   node: HypervisorConfig
   spec: ScriptSpec
+  preset: Record<string, string>
+  /** Restreint le rendu a ces args ; les autres partent tels quels dans preset. */
+  onlyArgs?: ScriptArg[]
   onExecute: (args: Record<string, string>) => void
   onBack: () => void
 }) {
   const { t } = useTranslation()
-  const [values, setValues] = useState<Record<string, string>>(() => initValues(spec.args))
+  const [values, setValues] = useState<Record<string, string>>(() => ({
+    ...initValues(spec.args),
+    ...preset,
+  }))
   const [argErrors, setArgErrors] = useState<Record<string, string>>({})
   const [validatingArgs, setValidatingArgs] = useState<Set<string>>(new Set())
 
@@ -225,7 +346,10 @@ function StepParamsForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-      {spec.args.map((arg: ScriptArgOrSub, i: number) =>
+      {onlyArgs !== undefined && onlyArgs.length > 0 && (
+        <p className="text-xs text-muted-foreground">{t('admin.generate.missingHint')}</p>
+      )}
+      {(onlyArgs ?? spec.args).map((arg: ScriptArgOrSub, i: number) =>
         arg.type === 'sub'
           ? (
             <SubGroup
@@ -507,15 +631,40 @@ export default function GenerateHostDialog({
       <DialogContent className={step.kind === 'log' ? 'max-w-2xl' : undefined}>
         {step.kind === 'select' && (
           <StepSelect
-            onSelect={node => setStep({ kind: 'params', node })}
+            onSelect={node => setStep({ kind: 'profils', node })}
             onClose={onClose}
+          />
+        )}
+        {step.kind === 'profils' && (
+          <StepProfils
+            node={step.node}
+            onChoose={(profil, spec) => {
+              const node = (step as { node: HypervisorConfig }).node
+              if (profil === null) {
+                setStep({ kind: 'params', node, preset: initValues(spec.args) })
+                return
+              }
+              // Le profil fige les parametres. Ne restent a saisir que les args
+              // obligatoires qu'il ne renseigne pas ; s'il n'en manque aucun,
+              // rien n'est demande et la creation part directement.
+              const values = { ...initValues(spec.args), ...profil.params }
+              const manquants = argsManquants(spec.args, values)
+              if (manquants.length === 0) {
+                setStep({ kind: 'log', node, args: values })
+              } else {
+                setStep({ kind: 'params', node, preset: values, onlyArgs: manquants })
+              }
+            }}
+            onBack={() => setStep({ kind: 'select' })}
           />
         )}
         {step.kind === 'params' && (
           <StepParams
             node={step.node}
+            preset={step.preset}
+            onlyArgs={step.onlyArgs}
             onExecute={args => setStep({ kind: 'log', node: step.node, args })}
-            onBack={() => setStep({ kind: 'select' })}
+            onBack={() => setStep({ kind: 'profils', node: step.node })}
           />
         )}
         {step.kind === 'log' && (

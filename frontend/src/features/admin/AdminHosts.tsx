@@ -21,7 +21,6 @@ import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDes
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import OrphanDeploymentsDialog from './OrphanDeploymentsDialog'
-import TestHostParamsDialog from './TestHostParamsDialog'
 import HostRecipesDialog from './HostRecipesDialog'
 import { openTerminalTab } from '@/features/terminal/openTerminalTab'
 
@@ -37,7 +36,9 @@ const USAGE_VALUES = ['workspaces', 'tests', 'portail', 'ressources', 'autres'] 
 
 const EMPTY: HostCreatePayload = {
   name: '',
-  type: 'docker-tls',
+  // `ssh` par defaut : c'est le cas courant (toutes les machines creees par le
+  // portail), `docker-tls` restant l'exception d'un daemon distant enrole.
+  type: 'ssh',
   default: false,
   docker_host: '',
   address: '',
@@ -713,7 +714,6 @@ export default function AdminHosts() {
   const [showCert, setShowCert] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
   const [orphansOpen, setOrphansOpen] = useState(false)
-  const [testParamsOpen, setTestParamsOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [destroyTarget, setDestroyTarget] = useState<HostConfig | null>(null)
   const [form, setForm] = useState<HostCreatePayload>(EMPTY)
@@ -848,9 +848,6 @@ export default function AdminHosts() {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{t('admin.hosts')}</h1>
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => setTestParamsOpen(true)}>
-            {t('admin.testHostParams.btn')}
-          </Button>
           <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
             {t('admin.generate.btn')}
           </Button>
@@ -966,10 +963,6 @@ export default function AdminHosts() {
 
       <OrphanDeploymentsDialog open={orphansOpen} onClose={() => setOrphansOpen(false)} />
 
-      <TestHostParamsDialog
-        open={testParamsOpen}
-        onClose={() => setTestParamsOpen(false)}
-      />
 
       {/* ── Dialogue ajout / édition ── */}
       <Dialog open={open} onOpenChange={handleClose}>

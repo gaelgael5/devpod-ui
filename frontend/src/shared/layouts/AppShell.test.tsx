@@ -28,9 +28,10 @@ async function ouvrirMenuAdmin() {
 describe('AppShell — menu admin', () => {
   beforeEach(() => useUserStore.setState({ user: null }))
 
-  it('propose les sous-menus Evenements et Machines', async () => {
+  it('propose les sous-menus Gestion, Evenements et Machines', async () => {
     await ouvrirMenuAdmin()
 
+    expect(screen.getByText(/^gestion$|^manage$/i)).toBeInTheDocument()
     expect(screen.getByText(/événements|^events$/i)).toBeInTheDocument()
     expect(screen.getByText(/^machines$/i)).toBeInTheDocument()
   })
@@ -43,6 +44,8 @@ describe('AppShell — menu admin', () => {
     expect(screen.queryByText(/types d.hyperviseurs|hypervisor types/i)).toBeNull()
     expect(screen.queryByText(/hôtes docker|docker hosts/i)).toBeNull()
     expect(screen.queryByText(/journal des .v.nements|event journal/i)).toBeNull()
+    expect(screen.queryByText(/^r.seau$|^network$/i)).toBeNull()
+    expect(screen.queryByText(/oidc/i)).toBeNull()
     // Les entrees restees a la racine, elles, sont bien la.
     expect(screen.getByText(/utilisateurs|users/i)).toBeInTheDocument()
   })

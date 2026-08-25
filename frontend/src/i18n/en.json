@@ -399,6 +399,7 @@
   },
   "admin": {
     "hosts": "Docker hosts",
+    "manageMenu": "Manage",
     "eventsMenu": "Events",
     "machinesMenu": "Machines",
     "galleries": "Galleries",
@@ -575,17 +576,6 @@
       "save": "Save",
       "saved": "Workflow relay configuration saved"
     },
-    "testHostParams": {
-      "btn": "Test host config",
-      "title": "Test host configuration",
-      "type": "Hypervisor type",
-      "selectType": "Select a type…",
-      "loading": "Loading…",
-      "save": "Save",
-      "cancel": "Cancel",
-      "saved": "Configuration saved",
-      "varsHint": "Variables substituted at creation: <NEW_VMID> (the VM id), <N+1> (test VM number for the workspace). E.g. host-test-<NEW_VMID>-<N+1>"
-    },
     "editHost": "Edit host",
     "addRecipe": "Add recipe",
     "gallery": "Gallery",
@@ -618,7 +608,11 @@
       "running": "Running…",
       "addGenerated": "Add this host",
       "resultFound": "Host configuration extracted from script output.",
-      "resultMissing": "Script completed but no JSON result found in the last line."
+      "resultMissing": "Script completed but no JSON result found in the last line.",
+      "profileTitle": "Machine profile",
+      "noProfileInGroup": "None",
+      "noProfile": "Create without a profile — fill in every parameter",
+      "missingHint": "The profile pins every other parameter. Only these are left to fill in."
     },
     "addProxmox": "Add hypervisor",
     "editProxmox": "Edit hypervisor",

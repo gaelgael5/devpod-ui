@@ -13,13 +13,14 @@ from collections.abc import Iterable
 
 from ..config.models import HostConfig
 from .exec import remote_tmux_command
+from .name_mask import COUNT_MASK_RE
 
 _VAR_RE = re.compile(r"<([^<>]+)>")
 # Masque de numerotation : `{count++}` vaut le numero de la PROCHAINE machine du
 # workspace, comme `<N+1>`. Les deux `+` sont ce qui le distingue d'un
 # placeholder de script (`_SUBST_PLACEHOLDER_RE`, `\{[A-Za-z_]\w*\}`) : `{count}`
 # seul en aurait la forme et creerait une ambiguite, on ne le reconnait donc pas.
-_COUNT_MASK_RE = re.compile(r"\{count\+\+\}")
+_COUNT_MASK_RE = COUNT_MASK_RE
 
 
 def substitute_param_vars(args: dict[str, str], extra: dict[str, str]) -> dict[str, str]:

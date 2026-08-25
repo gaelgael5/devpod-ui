@@ -126,8 +126,14 @@ _AUDIT_ROOT_PW_REVEAL = "me.test_host.root_password.reveal"
 
 
 def _usable_type_names(cfg: GlobalConfig) -> set[str]:
-    """Types d'hyperviseur prêts pour les VM de test : add_script + paramétrage."""
-    return {t.name for t in cfg.hypervisor_types if t.add_script and t.test_host_params}
+    """Types d'hyperviseur prêts pour les VM de test.
+
+    Le seul prérequis est un script de création : les paramètres viennent du
+    profil choisi, ou à défaut des valeurs par défaut de la spec. Exiger en plus
+    un `test_host_params` rendait le type invisible tant qu'un admin n'était pas
+    passé par l'écran « Test host config » — écran que les profils remplacent.
+    """
+    return {t.name for t in cfg.hypervisor_types if t.add_script}
 
 
 @router.get("/test-hypervisors")

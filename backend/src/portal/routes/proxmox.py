@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from ..auth.rbac import UserInfo, require_admin
 from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor, HypervisorType
 from ..config.store import load_global, save_global
+from ..devpod.name_mask import resolve_count_mask
 from ..settings import get_settings
 from ._ssrf import pinned_get, resolve_pinned
 
@@ -763,6 +764,12 @@ async def execute_hypervisor_script(
 
     spec = await _fetch_spec(node, cfg)
     commands_raw: list[str] = spec.get("commands", [])  # type: ignore[assignment]
+
+    # Un profil fige le nom de la machine : sans variable, toutes celles qui en
+    # sortent porteraient le meme nom. `{count++}` n'a pas de compteur de
+    # workspace ici — on le resout contre les noms de hosts deja pris.
+    noms_pris = [h.name for h in cfg.hosts]
+    body.args = {k: resolve_count_mask(v, noms_pris) for k, v in body.args.items()}
 
     settings = get_settings()
     body.args["PORTAL_URL"] = cfg.server.external_url

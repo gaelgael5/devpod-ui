@@ -193,9 +193,12 @@ describe('AdminHosts', () => {
     const user = userEvent.setup()
     renderWithProviders(<AdminHosts />)
     await waitFor(() => expect(screen.getByText('pve1')).toBeInTheDocument())
-    await user.click(screen.getByRole('button', { name: /add host|ajouter un h[oô]te/i }))
+    // On edite `pve1`, qui EST un host docker-tls : le type par defaut du
+    // formulaire d'ajout est `ssh` (le cas courant), et Radix Select ne s'ouvre
+    // pas sous jsdom pour en changer.
+    const pve1Row = screen.getAllByRole('row').find((r) => r.textContent?.includes('pve1'))!
+    await user.click(pve1Row.querySelectorAll('button')[0])
 
-    // Type par défaut = docker-tls → le sélecteur de cert est visible.
     expect(await screen.findByText(/mtls certificate|certificat mtls/i)).toBeInTheDocument()
 
     // Ouvrir le select : le cert tls-* est listé, le cert ssh non.
