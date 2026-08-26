@@ -275,6 +275,12 @@ def _meta_to_yaml(meta: RecipeMeta) -> str:
     for tr in data.get("transform") or []:
         if tr.get("op") == "remove":
             tr.pop("value", None)
+    # `from` absent plutôt que `from: null` : le fichier écrit sur disque est lu
+    # par des humains, et une clé nulle sur chaque option se lit comme un réglage
+    # à moitié fait.
+    for option in (data.get("options") or {}).values():
+        if option.get("from") is None:
+            option.pop("from", None)
     # YAML minimal : pas de clés vides ni de memory_volume nul.
     for key in ("options", "installs_after", "requires_secrets", "copy", "transform"):
         if not data.get(key):

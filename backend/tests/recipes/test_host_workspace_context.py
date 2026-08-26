@@ -141,3 +141,71 @@ def test_une_valeur_heritee_invalide_est_refusee() -> None:
 
     with pytest.raises(HostApplyError):
         resolve_options(meta, {}, {"workspace.git_url": "https://x/a.git; rm -rf /"})
+
+
+# ─── Le `from:` survit a tout le circuit ─────────────────────────────────────
+#
+# Une declaration qui se perd entre la galerie et l'execution serait pire que
+# pas de declaration du tout : l'auteur la lit dans son manifeste et croit
+# qu'elle agit. On verifie donc chaque traversee, pas seulement le modele.
+
+
+def test_from_survit_a_l_aller_retour_base() -> None:
+    """`upsert_recipe_db` ecrit `model_dump()` en JSONB, `_row_to_meta` relit."""
+    import yaml
+
+    meta = RecipeMeta.model_validate(
+        yaml.safe_load(
+            "id: r\nversion: 1.0.0\nscope: host\nhost_usages: [tests]\n"
+            "options:\n  repo_url: {from: workspace.git_url}\n"
+        )
+    )
+    en_base = {k: v.model_dump() for k, v in meta.options.items()}
+    relu = RecipeMeta.model_validate(
+        {
+            "id": "r",
+            "key": meta.key,
+            "type": "install",
+            "version": "1.0.0",
+            "description": "",
+            "options": en_base,
+            "requires_secrets": [],
+            "installs_after": [],
+            "scope": "host",
+            "host_usages": ["tests"],
+            "preconditions": [],
+        }
+    )
+
+    assert relu.options["repo_url"].from_context == "workspace.git_url"
+
+
+def test_from_survit_a_l_aller_retour_disque() -> None:
+    """La recette importee est aussi ecrite sur disque, puis relue de la."""
+    import yaml
+
+    from portal.routes.recipe_sources import _meta_to_yaml
+
+    meta = RecipeMeta.model_validate(
+        yaml.safe_load(
+            "id: r\nversion: 1.0.0\nscope: host\nhost_usages: [tests]\n"
+            "options:\n  repo_url: {from: workspace.git_url}\n  avd_ram: {default: '4096'}\n"
+        )
+    )
+    sur_disque = _meta_to_yaml(meta)
+
+    assert "from: workspace.git_url" in sur_disque
+    # Pas de `from: null` sur les options ordinaires : le fichier est lu par des
+    # humains, et une cle nulle partout se lit comme un reglage a moitie fait.
+    assert "from: null" not in sur_disque
+    assert (
+        RecipeMeta.model_validate(yaml.safe_load(sur_disque)).options["repo_url"].from_context
+        == "workspace.git_url"
+    )
+
+
+def test_l_api_expose_la_declaration_au_frontend() -> None:
+    """L'IHM annonce l'heritage sur le libelle : encore faut-il qu'il arrive."""
+    meta = _liee()
+
+    assert meta.model_dump()["options"]["repo_url"]["from_context"] == "workspace.git_url"
