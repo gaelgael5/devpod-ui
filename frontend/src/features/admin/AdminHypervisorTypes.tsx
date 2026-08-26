@@ -207,7 +207,12 @@ export default function AdminHypervisorTypes() {
       <Dialog open={editOpen} onOpenChange={handleEditClose}>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{t('admin.editHypervisorType')} — {editTarget?.name}</DialogTitle>
+            {/* Le libelle, pas le `name` : celui-ci est une clef technique
+                (« roxmox4vm ») que personne ne reconnait. Valeur d'ouverture et
+                non valeur editee, pour que le titre ne suive pas la frappe. */}
+            <DialogTitle>
+              {t('admin.editHypervisorType')} — {editTarget?.label || editTarget?.name}
+            </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleEditSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
