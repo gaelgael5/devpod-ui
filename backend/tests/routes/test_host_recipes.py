@@ -7,6 +7,7 @@ catalogue — jamais par un chemin ni une commande transitant dans la requête.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -58,6 +59,13 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         return _recipes()
 
     monkeypatch.setattr(host_recipes, "_load_host_recipes", _catalogue)
+
+    # Le contexte du workspace se lit en base : ici on n'en a pas, et une
+    # machine sans workspace rattache est un cas normal (AC4 du ticket 29f3c418).
+    async def _contexte(host_name: str, conn: Any) -> dict[str, str] | None:
+        return None
+
+    monkeypatch.setattr(host_recipes, "workspace_context_for_host", _contexte)
     return TestClient(app)
 
 
@@ -197,3 +205,74 @@ class TestLectureDuScript:
         # jour ou quelqu'un re-simplifie l'appel, le test le rattrape.
         with pytest.raises(ValueError, match="Invalid login"):
             host_recipes.locate_recipe_dir("", "android-emulator")
+
+
+class TestContexteWorkspace:
+    """Ticket 29f3c418 — le depot a builder appartient au WORKSPACE.
+
+    La recette ne peut pas le deviner ; le portail connait le rattachement de la
+    machine et le lui passe, a cote de ses options. On capture le `work` remis a
+    l'operation et on le joue : c'est le seul point ou le contexte se voit.
+    """
+
+    @staticmethod
+    def _capture(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+        capture: dict[str, Any] = {}
+
+        async def _launch(**kwargs: Any) -> str:
+            capture["work"] = kwargs["work"]
+            return "op-ctx"
+
+        async def _apply(meta: Any, **kwargs: Any) -> Any:
+            capture["kwargs"] = kwargs
+
+            class _R:
+                changed = True
+                version = "1.0.0"
+                output = ""
+
+            return _R()
+
+        async def _emit(*args: Any, **kwargs: Any) -> None:
+            return None
+
+        monkeypatch.setattr(host_recipes, "_launch", _launch)
+        monkeypatch.setattr(host_recipes, "apply_recipe_to_host", _apply)
+        monkeypatch.setattr(host_recipes, "emit_event", _emit)
+        monkeypatch.setattr(host_recipes, "_read_install_script", lambda _id, _login: "echo ok")
+        return capture
+
+    def test_transmet_le_contexte_du_workspace(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        contexte = {
+            "WORKSPACE_ID": "admin-termix-mobile",
+            "WORKSPACE_GIT_URL": "https://github.com/ag-flow/termix-mobile.git",
+            "WORKSPACE_GIT_REF": "main",
+        }
+
+        async def _contexte(host_name: str, conn: Any) -> dict[str, str] | None:
+            assert host_name == "test1"
+            return contexte
+
+        monkeypatch.setattr(host_recipes, "workspace_context_for_host", _contexte)
+        capture = self._capture(monkeypatch)
+
+        res = client.post("/admin/hosts/test1/recipes/android-emulator", json={"options": {}})
+        assert res.status_code in (200, 202)
+
+        asyncio.run(capture["work"]())
+        assert capture["kwargs"]["context"] == contexte
+
+    def test_machine_sans_workspace_ne_passe_aucun_contexte(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """AC4 : un host de workspaces ou un serveur de ressources n'a pas de
+        depot a faire connaitre — ce n'est pas une erreur."""
+        capture = self._capture(monkeypatch)
+
+        res = client.post("/admin/hosts/test1/recipes/android-emulator", json={"options": {}})
+        assert res.status_code in (200, 202)
+
+        asyncio.run(capture["work"]())
+        assert capture["kwargs"]["context"] is None

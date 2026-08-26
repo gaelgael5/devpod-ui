@@ -135,7 +135,48 @@ def resolve_options(meta: RecipeMeta, fournies: dict[str, str]) -> dict[str, str
     return resolues
 
 
-def build_apply_script(meta: RecipeMeta, script: str, options: dict[str, str]) -> str:
+# Contexte injecté par le portail, à côté des options de la recette. Même motif
+# que `PORTAL_INJECTED_VARS` côté compose : le portail sait des choses qu'une
+# recette ne peut pas deviner — ici, le dépôt du workspace auquel la machine est
+# rattachée — et les lui passe sans qu'elle ait à les déclarer.
+#
+# Les noms sont bornés : ils viennent du code du portail, mais un jeu de clés
+# venu d'ailleurs pourrait sinon définir n'importe quelle variable
+# d'environnement du script (PATH, LD_PRELOAD…).
+CONTEXT_VARS: frozenset[str] = frozenset(
+    {"WORKSPACE_ID", "WORKSPACE_GIT_URL", "WORKSPACE_GIT_REF"}
+)
+
+
+def build_context_exports(context: dict[str, str] | None) -> str:
+    """Préambule `export` du contexte, vide si le contexte manque.
+
+    Une machine sans workspace rattaché — host de workspaces, serveur de
+    ressources — n'exporte simplement rien : ce n'est pas une erreur, et une
+    recette qui ignore ces variables se comporte comme avant.
+
+    Une valeur vide est omise plutôt qu'exportée vide : le script consommateur
+    teste `${WORKSPACE_GIT_URL:-}`, et une variable définie mais vide se
+    distingue mal d'une absence dans un enchaînement de replis.
+    """
+    if not context:
+        return ""
+    inconnues = sorted(set(context) - CONTEXT_VARS)
+    if inconnues:
+        raise HostApplyError(f"variables de contexte non autorisées : {inconnues}")
+    return "".join(
+        f"export {nom}={shlex.quote(valeur)}\n"
+        for nom, valeur in sorted(context.items())
+        if valeur
+    )
+
+
+def build_apply_script(
+    meta: RecipeMeta,
+    script: str,
+    options: dict[str, str],
+    context: dict[str, str] | None = None,
+) -> str:
     """Script d'installation suivi de la pose de la sentinelle.
 
     `set -e` et l'enchaînement font que la sentinelle n'est posée QUE si
@@ -148,7 +189,7 @@ def build_apply_script(meta: RecipeMeta, script: str, options: dict[str, str]) -
     # Les parametres passent par l'ENVIRONNEMENT, en valeurs quotees : jamais
     # par substitution textuelle dans la commande, ou une valeur bien choisie
     # deviendrait du code.
-    exports = "".join(
+    exports = build_context_exports(context) + "".join(
         f"export RECIPE_OPT_{nom.upper()}={shlex.quote(valeur)}\n"
         for nom, valeur in sorted(options.items())
     )
@@ -175,6 +216,7 @@ async def apply_recipe_to_host(
     script: str,
     run: Runner,
     options: dict[str, str] | None = None,
+    context: dict[str, str] | None = None,
 ) -> ApplyResult:
     """Pose la recette sur la machine, ou explique pourquoi elle ne l'est pas.
 
@@ -212,7 +254,9 @@ async def apply_recipe_to_host(
             return ApplyResult(changed=False, version=meta.version)
 
     resolues = resolve_options(meta, options or {})
-    rc, out, err = await run(build_apply_script(meta, script, resolues), timeout=APPLY_TIMEOUT_S)
+    rc, out, err = await run(
+        build_apply_script(meta, script, resolues, context), timeout=APPLY_TIMEOUT_S
+    )
     if rc != 0:
         cause = nettoyer_sortie(err or out)
         raise HostApplyError(f"échec de l'application de {meta.id!r} (code {rc}) : {cause}")

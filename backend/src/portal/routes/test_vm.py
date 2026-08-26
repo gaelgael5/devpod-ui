@@ -56,6 +56,7 @@ from ..db.test_hosts import (
     remove_test_host,
     set_test_host_message_id,
     upsert_test_host_link,
+    workspace_context_for_host,
 )
 from ..devpod.host_exec import run_host_command
 from ..devpod.ssh_exec import run_ssh_capture
@@ -502,6 +503,8 @@ async def _provision_test_vm(
         if profile is not None and profile.recipes:
             async with _get_engine().connect() as conn:
                 catalogue = await load_recipes_as_dict(login, conn)
+                # Le depot a builder appartient au WORKSPACE, pas a la recette.
+                contexte_ws = await workspace_context_for_host(host.name, conn)
             live = load_global()
             host_live = next((h for h in live.hosts if h.name == host.name), host)
 
@@ -514,6 +517,7 @@ async def _provision_test_vm(
                 catalogue=catalogue,
                 run=_run,
                 read_script=lambda rid: _read_recipe_script(rid, login),
+                context=contexte_ws,
             ):
                 job.write(ligne.encode())
 

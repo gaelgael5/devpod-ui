@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .tables import test_host_links as _links
 from .tables import workspace_test_hosts as _t
+from .tables import workspaces
 
 _ALIAS_RE = re.compile(r"^test([0-9]+)$")
 
@@ -329,6 +330,52 @@ async def list_test_host_creation_dates(conn: AsyncConnection) -> dict[str, date
         )
     ).mappings().all()
     return {r["host_name"]: r["created_at"] for r in rows if r["created_at"] is not None}
+
+
+async def workspace_context_for_host(
+    host_name: str, conn: AsyncConnection
+) -> dict[str, str] | None:
+    """Contexte du workspace auquel une machine de test est rattachée.
+
+    `{WORKSPACE_ID, WORKSPACE_GIT_URL, WORKSPACE_GIT_REF}`, ou `None` si la
+    machine n'est rattachée à aucun workspace — un host de workspaces ou un
+    serveur de ressources n'a pas de dépôt à faire connaître.
+
+    `WORKSPACE_ID` est l'identifiant canonique `<login>-<nom>`, celui qui nomme
+    le conteneur et les répertoires : c'est lui qu'on retrouve dans les logs.
+
+    La jointure porte sur la ligne PROPRIÉTAIRE : une machine partagée vers un
+    autre workspace garde le dépôt de celui qui l'a créée.
+    """
+    row = (
+        (
+            await conn.execute(
+                select(
+                    _t.c.login,
+                    _t.c.workspace_name,
+                    workspaces.c.source,
+                    workspaces.c.branch,
+                )
+                .select_from(
+                    _t.join(
+                        workspaces,
+                        (workspaces.c.login == _t.c.login)
+                        & (workspaces.c.name == _t.c.workspace_name),
+                    )
+                )
+                .where((_t.c.host_name == host_name) & (_t.c.shared_from_workspace.is_(None)))
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if row is None:
+        return None
+    return {
+        "WORKSPACE_ID": f"{row['login']}-{row['workspace_name']}",
+        "WORKSPACE_GIT_URL": row["source"] or "",
+        "WORKSPACE_GIT_REF": row["branch"] or "",
+    }
 
 
 async def list_test_host_message_ids(host_name: str, conn: AsyncConnection) -> list[int]:

@@ -28,6 +28,7 @@ from ..config.models import HostConfig
 from ..config.store import load_global
 from ..db.engine import get_conn
 from ..db.recipes import load_recipes_as_dict
+from ..db.test_hosts import workspace_context_for_host
 from ..devpod.host_exec import run_host_command
 from ..events.bus import emit_event
 from ..mcp.devpod_tools.operations import launch_operation
@@ -162,13 +163,23 @@ async def _lancer_application(
             status_code=422, detail=f"Recette {recipe_id!r} sans install.sh — rien a appliquer"
         )
 
+    # Le depot a builder appartient au WORKSPACE, pas a la recette : le portail
+    # connait le rattachement, la recette non. Lu ici, tant que la connexion est
+    # ouverte — `work()` s'execute en tache de fond, apres sa fermeture.
+    contexte = await workspace_context_for_host(host.name, conn)
+
     async def work() -> dict[str, Any]:
         async def run(command: str, *, timeout: float) -> tuple[int, str, str]:
             return await run_host_command(host, command, timeout=timeout)
 
         try:
             result = await apply_recipe_to_host(
-                meta, host_usage=host.usage, script=script, run=run, options=options
+                meta,
+                host_usage=host.usage,
+                script=script,
+                run=run,
+                options=options,
+                context=contexte,
             )
         except HostApplyError as exc:
             raise RuntimeError(str(exc)) from exc

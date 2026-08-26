@@ -34,11 +34,14 @@ async def apply_profile_recipes(
     catalogue: dict[str, RecipeMeta],
     run: Runner,
     read_script: ScriptReader,
+    context: dict[str, str] | None = None,
 ) -> AsyncIterator[str]:
     """Applique les recettes du profil, DANS L'ORDRE déclaré.
 
     L'ordre est celui du profil : une dépendance se pose avant celle qui
-    l'utilise. Chaque recette reçoit les options saisies au profil.
+    l'utilise. Chaque recette reçoit les options saisies au profil, plus le
+    `context` du workspace auquel la machine est rattachée — le dépôt à builder
+    appartient au workspace, pas à la recette.
     """
     if not profile.recipes:
         return
@@ -68,6 +71,7 @@ async def apply_profile_recipes(
                 script=script,
                 run=run,
                 options=dict(entree.options),
+                context=context,
             )
         except HostApplyError as exc:
             # Signale et poursuit : la machine reste utilisable, et la recette
