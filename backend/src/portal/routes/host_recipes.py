@@ -150,8 +150,14 @@ async def _lancer_application(
     catalogue = await _load_host_recipes(login, conn)
     meta = _require_applicable(catalogue.get(recipe_id), recipe_id, host)
 
+    # Le contexte du workspace alimente les options qui le declarent (`from:`).
+    # Lu ici, tant que la connexion est ouverte — `work()` s'execute en tache de
+    # fond, apres sa fermeture — et resolu des maintenant pour que le refus
+    # d'une valeur invalide arrive avant le lancement de l'operation.
+    contexte = await workspace_context_for_host(host.name, conn)
+
     try:
-        resolve_options(meta, options)
+        resolve_options(meta, options, contexte)
     except HostApplyError as exc:
         # Refuse tout de suite : une option invalide n'a pas a etre decouverte
         # dans le journal d'une operation lancee pour rien.
@@ -162,11 +168,6 @@ async def _lancer_application(
         raise HTTPException(
             status_code=422, detail=f"Recette {recipe_id!r} sans install.sh — rien a appliquer"
         )
-
-    # Le depot a builder appartient au WORKSPACE, pas a la recette : le portail
-    # connait le rattachement, la recette non. Lu ici, tant que la connexion est
-    # ouverte — `work()` s'execute en tache de fond, apres sa fermeture.
-    contexte = await workspace_context_for_host(host.name, conn)
 
     async def work() -> dict[str, Any]:
         async def run(command: str, *, timeout: float) -> tuple[int, str, str]:

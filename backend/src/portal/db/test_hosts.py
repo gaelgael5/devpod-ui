@@ -337,11 +337,12 @@ async def workspace_context_for_host(
 ) -> dict[str, str] | None:
     """Contexte du workspace auquel une machine de test est rattachée.
 
-    `{WORKSPACE_ID, WORKSPACE_GIT_URL, WORKSPACE_GIT_REF}`, ou `None` si la
-    machine n'est rattachée à aucun workspace — un host de workspaces ou un
-    serveur de ressources n'a pas de dépôt à faire connaître.
+    Les clés sont celles du vocabulaire `CONTEXT_KEYS` — celles qu'une recette
+    peut citer dans un `from:`. `None` si la machine n'est rattachée à aucun
+    workspace : un host de workspaces ou un serveur de ressources n'a pas de
+    dépôt à faire connaître, et ce n'est pas une erreur.
 
-    `WORKSPACE_ID` est l'identifiant canonique `<login>-<nom>`, celui qui nomme
+    `workspace.id` est l'identifiant canonique `<login>-<nom>`, celui qui nomme
     le conteneur et les répertoires : c'est lui qu'on retrouve dans les logs.
 
     La jointure porte sur la ligne PROPRIÉTAIRE : une machine partagée vers un
@@ -372,9 +373,9 @@ async def workspace_context_for_host(
     if row is None:
         return None
     return {
-        "WORKSPACE_ID": f"{row['login']}-{row['workspace_name']}",
-        "WORKSPACE_GIT_URL": row["source"] or "",
-        "WORKSPACE_GIT_REF": row["branch"] or "",
+        "workspace.id": f"{row['login']}-{row['workspace_name']}",
+        "workspace.git_url": row["source"] or "",
+        "workspace.git_ref": row["branch"] or "",
     }
 
 

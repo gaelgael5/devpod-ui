@@ -208,10 +208,23 @@ export default function MachineProfileEditor({ profile, hypervisorTypes, onClose
                   </div>
                   {Object.entries(meta?.options ?? {}).map(([clef, decl]: [string, RecipeOption]) => (
                     <div key={clef} className="mt-1.5">
-                      <Label className="text-xs">{clef}</Label>
+                      <Label className="text-xs">
+                        {clef}
+                        {/* Ce qui s'injecte doit se lire AVANT de lancer, pas
+                            se deviner : l'option declare d'ou vient sa valeur. */}
+                        {decl.from_context && (
+                          <span className="ml-2 font-normal text-muted-foreground">
+                            {t('admin.machineProfiles.inherited', { source: decl.from_context })}
+                          </span>
+                        )}
+                      </Label>
                       <Input
                         className="h-8"
-                        placeholder={decl.default}
+                        placeholder={
+                          decl.from_context
+                            ? t('admin.machineProfiles.inheritedPlaceholder')
+                            : decl.default
+                        }
                         value={r.options[clef] ?? ''}
                         onChange={(e) => {
                           const suite = [...brouillon.recipes]

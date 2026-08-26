@@ -14,6 +14,12 @@ export interface RecipeOption {
   type: string
   default: string
   description: string
+  /**
+   * Cle de contexte dont l'option herite sa valeur quand rien n'est saisi
+   * (`from:` dans le manifeste, ex. `workspace.git_url`). Declaree par la
+   * recette elle-meme : rien n'est injecte qu'elle n'ait demande.
+   */
+  from_context?: string | null
 }
 
 export interface Recipe {

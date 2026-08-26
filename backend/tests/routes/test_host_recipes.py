@@ -210,9 +210,9 @@ class TestLectureDuScript:
 class TestContexteWorkspace:
     """Ticket 29f3c418 — le depot a builder appartient au WORKSPACE.
 
-    La recette ne peut pas le deviner ; le portail connait le rattachement de la
-    machine et le lui passe, a cote de ses options. On capture le `work` remis a
-    l'operation et on le joue : c'est le seul point ou le contexte se voit.
+    La recette le DECLARE (`from: workspace.git_url`) ; le portail lui fournit
+    la valeur. On capture le `work` remis a l'operation et on le joue : c'est le
+    seul point ou le contexte se voit.
     """
 
     @staticmethod
@@ -246,9 +246,9 @@ class TestContexteWorkspace:
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         contexte = {
-            "WORKSPACE_ID": "admin-termix-mobile",
-            "WORKSPACE_GIT_URL": "https://github.com/ag-flow/termix-mobile.git",
-            "WORKSPACE_GIT_REF": "main",
+            "workspace.id": "admin-termix-mobile",
+            "workspace.git_url": "https://github.com/ag-flow/termix-mobile.git",
+            "workspace.git_ref": "main",
         }
 
         async def _contexte(host_name: str, conn: Any) -> dict[str, str] | None:
@@ -267,8 +267,8 @@ class TestContexteWorkspace:
     def test_machine_sans_workspace_ne_passe_aucun_contexte(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """AC4 : un host de workspaces ou un serveur de ressources n'a pas de
-        depot a faire connaitre — ce n'est pas une erreur."""
+        """Un host de workspaces ou un serveur de ressources n'a pas de depot a
+        faire connaitre — ce n'est pas une erreur."""
         capture = self._capture(monkeypatch)
 
         res = client.post("/admin/hosts/test1/recipes/android-emulator", json={"options": {}})

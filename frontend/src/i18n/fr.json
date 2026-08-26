@@ -858,7 +858,9 @@
         "autres": "Autres"
       },
       "deploymentId": "Nom du déploiement",
-      "addService": "Ajouter un service…"
+      "addService": "Ajouter un service…",
+      "inherited": "— hérité de {{source}}",
+      "inheritedPlaceholder": "laisser vide pour hériter du workspace"
     },
     "argsForm": {
       "templating": "— variables : {count++} ou <N+1> (n° de la prochaine machine), <N>, <NEW_VMID>"

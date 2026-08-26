@@ -316,3 +316,67 @@ describe('MachineProfileEditor — type de machine', () => {
     expect(await screen.findByText(libelle)).toBeInTheDocument()
   })
 })
+
+describe('MachineProfileEditor — option heritee du workspace', () => {
+  /**
+   * Ce qui s'injecte au lancement doit se lire AVANT, pas se deviner. Une
+   * option qui declare `from:` l'annonce sur son libelle.
+   */
+  function renderAvecRecette(fromContext: string | null) {
+    server.use(
+      http.get('/admin/hypervisor-types/:name/script', () =>
+        HttpResponse.json({ args: [], commands: [] }),
+      ),
+      http.get('/api/compose/templates', () => HttpResponse.json([])),
+      http.get('/admin/recipes', () =>
+        HttpResponse.json([
+          {
+            id: 'android-emulator',
+            key: 'fe46f7ec-33f7-4252-b29c-cf224b8cd1af',
+            version: '1.0.0',
+            description: '',
+            type: 'install',
+            options: {
+              repo_url: {
+                type: 'string',
+                default: '',
+                description: '',
+                from_context: fromContext,
+              },
+            },
+          },
+        ]),
+      ),
+    )
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <MachineProfileEditor
+            profile={{
+              ...VIDE,
+              recipes: [{ key: 'fe46f7ec-33f7-4252-b29c-cf224b8cd1af', options: {} }],
+            }}
+            hypervisorTypes={[{ name: 'proxmox', label: 'Proxmox4vm' }]}
+            onClose={vi.fn()}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    )
+  }
+
+  it('annonce la source de la valeur heritee', async () => {
+    renderAvecRecette('workspace.git_url')
+    await userEvent.click(await screen.findByRole('tab', { name: /recettes|recipes/i }))
+
+    expect(await screen.findByText(/workspace\.git_url/)).toBeInTheDocument()
+  })
+
+  it('n’annonce rien sur une option ordinaire', async () => {
+    renderAvecRecette(null)
+    await userEvent.click(await screen.findByRole('tab', { name: /recettes|recipes/i }))
+
+    await screen.findByText('repo_url')
+    expect(screen.queryByText(/h.rit.|inherited/i)).toBeNull()
+  })
+})

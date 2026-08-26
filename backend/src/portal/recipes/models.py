@@ -95,12 +95,39 @@ class RecipePrecondition(BaseModel):
         return self
 
 
+# Valeurs que le portail sait fournir à une recette et qu'elle ne peut pas
+# deviner : le workspace auquel la machine est rattachée. Vocabulaire FERMÉ et
+# déclaré ici — une clé inconnue est refusée à l'import du manifeste, pas
+# ignorée en silence au moment de l'exécution.
+#
+# La recette déclare ce qu'elle veut recevoir, dans SON manifeste. Le portail
+# n'injecte rien qu'elle n'ait demandé : ce qui arrive dans l'environnement du
+# script se lit dans le fichier qu'on est en train d'écrire, pas dans une
+# convention à connaître par ailleurs.
+CONTEXT_KEYS: frozenset[str] = frozenset(
+    {"workspace.id", "workspace.git_url", "workspace.git_ref"}
+)
+
+
 class RecipeOption(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     type: str = "string"
     default: str = ""
     description: str = ""
+    # `from:` en YAML (mot réservé en Python). Valeur héritée du contexte quand
+    # l'utilisateur ne saisit rien : la priorité est SAISIE > CONTEXTE > DÉFAUT,
+    # arbitrée par le portail et non par une cascade de replis dans le script.
+    from_context: str | None = Field(default=None, alias="from")
+
+    @field_validator("from_context")
+    @classmethod
+    def validate_from_context(cls, v: str | None) -> str | None:
+        if v is not None and v not in CONTEXT_KEYS:
+            raise ValueError(
+                f"from: {v!r} inconnu — valeurs possibles : {', '.join(sorted(CONTEXT_KEYS))}"
+            )
+        return v
 
 
 class SecretRef(BaseModel):
