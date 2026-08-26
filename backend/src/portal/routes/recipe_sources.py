@@ -346,8 +346,15 @@ async def _import_single_recipe(
     shared_dir: Path,
     http: httpx.AsyncClient,
     conn: AsyncConnection,
+    force_id: str | None = None,
 ) -> tuple[str, RecipeMeta]:
-    """Télécharge et écrit sur disque une recette. Retourne (recipe_id, meta)."""
+    """Télécharge et écrit sur disque une recette. Retourne (recipe_id, meta).
+
+    `force_id` : réécrit CETTE recette au lieu d'en créer une nouvelle. Un import
+    normal dérive un identifiant libre (`foo`, `foo-1`, `foo-2`…) ; une mise à
+    jour depuis la source doit au contraire remplacer sur place, sinon chaque
+    montée de version laisserait un doublon de plus au catalogue.
+    """
     from ..db.recipes import upsert_recipe_db
 
     url_path = Path(urlparse(source_url).path)
@@ -402,12 +409,17 @@ async def _import_single_recipe(
         raise ValueError(f"Invalid recipe id: {base_id!r}")
 
     await _purge_orphan_recipe_dirs(base_id, shared_dir, conn)
-    recipe_id = await asyncio.to_thread(_unique_recipe_id, base_id, shared_dir)
+    if force_id is not None:
+        recipe_id = force_id
+    else:
+        recipe_id = await asyncio.to_thread(_unique_recipe_id, base_id, shared_dir)
     # model_copy : conserve copies/transform/options — un RecipeMeta reconstruit
     # partiellement perdait les ops initialize (recette "applied" sans effet).
     final_meta = meta.model_copy(update={"id": recipe_id})
     await asyncio.to_thread(_write_recipe, shared_dir, final_meta, install_script, files)
-    await upsert_recipe_db(final_meta, "shared", None, conn)
+    # La provenance suit la recette : c'est elle qui permettra de dire, plus
+    # tard, que la version publiee a bouge.
+    await upsert_recipe_db(final_meta, "shared", None, conn, source_url=source_url)
     return recipe_id, final_meta
 
 
@@ -606,3 +618,117 @@ async def import_local_recipe(
     await sync_recipes_to_db(shared_dir, conn)
     _log.info("local_recipe_imported", recipe_id=body.recipe_id, imported=copied, by=user.login)
     return {"id": body.recipe_id, "imported": copied}
+
+
+# ─── Mises à jour disponibles pour les recettes déjà installées ───────────────
+#
+# Une recette importée garde l'URL de son manifeste (colonne `source_url`,
+# migration 109). C'est ce lien qui permet de répondre à la seule question qui
+# compte devant le catalogue : « ce que j'ai installé est-il encore à jour ? ».
+# On interroge la source plutôt que la galerie synchronisée : une recette
+# importée d'une source depuis retirée reste vérifiable, et la réponse ne dépend
+# pas d'un rafraîchissement préalable.
+
+
+async def _remote_version(http: httpx.AsyncClient, source_url: str) -> str | None:
+    """Version publiée à cette URL, ou None si elle est illisible.
+
+    Best-effort de bout en bout : une source injoignable, un manifeste supprimé
+    ou un YAML cassé ne doivent pas faire échouer la page — ils rendent juste
+    cette recette « indéterminée », ce qui n'affiche aucun bouton.
+    """
+    try:
+        await asyncio.to_thread(check_ssrf, source_url)
+        meta_url = f"{source_url.rsplit('/', 1)[0]}/recipe.meta.yaml"
+        meta_text = await _fetch_text(http, meta_url)
+        meta = RecipeMeta.model_validate(_normalize_recipe_yaml(yaml.safe_load(meta_text)))
+    except Exception as exc:
+        _log.info("recipe_remote_version_unreadable", url=source_url, error=str(exc))
+        return None
+    return meta.version
+
+
+@router_admin.get("/recipes/updates")
+async def list_recipe_updates(
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[dict[str, Any]]:
+    """Recettes installées dont la version publiée diffère de la version locale.
+
+    Les sources sont interrogées EN PARALLÈLE : en série, un catalogue d'une
+    vingtaine de recettes ferait attendre autant d'aller-retours réseau.
+    """
+    from ..db.recipes import list_recipes_with_source
+
+    installees = await list_recipes_with_source(conn)
+    if not installees:
+        return []
+
+    async with httpx.AsyncClient() as http:
+        versions = await asyncio.gather(
+            *(_remote_version(http, r["source_url"]) for r in installees)
+        )
+
+    sorties: list[dict[str, Any]] = []
+    for recette, distante in zip(installees, versions, strict=True):
+        if distante is None or distante == recette["version"]:
+            continue
+        sorties.append(
+            {
+                "id": recette["id"],
+                "local_version": recette["version"],
+                "remote_version": distante,
+                "source_url": recette["source_url"],
+            }
+        )
+    return sorties
+
+
+@router_admin.post("/recipes/{recipe_id}/update-from-source")
+async def update_recipe_from_source(
+    recipe_id: str,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Ré-importe une recette depuis sa source, EN PLACE.
+
+    Distinct de l'import : celui-ci refuse une recette déjà présente (dédup par
+    `key`) et dériverait sinon un identifiant libre. Ici on remplace le contenu
+    de `recipe_id` — l'identifiant, les profils qui le référencent et l'historique
+    restent intacts.
+    """
+    from ..db.recipes import get_recipe_source_url
+
+    source_url = await get_recipe_source_url(recipe_id, conn)
+    if source_url is None:
+        raise HTTPException(status_code=404, detail=f"Recipe {recipe_id!r} not found")
+    if not source_url:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Recipe {recipe_id!r} has no source: created locally, nothing to update from",
+        )
+
+    await asyncio.to_thread(check_ssrf, source_url)
+    shared_dir = _data_root() / "recipes"
+    shared_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        async with httpx.AsyncClient() as http:
+            _, meta = await _import_single_recipe(
+                source_url, shared_dir, http, conn, force_id=recipe_id
+            )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    _log.info(
+        "recipe_updated_from_source",
+        recipe_id=recipe_id,
+        version=meta.version,
+        source=source_url,
+        by=user.login,
+    )
+    return {"id": recipe_id, "version": meta.version}

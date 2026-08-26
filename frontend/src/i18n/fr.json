@@ -886,7 +886,14 @@
       "remove": "Retirer l'action",
       "labelPlaceholder": "Redémarrer la VM",
       "savedAs": "Enregistré sous"
-    }
+    },
+    "galleryRange": "{{from}}–{{to}} sur {{total}}",
+    "galleryPrev": "Précédent",
+    "galleryNext": "Suivant",
+    "recipeUpdate": "Mettre à jour ({{version}})",
+    "recipeUpdating": "Mise à jour…",
+    "recipeUpdated": "{{id}} mise à jour en {{version}}",
+    "recipeOutdated": "→ v{{version}} disponible"
   },
   "errors": {
     "forbidden": "Accès refusé",

@@ -399,6 +399,9 @@ recipes = Table(
     Column("host_scope", Text, nullable=False, server_default="workspace"),
     Column("host_usages", ARRAY(Text), nullable=False, server_default="{}"),
     Column("preconditions", JSONB, nullable=False, server_default="[]"),
+    # URL du manifeste distant d'ou la recette a ete importee — migration 109.
+    # Vide pour une recette creee a la main ou livree avec le produit.
+    Column("source_url", Text, nullable=False, server_default=""),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )

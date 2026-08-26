@@ -886,7 +886,14 @@
       "remove": "Remove action",
       "labelPlaceholder": "Reboot the VM",
       "savedAs": "Saved as"
-    }
+    },
+    "galleryRange": "{{from}}–{{to}} of {{total}}",
+    "galleryPrev": "Previous",
+    "galleryNext": "Next",
+    "recipeUpdate": "Update ({{version}})",
+    "recipeUpdating": "Updating…",
+    "recipeUpdated": "{{id}} updated to {{version}}",
+    "recipeOutdated": "→ v{{version}} available"
   },
   "errors": {
     "forbidden": "Access denied",

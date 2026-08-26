@@ -42,7 +42,14 @@ async def upsert_recipe_db(
     scope: str,
     login: str | None,
     conn: AsyncConnection,
+    source_url: str | None = None,
 ) -> None:
+    """Écrit ou met à jour une recette.
+
+    `source_url` : URL du manifeste distant dont elle provient. `None` laisse la
+    valeur en place — une mise à jour partielle ne doit pas couper une recette
+    de son origine.
+    """
     lk = _login_key(login)
     existing = (
         await conn.execute(
@@ -68,6 +75,8 @@ async def upsert_recipe_db(
         "host_usages": list(meta.host_usages),
         "preconditions": [p.model_dump() for p in meta.preconditions],
     }
+    if source_url is not None:
+        vals["source_url"] = source_url
     if existing is None:
         await conn.execute(insert(recipes).values(**vals))
     else:
@@ -80,6 +89,34 @@ async def upsert_recipe_db(
             )
             .values(**update_vals)
         )
+
+
+async def list_recipes_with_source(conn: AsyncConnection) -> list[dict[str, Any]]:
+    """Recettes partagées qui gardent trace de leur origine distante.
+
+    Filtre sur `source_url` non vide : une recette créée à la main ou livrée
+    avec le produit n'a rien à comparer, l'interroger serait du bruit réseau.
+    """
+    rows = (
+        await conn.execute(
+            select(recipes.c.id, recipes.c.version, recipes.c.source_url).where(
+                (recipes.c.scope == "shared") & (recipes.c.source_url != "")
+            )
+        )
+    ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+async def get_recipe_source_url(recipe_id: str, conn: AsyncConnection) -> str | None:
+    """URL d'origine d'une recette partagée. `None` = recette inconnue ;
+    chaîne vide = recette connue mais sans origine distante."""
+    return (
+        await conn.execute(
+            select(recipes.c.source_url).where(
+                (recipes.c.id == recipe_id) & (recipes.c.scope == "shared")
+            )
+        )
+    ).scalar_one_or_none()
 
 
 async def list_recipes_db(
