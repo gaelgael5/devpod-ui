@@ -118,6 +118,28 @@ class CountryCurrency(BaseModel):
         return v
 
 
+class CountryProvider(BaseModel):
+    """Rattachement d'un canal de paiement à un pays, avec sa priorité.
+
+    Un pays peut avoir plusieurs canaux — un défaillant ne doit pas emporter la
+    vente. `priority` croissante donne l'ordre d'essai ; c'est un ordre, pas un
+    poids.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    country_code: str
+    provider_slug: str
+    priority: int = 0
+
+    @field_validator("country_code")
+    @classmethod
+    def _code(cls, v: str) -> str:
+        if not _COUNTRY_RE.fullmatch(v):
+            raise ValueError(f"code pays {v!r} invalide : deux lettres majuscules (ISO-3166-1)")
+        return v
+
+
 class TaxRate(BaseModel):
     """Taux de taxe, en mode `manuel` uniquement.
 
@@ -129,6 +151,9 @@ class TaxRate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # Identité en base. `None` = pas encore persisté. Un taux ne s'écrase pas,
+    # il se clôt puis se remplace : l'API a donc besoin de le désigner.
+    id: int | None = None
     country_code: str
     # Vide = tout le pays. Conservé pour un futur pays à taux régionaux.
     region: str = ""

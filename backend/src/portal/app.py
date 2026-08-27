@@ -27,6 +27,8 @@ from .routes.agent_types import admin_router as agent_types_admin_router
 from .routes.agent_types import me_router as agent_types_me_router
 from .routes.applications import router as applications_router
 from .routes.automations import router as automations_router
+from .routes.billing_catalog import router as billing_catalog_router
+from .routes.billing_offers import router as billing_offers_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
@@ -499,6 +501,8 @@ def create_app() -> FastAPI:
     app.include_router(operations_admin_router, prefix="/admin")
     app.include_router(machine_profiles_admin_router, prefix="/admin")
     app.include_router(host_profiles_router, prefix="/admin")
+    app.include_router(billing_catalog_router, prefix="/admin")
+    app.include_router(billing_offers_router, prefix="/admin")
     # Lecture ouverte : c'est l'utilisateur qui choisit son profil en creant sa machine.
     app.include_router(machine_profiles_me_router, prefix="/me")
     app.include_router(recipe_sources_admin_router, prefix="/admin")
