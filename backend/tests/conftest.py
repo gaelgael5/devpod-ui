@@ -97,6 +97,25 @@ async def db_engine_concurrent(db_engine: AsyncEngine, postgres_url: str) -> Asy
     await engine.dispose()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _cles_jetables() -> None:
+    """Pose des clés de session et de vault jetables pour toute la suite.
+
+    `AppSettings` lit un `.env` gitignoré, généré au déploiement par
+    `deploy-portal.sh`. Un clone neuf n'en a aucun : `dev_mode` reste à `False`
+    et `create_app()` lève une `RuntimeError` — 21 tests tombaient pour cette
+    seule raison, indiscernables d'une vraie régression.
+
+    Un test porte son propre environnement ; il ne dépend pas d'un fichier
+    absent du dépôt. `setdefault` : un environnement déjà configuré (CI, poste
+    avec `.env`) reste maître.
+    """
+    os.environ.setdefault("SESSION_SECRET_KEY", f"test-{uuid.uuid4().hex}")
+    # 32 octets en hexadécimal, comme `openssl rand -hex 32` que réclame le message
+    # d'erreur du portail.
+    os.environ.setdefault("PORTAL_VAULT_KEK", uuid.uuid4().hex + uuid.uuid4().hex)
+
+
 @pytest.fixture
 def tmp_data_root(tmp_path, monkeypatch):
     """Redirige PORTAL_DATA_ROOT vers un répertoire temporaire."""
