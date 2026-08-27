@@ -18,6 +18,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import BackgroundTasks
 from pydantic import ValidationError
 
 
@@ -144,7 +145,9 @@ async def test_add_host_stores_ci_password_slug() -> None:
         patch("portal.routes.admin.store_system_secret", new_callable=AsyncMock) as mock_store,
         patch("portal.routes.admin.save_global_db", new_callable=AsyncMock) as mock_save,
     ):
-        result = await add_host(request=_req(), body=body, user=user, conn=conn)
+        result = await add_host(
+            background_tasks=BackgroundTasks(), request=_req(), body=body, user=user, conn=conn
+        )
 
     # Le slug est présent, le mot de passe brut n'est PAS dans la réponse
     assert result["ci_password_secret_slug"] == "host.test-vm-01.ci-password"
@@ -190,7 +193,9 @@ async def test_add_host_without_ci_password() -> None:
         patch("portal.routes.admin.store_system_secret", new_callable=AsyncMock) as mock_store,
         patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
     ):
-        result = await add_host(request=_req(), body=body, user=user, conn=conn)
+        result = await add_host(
+            background_tasks=BackgroundTasks(), request=_req(), body=body, user=user, conn=conn
+        )
 
     assert result["ci_password_secret_slug"] == ""
     assert result["host_cert_slug"] == ""
@@ -223,7 +228,9 @@ async def test_add_host_conflict_409() -> None:
         patch("portal.routes.admin.load_global", return_value=cfg),
         pytest.raises(HTTPException) as exc_info,
     ):
-        await add_host(request=_req(), body=body, user=user, conn=conn)
+        await add_host(
+            background_tasks=BackgroundTasks(), request=_req(), body=body, user=user, conn=conn
+        )
 
     assert exc_info.value.status_code == 409
 
@@ -255,7 +262,13 @@ async def test_add_host_stores_docker_cert_slug() -> None:
         patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
         patch("portal.routes.admin._materialize_docker_cert", new_callable=AsyncMock) as mock_mat,
     ):
-        result = await add_host(request=_req("sid-42"), body=body, user=user, conn=conn)
+        result = await add_host(
+            background_tasks=BackgroundTasks(),
+            request=_req("sid-42"),
+            body=body,
+            user=user,
+            conn=conn,
+        )
 
     assert result["docker_cert_slug"] == "docker-node1"
     # Le bundle est matérialisé à l'association, avec la session admin.
@@ -483,7 +496,13 @@ async def test_add_ssh_host_with_cert_sets_host_cert_slug() -> None:
         patch("portal.routes.admin._materialize_ssh_cert", new_callable=AsyncMock) as mock_mat,
     ):
         mock_mat.return_value = "host.vm-01.cert"
-        result = await add_host(request=_req("sid-7"), body=body, user=user, conn=conn)
+        result = await add_host(
+            background_tasks=BackgroundTasks(),
+            request=_req("sid-7"),
+            body=body,
+            user=user,
+            conn=conn,
+        )
 
     mock_mat.assert_awaited_once_with("admin", "sid-7", "vm-01", "my-key", conn)
     assert result["host_cert_slug"] == "host.vm-01.cert"
@@ -515,7 +534,14 @@ async def test_update_ssh_host_with_cert_rematerializes() -> None:
         patch("portal.routes.admin._materialize_ssh_cert", new_callable=AsyncMock) as mock_mat,
     ):
         mock_mat.return_value = "host.vm-01.cert"
-        result = await update_host(request=_req(), name="vm-01", body=body, user=user, conn=conn)
+        result = await update_host(
+            background_tasks=BackgroundTasks(),
+            request=_req(),
+            name="vm-01",
+            body=body,
+            user=user,
+            conn=conn,
+        )
 
     mock_mat.assert_awaited_once()
     assert result["host_cert_slug"] == "host.vm-01.cert"
@@ -544,7 +570,14 @@ async def test_update_ssh_host_without_cert_preserves_bootstrap_slug() -> None:
         patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
         patch("portal.routes.admin._materialize_ssh_cert", new_callable=AsyncMock) as mock_mat,
     ):
-        result = await update_host(request=_req(), name="vm-01", body=body, user=user, conn=conn)
+        result = await update_host(
+            background_tasks=BackgroundTasks(),
+            request=_req(),
+            name="vm-01",
+            body=body,
+            user=user,
+            conn=conn,
+        )
 
     mock_mat.assert_not_called()
     assert result["host_cert_slug"] == "host.vm-01.cert"
@@ -583,7 +616,14 @@ async def test_update_host_stores_new_ci_password() -> None:
         patch("portal.routes.admin.store_system_secret", new_callable=AsyncMock) as mock_store,
         patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
     ):
-        result = await update_host(request=_req(), name="vm-01", body=body, user=user, conn=conn)
+        result = await update_host(
+            background_tasks=BackgroundTasks(),
+            request=_req(),
+            name="vm-01",
+            body=body,
+            user=user,
+            conn=conn,
+        )
 
     mock_store.assert_called_once()
     assert result["ci_password_secret_slug"] == "host.vm-01.ci-password"
@@ -623,7 +663,14 @@ async def test_update_host_preserves_slug_without_ci_password() -> None:
         patch("portal.routes.admin.store_system_secret", new_callable=AsyncMock) as mock_store,
         patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
     ):
-        result = await update_host(request=_req(), name="vm-01", body=body, user=user, conn=conn)
+        result = await update_host(
+            background_tasks=BackgroundTasks(),
+            request=_req(),
+            name="vm-01",
+            body=body,
+            user=user,
+            conn=conn,
+        )
 
     mock_store.assert_not_called()
     assert result["ci_password_secret_slug"] == "host.vm-01.ci-password"
@@ -666,7 +713,14 @@ async def test_update_host_docker_cert_slug_set_and_clear() -> None:
             docker_host="tcp://192.168.1.50:2376",
             docker_cert_slug="new-cert",
         )
-        result = await update_host(request=_req(), name="node1", body=body, user=user, conn=conn)
+        result = await update_host(
+            background_tasks=BackgroundTasks(),
+            request=_req(),
+            name="node1",
+            body=body,
+            user=user,
+            conn=conn,
+        )
         assert result["docker_cert_slug"] == "new-cert"
         mock_mat.assert_awaited_once_with("admin", "sid-1", "node1", "new-cert", conn)
         mock_rm.assert_not_called()
@@ -679,7 +733,14 @@ async def test_update_host_docker_cert_slug_set_and_clear() -> None:
             docker_host="tcp://192.168.1.50:2376",
             docker_cert_slug="",
         )
-        result = await update_host(request=_req(), name="node1", body=body, user=user, conn=conn)
+        result = await update_host(
+            background_tasks=BackgroundTasks(),
+            request=_req(),
+            name="node1",
+            body=body,
+            user=user,
+            conn=conn,
+        )
         assert result["docker_cert_slug"] == ""
         mock_mat.assert_not_called()
         mock_rm.assert_awaited_once_with("node1")
@@ -719,7 +780,14 @@ async def test_update_host_docker_cert_slug_preserved_when_absent() -> None:
         patch("portal.routes.admin._materialize_docker_cert", new_callable=AsyncMock) as mock_mat,
         patch("portal.routes.admin.remove_host_bundle", new_callable=AsyncMock) as mock_rm,
     ):
-        result = await update_host(request=_req(), name="node1", body=body, user=user, conn=conn)
+        result = await update_host(
+            background_tasks=BackgroundTasks(),
+            request=_req(),
+            name="node1",
+            body=body,
+            user=user,
+            conn=conn,
+        )
 
     assert result["docker_cert_slug"] == "kept-cert"
     # Slug inchangé : ni rematérialisation (exigerait le vault déverrouillé), ni purge.
@@ -740,7 +808,14 @@ async def test_update_host_name_mismatch_422() -> None:
     body = HostCreateRequest(name="other-name", type="ssh")
 
     with pytest.raises(HTTPException) as exc_info:
-        await update_host(request=_req(), name="vm-01", body=body, user=user, conn=conn)
+        await update_host(
+            background_tasks=BackgroundTasks(),
+            request=_req(),
+            name="vm-01",
+            body=body,
+            user=user,
+            conn=conn,
+        )
 
     assert exc_info.value.status_code == 422
 
@@ -782,7 +857,7 @@ async def test_delete_host_cleans_up_harpo() -> None:
         patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
         patch("portal.routes.proxmox._run_destroy_script", new_callable=AsyncMock),
     ):
-        await delete_host(name="vm-01", user=user, conn=conn)
+        await delete_host(background_tasks=BackgroundTasks(), name="vm-01", user=user, conn=conn)
 
     mock_del_sec.assert_called_once_with("host.vm-01.ci-password", conn)
     mock_del_cert.assert_called_once_with("host.vm-01.cert", conn)
@@ -816,7 +891,7 @@ async def test_delete_host_no_slugs_no_harpo_calls() -> None:
         patch("portal.routes.admin.save_global_db", new_callable=AsyncMock),
         patch("portal.routes.proxmox._run_destroy_script", new_callable=AsyncMock),
     ):
-        await delete_host(name="vm-01", user=user, conn=conn)
+        await delete_host(background_tasks=BackgroundTasks(), name="vm-01", user=user, conn=conn)
 
     mock_del_sec.assert_not_called()
     mock_del_cert.assert_not_called()
@@ -854,7 +929,7 @@ async def test_delete_host_removes_docker_bundle() -> None:
         patch("portal.routes.proxmox._run_destroy_script", new_callable=AsyncMock),
         patch("portal.routes.admin.remove_host_bundle", new_callable=AsyncMock) as mock_rm,
     ):
-        await delete_host(name="node1", user=user, conn=conn)
+        await delete_host(background_tasks=BackgroundTasks(), name="node1", user=user, conn=conn)
 
     mock_rm.assert_awaited_once_with("node1")
 

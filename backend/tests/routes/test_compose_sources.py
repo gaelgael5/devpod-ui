@@ -112,7 +112,7 @@ def test_import_fetches_extra_files_declared_in_meta(tmp_path: Path) -> None:
     respx.get(f"{base}/config.alloy").mock(return_value=Response(200, text=_ALLOY_CONFIG))
 
     with (
-        patch("portal.routes.compose_sources._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
+        patch("portal.routes._ssrf._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
         TestClient(app) as client,
     ):
         resp = client.post(
@@ -143,7 +143,7 @@ def test_import_allows_system_bind_mounts_via_whitelist(tmp_path: Path) -> None:
     respx.get(f"{base}/config.alloy").mock(return_value=Response(200, text=_ALLOY_CONFIG))
 
     with (
-        patch("portal.routes.compose_sources._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
+        patch("portal.routes._ssrf._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
         TestClient(app) as client,
     ):
         resp = client.post(
@@ -167,7 +167,7 @@ def test_import_rejects_non_whitelisted_bind_mount(tmp_path: Path) -> None:
     respx.get(f"{base}/compose.yml").mock(return_value=Response(200, text=compose))
 
     with (
-        patch("portal.routes.compose_sources._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
+        patch("portal.routes._ssrf._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
         TestClient(app) as client,
     ):
         resp = client.post(
@@ -190,7 +190,7 @@ def test_import_rejects_extra_file_path_traversal(tmp_path: Path) -> None:
     respx.get(f"{base}/compose.yml").mock(return_value=Response(200, text=compose))
 
     with (
-        patch("portal.routes.compose_sources._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
+        patch("portal.routes._ssrf._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
         TestClient(app) as client,
     ):
         resp = client.post(
@@ -213,7 +213,7 @@ def test_import_missing_extra_file_returns_502(tmp_path: Path) -> None:
     respx.get(f"{base}/missing.conf").mock(return_value=Response(404))
 
     with (
-        patch("portal.routes.compose_sources._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
+        patch("portal.routes._ssrf._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
         TestClient(app) as client,
     ):
         resp = client.post(
@@ -237,7 +237,7 @@ def test_import_now_rejects_undeclared_variable(tmp_path: Path) -> None:
     respx.get(f"{base}/compose.yml").mock(return_value=Response(200, text=compose))
 
     with (
-        patch("portal.routes.compose_sources._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
+        patch("portal.routes._ssrf._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
         TestClient(app) as client,
     ):
         resp = client.post(
@@ -264,7 +264,7 @@ def test_import_without_extra_files_still_works(tmp_path: Path) -> None:
     respx.get(f"{base}/compose.yml").mock(return_value=Response(200, text=compose))
 
     with (
-        patch("portal.routes.compose_sources._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
+        patch("portal.routes._ssrf._socket.getaddrinfo", return_value=_MOCK_PUBLIC_ADDR),
         TestClient(app) as client,
     ):
         resp = client.post(

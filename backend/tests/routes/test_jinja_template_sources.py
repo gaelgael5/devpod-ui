@@ -98,7 +98,7 @@ def test_import_creates_template(tmp_path: Path) -> None:
     http = _mock_http("Bonjour {{ user.login }}")
     with (
         TestClient(app) as client,
-        patch("portal.routes.jinja_template_sources._check_ssrf", return_value=None),
+        patch("portal.routes.jinja_template_sources.check_ssrf", return_value=None),
         patch("portal.routes.jinja_template_sources.httpx.AsyncClient", return_value=http),
     ):
         resp = client.post(
@@ -122,7 +122,7 @@ def test_import_conflict_without_overwrite(tmp_path: Path) -> None:
     )
     with (
         TestClient(app) as client,
-        patch("portal.routes.jinja_template_sources._check_ssrf", return_value=None),
+        patch("portal.routes.jinja_template_sources.check_ssrf", return_value=None),
         patch("portal.routes.jinja_template_sources.httpx.AsyncClient", return_value=http),
     ):
         first = client.post("/admin/jinja-template-sources/import", json=common)
@@ -136,7 +136,7 @@ def test_import_overwrite(tmp_path: Path) -> None:
     app = _make_admin_app(tmp_path)
     with (
         TestClient(app) as client,
-        patch("portal.routes.jinja_template_sources._check_ssrf", return_value=None),
+        patch("portal.routes.jinja_template_sources.check_ssrf", return_value=None),
     ):
         with patch(
             "portal.routes.jinja_template_sources.httpx.AsyncClient",
