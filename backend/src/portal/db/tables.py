@@ -1675,3 +1675,29 @@ host_guests = Table(
     ),
 )
 Index("ix_host_guests_login", host_guests.c.login)
+
+
+# Profil de host : ce qu'un forfait provisionne.
+#
+# Trois niveaux — le type d'hyperviseur DECLARE les variables, le profil de
+# machine fige les parametres de creation, le profil de host VALUE les
+# variables. `capacity_workspaces` y vit : le profil de machine sait construire
+# la VM, il ne sait pas combien de workspaces elle tient sans planter. Seul
+# l'exploitant le sait, et c'est ici qu'il le dit.
+#
+# Pas de cle etrangere vers `machine_profiles` : le portail valide l'existence
+# du profil a l'enregistrement, et une reference devenue pendante reste lisible
+# — savoir sur quel profil un host a ete monte garde sa valeur meme si ce profil
+# a disparu (meme choix que `hosts.profile_slug`).
+host_profiles = Table(
+    "host_profiles",
+    metadata,
+    Column("slug", Text, primary_key=True),
+    Column("label", Text, nullable=False),
+    Column("machine_profile", Text, nullable=False),
+    # {slug de variable: valeur}, en texte — la declaration porte le type.
+    Column("variables", JSONB, nullable=False, server_default="{}"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+Index("ix_host_profiles_machine", host_profiles.c.machine_profile)

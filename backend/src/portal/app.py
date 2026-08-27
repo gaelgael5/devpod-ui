@@ -32,6 +32,7 @@ from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
 from .routes.event_schemas import router as event_schemas_router
 from .routes.host_grants import router as host_grants_router
+from .routes.host_profiles import router as host_profiles_router
 from .routes.host_recipes import me_router as host_recipes_me_router
 from .routes.host_recipes import router as host_recipes_admin_router
 from .routes.host_secrets import router as host_secrets_router
@@ -497,6 +498,7 @@ def create_app() -> FastAPI:
     app.include_router(host_recipes_me_router, prefix="/me")
     app.include_router(operations_admin_router, prefix="/admin")
     app.include_router(machine_profiles_admin_router, prefix="/admin")
+    app.include_router(host_profiles_router, prefix="/admin")
     # Lecture ouverte : c'est l'utilisateur qui choisit son profil en creant sa machine.
     app.include_router(machine_profiles_me_router, prefix="/me")
     app.include_router(recipe_sources_admin_router, prefix="/admin")

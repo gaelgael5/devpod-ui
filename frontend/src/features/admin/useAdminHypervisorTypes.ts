@@ -14,6 +14,24 @@ export interface HypervisorAction {
   slugManuel?: boolean
 }
 
+/**
+ * Slug RESERVE : la variable qui porte la capacite d'accueil d'une machine.
+ * Le portail la LIT pour savoir combien de workspaces la machine supporte sans
+ * planter. Meme constante que `CAPACITY_VARIABLE` cote backend — une faute de
+ * frappe la rendrait invisible sans rien signaler, d'ou le bouton dedie.
+ */
+export const CAPACITY_VARIABLE = 'capacity_workspaces'
+
+/** Variable declaree par un type, valuee par un profil de host. */
+export interface HypervisorVariable {
+  label: string
+  slug: string
+  /** Ce qui se compte, ou ce qui se lit. */
+  type: 'int' | 'string'
+  /** Local a l'edition, jamais envoye au backend. Cf. `HypervisorAction`. */
+  slugManuel?: boolean
+}
+
 export interface HypervisorTypeConfig {
   label: string
   name: string
@@ -21,6 +39,7 @@ export interface HypervisorTypeConfig {
   destroy_script: string
   test_host_params?: Record<string, string>
   actions?: HypervisorAction[]
+  variables?: HypervisorVariable[]
 }
 
 /** Enregistre le paramétrage host de test d'un type d'hyperviseur. */

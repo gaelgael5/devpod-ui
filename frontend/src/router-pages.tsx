@@ -14,6 +14,9 @@ export const AdminRecipes = lazy(() => import('@/features/admin/AdminRecipes'))
 export const AdminMachineProfiles = lazy(
   () => import('@/features/admin/AdminMachineProfiles'),
 )
+export const AdminHostProfiles = lazy(
+  () => import('@/features/admin/AdminHostProfiles'),
+)
 export const AdminProxmox = lazy(() => import('@/features/admin/AdminProxmox'))
 export const AdminHypervisorTypes = lazy(() => import('@/features/admin/AdminHypervisorTypes'))
 export const AdminAgentTypes = lazy(() => import('@/features/admin/AdminAgentTypes'))

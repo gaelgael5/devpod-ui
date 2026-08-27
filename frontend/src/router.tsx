@@ -26,6 +26,7 @@ import {
   AdminProxmox,
   AdminRecipes,
   AdminMachineProfiles,
+  AdminHostProfiles,
   AdminSessions,
   AdminWorkflow,
   ApplicationsPage,
@@ -144,6 +145,13 @@ export const router = createBrowserRouter([
         // de MACHINE ont leur propre chemin.
         path: '/admin/machine-profiles',
         element: <AdminGuard><Wrap><AdminMachineProfiles /></Wrap></AdminGuard>,
+      },
+      {
+        // Sous-menu « Forfaits » : ce qu'un forfait provisionne. Distinct des
+        // profils de MACHINE, qui savent construire la VM sans savoir ce
+        // qu'elle vaut a l'usage.
+        path: '/admin/host-profiles',
+        element: <AdminGuard><Wrap><AdminHostProfiles /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/recipes',

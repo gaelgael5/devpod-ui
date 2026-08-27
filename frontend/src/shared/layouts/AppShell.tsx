@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, LayoutGrid, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images, SquareTerminal, Zap, Server, SlidersHorizontal } from 'lucide-react'
+import { LayoutDashboard, LayoutGrid, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images, SquareTerminal, Zap, Server, SlidersHorizontal, Receipt } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   DropdownMenu,
@@ -208,6 +208,17 @@ export default function AppShell() {
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => navigate('/admin/machine-profiles')}>
                         {t('admin.machineProfiles.navLabel')}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Receipt size={14} className="mr-2" />
+                      {t('admin.plansMenu')}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onClick={() => navigate('/admin/host-profiles')}>
+                        {t('admin.hostProfiles.navLabel')}
                       </DropdownMenuItem>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>

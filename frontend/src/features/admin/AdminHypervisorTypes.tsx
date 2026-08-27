@@ -9,16 +9,22 @@ import {
 } from '@/components/ui/dialog'
 import {
   useAdminHypervisorTypes, type HypervisorAction, type HypervisorTypeConfig,
+  type HypervisorVariable,
 } from './useAdminHypervisorTypes'
 import HypervisorActionsBlock from './HypervisorActionsBlock'
+import HypervisorVariablesBlock from './HypervisorVariablesBlock'
 
 const EMPTY: HypervisorTypeConfig = {
-  label: '', name: '', add_script: '', destroy_script: '', actions: [],
+  label: '', name: '', add_script: '', destroy_script: '', actions: [], variables: [],
 }
 
 /** `slugManuel` n'existe que le temps de la saisie : le backend le refuserait. */
 function sansEtatLocal(actions: HypervisorAction[]): HypervisorAction[] {
   return actions.map(({ label, slug, script }) => ({ label, slug, script }))
+}
+
+function variablesPropres(variables: HypervisorVariable[]): HypervisorVariable[] {
+  return variables.map(({ label, slug, type }) => ({ label, slug, type }))
 }
 
 // `labelToKey` SUPPRIMAIT les majuscules au lieu de les convertir : « Proxmox »
@@ -39,6 +45,7 @@ export default function AdminHypervisorTypes() {
     add_script: '',
     destroy_script: '',
     actions: [],
+    variables: [],
   })
 
   function handleClose(o: boolean) {
@@ -53,6 +60,7 @@ export default function AdminHypervisorTypes() {
       add_script: ht.add_script,
       destroy_script: ht.destroy_script,
       actions: ht.actions ?? [],
+      variables: ht.variables ?? [],
     })
     setEditOpen(true)
   }
@@ -69,7 +77,11 @@ export default function AdminHypervisorTypes() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     addType.mutate(
-      { ...form, actions: sansEtatLocal(form.actions ?? []) },
+      {
+        ...form,
+        actions: sansEtatLocal(form.actions ?? []),
+        variables: variablesPropres(form.variables ?? []),
+      },
       { onSuccess: () => handleClose(false) },
     )
   }
@@ -80,7 +92,11 @@ export default function AdminHypervisorTypes() {
     updateType.mutate(
       {
         name: editTarget.name,
-        body: { ...editForm, actions: sansEtatLocal(editForm.actions ?? []) },
+        body: {
+          ...editForm,
+          actions: sansEtatLocal(editForm.actions ?? []),
+          variables: variablesPropres(editForm.variables ?? []),
+        },
       },
       { onSuccess: () => handleEditClose(false) },
     )
@@ -191,6 +207,10 @@ export default function AdminHypervisorTypes() {
               actions={form.actions ?? []}
               onChange={(actions) => setForm((f) => ({ ...f, actions }))}
             />
+            <HypervisorVariablesBlock
+              variables={form.variables ?? []}
+              onChange={(variables) => setForm((f) => ({ ...f, variables }))}
+            />
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => handleClose(false)}>
                 {t('workspaces.confirm.cancel')}
@@ -249,6 +269,10 @@ export default function AdminHypervisorTypes() {
               typeName={editTarget?.name ?? ''}
               actions={editForm.actions ?? []}
               onChange={(actions) => setEditForm((f) => ({ ...f, actions }))}
+            />
+            <HypervisorVariablesBlock
+              variables={editForm.variables ?? []}
+              onChange={(variables) => setEditForm((f) => ({ ...f, variables }))}
             />
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => handleEditClose(false)}>

@@ -358,6 +358,58 @@ _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
 _ACTION_SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
 
 
+#: Slug RÉSERVÉ : la variable qui porte la capacité d'accueil d'une machine.
+#: Le portail la lit pour savoir combien de workspaces la machine supporte sans
+#: planter. Ce n'est pas une valeur magique cachée dans le code — c'est une
+#: variable déclarée comme les autres sur le type d'hyperviseur, que l'IHM sait
+#: proposer d'un clic pour éviter une faute de frappe.
+CAPACITY_VARIABLE = "capacity_workspaces"
+
+# Les variables acceptent l'underscore, contrairement aux autres slugs : elles
+# nomment des grandeurs (`capacity_workspaces`) et non des ressources, et le
+# nom doit rester identique à celui de la colonne qu'il alimente.
+_VARIABLE_SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9_-]{0,38}[a-z0-9])?$")
+
+
+class HypervisorVariable(BaseModel):
+    """Variable déclarée par un type d'hyperviseur, valuée par un profil de host.
+
+    Le type d'hyperviseur dit CE QUI EXISTE, le profil de host dit COMBIEN. La
+    déclaration vit ici et pas dans le code parce qu'elle dépend de l'hyperviseur
+    et de ce que l'exploitant sait de ses machines : personne d'autre que lui ne
+    peut dire combien de workspaces tient un gabarit donné.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str
+    slug: str
+    type: Literal["int", "string"] = "string"
+
+    @field_validator("slug")
+    @classmethod
+    def validate_slug(cls, v: str) -> str:
+        if not _VARIABLE_SLUG_RE.fullmatch(v):
+            raise ValueError(f"slug {v!r} must match ^[a-z0-9]([a-z0-9_-]{{0,38}}[a-z0-9])?$")
+        return v
+
+    def valider_valeur(self, valeur: str) -> str:
+        """Valeur acceptable pour cette variable, ou `ValueError`.
+
+        Une variable `int` qui reçoit « beaucoup » ne se découvrirait qu'à la
+        création de la machine, trop tard et loin de la saisie.
+        """
+        brut = valeur.strip()
+        if self.type == "int":
+            try:
+                int(brut)
+            except ValueError:
+                raise ValueError(
+                    f"variable {self.slug!r} attend un entier, reçu {valeur!r}"
+                ) from None
+        return brut
+
+
 class HypervisorAction(BaseModel):
     """Script supplémentaire attaché à un type d'hyperviseur.
 
@@ -406,6 +458,20 @@ class HypervisorType(BaseModel):
     test_host_params: dict[str, str] = Field(default_factory=dict)
     # Actions supplémentaires (au-delà de créer/détruire), déclarées par l'admin.
     actions: list[HypervisorAction] = Field(default_factory=list)
+    # Variables que les profils de host de ce type auront à renseigner. Le type
+    # déclare ce qui existe, le profil de host donne les valeurs.
+    variables: list[HypervisorVariable] = Field(default_factory=list)
+
+    @field_validator("variables")
+    @classmethod
+    def validate_variables(cls, v: list[HypervisorVariable]) -> list[HypervisorVariable]:
+        # Deux variables de même slug rendraient la valeur retenue dépendante de
+        # l'ordre de saisie : refus à la déclaration.
+        slugs = [var.slug for var in v]
+        doublons = sorted({s for s in slugs if slugs.count(s) > 1})
+        if doublons:
+            raise ValueError(f"variables en double : {', '.join(doublons)}")
+        return v
 
     @field_validator("name")
     @classmethod
@@ -548,6 +614,49 @@ class GlobalConfig(BaseModel):
                 migrated.append(n)
             data["hypervisors"] = migrated
         return data
+
+
+class HostProfile(BaseModel):
+    """Profil de host : ce qu'un forfait provisionne.
+
+    Trois niveaux, chacun avec sa responsabilité :
+
+    - le **type d'hyperviseur** déclare les variables qui existent ;
+    - le **profil de machine** fige les paramètres du script de création (RAM,
+      disque, gabarit) et porte le type ;
+    - le **profil de host** choisit un profil de machine et VALUE ses variables
+      — dont `capacity_workspaces`, le nombre de workspaces que la machine
+      supporte sans planter.
+
+    Le profil de machine sait construire la VM ; il ne sait pas ce qu'elle vaut
+    à l'usage. C'est l'exploitant qui le dit, ici, une fois pour toutes.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
+    label: str
+    #: Slug du profil de machine — c'est lui qui porte le type d'hyperviseur,
+    #: donc la liste des variables à renseigner.
+    machine_profile: str
+    #: Slug de variable → valeur. Stockées en texte comme `MachineProfile.params` :
+    #: la déclaration porte le type, la valeur reste ce que l'admin a saisi.
+    variables: dict[str, str] = Field(default_factory=dict)
+
+    def capacity_workspaces(self) -> int | None:
+        """Capacité déclarée, ou `None` si le profil ne la renseigne pas.
+
+        `None` n'est pas « illimité » par indulgence : c'est « non renseigné ».
+        L'appelant décide s'il refuse ou s'il laisse passer — mais il le décide
+        en connaissance de cause.
+        """
+        brut = self.variables.get(CAPACITY_VARIABLE, "").strip()
+        if not brut:
+            return None
+        try:
+            return int(brut)
+        except ValueError:
+            return None
 
 
 class ProfileRef(BaseModel):
