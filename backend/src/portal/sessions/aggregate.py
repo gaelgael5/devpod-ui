@@ -142,7 +142,9 @@ async def _workspace_sessions(
         try:
             out.extend(task.result())
         except Exception:
-            _log.warning("sessions_workspace_probe_failed", ws=tasks[task].get("name"), exc_info=True)
+            _log.warning(
+                "sessions_workspace_probe_failed", ws=tasks[task].get("name"), exc_info=True
+            )
     for task in pending:
         ref = tasks[task]
         # Référencée : sans ça le GC peut annuler la sonde avant qu'elle

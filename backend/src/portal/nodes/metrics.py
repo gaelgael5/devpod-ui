@@ -53,7 +53,9 @@ def build_command(sections: list[str]) -> str:
     nécessaire garde le tick CPU (30 s) minuscule au lieu de relire `df` sur
     toutes les machines deux fois par minute.
     """
-    return "; ".join(f"echo '@@{name}'; {_SECTIONS[name]}" for name in sections if name in _SECTIONS)
+    return "; ".join(
+        f"echo '@@{name}'; {_SECTIONS[name]}" for name in sections if name in _SECTIONS
+    )
 
 # Timeout court : la sonde ne doit pas retenir un slot d'exécution du host.
 PROBE_TIMEOUT_S = 20.0
@@ -209,7 +211,7 @@ async def run_disk_pass(sections: list[str] | None = None) -> None:
     if not hosts:
         return
 
-    async def _one(h: HostConfig) -> tuple[str, object]:
+    async def _one(h: HostConfig) -> tuple[str, dict[str, Any] | Exception | None]:
         try:
             return h.name, await probe_host(h, sections)
         except Exception as exc:  # noqa: BLE001 — best-effort, l'erreur est persistée
