@@ -1560,6 +1560,12 @@ subscriptions = Table(
     Column("amount_minor", BigInteger, nullable=False),
     # Identifiant de l'abonnement côté fournisseur (`sub_…`).
     Column("provider_subscription_id", Text, nullable=False, server_default=""),
+    # Echecs de prelevement CONSECUTIFS de l'episode en cours, remis a zero des
+    # qu'un paiement passe. `next_retry_at` porte la relance programmee : on ne
+    # coupe pas au premier refus (souvent passager), on relance une fois puis on
+    # resilie — de facon reversible.
+    Column("payment_attempts", Integer, nullable=False, server_default="0"),
+    Column("next_retry_at", DateTime(timezone=True), nullable=True),
     Column("trial_end", DateTime(timezone=True), nullable=True),
     Column("current_period_end", DateTime(timezone=True), nullable=True),
     # Date du dernier changement d'état : c'est d'elle que le scheduler déduit
@@ -1571,9 +1577,17 @@ subscriptions = Table(
         "state IN ('essai','actif','echec_paiement','resilie')", name="ck_subscription_state"
     ),
     CheckConstraint("amount_minor >= 0", name="ck_subscription_amount"),
+    CheckConstraint("payment_attempts >= 0", name="ck_subscription_attempts"),
 )
 Index("ix_subscriptions_login", subscriptions.c.login)
 Index("ix_subscriptions_state", subscriptions.c.state, subscriptions.c.state_changed_at)
+# Le scheduler de relance demande « qui est du maintenant ? » : index partiel,
+# pour ne pas balayer les abonnements sains a chaque tick.
+Index(
+    "ix_subscriptions_retry",
+    subscriptions.c.next_retry_at,
+    postgresql_where=subscriptions.c.next_retry_at.isnot(None),
+)
 
 # Historique des événements d'abonnement, ET magasin d'idempotence des webhooks.
 #
@@ -1608,9 +1622,14 @@ Index("ix_subscription_events_sub", subscription_events.c.subscription_id)
 
 # Propriété d'une machine par un utilisateur (hébergement `dedie`).
 #
-# `max_workspaces` est un INSTANTANÉ du quota de l'offre qui a provisionné cette
-# machine : c'est la CAPACITÉ DU HOST, partagée entre l'owner et ses invités —
-# pas un quota individuel toutes machines confondues.
+# Deux plafonds distincts, et leur ordre n'est pas negociable :
+#   1. `capacity_workspaces` = ce que la MACHINE supporte, le nombre de
+#      workspaces qui peuvent y tourner sans la faire planter. Limite physique,
+#      elle prime sur tout — aucun forfait ne fait acheter de la RAM.
+#   2. `offer_max_workspaces` = le quota du forfait au provisionnement. Il peut
+#      etre plus bas que la capacite, jamais la relever.
+# C'est une capacite de MACHINE, partagee entre l'owner et ses invites, pas un
+# quota individuel toutes machines confondues.
 host_ownership = Table(
     "host_ownership",
     metadata,
@@ -1618,9 +1637,15 @@ host_ownership = Table(
     Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
     Column("hosting_type", Text, nullable=False, server_default="dedie"),
     Column("offer_slug", Text, nullable=True),
-    Column("max_workspaces", Integer, nullable=True),  # NULL = illimité
+    # NULL = pas de plafond de ce cote-la, pour les deux.
+    Column("capacity_workspaces", Integer, nullable=True),
+    Column("offer_max_workspaces", Integer, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint("hosting_type IN ('dedie','mutualise')", name="ck_ownership_hosting_type"),
+    CheckConstraint(
+        "capacity_workspaces IS NULL OR capacity_workspaces >= 0",
+        name="ck_ownership_capacity",
+    ),
 )
 Index("ix_host_ownership_owner", host_ownership.c.owner_login)
 

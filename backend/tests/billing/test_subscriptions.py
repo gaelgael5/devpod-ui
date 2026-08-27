@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
 
+from portal.billing.config import PolitiqueRelance
 from portal.billing.subscriptions import (
     ETAT_APRES,
     RepriseRefusee,
@@ -17,6 +18,7 @@ from portal.billing.subscriptions import (
     cle_idempotence,
     deja_traite,
     etat_apres,
+    relance_due,
     reprendre,
 )
 
@@ -241,3 +243,105 @@ def test_la_reprise_ne_mute_pas_l_abonnement_d_origine() -> None:
     reprendre(sub, currency="EUR", amount_minor=3900, moment=T1)
     assert sub.state == "resilie"
     assert sub.amount_minor == 2900
+
+
+# --- Relance d'un prélèvement refusé ---------------------------------------
+#
+# Un refus est souvent passager : plafond mensuel, carte expirée du matin.
+# On relance une fois, puis on coupe — et couper veut dire résilier, donc de
+# façon réversible.
+
+RELANCE = PolitiqueRelance(delai_heures=6, tentatives_max=2)
+
+
+def test_le_premier_refus_ne_coupe_pas_le_service() -> None:
+    maj = appliquer(_sub(state="actif"), _event("echec_paiement"), T1, RELANCE)
+    assert maj.state == "echec_paiement"
+    assert maj.ouvert is True
+
+
+def test_le_premier_refus_programme_une_relance_au_delai_configure() -> None:
+    maj = appliquer(_sub(state="actif"), _event("echec_paiement"), T1, RELANCE)
+    assert maj.payment_attempts == 1
+    assert maj.next_retry_at == T1 + timedelta(hours=6)
+
+
+def test_le_delai_de_relance_est_parametrable() -> None:
+    maj = appliquer(
+        _sub(state="actif"),
+        _event("echec_paiement"),
+        T1,
+        PolitiqueRelance(delai_heures=48),
+    )
+    assert maj.next_retry_at == T1 + timedelta(hours=48)
+
+
+def test_le_second_refus_coupe() -> None:
+    # Deuxième essai raté : on résilie. Réversible — le compte demeure.
+    sub = _sub(state="echec_paiement", payment_attempts=1, next_retry_at=T0)
+    maj = appliquer(sub, _event("echec_paiement", "evt_2"), T1, RELANCE)
+    assert maj.state == "resilie"
+    assert maj.ouvert is False
+    assert maj.next_retry_at is None
+
+
+def test_couper_laisse_la_reprise_ouverte() -> None:
+    coupe = appliquer(
+        _sub(state="echec_paiement", payment_attempts=1),
+        _event("echec_paiement", "evt_2"),
+        T1,
+        RELANCE,
+    )
+    repris = reprendre(coupe, currency="EUR", amount_minor=2900, moment=T1)
+    assert repris.ouvert is True
+
+
+def test_le_nombre_de_tentatives_est_parametrable() -> None:
+    politique = PolitiqueRelance(delai_heures=6, tentatives_max=3)
+    sub = _sub(state="echec_paiement", payment_attempts=1)
+    maj = appliquer(sub, _event("echec_paiement", "evt_2"), T1, politique)
+    assert maj.state == "echec_paiement"  # une relance de plus avant de couper
+    assert maj.payment_attempts == 2
+
+
+def test_une_seule_tentative_coupe_des_le_premier_refus() -> None:
+    politique = PolitiqueRelance(tentatives_max=1)
+    maj = appliquer(_sub(state="actif"), _event("echec_paiement"), T1, politique)
+    assert maj.state == "resilie"
+
+
+def test_un_paiement_reussi_solde_l_episode_d_echec() -> None:
+    # Sinon un refus isolé six mois plus tard couperait aussitôt.
+    sub = _sub(state="echec_paiement", payment_attempts=1, next_retry_at=T1)
+    maj = appliquer(sub, _event("renouvellement"), T1, RELANCE)
+    assert maj.state == "actif"
+    assert maj.payment_attempts == 0
+    assert maj.next_retry_at is None
+
+
+def test_la_relance_est_due_a_l_echeance() -> None:
+    sub = _sub(state="echec_paiement", payment_attempts=1, next_retry_at=T0)
+    assert relance_due(sub, T1) is True
+
+
+def test_la_relance_n_est_pas_due_avant_l_echeance() -> None:
+    sub = _sub(state="echec_paiement", payment_attempts=1, next_retry_at=T1)
+    assert relance_due(sub, T0) is False
+
+
+def test_un_abonnement_coupe_n_est_plus_relance() -> None:
+    # Distingue « en attente de relance » de « coupé » : sans relance
+    # programmée, le scheduler passe son chemin.
+    assert relance_due(_sub(state="resilie", next_retry_at=None), T1) is False
+
+
+def test_un_abonnement_sain_n_est_jamais_relance() -> None:
+    assert relance_due(_sub(state="actif"), T1) is False
+
+
+def test_la_reprise_repart_d_une_ardoise_nette() -> None:
+    # Sinon les échecs de l'abonnement clos couperaient la reprise au 1er refus.
+    coupe = _sub(state="resilie", payment_attempts=2, next_retry_at=T0)
+    repris = reprendre(coupe, currency="EUR", amount_minor=2900, moment=T1)
+    assert repris.payment_attempts == 0
+    assert repris.next_retry_at is None

@@ -1,10 +1,19 @@
 """Propriété d'une machine dédiée, invités, et quota de workspaces.
 
-Le point structurant, celui qui se trompe facilement : **`max_workspaces` est la
-capacité de LA MACHINE, pas un quota individuel toutes machines confondues.**
-Une machine provisionnée par un forfait à 5 workspaces accepte 5 workspaces en
-tout, répartis entre son propriétaire et les invités qu'il a conviés. Un invité
-peut recevoir une sous-limite ; le propriétaire, lui, consomme ce qui reste.
+Deux plafonds distincts s'appliquent à une machine, et leur ordre n'est pas
+négociable :
+
+1. **La capacité de la machine prime sur tout.** Ce n'est pas une règle
+   commerciale mais une limite PHYSIQUE : c'est le nombre de workspaces que la
+   machine peut faire tourner sans planter. Aucun forfait, aussi généreux
+   soit-il, ne la fait dépasser — on n'achète pas de la RAM avec un abonnement.
+2. **Le quota du forfait** vient ensuite. Il peut être plus bas que la capacité
+   (on n'a payé que pour trois places sur une machine qui en tient dix) ; il ne
+   peut jamais la relever.
+
+C'est une capacité de MACHINE, pas un quota individuel : elle est partagée entre
+le propriétaire et les invités qu'il a conviés. Un invité peut recevoir une
+sous-limite ; le propriétaire, lui, consomme ce qui reste.
 
 Ce module ne fait que décider. Il ne lit pas la base : l'appelant lui fournit
 l'état, il rend un verdict motivé — ce qui le rend testable sans base et donne
@@ -33,11 +42,17 @@ class QuotaDepasse(Exception):
 
 
 class HostOwnership(BaseModel):
-    """Rattachement d'une machine à son propriétaire.
+    """Rattachement d'une machine à son propriétaire, et ses deux plafonds.
 
-    `max_workspaces` est un instantané du quota de l'offre qui a provisionné la
-    machine : celle-ci a été dimensionnée pour ce quota, un changement de
-    catalogue ne la redimensionne pas rétroactivement. `None` = illimité.
+    `capacity_workspaces` est ce que la machine SUPPORTE : le nombre de
+    workspaces qui peuvent y tourner sans la faire planter. C'est une donnée de
+    dimensionnement, pas une donnée commerciale, et elle prime sur tout.
+
+    `offer_max_workspaces` est le quota du forfait qui a provisionné la machine,
+    figé au provisionnement — un changement de catalogue ne redimensionne pas
+    rétroactivement une machine déjà livrée.
+
+    `None` = pas de plafond de ce côté-là.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -46,7 +61,8 @@ class HostOwnership(BaseModel):
     owner_login: str
     hosting_type: HostingType = "dedie"
     offer_slug: str | None = None
-    max_workspaces: int | None = Field(default=None, ge=0)
+    capacity_workspaces: int | None = Field(default=None, ge=0)
+    offer_max_workspaces: int | None = Field(default=None, ge=0)
 
 
 class HostGuest(BaseModel):
@@ -97,11 +113,34 @@ def invitation_valide(guest: HostGuest, maintenant: datetime) -> bool:
     return guest.expires_at > maintenant
 
 
+def limite_effective(ownership: HostOwnership) -> tuple[int | None, str]:
+    """Plafond réellement opposable, et sa nature : `machine`, `forfait` ou `""`.
+
+    La nature n'est pas cosmétique : elle décide de ce qu'on dit à l'utilisateur
+    quand il est bloqué. « Capacité de la machine atteinte » appelle une machine
+    plus grosse, « quota du forfait atteint » appelle un forfait supérieur. Les
+    confondre, c'est envoyer l'utilisateur payer pour rien.
+
+    À égalité, c'est la machine qui est nommée : c'est la contrainte dure.
+    """
+    capacite = ownership.capacity_workspaces
+    quota = ownership.offer_max_workspaces
+
+    if capacite is None and quota is None:
+        return None, ""
+    if quota is None:
+        return capacite, "machine"
+    if capacite is None:
+        return quota, "forfait"
+    return (capacite, "machine") if capacite <= quota else (quota, "forfait")
+
+
 def capacite_restante(ownership: HostOwnership, utilises: int) -> int | None:
-    """Places libres sur la machine, `None` si la capacité est illimitée."""
-    if ownership.max_workspaces is None:
+    """Places libres sur la machine, `None` si aucun plafond ne s'applique."""
+    limite, _ = limite_effective(ownership)
+    if limite is None:
         return None
-    return max(0, ownership.max_workspaces - utilises)
+    return max(0, limite - utilises)
 
 
 def logins_autorises(ownership: HostOwnership, guests: list[HostGuest]) -> set[str]:
@@ -123,9 +162,12 @@ def verifier_creation(
     Les trois refus, dans l'ordre où ils comptent :
 
     1. le compte n'est ni propriétaire ni invité accepté ;
-    2. la capacité de la machine est atteinte — elle prime sur tout le reste,
-       c'est la limite physique payée ;
+    2. le plafond de la machine est atteint — capacité physique d'abord, quota
+       du forfait ensuite ; il prime sur toute allocation individuelle ;
     3. l'invité a une sous-limite et l'a atteinte.
+
+    Le message de refus distingue la capacité machine du quota de forfait :
+    l'un appelle une machine plus grosse, l'autre un forfait supérieur.
     """
     if login not in logins_autorises(ownership, guests):
         raise QuotaDepasse(
@@ -133,11 +175,16 @@ def verifier_creation(
         )
 
     total = sum(utilisation.values())
-    restant = capacite_restante(ownership, total)
-    if restant is not None and restant <= 0:
+    limite, nature = limite_effective(ownership)
+    if limite is not None and total >= limite:
+        if nature == "machine":
+            raise QuotaDepasse(
+                f"capacité de la machine {ownership.host_name} atteinte "
+                f"({total}/{limite} workspaces) : elle ne peut pas en faire "
+                "tourner davantage sans planter"
+            )
         raise QuotaDepasse(
-            f"capacité de la machine {ownership.host_name} atteinte "
-            f"({total}/{ownership.max_workspaces} workspaces)"
+            f"quota du forfait atteint sur {ownership.host_name} ({total}/{limite} workspaces)"
         )
 
     invite = next((g for g in guests if g.actif and g.login == login), None)
@@ -158,7 +205,7 @@ def places_pour(
 ) -> int | None:
     """Nombre de workspaces que ce compte peut encore créer ici.
 
-    `None` = illimité (capacité de machine illimitée et pas de sous-limite).
+    `None` = illimité (aucun plafond de machine, et pas de sous-limite).
     Sert à l'affichage : l'UI doit pouvoir dire « 2 places restantes » sans
     tenter une création pour le découvrir.
     """

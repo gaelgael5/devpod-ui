@@ -26,10 +26,12 @@ Deux mécanismes qui se paient cher s'ils sont approximatifs :
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from .config import PolitiqueRelance
 
 _CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 _COUNTRY_RE = re.compile(r"^[A-Z]{2}$")
@@ -86,6 +88,11 @@ class Subscription(BaseModel):
     currency: str
     amount_minor: int = Field(ge=0)
     provider_subscription_id: str = ""
+    #: Échecs de prélèvement CONSÉCUTIFS de l'épisode en cours. Remis à zéro dès
+    #: qu'un paiement passe — ce n'est pas un compteur de vie.
+    payment_attempts: int = Field(default=0, ge=0)
+    #: Prochaine relance programmée. `None` = rien en attente.
+    next_retry_at: datetime | None = None
     trial_end: datetime | None = None
     current_period_end: datetime | None = None
     state_changed_at: datetime | None = None
@@ -108,9 +115,10 @@ class Subscription(BaseModel):
     def ouvert(self) -> bool:
         """L'abonnement donne-t-il droit au service ?
 
-        `echec_paiement` reste ouvert : c'est le sens même de la période de
-        grâce — on ne coupe pas au premier prélèvement refusé, le scheduler de
-        rétention décide de la suite.
+        `echec_paiement` reste ouvert : on ne coupe pas au premier prélèvement
+        refusé, qui échoue souvent pour une raison passagère. La période de
+        grâce est exactement la fenêtre de relance — au-delà de la dernière
+        tentative, l'abonnement passe `resilie` et se ferme.
         """
         return self.state in {"essai", "actif", "echec_paiement"}
 
@@ -164,19 +172,73 @@ def etat_apres(courant: SubscriptionState, kind: EventKind) -> SubscriptionState
     return ETAT_APRES[kind]
 
 
-def appliquer(sub: Subscription, event: SubscriptionEvent, moment: datetime) -> Subscription:
+def _apres_echec(sub: Subscription, moment: datetime, politique: PolitiqueRelance) -> Subscription:
+    """Décide la suite d'un prélèvement refusé : relancer, ou couper.
+
+    On ne coupe pas au premier refus — plafond mensuel, carte expirée du matin,
+    ces échecs se réparent seuls. Mais on ne relance pas indéfiniment un service
+    non payé : à la dernière tentative, l'abonnement est RÉSILIÉ, donc de façon
+    réversible (le compte demeure, la reprise reste ouverte).
+    """
+    etat_apres(sub.state, "echec_paiement")  # garde : rien à couper si déjà clos
+    tentatives = sub.payment_attempts + 1
+
+    if tentatives >= politique.tentatives_max:
+        return sub.model_copy(
+            update={
+                "state": "resilie",
+                "payment_attempts": tentatives,
+                "next_retry_at": None,
+                "state_changed_at": moment,
+            }
+        )
+
+    return sub.model_copy(
+        update={
+            "state": "echec_paiement",
+            "payment_attempts": tentatives,
+            "next_retry_at": moment + timedelta(hours=politique.delai_heures),
+            "state_changed_at": moment,
+        }
+    )
+
+
+def appliquer(
+    sub: Subscription,
+    event: SubscriptionEvent,
+    moment: datetime,
+    politique: PolitiqueRelance | None = None,
+) -> Subscription:
     """Applique un événement et rend l'abonnement mis à jour.
 
     Fonction pure : elle ne touche pas la base, elle décide. La persistance et
     l'écriture de la ligne d'idempotence appartiennent à l'appelant, dans la
     même transaction.
     """
+    if event.kind == "echec_paiement":
+        return _apres_echec(sub, moment, politique or PolitiqueRelance())
+
     nouvel_etat = etat_apres(sub.state, event.kind)
-    if nouvel_etat == sub.state:
-        # Renouvellement d'un abonnement déjà actif : rien ne change côté état,
-        # mais l'horodatage doit avancer (le scheduler s'en sert).
-        return sub.model_copy(update={"state_changed_at": moment})
-    return sub.model_copy(update={"state": nouvel_etat, "state_changed_at": moment})
+    maj: dict[str, object] = {"state": nouvel_etat, "state_changed_at": moment}
+    if event.kind in {"activation", "renouvellement"}:
+        # Le paiement est passé : l'épisode d'échec est clos, la relance
+        # programmée n'a plus lieu d'être.
+        maj["payment_attempts"] = 0
+        maj["next_retry_at"] = None
+    return sub.model_copy(update=maj)
+
+
+def relance_due(sub: Subscription, maintenant: datetime) -> bool:
+    """L'heure de retenter le prélèvement est-elle venue ?
+
+    Ce que le scheduler interroge. Un abonnement sans relance programmée n'est
+    jamais dû : c'est ce qui distingue « en attente de relance » de « coupé ».
+    """
+    return (
+        sub.state == "echec_paiement"
+        and sub.next_retry_at is not None
+        and sub.next_retry_at <= maintenant
+    )
 
 
 def reprendre(
@@ -213,6 +275,10 @@ def reprendre(
             "currency": currency,
             "amount_minor": amount_minor,
             "provider_subscription_id": provider_subscription_id,
+            # Ardoise nette : les échecs de l'abonnement clos ne comptent pas
+            # contre la reprise, sinon un seul refus la couperait aussitôt.
+            "payment_attempts": 0,
+            "next_retry_at": None,
             "trial_end": None,
             "current_period_end": None,
             "state_changed_at": moment,

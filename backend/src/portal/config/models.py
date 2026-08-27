@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from portal.billing.config import BillingConfig
 from portal.profiles.models import Scope
 
 
@@ -527,6 +528,11 @@ class GlobalConfig(BaseModel):
     logs: LogsConfig = Field(default_factory=LogsConfig)
     events_producer: EventsProducerConfig = Field(default_factory=EventsProducerConfig)
     bastion: BastionConfig = Field(default_factory=BastionConfig)
+    # Reglages de facturation : la politique de relance d'un prelevement refuse
+    # vaut pour l'installation entiere, pas pour un abonne — elle est donc ici
+    # et non en base. Modele defini dans `portal.billing.config`, qui n'importe
+    # rien du portail (pas de cycle).
+    billing: BillingConfig = Field(default_factory=BillingConfig)
 
     @model_validator(mode="before")
     @classmethod
