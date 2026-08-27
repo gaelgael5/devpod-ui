@@ -1533,3 +1533,116 @@ offer_prices = Table(
     UniqueConstraint("offer_slug", "currency", name="uq_offer_price_currency"),
     CheckConstraint("amount_minor >= 0", name="ck_offer_price_positive"),
 )
+
+
+# ─── Forfaits : abonnements et propriété des machines ────────────────────────
+
+# Abonnement d'un utilisateur à une offre.
+#
+# `currency` et `amount_minor` sont un INSTANTANÉ du prix au moment de la
+# souscription, pas une lecture de `offer_prices` : le catalogue évolue, un
+# abonné garde le prix auquel il a souscrit. C'est aussi ce qui permet de
+# rejouer une facture ancienne.
+subscriptions = Table(
+    "subscriptions",
+    metadata,
+    Column("id", UUID(as_uuid=False), primary_key=True),
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("offer_slug", Text, ForeignKey("offers.slug"), nullable=False),
+    Column("provider_slug", Text, ForeignKey("payment_providers.slug"), nullable=True),
+    Column("state", Text, nullable=False, server_default="essai"),
+    Column("country_code", Text, nullable=False),
+    Column("currency", Text, nullable=False),
+    Column("amount_minor", BigInteger, nullable=False),
+    # Identifiant de l'abonnement côté fournisseur (`sub_…`).
+    Column("provider_subscription_id", Text, nullable=False, server_default=""),
+    Column("trial_end", DateTime(timezone=True), nullable=True),
+    Column("current_period_end", DateTime(timezone=True), nullable=True),
+    # Date du dernier changement d'état : c'est d'elle que le scheduler déduit
+    # l'échéance de rétention, en y ajoutant le délai configuré pour l'événement.
+    Column("state_changed_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "state IN ('essai','actif','echec_paiement','resilie')", name="ck_subscription_state"
+    ),
+    CheckConstraint("amount_minor >= 0", name="ck_subscription_amount"),
+)
+Index("ix_subscriptions_login", subscriptions.c.login)
+Index("ix_subscriptions_state", subscriptions.c.state, subscriptions.c.state_changed_at)
+
+# Historique des événements d'abonnement, ET magasin d'idempotence des webhooks.
+#
+# `(provider_slug, provider_event_id)` est UNIQUE : chaque webhook porte un id
+# d'événement, un événement déjà vu est ignoré en silence. Sans cette
+# contrainte, un renvoi du fournisseur — cas normal, ils réessaient — pourrait
+# provisionner deux fois ou facturer deux fois.
+subscription_events = Table(
+    "subscription_events",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column(
+        "subscription_id",
+        UUID(as_uuid=False),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        nullable=True,
+    ),
+    Column("login", Text, nullable=False, server_default=""),
+    Column("kind", Text, nullable=False),
+    Column("provider_slug", Text, nullable=False),
+    Column("provider_event_id", Text, nullable=False),
+    Column("payload", JSONB, nullable=False, server_default="{}"),
+    Column("occurred_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("provider_slug", "provider_event_id", name="uq_subscription_event_provider"),
+    CheckConstraint(
+        "kind IN ('debut_essai','activation','renouvellement','echec_paiement','resiliation')",
+        name="ck_subscription_event_kind",
+    ),
+)
+Index("ix_subscription_events_sub", subscription_events.c.subscription_id)
+
+# Propriété d'une machine par un utilisateur (hébergement `dedie`).
+#
+# `max_workspaces` est un INSTANTANÉ du quota de l'offre qui a provisionné cette
+# machine : c'est la CAPACITÉ DU HOST, partagée entre l'owner et ses invités —
+# pas un quota individuel toutes machines confondues.
+host_ownership = Table(
+    "host_ownership",
+    metadata,
+    Column("host_name", Text, ForeignKey("hosts.name", ondelete="CASCADE"), primary_key=True),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("hosting_type", Text, nullable=False, server_default="dedie"),
+    Column("offer_slug", Text, nullable=True),
+    Column("max_workspaces", Integer, nullable=True),  # NULL = illimité
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("hosting_type IN ('dedie','mutualise')", name="ck_ownership_hosting_type"),
+)
+Index("ix_host_ownership_owner", host_ownership.c.owner_login)
+
+# Invités d'une machine dédiée : l'owner saisit un email, un lien d'invitation
+# part. `login` reste NULL tant que l'invitation n'est pas acceptée — on invite
+# une adresse, pas forcément un compte déjà existant.
+host_guests = Table(
+    "host_guests",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("host_name", Text, ForeignKey("hosts.name", ondelete="CASCADE"), nullable=False),
+    Column("email", Text, nullable=False),
+    Column("login", Text, ForeignKey("users.login", ondelete="SET NULL"), nullable=True),
+    # Sous-limite de l'invité, dans la capacité du host. NULL = pas de
+    # sous-limite : l'invité peut consommer la capacité restante.
+    Column("allocated_workspaces", Integer, nullable=True),
+    Column("state", Text, nullable=False, server_default="invite"),
+    Column("token", Text, nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("accepted_at", DateTime(timezone=True), nullable=True),
+    UniqueConstraint("host_name", "email", name="uq_host_guest_email"),
+    UniqueConstraint("token", name="uq_host_guest_token"),
+    CheckConstraint("state IN ('invite','accepte','revoque')", name="ck_host_guest_state"),
+    CheckConstraint(
+        "allocated_workspaces IS NULL OR allocated_workspaces > 0", name="ck_host_guest_alloc"
+    ),
+)
+Index("ix_host_guests_login", host_guests.c.login)
