@@ -25,16 +25,26 @@ from .tables import (
 # ─── Pays ────────────────────────────────────────────────────────────────────
 
 
+def _row_to_country(row: dict[str, Any]) -> Country:
+    """Projette la ligne sur les seuls champs du modèle.
+
+    La table porte `created_at` / `updated_at`, que `Country` ne déclare pas et
+    refuse (`extra="forbid"`) : valider la ligne entière lèverait une
+    ValidationError à la lecture.
+    """
+    return Country(code=row["code"], label=row["label"], enabled=row["enabled"])
+
+
 async def list_countries(conn: AsyncConnection) -> list[Country]:
     """Pays triés par libellé — c'est ce que l'œil lit."""
     rows = (await conn.execute(select(countries).order_by(countries.c.label))).mappings().all()
-    return [Country.model_validate(dict(r)) for r in rows]
+    return [_row_to_country(dict(r)) for r in rows]
 
 
 async def get_country(code: str, conn: AsyncConnection) -> Country | None:
     stmt = select(countries).where(countries.c.code == code)
     row = (await conn.execute(stmt)).mappings().first()
-    return Country.model_validate(dict(row)) if row else None
+    return _row_to_country(dict(row)) if row else None
 
 
 async def upsert_country(pays: Country, conn: AsyncConnection) -> None:
