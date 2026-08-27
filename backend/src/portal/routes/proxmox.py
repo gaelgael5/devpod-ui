@@ -22,6 +22,7 @@ from ..config.models import (
     Hypervisor,
     HypervisorAction,
     HypervisorType,
+    HypervisorVariable,
     qualify_action_slug,
 )
 from ..config.store import load_global, save_global
@@ -349,6 +350,24 @@ class HypervisorTypeRequest(BaseModel):
     add_script: str = ""
     destroy_script: str = ""
     actions: list[HypervisorAction] = []
+    # Variables que les profils de host de ce type auront a renseigner. Sans ce
+    # champ, pydantic ignorait en silence ce que l'IHM envoyait et la
+    # declaration ne survivait pas a l'enregistrement.
+    variables: list[HypervisorVariable] = []
+
+
+def _variables_validees(variables: list[HypervisorVariable]) -> list[HypervisorVariable]:
+    """Refuse deux variables de meme slug.
+
+    La valeur retenue dependrait de l'ordre de saisie. Le modele le refuse deja,
+    mais il leverait une ValidationError au milieu du handler — donc une 500 la
+    ou l'admin merite un 422 qui nomme le doublon.
+    """
+    slugs = [v.slug for v in variables]
+    doublons = sorted({s for s in slugs if slugs.count(s) > 1})
+    if doublons:
+        raise HTTPException(status_code=422, detail=f"variables en double : {', '.join(doublons)}")
+    return list(variables)
 
 
 def _actions_qualifiees(name: str, actions: list[HypervisorAction]) -> list[HypervisorAction]:
@@ -357,9 +376,7 @@ def _actions_qualifiees(name: str, actions: list[HypervisorAction]) -> list[Hype
     Deux actions du meme slug donneraient deux entrees indiscernables dans la
     liste — et, le jour ou on les executera, une cible ambigue.
     """
-    sorties = [
-        a.model_copy(update={"slug": qualify_action_slug(name, a.slug)}) for a in actions
-    ]
+    sorties = [a.model_copy(update={"slug": qualify_action_slug(name, a.slug)}) for a in actions]
     slugs = [a.slug for a in sorties]
     doublons = sorted({s for s in slugs if slugs.count(s) > 1})
     if doublons:
@@ -396,6 +413,7 @@ async def add_hypervisor_type(
         add_script=body.add_script,
         destroy_script=body.destroy_script,
         actions=_actions_qualifiees(body.name, body.actions),
+        variables=_variables_validees(body.variables),
     )
     cfg.hypervisor_types.append(ht)
     await save_global(cfg)
@@ -420,6 +438,7 @@ async def update_hypervisor_type(
         destroy_script=body.destroy_script,
         test_host_params=ht.test_host_params,  # préservé (réglé via /test-params)
         actions=_actions_qualifiees(name, body.actions),
+        variables=_variables_validees(body.variables),
     )
     cfg.hypervisor_types = [updated if t.name == name else t for t in cfg.hypervisor_types]
     await save_global(cfg)
