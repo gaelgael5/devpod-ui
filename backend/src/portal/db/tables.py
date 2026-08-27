@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     MetaData,
+    Numeric,
     Table,
     Text,
     UniqueConstraint,
@@ -1385,4 +1387,149 @@ mcp_discovery_source = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("login", "slug", name="uq_mcp_discovery_source_login_slug"),
+)
+
+
+# ─── Forfaits : pays, fiscalité, catalogue d'offres ───────────────────────────
+#
+# Périmètre initial : la France seule (cadrage du 27/08). Les États-Unis
+# reviendront en `tax_mode = automatique` — le modèle les porte déjà, aucune
+# migration à prévoir pour ça.
+
+# Pays où la plateforme opère. Le pays RÉFÉRENCE ses providers (un provider peut
+# servir plusieurs pays), et porte ses devises.
+countries = Table(
+    "countries",
+    metadata,
+    Column("code", Text, primary_key=True),  # ISO-3166-1 alpha-2, majuscules
+    Column("label", Text, nullable=False),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Devises acceptées dans un pays. `is_default` désigne celle proposée par défaut ;
+# un index partiel unique garantit qu'il n'y en a qu'une par pays — deux défauts
+# rendraient le choix de devise non déterministe au moment de proposer une offre.
+country_currencies = Table(
+    "country_currencies",
+    metadata,
+    Column("country_code", Text, ForeignKey("countries.code", ondelete="CASCADE"), nullable=False),
+    Column("currency", Text, nullable=False),  # ISO-4217, majuscules
+    Column("is_default", Boolean, nullable=False, server_default="false"),
+    UniqueConstraint("country_code", "currency", name="uq_country_currency"),
+)
+Index(
+    "uq_country_currency_default",
+    country_currencies.c.country_code,
+    unique=True,
+    postgresql_where=country_currencies.c.is_default,
+)
+
+# Canal de paiement. `kind` est le DISCRIMINANT d'adaptateur, `slug` identifie
+# l'INSTANCE : deux comptes Stripe (test et production, ou deux entités
+# juridiques) doivent coexister sans dupliquer le code de l'adaptateur.
+#
+# Aucun secret ici : `secret_slug` référence la table des secrets, jamais la clé
+# elle-même. `config` porte le non-secret propre au `kind`, validé à l'écriture
+# par un modèle pydantic — JSONB pour ne pas faire une table à trous, validé
+# pour ne pas en faire un sac fourre-tout.
+payment_providers = Table(
+    "payment_providers",
+    metadata,
+    Column("slug", Text, primary_key=True),
+    Column("kind", Text, nullable=False),
+    Column("label", Text, nullable=False),
+    # `automatique` = on envoie du HT, le provider calcule la taxe.
+    # `manuel` = on calcule la taxe et on envoie du TTC.
+    Column("tax_mode", Text, nullable=False, server_default="manuel"),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("config", JSONB, nullable=False, server_default="{}"),
+    Column("secret_slug", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("tax_mode IN ('automatique','manuel')", name="ck_provider_tax_mode"),
+)
+
+# Providers utilisables dans un pays, par ordre de priorité croissante.
+country_providers = Table(
+    "country_providers",
+    metadata,
+    Column("country_code", Text, ForeignKey("countries.code", ondelete="CASCADE"), nullable=False),
+    Column(
+        "provider_slug",
+        Text,
+        ForeignKey("payment_providers.slug", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("priority", Integer, nullable=False, server_default="0"),
+    UniqueConstraint("country_code", "provider_slug", name="uq_country_provider"),
+)
+
+# Taux de taxe, en mode `manuel` uniquement.
+#
+# HISTORISÉ, jamais écrasé : une facture émise l'an dernier doit rester
+# reproductible avec le taux de l'époque. Le calcul retient le taux dont la
+# période couvre la DATE D'ÉMISSION, pas le taux courant.
+#
+# `region` vide = tout le pays. Conservée dès maintenant pour un futur pays à
+# taux régionaux : la colonne ne coûte rien, la migration coûterait.
+tax_rates = Table(
+    "tax_rates",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("country_code", Text, ForeignKey("countries.code", ondelete="CASCADE"), nullable=False),
+    Column("region", Text, nullable=False, server_default=""),
+    # NUMERIC et non float : 0.2000 = 20 %. L'exactitude prime sur la commodité.
+    Column("rate", Numeric(7, 4), nullable=False),
+    Column("label", Text, nullable=False),
+    Column("valid_from", Date, nullable=False),
+    Column("valid_to", Date, nullable=True),  # NULL = en vigueur
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("rate >= 0", name="ck_tax_rate_positive"),
+    CheckConstraint("valid_to IS NULL OR valid_to > valid_from", name="ck_tax_rate_period"),
+)
+Index("ix_tax_rates_lookup", tax_rates.c.country_code, tax_rates.c.region, tax_rates.c.valid_from)
+
+# Offre d'abonnement. Les libellés sont i18n (JSONB {langue: texte}).
+offers = Table(
+    "offers",
+    metadata,
+    Column("slug", Text, primary_key=True),
+    Column("labels", JSONB, nullable=False, server_default="{}"),
+    Column("descriptions", JSONB, nullable=False, server_default="{}"),
+    Column("hosting_type", Text, nullable=False, server_default="mutualise"),
+    # NULL = illimité, pour les deux. Deux quotas indépendants.
+    Column("max_workspaces", Integer, nullable=True),
+    Column("max_hosts_dedies", Integer, nullable=True),
+    # Variables libres de l'offre (gabarit VM, capacité du host…), injectées
+    # dans les événements debut_essai / activation.
+    Column("variables", JSONB, nullable=False, server_default="{}"),
+    Column("provider_slug", Text, ForeignKey("payment_providers.slug"), nullable=True),
+    # Une offre non publiée n'est proposée à personne : c'est l'état d'une offre
+    # en cours de saisie, et celui d'une offre retirée du catalogue.
+    Column("published", Boolean, nullable=False, server_default="false"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("hosting_type IN ('dedie','mutualise')", name="ck_offer_hosting_type"),
+    CheckConstraint("max_workspaces IS NULL OR max_workspaces > 0", name="ck_offer_max_ws"),
+    CheckConstraint("max_hosts_dedies IS NULL OR max_hosts_dedies > 0", name="ck_offer_max_hosts"),
+)
+
+# Prix d'une offre, PAR DEVISE. Montant en unités mineures (centimes) : entier,
+# jamais un flottant — c'est la règle de la facturation et celle de l'API Stripe.
+#
+# Le sens du montant dépend du `tax_mode` du provider : HT en `automatique`
+# (le provider ajoute la taxe), TTC en `manuel` (on l'a déjà calculée).
+offer_prices = Table(
+    "offer_prices",
+    metadata,
+    Column("offer_slug", Text, ForeignKey("offers.slug", ondelete="CASCADE"), nullable=False),
+    Column("currency", Text, nullable=False),
+    Column("amount_minor", BigInteger, nullable=False),
+    # Identifiant du prix côté fournisseur (price_id Stripe…), posé à la
+    # synchronisation. Vide tant que l'offre n'a pas été poussée au provider.
+    Column("provider_price_id", Text, nullable=False, server_default=""),
+    UniqueConstraint("offer_slug", "currency", name="uq_offer_price_currency"),
+    CheckConstraint("amount_minor >= 0", name="ck_offer_price_positive"),
 )
