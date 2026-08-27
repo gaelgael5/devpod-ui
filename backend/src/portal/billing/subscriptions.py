@@ -1,11 +1,22 @@
 """Abonnements : état, transitions, et idempotence des webhooks.
 
+**Une résiliation n'est pas une suppression de compte.** La distinction est
+structurante et ce module la tient :
+
+- **Résiliation** : l'abonnement s'arrête, le compte demeure, et l'utilisateur
+  peut REPRENDRE plus tard — c'est `reprendre()`. `resilie` est donc un état
+  clos, pas un état définitif.
+- **Suppression de compte** : acte définitif, sans retour. Elle ne se joue pas
+  ici : c'est la ligne `users` qui disparaît, et les abonnements suivent en
+  `ON DELETE CASCADE`.
+
 Deux mécanismes qui se paient cher s'ils sont approximatifs :
 
-1. **`resilie` est terminal.** Les fournisseurs de paiement ne garantissent pas
-   l'ordre de livraison de leurs webhooks : un `renouvellement` peut arriver
-   APRÈS la `resiliation` qu'il précède chronologiquement. Sans garde, il
-   ressusciterait un abonnement fermé.
+1. **Aucun événement de cycle ne rouvre un abonnement résilié.** Les
+   fournisseurs de paiement ne garantissent pas l'ordre de livraison de leurs
+   webhooks : un `renouvellement` peut arriver APRÈS la `resiliation` qu'il
+   précède chronologiquement. Il ne doit pas ressusciter un abonnement clos —
+   seule une reprise explicite le rouvre.
 2. **Un événement déjà vu est ignoré, pas rejoué.** Les fournisseurs renvoient
    leurs notifications — c'est leur fonctionnement nominal, pas un incident. La
    clef `(provider_slug, provider_event_id)` est unique en base ; ce module
@@ -37,12 +48,22 @@ ETAT_APRES: dict[str, SubscriptionState] = {
     "resiliation": "resilie",
 }
 
-#: États depuis lesquels plus aucune transition n'est acceptée.
-ETATS_TERMINAUX: frozenset[str] = frozenset({"resilie"})
+#: États CLOS : aucun événement de cycle de facturation ne les fait sortir.
+#:
+#: Clos ne veut pas dire définitif. Un abonnement résilié se reprend — par
+#: `reprendre()`, qui refige le prix au tarif du jour. Ce qui est refusé ici,
+#: c'est la réouverture ACCIDENTELLE par un webhook du cycle précédent arrivé
+#: en retard. Le seul état définitif est la disparition du compte, qui n'est pas
+#: un état d'abonnement.
+ETATS_CLOS: frozenset[str] = frozenset({"resilie"})
 
 
 class TransitionRefusee(Exception):
     """L'événement ne peut pas s'appliquer à l'état courant (FR)."""
+
+
+class RepriseRefusee(Exception):
+    """L'abonnement n'est pas dans un état où une reprise a un sens (FR)."""
 
 
 class Subscription(BaseModel):
@@ -128,13 +149,18 @@ def deja_traite(event: SubscriptionEvent, vues: set[tuple[str, str]]) -> bool:
 
 
 def etat_apres(courant: SubscriptionState, kind: EventKind) -> SubscriptionState:
-    """État résultant de l'application d'un événement.
+    """État résultant de l'application d'un événement de cycle.
 
-    Lève `TransitionRefusee` depuis un état terminal : un webhook en retard ne
-    doit pas rouvrir un abonnement résilié.
+    Lève `TransitionRefusee` depuis un état clos. Ce n'est pas une fin de vie :
+    la reprise d'un abonnement résilié existe et passe par `reprendre()`, qui
+    refige le prix. Ce qui est refusé ici, c'est qu'un webhook en retard rouvre
+    le service tout seul, au tarif d'hier.
     """
-    if courant in ETATS_TERMINAUX:
-        raise TransitionRefusee(f"abonnement {courant} : l'événement {kind} n'est plus applicable")
+    if courant in ETATS_CLOS:
+        raise TransitionRefusee(
+            f"abonnement {courant} : l'événement {kind} ne s'applique plus — "
+            "une reprise passe par reprendre()"
+        )
     return ETAT_APRES[kind]
 
 
@@ -151,3 +177,44 @@ def appliquer(sub: Subscription, event: SubscriptionEvent, moment: datetime) -> 
         # mais l'horodatage doit avancer (le scheduler s'en sert).
         return sub.model_copy(update={"state_changed_at": moment})
     return sub.model_copy(update={"state": nouvel_etat, "state_changed_at": moment})
+
+
+def reprendre(
+    sub: Subscription,
+    *,
+    currency: str,
+    amount_minor: int,
+    moment: datetime,
+    offer_slug: str | None = None,
+    provider_subscription_id: str = "",
+    en_essai: bool = False,
+) -> Subscription:
+    """Reprend un abonnement résilié : le compte n'a jamais été supprimé.
+
+    Une reprise est un ACTE COMMERCIAL NEUF, pas une annulation de la
+    résiliation. Deux conséquences dans la signature :
+
+    - **le prix est refigé** au tarif du jour. L'instantané d'origine protégeait
+      l'abonné pendant la vie de son abonnement ; il ne lui garantit pas un
+      tarif d'archive à la reprise ;
+    - **l'identifiant côté fournisseur est remis à zéro.** L'ancien objet est
+      clos chez le fournisseur : le garder ferait router les webhooks de la
+      reprise vers un abonnement mort.
+
+    `offer_slug` permet de reprendre sur une autre offre — le cas courant quand
+    le catalogue a bougé entre temps.
+    """
+    if sub.state not in ETATS_CLOS:
+        raise RepriseRefusee(f"abonnement {sub.state} : rien à reprendre, il n'est pas résilié")
+    return sub.model_copy(
+        update={
+            "state": "essai" if en_essai else "actif",
+            "offer_slug": offer_slug or sub.offer_slug,
+            "currency": currency,
+            "amount_minor": amount_minor,
+            "provider_subscription_id": provider_subscription_id,
+            "trial_end": None,
+            "current_period_end": None,
+            "state_changed_at": moment,
+        }
+    )

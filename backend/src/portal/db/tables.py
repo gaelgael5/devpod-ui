@@ -1550,6 +1550,10 @@ subscriptions = Table(
     Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
     Column("offer_slug", Text, ForeignKey("offers.slug"), nullable=False),
     Column("provider_slug", Text, ForeignKey("payment_providers.slug"), nullable=True),
+    # `resilie` est un état CLOS, pas définitif : l'abonnement s'arrête, le
+    # compte demeure, et une reprise le rouvre (au tarif du jour). Le seul acte
+    # définitif est la suppression du compte, qui efface la ligne `users` et
+    # emporte celle-ci en CASCADE — ce n'est pas un état d'abonnement.
     Column("state", Text, nullable=False, server_default="essai"),
     Column("country_code", Text, nullable=False),
     Column("currency", Text, nullable=False),

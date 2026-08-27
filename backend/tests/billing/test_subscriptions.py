@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from portal.billing.subscriptions import (
     ETAT_APRES,
+    RepriseRefusee,
     Subscription,
     SubscriptionEvent,
     TransitionRefusee,
@@ -16,6 +17,7 @@ from portal.billing.subscriptions import (
     cle_idempotence,
     deja_traite,
     etat_apres,
+    reprendre,
 )
 
 T0 = datetime(2026, 8, 27, 10, 0, tzinfo=UTC)
@@ -104,9 +106,10 @@ def test_un_renouvellement_rattrape_un_echec_de_paiement() -> None:
     assert etat_apres("echec_paiement", "renouvellement") == "actif"
 
 
-def test_un_abonnement_resilie_ne_peut_pas_etre_ressuscite() -> None:
-    # Webhook livré en retard : sans cette garde, il rouvrirait le service.
-    with pytest.raises(TransitionRefusee, match="resilie"):
+def test_un_webhook_en_retard_ne_rouvre_pas_un_abonnement_resilie() -> None:
+    # Livré après la résiliation qu'il précède : sans cette garde, il rouvrirait
+    # le service tout seul, au tarif d'hier. La reprise a sa propre porte.
+    with pytest.raises(TransitionRefusee, match="reprendre"):
         etat_apres("resilie", "renouvellement")
 
 
@@ -156,3 +159,85 @@ def test_deux_providers_ne_se_confondent_pas_sur_le_meme_identifiant() -> None:
         kind="activation", provider_slug="stripe-test", provider_event_id="evt_1"
     )
     assert deja_traite(autre, {("stripe-prod", "evt_1")}) is False
+
+
+# --- Reprise après résiliation ---------------------------------------------
+#
+# Une résiliation n'est pas une suppression de compte : elle arrête
+# l'abonnement, le compte demeure, et l'utilisateur peut revenir.
+
+
+def test_un_abonnement_resilie_se_reprend() -> None:
+    repris = reprendre(
+        _sub(state="resilie", state_changed_at=T0),
+        currency="EUR",
+        amount_minor=3900,
+        moment=T1,
+    )
+    assert repris.state == "actif"
+    assert repris.state_changed_at == T1
+
+
+def test_la_reprise_refige_le_prix_au_tarif_du_jour() -> None:
+    # L'instantané protégeait l'abonné pendant la vie de son abonnement ; il ne
+    # lui garantit pas un tarif d'archive à la reprise.
+    repris = reprendre(
+        _sub(state="resilie", amount_minor=2900),
+        currency="EUR",
+        amount_minor=3900,
+        moment=T1,
+    )
+    assert repris.amount_minor == 3900
+
+
+def test_la_reprise_oublie_l_abonnement_mort_chez_le_fournisseur() -> None:
+    # Garder l'ancien identifiant ferait router les webhooks de la reprise vers
+    # un objet clos côté fournisseur.
+    repris = reprendre(
+        _sub(state="resilie", provider_subscription_id="sub_ancien"),
+        currency="EUR",
+        amount_minor=2900,
+        moment=T1,
+    )
+    assert repris.provider_subscription_id == ""
+
+
+def test_la_reprise_peut_changer_d_offre() -> None:
+    repris = reprendre(
+        _sub(state="resilie", offer_slug="pro"),
+        currency="EUR",
+        amount_minor=900,
+        moment=T1,
+        offer_slug="starter",
+    )
+    assert repris.offer_slug == "starter"
+
+
+def test_la_reprise_peut_repasser_par_un_essai() -> None:
+    repris = reprendre(
+        _sub(state="resilie"),
+        currency="EUR",
+        amount_minor=2900,
+        moment=T1,
+        en_essai=True,
+    )
+    assert repris.state == "essai"
+
+
+def test_le_service_reprend_apres_une_reprise() -> None:
+    sub = _sub(state="resilie")
+    assert sub.ouvert is False
+    assert reprendre(sub, currency="EUR", amount_minor=2900, moment=T1).ouvert is True
+
+
+@pytest.mark.parametrize("etat", ["essai", "actif", "echec_paiement"])
+def test_il_n_y_a_rien_a_reprendre_sur_un_abonnement_vivant(etat: str) -> None:
+    with pytest.raises(RepriseRefusee, match="pas résilié"):
+        reprendre(_sub(state=etat), currency="EUR", amount_minor=2900, moment=T1)
+
+
+def test_la_reprise_ne_mute_pas_l_abonnement_d_origine() -> None:
+    sub = _sub(state="resilie", amount_minor=2900)
+    reprendre(sub, currency="EUR", amount_minor=3900, moment=T1)
+    assert sub.state == "resilie"
+    assert sub.amount_minor == 2900

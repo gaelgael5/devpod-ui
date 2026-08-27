@@ -2,6 +2,11 @@
 
 Suite du socle 110. Trois mecanismes, chacun avec une raison d'etre precise :
 
+- **`subscriptions`** distingue la RESILIATION de la SUPPRESSION DE COMPTE :
+  `resilie` est un etat clos et reversible — le compte demeure, une reprise
+  rouvre l'abonnement au tarif du jour. La suppression de compte, elle, est
+  definitive : elle efface la ligne `users` et emporte les abonnements en
+  `ON DELETE CASCADE`. Ce n'est pas un etat d'abonnement.
 - **`subscriptions`** porte un INSTANTANE du prix (`currency` + `amount_minor`)
   et non une jointure vers `offer_prices` : le catalogue evolue, un abonne garde
   le prix auquel il a souscrit, et une facture ancienne reste reproductible.
