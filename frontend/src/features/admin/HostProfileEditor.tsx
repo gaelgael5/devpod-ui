@@ -35,7 +35,9 @@ export default function HostProfileEditor({ profile, machineProfiles, onClose }:
   const [slugManuel, setSlugManuel] = useState(Boolean(profile.slug))
   const enregistrer = useSaveHostProfile()
 
-  const { data: declarees = [], isLoading } = useHostProfileVariables(brouillon.machine_profile)
+  const { data: declarees = [], isLoading, error } = useHostProfileVariables(
+    brouillon.machine_profile,
+  )
 
   const machine = useMemo(
     () => machineProfiles.find((m) => m.slug === brouillon.machine_profile),
@@ -138,7 +140,20 @@ export default function HostProfileEditor({ profile, machineProfiles, onClose }:
               <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
             )}
 
-            {!isLoading && declarees.length === 0 && (
+            {/* Un refus du serveur — typiquement « ce profil vise un type qui
+                n'existe plus » — se lisait « aucune variable declaree » : le
+                message qui explique se perdait, et l'admin cherchait la panne
+                du mauvais cote. */}
+            {!isLoading && error && (
+              <p
+                className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                data-testid="variables-erreur"
+              >
+                {(error as Error).message}
+              </p>
+            )}
+
+            {!isLoading && !error && declarees.length === 0 && (
               <p className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 {t('admin.hostProfiles.noVariables')}
               </p>

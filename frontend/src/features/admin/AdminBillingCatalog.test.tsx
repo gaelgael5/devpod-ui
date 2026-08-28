@@ -105,8 +105,11 @@ describe('AdminBillingCatalog', () => {
     const ligne = await screen.findByTestId('pays-FR')
     await userEvent.click(within(ligne).getByRole('button', { name: i18n.t('admin.billing.editCountry') }))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    // La devise est une liste ISO : c'est la VALEUR selectionnee qui compte,
+    // le libelle affiche depend de la langue du navigateur.
     await waitFor(() => {
-      expect(screen.getByDisplayValue('EUR')).toBeInTheDocument()
+      const devise = screen.getByLabelText(i18n.t('admin.billing.currencyCode')) as HTMLSelectElement
+      expect(devise.value).toBe('EUR')
     })
   })
 
@@ -120,5 +123,19 @@ describe('AdminBillingCatalog', () => {
     // Cloture possible, edition impossible : le taux n'est pas un champ.
     expect(within(taux).getByRole('button', { name: i18n.t('admin.billing.close') })).toBeInTheDocument()
     expect(within(taux).queryByRole('textbox')).toBeNull()
+  })
+
+  it('propose les pays ISO avec leur code et ne repropose pas ceux deja enregistres', async () => {
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: i18n.t('admin.billing.newCountry') }))
+
+    const select = (await screen.findByLabelText(
+      i18n.t('admin.billing.countryCode'),
+    )) as HTMLSelectElement
+    const codes = Array.from(select.options).map((o) => o.value)
+    expect(codes).toContain('BE')
+    // La France est deja enregistree : la reproposer ferait ecraser sa fiche
+    // par un PUT, sans que rien ne le dise.
+    expect(codes).not.toContain('FR')
   })
 })

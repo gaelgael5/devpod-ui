@@ -42,6 +42,20 @@ export interface HypervisorTypeConfig {
   variables?: HypervisorVariable[]
 }
 
+/**
+ * Ce qu'une ecriture sur un type d'hyperviseur invalide.
+ *
+ * Pas seulement la liste des types : les VARIABLES a renseigner dans un profil
+ * de host sont derivees du type, et vivent sous une autre clef, une par profil
+ * de machine. Sans cette seconde invalidation, une variable ajoutee au type
+ * n'apparait pas dans le formulaire d'un profil de machine deja consulte —
+ * elle attend l'expiration du cache, et l'admin croit a une perte de donnee.
+ */
+function invalider(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ['admin', 'hypervisor-types'] })
+  qc.invalidateQueries({ queryKey: ['admin', 'host-profiles', 'variables'] })
+}
+
 /** Enregistre le paramétrage host de test d'un type d'hyperviseur. */
 export function useAdminHypervisorTypes() {
   const qc = useQueryClient()
@@ -59,7 +73,7 @@ export function useAdminHypervisorTypes() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hypervisor-types'] }),
+    onSuccess: () => invalider(qc),
     onError: (err: Error) => toast.error(err.message),
   })
 
@@ -70,14 +84,14 @@ export function useAdminHypervisorTypes() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, ...body }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hypervisor-types'] }),
+    onSuccess: () => invalider(qc),
     onError: (err: Error) => toast.error(err.message),
   })
 
   const deleteType = useMutation({
     mutationFn: (name: string) =>
       apiFetchJson(`/admin/hypervisor-types/${name}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'hypervisor-types'] }),
+    onSuccess: () => invalider(qc),
     onError: (err: Error) => toast.error(err.message),
   })
 

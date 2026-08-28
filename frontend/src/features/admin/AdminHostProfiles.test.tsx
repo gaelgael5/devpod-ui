@@ -121,4 +121,27 @@ describe('AdminHostProfiles', () => {
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
+
+  it("affiche le refus du serveur au lieu de « aucune variable »", async () => {
+    // Cas reel : un profil de machine vise un type d'hyperviseur qui n'existe
+    // plus (nom renomme, faute de frappe). Le serveur le DIT en 422 ; l'ecran
+    // affichait « ce type ne declare aucune variable » et l'admin cherchait la
+    // panne du mauvais cote.
+    renderPage()
+    server.use(
+      http.get('/admin/host-profiles/variables/:slug', () =>
+        HttpResponse.json(
+          {
+            detail:
+              "Le profil de machine 'host-workspace-standard' vise le type 'proxmox4vm', qui n'existe plus",
+          },
+          { status: 422 },
+        ),
+      ),
+    )
+    await userEvent.click(await screen.findByRole('button', { name: /New host profile/ }))
+
+    const erreur = await screen.findByTestId('variables-erreur')
+    expect(erreur).toHaveTextContent(/qui n'existe plus/)
+  })
 })

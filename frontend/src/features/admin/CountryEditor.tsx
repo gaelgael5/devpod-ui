@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Plus, Trash2 } from 'lucide-react'
@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
+import { devisesIso, paysIso } from '@/shared/iso'
 import CountryTaxRates from './CountryTaxRates'
 import {
   useCountryProviders, useCurrencies, useSaveCountry, useSetCountryProviders, useSetCurrencies,
@@ -17,6 +18,9 @@ import {
 interface Props {
   pays: Country
   canaux: PaymentProvider[]
+  /** Codes deja enregistres : on ne les repropose pas a la creation, un PUT sur
+   *  un code existant ecraserait le pays en place sans le dire. */
+  codesPris: string[]
   onClose: () => void
 }
 
@@ -26,7 +30,7 @@ interface Props {
  * Trois ecritures distinctes derriere un seul formulaire, et leur ORDRE compte :
  * le pays d'abord — les deux autres routes repondent 404 sur un pays inconnu.
  */
-export default function CountryEditor({ pays, canaux, onClose }: Props) {
+export default function CountryEditor({ pays, canaux, codesPris, onClose }: Props) {
   const { t } = useTranslation()
   const existant = Boolean(pays.code)
   const { data: devisesServeur } = useCurrencies(pays.code)
@@ -57,6 +61,7 @@ export default function CountryEditor({ pays, canaux, onClose }: Props) {
     <CountryForm
       pays={pays}
       canaux={canaux}
+      codesPris={codesPris}
       devisesInitiales={devisesServeur ?? []}
       rattachesInitiaux={ordonnes.map((r) => r.provider_slug)}
       onClose={onClose}
@@ -69,12 +74,26 @@ interface FormProps extends Props {
   rattachesInitiaux: string[]
 }
 
-function CountryForm({ pays, canaux, devisesInitiales, rattachesInitiaux, onClose }: FormProps) {
-  const { t } = useTranslation()
+function CountryForm({
+  pays,
+  canaux,
+  codesPris,
+  devisesInitiales,
+  rattachesInitiaux,
+  onClose,
+}: FormProps) {
+  const { t, i18n } = useTranslation()
   const existant = Boolean(pays.code)
   const [brouillon, setBrouillon] = useState<Country>(pays)
   const [devises, setDevises] = useState<CountryCurrency[]>(devisesInitiales)
   const [rattaches, setRattaches] = useState<string[]>(rattachesInitiaux)
+
+  const langue = i18n.language
+  const catalogueDevises = useMemo(() => devisesIso(langue), [langue])
+  const cataloguePays = useMemo(
+    () => paysIso(langue).filter((p) => existant || !codesPris.includes(p.code)),
+    [langue, existant, codesPris],
+  )
 
   const enregistrerPays = useSaveCountry()
   const enregistrerDevises = useSetCurrencies(brouillon.code)
@@ -150,19 +169,28 @@ function CountryForm({ pays, canaux, devisesInitiales, rattachesInitiaux, onClos
           <div className="grid grid-cols-[8rem_1fr] gap-3">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="pays-code">{t('admin.billing.countryCode')}</Label>
-              <Input
+              <select
                 id="pays-code"
-                className="font-mono uppercase"
+                className="h-9 rounded-md border border-input bg-transparent px-2 font-mono text-sm"
                 value={brouillon.code}
-                onChange={(e) =>
-                  setBrouillon((b) => ({ ...b, code: e.target.value.toUpperCase() }))
-                }
-                pattern="^[A-Z]{2}$"
-                maxLength={2}
+                onChange={(e) => {
+                  const code = e.target.value
+                  const trouve = cataloguePays.find((p) => p.code === code)
+                  // Le libelle suit le choix mais reste modifiable : c'est celui
+                  // du portail, pas celui du navigateur.
+                  setBrouillon((b) => ({ ...b, code, label: trouve?.label ?? b.label }))
+                }}
                 required
                 // Le code ISO est l'identite : le changer designe un autre pays.
                 disabled={existant}
-              />
+              >
+                <option value="">—</option>
+                {cataloguePays.map((p) => (
+                  <option key={p.code} value={p.code}>
+                    {p.code} · {p.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="pays-label">{t('admin.billing.countryLabel')}</Label>
@@ -192,15 +220,24 @@ function CountryForm({ pays, canaux, devisesInitiales, rattachesInitiaux, onClos
             <div className="flex flex-col gap-2">
               {devises.map((d, i) => (
                 <div key={i} className="flex items-center gap-2">
-                  <Input
-                    className="w-24 font-mono uppercase"
+                  <select
+                    className="h-9 w-56 rounded-md border border-input bg-transparent px-2 text-sm"
                     value={d.currency}
                     onChange={(e) => majDevise(i, e.target.value)}
-                    pattern="^[A-Z]{3}$"
-                    maxLength={3}
                     aria-label={t('admin.billing.currencyCode')}
                     required
-                  />
+                  >
+                    <option value="">—</option>
+                    {catalogueDevises
+                      // Une devise deja posee sur ce pays ne se repropose pas :
+                      // le serveur refuse le doublon, autant ne pas l'offrir.
+                      .filter((c) => c.code === d.currency || !devises.some((x) => x.currency === c.code))
+                      .map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.code} · {c.label}
+                        </option>
+                      ))}
+                  </select>
                   <label className="flex items-center gap-1.5 text-xs">
                     <input
                       type="radio"

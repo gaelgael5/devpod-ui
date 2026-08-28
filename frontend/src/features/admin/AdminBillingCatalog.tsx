@@ -190,6 +190,7 @@ export default function AdminBillingCatalog() {
         <CountryEditor
           pays={paysEdite}
           canaux={canaux}
+          codesPris={pays.map((p) => p.code)}
           onClose={() => setPaysEdite(null)}
         />
       )}
