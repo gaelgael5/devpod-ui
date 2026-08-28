@@ -17,6 +17,8 @@ import { useUserStore } from '@/store/user'
 import { useThemeStore } from '@/store/theme'
 import { cn } from '@/lib/utils'
 import { useLogsConfig } from '@/features/grafana/useLogsConfig'
+import SectionNav from '@/shared/nav/SectionNav'
+import { SECTION_FORFAITS, SECTION_MACHINES } from '@/shared/nav/sections'
 import { useMyCulture, useSetCulture } from '@/features/profile/useCulture'
 
 const RAIL_LINK =
@@ -211,18 +213,11 @@ export default function AppShell() {
                       {t('admin.machinesMenu')}
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
-                      <DropdownMenuItem onClick={() => navigate('/admin/hypervisor-types')}>
-                        {t('admin.hypervisorTypes')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => navigate('/admin/hypervisors')}>
-                        {t('admin.hypervisors')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => navigate('/admin/hosts')}>
-                        {t('admin.hosts')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => navigate('/admin/machine-profiles')}>
-                        {t('admin.machineProfiles.navLabel')}
-                      </DropdownMenuItem>
+                      {SECTION_MACHINES.liens.map((l) => (
+                        <DropdownMenuItem key={l.path} onClick={() => navigate(l.path)}>
+                          {t(l.labelKey)}
+                        </DropdownMenuItem>
+                      ))}
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSub>
@@ -231,15 +226,11 @@ export default function AppShell() {
                       {t('admin.plansMenu')}
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
-                      <DropdownMenuItem onClick={() => navigate('/admin/host-profiles')}>
-                        {t('admin.hostProfiles.navLabel')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => navigate('/admin/billing-catalog')}>
-                        {t('admin.billing.navLabel')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => navigate('/admin/billing-offers')}>
-                        {t('admin.offers.navLabel')}
-                      </DropdownMenuItem>
+                      {SECTION_FORFAITS.liens.map((l) => (
+                        <DropdownMenuItem key={l.path} onClick={() => navigate(l.path)}>
+                          {t(l.labelKey)}
+                        </DropdownMenuItem>
+                      ))}
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSub>
@@ -282,6 +273,9 @@ export default function AppShell() {
 
       {/* Main content */}
       <main className="flex-1 overflow-auto p-3 sm:p-6">
+        {/* Montee ici plutot que dans chaque ecran : un ecran ajoute au groupe
+            herite de la barre sans qu'on y pense. Elle ne rend rien ailleurs. */}
+        <SectionNav />
         <Outlet />
       </main>
     </div>

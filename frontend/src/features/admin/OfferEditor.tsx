@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Plus, Trash2 } from 'lucide-react'
@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
+import { devisesIso } from '@/shared/iso'
 import { slugifier } from '@/shared/slug'
 import type { PaymentProvider } from './useBillingCatalog'
 import {
@@ -41,7 +42,7 @@ function enMajeur(minor: number): string {
  * partiraient fausses.
  */
 export default function OfferEditor({ offre, canaux, onClose }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const existant = Boolean(offre.slug)
   const [brouillon, setBrouillon] = useState<Offer>(offre)
   const [slugManuel, setSlugManuel] = useState(existant)
@@ -49,6 +50,7 @@ export default function OfferEditor({ offre, canaux, onClose }: Props) {
   const enregistrer = useSaveOffer()
 
   const canal = canaux.find((c) => c.slug === brouillon.provider_slug)
+  const catalogueDevises = useMemo(() => devisesIso(i18n.language), [i18n.language])
 
   function setLabel(langue: string, texte: string) {
     setBrouillon((b) => {
@@ -205,35 +207,72 @@ export default function OfferEditor({ offre, canaux, onClose }: Props) {
             </p>
             <div className="flex flex-col gap-2">
               {brouillon.prices.map((p, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Input
-                    className="w-24 font-mono uppercase"
-                    value={p.currency}
-                    onChange={(e) => majPrix(i, { currency: e.target.value.toUpperCase() })}
-                    pattern="^[A-Z]{3}$"
-                    maxLength={3}
-                    aria-label={t('admin.offers.currency')}
-                  />
-                  <Input
-                    className="w-32"
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    value={enMajeur(p.amount_minor)}
-                    onChange={(e) => majPrix(i, { amount_minor: enMineur(e.target.value) })}
-                    aria-label={t('admin.offers.amount')}
-                  />
-                  <Input
-                    placeholder={t('admin.offers.providerPriceId')}
-                    aria-label={t('admin.offers.providerPriceId')}
-                    value={p.provider_price_id}
-                    onChange={(e) => majPrix(i, { provider_price_id: e.target.value })}
-                  />
+                // Empile sur mobile : trois champs cote a cote n'y laissaient
+                // voir que des amorces tronquees, sans libelle pour dire lequel
+                // attend un code et lequel un montant.
+                <div
+                  key={i}
+                  className="flex flex-col gap-2 rounded-md border p-2 sm:flex-row sm:items-end sm:border-0 sm:p-0"
+                >
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs text-muted-foreground">
+                      {t('admin.offers.currency')}
+                    </span>
+                    <select
+                      className="h-9 w-56 rounded-md border border-input bg-transparent px-2 text-sm"
+                      value={p.currency}
+                      onChange={(e) => majPrix(i, { currency: e.target.value })}
+                      aria-label={t('admin.offers.currency')}
+                      required
+                    >
+                      <option value="">—</option>
+                      {catalogueDevises
+                        // Une devise deja tarifee sur cette offre ne se
+                        // repropose pas : deux prix pour une meme devise ne
+                        // voudraient rien dire.
+                        .filter(
+                          (c) =>
+                            c.code === p.currency ||
+                            !brouillon.prices.some((x) => x.currency === c.code),
+                        )
+                        .map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.code} · {c.label}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs text-muted-foreground">
+                      {t('admin.offers.amount')}
+                    </span>
+                    <Input
+                      className="w-32"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={enMajeur(p.amount_minor)}
+                      onChange={(e) => majPrix(i, { amount_minor: enMineur(e.target.value) })}
+                      aria-label={t('admin.offers.amount')}
+                    />
+                  </div>
+                  <div className="flex flex-1 flex-col gap-1">
+                    <span className="text-xs text-muted-foreground">
+                      {t('admin.offers.providerPriceId')}
+                    </span>
+                    <Input
+                      className="font-mono"
+                      placeholder={t('admin.offers.providerPriceIdPlaceholder')}
+                      aria-label={t('admin.offers.providerPriceId')}
+                      value={p.provider_price_id}
+                      onChange={(e) => majPrix(i, { provider_price_id: e.target.value })}
+                    />
+                  </div>
                   <Button
                     type="button"
                     size="icon"
                     variant="ghost"
-                    className="h-7 w-7 shrink-0 text-destructive"
+                    className="h-9 w-9 shrink-0 self-end text-destructive"
                     aria-label={t('admin.offers.removePrice')}
                     onClick={() =>
                       setBrouillon((b) => ({
@@ -246,6 +285,11 @@ export default function OfferEditor({ offre, canaux, onClose }: Props) {
                   </Button>
                 </div>
               ))}
+              {brouillon.prices.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {t('admin.offers.providerPriceIdHint')}
+                </p>
+              )}
             </div>
             <Button
               type="button"

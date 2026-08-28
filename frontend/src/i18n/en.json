@@ -1047,7 +1047,9 @@
       "addPrice": "Add a currency",
       "removePrice": "Remove this price",
       "noPrice": "No price defined",
-      "missingCurrencies": "Enabled currencies without a price: {{list}}. The offer will not be proposed there."
+      "missingCurrencies": "Enabled currencies without a price: {{list}}. The offer will not be proposed there.",
+      "providerPriceIdPlaceholder": "price_… (optional)",
+      "providerPriceIdHint": "Price id at the provider (Stripe: “price_…”). Optional — leave empty until a price exists there. If set, the provider's price is what gets charged, so both amounts must stay in agreement."
     }
   },
   "errors": {

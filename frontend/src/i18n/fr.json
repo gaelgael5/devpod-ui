@@ -1047,7 +1047,9 @@
       "addPrice": "Ajouter une devise",
       "removePrice": "Retirer ce prix",
       "noPrice": "Aucun prix défini",
-      "missingCurrencies": "Devises activées sans prix : {{list}}. L'offre n'y sera pas proposée."
+      "missingCurrencies": "Devises activées sans prix : {{list}}. L'offre n'y sera pas proposée.",
+      "providerPriceIdPlaceholder": "price_… (facultatif)",
+      "providerPriceIdHint": "Identifiant du prix chez le provider (Stripe : « price_… »). Facultatif : à laisser vide tant qu'aucun prix n'existe chez lui. S'il est renseigné, c'est le prix du provider qui sera débité — les deux montants doivent donc rester d'accord."
     }
   },
   "errors": {

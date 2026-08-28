@@ -117,4 +117,27 @@ describe('AdminBillingOffers', () => {
     await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
     expect(await screen.findByText(i18n.t('admin.offers.priceMeaning.manuel'))).toBeInTheDocument()
   })
+
+  it('choisit la devise dans une liste ISO, jamais en texte libre', async () => {
+    // Saisir « 15 » dans la case devise etait possible, et rien ne le disait :
+    // le premier champ attend un code ISO, pas un montant.
+    renderPage()
+    const offre = await screen.findByTestId('offre-standard')
+    await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+
+    const devise = (await screen.findByLabelText(
+      i18n.t('admin.offers.currency'),
+    )) as HTMLSelectElement
+    expect(devise.tagName).toBe('SELECT')
+    expect(devise.value).toBe('EUR')
+    expect(Array.from(devise.options).map((o) => o.value)).toContain('USD')
+  })
+
+  it("explique a quoi sert l'identifiant de prix du provider", async () => {
+    renderPage()
+    const offre = await screen.findByTestId('offre-standard')
+    await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+
+    expect(await screen.findByText(i18n.t('admin.offers.providerPriceIdHint'))).toBeInTheDocument()
+  })
 })
