@@ -10,6 +10,7 @@ import {
   supportedTimezones,
   TIMEZONE_PREF_KEY,
 } from '@/shared/hooks/useUserTimezone'
+import { CULTURES, useMyCulture, useSetCulture, type Culture } from './useCulture'
 import { useMyTermixInstances, useProfile, useTokenClaims, useUpdateProfile } from './useProfile'
 import type { UserProfile } from './useProfile'
 
@@ -22,6 +23,7 @@ export default function ProfilePage() {
   return (
     <div className="max-w-lg">
       <ProfileForm profile={profile} />
+      <CultureBlock />
       <TimezoneBlock />
       <TermixInstancesBlock />
       <TokenClaimsBlock />
@@ -57,6 +59,44 @@ function TermixInstancesBlock() {
           ))}
         </ul>
       )}
+    </section>
+  )
+}
+
+/** Choix de la culture (`UserConfig.culture`).
+ *
+ *  Distincte du bascule rapide de la barre : celui-ci ne vit que dans le
+ *  localStorage du navigateur. La culture, elle, est persistee en base et sert
+ *  au-dela de l'ecran — c'est elle qui choisit la langue des messages envoyes a
+ *  l'utilisateur. Enregistree immediatement, et appliquee dans la foulee. */
+function CultureBlock() {
+  const { t } = useTranslation()
+  const { data: culture, isLoading } = useMyCulture()
+  const enregistrer = useSetCulture()
+
+  return (
+    <section className="mt-10 border-t pt-6">
+      <h2 className="mb-1 text-lg font-semibold">{t('profile.culture.title')}</h2>
+      <p className="mb-4 text-sm text-muted-foreground">{t('profile.culture.intro')}</p>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="culture">{t('profile.culture.label')}</Label>
+        <select
+          id="culture"
+          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          value={culture ?? ''}
+          disabled={isLoading || enregistrer.isPending}
+          onChange={(e) => enregistrer.mutate(e.target.value as Culture)}
+        >
+          {CULTURES.map((c) => (
+            <option key={c} value={c}>
+              {t(`profile.culture.names.${c}`)}
+            </option>
+          ))}
+        </select>
+        {enregistrer.isError && (
+          <p className="text-xs text-destructive">{(enregistrer.error as Error).message}</p>
+        )}
+      </div>
     </section>
   )
 }

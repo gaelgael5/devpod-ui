@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, LayoutGrid, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images, SquareTerminal, Zap, Server, SlidersHorizontal, Receipt } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -16,6 +17,7 @@ import { useUserStore } from '@/store/user'
 import { useThemeStore } from '@/store/theme'
 import { cn } from '@/lib/utils'
 import { useLogsConfig } from '@/features/grafana/useLogsConfig'
+import { useMyCulture, useSetCulture } from '@/features/profile/useCulture'
 
 const RAIL_LINK =
   'flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
@@ -29,14 +31,26 @@ export default function AppShell() {
   const isAdmin = useUserStore((s) => s.isAdmin())
   const { theme, toggle } = useThemeStore()
   const { data: logsConfig } = useLogsConfig()
+  const { data: culture } = useMyCulture()
+  const setCulture = useSetCulture()
+
+  // La base fait foi : le localStorage d'i18next n'est qu'un cache d'affichage,
+  // perdu au premier nettoyage et propre a ce navigateur. On s'aligne sur ce que
+  // l'utilisateur a choisi dans son profil.
+  useEffect(() => {
+    if (culture && !i18n.language.startsWith(culture)) void i18n.changeLanguage(culture)
+  }, [culture, i18n])
 
   function handleLogout() {
     clear()
     window.location.href = '/auth/logout'
   }
 
+  // Le raccourci persiste desormais le choix : sans cela l'ecran passait en
+  // anglais pendant que le compte restait en francais, et les messages envoyes
+  // a l'utilisateur suivaient une langue qu'il n'avait jamais demandee.
   function toggleLang() {
-    i18n.changeLanguage(i18n.language.startsWith('fr') ? 'en' : 'fr')
+    setCulture.mutate(i18n.language.startsWith('fr') ? 'en' : 'fr')
   }
 
   return (

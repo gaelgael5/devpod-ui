@@ -1767,6 +1767,15 @@
       "title": "Mes serveurs Termix",
       "hint": "Termix est l'interface web qui vous donne un accès SSH/terminal à vos workspaces. Voici le ou les serveurs Termix associés à votre compte (jusqu'à 3, pour la redondance et les migrations). L'association est gérée par un administrateur.",
       "none": "Aucun serveur Termix associé (le serveur par défaut sera utilisé)."
+    },
+    "culture": {
+      "title": "Langue",
+      "intro": "La langue de votre compte. Elle est enregistrée sur le serveur, et sert aussi à choisir la langue des messages qui vous sont envoyés — contrairement au raccourci de la barre, qui ne vaut que pour ce navigateur.",
+      "label": "Langue du compte",
+      "names": {
+        "fr": "Français",
+        "en": "English"
+      }
     }
   },
   "agentMessages": {

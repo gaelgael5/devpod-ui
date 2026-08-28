@@ -1767,6 +1767,15 @@
       "title": "My Termix servers",
       "hint": "Termix is the web interface giving you SSH/terminal access to your workspaces. Here are the Termix server(s) linked to your account (up to 3, for redundancy and migrations). The association is managed by an administrator.",
       "none": "No Termix server linked (the default server will be used)."
+    },
+    "culture": {
+      "title": "Language",
+      "intro": "Your account language. It is stored on the server and also selects the language of the messages sent to you — unlike the quick switch in the bar, which only applies to this browser.",
+      "label": "Account language",
+      "names": {
+        "fr": "Français",
+        "en": "English"
+      }
     }
   },
   "agentMessages": {

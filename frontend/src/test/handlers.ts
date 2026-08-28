@@ -5,6 +5,7 @@ export const handlers = [
     HttpResponse.json({ login: 'alice', roles: ['dev'], is_admin: false })
   ),
   http.get('/me/workspaces', () => HttpResponse.json([])),
+  http.get('/me/config', () => HttpResponse.json({ culture: 'fr' })),
   http.get('/me/git-credentials', () => HttpResponse.json([])),
   http.post('/me/git-credentials/:name/test', () =>
     HttpResponse.json({ ok: true, message: '' }),
