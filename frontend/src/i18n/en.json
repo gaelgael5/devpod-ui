@@ -1005,6 +1005,49 @@
       "taxRateDeleted": "Rate deleted",
       "period": "{{from}} → {{to}}",
       "periodOpen": "since {{from}}"
+    },
+    "offers": {
+      "navLabel": "Subscription offers",
+      "title": "Subscription offers",
+      "description": "What we sell, at what price and in which currency. A published offer with no price in an enabled currency could not be proposed to anyone.",
+      "empty": "No offer yet. Nothing is sellable until an offer is published.",
+      "new": "New offer",
+      "edit": "Edit offer",
+      "delete": "Delete offer",
+      "deleted": "Offer {{slug}} deleted",
+      "saved": "Offer {{slug}} saved",
+      "help": "The amount you type is net or gross depending on the tax mode of the selected channel — the screen states it next to the prices.",
+      "slug": "Slug",
+      "label": "Name ({{lng}})",
+      "descriptionField": "Description ({{lng}})",
+      "hostingType": "Hosting type",
+      "hosting": {
+        "dedie": "dedicated",
+        "mutualise": "shared"
+      },
+      "published": "published",
+      "draft": "draft",
+      "publish": "Publish offer",
+      "maxWorkspaces": "Max workspaces",
+      "maxHosts": "Max dedicated hosts",
+      "unlimited": "unlimited",
+      "quotaHelp": "Empty field = unlimited. Both quotas are independent, and the machine's physical capacity always takes precedence.",
+      "quotas": "Workspaces: {{workspaces}} · dedicated hosts: {{hosts}}",
+      "provider": "Sales channel",
+      "noProvider": "— none —",
+      "prices": "Price per currency",
+      "priceMeaning": {
+        "manuel": "Channel in manual mode: the amount is gross, the platform has already computed tax.",
+        "automatique": "Channel in automatic mode: the amount is net, the provider will add tax."
+      },
+      "priceMeaningUnknown": "Pick a sales channel: its tax mode decides whether the amount is net or gross.",
+      "currency": "Currency",
+      "amount": "Amount",
+      "providerPriceId": "Provider price id",
+      "addPrice": "Add a currency",
+      "removePrice": "Remove this price",
+      "noPrice": "No price defined",
+      "missingCurrencies": "Enabled currencies without a price: {{list}}. The offer will not be proposed there."
     }
   },
   "errors": {

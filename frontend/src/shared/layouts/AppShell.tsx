@@ -223,6 +223,9 @@ export default function AppShell() {
                       <DropdownMenuItem onClick={() => navigate('/admin/billing-catalog')}>
                         {t('admin.billing.navLabel')}
                       </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/billing-offers')}>
+                        {t('admin.offers.navLabel')}
+                      </DropdownMenuItem>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSub>

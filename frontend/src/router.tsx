@@ -28,6 +28,7 @@ import {
   AdminMachineProfiles,
   AdminHostProfiles,
   AdminBillingCatalog,
+  AdminBillingOffers,
   AdminSessions,
   AdminWorkflow,
   ApplicationsPage,
@@ -159,6 +160,10 @@ export const router = createBrowserRouter([
         // quel canal, la ou les profils de host disent ce qu'on provisionne.
         path: '/admin/billing-catalog',
         element: <AdminGuard><Wrap><AdminBillingCatalog /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/billing-offers',
+        element: <AdminGuard><Wrap><AdminBillingOffers /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/recipes',

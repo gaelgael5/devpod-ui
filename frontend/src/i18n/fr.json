@@ -1005,6 +1005,49 @@
       "taxRateDeleted": "Taux supprimé",
       "period": "{{from}} → {{to}}",
       "periodOpen": "depuis le {{from}}"
+    },
+    "offers": {
+      "navLabel": "Offres d'abonnement",
+      "title": "Offres d'abonnement",
+      "description": "Ce que l'on vend, à quel prix et dans quelle devise. Une offre publiée sans prix dans une devise activée ne serait proposable à personne.",
+      "empty": "Aucune offre. Rien n'est vendable tant qu'aucune offre n'est publiée.",
+      "new": "Nouvelle offre",
+      "edit": "Modifier l'offre",
+      "delete": "Supprimer l'offre",
+      "deleted": "Offre {{slug}} supprimée",
+      "saved": "Offre {{slug}} enregistrée",
+      "help": "Le montant saisi est HT ou TTC selon le mode de taxe du canal choisi — l'écran le rappelle à côté des prix.",
+      "slug": "Slug",
+      "label": "Nom ({{lng}})",
+      "descriptionField": "Description ({{lng}})",
+      "hostingType": "Type d'hébergement",
+      "hosting": {
+        "dedie": "dédié",
+        "mutualise": "mutualisé"
+      },
+      "published": "publiée",
+      "draft": "brouillon",
+      "publish": "Publier l'offre",
+      "maxWorkspaces": "Workspaces maximum",
+      "maxHosts": "Hosts dédiés maximum",
+      "unlimited": "illimité",
+      "quotaHelp": "Champ vide = illimité. Les deux quotas sont indépendants, et la capacité physique de la machine prime toujours sur eux.",
+      "quotas": "Workspaces : {{workspaces}} · hosts dédiés : {{hosts}}",
+      "provider": "Canal de vente",
+      "noProvider": "— aucun —",
+      "prices": "Prix par devise",
+      "priceMeaning": {
+        "manuel": "Canal en mode manuel : le montant saisi est TTC, la plateforme ayant déjà calculé la taxe.",
+        "automatique": "Canal en mode automatique : le montant saisi est HT, le provider ajoutera la taxe."
+      },
+      "priceMeaningUnknown": "Choisissez un canal de vente : c'est son mode de taxe qui dit si le montant est HT ou TTC.",
+      "currency": "Devise",
+      "amount": "Montant",
+      "providerPriceId": "Identifiant de prix chez le provider",
+      "addPrice": "Ajouter une devise",
+      "removePrice": "Retirer ce prix",
+      "noPrice": "Aucun prix défini",
+      "missingCurrencies": "Devises activées sans prix : {{list}}. L'offre n'y sera pas proposée."
     }
   },
   "errors": {
