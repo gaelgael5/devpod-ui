@@ -48,12 +48,16 @@ class HostDisponible(BaseModel):
     ce module ne recompte pas les workspaces, il fait confiance au chiffre —
     mais il se méfie d'un négatif, qui signale une machine sur-souscrite après
     une réduction de capacité.
+
+    `None` = aucun plafond connu, parce que le profil de host ne déclare pas
+    `capacity_workspaces`. C'est un trou de configuration, pas une machine
+    infinie : la place existe peut-être, on n'en sait rien.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     host_name: str
-    places_restantes: int
+    places_restantes: int | None
 
 
 class Decision(BaseModel):
@@ -77,15 +81,26 @@ class Decision(BaseModel):
 def _meilleur_candidat(pool: list[HostDisponible]) -> HostDisponible | None:
     """Host le plus rempli parmi ceux qui ont encore de la place.
 
-    Le tri secondaire sur le nom rend le choix déterministe : deux machines à
-    égalité doivent donner la même réponse d'un appel à l'autre, sans quoi le
-    rejeu d'un événement — qui est la norme avec des webhooks — ne serait plus
-    idempotent.
+    Trois clés de tri, dans cet ordre :
+
+    1. capacité connue d'abord — une machine dont on ignore le plafond n'est
+       retenue qu'à défaut d'autre chose ;
+    2. le moins de places restantes — remplir avant d'ouvrir ;
+    3. le nom, pour trancher les égalités. Ce dernier point n'est pas
+       cosmétique : un tirage instable rendrait le rejeu d'un événement — qui
+       est la norme avec des webhooks — non idempotent.
     """
-    candidats = [h for h in pool if h.places_restantes > 0]
+    candidats = [h for h in pool if h.places_restantes is None or h.places_restantes > 0]
     if not candidats:
         return None
-    return min(candidats, key=lambda h: (h.places_restantes, h.host_name))
+    return min(
+        candidats,
+        key=lambda h: (
+            h.places_restantes is None,
+            h.places_restantes if h.places_restantes is not None else 0,
+            h.host_name,
+        ),
+    )
 
 
 def decider(
@@ -125,6 +140,15 @@ def decider(
         return Decision(
             action="creer_host_mutualise",
             motif=("aucun host mutualisé n'a de place" if pool else "le pool mutualisé est vide"),
+        )
+    if candidat.places_restantes is None:
+        return Decision(
+            action="assigner_host",
+            host_name=candidat.host_name,
+            motif=(
+                f"host {candidat.host_name} retenu par défaut — capacité non déclarée "
+                "dans son profil de host, aucune autre machine n'avait de place"
+            ),
         )
     return Decision(
         action="assigner_host",

@@ -140,3 +140,39 @@ def test_places_restantes_negatives_traitees_comme_pleines() -> None:
         pool=_pool(("mut-01", -2)),
     )
     assert d.action == "creer_host_mutualise"
+
+
+# ─── Capacité non déclarée ───────────────────────────────────────────────────
+
+
+def test_host_sans_capacite_declaree_reste_utilisable_mais_en_dernier() -> None:
+    """`capacity_workspaces` absent du profil de host : on ne sait pas ce que la
+    machine tient. On ne bloque pas un client qui paie pour autant — on la garde
+    en dernier recours, derrière toute machine dont la capacité est connue."""
+    d = decider(
+        evenement="activation",
+        hosting_type="mutualise",
+        deja_provisionne=False,
+        pool=[
+            HostDisponible(host_name="mut-inconnu", places_restantes=None),
+            HostDisponible(host_name="mut-01", places_restantes=6),
+        ],
+    )
+    assert d.action == "assigner_host"
+    assert d.host_name == "mut-01"
+
+
+def test_host_sans_capacite_declaree_choisi_faute_de_mieux() -> None:
+    d = decider(
+        evenement="activation",
+        hosting_type="mutualise",
+        deja_provisionne=False,
+        pool=[
+            HostDisponible(host_name="mut-inconnu", places_restantes=None),
+            HostDisponible(host_name="mut-plein", places_restantes=0),
+        ],
+    )
+    assert d.action == "assigner_host"
+    assert d.host_name == "mut-inconnu"
+    # Le motif doit signaler le trou de configuration, pas le masquer.
+    assert "non déclarée" in d.motif
