@@ -948,9 +948,8 @@
       "countryLabel": "Name",
       "countryEnabled": "Country enabled",
       "disabled": "disabled",
-      "currencies": "Currencies",
-      "currenciesHelp": "Exactly one default currency: none would leave the portal with nothing to offer, two would make the choice undetermined.",
-      "currencyCode": "Currency code",
+      "currencies": "Accepted currencies",
+      "currenciesHelp": "What the platform can charge in — independent of the buyer's country. Exactly one default currency: the one proposed when nothing else applies.",
       "defaultCurrency": "default",
       "addCurrency": "Add a currency",
       "removeCurrency": "Remove currency",
@@ -1004,7 +1003,10 @@
       "taxRateClosed": "Rate closed",
       "taxRateDeleted": "Rate deleted",
       "period": "{{from}} → {{to}}",
-      "periodOpen": "since {{from}}"
+      "periodOpen": "since {{from}}",
+      "currenciesEmpty": "No currency yet. Without an enabled currency, no offer can be published.",
+      "currenciesSaved": "Currencies saved",
+      "currencyEnabled": "enabled"
     },
     "offers": {
       "navLabel": "Subscription offers",
@@ -1018,7 +1020,6 @@
       "saved": "Offer {{slug}} saved",
       "help": "The amount you type is net or gross depending on the tax mode of the selected channel — the screen states it next to the prices.",
       "slug": "Slug",
-      "label": "Name ({{lng}})",
       "descriptionField": "Description ({{lng}})",
       "hostingType": "Hosting type",
       "hosting": {
@@ -1040,7 +1041,6 @@
         "manuel": "Channel in manual mode: the amount is gross, the platform has already computed tax.",
         "automatique": "Channel in automatic mode: the amount is net, the provider will add tax."
       },
-      "priceMeaningUnknown": "Pick a sales channel: its tax mode decides whether the amount is net or gross.",
       "currency": "Currency",
       "amount": "Amount",
       "providerPriceId": "Provider price id",
@@ -1049,7 +1049,21 @@
       "noPrice": "No price defined",
       "missingCurrencies": "Enabled currencies without a price: {{list}}. The offer will not be proposed there.",
       "providerPriceIdPlaceholder": "price_… (optional)",
-      "providerPriceIdHint": "Price id at the provider (Stripe: “price_…”). Optional — leave empty until a price exists there. If set, the provider's price is what gets charged, so both amounts must stay in agreement."
+      "providerPriceIdHint": "Price id at the provider (Stripe: “price_…”). Optional — leave empty until a price exists there. If set, the provider's price is what gets charged, so both amounts must stay in agreement.",
+      "shortName": "Short name",
+      "shortNameHelp": "The product name — “Standard”, “Max”. It is not translated: this is what appears in administration and logs. The slug derives from it.",
+      "langue": "Language {{lng}}",
+      "langueParDefaut": "always present",
+      "ajouterLangue": "Add a language",
+      "retirerLangue": "Remove {{lng}}",
+      "heading": "Title shown to the customer",
+      "pricesIncludeTax": "Amounts include tax",
+      "pricesIncludeTaxOn": "Tax included: the amount is what the customer will pay.",
+      "pricesIncludeTaxOff": "Tax excluded: tax will be added to the amount entered.",
+      "autoCurrencies": "Handle other currencies automatically",
+      "autoCurrenciesHelp": "Accepted currencies without their own price are derived from the default price, markup included. This is not an exchange rate: it is a commercial markup, and it follows no market.",
+      "markup": "Markup",
+      "noAcceptedCurrency": "No accepted currency. Declare some in the billing catalog before pricing this offer."
     }
   },
   "errors": {
@@ -2074,5 +2088,10 @@
       "equals": "equals",
       "not_equals": "not equals"
     }
+  },
+  "markdown": {
+    "edit": "Edit",
+    "preview": "Preview",
+    "empty": "Nothing to show."
   }
 }

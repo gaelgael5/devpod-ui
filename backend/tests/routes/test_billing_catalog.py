@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from portal.auth.rbac import UserInfo, require_admin
-from portal.billing.models import Country, CountryCurrency, CountryProvider, PaymentProvider
+from portal.billing.models import Country, CountryProvider, Currency, PaymentProvider
 from portal.db.engine import get_conn
 from portal.routes import billing_catalog
 
@@ -23,7 +23,8 @@ class _Store:
 
     def __init__(self) -> None:
         self.pays: dict[str, Country] = {}
-        self.devises: dict[str, list[CountryCurrency]] = {}
+        #: Jeu GLOBAL de devises acceptees par l'application.
+        self.devises: list[Currency] = []
         self.providers: dict[str, PaymentProvider] = {}
         self.liens: dict[str, list[CountryProvider]] = {}
         #: Slugs de providers qu'une offre ou un abonnement référence.
@@ -54,17 +55,14 @@ def client(store: _Store, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         store.pays[pays.code] = pays
 
     async def _delete_country(code: str, _conn: Any) -> bool:
-        store.devises.pop(code, None)
         store.liens.pop(code, None)
         return store.pays.pop(code, None) is not None
 
-    async def _list_currencies(_conn: Any, *, country_code: str | None = None) -> list[Any]:
-        if country_code is not None:
-            return list(store.devises.get(country_code, []))
-        return [d for lot in store.devises.values() for d in lot]
+    async def _list_currencies(_conn: Any) -> list[Currency]:
+        return list(store.devises)
 
-    async def _set_currencies(code: str, devises: list[CountryCurrency], _conn: Any) -> None:
-        store.devises[code] = list(devises)
+    async def _set_currencies(devises: list[Currency], _conn: Any) -> None:
+        store.devises = list(devises)
 
     async def _list_providers(_conn: Any) -> list[PaymentProvider]:
         return sorted(store.providers.values(), key=lambda p: p.label)
@@ -145,31 +143,26 @@ def test_supprimer_un_pays_inconnu_est_un_404(client: TestClient) -> None:
     assert client.delete("/admin/billing/countries/ZZ").status_code == 404
 
 
-# ─── Devises d'un pays ───────────────────────────────────────────────────────
+# ─── Devises acceptees par l'application ─────────────────────────────────────
 
 
 def test_remplace_le_jeu_de_devises(client: TestClient, store: _Store) -> None:
-    client.put("/admin/billing/countries/FR", json={"code": "FR", "label": "France"})
-
     res = client.put(
-        "/admin/billing/countries/FR/currencies",
-        json=[{"country_code": "FR", "currency": "EUR", "is_default": True}],
+        "/admin/billing/currencies",
+        json=[{"code": "EUR", "enabled": True, "is_default": True}],
     )
 
     assert res.status_code == 200
-    assert [d.currency for d in store.devises["FR"]] == ["EUR"]
+    assert [d.code for d in store.devises] == ["EUR"]
 
 
 def test_refuse_deux_devises_par_defaut(client: TestClient) -> None:
-    # Deux défauts rendraient le choix de devise non déterministe au moment
-    # de proposer une offre.
-    client.put("/admin/billing/countries/FR", json={"code": "FR", "label": "France"})
-
+    # Deux défauts rendraient indéterminé le choix au moment de présenter un prix.
     res = client.put(
-        "/admin/billing/countries/FR/currencies",
+        "/admin/billing/currencies",
         json=[
-            {"country_code": "FR", "currency": "EUR", "is_default": True},
-            {"country_code": "FR", "currency": "USD", "is_default": True},
+            {"code": "EUR", "is_default": True},
+            {"code": "USD", "is_default": True},
         ],
     )
 
@@ -178,31 +171,39 @@ def test_refuse_deux_devises_par_defaut(client: TestClient) -> None:
 
 
 def test_refuse_un_jeu_de_devises_sans_defaut(client: TestClient) -> None:
-    client.put("/admin/billing/countries/FR", json={"code": "FR", "label": "France"})
+    res = client.put("/admin/billing/currencies", json=[{"code": "EUR", "is_default": False}])
 
+    assert res.status_code == 422
+
+
+def test_refuse_une_devise_repetee(client: TestClient) -> None:
     res = client.put(
-        "/admin/billing/countries/FR/currencies",
-        json=[{"country_code": "FR", "currency": "EUR", "is_default": False}],
+        "/admin/billing/currencies",
+        json=[{"code": "EUR", "is_default": True}, {"code": "EUR"}],
+    )
+
+    assert res.status_code == 422
+    assert "répétée" in res.json()["detail"]
+
+
+def test_refuse_un_defaut_desactive(client: TestClient) -> None:
+    # Une devise par défaut qu'on n'encaisse pas ne vaut pas mieux qu'aucune.
+    res = client.put(
+        "/admin/billing/currencies",
+        json=[{"code": "EUR", "enabled": False, "is_default": True}],
     )
 
     assert res.status_code == 422
 
 
-def test_refuse_une_devise_rattachee_a_un_autre_pays(client: TestClient) -> None:
-    client.put("/admin/billing/countries/FR", json={"code": "FR", "label": "France"})
+def test_jeu_vide_accepte(client: TestClient, store: _Store) -> None:
+    # Aucune devise = rien n'est vendable, mais c'est un etat de configuration
+    # legitime : le garde-fou a la publication le dira, pas cette route.
+    res = client.put("/admin/billing/currencies", json=[])
 
-    res = client.put(
-        "/admin/billing/countries/FR/currencies",
-        json=[{"country_code": "BE", "currency": "EUR", "is_default": True}],
-    )
+    assert res.status_code == 200
+    assert store.devises == []
 
-    assert res.status_code == 422
-
-
-def test_devises_d_un_pays_inconnu_est_un_404(client: TestClient) -> None:
-    res = client.put("/admin/billing/countries/ZZ/currencies", json=[])
-
-    assert res.status_code == 404
 
 
 # ─── Canaux de paiement ──────────────────────────────────────────────────────

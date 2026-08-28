@@ -1,18 +1,18 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Plus, Trash2 } from 'lucide-react'
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
-import { devisesIso, paysIso } from '@/shared/iso'
+import { paysIso } from '@/shared/iso'
 import CountryTaxRates from './CountryTaxRates'
 import {
-  useCountryProviders, useCurrencies, useSaveCountry, useSetCountryProviders, useSetCurrencies,
-  type Country, type CountryCurrency, type CountryProvider, type PaymentProvider,
+  useCountryProviders, useSaveCountry, useSetCountryProviders,
+  type Country, type CountryProvider, type PaymentProvider,
 } from './useBillingCatalog'
 
 interface Props {
@@ -33,14 +33,13 @@ interface Props {
 export default function CountryEditor({ pays, canaux, codesPris, onClose }: Props) {
   const { t } = useTranslation()
   const existant = Boolean(pays.code)
-  const { data: devisesServeur } = useCurrencies(pays.code)
   const { data: rattachesServeur } = useCountryProviders(pays.code)
 
   // Un pays neuf n'a rien a lire : ses deux listes partent vides. Un pays
   // existant attend ses donnees — le formulaire n'est monte qu'ensuite, et
   // amorce son etat depuis ses props. Pas d'effet qui recopie le serveur dans
   // l'etat local : la source est choisie une fois, au montage.
-  const pret = !existant || (devisesServeur !== undefined && rattachesServeur !== undefined)
+  const pret = !existant || rattachesServeur !== undefined
 
   if (!pret) {
     return (
@@ -62,7 +61,6 @@ export default function CountryEditor({ pays, canaux, codesPris, onClose }: Prop
       pays={pays}
       canaux={canaux}
       codesPris={codesPris}
-      devisesInitiales={devisesServeur ?? []}
       rattachesInitiaux={ordonnes.map((r) => r.provider_slug)}
       onClose={onClose}
     />
@@ -70,63 +68,27 @@ export default function CountryEditor({ pays, canaux, codesPris, onClose }: Prop
 }
 
 interface FormProps extends Props {
-  devisesInitiales: CountryCurrency[]
   rattachesInitiaux: string[]
 }
 
-function CountryForm({
-  pays,
-  canaux,
-  codesPris,
-  devisesInitiales,
-  rattachesInitiaux,
-  onClose,
-}: FormProps) {
+function CountryForm({ pays, canaux, codesPris, rattachesInitiaux, onClose }: FormProps) {
   const { t, i18n } = useTranslation()
   const existant = Boolean(pays.code)
   const [brouillon, setBrouillon] = useState<Country>(pays)
-  const [devises, setDevises] = useState<CountryCurrency[]>(devisesInitiales)
   const [rattaches, setRattaches] = useState<string[]>(rattachesInitiaux)
 
   const langue = i18n.language
-  const catalogueDevises = useMemo(() => devisesIso(langue), [langue])
   const cataloguePays = useMemo(
     () => paysIso(langue).filter((p) => existant || !codesPris.includes(p.code)),
     [langue, existant, codesPris],
   )
 
   const enregistrerPays = useSaveCountry()
-  const enregistrerDevises = useSetCurrencies(brouillon.code)
   const enregistrerCanaux = useSetCountryProviders(brouillon.code)
 
-  function ajouterDevise() {
-    // La premiere devise ajoutee devient le defaut : le serveur en exige
-    // exactement un des que la liste n'est pas vide.
-    setDevises((d) => [
-      ...d,
-      { country_code: brouillon.code, currency: '', is_default: d.length === 0 },
-    ])
-  }
 
-  function majDevise(index: number, valeur: string) {
-    setDevises((d) =>
-      d.map((x, i) => (i === index ? { ...x, currency: valeur.toUpperCase() } : x)),
-    )
-  }
 
-  function retirerDevise(index: number) {
-    setDevises((d) => {
-      const reste = d.filter((_, i) => i !== index)
-      // Retirer le defaut laisserait le pays sans devise a proposer : le
-      // suivant reprend le role.
-      if (reste.length > 0 && !reste.some((x) => x.is_default)) reste[0].is_default = true
-      return reste
-    })
-  }
 
-  function definirDefaut(index: number) {
-    setDevises((d) => d.map((x, i) => ({ ...x, is_default: i === index })))
-  }
 
   function basculerCanal(slug: string) {
     setRattaches((r) => (r.includes(slug) ? r.filter((s) => s !== slug) : [...r, slug]))
@@ -140,13 +102,8 @@ function CountryForm({
       provider_slug: slug,
       priority: i,
     }))
-    const jeuDevises: CountryCurrency[] = devises
-      .filter((d) => d.currency !== '')
-      .map((d) => ({ ...d, country_code: code }))
-
     try {
       await enregistrerPays.mutateAsync({ ...brouillon, code })
-      await enregistrerDevises.mutateAsync(jeuDevises)
       await enregistrerCanaux.mutateAsync(charge)
       toast.success(t('admin.billing.countrySaved', { code }))
       onClose()
@@ -212,65 +169,6 @@ function CountryForm({
             {t('admin.billing.countryEnabled')}
           </label>
 
-          <fieldset className="rounded-lg border p-3">
-            <legend className="px-1 text-sm font-medium">{t('admin.billing.currencies')}</legend>
-            <p className="mb-2 text-xs text-muted-foreground">
-              {t('admin.billing.currenciesHelp')}
-            </p>
-            <div className="flex flex-col gap-2">
-              {devises.map((d, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <select
-                    className="h-9 w-56 rounded-md border border-input bg-transparent px-2 text-sm"
-                    value={d.currency}
-                    onChange={(e) => majDevise(i, e.target.value)}
-                    aria-label={t('admin.billing.currencyCode')}
-                    required
-                  >
-                    <option value="">—</option>
-                    {catalogueDevises
-                      // Une devise deja posee sur ce pays ne se repropose pas :
-                      // le serveur refuse le doublon, autant ne pas l'offrir.
-                      .filter((c) => c.code === d.currency || !devises.some((x) => x.currency === c.code))
-                      .map((c) => (
-                        <option key={c.code} value={c.code}>
-                          {c.code} · {c.label}
-                        </option>
-                      ))}
-                  </select>
-                  <label className="flex items-center gap-1.5 text-xs">
-                    <input
-                      type="radio"
-                      name="devise-defaut"
-                      checked={d.is_default}
-                      onChange={() => definirDefaut(i)}
-                    />
-                    {t('admin.billing.defaultCurrency')}
-                  </label>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="ml-auto h-7 w-7 text-destructive"
-                    aria-label={t('admin.billing.removeCurrency')}
-                    onClick={() => retirerDevise(i)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="mt-2 gap-1.5"
-              onClick={ajouterDevise}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              {t('admin.billing.addCurrency')}
-            </Button>
-          </fieldset>
 
           {existant ? (
             <CountryTaxRates code={brouillon.code} />

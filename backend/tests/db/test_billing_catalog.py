@@ -12,7 +12,7 @@ import uuid
 
 from sqlalchemy import insert
 
-from portal.billing.models import Country, CountryCurrency, CountryProvider, PaymentProvider
+from portal.billing.models import Country, CountryProvider, Currency, PaymentProvider
 from portal.db.billing_catalog import (
     delete_country,
     delete_provider,
@@ -78,85 +78,61 @@ async def test_supprimer_un_pays_inconnu_ne_ment_pas(db_conn) -> None:
     assert await delete_country("ZZ", db_conn) is False
 
 
-async def test_supprimer_un_pays_emporte_ses_devises(db_conn) -> None:
-    # ON DELETE CASCADE : une devise sans son pays n'a aucun sens.
+async def test_supprimer_un_pays_ne_touche_pas_aux_devises(db_conn) -> None:
+    # Les devises sont globales : ce que la plateforme sait encaisser ne depend
+    # pas de l'existence d'un pays.
     await upsert_country(FR, db_conn)
-    await set_currencies(
-        "FR", [CountryCurrency(country_code="FR", currency="EUR", is_default=True)], db_conn
-    )
+    await set_currencies([Currency(code="EUR", is_default=True)], db_conn)
 
     await delete_country("FR", db_conn)
 
-    assert await list_currencies(db_conn) == []
+    assert [d.code for d in await list_currencies(db_conn)] == ["EUR"]
 
 
-# ─── Devises ─────────────────────────────────────────────────────────────────
+# ─── Devises acceptees par l'application ─────────────────────────────────────
 
 
 async def test_remplace_le_jeu_de_devises(db_conn) -> None:
-    await upsert_country(FR, db_conn)
     await set_currencies(
-        "FR",
-        [
-            CountryCurrency(country_code="FR", currency="EUR", is_default=True),
-            CountryCurrency(country_code="FR", currency="USD"),
-        ],
+        [Currency(code="EUR", is_default=True), Currency(code="USD")],
         db_conn,
     )
 
-    await set_currencies(
-        "FR", [CountryCurrency(country_code="FR", currency="CHF", is_default=True)], db_conn
-    )
+    await set_currencies([Currency(code="CHF", is_default=True)], db_conn)
 
-    assert [d.currency for d in await list_currencies(db_conn, country_code="FR")] == ["CHF"]
+    assert [d.code for d in await list_currencies(db_conn)] == ["CHF"]
 
 
 async def test_le_defaut_peut_changer_de_devise(db_conn) -> None:
     # L'index partiel unique refuserait deux défauts : effacer puis réinsérer
     # est justement ce qui évite l'état transitoire interdit.
-    await upsert_country(FR, db_conn)
-    await set_currencies(
-        "FR", [CountryCurrency(country_code="FR", currency="EUR", is_default=True)], db_conn
-    )
+    await set_currencies([Currency(code="EUR", is_default=True)], db_conn)
 
     await set_currencies(
-        "FR",
-        [
-            CountryCurrency(country_code="FR", currency="EUR"),
-            CountryCurrency(country_code="FR", currency="USD", is_default=True),
-        ],
+        [Currency(code="EUR"), Currency(code="USD", is_default=True)],
         db_conn,
     )
 
-    defauts = [
-        d.currency for d in await list_currencies(db_conn, country_code="FR") if d.is_default
-    ]
-    assert defauts == ["USD"]
+    assert [d.code for d in await list_currencies(db_conn) if d.is_default] == ["USD"]
 
 
-async def test_devises_actives_ignore_les_pays_desactives(db_conn) -> None:
-    # Une offre n'a pas à porter un prix dans la devise d'un pays qu'on ne sert pas.
-    await upsert_country(FR, db_conn)
-    await upsert_country(BE.model_copy(update={"enabled": False}), db_conn)
+async def test_devises_actives_ignore_les_devises_desactivees(db_conn) -> None:
+    # Une offre n'a pas a porter un prix dans une devise qu'on n'encaisse plus.
     await set_currencies(
-        "FR", [CountryCurrency(country_code="FR", currency="EUR", is_default=True)], db_conn
-    )
-    await set_currencies(
-        "BE", [CountryCurrency(country_code="BE", currency="CHF", is_default=True)], db_conn
+        [Currency(code="EUR", is_default=True), Currency(code="CHF", enabled=False)],
+        db_conn,
     )
 
     assert await devises_actives(db_conn) == ["EUR"]
 
 
-async def test_devises_actives_dedoublonne(db_conn) -> None:
-    await upsert_country(FR, db_conn)
-    await upsert_country(BE, db_conn)
-    for code in ("FR", "BE"):
-        await set_currencies(
-            code, [CountryCurrency(country_code=code, currency="EUR", is_default=True)], db_conn
-        )
+async def test_devises_actives_triees(db_conn) -> None:
+    await set_currencies(
+        [Currency(code="USD"), Currency(code="EUR", is_default=True)],
+        db_conn,
+    )
 
-    assert await devises_actives(db_conn) == ["EUR"]
+    assert await devises_actives(db_conn) == ["EUR", "USD"]
 
 
 # ─── Canaux de paiement ──────────────────────────────────────────────────────

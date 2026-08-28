@@ -29,8 +29,9 @@ const STRIPE = {
 
 const STANDARD = {
   slug: 'standard',
-  labels: { fr: 'Standard', en: 'Standard' },
-  descriptions: {},
+  label: 'Standard',
+  titles: { en: 'Standard plan' },
+  descriptions: { en: '## Ce que vous obtenez\n\n- un workspace' },
   hosting_type: 'mutualise',
   max_workspaces: 3,
   max_hosts_dedies: null,
@@ -38,12 +39,22 @@ const STANDARD = {
   provider_slug: 'stripe-eu',
   published: true,
   prices: [{ currency: 'EUR', amount_minor: 1200, provider_price_id: '' }],
+  prices_include_tax: false,
+  auto_currencies: false,
+  currency_markup: 1,
 }
 
 function renderPage(offres: unknown[] = [STANDARD]) {
   server.use(
     http.get('/admin/billing/offers', () => HttpResponse.json(offres)),
     http.get('/admin/billing/providers', () => HttpResponse.json([STRIPE])),
+    http.get('/admin/billing/currencies', () =>
+      HttpResponse.json([
+        { code: 'EUR', enabled: true, is_default: true },
+        { code: 'USD', enabled: true, is_default: false },
+        { code: 'CHF', enabled: false, is_default: false },
+      ]),
+    ),
   )
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   return render(
@@ -111,16 +122,19 @@ describe('AdminBillingOffers', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
-  it('dit si le montant saisi est HT ou TTC selon le canal', async () => {
+  it('dit explicitement si les montants sont HT ou TTC', async () => {
     renderPage()
     const offre = await screen.findByTestId('offre-standard')
     await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
-    expect(await screen.findByText(i18n.t('admin.offers.priceMeaning.manuel'))).toBeInTheDocument()
+
+    // Le sens du montant est un CHOIX, plus une deduction du mode de taxe du
+    // canal : une offre peut changer de canal sans changer de nature.
+    const ttc = await screen.findByLabelText(i18n.t('admin.offers.pricesIncludeTax'))
+    expect(ttc).not.toBeChecked()
+    expect(screen.getByText(i18n.t('admin.offers.pricesIncludeTaxOff'))).toBeInTheDocument()
   })
 
-  it('choisit la devise dans une liste ISO, jamais en texte libre', async () => {
-    // Saisir « 15 » dans la case devise etait possible, et rien ne le disait :
-    // le premier champ attend un code ISO, pas un montant.
+  it('limite les devises a celles que l\'application accepte', async () => {
     renderPage()
     const offre = await screen.findByTestId('offre-standard')
     await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
@@ -128,9 +142,14 @@ describe('AdminBillingOffers', () => {
     const devise = (await screen.findByLabelText(
       i18n.t('admin.offers.currency'),
     )) as HTMLSelectElement
-    expect(devise.tagName).toBe('SELECT')
+    const codes = Array.from(devise.options).map((o) => o.value)
     expect(devise.value).toBe('EUR')
-    expect(Array.from(devise.options).map((o) => o.value)).toContain('USD')
+    expect(codes).toContain('USD')
+    // CHF est declaree mais desactivee : la proposer produirait une offre
+    // invendable, decouverte au paiement.
+    expect(codes).not.toContain('CHF')
+    // Et surtout : pas tout l'ISO-4217.
+    expect(codes).not.toContain('JPY')
   })
 
   it("explique a quoi sert l'identifiant de prix du provider", async () => {
@@ -139,5 +158,49 @@ describe('AdminBillingOffers', () => {
     await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
 
     expect(await screen.findByText(i18n.t('admin.offers.providerPriceIdHint'))).toBeInTheDocument()
+  })
+
+  it("part de l'anglais et ajoute les autres langues a la demande", async () => {
+    renderPage()
+    const offre = await screen.findByTestId('offre-standard')
+    await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+
+    // EN est toujours la : c'est le repli quand la langue du visiteur manque.
+    expect(await screen.findByLabelText(i18n.t('admin.offers.heading'))).toBeInTheDocument()
+    expect(screen.queryByText(i18n.t('admin.offers.langue', { lng: 'FR' }))).toBeNull()
+
+    await userEvent.selectOptions(
+      screen.getByLabelText(i18n.t('admin.offers.ajouterLangue')),
+      'fr',
+    )
+
+    expect(screen.getByText(/Langue FR|Language FR/)).toBeInTheDocument()
+  })
+
+  it('la description se saisit en markdown, avec apercu', async () => {
+    renderPage()
+    const offre = await screen.findByTestId('offre-standard')
+    await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+    await screen.findByLabelText(i18n.t('admin.offers.heading'))
+
+    await userEvent.click(screen.getAllByRole('button', { name: i18n.t('markdown.preview') })[0])
+
+    // L'apercu utilise le meme rendu que l'affichage client : un titre markdown
+    // devient un vrai titre, pas du texte avec des dieses.
+    const apercu = await screen.findByTestId('offre-description-en-apercu')
+    expect(within(apercu).getByRole('heading')).toHaveTextContent('Ce que vous obtenez')
+  })
+
+  it('la majoration des devises derivees vaut 1 par defaut', async () => {
+    renderPage()
+    const offre = await screen.findByTestId('offre-standard')
+    await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+
+    const auto = await screen.findByLabelText(i18n.t('admin.offers.autoCurrencies'))
+    expect(auto).not.toBeChecked()
+    await userEvent.click(auto)
+
+    const majoration = screen.getByLabelText(i18n.t('admin.offers.markup')) as HTMLInputElement
+    expect(majoration.value).toBe('1')
   })
 })

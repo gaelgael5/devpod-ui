@@ -103,16 +103,23 @@ class Country(BaseModel):
         return v
 
 
-class CountryCurrency(BaseModel):
+class Currency(BaseModel):
+    """Devise acceptee par l'application.
+
+    Le jeu est GLOBAL, pas rattache a un pays : ce que la plateforme sait
+    encaisser ne depend pas de l'endroit ou vit l'acheteur. Une seule devise
+    porte `is_default` — celle qu'on propose faute de mieux.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    country_code: str
-    currency: str
+    code: str
+    enabled: bool = True
     is_default: bool = False
 
-    @field_validator("currency")
+    @field_validator("code")
     @classmethod
-    def _currency(cls, v: str) -> str:
+    def _code(cls, v: str) -> str:
         if not _CURRENCY_RE.fullmatch(v):
             raise ValueError(f"devise {v!r} invalide : trois lettres majuscules (ISO-4217)")
         return v
@@ -216,14 +223,22 @@ class OfferPrice(BaseModel):
 class Offer(BaseModel):
     """Offre d'abonnement.
 
-    Libellés i18n : `{langue: texte}`. Quotas nullables — `None` = illimité,
-    et les deux sont indépendants.
+    Deux noms, et ils ne jouent pas le même rôle :
+
+    - `label` est un **nom court, non traduit** — « Standard », « Max ». Il vit
+      dans les tableaux d'administration, les badges, les journaux. Le traduire
+      n'aurait pas de sens : c'est le nom du produit.
+    - `titles` est le **titre montré au client**, lui traduit (`{langue: texte}`),
+      au même titre que `descriptions`.
+
+    Quotas nullables — `None` = illimité, et les deux sont indépendants.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     slug: str
-    labels: dict[str, str] = Field(default_factory=dict)
+    label: str = ""
+    titles: dict[str, str] = Field(default_factory=dict)
     descriptions: dict[str, str] = Field(default_factory=dict)
     hosting_type: HostingType = "mutualise"
     # `max_workspaces` est la CAPACITÉ DU HOST, pas un quota individuel toutes
@@ -234,6 +249,23 @@ class Offer(BaseModel):
     provider_slug: str | None = None
     published: bool = False
     prices: list[OfferPrice] = Field(default_factory=list)
+    # Sens du montant saisi. Explicite plutot que deduit du mode de taxe du
+    # canal : l'administrateur doit pouvoir dire ce qu'il tape, et une offre
+    # peut changer de canal sans que ses prix changent de nature.
+    prices_include_tax: bool = False
+    # Devises sans prix propre : on les derive du prix par defaut plutot que de
+    # ne rien proposer. Le taux n'est PAS un taux de change — c'est une
+    # majoration commerciale, appliquee au montant de la devise par defaut.
+    auto_currencies: bool = False
+    #: 1 = pas de majoration. Decimal, jamais un flottant : c'est de l'argent.
+    currency_markup: Decimal = Decimal("1")
+
+    @field_validator("currency_markup")
+    @classmethod
+    def _markup(cls, v: Decimal) -> Decimal:
+        if v <= 0:
+            raise ValueError("currency_markup : une majoration vaut 1 ou davantage, jamais zéro")
+        return v
 
     @field_validator("slug")
     @classmethod

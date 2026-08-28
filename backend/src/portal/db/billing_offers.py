@@ -94,7 +94,8 @@ def _row_to_offer(row: dict[str, Any], prix: list[OfferPrice]) -> Offer:
     return Offer.model_validate(
         {
             "slug": row["slug"],
-            "labels": row["labels"] or {},
+            "label": row["label"] or "",
+            "titles": row["titles"] or {},
             "descriptions": row["descriptions"] or {},
             "hosting_type": row["hosting_type"],
             "max_workspaces": row["max_workspaces"],
@@ -102,6 +103,9 @@ def _row_to_offer(row: dict[str, Any], prix: list[OfferPrice]) -> Offer:
             "variables": row["variables"] or {},
             "provider_slug": row["provider_slug"],
             "published": row["published"],
+            "prices_include_tax": row["prices_include_tax"],
+            "auto_currencies": row["auto_currencies"],
+            "currency_markup": row["currency_markup"],
             "prices": prix,
         }
     )
@@ -156,7 +160,8 @@ async def upsert_offer(offre: Offer, conn: AsyncConnection) -> None:
     """
     vals: dict[str, Any] = {
         "slug": offre.slug,
-        "labels": dict(offre.labels),
+        "label": offre.label,
+        "titles": dict(offre.titles),
         "descriptions": dict(offre.descriptions),
         "hosting_type": offre.hosting_type,
         "max_workspaces": offre.max_workspaces,
@@ -164,6 +169,9 @@ async def upsert_offer(offre: Offer, conn: AsyncConnection) -> None:
         "variables": dict(offre.variables),
         "provider_slug": offre.provider_slug,
         "published": offre.published,
+        "prices_include_tax": offre.prices_include_tax,
+        "auto_currencies": offre.auto_currencies,
+        "currency_markup": offre.currency_markup,
     }
     existe = (
         await conn.execute(select(offers.c.slug).where(offers.c.slug == offre.slug))

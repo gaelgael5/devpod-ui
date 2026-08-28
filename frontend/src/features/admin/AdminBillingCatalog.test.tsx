@@ -32,8 +32,8 @@ function renderPage(pays: unknown[] = [FRANCE], canaux: unknown[] = [STRIPE]) {
   server.use(
     http.get('/admin/billing/countries', () => HttpResponse.json(pays)),
     http.get('/admin/billing/providers', () => HttpResponse.json(canaux)),
-    http.get('/admin/billing/countries/:code/currencies', () =>
-      HttpResponse.json([{ country_code: 'FR', currency: 'EUR', is_default: true }]),
+    http.get('/admin/billing/currencies', () =>
+      HttpResponse.json([{ code: 'EUR', enabled: true, is_default: true }]),
     ),
     http.get('/admin/billing/countries/:code/providers', () =>
       HttpResponse.json([{ country_code: 'FR', provider_slug: 'stripe-eu', priority: 0 }]),
@@ -100,17 +100,49 @@ describe('AdminBillingCatalog', () => {
     })
   })
 
-  it('ouvre la fiche d\'un pays avec ses devises', async () => {
+  it('ouvre la fiche d\'un pays, qui ne porte plus de devises', async () => {
     renderPage()
     const ligne = await screen.findByTestId('pays-FR')
     await userEvent.click(within(ligne).getByRole('button', { name: i18n.t('admin.billing.editCountry') }))
-    expect(await screen.findByRole('dialog')).toBeInTheDocument()
-    // La devise est une liste ISO : c'est la VALEUR selectionnee qui compte,
-    // le libelle affiche depend de la langue du navigateur.
-    await waitFor(() => {
-      const devise = screen.getByLabelText(i18n.t('admin.billing.currencyCode')) as HTMLSelectElement
-      expect(devise.value).toBe('EUR')
-    })
+
+    const fiche = await screen.findByRole('dialog')
+    // Les devises sont globales : la fiche pays n'en parle plus. La recherche
+    // est bornee au dialogue — le bloc global, lui, porte bien ce libelle.
+    expect(within(fiche).queryByLabelText(i18n.t('admin.billing.addCurrency'))).toBeNull()
+  })
+
+  it('gere les devises acceptees dans un bloc a part', async () => {
+    renderPage()
+
+    const devise = await screen.findByTestId('devise-EUR')
+    expect(devise).toHaveTextContent('EUR')
+    expect(within(devise).getByRole('radio')).toBeChecked()
+  })
+
+  it('enregistre le jeu de devises entier, defaut compris', async () => {
+    renderPage()
+    let recu: unknown = null
+    server.use(
+      http.put('/admin/billing/currencies', async ({ request }) => {
+        recu = await request.json()
+        return HttpResponse.json(recu)
+      }),
+    )
+    await screen.findByTestId('devise-EUR')
+
+    await userEvent.selectOptions(
+      screen.getByLabelText(i18n.t('admin.billing.addCurrency')),
+      'USD',
+    )
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('common.save') }))
+
+    // Jeu ENTIER : le serveur remplace, il n'applique pas un delta.
+    await waitFor(() =>
+      expect(recu).toEqual([
+        { code: 'EUR', enabled: true, is_default: true },
+        { code: 'USD', enabled: true, is_default: false },
+      ]),
+    )
   })
 
   it("affiche un taux en vigueur et n'offre que de le clore, jamais de l'editer", async () => {

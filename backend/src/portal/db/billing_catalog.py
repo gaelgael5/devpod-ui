@@ -12,11 +12,11 @@ from typing import Any
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..billing.models import Country, CountryCurrency, CountryProvider, PaymentProvider
+from ..billing.models import Country, CountryProvider, Currency, PaymentProvider
 from .tables import (
     countries,
-    country_currencies,
     country_providers,
+    currencies,
     offers,
     payment_providers,
     subscriptions,
@@ -63,54 +63,51 @@ async def upsert_country(pays: Country, conn: AsyncConnection) -> None:
 
 
 async def delete_country(code: str, conn: AsyncConnection) -> bool:
-    """`True` si un pays a bien été supprimé. Devises et rattachements suivent
-    (`ON DELETE CASCADE`) : ils n'ont pas de sens sans leur pays."""
+    """`True` si un pays a bien été supprimé. Les rattachements de canaux
+    suivent (`ON DELETE CASCADE`) : ils n'ont pas de sens sans leur pays. Les
+    devises, elles, sont globales et ne bougent pas."""
     res = await conn.execute(delete(countries).where(countries.c.code == code))
     return bool(res.rowcount)
 
 
-# ─── Devises d'un pays ───────────────────────────────────────────────────────
+# ─── Devises acceptees par l'application ─────────────────────────────────────
 
 
-async def list_currencies(
-    conn: AsyncConnection, *, country_code: str | None = None
-) -> list[CountryCurrency]:
-    stmt = select(country_currencies)
-    if country_code is not None:
-        stmt = stmt.where(country_currencies.c.country_code == country_code)
-    stmt = stmt.order_by(country_currencies.c.country_code, country_currencies.c.currency)
+async def list_currencies(conn: AsyncConnection) -> list[Currency]:
+    """Toutes les devises declarees, actives ou non, triees par code."""
+    stmt = select(currencies).order_by(currencies.c.code)
     rows = (await conn.execute(stmt)).mappings().all()
-    return [CountryCurrency.model_validate(dict(r)) for r in rows]
+    return [
+        Currency(code=r["code"], enabled=r["enabled"], is_default=r["is_default"]) for r in rows
+    ]
 
 
-async def set_currencies(
-    country_code: str, devises: list[CountryCurrency], conn: AsyncConnection
-) -> None:
-    """Remplace le jeu de devises d'un pays.
+async def set_currencies(devises: list[Currency], conn: AsyncConnection) -> None:
+    """Remplace le jeu de devises de l'application.
 
-    Effacer puis réinsérer, et non rapprocher ligne à ligne : l'index partiel
-    unique sur `is_default` refuserait un état transitoire à deux défauts, que
-    tout rapprochement incrémental traverserait tôt ou tard.
+    Effacer puis reinserer, et non rapprocher ligne a ligne : l'index partiel
+    unique sur `is_default` refuserait un etat transitoire a deux defauts, que
+    tout rapprochement incremental traverserait tot ou tard.
     """
-    await conn.execute(
-        delete(country_currencies).where(country_currencies.c.country_code == country_code)
-    )
+    await conn.execute(delete(currencies))
     if devises:
-        await conn.execute(insert(country_currencies), [d.model_dump() for d in devises])
+        await conn.execute(
+            insert(currencies),
+            [
+                {"code": d.code, "enabled": d.enabled, "is_default": d.is_default}
+                for d in devises
+            ],
+        )
 
 
 async def devises_actives(conn: AsyncConnection) -> list[str]:
-    """Devises des pays activés, dédoublonnées.
+    """Codes des devises activees.
 
-    C'est le référentiel du garde-fou à la publication : une offre sans prix
-    dans aucune de ces devises n'est proposable à personne.
+    C'est le referentiel du garde-fou a la publication : une offre sans prix
+    dans aucune de ces devises n'est proposable a personne.
     """
     stmt = (
-        select(country_currencies.c.currency)
-        .join(countries, countries.c.code == country_currencies.c.country_code)
-        .where(countries.c.enabled.is_(True))
-        .distinct()
-        .order_by(country_currencies.c.currency)
+        select(currencies.c.code).where(currencies.c.enabled.is_(True)).order_by(currencies.c.code)
     )
     return list((await conn.execute(stmt)).scalars().all())
 

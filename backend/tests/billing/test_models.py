@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from portal.billing.models import (
     Country,
-    CountryCurrency,
+    Currency,
     Offer,
     OfferPrice,
     PaymentProvider,
@@ -88,10 +88,10 @@ def test_code_pays_iso_deux_lettres_majuscules() -> None:
 
 
 def test_devise_iso_trois_lettres_majuscules() -> None:
-    assert CountryCurrency(country_code="FR", currency="EUR").currency == "EUR"
+    assert Currency(code="EUR").code == "EUR"
     for mauvais in ("eur", "EU", "EURO"):
         with pytest.raises(ValidationError):
-            CountryCurrency(country_code="FR", currency=mauvais)
+            Currency(code=mauvais)
 
 
 # ─── Taux : historisation ────────────────────────────────────────────────────
@@ -166,3 +166,25 @@ def test_le_type_d_hebergement_est_borne() -> None:
 def test_une_offre_est_non_publiee_par_defaut() -> None:
     """Une offre en cours de saisie ne doit etre proposee a personne."""
     assert Offer(slug="brouillon").published is False
+
+
+def test_prix_ht_par_defaut() -> None:
+    """Le sens du montant est explicite, et prudent par defaut : HT.
+
+    Le deduire du mode de taxe du canal etait fragile — une offre peut changer
+    de canal sans que ses prix changent de nature.
+    """
+    assert Offer(slug="std").prices_include_tax is False
+
+
+def test_majoration_par_defaut_neutre() -> None:
+    assert Offer(slug="std").currency_markup == Decimal("1")
+    assert Offer(slug="std").auto_currencies is False
+
+
+def test_majoration_nulle_ou_negative_refusee() -> None:
+    # Une majoration a zero rendrait l'offre gratuite dans toutes les devises
+    # derivees, sans que personne ne l'ait voulu.
+    for mauvais in (Decimal("0"), Decimal("-1")):
+        with pytest.raises(ValidationError):
+            Offer(slug="std", currency_markup=mauvais)

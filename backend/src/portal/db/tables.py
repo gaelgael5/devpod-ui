@@ -1411,19 +1411,23 @@ countries = Table(
 # Devises acceptées dans un pays. `is_default` désigne celle proposée par défaut ;
 # un index partiel unique garantit qu'il n'y en a qu'une par pays — deux défauts
 # rendraient le choix de devise non déterministe au moment de proposer une offre.
-country_currencies = Table(
-    "country_currencies",
+# Devises acceptees par l'application. Jeu GLOBAL : ce que la plateforme sait
+# encaisser ne depend pas du pays de l'acheteur. L'index partiel garantit
+# qu'exactement une devise porte le defaut — deux rendraient le choix
+# indetermine au moment de presenter un prix.
+currencies = Table(
+    "currencies",
     metadata,
-    Column("country_code", Text, ForeignKey("countries.code", ondelete="CASCADE"), nullable=False),
-    Column("currency", Text, nullable=False),  # ISO-4217, majuscules
+    Column("code", Text, primary_key=True),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
     Column("is_default", Boolean, nullable=False, server_default="false"),
-    UniqueConstraint("country_code", "currency", name="uq_country_currency"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 Index(
-    "uq_country_currency_default",
-    country_currencies.c.country_code,
+    "uq_currency_default",
+    currencies.c.is_default,
     unique=True,
-    postgresql_where=country_currencies.c.is_default,
+    postgresql_where=text("is_default"),
 )
 
 # Canal de paiement. `kind` est le DISCRIMINANT d'adaptateur, `slug` identifie
@@ -1496,7 +1500,10 @@ offers = Table(
     "offers",
     metadata,
     Column("slug", Text, primary_key=True),
-    Column("labels", JSONB, nullable=False, server_default="{}"),
+    # Nom court non traduit (« Standard »), pour l'administration et les
+    # journaux. Le titre montre au client, lui, est traduit.
+    Column("label", Text, nullable=False, server_default=""),
+    Column("titles", JSONB, nullable=False, server_default="{}"),
     Column("descriptions", JSONB, nullable=False, server_default="{}"),
     Column("hosting_type", Text, nullable=False, server_default="mutualise"),
     # NULL = illimité, pour les deux. Deux quotas indépendants.
@@ -1509,9 +1516,18 @@ offers = Table(
     # Une offre non publiée n'est proposée à personne : c'est l'état d'une offre
     # en cours de saisie, et celui d'une offre retirée du catalogue.
     Column("published", Boolean, nullable=False, server_default="false"),
+    # Sens du montant saisi : TTC (true) ou HT (false). Explicite plutot que
+    # deduit du mode de taxe du canal — une offre peut changer de canal sans que
+    # ses prix changent de nature.
+    Column("prices_include_tax", Boolean, nullable=False, server_default="false"),
+    # Devises acceptees sans prix propre : derivees du prix par defaut. La
+    # majoration n'est PAS un taux de change, c'est une majoration commerciale.
+    Column("auto_currencies", Boolean, nullable=False, server_default="false"),
+    Column("currency_markup", Numeric(7, 4), nullable=False, server_default="1"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint("hosting_type IN ('dedie','mutualise')", name="ck_offer_hosting_type"),
+    CheckConstraint("currency_markup > 0", name="ck_offer_markup"),
     CheckConstraint("max_workspaces IS NULL OR max_workspaces > 0", name="ck_offer_max_ws"),
     CheckConstraint("max_hosts_dedies IS NULL OR max_hosts_dedies > 0", name="ck_offer_max_hosts"),
 )

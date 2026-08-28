@@ -17,10 +17,11 @@ export interface Country {
   enabled: boolean
 }
 
-export interface CountryCurrency {
-  country_code: string
+export interface Currency {
   /** Code ISO-4217, trois lettres majuscules. */
-  currency: string
+  code: string
+  enabled: boolean
+  /** Une seule devise porte le defaut : celle qu'on propose faute de mieux. */
   is_default: boolean
 }
 
@@ -104,32 +105,32 @@ export function useDeleteCountry() {
   })
 }
 
-// ─── Devises d'un pays ───────────────────────────────────────────────────────
+// ─── Devises acceptees par l'application ─────────────────────────────────────
+//
+// Jeu GLOBAL, plus rattache a un pays : ce que la plateforme sait encaisser ne
+// depend pas de l'endroit ou vit l'acheteur.
 
-export function useCurrencies(code: string) {
+const CLE_DEVISES = ['admin', 'billing', 'currencies'] as const
+
+export function useCurrencies() {
   return useQuery({
-    queryKey: [...CLE_PAYS, code, 'currencies'],
-    queryFn: () =>
-      apiFetchJson<CountryCurrency[]>(
-        `/admin/billing/countries/${encodeURIComponent(code)}/currencies`,
-      ),
-    enabled: Boolean(code),
+    queryKey: CLE_DEVISES,
+    queryFn: () => apiFetchJson<Currency[]>('/admin/billing/currencies'),
   })
 }
 
-export function useSetCurrencies(code: string) {
+export function useSetCurrencies() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (devises: CountryCurrency[]) =>
-      apiFetchJson<CountryCurrency[]>(
-        `/admin/billing/countries/${encodeURIComponent(code)}/currencies`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(devises),
-        },
-      ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [...CLE_PAYS, code, 'currencies'] }),
+    // Le serveur remplace le jeu entier : envoyer un delta laisserait passer un
+    // etat transitoire a deux defauts, que l'index partiel refuse.
+    mutationFn: (devises: Currency[]) =>
+      apiFetchJson<Currency[]>('/admin/billing/currencies', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(devises),
+      }),
+    onSuccess: (devises) => qc.setQueryData(CLE_DEVISES, devises),
   })
 }
 

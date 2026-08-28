@@ -228,7 +228,8 @@ def test_supprime_un_taux_futur(client: TestClient, store: _Store) -> None:
 def _offre(**extra: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
         "slug": "solo",
-        "labels": {"fr": "Solo"},
+        "label": "Solo",
+        "titles": {"fr": "Solo"},
         "hosting_type": "mutualise",
         "max_workspaces": 3,
         "provider_slug": "stripe-fr",

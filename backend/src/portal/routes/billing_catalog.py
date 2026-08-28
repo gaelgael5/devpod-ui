@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
-from ..billing.models import Country, CountryCurrency, CountryProvider, PaymentProvider
+from ..billing.models import Country, CountryProvider, Currency, PaymentProvider
 from ..db.billing_catalog import (
     delete_country,
     delete_provider,
@@ -87,55 +87,44 @@ async def admin_delete_country(
     log.info("billing_country_deleted", code=code, actor=user.login)
 
 
-# ─── Devises d'un pays ───────────────────────────────────────────────────────
+# ─── Devises acceptees par l'application ─────────────────────────────────────
 
 
-@router.get("/billing/countries/{code}/currencies")
+@router.get("/billing/currencies")
 async def admin_list_currencies(
-    code: str,
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, Any]]:
-    await _pays_ou_404(code, conn)
-    return [d.model_dump() for d in await list_currencies(conn, country_code=code)]
+    return [d.model_dump() for d in await list_currencies(conn)]
 
 
-@router.put("/billing/countries/{code}/currencies")
+@router.put("/billing/currencies")
 async def admin_set_currencies(
-    code: str,
-    body: list[CountryCurrency],
+    body: list[Currency],
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, Any]]:
-    """Remplace le jeu de devises d'un pays.
+    """Remplace le jeu de devises de l'application.
 
-    Exactement une devise par défaut quand la liste n'est pas vide : zéro
-    laisserait le portail sans devise à proposer, deux rendraient le choix non
-    déterministe au moment de présenter une offre.
+    Le jeu est GLOBAL : ce que la plateforme sait encaisser ne depend pas du
+    pays de l'acheteur. Exactement une devise par defaut des que la liste n'est
+    pas vide — zero laisserait le portail sans devise a proposer, deux
+    rendraient le choix indetermine au moment de presenter un prix.
     """
-    await _pays_ou_404(code, conn)
-    _valider_devises(code, body)
-    await set_currencies(code, body, conn)
-    log.info(
-        "billing_currencies_set", code=code, devises=[d.currency for d in body], actor=user.login
-    )
+    _valider_devises(body)
+    await set_currencies(body, conn)
+    log.info("billing_currencies_set", devises=[d.code for d in body], actor=user.login)
     return [d.model_dump() for d in body]
 
 
-def _valider_devises(code: str, devises: list[CountryCurrency]) -> None:
-    etrangeres = sorted({d.country_code for d in devises if d.country_code != code})
-    if etrangeres:
-        raise HTTPException(
-            status_code=422,
-            detail=f"devises rattachées à un autre pays que {code!r} : {', '.join(etrangeres)}",
-        )
-    codes = [d.currency for d in devises]
+def _valider_devises(devises: list[Currency]) -> None:
+    codes = [d.code for d in devises]
     doublons = sorted({c for c in codes if codes.count(c) > 1})
     if doublons:
         raise HTTPException(status_code=422, detail=f"devise répétée : {', '.join(doublons)}")
     if not devises:
         return
-    defauts = [d.currency for d in devises if d.is_default]
+    defauts = [d.code for d in devises if d.is_default]
     if len(defauts) != 1:
         raise HTTPException(
             status_code=422,
@@ -143,6 +132,12 @@ def _valider_devises(code: str, devises: list[CountryCurrency]) -> None:
                 "exactement une devise par défaut est attendue — "
                 f"{len(defauts)} désignée(s) : {', '.join(defauts) or 'aucune'}"
             ),
+        )
+    inactives = sorted(d.code for d in devises if d.is_default and not d.enabled)
+    if inactives:
+        raise HTTPException(
+            status_code=422,
+            detail=f"la devise par défaut doit être active : {', '.join(inactives)}",
         )
 
 

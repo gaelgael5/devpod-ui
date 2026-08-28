@@ -23,8 +23,11 @@ export interface OfferPrice {
 
 export interface Offer {
   slug: string
-  /** `{langue: texte}`. */
-  labels: Record<string, string>
+  /** Nom court du produit, NON traduit : « Standard », « Max ». */
+  label: string
+  /** Titre montre au client, lui traduit — `{langue: texte}`. */
+  titles: Record<string, string>
+  /** Descriptions en markdown, par langue. */
   descriptions: Record<string, string>
   hosting_type: HostingType
   /** `null` = illimite. Les deux quotas sont independants. */
@@ -34,6 +37,13 @@ export interface Offer {
   provider_slug: string | null
   published: boolean
   prices: OfferPrice[]
+  /** Le montant saisi est-il TTC (true) ou HT (false) ? */
+  prices_include_tax: boolean
+  /** Deriver les devises sans prix propre du prix par defaut. */
+  auto_currencies: boolean
+  /** Majoration appliquee aux devises derivees. 1 = neutre. Ce n'est PAS un
+   *  taux de change : c'est une majoration commerciale. */
+  currency_markup: number | string
 }
 
 /** Reponse d'enregistrement : l'offre, plus ce qui lui manque pour etre vendable. */
@@ -44,7 +54,8 @@ export interface OfferSaved extends Offer {
 export function offreVide(): Offer {
   return {
     slug: '',
-    labels: {},
+    label: '',
+    titles: {},
     descriptions: {},
     hosting_type: 'mutualise',
     max_workspaces: null,
@@ -53,6 +64,9 @@ export function offreVide(): Offer {
     provider_slug: null,
     published: false,
     prices: [],
+    prices_include_tax: false,
+    auto_currencies: false,
+    currency_markup: 1,
   }
 }
 

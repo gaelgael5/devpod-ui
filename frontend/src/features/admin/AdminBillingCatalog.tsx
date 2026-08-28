@@ -8,6 +8,7 @@ import {
   type Country, type PaymentProvider,
 } from './useBillingCatalog'
 import CountryEditor from './CountryEditor'
+import CurrencyBlock from './CurrencyBlock'
 import PaymentProviderEditor from './PaymentProviderEditor'
 
 /**
@@ -185,6 +186,8 @@ export default function AdminBillingCatalog() {
           ))}
         </div>
       </section>
+
+      <CurrencyBlock />
 
       {paysEdite && (
         <CountryEditor

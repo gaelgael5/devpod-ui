@@ -36,7 +36,8 @@ TVA20 = TaxRate(
 )
 SOLO = Offer(
     slug="solo",
-    labels={"fr": "Solo"},
+    label="Solo",
+    titles={"fr": "Solo"},
     max_workspaces=3,
     prices=[OfferPrice(currency="EUR", amount_minor=1200)],
 )

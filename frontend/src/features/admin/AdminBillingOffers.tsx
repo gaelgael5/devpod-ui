@@ -66,7 +66,7 @@ export default function AdminBillingOffers() {
           >
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{o.labels.fr || o.labels.en || o.slug}</span>
+                <span className="font-medium">{o.label || o.slug}</span>
                 <span className="font-mono text-xs text-muted-foreground">{o.slug}</span>
                 <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase">
                   {t(`admin.offers.hosting.${o.hosting_type}`)}

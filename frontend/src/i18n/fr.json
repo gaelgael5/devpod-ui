@@ -948,9 +948,8 @@
       "countryLabel": "Nom",
       "countryEnabled": "Pays activé",
       "disabled": "désactivé",
-      "currencies": "Devises",
-      "currenciesHelp": "Exactement une devise par défaut : zéro laisserait le portail sans devise à proposer, deux rendraient le choix indéterminé.",
-      "currencyCode": "Code devise",
+      "currencies": "Devises acceptées",
+      "currenciesHelp": "Ce que la plateforme sait encaisser — indépendant du pays de l'acheteur. Exactement une devise par défaut : c'est celle qu'on propose faute de mieux.",
       "defaultCurrency": "par défaut",
       "addCurrency": "Ajouter une devise",
       "removeCurrency": "Retirer la devise",
@@ -1004,7 +1003,10 @@
       "taxRateClosed": "Taux clos",
       "taxRateDeleted": "Taux supprimé",
       "period": "{{from}} → {{to}}",
-      "periodOpen": "depuis le {{from}}"
+      "periodOpen": "depuis le {{from}}",
+      "currenciesEmpty": "Aucune devise. Sans devise activée, aucune offre n'est publiable.",
+      "currenciesSaved": "Devises enregistrées",
+      "currencyEnabled": "activée"
     },
     "offers": {
       "navLabel": "Offres d'abonnement",
@@ -1018,7 +1020,6 @@
       "saved": "Offre {{slug}} enregistrée",
       "help": "Le montant saisi est HT ou TTC selon le mode de taxe du canal choisi — l'écran le rappelle à côté des prix.",
       "slug": "Slug",
-      "label": "Nom ({{lng}})",
       "descriptionField": "Description ({{lng}})",
       "hostingType": "Type d'hébergement",
       "hosting": {
@@ -1040,7 +1041,6 @@
         "manuel": "Canal en mode manuel : le montant saisi est TTC, la plateforme ayant déjà calculé la taxe.",
         "automatique": "Canal en mode automatique : le montant saisi est HT, le provider ajoutera la taxe."
       },
-      "priceMeaningUnknown": "Choisissez un canal de vente : c'est son mode de taxe qui dit si le montant est HT ou TTC.",
       "currency": "Devise",
       "amount": "Montant",
       "providerPriceId": "Identifiant de prix chez le provider",
@@ -1049,7 +1049,21 @@
       "noPrice": "Aucun prix défini",
       "missingCurrencies": "Devises activées sans prix : {{list}}. L'offre n'y sera pas proposée.",
       "providerPriceIdPlaceholder": "price_… (facultatif)",
-      "providerPriceIdHint": "Identifiant du prix chez le provider (Stripe : « price_… »). Facultatif : à laisser vide tant qu'aucun prix n'existe chez lui. S'il est renseigné, c'est le prix du provider qui sera débité — les deux montants doivent donc rester d'accord."
+      "providerPriceIdHint": "Identifiant du prix chez le provider (Stripe : « price_… »). Facultatif : à laisser vide tant qu'aucun prix n'existe chez lui. S'il est renseigné, c'est le prix du provider qui sera débité — les deux montants doivent donc rester d'accord.",
+      "shortName": "Nom court",
+      "shortNameHelp": "Le nom du produit — « Standard », « Max ». Il n'est pas traduit : c'est lui qu'on lit dans l'administration et dans les journaux. Le slug s'en déduit.",
+      "langue": "Langue {{lng}}",
+      "langueParDefaut": "toujours présente",
+      "ajouterLangue": "Ajouter une langue",
+      "retirerLangue": "Retirer {{lng}}",
+      "heading": "Titre affiché au client",
+      "pricesIncludeTax": "Les montants saisis sont TTC",
+      "pricesIncludeTaxOn": "Taxe comprise : le montant est celui que le client paiera.",
+      "pricesIncludeTaxOff": "Hors taxe : la taxe s'ajoutera au montant saisi.",
+      "autoCurrencies": "Gérer automatiquement les autres devises",
+      "autoCurrenciesHelp": "Les devises acceptées sans prix propre sont dérivées du prix par défaut, majoration comprise. Ce n'est pas un taux de change : c'est une majoration commerciale, et elle ne suit aucun cours.",
+      "markup": "Majoration",
+      "noAcceptedCurrency": "Aucune devise acceptée. Déclarez-en dans le catalogue de facturation avant de tarifer cette offre."
     }
   },
   "errors": {
@@ -2074,5 +2088,10 @@
       "equals": "égale",
       "not_equals": "différent"
     }
+  },
+  "markdown": {
+    "edit": "Éditer",
+    "preview": "Aperçu",
+    "empty": "Rien à afficher."
   }
 }

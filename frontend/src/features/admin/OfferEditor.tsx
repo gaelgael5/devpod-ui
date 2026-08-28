@@ -8,9 +8,10 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
+import MarkdownField from '@/shared/MarkdownField'
 import { devisesIso } from '@/shared/iso'
 import { slugifier } from '@/shared/slug'
-import type { PaymentProvider } from './useBillingCatalog'
+import { useCurrencies, type PaymentProvider } from './useBillingCatalog'
 import {
   useSaveOffer, type HostingType, type Offer, type OfferPrice,
 } from './useBillingOffers'
@@ -21,7 +22,11 @@ interface Props {
   onClose: () => void
 }
 
-const LANGUES = ['fr', 'en'] as const
+/** Langue toujours presente : c'est le repli quand la langue du visiteur manque. */
+const LANGUE_PIVOT = 'en'
+/** Langues proposees a l'ajout. Volontairement courte : on traduit ce qu'on
+ *  vend, pas tout ce qui existe. */
+const LANGUES_CONNUES = ['en', 'fr', 'de', 'es', 'it', 'nl', 'pt']
 const HEBERGEMENTS: HostingType[] = ['mutualise', 'dedie']
 
 /** "12,34" saisi → 1234 centimes. L'arrondi se fait ici, une seule fois. */
@@ -50,13 +55,60 @@ export default function OfferEditor({ offre, canaux, onClose }: Props) {
   const enregistrer = useSaveOffer()
 
   const canal = canaux.find((c) => c.slug === brouillon.provider_slug)
-  const catalogueDevises = useMemo(() => devisesIso(i18n.language), [i18n.language])
+  const { data: acceptees = [] } = useCurrencies()
+  const noms = useMemo(() => devisesIso(i18n.language), [i18n.language])
 
-  function setLabel(langue: string, texte: string) {
+  // On ne propose QUE ce que l'application sait encaisser : offrir une devise
+  // non acceptee produirait une offre invendable, decouverte au paiement.
+  const catalogueDevises = useMemo(
+    () =>
+      acceptees
+        .filter((d) => d.enabled)
+        .map((d) => ({ code: d.code, label: noms.find((n) => n.code === d.code)?.label ?? d.code })),
+    [acceptees, noms],
+  )
+
+  // Anglais toujours la ; les autres langues s'ajoutent a la demande.
+  const langues = useMemo(() => {
+    const presentes = new Set([
+      LANGUE_PIVOT,
+      ...Object.keys(brouillon.titles),
+      ...Object.keys(brouillon.descriptions),
+    ])
+    return [...presentes].sort((a, b) => (a === LANGUE_PIVOT ? -1 : a.localeCompare(b)))
+  }, [brouillon.titles, brouillon.descriptions])
+
+  const languesAjoutables = useMemo(
+    () => LANGUES_CONNUES.filter((l) => !langues.includes(l)),
+    [langues],
+  )
+
+  function setLabel(texte: string) {
+    // Le slug suit le nom court tant qu'il n'a pas ete saisi a la main, et
+    // corrige au passage ce qu'un slug n'accepte pas.
+    setBrouillon((b) => ({ ...b, label: texte, slug: slugManuel ? b.slug : slugifier(texte) }))
+  }
+
+  function setTitre(langue: string, texte: string) {
+    setBrouillon((b) => ({ ...b, titles: { ...b.titles, [langue]: texte } }))
+  }
+
+  function setDescription(langue: string, texte: string) {
+    setBrouillon((b) => ({ ...b, descriptions: { ...b.descriptions, [langue]: texte } }))
+  }
+
+  function ajouterLangue(langue: string) {
+    if (!langue) return
+    setBrouillon((b) => ({ ...b, titles: { ...b.titles, [langue]: '' } }))
+  }
+
+  function retirerLangue(langue: string) {
     setBrouillon((b) => {
-      const labels = { ...b.labels, [langue]: texte }
-      const slug = slugManuel ? b.slug : slugifier(labels.fr || labels.en || '')
-      return { ...b, labels, slug }
+      const titles = { ...b.titles }
+      const descriptions = { ...b.descriptions }
+      delete titles[langue]
+      delete descriptions[langue]
+      return { ...b, titles, descriptions }
     })
   }
 
@@ -97,30 +149,68 @@ export default function OfferEditor({ offre, canaux, onClose }: Props) {
         </DialogHeader>
 
         <form onSubmit={soumettre} className="flex flex-col gap-4">
-          {LANGUES.map((lng) => (
-            <div key={lng} className="flex flex-col gap-1.5">
-              <Label htmlFor={`offre-label-${lng}`}>
-                {t('admin.offers.label', { lng: lng.toUpperCase() })}
-              </Label>
-              <Input
-                id={`offre-label-${lng}`}
-                value={brouillon.labels[lng] ?? ''}
-                onChange={(e) => setLabel(lng, e.target.value)}
-                required={lng === 'fr'}
-              />
-              <Input
-                aria-label={t('admin.offers.descriptionField', { lng: lng.toUpperCase() })}
-                placeholder={t('admin.offers.descriptionField', { lng: lng.toUpperCase() })}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="offre-label">{t('admin.offers.shortName')}</Label>
+            <Input
+              id="offre-label"
+              value={brouillon.label}
+              onChange={(e) => setLabel(e.target.value)}
+              required
+            />
+            <p className="text-xs text-muted-foreground">{t('admin.offers.shortNameHelp')}</p>
+          </div>
+
+          {langues.map((lng) => (
+            <fieldset key={lng} className="flex flex-col gap-2 rounded-lg border p-3">
+              <legend className="px-1 text-sm font-medium">
+                {t('admin.offers.langue', { lng: lng.toUpperCase() })}
+                {lng === LANGUE_PIVOT && ` · ${t('admin.offers.langueParDefaut')}`}
+              </legend>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor={`offre-titre-${lng}`}>{t('admin.offers.heading')}</Label>
+                <Input
+                  id={`offre-titre-${lng}`}
+                  value={brouillon.titles[lng] ?? ''}
+                  onChange={(e) => setTitre(lng, e.target.value)}
+                  required={lng === LANGUE_PIVOT}
+                />
+              </div>
+
+              <MarkdownField
+                id={`offre-description-${lng}`}
+                label={t('admin.offers.descriptionField', { lng: lng.toUpperCase() })}
                 value={brouillon.descriptions[lng] ?? ''}
-                onChange={(e) =>
-                  setBrouillon((b) => ({
-                    ...b,
-                    descriptions: { ...b.descriptions, [lng]: e.target.value },
-                  }))
-                }
+                onChange={(texte) => setDescription(lng, texte)}
               />
-            </div>
+
+              {lng !== LANGUE_PIVOT && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="self-end text-xs text-destructive"
+                  onClick={() => retirerLangue(lng)}
+                >
+                  {t('admin.offers.retirerLangue', { lng: lng.toUpperCase() })}
+                </Button>
+              )}
+            </fieldset>
           ))}
+
+          {languesAjoutables.length > 0 && (
+            <select
+              className="h-9 w-56 rounded-md border border-input bg-transparent px-2 text-sm"
+              value=""
+              aria-label={t('admin.offers.ajouterLangue')}
+              onChange={(e) => ajouterLangue(e.target.value)}
+            >
+              <option value="">{t('admin.offers.ajouterLangue')}</option>
+              {languesAjoutables.map((l) => (
+                <option key={l} value={l}>{l.toUpperCase()}</option>
+              ))}
+            </select>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
@@ -200,11 +290,30 @@ export default function OfferEditor({ offre, canaux, onClose }: Props) {
 
           <fieldset className="rounded-lg border p-3">
             <legend className="px-1 text-sm font-medium">{t('admin.offers.prices')}</legend>
-            <p className="mb-2 text-xs text-muted-foreground">
-              {canal
-                ? t(`admin.offers.priceMeaning.${canal.tax_mode}`)
-                : t('admin.offers.priceMeaningUnknown')}
-            </p>
+            <div className="mb-3 flex flex-col gap-1.5">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={brouillon.prices_include_tax}
+                  onChange={(e) =>
+                    setBrouillon((b) => ({ ...b, prices_include_tax: e.target.checked }))
+                  }
+                />
+                {t('admin.offers.pricesIncludeTax')}
+              </label>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  brouillon.prices_include_tax
+                    ? 'admin.offers.pricesIncludeTaxOn'
+                    : 'admin.offers.pricesIncludeTaxOff',
+                )}
+              </p>
+              {canal && (
+                <p className="text-xs text-muted-foreground">
+                  {t(`admin.offers.priceMeaning.${canal.tax_mode}`)}
+                </p>
+              )}
+            </div>
             <div className="flex flex-col gap-2">
               {brouillon.prices.map((p, i) => (
                 // Empile sur mobile : trois champs cote a cote n'y laissaient
@@ -306,6 +415,44 @@ export default function OfferEditor({ offre, canaux, onClose }: Props) {
               <Plus className="h-3.5 w-3.5" />
               {t('admin.offers.addPrice')}
             </Button>
+
+            {catalogueDevises.length === 0 && (
+              <p className="mt-2 rounded border border-dashed p-2 text-xs text-muted-foreground">
+                {t('admin.offers.noAcceptedCurrency')}
+              </p>
+            )}
+
+            <div className="mt-4 flex flex-col gap-1.5 border-t pt-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={brouillon.auto_currencies}
+                  onChange={(e) =>
+                    setBrouillon((b) => ({ ...b, auto_currencies: e.target.checked }))
+                  }
+                />
+                {t('admin.offers.autoCurrencies')}
+              </label>
+              <p className="text-xs text-muted-foreground">{t('admin.offers.autoCurrenciesHelp')}</p>
+              {brouillon.auto_currencies && (
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="offre-majoration" className="text-xs font-normal">
+                    {t('admin.offers.markup')}
+                  </Label>
+                  <Input
+                    id="offre-majoration"
+                    className="w-28"
+                    type="number"
+                    step="0.01"
+                    min={0.01}
+                    value={String(brouillon.currency_markup)}
+                    onChange={(e) =>
+                      setBrouillon((b) => ({ ...b, currency_markup: e.target.value }))
+                    }
+                  />
+                </div>
+              )}
+            </div>
           </fieldset>
 
           <label className="flex items-center gap-2 text-sm">
