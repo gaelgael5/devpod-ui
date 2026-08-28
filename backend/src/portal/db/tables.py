@@ -1701,3 +1701,51 @@ host_profiles = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 Index("ix_host_profiles_machine", host_profiles.c.machine_profile)
+
+
+# Trace des provisionings : ce qui a ete decide, et ce qui en est advenu.
+#
+# Un abonnement peut etre paye sans que l'acces existe — creation de VM en
+# echec, pool injoignable, script en erreur. Sans registre, cet ecart est
+# INVISIBLE : le client paie, personne ne le sait, et on l'apprend par une
+# reclamation. Cette table rend l'echec listable.
+#
+# `uq_provisioning_run_event` porte l'idempotence : un webhook rejoue — la
+# norme, pas l'exception — ne cree pas une seconde tentative.
+provisioning_runs = Table(
+    "provisioning_runs",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column(
+        "subscription_id",
+        UUID(as_uuid=False),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    # Vide = declenchement manuel depuis l'administration.
+    Column("provider_event_id", Text, nullable=False, server_default=""),
+    Column("kind", Text, nullable=False),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("offer_slug", Text, nullable=False),
+    # Verdict recopie tel quel : on doit pouvoir relire ce qui a ete decide
+    # meme si la regle a change depuis.
+    Column("action", Text, nullable=False),
+    Column("host_name", Text, nullable=True),
+    Column("motif", Text, nullable=False, server_default=""),
+    Column("state", Text, nullable=False, server_default="decide"),
+    # Message du dernier echec. Jamais un secret : c'est une trace d'ecran.
+    Column("erreur", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "action IN ('rien','assigner_host','creer_host_mutualise','creer_vm_dediee')",
+        name="ck_provisioning_action",
+    ),
+    CheckConstraint("state IN ('decide','en_cours','fait','echec')", name="ck_provisioning_state"),
+    UniqueConstraint("subscription_id", "provider_event_id", name="uq_provisioning_run_event"),
+)
+Index(
+    "ix_provisioning_runs_echec",
+    provisioning_runs.c.state,
+    postgresql_where=text("state = 'echec'"),
+)
