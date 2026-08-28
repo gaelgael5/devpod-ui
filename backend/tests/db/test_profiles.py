@@ -1,4 +1,5 @@
 """Tests de la couche persistance profiles (Tour 5)."""
+
 from __future__ import annotations
 
 import pytest
@@ -50,39 +51,39 @@ async def _seed_user(conn, login: str = "alice") -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_empty(db_conn):
-    result = await list_profiles_db("alice", False, db_conn)
+async def test_list_empty(db_conn_pool):
+    result = await list_profiles_db("alice", False, db_conn_pool)
     assert result == []
 
 
 @pytest.mark.asyncio
-async def test_list_shared_visible_to_all(db_conn):
+async def test_list_shared_visible_to_all(db_conn_pool):
     repo = AsyncProfileRepository()
     await repo.create_shared(_SHARED_BODY)
-    result = await list_profiles_db("bob", False, db_conn)
+    result = await list_profiles_db("bob", False, db_conn_pool)
     assert len(result) == 1
     assert result[0].scope == "shared"
     assert result[0].editable is False
 
 
 @pytest.mark.asyncio
-async def test_list_shared_editable_for_admin(db_conn):
+async def test_list_shared_editable_for_admin(db_conn_pool):
     repo = AsyncProfileRepository()
     await repo.create_shared(_SHARED_BODY)
-    result = await list_profiles_db("admin", True, db_conn)
+    result = await list_profiles_db("admin", True, db_conn_pool)
     assert len(result) == 1
     assert result[0].editable is True
 
 
 @pytest.mark.asyncio
-async def test_list_user_only_visible_to_owner(db_conn):
-    await _seed_user(db_conn, "alice")
-    await _seed_user(db_conn, "bob")
+async def test_list_user_only_visible_to_owner(db_conn_pool):
+    await _seed_user(db_conn_pool, "alice")
+    await _seed_user(db_conn_pool, "bob")
     repo = AsyncProfileRepository()
     await repo.create("alice", _USER_BODY)
 
-    alice_result = await list_profiles_db("alice", False, db_conn)
-    bob_result = await list_profiles_db("bob", False, db_conn)
+    alice_result = await list_profiles_db("alice", False, db_conn_pool)
+    bob_result = await list_profiles_db("bob", False, db_conn_pool)
 
     assert any(r.scope == "user" for r in alice_result)
     assert not any(r.scope == "user" for r in bob_result)
@@ -92,18 +93,18 @@ async def test_list_user_only_visible_to_owner(db_conn):
 
 
 @pytest.mark.asyncio
-async def test_get_shared_profile(db_conn):
+async def test_get_shared_profile(db_conn_pool):
     repo = AsyncProfileRepository()
     created = await repo.create_shared(_SHARED_BODY)
-    fetched = await get_profile_db("shared", created.slug, "anyone", db_conn)
+    fetched = await get_profile_db("shared", created.slug, "anyone", db_conn_pool)
     assert fetched.name == _SHARED_BODY.name
     assert fetched.scope == "shared"
 
 
 @pytest.mark.asyncio
-async def test_get_not_found_raises(db_conn):
+async def test_get_not_found_raises(db_conn_pool):
     with pytest.raises(ProfileError) as exc_info:
-        await get_profile_db("shared", "nonexistent", "alice", db_conn)
+        await get_profile_db("shared", "nonexistent", "alice", db_conn_pool)
     assert exc_info.value.code == "not_found"
 
 
@@ -111,8 +112,8 @@ async def test_get_not_found_raises(db_conn):
 
 
 @pytest.mark.asyncio
-async def test_create_user_profile(db_conn):
-    await _seed_user(db_conn)
+async def test_create_user_profile(db_conn_pool):
+    await _seed_user(db_conn_pool)
     repo = AsyncProfileRepository()
     profile = await repo.create("alice", _USER_BODY)
     assert profile.slug == "my-profile"
@@ -121,8 +122,8 @@ async def test_create_user_profile(db_conn):
 
 
 @pytest.mark.asyncio
-async def test_create_slug_dedup(db_conn):
-    await _seed_user(db_conn)
+async def test_create_slug_dedup(db_conn_pool):
+    await _seed_user(db_conn_pool)
     repo = AsyncProfileRepository()
     p1 = await repo.create("alice", _USER_BODY)
     p2 = await repo.create("alice", _USER_BODY)
@@ -131,8 +132,8 @@ async def test_create_slug_dedup(db_conn):
 
 
 @pytest.mark.asyncio
-async def test_update_user_profile(db_conn):
-    await _seed_user(db_conn)
+async def test_update_user_profile(db_conn_pool):
+    await _seed_user(db_conn_pool)
     repo = AsyncProfileRepository()
     await repo.create("alice", _USER_BODY)
     updated_body = ProfileBody(name="My Profile", description="updated", extensions=[], settings={})
@@ -142,8 +143,8 @@ async def test_update_user_profile(db_conn):
 
 
 @pytest.mark.asyncio
-async def test_update_not_found_raises(db_conn):
-    await _seed_user(db_conn)
+async def test_update_not_found_raises(db_conn_pool):
+    await _seed_user(db_conn_pool)
     repo = AsyncProfileRepository()
     with pytest.raises(ProfileError) as exc_info:
         await repo.update("alice", "ghost", _USER_BODY)
@@ -151,17 +152,17 @@ async def test_update_not_found_raises(db_conn):
 
 
 @pytest.mark.asyncio
-async def test_delete_user_profile(db_conn):
-    await _seed_user(db_conn)
+async def test_delete_user_profile(db_conn_pool):
+    await _seed_user(db_conn_pool)
     repo = AsyncProfileRepository()
     await repo.create("alice", _USER_BODY)
     await repo.delete("alice", "my-profile")
     with pytest.raises(ProfileError):
-        await get_profile_db("user", "my-profile", "alice", db_conn)
+        await get_profile_db("user", "my-profile", "alice", db_conn_pool)
 
 
 @pytest.mark.asyncio
-async def test_delete_not_found_raises(db_conn):
+async def test_delete_not_found_raises(db_conn_pool):
     repo = AsyncProfileRepository()
     with pytest.raises(ProfileError) as exc_info:
         await repo.delete("alice", "ghost")
@@ -172,8 +173,8 @@ async def test_delete_not_found_raises(db_conn):
 
 
 @pytest.mark.asyncio
-async def test_fork_shared_to_user(db_conn):
-    await _seed_user(db_conn)
+async def test_fork_shared_to_user(db_conn_pool):
+    await _seed_user(db_conn_pool)
     repo = AsyncProfileRepository()
     shared = await repo.create_shared(_SHARED_BODY)
     forked = await repo.fork("alice", shared.slug)
@@ -186,7 +187,7 @@ async def test_fork_shared_to_user(db_conn):
 
 
 @pytest.mark.asyncio
-async def test_create_shared_profile(db_conn):
+async def test_create_shared_profile(db_conn_pool):
     repo = AsyncProfileRepository()
     profile = await repo.create_shared(_SHARED_BODY)
     assert profile.slug == "shared-profile"
@@ -194,7 +195,7 @@ async def test_create_shared_profile(db_conn):
 
 
 @pytest.mark.asyncio
-async def test_update_shared_profile(db_conn):
+async def test_update_shared_profile(db_conn_pool):
     repo = AsyncProfileRepository()
     await repo.create_shared(_SHARED_BODY)
     updated_body = ProfileBody(
@@ -205,18 +206,18 @@ async def test_update_shared_profile(db_conn):
 
 
 @pytest.mark.asyncio
-async def test_delete_shared_profile(db_conn):
+async def test_delete_shared_profile(db_conn_pool):
     repo = AsyncProfileRepository()
     await repo.create_shared(_SHARED_BODY)
     await repo.delete_shared("shared-profile")
     with pytest.raises(ProfileError):
-        await get_profile_db("shared", "shared-profile", "alice", db_conn)
+        await get_profile_db("shared", "shared-profile", "alice", db_conn_pool)
 
 
 @pytest.mark.asyncio
-async def test_user_profiles_isolated_between_users(db_conn):
-    await _seed_user(db_conn, "alice")
-    await _seed_user(db_conn, "bob")
+async def test_user_profiles_isolated_between_users(db_conn_pool):
+    await _seed_user(db_conn_pool, "alice")
+    await _seed_user(db_conn_pool, "bob")
     repo = AsyncProfileRepository()
     await repo.create("alice", _USER_BODY)
 

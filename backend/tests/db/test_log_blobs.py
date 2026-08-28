@@ -1,6 +1,8 @@
 """Tests de la couche DB workspace_log_blobs (Tour 9)."""
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -20,14 +22,25 @@ async def _insert_blob(
     login: str = "alice",
     operation: str = "up",
     content: str = "log content",
+    started_at: datetime | None = None,
 ) -> None:
+    """`started_at` explicite quand deux blobs coexistent : dans une meme
+    transaction, `now()` de PostgreSQL rend l'heure de DEBUT de transaction,
+    donc la meme valeur — et l'unicite (ws_id, operation, started_at) refuse la
+    seconde insertion."""
     from sqlalchemy import insert
 
     from portal.db.tables import workspace_log_blobs
 
     await conn.execute(
         insert(workspace_log_blobs).values(
-            ws_id=ws_id, login=login, operation=operation, content=content
+            **{
+                "ws_id": ws_id,
+                "login": login,
+                "operation": operation,
+                "content": content,
+                **({"started_at": started_at} if started_at else {}),
+            }
         )
     )
 
@@ -60,10 +73,15 @@ async def test_persist_missing_file(db_conn: AsyncConnection, tmp_path) -> None:
 
 
 async def test_get_latest(db_conn: AsyncConnection) -> None:
-    await _insert_blob(db_conn, content="first up")
-    await _insert_blob(db_conn, content="second up")
+    veille = datetime(2026, 8, 27, 10, 0, tzinfo=UTC)
+    await _insert_blob(db_conn, content="first up", started_at=veille)
+    await _insert_blob(db_conn, content="second up", started_at=veille + timedelta(hours=1))
+
     result = await get_latest_log_blob("alice-myws", "up", db_conn)
-    assert result is not None
+
+    # `get_latest_log_blob` rend le CONTENU, pas la ligne. « Latest » doit
+    # designer le plus recent : le test ne le verifiait pas.
+    assert result == "second up"
 
 
 async def test_get_latest_unknown_ws_returns_none(db_conn: AsyncConnection) -> None:

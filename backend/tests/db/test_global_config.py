@@ -407,6 +407,11 @@ def test_set_cached_global_populates_cache(minimal_cfg):
 
 
 @pytest.mark.asyncio
-async def test_load_raises_if_no_row(db_conn):
-    with pytest.raises(FileNotFoundError, match="global_config"):
-        await load_global_db(db_conn)
+async def test_load_rend_none_si_pas_de_ligne(db_conn):
+    """Base vide : `load_global_db` rend None, il ne leve pas.
+
+    Le refus a demenage d'un cran : c'est `get_cached_global()` qui refuse une
+    base sans configuration, la ou `get_optional_cached_global()` accepte None.
+    Ce test decrivait l'ancien contrat.
+    """
+    assert await load_global_db(db_conn) is None
