@@ -39,6 +39,19 @@ function renderPage(pays: unknown[] = [FRANCE], canaux: unknown[] = [STRIPE]) {
       HttpResponse.json([{ country_code: 'FR', provider_slug: 'stripe-eu', priority: 0 }]),
     ),
     http.get('/admin/automations/secrets', () => HttpResponse.json([])),
+    http.get('/admin/billing/countries/:code/tax-rates', () =>
+      HttpResponse.json([
+        {
+          id: 7,
+          country_code: 'FR',
+          region: '',
+          rate: 0.2,
+          label: 'TVA 20 %',
+          valid_from: '2026-01-01',
+          valid_to: null,
+        },
+      ]),
+    ),
   )
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   return render(
@@ -95,5 +108,17 @@ describe('AdminBillingCatalog', () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue('EUR')).toBeInTheDocument()
     })
+  })
+
+  it("affiche un taux en vigueur et n'offre que de le clore, jamais de l'editer", async () => {
+    renderPage()
+    const ligne = await screen.findByTestId('pays-FR')
+    await userEvent.click(within(ligne).getByRole('button', { name: i18n.t('admin.billing.editCountry') }))
+    const taux = await screen.findByTestId('taux-7')
+    expect(taux).toHaveTextContent('20 %')
+    expect(taux).toHaveTextContent('TVA 20 %')
+    // Cloture possible, edition impossible : le taux n'est pas un champ.
+    expect(within(taux).getByRole('button', { name: i18n.t('admin.billing.close') })).toBeInTheDocument()
+    expect(within(taux).queryByRole('textbox')).toBeNull()
   })
 })

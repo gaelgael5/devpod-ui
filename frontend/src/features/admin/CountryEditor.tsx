@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
+import CountryTaxRates from './CountryTaxRates'
 import {
   useCountryProviders, useCurrencies, useSaveCountry, useSetCountryProviders, useSetCurrencies,
   type Country, type CountryCurrency, type CountryProvider, type PaymentProvider,
@@ -233,6 +234,14 @@ function CountryForm({ pays, canaux, devisesInitiales, rattachesInitiaux, onClos
               {t('admin.billing.addCurrency')}
             </Button>
           </fieldset>
+
+          {existant ? (
+            <CountryTaxRates code={brouillon.code} />
+          ) : (
+            <p className="rounded border border-dashed p-3 text-xs text-muted-foreground">
+              {t('admin.billing.taxRatesAfterSave')}
+            </p>
+          )}
 
           <fieldset className="rounded-lg border p-3">
             <legend className="px-1 text-sm font-medium">{t('admin.billing.attachedProviders')}</legend>

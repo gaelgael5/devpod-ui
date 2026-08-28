@@ -202,3 +202,68 @@ export function useSystemSecrets() {
     staleTime: 60 * 1000,
   })
 }
+
+// ─── Taux de taxe (mode manuel) ──────────────────────────────────────────────
+
+export interface TaxRate {
+  /** `null` tant que le taux n'est pas persiste. */
+  id: number | null
+  country_code: string
+  /** Vide = tout le pays. */
+  region: string
+  /** 0.2000 = 20 %. Nombre a la lecture, chaine a l'ecriture — jamais arrondi ici. */
+  rate: number | string
+  label: string
+  valid_from: string
+  /** `null` = en vigueur. */
+  valid_to: string | null
+}
+
+function cleTaux(code: string) {
+  return [...CLE_PAYS, code, 'tax-rates'] as const
+}
+
+export function useTaxRates(code: string) {
+  return useQuery({
+    queryKey: cleTaux(code),
+    queryFn: () =>
+      apiFetchJson<TaxRate[]>(`/admin/billing/countries/${encodeURIComponent(code)}/tax-rates`),
+    enabled: Boolean(code),
+  })
+}
+
+export function useAddTaxRate(code: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (taux: Omit<TaxRate, 'id'>) =>
+      apiFetchJson<TaxRate>(`/admin/billing/countries/${encodeURIComponent(code)}/tax-rates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(taux),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: cleTaux(code) }),
+  })
+}
+
+/** Seule mutation permise sur un taux : tout le reste passe par un taux neuf. */
+export function useCloseTaxRate(code: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, valid_to }: { id: number; valid_to: string }) =>
+      apiFetchJson<TaxRate>(`/admin/billing/tax-rates/${id}/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ valid_to }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: cleTaux(code) }),
+  })
+}
+
+export function useDeleteTaxRate(code: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetchVoid(`/admin/billing/tax-rates/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: cleTaux(code) }),
+  })
+}

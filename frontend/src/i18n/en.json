@@ -987,7 +987,24 @@
       "configKey": "Key",
       "configValue": "Value",
       "addConfigKey": "Add a field",
-      "removeConfigKey": "Remove field"
+      "removeConfigKey": "Remove field",
+      "taxRates": "Tax rates",
+      "taxRatesHelp": "A rate is never edited: it is closed, and a new one takes over. That is what keeps an old invoice reproducible with the rate of its time.",
+      "taxRatesEmpty": "No rate yet. In manual mode, the platform cannot compute tax.",
+      "taxRatesAfterSave": "Tax rates can be added once the country is saved.",
+      "addTaxRate": "Add a rate",
+      "taxRateLabel": "Label (e.g. VAT 20%)",
+      "taxRatePercent": "Rate in %",
+      "validFrom": "In force from",
+      "region": "Region",
+      "close": "Close",
+      "closePrompt": "End of validity date (YYYY-MM-DD)",
+      "deleteTaxRate": "Delete rate",
+      "taxRateAdded": "Rate added",
+      "taxRateClosed": "Rate closed",
+      "taxRateDeleted": "Rate deleted",
+      "period": "{{from}} → {{to}}",
+      "periodOpen": "since {{from}}"
     }
   },
   "errors": {

@@ -987,7 +987,24 @@
       "configKey": "Clé",
       "configValue": "Valeur",
       "addConfigKey": "Ajouter un champ",
-      "removeConfigKey": "Retirer le champ"
+      "removeConfigKey": "Retirer le champ",
+      "taxRates": "Taux de taxe",
+      "taxRatesHelp": "Un taux ne se modifie pas : il se clôt, et un nouveau prend la suite. C'est ce qui rend une facture ancienne reproductible avec le taux de l'époque.",
+      "taxRatesEmpty": "Aucun taux. En mode manuel, la plateforme ne saura pas calculer la taxe.",
+      "taxRatesAfterSave": "Les taux de taxe s'ajoutent une fois le pays enregistré.",
+      "addTaxRate": "Ajouter un taux",
+      "taxRateLabel": "Libellé (ex. TVA 20 %)",
+      "taxRatePercent": "Taux en %",
+      "validFrom": "En vigueur à partir du",
+      "region": "Région",
+      "close": "Clore",
+      "closePrompt": "Date de fin de validité (AAAA-MM-JJ)",
+      "deleteTaxRate": "Supprimer le taux",
+      "taxRateAdded": "Taux ajouté",
+      "taxRateClosed": "Taux clos",
+      "taxRateDeleted": "Taux supprimé",
+      "period": "{{from}} → {{to}}",
+      "periodOpen": "depuis le {{from}}"
     }
   },
   "errors": {
