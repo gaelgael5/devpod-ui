@@ -1,0 +1,99 @@
+/**
+ * Catalogue de facturation : pays, devises, canaux de paiement.
+ *
+ * Ce que ces tests protegent en priorite : les regles du serveur ne doivent pas
+ * etre paraphrasees par l'IHM, elles doivent etre RENDUES. Un canal reference
+ * refuse la suppression avec un message qui dit quoi faire — l'ecran l'affiche
+ * tel quel, il n'invente pas le sien.
+ */
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it } from 'vitest'
+import { http, HttpResponse } from 'msw'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { I18nextProvider } from 'react-i18next'
+import { Toaster } from 'sonner'
+import i18n from '@/i18n'
+import { server } from '@/test/server'
+import AdminBillingCatalog from './AdminBillingCatalog'
+
+const FRANCE = { code: 'FR', label: 'France', enabled: true }
+const STRIPE = {
+  slug: 'stripe-eu',
+  kind: 'stripe',
+  label: 'Stripe Europe',
+  tax_mode: 'manuel',
+  enabled: true,
+  config: {},
+  secret_slug: 'billing.stripe-eu.api-key',
+}
+
+function renderPage(pays: unknown[] = [FRANCE], canaux: unknown[] = [STRIPE]) {
+  server.use(
+    http.get('/admin/billing/countries', () => HttpResponse.json(pays)),
+    http.get('/admin/billing/providers', () => HttpResponse.json(canaux)),
+    http.get('/admin/billing/countries/:code/currencies', () =>
+      HttpResponse.json([{ country_code: 'FR', currency: 'EUR', is_default: true }]),
+    ),
+    http.get('/admin/billing/countries/:code/providers', () =>
+      HttpResponse.json([{ country_code: 'FR', provider_slug: 'stripe-eu', priority: 0 }]),
+    ),
+    http.get('/admin/automations/secrets', () => HttpResponse.json([])),
+  )
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <I18nextProvider i18n={i18n}>
+        <AdminBillingCatalog />
+        <Toaster />
+      </I18nextProvider>
+    </QueryClientProvider>,
+  )
+}
+
+describe('AdminBillingCatalog', () => {
+  it('liste les pays et les canaux de paiement', async () => {
+    renderPage()
+    expect(await screen.findByTestId('pays-FR')).toHaveTextContent('France')
+    expect(await screen.findByTestId('canal-stripe-eu')).toHaveTextContent('Stripe Europe')
+  })
+
+  it('affiche le slug du secret, jamais une cle', async () => {
+    renderPage()
+    const canal = await screen.findByTestId('canal-stripe-eu')
+    expect(canal).toHaveTextContent('billing.stripe-eu.api-key')
+  })
+
+  it('annonce un catalogue vide plutot qu\'une page muette', async () => {
+    renderPage([], [])
+    expect(await screen.findByText(i18n.t('admin.billing.countriesEmpty'))).toBeInTheDocument()
+    expect(await screen.findByText(i18n.t('admin.billing.providersEmpty'))).toBeInTheDocument()
+  })
+
+  it('rend le refus du serveur quand un canal est encore reference', async () => {
+    renderPage()
+    server.use(
+      http.delete('/admin/billing/providers/:slug', () =>
+        HttpResponse.json(
+          { detail: 'Le canal est référencé par une offre — le désactiver plutôt' },
+          { status: 409 },
+        ),
+      ),
+    )
+    const canal = await screen.findByTestId('canal-stripe-eu')
+    await userEvent.click(within(canal).getByRole('button', { name: i18n.t('admin.billing.deleteProvider') }))
+    await waitFor(() => {
+      expect(screen.getByText(/référencé par une offre/)).toBeInTheDocument()
+    })
+  })
+
+  it('ouvre la fiche d\'un pays avec ses devises', async () => {
+    renderPage()
+    const ligne = await screen.findByTestId('pays-FR')
+    await userEvent.click(within(ligne).getByRole('button', { name: i18n.t('admin.billing.editCountry') }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('EUR')).toBeInTheDocument()
+    })
+  })
+})

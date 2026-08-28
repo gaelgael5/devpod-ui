@@ -17,6 +17,9 @@ export const AdminMachineProfiles = lazy(
 export const AdminHostProfiles = lazy(
   () => import('@/features/admin/AdminHostProfiles'),
 )
+export const AdminBillingCatalog = lazy(
+  () => import('@/features/admin/AdminBillingCatalog'),
+)
 export const AdminProxmox = lazy(() => import('@/features/admin/AdminProxmox'))
 export const AdminHypervisorTypes = lazy(() => import('@/features/admin/AdminHypervisorTypes'))
 export const AdminAgentTypes = lazy(() => import('@/features/admin/AdminAgentTypes'))
