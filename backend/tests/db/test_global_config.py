@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from portal.config.models import GlobalConfig
+from portal.config.models import GlobalConfig, HostConfig
 from portal.db.global_config import (
     get_cached_global,
     get_optional_cached_global,
@@ -136,6 +136,9 @@ def full_cfg() -> GlobalConfig:
                     "docker_host": "tcp://192.168.1.20:2376",
                     "address": "192.168.1.20",
                     "host_cert_slug": "hosts/worker01",
+                    "profile_slug": "gros-noeud",
+                    "capacity_workspaces": 12,
+                    "accepts_mutualise": True,
                 }
             ],
         }
@@ -282,6 +285,41 @@ async def test_hosts_round_trip(db_conn, full_cfg):
     assert h.default is True
     assert h.type == "docker-tls"
     assert h.docker_host == "tcp://192.168.1.20:2376"
+
+
+@pytest.mark.asyncio
+async def test_host_capacite_et_provenance_round_trip(db_conn, full_cfg):
+    """La capacite d'accueil et le profil d'origine survivent au rechargement.
+
+    Ce sont des donnees d'EXPLOITATION : sans elles, le portail ne sait ni
+    combien de workspaces la machine tient, ni sur quel profil elle a ete
+    montee. Les perdre en base revient a ne jamais les avoir saisies.
+    """
+    await save_global_db(full_cfg, db_conn)
+    result = await load_global_db(db_conn)
+
+    h = result.hosts[0]
+    assert h.profile_slug == "gros-noeud"
+    assert h.capacity_workspaces == 12
+    assert h.accepts_mutualise is True
+
+
+@pytest.mark.asyncio
+async def test_host_sans_capacite_reste_sans_capacite(db_conn, minimal_cfg):
+    """`None` = non renseigne, et le rechargement ne l'invente pas.
+
+    Un host enrole a la main n'a pas de profil : sa capacite est inconnue tant
+    que l'exploitant ne l'a pas dite. La confondre avec zero interdirait tout
+    workspace ; la confondre avec l'infini ferait planter la machine.
+    """
+    cfg = minimal_cfg.model_copy(update={"hosts": [HostConfig(name="brut", type="ssh")]})
+    await save_global_db(cfg, db_conn)
+    result = await load_global_db(db_conn)
+
+    h = result.hosts[0]
+    assert h.capacity_workspaces is None
+    assert h.accepts_mutualise is False
+    assert h.profile_slug == ""
 
 
 @pytest.mark.asyncio

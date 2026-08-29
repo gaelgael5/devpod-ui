@@ -179,6 +179,58 @@ describe('AdminHosts', () => {
     expect(screen.queryByDisplayValue('sup3r-c0nsole')).not.toBeInTheDocument()
   })
 
+  it("edite la capacite d'accueil et l'ouverture au mutualise", async () => {
+    // Ces deux champs decident de ce que le pool peut poser sur la machine.
+    // Les perdre au premier update rendrait la machine invisible du decideur.
+    let envoye: Record<string, unknown> = {}
+    server.use(
+      http.get('/admin/hosts', () =>
+        HttpResponse.json([
+          { name: 'pve1', type: 'docker-tls', default: true, docker_host: 'tcp://192.168.1.50:2376', capacity_workspaces: 6, accepts_mutualise: false },
+        ])),
+      http.put('/admin/hosts/pve1', async ({ request }) => {
+        envoye = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json({ name: 'pve1', type: 'docker-tls' })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<AdminHosts />)
+    await waitFor(() => expect(screen.getByText('pve1')).toBeInTheDocument())
+
+    const ligne = screen.getAllByRole('row').find((r) => r.textContent?.includes('pve1'))!
+    await user.click(ligne.querySelectorAll('button')[0])
+
+    // La valeur enregistree est reprise telle quelle, pas remise a zero.
+    const capacite = await screen.findByLabelText(/capacit/i)
+    expect(capacite).toHaveValue(6)
+
+    await user.clear(capacite)
+    await user.type(capacite, '9')
+    await user.click(screen.getByRole('checkbox', { name: /shared plans|mutualis/i }))
+    await user.click(screen.getByRole('button', { name: /enregistrer|save/i }))
+
+    await waitFor(() => expect(envoye.capacity_workspaces).toBe(9))
+    expect(envoye.accepts_mutualise).toBe(true)
+  })
+
+  it('laisse la capacite vide quand elle est inconnue', async () => {
+    // Un noeud enrole a la main n'a pas de profil : sa capacite est inconnue
+    // tant que l'exploitant ne l'a pas dite. Afficher 0 la ferait passer pour
+    // une machine qui n'accepte rien.
+    server.use(
+      http.get('/admin/hosts', () =>
+        HttpResponse.json([{ name: 'brut', type: 'ssh', address: 'root@10.0.0.9' }])),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<AdminHosts />)
+    await waitFor(() => expect(screen.getByText('brut')).toBeInTheDocument())
+
+    const ligne = screen.getAllByRole('row').find((r) => r.textContent?.includes('brut'))!
+    await user.click(ligne.querySelectorAll('button')[0])
+
+    expect(await screen.findByLabelText(/capacit/i)).toHaveValue(null)
+  })
+
   it("n'affiche pas le bouton révéler pour un host sans mot de passe console", async () => {
     const user = userEvent.setup()
     renderWithProviders(<AdminHosts />)

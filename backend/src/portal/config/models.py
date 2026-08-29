@@ -350,6 +350,15 @@ class HostConfig(BaseModel):
     # sait pas six mois plus tard ce qui a ete pose dessus ni avec quels
     # parametres. Vide pour les machines anterieures aux profils.
     profile_slug: str = ""
+    # Nombre de workspaces que la machine SUPPORTE sans planter. Donnee
+    # d'exploitation de la MACHINE, pas du profil : editer un profil ne
+    # redimensionne aucune VM deja montee, et un noeud enrole a la main n'a
+    # aucun profil. Le profil sert de valeur par defaut au provisionnement, pas
+    # de tutelle. `None` = non renseigne, ce qui n'est ni zero ni l'infini.
+    capacity_workspaces: int | None = Field(default=None, ge=0)
+    # Cette machine peut-elle accueillir les workspaces d'offres mutualisees ?
+    # Faux par defaut : ouvrir un noeud au public est un acte delibere.
+    accepts_mutualise: bool = False
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")

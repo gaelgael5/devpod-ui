@@ -238,6 +238,9 @@ def _host_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "storage_type": row["storage_type"],
         "vault_identifier": row["vault_identifier"],
         "usage": row["usage"],
+        "profile_slug": row["profile_slug"],
+        "capacity_workspaces": row["capacity_workspaces"],
+        "accepts_mutualise": row["accepts_mutualise"],
     }
 
 
@@ -378,4 +381,7 @@ def _host_to_row(h: HostConfig) -> dict[str, Any]:
         "storage_type": h.storage_type,
         "vault_identifier": h.vault_identifier,
         "usage": h.usage,
+        "profile_slug": h.profile_slug,
+        "capacity_workspaces": h.capacity_workspaces,
+        "accepts_mutualise": h.accepts_mutualise,
     }

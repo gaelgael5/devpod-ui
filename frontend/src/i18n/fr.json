@@ -707,7 +707,12 @@
       },
       "sshCert": "Clé SSH",
       "sshCertNone": "— conserver la clé actuelle —",
-      "sshCertHint": "Clé ssh-* du gestionnaire de certificats (Sécurité) à utiliser pour la connexion. Sa clé publique doit déjà être autorisée sur l'hôte (sinon utilisez « Bootstrap SSH »)."
+      "sshCertHint": "Clé ssh-* du gestionnaire de certificats (Sécurité) à utiliser pour la connexion. Sa clé publique doit déjà être autorisée sur l'hôte (sinon utilisez « Bootstrap SSH »).",
+      "capacity": "Capacité d'accueil (workspaces)",
+      "capacityUnset": "non renseignée",
+      "capacityHint": "Nombre de workspaces que cette machine tient sans planter. Laisser vide si la valeur n'est pas connue : le portail préfère l'ignorer plutôt que de l'inventer.",
+      "acceptsMutualise": "Accepte les offres mutualisées",
+      "acceptsMutualiseHint": "Le pool pourra poser sur cette machine les workspaces d'abonnés qui n'ont pas de machine dédiée."
     },
     "deleteHost": "Supprimer l'hôte",
     "deleteHostTitle": "Supprimer l'hôte",

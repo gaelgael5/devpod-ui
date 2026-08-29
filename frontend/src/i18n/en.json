@@ -707,7 +707,12 @@
       },
       "sshCert": "SSH key",
       "sshCertNone": "— keep current key —",
-      "sshCertHint": "ssh-* key from the certificate manager (Security) to use for the connection. Its public key must already be authorized on the host (otherwise use \"Bootstrap SSH\")."
+      "sshCertHint": "ssh-* key from the certificate manager (Security) to use for the connection. Its public key must already be authorized on the host (otherwise use \"Bootstrap SSH\").",
+      "capacity": "Workspace capacity",
+      "capacityUnset": "not set",
+      "capacityHint": "How many workspaces this machine can run without falling over. Leave empty when unknown: the portal would rather ignore the value than invent one.",
+      "acceptsMutualise": "Accepts shared plans",
+      "acceptsMutualiseHint": "The pool may place workspaces of subscribers without a dedicated machine on this host."
     },
     "deleteHost": "Delete host",
     "deleteHostTitle": "Delete host",

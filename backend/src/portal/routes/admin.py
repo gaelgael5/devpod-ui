@@ -90,6 +90,13 @@ class HostCreateRequest(BaseModel):
     # None = défaut à la création ("workspaces"), valeur existante préservée à l'update.
     # ressources (spec 33) : service partagé permanent, sans workspace propriétaire.
     usage: Literal["workspaces", "tests", "portail", "ressources", "autres"] | None = None
+    # Capacité d'accueil de la MACHINE. Champ ABSENT = valeur préservée ; champ
+    # présent à `null` = remis à « non renseigné ». On distingue les deux par
+    # `model_fields_set` : sans ça, un update partiel effacerait la capacité, et
+    # une machine sans capacité connue sort du pool.
+    capacity_workspaces: int | None = Field(default=None, ge=0)
+    # Ouverture au pool mutualisé. None = préservé à l'update, faux à la création.
+    accepts_mutualise: bool | None = None
 
     @field_validator("docker_cert_slug", "ssh_cert_slug")
     @classmethod
@@ -1003,6 +1010,8 @@ async def add_host(
         storage_type="local",
         vault_identifier="",
         usage=body.usage or "workspaces",
+        capacity_workspaces=body.capacity_workspaces,
+        accepts_mutualise=bool(body.accepts_mutualise),
     )
     # Bundle mTLS matérialisé AVANT persistance : une association invalide
     # (cert sans CA, vault verrouillé…) ne doit pas laisser un host à moitié câblé.
@@ -1076,6 +1085,18 @@ async def update_host(
         storage_type=existing.storage_type,  # conservé (l'update ne doit rien réinitialiser)
         vault_identifier=existing.vault_identifier,  # conservé
         usage=body.usage if body.usage is not None else existing.usage,
+        # Provenance conservée : elle est posée au provisionnement, pas saisie
+        # par l'administrateur — et l'oublier ici l'effacerait à chaque update.
+        profile_slug=existing.profile_slug,
+        # Champ absent du corps = préservé ; présent à `null` = effacé.
+        capacity_workspaces=(
+            body.capacity_workspaces
+            if "capacity_workspaces" in body.model_fields_set
+            else existing.capacity_workspaces
+        ),
+        accepts_mutualise=(
+            existing.accepts_mutualise if body.accepts_mutualise is None else body.accepts_mutualise
+        ),
     )
     # Bundle mTLS : rematérialisé uniquement si le slug CHANGE (un update sans rapport
     # ne doit pas exiger le vault déverrouillé) ; "" = dissociation → purge du bundle.
@@ -1356,7 +1377,7 @@ async def bootstrap_host_ssh(
             slug=cert_slug,
             label=f"SSH key — {name}",
             # Clé souvent collée depuis Windows (CRLF) → « error in libcrypto » côté ssh.
-        private_pem=normalize_pem(private_pem),
+            private_pem=normalize_pem(private_pem),
             public_key=public_key,
             cert_type="ssh-ed25519",
             storage_type="local",

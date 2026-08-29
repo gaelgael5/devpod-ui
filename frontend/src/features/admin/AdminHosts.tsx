@@ -48,6 +48,8 @@ const EMPTY: HostCreatePayload = {
   docker_cert_slug: '',
   ssh_cert_slug: '',
   usage: 'workspaces',
+  capacity_workspaces: null,
+  accepts_mutualise: false,
 }
 
 type DialogMode = 'add' | 'edit'
@@ -755,6 +757,8 @@ export default function AdminHosts() {
       // vide = « conserver la clé actuelle », choisir en (re)pose une nouvelle.
       ssh_cert_slug: '',
       usage: host.usage ?? 'workspaces',
+      capacity_workspaces: host.capacity_workspaces ?? null,
+      accepts_mutualise: host.accepts_mutualise ?? false,
     })
     setMode('edit'); setShowCert(false); setOpen(true)
   }
@@ -775,6 +779,10 @@ export default function AdminHosts() {
       // Clé SSH seulement pour un host ssh ('' = ne rien changer côté backend).
       ssh_cert_slug: form.type === 'ssh' ? (form.ssh_cert_slug ?? '') : '',
       usage: form.usage ?? 'workspaces',
+      // Toujours envoyé : le serveur préserve sur champ absent, et l'écran doit
+      // pouvoir remettre une capacité à « non renseigné ».
+      capacity_workspaces: form.capacity_workspaces ?? null,
+      accepts_mutualise: form.accepts_mutualise ?? false,
     }
     const mutation = mode === 'edit' ? updateHost : addHost
     mutation.mutate(payload, { onSuccess: () => handleClose(false) })
@@ -794,6 +802,10 @@ export default function AdminHosts() {
       docker_cert_slug: config.docker_cert_slug ?? '',
       ssh_cert_slug: '',
       usage: config.usage ?? 'workspaces',
+      // Reprise de la capacité déclarée par le profil de host : une valeur par
+      // défaut, que l'exploitant reste libre de corriger avant d'enregistrer.
+      capacity_workspaces: config.capacity_workspaces ?? null,
+      accepts_mutualise: config.accepts_mutualise ?? false,
     })
     setMode('add'); setShowCert(false); setOpen(true)
   }
@@ -1029,6 +1041,37 @@ export default function AdminHosts() {
                 </SelectContent>
               </Select>
             </div>
+            {(form.usage ?? 'workspaces') !== 'portail' && (
+              <div className="flex flex-col gap-1.5 rounded-md border p-3">
+                <Label htmlFor="h-capacity">{t('admin.form.capacity')}</Label>
+                <Input
+                  id="h-capacity"
+                  type="number"
+                  min={0}
+                  value={form.capacity_workspaces ?? ''}
+                  onChange={(e) =>
+                    set('capacity_workspaces', e.target.value === '' ? null : Number(e.target.value))
+                  }
+                  placeholder={t('admin.form.capacityUnset')}
+                />
+                <p className="text-xs text-muted-foreground">{t('admin.form.capacityHint')}</p>
+                <div className="mt-1 flex items-start gap-2 text-sm">
+                  <input
+                    id="h-accepts-mutualise"
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={form.accepts_mutualise ?? false}
+                    onChange={(e) => set('accepts_mutualise', e.target.checked)}
+                  />
+                  <div>
+                    <Label htmlFor="h-accepts-mutualise">{t('admin.form.acceptsMutualise')}</Label>
+                    <p className="text-xs text-muted-foreground">
+                      {t('admin.form.acceptsMutualiseHint')}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="space-y-1">
               <Label htmlFor="h-ci-password">{t('hosts.form.ci_password', 'Mot de passe console Proxmox (optionnel)')}</Label>
               <Input

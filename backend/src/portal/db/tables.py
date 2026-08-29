@@ -148,7 +148,19 @@ hosts = Table(
     Column("storage_type", Text, nullable=False, server_default="local"),
     Column("vault_identifier", Text, nullable=False, server_default=""),
     Column("usage", Text, nullable=False, server_default="workspaces"),
+    # Profil avec lequel la machine a ete montee : provenance, pas contrainte.
+    Column("profile_slug", Text, nullable=False, server_default=""),
+    # Capacite PHYSIQUE : combien de workspaces la machine tient sans planter.
+    # Elle vit ici et non sur la propriete — une machine mutualisee n'a pas de
+    # proprietaire, et une machine enrolee a la main n'a pas de profil.
+    # NULL = non renseigne : ni zero, ni illimite.
+    Column("capacity_workspaces", Integer, nullable=True),
+    # Ouverture au pool mutualise, acte delibere de l'exploitant.
+    Column("accepts_mutualise", Boolean, nullable=False, server_default="false"),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "capacity_workspaces IS NULL OR capacity_workspaces >= 0", name="ck_host_capacity"
+    ),
 )
 
 # ─── Tour 2 : Sources distantes ───────────────────────────────────────────────
