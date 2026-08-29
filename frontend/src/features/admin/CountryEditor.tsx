@@ -9,6 +9,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import { paysIso } from '@/shared/iso'
+import SearchableSelect from '@/shared/SearchableSelect'
 import CountryTaxRates from './CountryTaxRates'
 import {
   useCountryProviders, useSaveCountry, useSetCountryProviders,
@@ -126,28 +127,19 @@ function CountryForm({ pays, canaux, codesPris, rattachesInitiaux, onClose }: Fo
           <div className="grid grid-cols-[8rem_1fr] gap-3">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="pays-code">{t('admin.billing.countryCode')}</Label>
-              <select
-                id="pays-code"
-                className="h-9 rounded-md border border-input bg-transparent px-2 font-mono text-sm"
+              <SearchableSelect
+                label={t('admin.billing.countryCode')}
+                options={cataloguePays}
                 value={brouillon.code}
-                onChange={(e) => {
-                  const code = e.target.value
+                // Le code ISO est l'identite : le changer designe un autre pays.
+                disabled={existant}
+                onSelect={(code) => {
                   const trouve = cataloguePays.find((p) => p.code === code)
                   // Le libelle suit le choix mais reste modifiable : c'est celui
                   // du portail, pas celui du navigateur.
                   setBrouillon((b) => ({ ...b, code, label: trouve?.label ?? b.label }))
                 }}
-                required
-                // Le code ISO est l'identite : le changer designe un autre pays.
-                disabled={existant}
-              >
-                <option value="">—</option>
-                {cataloguePays.map((p) => (
-                  <option key={p.code} value={p.code}>
-                    {p.code} · {p.label}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="pays-label">{t('admin.billing.countryLabel')}</Label>

@@ -2093,5 +2093,9 @@
     "edit": "Edit",
     "preview": "Preview",
     "empty": "Nothing to show."
+  },
+  "recherche": {
+    "aucun": "No match",
+    "affine": "{{restants}} more — refine your search"
   }
 }

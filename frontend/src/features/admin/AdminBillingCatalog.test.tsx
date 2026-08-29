@@ -130,10 +130,9 @@ describe('AdminBillingCatalog', () => {
     )
     await screen.findByTestId('devise-EUR')
 
-    await userEvent.selectOptions(
-      screen.getByLabelText(i18n.t('admin.billing.addCurrency')),
-      'USD',
-    )
+    // La liste est cherchable : on tape, puis on choisit.
+    await userEvent.type(screen.getByLabelText(i18n.t('admin.billing.addCurrency')), 'USD')
+    await userEvent.click(await screen.findByRole('button', { name: /USD/ }))
     await userEvent.click(screen.getByRole('button', { name: i18n.t('common.save') }))
 
     // Jeu ENTIER : le serveur remplace, il n'applique pas un delta.
@@ -161,13 +160,15 @@ describe('AdminBillingCatalog', () => {
     renderPage()
     await userEvent.click(await screen.findByRole('button', { name: i18n.t('admin.billing.newCountry') }))
 
-    const select = (await screen.findByLabelText(
-      i18n.t('admin.billing.countryCode'),
-    )) as HTMLSelectElement
-    const codes = Array.from(select.options).map((o) => o.value)
-    expect(codes).toContain('BE')
+    const champ = await screen.findByLabelText(i18n.t('admin.billing.countryCode'))
+
+    await userEvent.type(champ, 'belg')
+    expect(await screen.findByRole('button', { name: /BE/ })).toBeInTheDocument()
+
     // La France est deja enregistree : la reproposer ferait ecraser sa fiche
     // par un PUT, sans que rien ne le dise.
-    expect(codes).not.toContain('FR')
+    await userEvent.clear(champ)
+    await userEvent.type(champ, 'france')
+    expect(screen.getByText(i18n.t('recherche.aucun'))).toBeInTheDocument()
   })
 })

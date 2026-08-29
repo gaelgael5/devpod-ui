@@ -2093,5 +2093,9 @@
     "edit": "Éditer",
     "preview": "Aperçu",
     "empty": "Rien à afficher."
+  },
+  "recherche": {
+    "aucun": "Aucun résultat",
+    "affine": "{{restants}} autres — affinez la recherche"
   }
 }

@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Coins, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { devisesIso } from '@/shared/iso'
+import SearchableSelect from '@/shared/SearchableSelect'
 import { useCurrencies, useSetCurrencies, type Currency } from './useBillingCatalog'
 
 /**
@@ -157,21 +158,16 @@ function CurrencyForm({ initiales }: { initiales: Currency[] }) {
         ))}
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
-        <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-        <select
-          className="h-9 w-64 rounded-md border border-input bg-transparent px-2 text-sm"
-          value=""
-          aria-label={t('admin.billing.addCurrency')}
-          onChange={(e) => ajouter(e.target.value)}
-        >
-          <option value="">{t('admin.billing.addCurrency')}</option>
-          {restantes.map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.code} · {c.label}
-            </option>
-          ))}
-        </select>
+      <div className="mt-3 flex items-start gap-2">
+        <Plus className="mt-2.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <div className="w-72">
+          {/* Trois cents devises ne se parcourent pas a l'oeil : on tape. */}
+          <SearchableSelect
+            label={t('admin.billing.addCurrency')}
+            options={restantes}
+            onSelect={ajouter}
+          />
+        </div>
       </div>
     </section>
   )
