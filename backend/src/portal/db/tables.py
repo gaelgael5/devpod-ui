@@ -1677,6 +1677,45 @@ host_ownership = Table(
 )
 Index("ix_host_ownership_owner", host_ownership.c.owner_login)
 
+# Ce qu'un ABONNEMENT a obtenu, machine par machine.
+#
+# Une ligne = « cet abonnement dispose de tant de workspaces sur cette
+# machine ». Les deux cas du catalogue ne different que par la presence d'une
+# part :
+#   - `allocated_workspaces` NULL  -> machine DEDIEE. Le forfait limite le
+#     NOMBRE DE MACHINES, pas les workspaces : seule la capacite physique de la
+#     machine borne ce qui tourne dessus.
+#   - un entier                    -> part sur une machine MUTUALISEE. La somme
+#     des parts d'un abonnement ne depasse pas le quota du forfait, et la somme
+#     des parts posees sur une machine ne depasse pas sa capacite. Deux
+#     invariants distincts : l'un commercial, l'autre physique.
+#
+# La cle primaire (abonnement, machine) porte l'idempotence : un webhook rejoue
+# REMPLACE la part au lieu d'en ajouter une seconde.
+subscription_hosts = Table(
+    "subscription_hosts",
+    metadata,
+    Column(
+        "subscription_id",
+        UUID(as_uuid=False),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "host_name",
+        Text,
+        ForeignKey("hosts.name", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("allocated_workspaces", Integer, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "allocated_workspaces IS NULL OR allocated_workspaces > 0",
+        name="ck_subscription_host_part",
+    ),
+)
+Index("ix_subscription_hosts_host", subscription_hosts.c.host_name)
+
 # Invités d'une machine dédiée : l'owner saisit un email, un lien d'invitation
 # part. `login` reste NULL tant que l'invitation n'est pas acceptée — on invite
 # une adresse, pas forcément un compte déjà existant.
