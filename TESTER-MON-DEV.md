@@ -1,50 +1,54 @@
 # Tester mon développement — Procédure optimisée
 
-## ⚠️ État des cibles au 30/08/2026 : il n'y a plus de stack dev déployée
+## Stack dev : `test1` — installée le 30/08/2026
 
-Les deux VM de test décrites par les versions précédentes de ce document ont
-disparu — vérifié : `No route to host` sur les deux.
+Alias SSH `test1` → `root@192.168.10.250` = **`host-105-1`**. VM de test générée
+par le portail le 26/08 pour le workspace `devpod` (`node_list` → `origin:
+generated`, `ephemeral: true`). 4 vCPU, 8 Go RAM, 43 Go disque.
 
-| Ancienne cible | État |
-|---|---|
-| `test2` / `192.168.10.219` | supprimée |
-| ancienne `test1` / `192.168.10.196` | supprimée |
+| Service | Accès | Note |
+|---------|-------|------|
+| Portal | `http://192.168.10.250:8081` | bypass Caddy ; `/health` → `{"status":"ok"}` |
+| Caddy | `http://192.168.10.250:8091` | reverse proxy dev |
+| PostgreSQL | `192.168.10.250:5433` | schéma à `head` (Alembic 118) |
+| Grafana | `http://192.168.10.250:3002` | 3001 laissé libre |
+| Loki | `192.168.10.250:3100` | de la stack dev, distinct de celui de prod |
+| VictoriaMetrics | `192.168.10.250:8428` | idem |
+| Termix | `http://192.168.10.250:8087` | |
+| Browserless | `http://192.168.10.250:3000` | **préexistant**, Chromium headless, aucun token |
+| Postgres de test | `192.168.10.250:55432` (`pg-tests`) | **préexistant**, base jetable |
 
-Et l'alias `test1` de `~/.ssh/config` a été **réattribué** : il pointe désormais
-sur `192.168.10.250` = `host-105-1`, une VM de test générée le 26/08 pour le
-workspace `devpod`. Elle a Docker, Postgres et Browserless, mais **aucune stack
-portail** (`/opt/*portal*` : rien).
+Installation : projet compose `wsportal-dev`, `DATA_ROOT=/data-portal-dev`,
+`APP_DIR=/opt/workspace-portal-dev`, branche `dev`. Les services préexistants de
+la VM (Browserless, `pg-tests`, les deux Alloy du portail) sont intacts : projet
+compose distinct, `DATA_ROOT` dédié, aucun port en commun.
 
-> **Un alias SSH qui répond ne prouve rien.** Les VM de test sont éphémères et
-> leurs alias sont recyclés : `test1` a désigné trois machines différentes en un
-> mois. Toujours vérifier ce qu'il y a *derrière* l'alias avant de déployer.
+Auth : **locale uniquement** (`oidc_enabled: false`). `LOCAL_USER` /
+`LOCAL_PASSWORD` et `VAULT_DEV_PIN` sont dans `/data-portal-dev/.env` — tous
+générés par le script, aucun secret externe requis, rien à recopier ici.
+
+> ⚠️ **Cette VM est éphémère et liée au workspace `devpod`.** Une suppression
+> depuis l'UI du portail l'efface en dix secondes, stack comprise — c'est arrivé
+> le 30/08 à une VM `test2` détruite trois minutes après sa création, en plein
+> build. Une stack installée à la main n'est pas connue du portail : elle part
+> avec la machine, sans trace. Réinstaller = rejouer § Installer la stack dev.
+
+> **Un alias SSH qui répond ne prouve rien.** Les alias sont recyclés : `test1` a
+> désigné trois machines différentes en un mois, et `test2` deux. Vérifier ce
+> qu'il y a *derrière* l'alias avant tout déploiement :
 
 ```bash
 ssh test1 "hostname; ls -d /opt/*portal* 2>/dev/null || echo 'PAS DE STACK PORTAIL'; \
            docker ps --format '{{.Names}}'"
 ```
 
-Conséquence pratique : **une demande « déploie sur test1 » ne peut pas être
-honorée en l'état.** Il faut d'abord soit refaire une stack dev (§ Première
-installation), soit viser la prod (§ Vérifier la prod sans SSH).
+### Cibles mortes — ne pas y retourner
 
----
-
-## Ce qui existe réellement
-
-### `test1` — VM de test générée (alias SSH, `root@192.168.10.250`)
-
-4 vCPU, 8 Go RAM, 43 Go disque. Générée par le portail pour le workspace
-`devpod` (`node_list` → `host-105-1`, `origin: generated`, `ephemeral: true`).
-
-| Service | Accès | Rôle |
-|---------|-------|------|
-| Browserless | `http://192.168.10.250:3000` | Chromium headless, **aucun token** |
-| Postgres de test | `192.168.10.250:55432` (`pg-tests`) | base jetable pour les tests DB |
-| Alloy | — | collecteurs logs + métriques, poussent vers dev.yoops.org |
-
-Aucune stack portail dessus. Machine liée à un workspace : la détruire ou la
-saturer a des effets ailleurs.
+| Ancienne cible | État (vérifié le 30/08) |
+|---|---|
+| `test2` / `192.168.10.219` | supprimée — `No route to host` |
+| ancienne `test1` / `192.168.10.196` | supprimée |
+| `test2` / `192.168.10.178` (`host-test-107-2`) | créée puis détruite le 30/08, 3 min de vie |
 
 ### Prod — `dev.yoops.org` / `192.168.10.164`
 
@@ -54,6 +58,7 @@ Loki : `portal`, `caddy`, `postgres`, `loki`, `grafana`, `victoriametrics`,
 
 **Pas d'accès SSH depuis un workspace** (`publickey` refusé en `debian` comme en
 `root`) — le déploiement est une action du pilote, pas de l'agent.
+
 
 ---
 
@@ -92,10 +97,11 @@ déploiement qui n'a jamais eu lieu est indiscernable d'un déploiement réussi.
 
 ---
 
-## Première installation d'une stack dev (à refaire de zéro)
+## Installer la stack dev (première installation, ou après destruction de la VM)
 
-Il n'existe plus de stack dev : la section « cycle normal » ci-dessous suppose
-cette installation faite. Sur une VM disposant de Docker et d'un `/opt` libre :
+Rejouable telle quelle sur toute VM avec Docker et un `/opt` libre — c'est la
+commande qui a installé la stack de `test1` le 30/08. Vérifier d'abord que les
+ports voulus sont libres (`ss -tln`) :
 
 ```bash
 ssh <cible>
@@ -131,16 +137,17 @@ cd backend && uv run ruff check src/ tests/ && uv run mypy src/ && uv run pytest
 # 2. Pousser sur dev
 git push origin dev
 
-# 3. Déployer sur la stack de test — le script fait pull + build + restart + migrations
-ssh <cible> "export DATA_ROOT=/data-portal-dev COMPOSE_PROJECT_NAME=wsportal-dev \
-  PORTAL_DEV_PORT=8081 POSTGRES_DEV_PORT=5433 CADDY_DEV_PORT=8091 APP_DIR=/opt/workspace-portal-dev
+# 3. Déployer sur test1 — le script fait pull + build + restart + migrations
+ssh test1 "export DATA_ROOT=/data-portal-dev COMPOSE_PROJECT_NAME=wsportal-dev \
+  PORTAL_DEV_PORT=8081 POSTGRES_DEV_PORT=5433 CADDY_DEV_PORT=8091 GRAFANA_DEV_PORT=3002 \
+  APP_DIR=/opt/workspace-portal-dev
 bash /opt/workspace-portal-dev/scripts/dev-deploy.sh dev"
 
 # 4. Lire les vrais logs
-ssh <cible> "docker logs wsportal-dev-portal-1 --tail=100"
+ssh test1 "docker logs wsportal-dev-portal-1 --tail=100"
 
 # 5. Tester via curl ou Browserless
-curl -s http://<cible>:8081/health
+curl -s http://192.168.10.250:8081/health
 ```
 
 `dev-deploy.sh` est un shim qui délègue à `scripts/deploy-portal.sh` (script de
@@ -150,7 +157,7 @@ smoke) avec le compose de dev. Il est **idempotent** et **auto-mis à jour**
 manuellement sur la VM — le script le fait.
 
 Cookies : ils portent le domaine `yoops.org`. Pour l'API en curl, utiliser
-`--resolve dev.yoops.org:8081:<ip>` et l'URL `http://dev.yoops.org:8081` — un
+`--resolve dev.yoops.org:8081:192.168.10.250` et l'URL `http://dev.yoops.org:8081` — un
 curl sur l'IP ne renverra jamais le cookie. Auth locale : `LOCAL_USER` /
 `LOCAL_PASSWORD` du `.env` de la stack via `POST /auth/local-login` ; PIN vault :
 `VAULT_DEV_PIN` du même fichier.

@@ -508,7 +508,9 @@ if [[ $SMOKE_OK -eq 1 ]]; then
         echo "  Login  : ⚠ ni SSO ni auth locale active — voir Admin → Authentification"
     fi
     unset _LOCAL_PASS
-    echo "  Santé  : http://${IP}:8080/health"
+    # Port PUBLIÉ, pas le port interne : sur une stack dev à ports décalés, le
+    # 8080 en dur envoyait vers un port fermé — l'URL affichée ne répondait pas.
+    echo "  Santé  : http://${IP}:${PORTAL_DEV_PORT:-8080}/health"
     echo "  Env    : ${ENV_FILE}"
     echo ""
     echo "  Logs   : docker compose -f ${COMPOSE_FILE} logs -f"
