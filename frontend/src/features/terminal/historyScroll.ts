@@ -56,6 +56,32 @@ export const LINE_PX = 20
 export const MAX_LIGNES_EN_ATTENTE = 50
 
 /**
+ * `deltaY` d'un evenement molette, converti en PIXELS.
+ *
+ * `deltaY` n'a pas d'unite fixe : `deltaMode` dit laquelle. Firefox, et Chrome
+ * sur certaines configurations, rendent des LIGNES (`deltaMode` 1) — un cran
+ * vaut alors `3`, pas `100`. Lu comme des pixels, un cran n'apportait que trois
+ * pixels la ou il en faut vingt pour une ligne : il fallait SEPT crans pour que
+ * l'ecran bouge d'un cran. Le geste semblait sans effet, alors qu'il etait
+ * seulement divise par trente.
+ *
+ * Le glissement du doigt, lui, est en pixels par nature. D'ou un defilement
+ * tactile correct et une molette inerte sur la meme session — ce qui masquait
+ * la cause.
+ *
+ * `lignesParPage` sert au mode PAGE (`deltaMode` 2, molettes a cran large) :
+ * c'est la hauteur de l'ecran, en lignes.
+ */
+export function pixelsDeMolette(
+  e: { deltaY: number; deltaMode: number },
+  lignesParPage: number,
+): number {
+  if (e.deltaMode === 1) return e.deltaY * LINE_PX
+  if (e.deltaMode === 2) return e.deltaY * LINE_PX * lignesParPage
+  return e.deltaY
+}
+
+/**
  * Deplacement a franchir avant qu'un contact devienne un glissement.
  *
  * Sans ce seuil, `touchMove` consommait le geste des le premier pixel et

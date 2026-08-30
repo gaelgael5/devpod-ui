@@ -11,7 +11,7 @@ import TerminalKeybar from '@/features/workspaces/TerminalKeybar'
 import { openTerminalLink } from './openTerminalLink'
 import { createLinkCollector } from './linkCollector'
 import { isTouchOnly } from './isTouchOnly'
-import { createHistoryScroller } from './historyScroll'
+import { createHistoryScroller, pixelsDeMolette } from './historyScroll'
 import { createDoubleTapDetector } from './doubleTap'
 import { isPastLineEnd } from './lineHitTest'
 import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
@@ -319,7 +319,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
 
     const surface = termRef.current
     const onWheel = (e: WheelEvent) => {
-      if (scroller.wheel(e.deltaY)) e.preventDefault()
+      if (scroller.wheel(pixelsDeMolette(e, terminal.rows))) e.preventDefault()
     }
 
     /**
@@ -351,7 +351,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
      */
     terminal.attachCustomWheelEventHandler((e: WheelEvent) => {
       if (e.shiftKey) return true
-      if (!scroller.wheel(e.deltaY)) return true
+      if (!scroller.wheel(pixelsDeMolette(e, terminal.rows))) return true
       e.preventDefault()
       e.stopPropagation()
       return false

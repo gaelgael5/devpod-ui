@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   DRAG_SLOP_PX,
   ENTER_COPY,
+  pixelsDeMolette,
   EXIT_COPY,
   LINE_DOWN,
   LINE_PX,
@@ -268,6 +269,35 @@ describe('createHistoryScroller — sortie du copy-mode', () => {
     s.touchStart(100)
     s.touchMove(100 + DRAG_SLOP_PX)
     s.touchMove(100 + DRAG_SLOP_PX + LINE_PX * 2)
+    tick(10)
+
+    expect(send.mock.calls.map((c) => c[0])).toContain(ENTER_COPY)
+  })
+})
+
+describe('pixelsDeMolette', () => {
+  const LIGNES_PAR_PAGE = 24
+
+  it('laisse un delta deja en pixels tel quel', () => {
+    expect(pixelsDeMolette({ deltaY: -100, deltaMode: 0 }, LIGNES_PAR_PAGE)).toBe(-100)
+  })
+
+  it('convertit un delta en lignes, sans quoi la molette semble morte', () => {
+    // Firefox rend `3` pour un cran. Lu comme des pixels, il faudrait sept
+    // crans pour franchir les vingt pixels d'une ligne.
+    expect(pixelsDeMolette({ deltaY: -3, deltaMode: 1 }, LIGNES_PAR_PAGE)).toBe(-3 * LINE_PX)
+  })
+
+  it('convertit un delta en pages', () => {
+    expect(pixelsDeMolette({ deltaY: 1, deltaMode: 2 }, LIGNES_PAR_PAGE)).toBe(
+      LINE_PX * LIGNES_PAR_PAGE,
+    )
+  })
+
+  it('franchit une ligne des le premier cran en mode lignes', () => {
+    const { s, send, tick } = scroller()
+
+    s.wheel(pixelsDeMolette({ deltaY: -3, deltaMode: 1 }, LIGNES_PAR_PAGE))
     tick(10)
 
     expect(send.mock.calls.map((c) => c[0])).toContain(ENTER_COPY)
