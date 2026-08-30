@@ -223,15 +223,27 @@ async def admin_save_offer(
         )
 
     actives = await devises_actives(conn)
-    if body.published and not publiable(body, actives):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Offre non publiable : aucun prix dans une devise activée "
-                f"({', '.join(actives) or 'aucune devise activée'}) — "
-                "elle ne serait proposable à personne"
-            ),
-        )
+    if body.published:
+        # Deux refus distincts : le message doit dire lequel, sinon
+        # l'administrateur cherche un prix alors qu'il manque une durée.
+        if body.duration_days is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Offre non publiable : aucune durée de forfait — "
+                    "un essai sans fin est un produit offert, et un abonnement "
+                    "sans terme ne se facture pas"
+                ),
+            )
+        if not publiable(body, actives):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Offre non publiable : aucun prix dans une devise activée "
+                    f"({', '.join(actives) or 'aucune devise activée'}) — "
+                    "elle ne serait proposable à personne"
+                ),
+            )
 
     await upsert_offer(body, conn)
     manquantes = devises_manquantes(body, actives)

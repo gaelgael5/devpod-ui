@@ -1074,7 +1074,18 @@
       "notFound": "Offer “{{slug}}” not found.",
       "tabGeneral": "General",
       "champsManquantsGeneral": "The short name or the slug is missing.",
-      "champsManquantsDescription": "The English title is missing."
+      "champsManquantsDescription": "The English title is missing.",
+      "tabDuration": "Duration",
+      "duration": "Plan duration",
+      "durationUnit": "days",
+      "durationUnset": "not set",
+      "durationHelp": "Every plan is time-boxed: a trial because it must end, a paid plan because a subscription without a term cannot be billed. The expiry carries a day AND a time. Required to publish.",
+      "durationExample": "A subscriber signing up now would see their plan expire in {{jours}} days, on {{echeance}} — the time of day is kept, to the minute.",
+      "isFree": "Free plan (welcome offer)",
+      "isFreeOn": "No price: the offer exists to try the product, and stops at the end of its duration.",
+      "isFreeOff": "Paid offer: at least one price in an accepted currency is required to publish it.",
+      "freeNoPricing": "Free offer: there is nothing to price. Its duration is set in the “Duration” tab.",
+      "champsManquantsDuree": "A published offer must have a duration."
     }
   },
   "errors": {

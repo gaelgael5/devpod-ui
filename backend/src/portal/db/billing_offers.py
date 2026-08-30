@@ -106,6 +106,8 @@ def _row_to_offer(row: dict[str, Any], prix: list[OfferPrice]) -> Offer:
             "prices_include_tax": row["prices_include_tax"],
             "auto_currencies": row["auto_currencies"],
             "currency_markup": row["currency_markup"],
+            "is_free": row["is_free"],
+            "duration_days": row["duration_days"],
             "prices": prix,
         }
     )
@@ -172,6 +174,8 @@ async def upsert_offer(offre: Offer, conn: AsyncConnection) -> None:
         "prices_include_tax": offre.prices_include_tax,
         "auto_currencies": offre.auto_currencies,
         "currency_markup": offre.currency_markup,
+        "is_free": offre.is_free,
+        "duration_days": offre.duration_days,
     }
     existe = (
         await conn.execute(select(offers.c.slug).where(offers.c.slug == offre.slug))

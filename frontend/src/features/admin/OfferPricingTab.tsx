@@ -46,6 +46,35 @@ export default function OfferPricingTab({ brouillon, setBrouillon, canaux }: Pro
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1.5 rounded-lg border p-3">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={brouillon.is_free}
+            onChange={(e) =>
+              // Cocher « gratuit » VIDE les prix : le serveur refuse une offre
+              // gratuite qui en porte, et les garder caches ferait echouer
+              // l'enregistrement sans que rien ne le montre.
+              setBrouillon((b) => ({
+                ...b,
+                is_free: e.target.checked,
+                prices: e.target.checked ? [] : b.prices,
+              }))
+            }
+          />
+          {t('admin.offers.isFree')}
+        </label>
+        <p className="text-xs text-muted-foreground">
+          {t(brouillon.is_free ? 'admin.offers.isFreeOn' : 'admin.offers.isFreeOff')}
+        </p>
+      </div>
+
+      {brouillon.is_free ? (
+        <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+          {t('admin.offers.freeNoPricing')}
+        </p>
+      ) : (
+      <>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="offre-canal">{t('admin.offers.provider')}</Label>
         <select
@@ -218,6 +247,8 @@ export default function OfferPricingTab({ brouillon, setBrouillon, canaux }: Pro
           )}
         </div>
       </fieldset>
+      </>
+      )}
 
       <label className="flex items-center gap-2 text-sm">
         <input

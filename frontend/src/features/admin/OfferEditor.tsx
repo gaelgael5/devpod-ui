@@ -10,6 +10,7 @@ import { offreVide, useOffers, useSaveOffer, type Offer } from './useBillingOffe
 import { LANGUE_PIVOT } from './offerDraft'
 import OfferGeneralTab from './OfferGeneralTab'
 import OfferDescriptionTab from './OfferDescriptionTab'
+import OfferDurationTab from './OfferDurationTab'
 import OfferPricingTab from './OfferPricingTab'
 
 const RETOUR = '/admin/billing-offers'
@@ -53,6 +54,14 @@ function OfferForm({ offre, canaux }: { offre: Offer; canaux: PaymentProvider[] 
       toast.error(t('admin.offers.champsManquantsDescription'))
       return
     }
+    // La duree n'est exigee qu'a la publication — un brouillon sans terme reste
+    // enregistrable. Le serveur applique la meme regle ; on la double ici pour
+    // designer l'onglet plutot que de rendre un 422 sans cible.
+    if (brouillon.published && brouillon.duration_days === null) {
+      setOnglet('duree')
+      toast.error(t('admin.offers.champsManquantsDuree'))
+      return
+    }
     const prices = brouillon.prices.filter((p) => p.currency !== '')
     toast.promise(enregistrer.mutateAsync({ ...brouillon, prices }), {
       loading: '…',
@@ -92,6 +101,7 @@ function OfferForm({ offre, canaux }: { offre: Offer; canaux: PaymentProvider[] 
         <TabsList>
           <TabsTrigger value="general">{t('admin.offers.tabGeneral')}</TabsTrigger>
           <TabsTrigger value="description">{t('admin.offers.tabDescription')}</TabsTrigger>
+          <TabsTrigger value="duree">{t('admin.offers.tabDuration')}</TabsTrigger>
           <TabsTrigger value="tarif">{t('admin.offers.tabPricing')}</TabsTrigger>
         </TabsList>
 
@@ -107,6 +117,10 @@ function OfferForm({ offre, canaux }: { offre: Offer; canaux: PaymentProvider[] 
 
         <TabsContent value="description" className="mt-4">
           <OfferDescriptionTab brouillon={brouillon} setBrouillon={setBrouillon} />
+        </TabsContent>
+
+        <TabsContent value="duree" className="mt-4">
+          <OfferDurationTab brouillon={brouillon} setBrouillon={setBrouillon} />
         </TabsContent>
 
         <TabsContent value="tarif" className="mt-4">

@@ -44,6 +44,8 @@ const STANDARD = {
   prices_include_tax: false,
   auto_currencies: false,
   currency_markup: 1,
+  is_free: false,
+  duration_days: 30,
 }
 
 function renderPage(offres: unknown[] = [STANDARD]) {
@@ -80,6 +82,12 @@ function renderPage(offres: unknown[] = [STANDARD]) {
 /** Trois onglets depuis le passage en ecran plein : on y va comme l'utilisateur. */
 async function ongletTarif() {
   await userEvent.click(await screen.findByRole('tab', { name: i18n.t('admin.offers.tabPricing') }))
+}
+
+async function ongletDuree() {
+  await userEvent.click(
+    await screen.findByRole('tab', { name: i18n.t('admin.offers.tabDuration') }),
+  )
 }
 
 async function ongletDescription() {
@@ -278,6 +286,64 @@ describe('AdminBillingOffers', () => {
       await screen.findByText(i18n.t('admin.offers.champsManquantsDescription')),
     ).toBeInTheDocument()
     expect(await screen.findByLabelText(i18n.t('admin.offers.heading'))).toBeInTheDocument()
+  })
+
+  it("rend l'onglet Tarif sans objet quand l'offre est gratuite", async () => {
+    // Un forfait de bienvenue n'a pas de prix : laisser la grille de tarifs
+    // ferait saisir un montant qui ne serait jamais encaisse.
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: i18n.t('admin.offers.new') }))
+    await ongletTarif()
+
+    expect(
+      await screen.findByRole('button', { name: i18n.t('admin.offers.addPrice') }),
+    ).toBeInTheDocument()
+
+    await userEvent.click(screen.getByLabelText(i18n.t('admin.offers.isFree')))
+
+    expect(screen.getByText(i18n.t('admin.offers.freeNoPricing'))).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: i18n.t('admin.offers.addPrice') })).toBeNull()
+  })
+
+  it('porte la duree du forfait dans son propre onglet', async () => {
+    let envoye: Record<string, unknown> = {}
+    server.use(
+      http.put('/admin/billing/offers/:slug', async ({ request }) => {
+        envoye = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json({ ...envoye, devises_manquantes: [] })
+      }),
+    )
+    renderPage()
+    const offre = await screen.findByTestId('offre-standard')
+    await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+    await ongletDuree()
+
+    const duree = await screen.findByLabelText(i18n.t('admin.offers.duration'))
+    expect(duree).toHaveValue(30)
+
+    await userEvent.clear(duree)
+    await userEvent.type(duree, '14')
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('common.save') }))
+
+    await waitFor(() => expect(envoye.duration_days).toBe(14))
+  })
+
+  it("ramene sur l'onglet Duree quand on publie sans terme", async () => {
+    // Le refus doit designer l'onglet : sans duree, le serveur rendrait un 422
+    // et rien ne dirait ou corriger.
+    renderPage()
+    const offre = await screen.findByTestId('offre-standard')
+    await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+    await ongletDuree()
+    await userEvent.clear(screen.getByLabelText(i18n.t('admin.offers.duration')))
+
+    // « Standard » est deja publiee : on ne retouche pas la case, on enregistre.
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('common.save') }))
+
+    expect(
+      await screen.findByText(i18n.t('admin.offers.champsManquantsDuree')),
+    ).toBeInTheDocument()
+    expect(await screen.findByLabelText(i18n.t('admin.offers.duration'))).toBeInTheDocument()
   })
 
   it('la majoration des devises derivees vaut 1 par defaut', async () => {

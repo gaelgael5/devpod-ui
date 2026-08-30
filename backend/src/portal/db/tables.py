@@ -1536,9 +1536,18 @@ offers = Table(
     # majoration n'est PAS un taux de change, c'est une majoration commerciale.
     Column("auto_currencies", Boolean, nullable=False, server_default="false"),
     Column("currency_markup", Numeric(7, 4), nullable=False, server_default="1"),
+    # Offre gratuite : forfait de bienvenue, sans aucun prix. Un drapeau et non
+    # l'absence de tarif — une offre payante dont on a oublie le prix est une
+    # erreur de saisie, pas une offre gratuite.
+    Column("is_free", Boolean, nullable=False, server_default="false"),
+    # Duree du forfait EN JOURS. Tout forfait est borne, gratuit comme payant.
+    # NULL = pas encore renseignee : l'offre reste un brouillon, la publication
+    # l'exige.
+    Column("duration_days", Integer, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint("hosting_type IN ('dedie','mutualise')", name="ck_offer_hosting_type"),
+    CheckConstraint("duration_days IS NULL OR duration_days > 0", name="ck_offer_duration"),
     CheckConstraint("currency_markup > 0", name="ck_offer_markup"),
     CheckConstraint("max_workspaces IS NULL OR max_workspaces > 0", name="ck_offer_max_ws"),
     CheckConstraint("max_hosts_dedies IS NULL OR max_hosts_dedies > 0", name="ck_offer_max_hosts"),
@@ -1596,6 +1605,11 @@ subscriptions = Table(
     Column("next_retry_at", DateTime(timezone=True), nullable=True),
     Column("trial_end", DateTime(timezone=True), nullable=True),
     Column("current_period_end", DateTime(timezone=True), nullable=True),
+    # Jour d'arret du forfait, calcule a la souscription depuis la duree de
+    # l'offre. Distinct de `current_period_end`, qui est la fin de la PERIODE
+    # facturee cote fournisseur : celle-ci se renouvelle, le terme arrete le
+    # service.
+    Column("ends_at", DateTime(timezone=True), nullable=True),
     # Date du dernier changement d'état : c'est d'elle que le scheduler déduit
     # l'échéance de rétention, en y ajoutant le délai configuré pour l'événement.
     Column("state_changed_at", DateTime(timezone=True), nullable=False, server_default=func.now()),

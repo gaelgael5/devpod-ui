@@ -237,3 +237,32 @@ async def test_une_offre_jamais_souscrite_ne_l_est_pas(db_conn) -> None:
     await upsert_offer(SOLO, db_conn)
 
     assert await offer_reference("solo", db_conn) is False
+
+
+async def test_gratuite_et_duree_survivent_au_rechargement(db_conn):
+    """Ces deux champs decident de la vente : perdus, on facture un essai.
+
+    `is_free` est un drapeau et non l'absence de prix — la relecture doit le
+    rendre tel quel, sans le deduire de la liste des prix.
+    """
+    await upsert_offer(
+        Offer(slug="bienvenue", label="Bienvenue", is_free=True, duration_days=30), db_conn
+    )
+
+    offre = await get_offer("bienvenue", db_conn)
+
+    assert offre is not None
+    assert offre.is_free is True
+    assert offre.duration_days == 30
+    assert offre.prices == []
+
+
+async def test_duree_absente_reste_absente(db_conn):
+    """`None` = non renseignee : le rechargement ne l'invente pas."""
+    await upsert_offer(Offer(slug="brouillon"), db_conn)
+
+    offre = await get_offer("brouillon", db_conn)
+
+    assert offre is not None
+    assert offre.duration_days is None
+    assert offre.is_free is False

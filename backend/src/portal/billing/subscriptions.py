@@ -95,6 +95,11 @@ class Subscription(BaseModel):
     next_retry_at: datetime | None = None
     trial_end: datetime | None = None
     current_period_end: datetime | None = None
+    #: Jour d'arrêt du forfait, calculé à la souscription depuis la durée de
+    #: l'offre. `None` = pas encore posé. Ce n'est pas `current_period_end`, qui
+    #: est la fin de la PÉRIODE facturée côté fournisseur : celle-ci se
+    #: renouvelle, le terme du forfait, lui, arrête le service.
+    ends_at: datetime | None = None
     state_changed_at: datetime | None = None
 
     @field_validator("currency")
@@ -228,6 +233,30 @@ def appliquer(
     return sub.model_copy(update=maj)
 
 
+def fin_de_forfait(debut: datetime, duration_days: int) -> datetime:
+    """Instant d'échéance d'un forfait souscrit à `debut` : jour ET heure.
+
+    **L'heure de souscription est conservée.** Un forfait pris le 15 janvier à
+    9 h 30 échoit le 14 février à 9 h 30, pas à minuit : arrondir au jour
+    offrirait — ou retirerait — jusqu'à vingt-quatre heures de service à chaque
+    souscription, et le renouvellement se déclencherait pour tout le monde à la
+    même seconde.
+
+    **La précision s'arrête à la minute.** Les secondes sont un artefact de
+    l'instant où le webhook est arrivé, pas une donnée commerciale : les garder
+    ferait échoir deux abonnements pris dans la même minute à des instants
+    différents, sans que personne ne puisse expliquer pourquoi.
+
+    `timedelta` et non une arithmétique de mois : « 30 jours » est une durée
+    exacte, là où « un mois » n'en est pas une. C'est aussi ce que l'offre
+    déclare — sa durée est en jours.
+    """
+    if duration_days <= 0:
+        raise ValueError("duration_days : un forfait dure au moins un jour")
+    echeance = debut + timedelta(days=duration_days)
+    return echeance.replace(second=0, microsecond=0)
+
+
 def relance_due(sub: Subscription, maintenant: datetime) -> bool:
     """L'heure de retenter le prélèvement est-elle venue ?
 
@@ -250,6 +279,7 @@ def reprendre(
     offer_slug: str | None = None,
     provider_subscription_id: str = "",
     en_essai: bool = False,
+    duration_days: int | None = None,
 ) -> Subscription:
     """Reprend un abonnement résilié : le compte n'a jamais été supprimé.
 
@@ -265,6 +295,10 @@ def reprendre(
 
     `offer_slug` permet de reprendre sur une autre offre — le cas courant quand
     le catalogue a bougé entre temps.
+
+    `duration_days` refixe le TERME : une reprise repart pour une durée pleine.
+    Reconduire l'ancienne date rouvrirait un abonnement déjà expiré. Sans
+    durée fournie, on ne devine pas — le terme reste à poser.
     """
     if sub.state not in ETATS_CLOS:
         raise RepriseRefusee(f"abonnement {sub.state} : rien à reprendre, il n'est pas résilié")
@@ -281,6 +315,7 @@ def reprendre(
             "next_retry_at": None,
             "trial_end": None,
             "current_period_end": None,
+            "ends_at": fin_de_forfait(moment, duration_days) if duration_days else None,
             "state_changed_at": moment,
         }
     )

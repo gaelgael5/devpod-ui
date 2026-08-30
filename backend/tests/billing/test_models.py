@@ -188,3 +188,19 @@ def test_majoration_nulle_ou_negative_refusee() -> None:
     for mauvais in (Decimal("0"), Decimal("-1")):
         with pytest.raises(ValidationError):
             Offer(slug="std", currency_markup=mauvais)
+
+
+def test_offre_gratuite_avec_un_prix_est_refusee():
+    """Gratuit ET tarifé n'a pas de sens : l'un des deux serait applique au hasard."""
+    with pytest.raises(ValidationError):
+        Offer(
+            slug="bienvenue",
+            is_free=True,
+            duration_days=30,
+            prices=[OfferPrice(currency="EUR", amount_minor=1200)],
+        )
+
+
+def test_duree_nulle_ou_negative_refusee():
+    with pytest.raises(ValidationError):
+        Offer(slug="standard", duration_days=0)

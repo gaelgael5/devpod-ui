@@ -40,8 +40,11 @@ TVA196 = TaxRate(
 
 
 def _offre(**prix: int) -> Offer:
+    # Une duree est posee : sans elle l'offre n'est pas publiable, et ces
+    # tests-ci parlent des DEVISES.
     return Offer(
         slug="standard",
+        duration_days=30,
         prices=[OfferPrice(currency=c, amount_minor=m) for c, m in prix.items()],
     )
 
@@ -183,3 +186,47 @@ def test_aucune_devise_activee_rend_toute_offre_impubliable() -> None:
     """Aucun pays active : personne ne peut souscrire, publier n'aurait aucun
     sens."""
     assert publiable(_offre(EUR=1200), []) is False
+
+
+# ─── Gratuité et durée : ce qui rend une offre publiable ──────────────────────
+
+
+def test_offre_gratuite_publiable_sans_aucun_prix():
+    """Un forfait de bienvenue n'a pas de prix — exiger une devise l'interdirait."""
+    offre = Offer(slug="bienvenue", is_free=True, duration_days=30)
+
+    assert publiable(offre, ["EUR"]) is True
+
+
+def test_offre_gratuite_sans_duree_non_publiable():
+    """Gratuit ne veut pas dire sans fin : l'essai est borné, sinon il est offert."""
+    offre = Offer(slug="bienvenue", is_free=True)
+
+    assert publiable(offre, ["EUR"]) is False
+
+
+def test_offre_payante_sans_duree_non_publiable():
+    offre = Offer(
+        slug="standard",
+        duration_days=None,
+        prices=[OfferPrice(currency="EUR", amount_minor=1200)],
+    )
+
+    assert publiable(offre, ["EUR"]) is False
+
+
+def test_offre_payante_avec_prix_et_duree_publiable():
+    offre = Offer(
+        slug="standard",
+        duration_days=365,
+        prices=[OfferPrice(currency="EUR", amount_minor=1200)],
+    )
+
+    assert publiable(offre, ["EUR"]) is True
+
+
+def test_offre_gratuite_ne_manque_d_aucune_devise():
+    """Rien à encaisser : réclamer un prix par devise n'aurait aucun sens."""
+    offre = Offer(slug="bienvenue", is_free=True, duration_days=30)
+
+    assert devises_manquantes(offre, ["EUR", "USD"]) == []

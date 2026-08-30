@@ -234,6 +234,9 @@ def _offre(**extra: Any) -> dict[str, Any]:
         "max_workspaces": 3,
         "provider_slug": "stripe-fr",
         "published": False,
+        # Une duree est posee : sans elle l'offre n'est pas publiable, et la
+        # plupart de ces tests parlent des PRIX.
+        "duration_days": 30,
         "prices": [{"currency": "EUR", "amount_minor": 1200}],
     }
     base.update(extra)
@@ -336,3 +339,29 @@ def test_supprime_une_offre_libre(client: TestClient, store: _Store) -> None:
 
     assert client.delete("/admin/billing/offers/solo").status_code == 204
     assert store.offres == {}
+
+
+def test_publie_une_offre_gratuite_sans_aucun_prix(client: TestClient, store: _Store) -> None:
+    """Un forfait de bienvenue n'a pas de prix : l'exiger l'interdirait."""
+    res = client.put(
+        "/admin/billing/offers/bienvenue",
+        json=_offre(slug="bienvenue", is_free=True, prices=[], published=True),
+    )
+
+    assert res.status_code == 200
+    assert store.offres["bienvenue"].published is True
+
+
+def test_refuse_de_publier_sans_duree_en_le_disant(client: TestClient) -> None:
+    """Le refus doit nommer ce qui manque : chercher un prix serait perdre du temps."""
+    res = client.put("/admin/billing/offers/solo", json=_offre(duration_days=None, published=True))
+
+    assert res.status_code == 422
+    assert "durée" in res.json()["detail"]
+
+
+def test_refuse_une_offre_gratuite_qui_porte_un_prix(client: TestClient) -> None:
+    """Gratuit ET tarifé : l'un des deux serait applique, et personne ne sait lequel."""
+    res = client.put("/admin/billing/offers/solo", json=_offre(is_free=True))
+
+    assert res.status_code == 422

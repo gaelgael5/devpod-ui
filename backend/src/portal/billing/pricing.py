@@ -164,12 +164,29 @@ def devises_manquantes(offre: Offer, devises_actives: Iterable[str]) -> list[str
     n'est pas proposée aux utilisateurs de ce pays, et l'absence doit se voir à
     la saisie plutôt que dans une page vide côté client.
     """
+    # Une offre gratuite n'encaisse rien : reclamer un prix par devise ferait
+    # signaler un manque qui n'existe pas.
+    if offre.is_free:
+        return []
     presentes = {p.currency for p in offre.prices}
     return sorted(set(devises_actives) - presentes)
 
 
 def publiable(offre: Offer, devises_actives: Iterable[str]) -> bool:
-    """Une offre sans prix dans AUCUNE devise activée n'est proposable à personne."""
+    """Deux conditions, et elles ne disent pas la même chose.
+
+    **La durée** est exigée de toute offre, gratuite comprise : un forfait sans
+    terme ne peut pas se facturer, et un essai sans fin n'est pas un essai —
+    c'est un produit offert.
+
+    **Un prix dans une devise activée** n'est exigé que d'une offre payante :
+    sans lui elle n'est proposable à personne. Une offre gratuite, elle, n'a
+    rien à encaisser.
+    """
+    if offre.duration_days is None:
+        return False
+    if offre.is_free:
+        return True
     actives = set(devises_actives)
     if not actives:
         return False

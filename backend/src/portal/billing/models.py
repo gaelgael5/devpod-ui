@@ -259,6 +259,16 @@ class Offer(BaseModel):
     auto_currencies: bool = False
     #: 1 = pas de majoration. Decimal, jamais un flottant : c'est de l'argent.
     currency_markup: Decimal = Decimal("1")
+    # Offre gratuite : un forfait de bienvenue, pour essayer le produit. Elle
+    # n'a AUCUN prix — c'est un drapeau et non l'absence de tarif, parce qu'une
+    # offre payante dont on a oublie le prix est une erreur de saisie, pas une
+    # offre gratuite. Les deux se confondraient sans lui.
+    is_free: bool = False
+    # Duree du forfait, EN JOURS. Tout forfait est borne : l'essai parce qu'il
+    # doit finir, le payant parce qu'un abonnement sans terme ne se facture pas.
+    # `None` = pas encore renseignee — l'offre reste un brouillon, la
+    # publication l'exige (cf. `pricing.publiable`).
+    duration_days: int | None = None
 
     @field_validator("currency_markup")
     @classmethod
@@ -280,6 +290,27 @@ class Offer(BaseModel):
         if v is not None and v <= 0:
             raise ValueError("un quota vaut None (illimité) ou un entier strictement positif")
         return v
+
+    @field_validator("duration_days")
+    @classmethod
+    def _duree(cls, v: int | None) -> int | None:
+        if v is not None and v <= 0:
+            raise ValueError("duration_days : un forfait dure au moins un jour")
+        return v
+
+    @model_validator(mode="after")
+    def _gratuit_sans_prix(self) -> Offer:
+        """Gratuit ET tarifé n'a pas de sens.
+
+        Laisser coexister les deux, c'est laisser le point d'encaissement
+        choisir : l'un des deux serait applique, et personne ne saurait lequel.
+        """
+        if self.is_free and self.prices:
+            raise ValueError(
+                "offre gratuite : elle ne peut pas porter de prix "
+                f"({', '.join(p.currency for p in self.prices)})"
+            )
+        return self
 
     @model_validator(mode="after")
     def _pas_deux_prix_dans_la_meme_devise(self) -> Offer:

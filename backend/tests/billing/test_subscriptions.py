@@ -18,6 +18,7 @@ from portal.billing.subscriptions import (
     cle_idempotence,
     deja_traite,
     etat_apres,
+    fin_de_forfait,
     relance_due,
     reprendre,
 )
@@ -345,3 +346,79 @@ def test_la_reprise_repart_d_une_ardoise_nette() -> None:
     repris = reprendre(coupe, currency="EUR", amount_minor=2900, moment=T1)
     assert repris.payment_attempts == 0
     assert repris.next_retry_at is None
+
+
+# ─── Fin de forfait : tout forfait est borné dans le temps ────────────────────
+
+
+def test_fin_de_forfait_ajoute_les_jours_au_depart():
+    debut = datetime(2026, 1, 15, 9, 30, tzinfo=UTC)
+
+    assert fin_de_forfait(debut, 30) == datetime(2026, 2, 14, 9, 30, tzinfo=UTC)
+
+
+def test_fin_de_forfait_traverse_un_changement_d_annee():
+    """L'arithmétique de calendrier n'est pas de l'arithmétique de 365 jours."""
+    debut = datetime(2026, 12, 20, tzinfo=UTC)
+
+    assert fin_de_forfait(debut, 30) == datetime(2027, 1, 19, tzinfo=UTC)
+
+
+def test_fin_de_forfait_refuse_une_duree_nulle():
+    """Un forfait de zéro jour finirait avant d'avoir commencé."""
+    with pytest.raises(ValueError):
+        fin_de_forfait(datetime(2026, 1, 1, tzinfo=UTC), 0)
+
+
+def test_reprise_repart_pour_un_terme_neuf():
+    """Une reprise est un acte commercial NEUF : le terme se recalcule.
+
+    Reconduire l'ancienne date rouvrirait un abonnement déjà expiré.
+    """
+    moment = datetime(2026, 6, 1, tzinfo=UTC)
+    sub = _sub(state="resilie", ends_at=datetime(2026, 1, 1, tzinfo=UTC))
+
+    repris = reprendre(sub, currency="EUR", amount_minor=1200, moment=moment, duration_days=30)
+
+    assert repris.ends_at == datetime(2026, 7, 1, tzinfo=UTC)
+
+
+def test_reprise_sans_duree_ne_pose_pas_de_terme():
+    """Sans durée fournie, on ne devine pas : le terme reste à poser."""
+    sub = _sub(state="resilie", ends_at=datetime(2026, 1, 1, tzinfo=UTC))
+
+    repris = reprendre(
+        sub, currency="EUR", amount_minor=1200, moment=datetime(2026, 6, 1, tzinfo=UTC)
+    )
+
+    assert repris.ends_at is None
+
+
+def test_l_echeance_garde_l_heure_de_souscription():
+    """Arrondir au jour offrirait jusqu'a 24 h de service a chaque souscription.
+
+    Et ferait echoir tous les abonnements a la meme seconde, ce qui concentre
+    les renouvellements au lieu de les etaler.
+    """
+    debut = datetime(2026, 1, 15, 9, 30, tzinfo=UTC)
+
+    echeance = fin_de_forfait(debut, 30)
+
+    assert (echeance.hour, echeance.minute) == (9, 30)
+
+
+def test_l_echeance_ne_descend_pas_sous_la_minute():
+    """Les secondes datent de l'arrivee du webhook, pas d'une decision commerciale."""
+    debut = datetime(2026, 1, 15, 9, 30, 47, 123456, tzinfo=UTC)
+
+    echeance = fin_de_forfait(debut, 30)
+
+    assert echeance == datetime(2026, 2, 14, 9, 30, tzinfo=UTC)
+
+
+def test_deux_souscriptions_de_la_meme_minute_echoient_ensemble():
+    """Sinon deux abonnes de la meme minute renouvellent a des instants differents."""
+    a = fin_de_forfait(datetime(2026, 3, 1, 14, 5, 3, tzinfo=UTC), 7)
+    b = fin_de_forfait(datetime(2026, 3, 1, 14, 5, 58, tzinfo=UTC), 7)
+
+    assert a == b

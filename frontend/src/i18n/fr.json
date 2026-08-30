@@ -1074,7 +1074,18 @@
       "notFound": "Offre « {{slug}} » introuvable.",
       "tabGeneral": "Général",
       "champsManquantsGeneral": "Il manque le nom court ou le slug.",
-      "champsManquantsDescription": "Il manque le titre anglais."
+      "champsManquantsDescription": "Il manque le titre anglais.",
+      "tabDuration": "Durée",
+      "duration": "Durée du forfait",
+      "durationUnit": "jours",
+      "durationUnset": "non définie",
+      "durationHelp": "Tout forfait est borné : l'essai parce qu'il doit finir, le payant parce qu'un abonnement sans terme ne se facture pas. L'échéance porte un jour ET une heure. Exigée pour publier l'offre.",
+      "durationExample": "Un abonné qui souscrirait maintenant verrait son forfait échoir dans {{jours}} jours, le {{echeance}} — l'heure de souscription est conservée, à la minute près.",
+      "isFree": "Forfait gratuit (offre de bienvenue)",
+      "isFreeOn": "Aucun prix : l'offre sert à essayer le produit, et s'arrête au terme de sa durée.",
+      "isFreeOff": "Offre payante : au moins un prix dans une devise acceptée est requis pour la publier.",
+      "freeNoPricing": "Offre gratuite : il n'y a rien à tarifer. Sa durée reste à définir dans l'onglet « Durée ».",
+      "champsManquantsDuree": "Une offre publiée doit avoir une durée."
     }
   },
   "errors": {

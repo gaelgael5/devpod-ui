@@ -44,6 +44,12 @@ export interface Offer {
   /** Majoration appliquee aux devises derivees. 1 = neutre. Ce n'est PAS un
    *  taux de change : c'est une majoration commerciale. */
   currency_markup: number | string
+  /** Forfait de bienvenue : aucun prix. Un drapeau, et non l'absence de tarif —
+   *  une offre payante dont on a oublie le prix est une erreur de saisie. */
+  is_free: boolean
+  /** Duree du forfait EN JOURS. Tout forfait est borne, gratuit comme payant.
+   *  `null` = pas encore renseignee : la publication l'exige. */
+  duration_days: number | null
 }
 
 /** Reponse d'enregistrement : l'offre, plus ce qui lui manque pour etre vendable. */
@@ -67,6 +73,8 @@ export function offreVide(): Offer {
     prices_include_tax: false,
     auto_currencies: false,
     currency_markup: 1,
+    is_free: false,
+    duration_days: 30,
   }
 }
 
