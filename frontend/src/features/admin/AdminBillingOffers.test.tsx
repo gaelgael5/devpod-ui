@@ -15,7 +15,9 @@ import { I18nextProvider } from 'react-i18next'
 import { Toaster } from 'sonner'
 import i18n from '@/i18n'
 import { server } from '@/test/server'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import AdminBillingOffers from './AdminBillingOffers'
+import OfferEditor from './OfferEditor'
 
 const STRIPE = {
   slug: 'stripe-eu',
@@ -57,14 +59,27 @@ function renderPage(offres: unknown[] = [STANDARD]) {
     ),
   )
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  // L'editeur est un ECRAN, plus une fenetre modale : le parcours passe donc
+  // par le routeur, comme dans l'application.
   return render(
     <QueryClientProvider client={queryClient}>
       <I18nextProvider i18n={i18n}>
-        <AdminBillingOffers />
+        <MemoryRouter initialEntries={['/admin/billing-offers']}>
+          <Routes>
+            <Route path="/admin/billing-offers" element={<AdminBillingOffers />} />
+            <Route path="/admin/billing-offers/new" element={<OfferEditor />} />
+            <Route path="/admin/billing-offers/:slug" element={<OfferEditor />} />
+          </Routes>
+        </MemoryRouter>
         <Toaster />
       </I18nextProvider>
     </QueryClientProvider>,
   )
+}
+
+/** Le tarif vit dans son propre onglet : il faut y aller comme l'utilisateur. */
+async function ongletTarif() {
+  await userEvent.click(await screen.findByRole('tab', { name: i18n.t('admin.offers.tabPricing') }))
 }
 
 describe('AdminBillingOffers', () => {
@@ -117,15 +132,16 @@ describe('AdminBillingOffers', () => {
     await userEvent.click(await screen.findByRole('button', { name: i18n.t('common.save') }))
     const alerte = await screen.findByTestId('devises-manquantes')
     expect(alerte).toHaveTextContent('USD')
-    // La fiche reste ouverte : l'absence doit se corriger la, pas se decouvrir
-    // plus tard dans une page cliente vide.
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    // On reste sur l'ecran d'edition : l'absence doit se corriger la, pas se
+    // decouvrir plus tard dans une page cliente vide.
+    expect(screen.getByRole('button', { name: i18n.t('common.save') })).toBeInTheDocument()
   })
 
   it('dit explicitement si les montants sont HT ou TTC', async () => {
     renderPage()
     const offre = await screen.findByTestId('offre-standard')
     await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+    await ongletTarif()
 
     // Le sens du montant est un CHOIX, plus une deduction du mode de taxe du
     // canal : une offre peut changer de canal sans changer de nature.
@@ -138,6 +154,7 @@ describe('AdminBillingOffers', () => {
     renderPage()
     const offre = await screen.findByTestId('offre-standard')
     await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+    await ongletTarif()
 
     const devise = (await screen.findByLabelText(
       i18n.t('admin.offers.currency'),
@@ -156,6 +173,7 @@ describe('AdminBillingOffers', () => {
     renderPage()
     const offre = await screen.findByTestId('offre-standard')
     await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+    await ongletTarif()
 
     expect(await screen.findByText(i18n.t('admin.offers.providerPriceIdHint'))).toBeInTheDocument()
   })
@@ -191,10 +209,49 @@ describe('AdminBillingOffers', () => {
     expect(within(apercu).getByRole('heading')).toHaveTextContent('Ce que vous obtenez')
   })
 
+  it("ouvre l'edition en ecran plein, pas dans une fenetre modale", async () => {
+    // Une offre se saisit en plusieurs minutes, avec un editeur markdown par
+    // langue : une modale imposait un ascenseur dans un ascenseur.
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: i18n.t('admin.offers.new') }))
+
+    expect(await screen.findByLabelText(i18n.t('admin.offers.shortName'))).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('separe les textes du tarif en deux onglets', async () => {
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: i18n.t('admin.offers.new') }))
+
+    // Onglet « Description » : les textes, et rien du tarif.
+    expect(await screen.findByLabelText(i18n.t('admin.offers.shortName'))).toBeInTheDocument()
+    expect(screen.queryByLabelText(i18n.t('admin.offers.pricesIncludeTax'))).toBeNull()
+
+    await ongletTarif()
+
+    expect(await screen.findByLabelText(i18n.t('admin.offers.pricesIncludeTax'))).toBeInTheDocument()
+    expect(screen.queryByLabelText(i18n.t('admin.offers.shortName'))).toBeNull()
+  })
+
+  it("ramene sur l'onglet des textes quand un champ obligatoire manque", async () => {
+    // Onglet inactif = contenu demonte : le navigateur ne valide plus ses
+    // champs requis. Sans ce garde-fou, on partirait au serveur sans titre et
+    // rien ne designerait le champ fautif.
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: i18n.t('admin.offers.new') }))
+    await ongletTarif()
+
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('common.save') }))
+
+    expect(await screen.findByText(i18n.t('admin.offers.champsManquants'))).toBeInTheDocument()
+    expect(await screen.findByLabelText(i18n.t('admin.offers.shortName'))).toBeInTheDocument()
+  })
+
   it('la majoration des devises derivees vaut 1 par defaut', async () => {
     renderPage()
     const offre = await screen.findByTestId('offre-standard')
     await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+    await ongletTarif()
 
     const auto = await screen.findByLabelText(i18n.t('admin.offers.autoCurrencies'))
     expect(auto).not.toBeChecked()

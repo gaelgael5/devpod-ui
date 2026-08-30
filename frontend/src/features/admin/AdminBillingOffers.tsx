@@ -1,11 +1,9 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { useProviders } from './useBillingCatalog'
-import { offreVide, useDeleteOffer, useOffers, type Offer } from './useBillingOffers'
-import OfferEditor from './OfferEditor'
+import { useDeleteOffer, useOffers, type Offer } from './useBillingOffers'
 
 /** Montant en unites mineures rendu lisible, sans arrondi cache. */
 function montant(minor: number, devise: string): string {
@@ -21,10 +19,9 @@ function montant(minor: number, devise: string): string {
  */
 export default function AdminBillingOffers() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { data: offres = [], isLoading } = useOffers()
-  const { data: canaux = [] } = useProviders()
   const supprimer = useDeleteOffer()
-  const [edite, setEdite] = useState<Offer | null>(null)
 
   function retirer(o: Offer) {
     // Une offre souscrite repond 409 avec « la depublier plutot » : c'est ce
@@ -43,7 +40,11 @@ export default function AdminBillingOffers() {
           <h1 className="text-xl font-semibold">{t('admin.offers.title')}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{t('admin.offers.description')}</p>
         </div>
-        <Button size="sm" onClick={() => setEdite(offreVide())} className="shrink-0 gap-1.5">
+        <Button
+          size="sm"
+          onClick={() => navigate('/admin/billing-offers/new')}
+          className="shrink-0 gap-1.5"
+        >
           <Plus className="h-3.5 w-3.5" />
           {t('admin.offers.new')}
         </Button>
@@ -97,7 +98,7 @@ export default function AdminBillingOffers() {
                 variant="ghost"
                 className="h-7 w-7"
                 aria-label={t('admin.offers.edit')}
-                onClick={() => setEdite(o)}
+                onClick={() => navigate(`/admin/billing-offers/${encodeURIComponent(o.slug)}`)}
               >
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
@@ -114,8 +115,6 @@ export default function AdminBillingOffers() {
           </div>
         ))}
       </div>
-
-      {edite && <OfferEditor offre={edite} canaux={canaux} onClose={() => setEdite(null)} />}
     </div>
   )
 }

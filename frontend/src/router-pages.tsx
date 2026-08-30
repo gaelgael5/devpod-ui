@@ -23,6 +23,9 @@ export const AdminBillingCatalog = lazy(
 export const AdminBillingOffers = lazy(
   () => import('@/features/admin/AdminBillingOffers'),
 )
+export const AdminOfferEditor = lazy(
+  () => import('@/features/admin/OfferEditor'),
+)
 export const AdminProxmox = lazy(() => import('@/features/admin/AdminProxmox'))
 export const AdminHypervisorTypes = lazy(() => import('@/features/admin/AdminHypervisorTypes'))
 export const AdminAgentTypes = lazy(() => import('@/features/admin/AdminAgentTypes'))

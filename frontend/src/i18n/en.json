@@ -1068,7 +1068,11 @@
       "autoCurrencies": "Handle other currencies automatically",
       "autoCurrenciesHelp": "Accepted currencies without their own price are derived from the default price, markup included. This is not an exchange rate: it is a commercial markup, and it follows no market.",
       "markup": "Markup",
-      "noAcceptedCurrency": "No accepted currency. Declare some in the billing catalog before pricing this offer."
+      "noAcceptedCurrency": "No accepted currency. Declare some in the billing catalog before pricing this offer.",
+      "tabDescription": "Description",
+      "tabPricing": "Pricing",
+      "notFound": "Offer “{{slug}}” not found.",
+      "champsManquants": "The short name, the slug or the English title is missing."
     }
   },
   "errors": {
@@ -1719,7 +1723,8 @@
     "cancel": "Cancel",
     "close": "Close",
     "edit": "Edit",
-    "delete": "Delete"
+    "delete": "Delete",
+    "back": "Back"
   },
   "jinjaTemplates": {
     "title": "Jinja2 templates",

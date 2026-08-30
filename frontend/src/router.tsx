@@ -29,6 +29,7 @@ import {
   AdminHostProfiles,
   AdminBillingCatalog,
   AdminBillingOffers,
+  AdminOfferEditor,
   AdminSessions,
   AdminWorkflow,
   ApplicationsPage,
@@ -164,6 +165,16 @@ export const router = createBrowserRouter([
       {
         path: '/admin/billing-offers',
         element: <AdminGuard><Wrap><AdminBillingOffers /></Wrap></AdminGuard>,
+      },
+      {
+        // Ecran plein, pas une fenetre modale : une offre se saisit en plusieurs
+        // minutes, avec un editeur markdown par langue.
+        path: '/admin/billing-offers/new',
+        element: <AdminGuard><Wrap><AdminOfferEditor /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/billing-offers/:slug',
+        element: <AdminGuard><Wrap><AdminOfferEditor /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/recipes',

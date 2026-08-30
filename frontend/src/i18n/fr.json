@@ -1068,7 +1068,11 @@
       "autoCurrencies": "Gérer automatiquement les autres devises",
       "autoCurrenciesHelp": "Les devises acceptées sans prix propre sont dérivées du prix par défaut, majoration comprise. Ce n'est pas un taux de change : c'est une majoration commerciale, et elle ne suit aucun cours.",
       "markup": "Majoration",
-      "noAcceptedCurrency": "Aucune devise acceptée. Déclarez-en dans le catalogue de facturation avant de tarifer cette offre."
+      "noAcceptedCurrency": "Aucune devise acceptée. Déclarez-en dans le catalogue de facturation avant de tarifer cette offre.",
+      "tabDescription": "Description",
+      "tabPricing": "Tarif",
+      "notFound": "Offre « {{slug}} » introuvable.",
+      "champsManquants": "Il manque le nom court, le slug ou le titre anglais."
     }
   },
   "errors": {
@@ -1719,7 +1723,8 @@
     "cancel": "Annuler",
     "close": "Fermer",
     "edit": "Modifier",
-    "delete": "Supprimer"
+    "delete": "Supprimer",
+    "back": "Retour"
   },
   "jinjaTemplates": {
     "title": "Templates Jinja2",
