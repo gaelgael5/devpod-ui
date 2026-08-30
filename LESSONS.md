@@ -28,6 +28,7 @@
 - Profil/recettes seulement pour docker-tls (SSH : `--devcontainer-path` inexploitable) ; champ `appPort` (pas `appPorts`) — les champs inconnus sont ignorés en silence.
 - Bind mount / postCreateCommand = CONSTRUCTION du conteneur seulement (`--recreate`) : toute config rejouable au restart doit être ÉCRITE dans le conteneur via `ws_exec` (spec 35b), jamais delete+recreate.
 - `git clone` HTTPS authentifié en postCreate = panic devpod v0.6.15 (GitCredentials, workspace nil en setup) → clone post-readiness via `ws_exec` (`http.extraHeader`) ; clones inline durcis `GIT_ASKPASS=/bin/false -c credential.helper=`.
+- État devpod CLIENT = `$DEVPOD_HOME/contexts/<ctx>/workspaces/<id>` ; `agent/contexts/...` n'existe que sur le NŒUD (le chercher côté portail = sonde toujours fausse → `devpod up` complet à chaque restart). Toute sonde de fond (`warm_tunnel`, sonde tmux) DOIT être dédupliquée par ws_id ET amortie après échec : sans back-off, un nœud lent reçoit un handshake de plus tous les 8 s et ne s'en sort jamais. Vérifier un chemin devpod contre le binaire (déposer un `workspace.json` bidon et regarder si `devpod list` le voit), jamais de mémoire.
 
 ## [mcp]
 - Backends `transport=internal` : `monitor_backend_once` doit aussi resync (`ensure_devpod_backend`), pas seulement renvoyer up.
