@@ -38,6 +38,7 @@ from .routes.host_profiles import router as host_profiles_router
 from .routes.host_recipes import me_router as host_recipes_me_router
 from .routes.host_recipes import router as host_recipes_admin_router
 from .routes.host_secrets import router as host_secrets_router
+from .routes.hypervisor_actions import router as hypervisor_actions_router
 from .routes.jinja_template_sources import router_admin as jinja_sources_admin_router
 from .routes.jinja_templates import router as jinja_templates_router
 from .routes.machine_profiles import me_router as machine_profiles_me_router
@@ -493,6 +494,7 @@ def create_app() -> FastAPI:
     app.include_router(host_secrets_router, prefix="/admin")
     app.include_router(nodes_router, prefix="/admin")
     app.include_router(proxmox_router, prefix="/admin")
+    app.include_router(hypervisor_actions_router, prefix="/admin")
     app.include_router(recipes_admin_router, prefix="/admin")
     # Recettes appliquees SUR une machine (scope=host), distinctes du catalogue.
     app.include_router(host_recipes_admin_router, prefix="/admin")

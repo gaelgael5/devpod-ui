@@ -18,6 +18,7 @@ import {
   AdminNetwork,
   AdminOidc,
   AdminProfileEditor,
+  AdminHypervisorTypeEditor,
   AdminAutomations,
   AutomationEditor,
   AdminContracts,
@@ -199,6 +200,15 @@ export const router = createBrowserRouter([
       {
         path: '/admin/hypervisor-types',
         element: <AdminGuard><Wrap><AdminHypervisorTypes /></Wrap></AdminGuard>,
+      },
+      {
+        // `new` = création : même page, même formulaire, pas de popup.
+        path: '/admin/hypervisor-types/new',
+        element: <AdminGuard><Wrap><AdminHypervisorTypeEditor /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/hypervisor-types/:name',
+        element: <AdminGuard><Wrap><AdminHypervisorTypeEditor /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/agent-types',

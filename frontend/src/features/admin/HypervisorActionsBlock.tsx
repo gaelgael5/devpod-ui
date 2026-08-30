@@ -2,15 +2,25 @@ import { useTranslation } from 'react-i18next'
 import { Trash2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { slugifier, qualifierSlugAction } from '@/shared/slug'
-import type { HypervisorAction } from './useAdminHypervisorTypes'
+import type { CibleAction, HypervisorAction } from './useAdminHypervisorTypes'
 
 interface Props {
   /** Nom du type — sert à montrer le slug qualifié réellement enregistré. */
   typeName: string
+  /**
+   * Cible éditée dans ce bloc. Le bloc ne voit QUE les actions de cette cible,
+   * mais reçoit et rend la liste complète : les slugs doivent rester uniques
+   * sur les deux familles, c'est par le slug que l'exécution retrouve l'action.
+   */
+  cible: CibleAction
   actions: HypervisorAction[]
   onChange: (actions: HypervisorAction[]) => void
+}
+
+/** Défaut du backend : une action sans cible explicite vise une machine. */
+function cibleDe(action: HypervisorAction): CibleAction {
+  return action.cible ?? 'machine'
 }
 
 /**
@@ -23,8 +33,14 @@ interface Props {
  * Le slug affiché est celui qui sera ENREGISTRÉ : le backend le préfixe par le
  * type, pour que deux types puissent proposer un « reboot » sans se confondre.
  */
-export default function HypervisorActionsBlock({ typeName, actions, onChange }: Props) {
+export default function HypervisorActionsBlock({ typeName, cible, actions, onChange }: Props) {
   const { t } = useTranslation()
+
+  // Indices dans la liste COMPLÈTE des actions affichées par ce bloc : l'édition
+  // et la suppression portent sur la liste complète, l'affichage sur le sous-ensemble.
+  const visibles = actions
+    .map((action, index) => ({ action, index }))
+    .filter(({ action }) => cibleDe(action) === cible)
 
   function set(i: number, champ: keyof HypervisorAction, valeur: string) {
     onChange(actions.map((a, j) => (j === i ? { ...a, [champ]: valeur } : a)))
@@ -40,16 +56,19 @@ export default function HypervisorActionsBlock({ typeName, actions, onChange }: 
 
   return (
     <div className="flex flex-col gap-2">
-      <Label>{t('admin.hypervisorActions.title')}</Label>
-      <p className="text-xs text-muted-foreground">{t('admin.hypervisorActions.hint')}</p>
+      <p className="text-xs text-muted-foreground">
+        {cible === 'hyperviseur'
+          ? t('admin.hypervisorActions.hintHypervisor')
+          : t('admin.hypervisorActions.hintMachine')}
+      </p>
 
-      {actions.length === 0 && (
+      {visibles.length === 0 && (
         <p className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           {t('admin.hypervisorActions.empty')}
         </p>
       )}
 
-      {actions.map((action, i) => (
+      {visibles.map(({ action, index: i }) => (
         <div key={i} className="flex flex-col gap-1.5 rounded-md border p-2">
           <div className="flex items-start gap-2">
             <div className="flex flex-1 flex-col gap-1.5">
@@ -100,7 +119,7 @@ export default function HypervisorActionsBlock({ typeName, actions, onChange }: 
         size="sm"
         variant="outline"
         className="self-start"
-        onClick={() => onChange([...actions, { label: '', slug: '', script: '' }])}
+        onClick={() => onChange([...actions, { label: '', slug: '', script: '', cible }])}
       >
         <Plus className="mr-1 h-3.5 w-3.5" />
         {t('admin.hypervisorActions.add')}

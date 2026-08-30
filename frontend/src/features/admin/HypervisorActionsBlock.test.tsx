@@ -26,7 +26,7 @@ describe('qualifierSlugAction', () => {
 describe('HypervisorActionsBlock', () => {
   it('annonce l’absence d’action', () => {
     renderWithProviders(
-      <HypervisorActionsBlock typeName="proxmox" actions={[]} onChange={vi.fn()} />,
+      <HypervisorActionsBlock typeName="proxmox" cible="machine" actions={[]} onChange={vi.fn()} />,
     )
 
     expect(screen.getByText(/aucune action|no action registered/i)).toBeInTheDocument()
@@ -36,6 +36,7 @@ describe('HypervisorActionsBlock', () => {
     renderWithProviders(
       <HypervisorActionsBlock
         typeName="proxmox"
+        cible="machine"
         actions={[{ label: 'Reboot', slug: 'reboot', script: '' }]}
         onChange={vi.fn()}
       />,
@@ -47,12 +48,12 @@ describe('HypervisorActionsBlock', () => {
   it('ajoute une ligne vide', async () => {
     const onChange = vi.fn()
     renderWithProviders(
-      <HypervisorActionsBlock typeName="proxmox" actions={[]} onChange={onChange} />,
+      <HypervisorActionsBlock typeName="proxmox" cible="machine" actions={[]} onChange={onChange} />,
     )
 
     await userEvent.click(screen.getByRole('button', { name: /ajouter une action|add an action/i }))
 
-    expect(onChange).toHaveBeenCalledWith([{ label: '', slug: '', script: '' }])
+    expect(onChange).toHaveBeenCalledWith([{ label: '', slug: '', script: '', cible: 'machine' }])
   })
 
   it('derive le slug du libelle tant qu’il n’a pas ete saisi', async () => {
@@ -60,6 +61,7 @@ describe('HypervisorActionsBlock', () => {
     renderWithProviders(
       <HypervisorActionsBlock
         typeName="proxmox"
+        cible="machine"
         actions={[{ label: '', slug: '', script: '' }]}
         onChange={onChange}
       />,
@@ -75,6 +77,7 @@ describe('HypervisorActionsBlock', () => {
     renderWithProviders(
       <HypervisorActionsBlock
         typeName="proxmox"
+        cible="machine"
         actions={[{ label: 'Reboot', slug: 'rb', script: '', slugManuel: true }]}
         onChange={onChange}
       />,
@@ -92,6 +95,7 @@ describe('HypervisorActionsBlock', () => {
     renderWithProviders(
       <HypervisorActionsBlock
         typeName="proxmox"
+        cible="machine"
         actions={[{ label: 'Reboot', slug: 'reboot', script: '' }]}
         onChange={onChange}
       />,
@@ -100,5 +104,57 @@ describe('HypervisorActionsBlock', () => {
     await userEvent.click(screen.getByRole('button', { name: /retirer l.action|remove action/i }))
 
     expect(onChange).toHaveBeenCalledWith([])
+  })
+})
+
+describe('HypervisorActionsBlock — cible', () => {
+  const ACTIONS = [
+    { label: 'Increase memory', slug: 'mem', script: '', cible: 'machine' as const },
+    { label: 'Inventaire', slug: 'inv', script: '', cible: 'hyperviseur' as const },
+  ]
+
+  it('ne montre que les actions de sa cible', () => {
+    renderWithProviders(
+      <HypervisorActionsBlock
+        typeName="proxmox"
+        cible="hyperviseur"
+        actions={ACTIONS}
+        onChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByDisplayValue('Inventaire')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('Increase memory')).not.toBeInTheDocument()
+  })
+
+  it('une action sans cible est une action machine (types anterieurs au champ)', () => {
+    renderWithProviders(
+      <HypervisorActionsBlock
+        typeName="proxmox"
+        cible="machine"
+        actions={[{ label: 'Historique', slug: 'histo', script: '' }]}
+        onChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByDisplayValue('Historique')).toBeInTheDocument()
+  })
+
+  it('edite la bonne action alors que le bloc n’en montre qu’une partie', async () => {
+    const onChange = vi.fn()
+    renderWithProviders(
+      <HypervisorActionsBlock
+        typeName="proxmox"
+        cible="hyperviseur"
+        actions={ACTIONS}
+        onChange={onChange}
+      />,
+    )
+
+    // Le bloc affiche l'action d'indice 1 : editer la ligne visible ne doit pas
+    // ecraser l'action machine restee dans l'autre onglet.
+    await userEvent.click(screen.getByRole('button', { name: /retirer l.action|remove action/i }))
+
+    expect(onChange).toHaveBeenCalledWith([ACTIONS[0]])
   })
 })

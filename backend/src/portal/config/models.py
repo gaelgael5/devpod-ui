@@ -429,6 +429,12 @@ class HypervisorAction(BaseModel):
 
     Le `slug` est QUALIFIÉ par le type (`<type>-<slug>`) : deux types peuvent
     proposer un « reboot » sans que leurs actions se confondent.
+
+    La `cible` dit sur QUOI l'action s'applique. Les deux natures ne se
+    déclenchent pas au même endroit — l'une depuis la liste des hyperviseurs,
+    l'autre depuis la ligne d'un nœud — et rien d'autre ne permet de les
+    distinguer : un `reboot` sans cible pourrait aussi bien redémarrer
+    l'hyperviseur que la VM.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -437,6 +443,11 @@ class HypervisorAction(BaseModel):
     slug: str
     # URL du descripteur JSON, même format que `add_script`.
     script: str = ""
+    # `machine` par défaut : les types enregistrés avant l'introduction du champ
+    # ne déclarent que des actions de VM (mémoire, disque), et c'est aussi ce que
+    # produit le script de création. Un défaut `hyperviseur` reclasserait à tort
+    # tout l'existant.
+    cible: Literal["hyperviseur", "machine"] = "machine"
 
     @field_validator("slug")
     @classmethod

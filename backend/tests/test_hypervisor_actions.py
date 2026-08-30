@@ -70,3 +70,56 @@ def test_deux_types_peuvent_porter_la_meme_action() -> None:
     b = _actions_qualifiees("libvirt", [HypervisorAction(label="R", slug="reboot")])
 
     assert a[0].slug != b[0].slug
+
+
+# ─── Cible de l'action (hyperviseur vs machine) ───────────────────────────────
+
+
+def test_action_sans_cible_vaut_machine() -> None:
+    """Defaut retro-compatible : les actions deja declarees visent toutes des VM.
+
+    Un defaut `hyperviseur` reclasserait a tort tout l'existant — memoire et
+    disque s'appliquent a une machine, pas a l'hyperviseur qui l'heberge.
+    """
+    assert HypervisorAction(label="Increase memory", slug="mem-1g").cible == "machine"
+
+
+def test_action_refuse_une_cible_inconnue() -> None:
+    with pytest.raises(ValidationError):
+        HypervisorAction(label="Reboot", slug="reboot", cible="cluster")
+
+
+def test_type_historique_deserialise_ses_actions_en_machine() -> None:
+    """Relecture d'un type enregistre avant l'introduction du champ."""
+    ht = HypervisorType.model_validate(
+        {
+            "name": "proxmox4vm",
+            "actions": [
+                {"label": "Increase memory +1G", "slug": "proxmox4vm-increase-memory-1g"},
+                {"label": "Increase disk 10G", "slug": "proxmox4vm-increase-disk-10g"},
+            ],
+        }
+    )
+
+    assert [a.cible for a in ht.actions] == ["machine", "machine"]
+
+
+def test_qualification_preserve_la_cible() -> None:
+    """`_actions_qualifiees` ne recopie que le slug : le reste doit passer intact."""
+    actions = [HypervisorAction(label="Inventaire", slug="inv", cible="hyperviseur")]
+
+    assert _actions_qualifiees("proxmox", actions)[0].cible == "hyperviseur"
+
+
+def test_unicite_des_slugs_sur_les_deux_cibles() -> None:
+    """Une seule liste, donc une seule regle : un slug ne peut pas exister deux
+    fois, meme avec des cibles differentes — l'execution le retrouve par son
+    slug, elle ne saurait pas laquelle choisir."""
+    actions = [
+        HypervisorAction(label="Reboot hote", slug="reboot", cible="hyperviseur"),
+        HypervisorAction(label="Reboot VM", slug="reboot", cible="machine"),
+    ]
+
+    with pytest.raises(HTTPException) as exc:
+        _actions_qualifiees("proxmox", actions)
+    assert exc.value.status_code == 422

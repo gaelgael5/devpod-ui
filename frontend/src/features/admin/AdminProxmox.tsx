@@ -13,6 +13,25 @@ import {
 import { apiFetchJson } from '@/shared/api/client'
 import { useAdminProxmox, type HypervisorConfig } from './useAdminProxmox'
 import { useAdminHypervisorTypes } from './useAdminHypervisorTypes'
+import ActionsMenu from './ActionsMenu'
+import { useHypervisorActions } from './useHypervisorActions'
+
+/**
+ * Menu Actions d'une ligne d'hyperviseur.
+ *
+ * Composant a part parce que chaque ligne interroge SES actions : un hook ne
+ * s'appelle pas dans une boucle de rendu.
+ */
+function HypervisorRowActions({ node }: { node: HypervisorConfig }) {
+  const { data } = useHypervisorActions(node.name)
+  return (
+    <ActionsMenu
+      base={`/admin/hypervisors/${node.name}`}
+      cibleLabel={node.name}
+      actions={data ?? []}
+    />
+  )
+}
 
 const EMPTY = {
   name: '', address: '', ssh_user: 'root', ssh_port: 22,
@@ -343,6 +362,7 @@ export default function AdminProxmox() {
                       || '—'}
                   </td>
                   <td className="px-4 py-2 text-right flex items-center justify-end gap-1">
+                    <HypervisorRowActions node={n} />
                     <Button size="sm" variant="ghost" onClick={() => handleEditOpen(n)}>
                       {t('workspaces.actions.edit')}
                     </Button>

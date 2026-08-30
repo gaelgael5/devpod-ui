@@ -683,18 +683,16 @@ class ExecuteRequest(BaseModel):
     args: dict[str, str]
 
 
-async def _fetch_spec_for_type(hyp_type: HypervisorType) -> dict[str, object]:
-    """Télécharge la spec JSON d'un type d'hyperviseur (sans résolution SSH)."""
-    if not hyp_type.add_script:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Hypervisor type {hyp_type.name!r} has no add_script configured",
-        )
-    pinned_ip = await asyncio.to_thread(resolve_pinned, hyp_type.add_script)
+async def fetch_script_spec(url: str) -> dict[str, object]:
+    """Télécharge un descripteur JSON de script (création, destruction, action).
+
+    Point de passage unique : l'épinglage sur l'IP résolue (anti-rebinding, bug
+    022) ne doit pas dépendre de l'appelant qui a écrit la requête.
+    """
+    pinned_ip = await asyncio.to_thread(resolve_pinned, url)
     async with httpx.AsyncClient() as client:
         try:
-            # Connexion épinglée sur l'IP validée (anti-rebinding, bug 022)
-            resp = await pinned_get(client, hyp_type.add_script, timeout=15.0, pinned_ip=pinned_ip)
+            resp = await pinned_get(client, url, timeout=15.0, pinned_ip=pinned_ip)
             resp.raise_for_status()
             return dict(resp.json())
         except httpx.HTTPError as exc:
@@ -702,6 +700,16 @@ async def _fetch_spec_for_type(hyp_type: HypervisorType) -> dict[str, object]:
                 status_code=502,
                 detail=f"Failed to fetch script spec: {exc}",
             ) from exc
+
+
+async def _fetch_spec_for_type(hyp_type: HypervisorType) -> dict[str, object]:
+    """Télécharge la spec JSON d'un type d'hyperviseur (sans résolution SSH)."""
+    if not hyp_type.add_script:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Hypervisor type {hyp_type.name!r} has no add_script configured",
+        )
+    return await fetch_script_spec(hyp_type.add_script)
 
 
 async def _fetch_spec(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:

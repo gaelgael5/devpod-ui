@@ -45,6 +45,9 @@ export const SessionsView = lazy(() => import('@/features/sessions/SessionsView'
 export const ProfileList = lazy(() => import('@/features/profiles/ProfileList'))
 export const ProfileEditor = lazy(() => import('@/features/profiles/ProfileEditor'))
 export const AdminProfileEditor = lazy(() => import('@/features/admin/AdminProfileEditor'))
+export const AdminHypervisorTypeEditor = lazy(
+  () => import('@/features/admin/AdminHypervisorTypeEditor'),
+)
 export const AdminProfileSources = lazy(() => import('@/features/admin/AdminProfileSources'))
 export const CredentialsPage = lazy(() => import('@/features/git-credentials/CredentialsPage'))
 export const VaultSetup = lazy(() => import('@/features/vault/VaultSetup'))

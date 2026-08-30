@@ -892,7 +892,13 @@
       "add": "Add an action",
       "remove": "Remove action",
       "labelPlaceholder": "Reboot the VM",
-      "savedAs": "Saved as"
+      "savedAs": "Saved as",
+      "hintHypervisor": "Scripts that apply to the hypervisor itself. Each one is a JSON descriptor in the same format as the creation script.",
+      "hintMachine": "Scripts that apply to the machines created by this hypervisor, beyond create and destroy.",
+      "menu": "Actions",
+      "run": "Run",
+      "running": "Running…",
+      "confirm": "Run “{{action}}” on {{cible}}?"
     },
     "galleryRange": "{{from}}–{{to}} of {{total}}",
     "galleryPrev": "Previous",
@@ -1096,6 +1102,15 @@
       "hostProfileDown": "Move down in priority",
       "hostProfileRemove": "Remove from the offer",
       "champsManquantsProfils": "A host profile is missing: nothing would say which machine to open."
+    },
+    "hypervisorTypeEditor": {
+      "back": "← Hypervisor types",
+      "tabGeneral": "General",
+      "tabHypervisorActions": "Hypervisor actions",
+      "tabMachineActions": "Machine actions",
+      "tabVariables": "Variables",
+      "nameFrozen": "The identifier is frozen: already-saved action slugs depend on it.",
+      "notFound": "Hypervisor type not found."
     }
   },
   "errors": {

@@ -892,7 +892,13 @@
       "add": "Ajouter une action",
       "remove": "Retirer l'action",
       "labelPlaceholder": "Redémarrer la VM",
-      "savedAs": "Enregistré sous"
+      "savedAs": "Enregistré sous",
+      "hintHypervisor": "Scripts qui s'appliquent à l'hyperviseur lui-même. Chacun est un descripteur JSON du même format que le script de création.",
+      "hintMachine": "Scripts qui s'appliquent aux machines créées par cet hyperviseur, au-delà de créer et détruire.",
+      "menu": "Actions",
+      "run": "Exécuter",
+      "running": "Exécution…",
+      "confirm": "Exécuter « {{action}} » sur {{cible}} ?"
     },
     "galleryRange": "{{from}}–{{to}} sur {{total}}",
     "galleryPrev": "Précédent",
@@ -1096,6 +1102,15 @@
       "hostProfileDown": "Descendre dans la priorité",
       "hostProfileRemove": "Retirer de l'offre",
       "champsManquantsProfils": "Il manque un profil de host : rien ne dirait quelle machine ouvrir."
+    },
+    "hypervisorTypeEditor": {
+      "back": "← Types d'hyperviseurs",
+      "tabGeneral": "Général",
+      "tabHypervisorActions": "Actions sur l'hyperviseur",
+      "tabMachineActions": "Actions sur les machines",
+      "tabVariables": "Variables",
+      "nameFrozen": "L'identifiant est figé : les slugs d'action déjà enregistrés en dépendent.",
+      "notFound": "Type d'hyperviseur introuvable."
     }
   },
   "errors": {

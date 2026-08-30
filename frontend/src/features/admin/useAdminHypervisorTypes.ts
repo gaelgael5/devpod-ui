@@ -2,11 +2,22 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiFetchJson } from '@/shared/api/client'
 
+/**
+ * Sur QUOI une action s'applique.
+ *
+ * `hyperviseur` se declenche depuis la liste des hyperviseurs, `machine` depuis
+ * la ligne d'un noeud. Les deux s'executent en SSH sur l'hyperviseur, mais un
+ * script machine attend un `VMID` que la page des hyperviseurs n'a pas.
+ */
+export type CibleAction = 'hyperviseur' | 'machine'
+
 export interface HypervisorAction {
   label: string
   slug: string
   /** URL du descripteur JSON, meme format que `add_script`. */
   script: string
+  /** Defaut `machine` cote backend : les actions deja declarees visent des VM. */
+  cible?: CibleAction
   /**
    * Local a l'edition : le slug a ete saisi a la main, il ne suit plus le
    * libelle. Jamais envoye au backend (`extra="forbid"` le refuserait).

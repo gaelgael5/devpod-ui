@@ -113,6 +113,11 @@ hypervisor_types = Table(
     Column("add_script", Text, nullable=False, server_default=""),
     Column("destroy_script", Text, nullable=False, server_default=""),
     Column("test_host_params", JSONB, nullable=False, server_default="{}"),
+    # Actions et variables declarees par le type (migration 122). Elles ne
+    # vivaient qu'en memoire : servies par le cache de la config globale, elles
+    # disparaissaient au premier rechargement depuis la base.
+    Column("actions", JSONB, nullable=False, server_default="[]"),
+    Column("variables", JSONB, nullable=False, server_default="[]"),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 

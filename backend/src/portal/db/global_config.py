@@ -208,6 +208,10 @@ def _ht_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "add_script": row["add_script"],
         "destroy_script": row["destroy_script"],
         "test_host_params": dict(row["test_host_params"] or {}),
+        # `or []` couvre les lignes anterieures a la migration 122, dont la
+        # colonne peut etre NULL : une declaration absente est une liste vide.
+        "actions": list(row["actions"] or []),
+        "variables": list(row["variables"] or []),
     }
 
 
@@ -351,6 +355,10 @@ def _ht_to_row(ht: HypervisorType) -> dict[str, Any]:
         "add_script": ht.add_script,
         "destroy_script": ht.destroy_script,
         "test_host_params": dict(ht.test_host_params),
+        # `model_dump` et non un dict fabrique a la main : un champ ajoute plus
+        # tard au modele suit tout seul, au lieu d'etre perdu en silence.
+        "actions": [a.model_dump(mode="json") for a in ht.actions],
+        "variables": [v.model_dump(mode="json") for v in ht.variables],
     }
 
 

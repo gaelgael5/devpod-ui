@@ -115,6 +115,23 @@ def full_cfg() -> GlobalConfig:
                     "label": "Proxmox VE",
                     "add_script": "add.sh",
                     "destroy_script": "del.sh",
+                    "actions": [
+                        {
+                            "label": "Increase memory +1G",
+                            "slug": "proxmox-increase-memory-1g",
+                            "script": "https://raw.example.com/mem.json",
+                            "cible": "machine",
+                        },
+                        {
+                            "label": "Inventaire",
+                            "slug": "proxmox-inventaire",
+                            "script": "https://raw.example.com/inv.json",
+                            "cible": "hyperviseur",
+                        },
+                    ],
+                    "variables": [
+                        {"label": "Capacité", "slug": "capacity_workspaces", "type": "int"},
+                    ],
                 }
             ],
             "hypervisors": [
@@ -344,6 +361,51 @@ async def test_hypervisor_types_round_trip(db_conn, full_cfg):
     assert ht.name == "proxmox"
     assert ht.label == "Proxmox VE"
     assert ht.add_script == "add.sh"
+
+
+@pytest.mark.asyncio
+async def test_actions_et_variables_survivent_a_un_rechargement_depuis_la_base(db_conn, full_cfg):
+    """Regression : les deux listes n'etaient portees par aucune colonne.
+
+    Le test passe DELIBEREMENT par la base — save puis `warm_global_cache`, qui
+    relit — et non par la reponse de l'enregistrement : c'est precisement parce
+    que le cache memoire repondait juste que la perte est restee invisible
+    jusqu'au redemarrage suivant du portail.
+    """
+    invalidate_cache()
+    await save_global_db(full_cfg, db_conn)
+    await warm_global_cache(db_conn)
+
+    ht = get_cached_global().hypervisor_types[0]
+    assert [a.slug for a in ht.actions] == [
+        "proxmox-increase-memory-1g",
+        "proxmox-inventaire",
+    ]
+    assert ht.actions[0].script == "https://raw.example.com/mem.json"
+    assert [a.cible for a in ht.actions] == ["machine", "hyperviseur"]
+    assert [v.slug for v in ht.variables] == ["capacity_workspaces"]
+    assert ht.variables[0].type == "int"
+
+
+@pytest.mark.asyncio
+async def test_type_anterieur_a_la_migration_relit_des_listes_vides(db_conn, minimal_cfg):
+    """Ligne ecrite sans les colonnes de la migration 122 : listes vides, pas d'erreur.
+
+    C'est l'etat de tous les types deja enregistres le jour du deploiement.
+    """
+    from sqlalchemy import insert
+
+    from portal.db.tables import hypervisor_types
+
+    await save_global_db(minimal_cfg, db_conn)
+    await db_conn.execute(
+        insert(hypervisor_types).values(name="legacy", label="Ancien", add_script="add.sh")
+    )
+
+    ht = (await load_global_db(db_conn)).hypervisor_types[0]
+    assert ht.name == "legacy"
+    assert ht.actions == []
+    assert ht.variables == []
 
 
 # ─── Idempotence (double save = update, pas d'erreur de contrainte) ────────────

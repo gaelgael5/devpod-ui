@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useRevealCiPassword, useTestHostsSummary, type HostConfig, type HostCreatePayload, type HostUserWorkspaces, type UserTestGroup } from './useHosts'
+import ActionsMenu from './ActionsMenu'
+import { useHostActions } from './useHypervisorActions'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
 import OrphanDeploymentsDialog from './OrphanDeploymentsDialog'
@@ -25,6 +27,25 @@ import HostRecipesDialog from './HostRecipesDialog'
 import { openTerminalTab } from '@/features/terminal/openTerminalTab'
 
 /** Ouvre le terminal SSH d'un host Docker dans un onglet plein écran. */
+/**
+ * Menu Actions d'une ligne de noeud : les actions de cible « machine »
+ * declarees par le type d'hyperviseur qui l'heberge.
+ *
+ * Composant a part parce que chaque ligne interroge SES actions — un hook ne
+ * s'appelle pas dans une boucle de rendu. Un noeud enrole a la main n'a pas
+ * d'hyperviseur : la liste revient vide et le menu ne s'affiche pas.
+ */
+function HostRowActions({ host }: { host: HostConfig }) {
+  const { data } = useHostActions(host.name)
+  return (
+    <ActionsMenu
+      base={`/admin/hosts/${host.name}`}
+      cibleLabel={host.name}
+      actions={data ?? []}
+    />
+  )
+}
+
 function openHostSsh(name: string): void {
   openTerminalTab(`/admin/hosts/${encodeURIComponent(name)}/ssh`, name)
 }
@@ -473,6 +494,7 @@ function TestHostsGroupedSection({
                               {host.address || '—'}
                             </span>
                             <div className="flex items-center gap-1 shrink-0">
+                              <HostRowActions host={host} />
                               <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => actions.onEdit(host)}>
                                 <Pencil className="h-3 w-3" />
                               </Button>
@@ -573,6 +595,7 @@ function OtherHostsSection({
             </span>
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            <HostRowActions host={host} />
             <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => actions.onEdit(host)}>
               <Pencil className="h-3.5 w-3.5" />
             </Button>
@@ -639,6 +662,7 @@ function ResourceHostsSection({
               </span>
             </div>
             <div className="flex items-center gap-1 shrink-0">
+              <HostRowActions host={host} />
               <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => actions.onEdit(host)}>
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
@@ -921,6 +945,7 @@ export default function AdminHosts() {
                           </td>
                           <td className="px-4 py-2">
                             <div className="flex items-center justify-end gap-1">
+                              <HostRowActions host={h} />
                               <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(h)}>
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
