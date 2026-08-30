@@ -3,8 +3,14 @@
  *
  * Pourquoi ce module existe : sous tmux, xterm n'a AUCUN historique a faire
  * defiler. tmux occupe l'ecran alterne, le scrollback du terminal reste vide, et
- * xterm ne traduit pas la molette en touches sur ce tampon (aucune notion
- * d'`alternateScroll` dans sa source). Molette et glissement ne font donc rien.
+ * le glissement du doigt ne produit rien.
+ *
+ * La molette, elle, produit PIRE que rien. Sur un tampon sans scrollback, xterm
+ * la traduit en touches de curseur (`ESC [ A` / `ESC [ B`) qu'il ecrit dans la
+ * session — le shell et Claude Code y lisent un parcours de l'historique des
+ * COMMANDES. C'est le comportement que `attachCustomWheelEventHandler` coupe
+ * dans FullscreenTerminal ; sans cela, ce module defilerait pendant que
+ * l'application rappelle ses commandes precedentes.
  *
  * L'historique vit dans le copy-mode de tmux. On traduit le geste en touches
  * plutot que d'activer `mouse on` cote tmux : celui-ci capterait les evenements

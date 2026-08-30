@@ -323,24 +323,37 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     }
 
     /**
-     * Molette quand une application suit la souris (Claude Code, htop, vim...).
+     * Molette : empeche xterm d'envoyer FLECHE HAUT / BAS a l'application.
      *
-     * xterm intercepte alors le `wheel` sur SON element, l'envoie a
-     * l'application sous forme d'evenement souris, puis coupe la propagation :
-     * `onWheel`, pose sur le conteneur, n'est jamais appele. L'application
-     * recoit le geste et le lit a sa facon — dans Claude Code, un deplacement
-     * dans l'historique des commandes ; sur un ordinateur la molette semblait
-     * donc « rappeler les commandes precedentes » au lieu de faire defiler.
+     * Sous tmux, le tampon alterne n'a pas de scrollback — et xterm traduit
+     * alors la molette en touches de curseur (`ESC [ A` / `ESC [ B`), qu'il
+     * ecrit directement dans la session. Le shell comme Claude Code lisent ces
+     * touches pour ce qu'elles sont : un parcours de l'HISTORIQUE DES
+     * COMMANDES. A la molette, le terminal rappelait donc les commandes
+     * precedentes au lieu de defiler. Verifie dans la source d'@xterm/xterm 6 :
+     * la traduction est gardee par `!buffer.hasScrollback`, sans option pour la
+     * couper (`alternateScroll` / DECSET 1007 n'y existent pas).
      *
-     * `attachCustomWheelEventHandler` est le point d'extension prevu :
-     * retourner `false` empeche xterm d'emettre l'evenement souris. On rend la
-     * main a l'application quand Maj est enfonce — sinon plus aucun moyen de
-     * faire defiler sa propre interface.
+     * `attachCustomWheelEventHandler` est consulte EN PREMIER sur les deux
+     * chemins molette de xterm — celui des touches de curseur, et celui de
+     * l'evenement souris quand une application suit la souris. Retourner
+     * `false` les coupe tous les deux, et le geste revient au meme scroller que
+     * le glissement du doigt.
+     *
+     * `stopPropagation` est indispensable : xterm ne l'appelle PAS quand notre
+     * handler rend `false` (aucun `cancel` sur ce chemin), et son element est
+     * un ENFANT du conteneur. Sans lui, l'evenement remonterait jusqu'a
+     * `onWheel` qui alimenterait le scroller une seconde fois — un cran de
+     * molette ferait defiler deux fois trop vite.
+     *
+     * Maj rend la main a l'application : sans cette echappatoire, plus aucun
+     * moyen de faire defiler sa propre interface.
      */
     terminal.attachCustomWheelEventHandler((e: WheelEvent) => {
       if (e.shiftKey) return true
       if (!scroller.wheel(e.deltaY)) return true
       e.preventDefault()
+      e.stopPropagation()
       return false
     })
     const onTouchStart = (e: TouchEvent) => {

@@ -10,6 +10,9 @@ import { ENTER_COPY, EXIT_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScr
 const terminals: MockTerminal[] = []
 /** Largeur d'une colonne dans le mock ; la hauteur de ligne en vaut le double. */
 const CELL_PX = 10
+/** Ce que xterm ecrit dans la session a la molette faute de scrollback. */
+const CURSEUR_HAUT = '\x1b[A'
+const CURSEUR_BAS = '\x1b[B'
 
 class MockTerminal {
   cols = 80
@@ -29,9 +32,16 @@ class MockTerminal {
   /** Contenu de toute ligne du tampon. */
   ligne = 'ls -la'
   open = vi.fn((el: HTMLElement) => {
-    this.element = el
-    el.appendChild(this.textarea)
-    el.appendChild(this.screen)
+    // xterm cree SON element comme ENFANT du conteneur (`parent.appendChild`)
+    // et y pose ses ecouteurs. Le mock doit reproduire ce niveau : c'est lui
+    // qui decide si un `wheel` traite par xterm remonte, ou non, jusqu'a
+    // l'ecouteur que le composant pose sur le conteneur.
+    this.element = document.createElement('div')
+    this.element.classList.add('xterm')
+    el.appendChild(this.element)
+    this.element.appendChild(this.textarea)
+    this.element.appendChild(this.screen)
+    this.element.addEventListener('wheel', (e) => this.routeWheel(e as WheelEvent))
     this.screen.getBoundingClientRect = () =>
       ({
         left: 0,
@@ -78,23 +88,32 @@ class MockTerminal {
     return { dispose: vi.fn() }
   })
   onResize = vi.fn(() => ({ dispose: vi.fn() }))
-  /**
-   * Point d'extension d'xterm pour la molette. Quand une application a active
-   * le suivi souris, xterm intercepte le `wheel` sur SON element, consulte ce
-   * handler, puis `preventDefault` + `stopPropagation` : l'ecouteur du
-   * conteneur ne voit jamais l'evenement. Le mock doit donc porter ce chemin,
-   * sinon le test ne peut pas reproduire le cas.
-   */
+  /** Point d'extension d'xterm pour la molette, consulte par `routeWheel`. */
   customWheelHandler: ((e: WheelEvent) => boolean) | null = null
   attachCustomWheelEventHandler = vi.fn((cb: (e: WheelEvent) => boolean) => {
     this.customWheelHandler = cb
   })
-  modes = { mouseTrackingMode: 'none' as string }
 
-  /** Simule la molette telle que la route xterm quand une appli suit la souris. */
-  simulateTrackedWheel(deltaY: number, init: Partial<WheelEvent> = {}) {
-    const ev = { deltaY, preventDefault: vi.fn(), shiftKey: false, ...init } as unknown as WheelEvent
-    return this.customWheelHandler?.(ev) ?? true
+  /**
+   * Le chemin molette d'@xterm/xterm 6, reproduit a l'identique.
+   *
+   * Ce que fait la vraie source, dans cet ordre : le handler personnalise est
+   * consulte EN PREMIER et un `false` fait sortir SANS annuler l'evenement —
+   * donc sans `stopPropagation`, l'evenement continue de remonter. Sinon, et
+   * seulement si le tampon n'a pas de scrollback (ecran alterne = tmux), xterm
+   * ECRIT une touche de curseur dans la session, puis annule l'evenement.
+   *
+   * C'est cette touche que le shell et Claude Code lisent comme un parcours de
+   * l'historique des commandes. Sans ce niveau de fidelite, le mock ne peut ni
+   * reproduire le bug, ni montrer la double alimentation du scroller.
+   */
+  private routeWheel(e: WheelEvent) {
+    if (this.customWheelHandler?.(e) === false) return
+    if (this.buffer.active.type !== 'alternate') return
+    if (e.deltaY === 0) return
+    this.dataCb?.(e.deltaY < 0 ? CURSEUR_HAUT : CURSEUR_BAS)
+    e.preventDefault()
+    e.stopPropagation()
   }
   onSelectionChange = vi.fn((cb: () => void) => {
     this.selectionCb = cb
@@ -523,30 +542,48 @@ describe('FullscreenTerminal — historique au geste', () => {
     expect(sent()).toContain(LINE_DOWN)
   })
 
-  it('remonte dans l’historique meme quand une appli a pris la souris', () => {
-    // Claude Code, htop, vim... activent le suivi souris : xterm envoie alors
-    // la molette a l'application (qui la lit comme un deplacement dans SON
-    // historique) et bloque la propagation. Le geste doit rester au terminal.
-    renderTerminal()
-    terminals[0].modes.mouseTrackingMode = 'any'
+  /** Molette posee la ou l'utilisateur la pose : sur l'element de xterm. */
+  function moletteSurXterm(deltaY: number, init: Record<string, unknown> = {}) {
+    fireEvent.wheel(terminals[0].element as HTMLElement, { deltaY, ...init })
+  }
 
-    const propage = terminals[0].simulateTrackedWheel(-LINE_PX * 2)
+  it('n’envoie plus de touche de curseur a l’application', () => {
+    // LE bug : faute de scrollback sous tmux, xterm traduisait la molette en
+    // fleche haut. Le shell et Claude Code y lisent un rappel des commandes
+    // precedentes — a la molette, le terminal remontait dans l'historique des
+    // COMMANDES au lieu de defiler dans celui de l'ECRAN.
+    renderTerminal()
+
+    moletteSurXterm(-LINE_PX * 2)
     act(() => { vi.runAllTimers() })
 
-    expect(propage).toBe(false) // xterm n'envoie PAS l'evenement souris a l'appli
+    expect(sent()).not.toContain(CURSEUR_HAUT)
     expect(sent()).toEqual(expect.arrayContaining([ENTER_COPY, LINE_UP]))
+  })
+
+  it('ne compte le cran de molette qu’une fois', () => {
+    // xterm n'annule PAS l'evenement quand le handler rend `false` : sans
+    // `stopPropagation`, il remonterait jusqu'a l'ecouteur du conteneur et le
+    // meme cran alimenterait le scroller deux fois — deux lignes au lieu d'une.
+    renderTerminal()
+
+    moletteSurXterm(-LINE_PX)
+    act(() => { vi.runAllTimers() })
+
+    // Un cran = UNE ligne. Alimente deux fois, le meme cran en donnerait deux.
+    expect(sent()).toContain(ENTER_COPY)
+    expect(sent().filter((d) => d === LINE_UP)).toHaveLength(1)
   })
 
   it('rend la molette a l’application quand Maj est enfonce', () => {
     // Echappatoire : sans elle, plus aucun moyen de faire defiler l'interface
     // d'une appli qui gere elle-meme la souris.
     renderTerminal()
-    terminals[0].modes.mouseTrackingMode = 'any'
 
-    const propage = terminals[0].simulateTrackedWheel(-LINE_PX * 2, { shiftKey: true })
+    moletteSurXterm(-LINE_PX * 2, { shiftKey: true })
     act(() => { vi.runAllTimers() })
 
-    expect(propage).toBe(true)
+    expect(sent()).toContain(CURSEUR_HAUT)
     expect(sent().join('')).not.toContain(LINE_UP)
   })
 
