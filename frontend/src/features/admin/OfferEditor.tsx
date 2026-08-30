@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useProviders, type PaymentProvider } from './useBillingCatalog'
 import { offreVide, useOffers, useSaveOffer, type Offer } from './useBillingOffers'
 import { LANGUE_PIVOT } from './offerDraft'
+import OfferGeneralTab from './OfferGeneralTab'
 import OfferDescriptionTab from './OfferDescriptionTab'
 import OfferPricingTab from './OfferPricingTab'
 
@@ -33,19 +34,23 @@ function OfferForm({ offre, canaux }: { offre: Offer; canaux: PaymentProvider[] 
   const [brouillon, setBrouillon] = useState<Offer>(offre)
   const [slugManuel, setSlugManuel] = useState(existant)
   const [manquantes, setManquantes] = useState<string[]>([])
-  const [onglet, setOnglet] = useState('description')
+  const [onglet, setOnglet] = useState('general')
   const enregistrer = useSaveOffer()
 
   function soumettre(e: React.FormEvent) {
     e.preventDefault()
-    // Les champs obligatoires vivent dans l'onglet « Description ». Onglet
-    // inactif = contenu demonte : le navigateur ne les valide plus, et une
-    // offre sans titre partirait se faire refuser par le serveur sans que rien
-    // ne designe le champ fautif. On verifie ici, et on RAMENE sur l'onglet.
-    const requis = [brouillon.label, brouillon.slug, brouillon.titles[LANGUE_PIVOT] ?? '']
-    if (requis.some((v) => !v.trim())) {
+    // Onglet inactif = contenu demonte : le navigateur ne valide plus ses
+    // champs requis. Sans ce controle, une offre sans titre partirait se faire
+    // refuser par le serveur et rien ne designerait le champ fautif. On RAMENE
+    // sur l'onglet concerne, en nommant ce qui manque.
+    if (!brouillon.label.trim() || !brouillon.slug.trim()) {
+      setOnglet('general')
+      toast.error(t('admin.offers.champsManquantsGeneral'))
+      return
+    }
+    if (!(brouillon.titles[LANGUE_PIVOT] ?? '').trim()) {
       setOnglet('description')
-      toast.error(t('admin.offers.champsManquants'))
+      toast.error(t('admin.offers.champsManquantsDescription'))
       return
     }
     const prices = brouillon.prices.filter((p) => p.currency !== '')
@@ -85,18 +90,23 @@ function OfferForm({ offre, canaux }: { offre: Offer; canaux: PaymentProvider[] 
 
       <Tabs value={onglet} onValueChange={setOnglet}>
         <TabsList>
+          <TabsTrigger value="general">{t('admin.offers.tabGeneral')}</TabsTrigger>
           <TabsTrigger value="description">{t('admin.offers.tabDescription')}</TabsTrigger>
           <TabsTrigger value="tarif">{t('admin.offers.tabPricing')}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="description" className="mt-4">
-          <OfferDescriptionTab
+        <TabsContent value="general" className="mt-4">
+          <OfferGeneralTab
             brouillon={brouillon}
             setBrouillon={setBrouillon}
             existant={existant}
             slugManuel={slugManuel}
             setSlugManuel={setSlugManuel}
           />
+        </TabsContent>
+
+        <TabsContent value="description" className="mt-4">
+          <OfferDescriptionTab brouillon={brouillon} setBrouillon={setBrouillon} />
         </TabsContent>
 
         <TabsContent value="tarif" className="mt-4">

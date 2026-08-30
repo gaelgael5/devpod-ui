@@ -1072,7 +1072,9 @@
       "tabDescription": "Description",
       "tabPricing": "Tarif",
       "notFound": "Offre « {{slug}} » introuvable.",
-      "champsManquants": "Il manque le nom court, le slug ou le titre anglais."
+      "tabGeneral": "Général",
+      "champsManquantsGeneral": "Il manque le nom court ou le slug.",
+      "champsManquantsDescription": "Il manque le titre anglais."
     }
   },
   "errors": {

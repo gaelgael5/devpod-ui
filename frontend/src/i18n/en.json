@@ -1072,7 +1072,9 @@
       "tabDescription": "Description",
       "tabPricing": "Pricing",
       "notFound": "Offer “{{slug}}” not found.",
-      "champsManquants": "The short name, the slug or the English title is missing."
+      "tabGeneral": "General",
+      "champsManquantsGeneral": "The short name or the slug is missing.",
+      "champsManquantsDescription": "The English title is missing."
     }
   },
   "errors": {

@@ -77,9 +77,15 @@ function renderPage(offres: unknown[] = [STANDARD]) {
   )
 }
 
-/** Le tarif vit dans son propre onglet : il faut y aller comme l'utilisateur. */
+/** Trois onglets depuis le passage en ecran plein : on y va comme l'utilisateur. */
 async function ongletTarif() {
   await userEvent.click(await screen.findByRole('tab', { name: i18n.t('admin.offers.tabPricing') }))
+}
+
+async function ongletDescription() {
+  await userEvent.click(
+    await screen.findByRole('tab', { name: i18n.t('admin.offers.tabDescription') }),
+  )
 }
 
 describe('AdminBillingOffers', () => {
@@ -182,6 +188,7 @@ describe('AdminBillingOffers', () => {
     renderPage()
     const offre = await screen.findByTestId('offre-standard')
     await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+    await ongletDescription()
 
     // EN est toujours la : c'est le repli quand la langue du visiteur manque.
     expect(await screen.findByLabelText(i18n.t('admin.offers.heading'))).toBeInTheDocument()
@@ -199,6 +206,7 @@ describe('AdminBillingOffers', () => {
     renderPage()
     const offre = await screen.findByTestId('offre-standard')
     await userEvent.click(within(offre).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+    await ongletDescription()
     await screen.findByLabelText(i18n.t('admin.offers.heading'))
 
     await userEvent.click(screen.getAllByRole('button', { name: i18n.t('markdown.preview') })[0])
@@ -219,23 +227,30 @@ describe('AdminBillingOffers', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('separe les textes du tarif en deux onglets', async () => {
+  it('separe identite, textes et tarif en trois onglets', async () => {
     renderPage()
     await userEvent.click(await screen.findByRole('button', { name: i18n.t('admin.offers.new') }))
 
-    // Onglet « Description » : les textes, et rien du tarif.
+    // Onglet « General » d'abord : l'identite et les droits, aucun texte client.
     expect(await screen.findByLabelText(i18n.t('admin.offers.shortName'))).toBeInTheDocument()
+    expect(screen.getByLabelText(i18n.t('admin.offers.maxWorkspaces'))).toBeInTheDocument()
+    expect(screen.queryByLabelText(i18n.t('admin.offers.heading'))).toBeNull()
     expect(screen.queryByLabelText(i18n.t('admin.offers.pricesIncludeTax'))).toBeNull()
+
+    await ongletDescription()
+
+    expect(await screen.findByLabelText(i18n.t('admin.offers.heading'))).toBeInTheDocument()
+    expect(screen.queryByLabelText(i18n.t('admin.offers.shortName'))).toBeNull()
 
     await ongletTarif()
 
     expect(await screen.findByLabelText(i18n.t('admin.offers.pricesIncludeTax'))).toBeInTheDocument()
-    expect(screen.queryByLabelText(i18n.t('admin.offers.shortName'))).toBeNull()
+    expect(screen.queryByLabelText(i18n.t('admin.offers.heading'))).toBeNull()
   })
 
-  it("ramene sur l'onglet des textes quand un champ obligatoire manque", async () => {
+  it("ramene sur l'onglet General quand le nom court manque", async () => {
     // Onglet inactif = contenu demonte : le navigateur ne valide plus ses
-    // champs requis. Sans ce garde-fou, on partirait au serveur sans titre et
+    // champs requis. Sans ce garde-fou, on partirait au serveur sans nom et
     // rien ne designerait le champ fautif.
     renderPage()
     await userEvent.click(await screen.findByRole('button', { name: i18n.t('admin.offers.new') }))
@@ -243,8 +258,26 @@ describe('AdminBillingOffers', () => {
 
     await userEvent.click(screen.getByRole('button', { name: i18n.t('common.save') }))
 
-    expect(await screen.findByText(i18n.t('admin.offers.champsManquants'))).toBeInTheDocument()
+    expect(
+      await screen.findByText(i18n.t('admin.offers.champsManquantsGeneral')),
+    ).toBeInTheDocument()
     expect(await screen.findByLabelText(i18n.t('admin.offers.shortName'))).toBeInTheDocument()
+  })
+
+  it("ramene sur l'onglet Description quand le titre anglais manque", async () => {
+    // Le refus doit designer le BON onglet : renvoyer sur l'identite quand
+    // c'est le titre qui manque ferait chercher au mauvais endroit.
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: i18n.t('admin.offers.new') }))
+    await userEvent.type(screen.getByLabelText(i18n.t('admin.offers.shortName')), 'Welcome')
+    await ongletTarif()
+
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('common.save') }))
+
+    expect(
+      await screen.findByText(i18n.t('admin.offers.champsManquantsDescription')),
+    ).toBeInTheDocument()
+    expect(await screen.findByLabelText(i18n.t('admin.offers.heading'))).toBeInTheDocument()
   })
 
   it('la majoration des devises derivees vaut 1 par defaut', async () => {
