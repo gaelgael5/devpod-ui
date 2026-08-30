@@ -321,6 +321,28 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     const onWheel = (e: WheelEvent) => {
       if (scroller.wheel(e.deltaY)) e.preventDefault()
     }
+
+    /**
+     * Molette quand une application suit la souris (Claude Code, htop, vim...).
+     *
+     * xterm intercepte alors le `wheel` sur SON element, l'envoie a
+     * l'application sous forme d'evenement souris, puis coupe la propagation :
+     * `onWheel`, pose sur le conteneur, n'est jamais appele. L'application
+     * recoit le geste et le lit a sa facon — dans Claude Code, un deplacement
+     * dans l'historique des commandes ; sur un ordinateur la molette semblait
+     * donc « rappeler les commandes precedentes » au lieu de faire defiler.
+     *
+     * `attachCustomWheelEventHandler` est le point d'extension prevu :
+     * retourner `false` empeche xterm d'emettre l'evenement souris. On rend la
+     * main a l'application quand Maj est enfonce — sinon plus aucun moyen de
+     * faire defiler sa propre interface.
+     */
+    terminal.attachCustomWheelEventHandler((e: WheelEvent) => {
+      if (e.shiftKey) return true
+      if (!scroller.wheel(e.deltaY)) return true
+      e.preventDefault()
+      return false
+    })
     const onTouchStart = (e: TouchEvent) => {
       const t = e.touches[0]
       doubleTap.start(t.clientX, t.clientY, e.touches.length)

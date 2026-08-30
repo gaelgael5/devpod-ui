@@ -78,6 +78,24 @@ class MockTerminal {
     return { dispose: vi.fn() }
   })
   onResize = vi.fn(() => ({ dispose: vi.fn() }))
+  /**
+   * Point d'extension d'xterm pour la molette. Quand une application a active
+   * le suivi souris, xterm intercepte le `wheel` sur SON element, consulte ce
+   * handler, puis `preventDefault` + `stopPropagation` : l'ecouteur du
+   * conteneur ne voit jamais l'evenement. Le mock doit donc porter ce chemin,
+   * sinon le test ne peut pas reproduire le cas.
+   */
+  customWheelHandler: ((e: WheelEvent) => boolean) | null = null
+  attachCustomWheelEventHandler = vi.fn((cb: (e: WheelEvent) => boolean) => {
+    this.customWheelHandler = cb
+  })
+  modes = { mouseTrackingMode: 'none' as string }
+
+  /** Simule la molette telle que la route xterm quand une appli suit la souris. */
+  simulateTrackedWheel(deltaY: number, init: Partial<WheelEvent> = {}) {
+    const ev = { deltaY, preventDefault: vi.fn(), shiftKey: false, ...init } as unknown as WheelEvent
+    return this.customWheelHandler?.(ev) ?? true
+  }
   onSelectionChange = vi.fn((cb: () => void) => {
     this.selectionCb = cb
     return { dispose: vi.fn() }
@@ -503,6 +521,33 @@ describe('FullscreenTerminal — historique au geste', () => {
     act(() => { vi.runAllTimers() })
 
     expect(sent()).toContain(LINE_DOWN)
+  })
+
+  it('remonte dans l’historique meme quand une appli a pris la souris', () => {
+    // Claude Code, htop, vim... activent le suivi souris : xterm envoie alors
+    // la molette a l'application (qui la lit comme un deplacement dans SON
+    // historique) et bloque la propagation. Le geste doit rester au terminal.
+    renderTerminal()
+    terminals[0].modes.mouseTrackingMode = 'any'
+
+    const propage = terminals[0].simulateTrackedWheel(-LINE_PX * 2)
+    act(() => { vi.runAllTimers() })
+
+    expect(propage).toBe(false) // xterm n'envoie PAS l'evenement souris a l'appli
+    expect(sent()).toEqual(expect.arrayContaining([ENTER_COPY, LINE_UP]))
+  })
+
+  it('rend la molette a l’application quand Maj est enfonce', () => {
+    // Echappatoire : sans elle, plus aucun moyen de faire defiler l'interface
+    // d'une appli qui gere elle-meme la souris.
+    renderTerminal()
+    terminals[0].modes.mouseTrackingMode = 'any'
+
+    const propage = terminals[0].simulateTrackedWheel(-LINE_PX * 2, { shiftKey: true })
+    act(() => { vi.runAllTimers() })
+
+    expect(propage).toBe(true)
+    expect(sent().join('')).not.toContain(LINE_UP)
   })
 
   it('laisse le defilement natif quand tmux n’occupe pas l’ecran alterne', () => {
