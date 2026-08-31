@@ -38,6 +38,7 @@
 - `call_tool` en échec → `CallToolResult(isError=True)`, pas d'exception ; `read_resource`/`get_prompt`/`list_*` → `McpError`.
 - Pièges test/DI : défaut `open_session_fn=None` résolu call-time (un défaut-objet fige le monkeypatch) ; `Annotated[str, Path(...)]` par paramètre (jamais un `Path()` partagé) ; FastMCP annonce toujours 3 capabilities → stub manuel.
 - Sécurité à moitié livrée = bug invisible : livrer détection + chemin de sortie + message distinct EN MÊME TEMPS ; un état bloquant silencieux se re-logge à chaque passe (quarantaine spec 23).
+- Un blob (patch, archive) stocké dans un article Docflow ne se recopie JAMAIS à la main : POSTer `doc__get_document` sur la gateway en JSON-RPC depuis un script (jeton dans `.mcp.json`, `User-Agent` non-python sinon Cloudflare rend 1010) et écrire le résultat sur disque. Corruption d'un caractère localisable par force brute contre l'empreinte de la partie — d'où l'intérêt d'empreintes PAR PARTIE, pas seulement globales. Tunnel HS (CF 1033) : le portail reste joignable en LAN (`http://192.168.10.164:8080/mcp/`).
 
 ## [spa/exposure]
 - Routes backend visitées par navigateur → `_BACKEND_NAV_PATHS` (sinon fallback SPA = faux 404) ; ne jamais tester une API dans la barre d'adresse (même fallback) — DevTools/curl.
@@ -58,6 +59,7 @@
 ## [tests]
 - Front : vérifier avec `tsc -b` (ou `npm run build`), pas `tsc --noEmit` — l'incrémental de `--noEmit` rate des erreurs (ex. type utilisé non importé) que le build/dev-deploy rejette, même si vitest/eslint passent.
 - `TestClient` : tout appel reste DANS le `with` (sinon post-shutdown, fuite d'event loop vers le test suivant) ; un test rouge peut tester un comportement disparu — grep le code réel d'abord. Ne jamais piper pytest dans `tail` (perd la liste des FAILED) : rediriger `grep '^FAILED'` dans un fichier, diff vs baseline pour prouver zéro régression. WebSocket : la session stub pose `auth_time` (sinon 4001 avant toute logique) ; sortir du `with websocket_connect` annule le handler ; pont PTY testé avec un vrai subprocess inerte (`sleep`).
+- Sans Docker local, `TEST_DATABASE_URL=postgresql+asyncpg://postgres:devpodtests@192.168.10.250:55432/portal_tests` (le `pg-tests` de test1) dé-skippe ~560 tests : un skip n'est pas un succès. Portail en local : le cookie de session porte `domain=.dev.yoops.org`, donc un jar curl sur `127.0.0.1` ne le rejoue pas — extraire `Set-Cookie` et le repasser en `-b`.
 - test1 : `uv sync --extra dev` obligatoire (sinon tests DB skippés silencieusement) — exiger des PASSED explicites ; tables FK `users.login` → seeder `users` d'abord ; `(await coro)["k"]`, pas `await coro["k"]`.
 
 ## [infra/pve]
