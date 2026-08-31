@@ -15,6 +15,7 @@ machine ne s'exécute pas sur la VM : c'est l'hyperviseur qui la redimensionne.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -137,7 +138,13 @@ def _reponse_streamee(
     args: dict[str, str],
 ) -> StreamingResponse:
     """Substitue, affiche les commandes (token masqué) puis streame la sortie SSH."""
-    commands_raw: list[str] = list(spec.get("commands", []))  # type: ignore[arg-type]
+    raw = spec.get("commands", [])
+    if not isinstance(raw, list) or any(not isinstance(cmd, str) for cmd in raw):
+        raise HTTPException(
+            status_code=502,
+            detail="Descripteur de script invalide : « commands » doit être une liste de chaînes",
+        )
+    commands_raw = cast("list[str]", raw)
     commands = [_substitute(cmd, args) for cmd in commands_raw]
     redacted = {**args, "PORTAL_TOKEN": "***"}
     display_commands = [_substitute(cmd, redacted) for cmd in commands_raw]
