@@ -1840,6 +1840,14 @@ provisioning_runs = Table(
     # meme si la regle a change depuis.
     Column("action", Text, nullable=False),
     Column("host_name", Text, nullable=True),
+    # Gabarit retenu, recopie du verdict. Les trois maillons sont conserves et
+    # pas seulement le dernier : le jour ou l'on se demande pourquoi telle
+    # machine a ete montee ainsi, la reponse doit se lire ici plutot que se
+    # reconstituer depuis une configuration qui a change depuis. NULL pour les
+    # actions qui ne montent rien.
+    Column("host_profile", Text, nullable=True),
+    Column("machine_profile", Text, nullable=True),
+    Column("hypervisor", Text, nullable=True),
     Column("motif", Text, nullable=False, server_default=""),
     Column("state", Text, nullable=False, server_default="decide"),
     # Message du dernier echec. Jamais un secret : c'est une trace d'ecran.
@@ -1847,7 +1855,8 @@ provisioning_runs = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint(
-        "action IN ('rien','assigner_host','creer_host_mutualise','creer_vm_dediee')",
+        "action IN ('rien','assigner_host','creer_host_mutualise',"
+        "'creer_vm_dediee','impossible')",
         name="ck_provisioning_action",
     ),
     CheckConstraint("state IN ('decide','en_cours','fait','echec')", name="ck_provisioning_state"),

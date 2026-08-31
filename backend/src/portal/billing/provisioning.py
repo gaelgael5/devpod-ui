@@ -27,18 +27,33 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from .cible import Cible
 from .ownership import HostingType
 from .subscriptions import EventKind
 
-#: Nœud Proxmox où atterrissent les VM dédiées. pve2 est hors jeu (GPU réservé).
-NOEUD_DEDIE = "pve"
+#: Nœuds Proxmox interdits aux abonnés. pve2 porte la RTX 4090, réservée à
+#: l'inférence LLM : aucune VM d'abonné n'y naît. C'était auparavant une cible
+#: IMPOSÉE (`NOEUD_DEDIE = "pve"`) ; depuis que le nœud vient de l'hyperviseur
+#: résolu, la même garantie s'exprime en exclusion — sinon déclarer un
+#: hyperviseur sur pve2 suffirait à y envoyer des abonnés sans que rien ne le
+#: refuse.
+NOEUDS_EXCLUS: frozenset[str] = frozenset({"pve2"})
 
 #: Les seuls événements qui provisionnent. Les autres — renouvellement, échec de
 #: paiement, résiliation — ne créent rien : ils relèvent du cycle de vie, pas de
 #: l'ouverture d'un accès.
 EVENEMENTS_PROVISIONNANTS: frozenset[EventKind] = frozenset({"debut_essai", "activation"})
 
-Action = Literal["rien", "assigner_host", "creer_host_mutualise", "creer_vm_dediee"]
+Action = Literal[
+    "rien",
+    "assigner_host",
+    "creer_host_mutualise",
+    "creer_vm_dediee",
+    # Il fallait monter une machine et aucun gabarit ne s'est resolu. Un
+    # verdict a part entiere, et non "rien" : le client a paye, l'ecart doit
+    # etre listable et rejouable au lieu d'etre tu.
+    "impossible",
+]
 
 
 class HostDisponible(BaseModel):
@@ -76,6 +91,10 @@ class Decision(BaseModel):
     host_name: str | None = None
     #: Renseigné pour `creer_vm_dediee` uniquement.
     noeud: str | None = None
+    #: Gabarit retenu — renseigné pour les deux actions qui MONTENT une machine.
+    #: `assigner_host` n'en a pas : le gabarit de la machine d'accueil a été
+    #: choisi le jour où elle a été montée.
+    cible: Cible | None = None
 
 
 def _meilleur_candidat(pool: list[HostDisponible]) -> HostDisponible | None:
@@ -103,18 +122,41 @@ def _meilleur_candidat(pool: list[HostDisponible]) -> HostDisponible | None:
     )
 
 
+def _sans_cible(contexte: str) -> Decision:
+    """Verdict quand il fallait monter une machine sans qu'aucun gabarit ne se
+    résolve.
+
+    Le motif nomme la chaîne à réparer : l'administrateur doit savoir où
+    regarder — l'offre ne liste aucun profil de host, ou ceux qu'elle liste ne
+    mènent à aucun hyperviseur.
+    """
+    return Decision(
+        action="impossible",
+        motif=(
+            f"{contexte} : aucun profil de host de l'offre ne mène à un hyperviseur "
+            "— offre sans profil, profil supprimé, ou aucun hyperviseur déclaré "
+            "pour son type"
+        ),
+    )
+
+
 def decider(
     *,
     evenement: EventKind,
     hosting_type: HostingType,
     deja_provisionne: bool,
     pool: list[HostDisponible],
+    cible: Cible | None = None,
 ) -> Decision:
     """Que provisionner pour cette souscription, si tant est qu'il faille.
 
     `deja_provisionne` porte l'idempotence : c'est à l'appelant de savoir si
     l'abonnement a déjà sa machine — typiquement parce que `debut_essai` est
     passé avant `activation`.
+
+    `cible` est le gabarit résolu depuis les profils de host de l'offre (cf.
+    `cible.resoudre_cible`). Elle n'est réclamée que par les actions qui MONTENT
+    une machine ; assigner une place existante s'en passe.
     """
     if evenement not in EVENEMENTS_PROVISIONNANTS:
         return Decision(
@@ -129,17 +171,32 @@ def decider(
         )
 
     if hosting_type == "dedie":
+        if cible is None:
+            return _sans_cible("forfait dédié")
         return Decision(
             action="creer_vm_dediee",
-            noeud=NOEUD_DEDIE,
-            motif=f"forfait dédié : création d'une VM sur {NOEUD_DEDIE}",
+            noeud=cible.noeud,
+            cible=cible,
+            motif=(
+                f"forfait dédié : création d'une VM sur {cible.noeud} "
+                f"(hyperviseur {cible.hypervisor}, gabarit {cible.machine_profile} "
+                f"via le profil de host {cible.host_profile})"
+            ),
         )
 
     candidat = _meilleur_candidat(pool)
     if candidat is None:
+        if cible is None:
+            return _sans_cible("ouverture d'un host mutualisé")
+        raison = "aucun host mutualisé n'a de place" if pool else "le pool mutualisé est vide"
         return Decision(
             action="creer_host_mutualise",
-            motif=("aucun host mutualisé n'a de place" if pool else "le pool mutualisé est vide"),
+            cible=cible,
+            motif=(
+                f"{raison} : ouverture d'une machine {cible.machine_profile} "
+                f"sur {cible.noeud} (hyperviseur {cible.hypervisor}, "
+                f"profil de host {cible.host_profile})"
+            ),
         )
     if candidat.places_restantes is None:
         return Decision(

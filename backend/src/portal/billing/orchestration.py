@@ -25,9 +25,11 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..db.host_pool import a_deja_une_machine, pool_mutualise
+from ..db.provisioning_catalogue import charger_catalogue
 from ..db.provisioning_runs import enregistrer, marquer
+from .cible import Cible, resoudre_cible
 from .ownership import HostingType
-from .provisioning import Decision, decider
+from .provisioning import NOEUDS_EXCLUS, Decision, decider
 from .subscriptions import EventKind
 
 _log = structlog.get_logger(__name__)
@@ -56,11 +58,11 @@ class Executeur(Protocol):
     """
 
     async def creer_vm_dediee(
-        self, *, owner_login: str, offer_slug: str, noeud: str
+        self, *, owner_login: str, offer_slug: str, noeud: str, cible: Cible
     ) -> HostProvisionne: ...
 
     async def creer_host_mutualise(
-        self, *, owner_login: str, offer_slug: str
+        self, *, owner_login: str, offer_slug: str, cible: Cible
     ) -> HostProvisionne: ...
 
     async def assigner_host(
@@ -91,6 +93,7 @@ async def traiter(
     owner_login: str,
     offer_slug: str,
     hosting_type: HostingType,
+    host_profiles: list[str],
     executeur: Executeur,
 ) -> Resultat:
     """Traite un événement d'abonnement de bout en bout.
@@ -99,14 +102,21 @@ async def traiter(
     refuse de reprovisionner une offre qui a déjà sa machine, et le registre
     refuse une seconde tentative pour le même événement. Le premier protège
     contre l'activation qui suit un essai, le second contre le webhook renvoyé.
+
+    `host_profiles` vient de l'offre, DANS SON ORDRE DE PRIORITÉ : c'est de lui
+    qu'on tire le gabarit à monter. Passé par l'appelant comme `hosting_type`,
+    et pour la même raison — ce module séquence, il ne relit pas le catalogue
+    commercial.
     """
     deja = await a_deja_une_machine(owner_login, offer_slug, conn)
     pool = await pool_mutualise(conn) if hosting_type == "mutualise" else []
+    cible = resoudre_cible(host_profiles, await charger_catalogue(conn), NOEUDS_EXCLUS)
     decision = decider(
         evenement=evenement,
         hosting_type=hosting_type,
         deja_provisionne=deja,
         pool=pool,
+        cible=cible,
     )
 
     run_id = await enregistrer(
@@ -130,6 +140,23 @@ async def traiter(
     if decision.action == "rien":
         await marquer(run_id, "fait", conn)
         return Resultat(run_id=run_id, decision=decision, state="fait")
+
+    if decision.action == "impossible":
+        # Il fallait monter une machine et aucun gabarit ne s'est résolu. On ne
+        # tente rien — il n'y a rien à tenter — mais l'écart est un ÉCHEC, pas
+        # un « fait » : le client a payé, et cette ligne est ce qui le rend
+        # listable et rejouable une fois la configuration réparée.
+        await marquer(run_id, "echec", conn, erreur=decision.motif)
+        _log.error(
+            "provisioning_sans_cible",
+            run_id=run_id,
+            owner=owner_login,
+            offer=offer_slug,
+            motif=decision.motif,
+        )
+        return Resultat(
+            run_id=run_id, decision=decision, state="echec", erreur=decision.motif
+        )
 
     await marquer(run_id, "en_cours", conn)
     try:
@@ -163,11 +190,22 @@ async def _executer(
     decision: Decision, executeur: Executeur, owner_login: str, offer_slug: str
 ) -> HostProvisionne:
     if decision.action == "creer_vm_dediee":
+        # `decider` ne rend cette action qu'avec une cible : l'absence ici
+        # signalerait un verdict incohérent, pas une VM à monter au hasard.
+        if decision.cible is None:
+            raise RuntimeError("verdict creer_vm_dediee sans cible")
         return await executeur.creer_vm_dediee(
-            owner_login=owner_login, offer_slug=offer_slug, noeud=decision.noeud or ""
+            owner_login=owner_login,
+            offer_slug=offer_slug,
+            noeud=decision.noeud or "",
+            cible=decision.cible,
         )
     if decision.action == "creer_host_mutualise":
-        return await executeur.creer_host_mutualise(owner_login=owner_login, offer_slug=offer_slug)
+        if decision.cible is None:
+            raise RuntimeError("verdict creer_host_mutualise sans cible")
+        return await executeur.creer_host_mutualise(
+            owner_login=owner_login, offer_slug=offer_slug, cible=decision.cible
+        )
     if decision.action == "assigner_host":
         return await executeur.assigner_host(
             owner_login=owner_login, offer_slug=offer_slug, host_name=decision.host_name or ""

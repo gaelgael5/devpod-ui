@@ -49,6 +49,9 @@ async def enregistrer(
             offer_slug=offer_slug,
             action=decision.action,
             host_name=decision.host_name,
+            host_profile=decision.cible.host_profile if decision.cible else None,
+            machine_profile=decision.cible.machine_profile if decision.cible else None,
+            hypervisor=decision.cible.hypervisor if decision.cible else None,
             motif=decision.motif,
             state="decide",
         )

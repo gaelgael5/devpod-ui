@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import pytest
 
+from portal.billing.cible import Cible
 from portal.billing.provisioning import (
-    NOEUD_DEDIE,
+    NOEUDS_EXCLUS,
     HostDisponible,
     decider,
 )
@@ -20,6 +21,14 @@ from portal.billing.provisioning import (
 def _pool(*places: tuple[str, int]) -> list[HostDisponible]:
     return [HostDisponible(host_name=nom, places_restantes=n) for nom, n in places]
 
+
+def _cible(noeud: str = "pve") -> Cible:
+    return Cible(
+        host_profile="host-standard",
+        machine_profile="pve-4g",
+        hypervisor="pve-a",
+        noeud=noeud,
+    )
 
 # ─── Seuls deux événements provisionnent ─────────────────────────────────────
 
@@ -34,7 +43,13 @@ def test_les_autres_evenements_ne_provisionnent_rien(kind: str) -> None:
 def test_debut_essai_et_activation_provisionnent_pareil(kind: str) -> None:
     """`debut_essai` donne l'accès tout de suite, `activation` au premier
     paiement réel — le provisioning est le même, seul le moment change."""
-    d = decider(evenement=kind, hosting_type="dedie", deja_provisionne=False, pool=_pool())
+    d = decider(
+        evenement=kind,
+        hosting_type="dedie",
+        deja_provisionne=False,
+        pool=_pool(),
+        cible=_cible(),
+    )
     assert d.action == "creer_vm_dediee"
 
 
@@ -52,12 +67,24 @@ def test_activation_apres_essai_ne_reprovisionne_pas() -> None:
 # ─── Dédié ───────────────────────────────────────────────────────────────────
 
 
-def test_dedie_cree_une_vm_sur_le_noeud_prevu() -> None:
-    """pve2 porte la RTX 4090, réservée à l'inférence LLM : aucune VM d'abonné
-    n'y est créée."""
-    d = decider(evenement="debut_essai", hosting_type="dedie", deja_provisionne=False, pool=_pool())
+def test_pve2_reste_interdit_aux_abonnes() -> None:
+    """pve2 porte la RTX 4090, réservée à l'inférence LLM. La garantie ne
+    s'exprime plus par un nœud imposé mais par une exclusion — depuis que le
+    nœud vient de l'hyperviseur résolu, déclarer un hyperviseur sur pve2
+    suffirait sinon à y envoyer des abonnés."""
+    assert "pve2" in NOEUDS_EXCLUS
+
+
+def test_dedie_cree_une_vm_sur_le_noeud_de_sa_cible() -> None:
+    d = decider(
+        evenement="debut_essai",
+        hosting_type="dedie",
+        deja_provisionne=False,
+        pool=_pool(),
+        cible=_cible(),
+    )
     assert d.action == "creer_vm_dediee"
-    assert d.noeud == NOEUD_DEDIE == "pve"
+    assert d.noeud == "pve"
 
 
 def test_dedie_ignore_le_pool_mutualise() -> None:
@@ -68,6 +95,7 @@ def test_dedie_ignore_le_pool_mutualise() -> None:
         hosting_type="dedie",
         deja_provisionne=False,
         pool=_pool(("mut-01", 5)),
+        cible=_cible(),
     )
     assert d.action == "creer_vm_dediee"
 
@@ -77,7 +105,11 @@ def test_dedie_ignore_le_pool_mutualise() -> None:
 
 def test_mutualise_sans_pool_ouvre_un_host() -> None:
     d = decider(
-        evenement="activation", hosting_type="mutualise", deja_provisionne=False, pool=_pool()
+        evenement="activation",
+        hosting_type="mutualise",
+        deja_provisionne=False,
+        pool=_pool(),
+        cible=_cible(),
     )
     assert d.action == "creer_host_mutualise"
 
@@ -89,6 +121,7 @@ def test_mutualise_pool_plein_ouvre_un_host() -> None:
         hosting_type="mutualise",
         deja_provisionne=False,
         pool=_pool(("mut-01", 0), ("mut-02", 0)),
+        cible=_cible(),
     )
     assert d.action == "creer_host_mutualise"
 
@@ -138,6 +171,7 @@ def test_places_restantes_negatives_traitees_comme_pleines() -> None:
         hosting_type="mutualise",
         deja_provisionne=False,
         pool=_pool(("mut-01", -2)),
+        cible=_cible(),
     )
     assert d.action == "creer_host_mutualise"
 
@@ -176,3 +210,95 @@ def test_host_sans_capacite_declaree_choisi_faute_de_mieux() -> None:
     assert d.host_name == "mut-inconnu"
     # Le motif doit signaler le trou de configuration, pas le masquer.
     assert "non déclarée" in d.motif
+
+
+# ─── Sur quel gabarit : la cible résolue depuis les profils de l'offre ────────
+
+
+def test_la_vm_dediee_nait_sur_le_noeud_de_l_hyperviseur_resolu() -> None:
+    """Le nœud ne se devine plus : il vient de l'hyperviseur que la chaîne de
+    profils a désigné."""
+    d = decider(
+        evenement="activation",
+        hosting_type="dedie",
+        deja_provisionne=False,
+        pool=_pool(),
+        cible=_cible(noeud="pve3"),
+    )
+
+    assert d.action == "creer_vm_dediee"
+    assert d.noeud == "pve3"
+    assert d.cible is not None
+    assert d.cible.machine_profile == "pve-4g"
+
+
+def test_le_host_mutualise_ouvert_porte_aussi_sa_cible() -> None:
+    """Ouvrir une machine mutualisée, c'est ouvrir une machine : sans gabarit,
+    l'exécuteur ne saurait pas plus quoi monter que pour une dédiée."""
+    d = decider(
+        evenement="activation",
+        hosting_type="mutualise",
+        deja_provisionne=False,
+        pool=_pool(),
+        cible=_cible(),
+    )
+
+    assert d.action == "creer_host_mutualise"
+    assert d.cible is not None
+
+
+def test_assigner_une_place_existante_ne_demande_aucune_cible() -> None:
+    """On ne monte rien : le gabarit de la machine d'accueil a été choisi le
+    jour où elle a été montée."""
+    d = decider(
+        evenement="activation",
+        hosting_type="mutualise",
+        deja_provisionne=False,
+        pool=_pool(("host-a", 2)),
+        cible=None,
+    )
+
+    assert d.action == "assigner_host"
+    assert d.host_name == "host-a"
+
+
+def test_sans_cible_resolue_le_verdict_est_un_refus_motive() -> None:
+    """Surtout pas « rien à faire » : le client a payé. L'écart doit être
+    traçable et rejouable, pas silencieux."""
+    d = decider(
+        evenement="activation",
+        hosting_type="dedie",
+        deja_provisionne=False,
+        pool=_pool(),
+        cible=None,
+    )
+
+    assert d.action == "impossible"
+    assert "profil" in d.motif
+    assert d.noeud is None
+
+
+def test_sans_cible_l_ouverture_d_un_host_mutualise_est_refusee_aussi() -> None:
+    d = decider(
+        evenement="activation",
+        hosting_type="mutualise",
+        deja_provisionne=False,
+        pool=_pool(("plein", 0)),
+        cible=None,
+    )
+
+    assert d.action == "impossible"
+
+
+def test_un_evenement_non_provisionnant_ne_reclame_pas_de_cible() -> None:
+    """L'absence de gabarit n'est un problème que si l'on doit monter quelque
+    chose."""
+    d = decider(
+        evenement="renouvellement",
+        hosting_type="dedie",
+        deja_provisionne=False,
+        pool=_pool(),
+        cible=None,
+    )
+
+    assert d.action == "rien"

@@ -12,11 +12,31 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from sqlalchemy import insert
 
 from portal.billing.orchestration import HostProvisionne, traiter
+from portal.config.models import (
+    AuthConfig,
+    GlobalConfig,
+    Hypervisor,
+    OidcConfig,
+    ServerConfig,
+)
 from portal.db.provisioning_runs import lire, lister_echecs
-from portal.db.tables import host_ownership, hosts, offers, subscriptions, users
+from portal.db.tables import (
+    host_ownership,
+    host_profiles,
+    hosts,
+    machine_profiles,
+    offers,
+    subscriptions,
+    users,
+)
+
+#: Profils de host de l'offre, dans l'ordre de priorité. Un seul suffit ici :
+#: le repli sur le suivant est couvert sans base dans tests/billing/test_cible.py.
+PROFILS = ["host-standard"]
 
 
 class ExecuteurFactice:
@@ -26,13 +46,13 @@ class ExecuteurFactice:
         self.appels: list[tuple[str, str]] = []
         self.casse = casse
 
-    async def creer_vm_dediee(self, *, owner_login, offer_slug, noeud) -> HostProvisionne:
+    async def creer_vm_dediee(self, *, owner_login, offer_slug, noeud, cible) -> HostProvisionne:
         self.appels.append(("creer_vm_dediee", noeud))
         if self.casse:
             raise RuntimeError("qm clone a rendu 1 : storage plein")
         return HostProvisionne(host_name=f"vm-{owner_login}", capacity_workspaces=4)
 
-    async def creer_host_mutualise(self, *, owner_login, offer_slug) -> HostProvisionne:
+    async def creer_host_mutualise(self, *, owner_login, offer_slug, cible) -> HostProvisionne:
         self.appels.append(("creer_host_mutualise", offer_slug))
         if self.casse:
             raise RuntimeError("pool injoignable")
@@ -43,6 +63,46 @@ class ExecuteurFactice:
         if self.casse:
             raise RuntimeError("host injoignable")
         return HostProvisionne(host_name=host_name)
+
+
+@pytest.fixture(autouse=True)
+def _hyperviseur_declare(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un hyperviseur du bon type, sinon aucune cible ne se résout.
+
+    Les hyperviseurs vivent dans la configuration globale et non en base : c'est
+    le seul maillon de la chaîne qu'un test DB ne peut pas semer.
+    """
+    cfg = GlobalConfig(
+        version="1",
+        server=ServerConfig(base_domain="", external_url=""),
+        auth=AuthConfig(oidc=OidcConfig(issuer="", client_id="", client_secret="")),
+        hypervisors=[
+            Hypervisor(
+                name="pve-a",
+                address="10.0.0.1",
+                ssh_key_path="/dev/null",
+                pve_node="pve",
+                hypervisor_type="proxmox4vm",
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        "portal.db.provisioning_catalogue.load_global", lambda *a, **k: cfg
+    )
+
+
+async def _seed_catalogue(conn) -> None:
+    """Les deux maillons stockés en base : profil de machine, profil de host."""
+    await conn.execute(
+        insert(machine_profiles).values(
+            slug="pve-4g", label="4 Go", hypervisor_type="proxmox4vm"
+        )
+    )
+    await conn.execute(
+        insert(host_profiles).values(
+            slug="host-standard", label="Standard", machine_profile="pve-4g"
+        )
+    )
 
 
 async def _seed(conn, *, login: str = "alice", offre: str = "standard", hebergement: str = "dedie"):
@@ -57,6 +117,7 @@ async def _seed(conn, *, login: str = "alice", offre: str = "standard", hebergem
         )
     )
     await conn.execute(insert(offers).values(slug=offre, hosting_type=hebergement))
+    await _seed_catalogue(conn)
     sub_id = str(uuid.uuid4())
     await conn.execute(
         insert(subscriptions).values(
@@ -96,6 +157,7 @@ async def test_un_essai_dedie_cree_une_vm_et_trace_le_succes(db_conn) -> None:
         owner_login="alice",
         offer_slug="standard",
         hosting_type="dedie",
+        host_profiles=PROFILS,
         executeur=executeur,
     )
 
@@ -119,6 +181,7 @@ async def test_un_echec_est_trace_et_ne_remonte_pas(db_conn) -> None:
         owner_login="alice",
         offer_slug="standard",
         hosting_type="dedie",
+        host_profiles=PROFILS,
         executeur=ExecuteurFactice(casse=True),
     )
 
@@ -138,6 +201,7 @@ async def test_le_rejeu_d_un_evenement_n_execute_rien(db_conn) -> None:
         "owner_login": "alice",
         "offer_slug": "standard",
         "hosting_type": "dedie",
+        "host_profiles": PROFILS,
         "executeur": executeur,
     }
 
@@ -173,6 +237,7 @@ async def test_activation_apres_une_machine_existante_ne_provisionne_pas(db_conn
         owner_login="alice",
         offer_slug="standard",
         hosting_type="dedie",
+        host_profiles=PROFILS,
         executeur=executeur,
     )
 
@@ -195,6 +260,7 @@ async def test_mutualise_prend_la_machine_la_plus_remplie(db_conn) -> None:
         owner_login="alice",
         offer_slug="standard",
         hosting_type="mutualise",
+        host_profiles=PROFILS,
         executeur=executeur,
     )
 
@@ -215,6 +281,7 @@ async def test_mutualise_sans_place_ouvre_une_machine(db_conn) -> None:
         owner_login="alice",
         offer_slug="standard",
         hosting_type="mutualise",
+        host_profiles=PROFILS,
         executeur=executeur,
     )
 
@@ -241,6 +308,7 @@ async def test_la_trace_precede_l_execution(db_conn) -> None:
         owner_login="alice",
         offer_slug="standard",
         hosting_type="dedie",
+        host_profiles=PROFILS,
         executeur=ExecuteurQuiRegarde(),
     )
 
@@ -248,3 +316,52 @@ async def test_la_trace_precede_l_execution(db_conn) -> None:
     assert ligne is not None
     # La ligne existait déjà pendant l'exécution : elle a été posée avant.
     assert vues == ["trace_presente"]
+
+
+async def test_sans_cible_resoluble_l_echec_est_trace_et_rien_n_est_tente(db_conn) -> None:
+    """L'offre ne liste aucun profil de host : il n'y a rien à monter, mais le
+    client a payé. Le verdict est un ÉCHEC listable, pas un « rien à faire » —
+    sans quoi l'écart entre le paiement et l'accès resterait invisible."""
+    sub = await _seed(db_conn)
+    executeur = ExecuteurFactice()
+
+    res = await traiter(
+        db_conn,
+        subscription_id=sub,
+        provider_event_id="evt_1",
+        evenement="debut_essai",
+        owner_login="alice",
+        offer_slug="standard",
+        hosting_type="dedie",
+        host_profiles=[],
+        executeur=executeur,
+    )
+
+    assert res.decision.action == "impossible"
+    assert res.state == "echec"
+    assert executeur.appels == []
+    assert [e["id"] for e in await lister_echecs(db_conn)] == [res.run_id]
+
+
+async def test_la_cible_retenue_est_recopiee_dans_la_trace(db_conn) -> None:
+    """Le gabarit doit se relire dans le registre : la configuration aura changé
+    le jour où l'on se demandera pourquoi cette machine a été montée ainsi."""
+    sub = await _seed(db_conn)
+
+    res = await traiter(
+        db_conn,
+        subscription_id=sub,
+        provider_event_id="evt_1",
+        evenement="debut_essai",
+        owner_login="alice",
+        offer_slug="standard",
+        hosting_type="dedie",
+        host_profiles=PROFILS,
+        executeur=ExecuteurFactice(),
+    )
+
+    ligne = await lire(res.run_id or 0, db_conn)
+    assert ligne is not None
+    assert ligne["host_profile"] == "host-standard"
+    assert ligne["machine_profile"] == "pve-4g"
+    assert ligne["hypervisor"] == "pve-a"
