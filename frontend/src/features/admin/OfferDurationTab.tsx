@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -20,17 +20,23 @@ export default function OfferDurationTab({ brouillon, setBrouillon }: OngletProp
   const { t, i18n } = useTranslation()
   const jours = brouillon.duration_days
 
+  // Heure de reference, lue UNE fois pour la vie du composant. L'initialiseur
+  // paresseux de `useState` est le seul endroit ou React garantit un appel
+  // unique : lire l'horloge dans le corps du rendu donnerait un apercu
+  // different a chaque rendu, sans qu'aucun etat n'ait change.
+  const [maintenant] = useState(() => Date.now())
+
   // Echeance d'une souscription prise MAINTENANT : c'est ce que l'administrateur
   // cherche a verifier en saisissant une duree.
   const echeance = useMemo(() => {
     if (jours === null) return null
-    const fin = new Date(Date.now() + jours * 24 * 60 * 60 * 1000)
+    const fin = new Date(maintenant + jours * 24 * 60 * 60 * 1000)
     fin.setSeconds(0, 0)
     return new Intl.DateTimeFormat(i18n.language, {
       dateStyle: 'long',
       timeStyle: 'short',
     }).format(fin)
-  }, [jours, i18n.language])
+  }, [jours, maintenant, i18n.language])
 
   return (
     <div className="flex flex-col gap-4">
