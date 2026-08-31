@@ -1085,7 +1085,17 @@
       "isFreeOn": "No price: the offer exists to try the product, and stops at the end of its duration.",
       "isFreeOff": "Paid offer: at least one price in an accepted currency is required to publish it.",
       "freeNoPricing": "Free offer: there is nothing to price. Its duration is set in the “Duration” tab.",
-      "champsManquantsDuree": "A published offer must have a duration."
+      "champsManquantsDuree": "A published offer must have a duration.",
+      "tabHostProfiles": "Host profiles",
+      "hostProfilesHelp": "The host profiles this offer can open, from highest to lowest priority. A host profile carries the machine profile, hence the hypervisor type and the creation script: without one, nothing would say which machine to open on subscription. Order is priority — the first one is tried first.",
+      "noHostProfile": "No host profile. The offer can still be saved, but publishing requires at least one.",
+      "addHostProfile": "Add a host profile",
+      "chooseHostProfile": "Choose a profile…",
+      "noHostProfileLeft": "Every host profile is already listed",
+      "hostProfileUp": "Move up in priority",
+      "hostProfileDown": "Move down in priority",
+      "hostProfileRemove": "Remove from the offer",
+      "champsManquantsProfils": "A host profile is missing: nothing would say which machine to open."
     }
   },
   "errors": {

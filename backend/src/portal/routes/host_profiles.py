@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..auth.rbac import UserInfo, require_admin
 from ..config.models import HostProfile, HypervisorVariable, MachineProfile
 from ..config.store import load_global
+from ..db.billing_offers import offres_utilisant_profil
 from ..db.engine import get_conn
 from ..db.host_profiles import (
     delete_host_profile,
@@ -142,6 +143,18 @@ async def admin_delete_host_profile(
     user: UserInfo = Depends(require_admin),
     conn: AsyncConnection = Depends(get_conn),
 ) -> None:
+    # Une offre qui déclare ce profil deviendrait improvisionnable en silence :
+    # le refus nomme les offres, sans quoi il faudrait les chercher à la main.
+    offres = await offres_utilisant_profil(slug, conn)
+    if offres:
+        sujet = "les offres" if len(offres) > 1 else "l'offre"
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Profil de host {slug!r} utilisé par {sujet} {', '.join(offres)} — "
+                "retirez-le d'abord de leur onglet « Profils de host »"
+            ),
+        )
     if not await delete_host_profile(slug, conn):
         raise HTTPException(status_code=404, detail=f"Profil de host {slug!r} introuvable")
     log.info("host_profile_deleted", slug=slug, actor=user.login)

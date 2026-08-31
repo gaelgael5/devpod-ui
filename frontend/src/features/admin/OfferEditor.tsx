@@ -11,6 +11,7 @@ import { LANGUE_PIVOT } from './offerDraft'
 import OfferGeneralTab from './OfferGeneralTab'
 import OfferDescriptionTab from './OfferDescriptionTab'
 import OfferDurationTab from './OfferDurationTab'
+import OfferHostProfilesTab from './OfferHostProfilesTab'
 import OfferPricingTab from './OfferPricingTab'
 
 const RETOUR = '/admin/billing-offers'
@@ -62,6 +63,14 @@ function OfferForm({ offre, canaux }: { offre: Offer; canaux: PaymentProvider[] 
       toast.error(t('admin.offers.champsManquantsDuree'))
       return
     }
+    // Meme regle pour les profils de host : exiges a la PUBLICATION, pas a la
+    // saisie. Sans profil, rien ne dirait quelle machine ouvrir a la
+    // souscription — et l'echec tomberait apres le paiement.
+    if (brouillon.published && brouillon.host_profiles.length === 0) {
+      setOnglet('profils')
+      toast.error(t('admin.offers.champsManquantsProfils'))
+      return
+    }
     const prices = brouillon.prices.filter((p) => p.currency !== '')
     toast.promise(enregistrer.mutateAsync({ ...brouillon, prices }), {
       loading: '…',
@@ -102,6 +111,7 @@ function OfferForm({ offre, canaux }: { offre: Offer; canaux: PaymentProvider[] 
           <TabsTrigger value="general">{t('admin.offers.tabGeneral')}</TabsTrigger>
           <TabsTrigger value="description">{t('admin.offers.tabDescription')}</TabsTrigger>
           <TabsTrigger value="duree">{t('admin.offers.tabDuration')}</TabsTrigger>
+          <TabsTrigger value="profils">{t('admin.offers.tabHostProfiles')}</TabsTrigger>
           <TabsTrigger value="tarif">{t('admin.offers.tabPricing')}</TabsTrigger>
         </TabsList>
 
@@ -121,6 +131,10 @@ function OfferForm({ offre, canaux }: { offre: Offer; canaux: PaymentProvider[] 
 
         <TabsContent value="duree" className="mt-4">
           <OfferDurationTab brouillon={brouillon} setBrouillon={setBrouillon} />
+        </TabsContent>
+
+        <TabsContent value="profils" className="mt-4">
+          <OfferHostProfilesTab brouillon={brouillon} setBrouillon={setBrouillon} />
         </TabsContent>
 
         <TabsContent value="tarif" className="mt-4">

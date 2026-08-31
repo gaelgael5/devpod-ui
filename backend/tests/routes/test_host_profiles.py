@@ -42,6 +42,8 @@ class _Store:
     def __init__(self) -> None:
         self.profils: dict[str, HostProfile] = {}
         self.machines: dict[str, MachineProfile] = {MACHINE.slug: MACHINE}
+        #: Offres declarant chaque profil — ce qui interdit sa suppression.
+        self.offres_par_profil: dict[str, list[str]] = {}
 
 
 @pytest.fixture
@@ -71,11 +73,15 @@ def client(store: _Store, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def _machine(slug: str, _conn: Any) -> MachineProfile | None:
         return store.machines.get(slug)
 
+    async def _offres(slug: str, _conn: Any) -> list[str]:
+        return store.offres_par_profil.get(slug, [])
+
     monkeypatch.setattr(host_profiles, "list_host_profiles", _list)
     monkeypatch.setattr(host_profiles, "get_host_profile", _get)
     monkeypatch.setattr(host_profiles, "upsert_host_profile", _upsert)
     monkeypatch.setattr(host_profiles, "delete_host_profile", _delete)
     monkeypatch.setattr(host_profiles, "get_profile", _machine)
+    monkeypatch.setattr(host_profiles, "offres_utilisant_profil", _offres)
     monkeypatch.setattr(host_profiles, "_variables_declarees", lambda _m: list(TYPE.variables))
     return TestClient(app)
 
@@ -192,3 +198,30 @@ def test_expose_les_variables_a_renseigner(client: TestClient) -> None:
 
 def test_les_variables_d_un_profil_de_machine_inconnu_sont_un_422(client: TestClient) -> None:
     assert client.get("/admin/host-profiles/variables/fantome").status_code == 422
+
+
+def test_refuse_de_supprimer_un_profil_utilise_par_une_offre(
+    client: TestClient, store: _Store
+) -> None:
+    """Le supprimer rendrait l'offre improvisionnable sans que rien ne le dise.
+    Le refus NOMME les offres : sans elles, il faut les chercher à la main."""
+    store.profils["host-standard"] = HostProfile(
+        slug="host-standard", label="Standard", machine_profile=MACHINE.slug
+    )
+    store.offres_par_profil["host-standard"] = ["solo", "team"]
+
+    res = client.delete("/admin/host-profiles/host-standard")
+
+    assert res.status_code == 409
+    assert "solo" in res.json()["detail"]
+    assert "team" in res.json()["detail"]
+    assert "host-standard" in store.profils
+
+
+def test_supprime_un_profil_qu_aucune_offre_ne_declare(client: TestClient, store: _Store) -> None:
+    store.profils["host-standard"] = HostProfile(
+        slug="host-standard", label="Standard", machine_profile=MACHINE.slug
+    )
+
+    assert client.delete("/admin/host-profiles/host-standard").status_code == 204
+    assert "host-standard" not in store.profils

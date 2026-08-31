@@ -1553,6 +1553,34 @@ offers = Table(
     CheckConstraint("max_hosts_dedies IS NULL OR max_hosts_dedies > 0", name="ck_offer_max_hosts"),
 )
 
+# Profils de host qu'une offre sait provisionner, et dans quel ordre.
+#
+# `priorite` porte le rang (0 = essayé en premier) : une table SQL n'a pas
+# d'ordre propre, et sans rang la liste reviendrait mélangée à chaque relecture.
+# Le rang est réécrit en bloc à chaque enregistrement, comme les prix — le corps
+# reçu décrit l'état voulu, pas un delta.
+#
+# FK RESTRICT vers `host_profiles` : supprimer un profil référencé par une offre
+# rendrait cette offre improvisionnable en silence. La route le refuse en 409 et
+# nomme les offres concernées, comme elle refuse déjà de supprimer une offre
+# souscrite.
+offer_host_profiles = Table(
+    "offer_host_profiles",
+    metadata,
+    Column("offer_slug", Text, ForeignKey("offers.slug", ondelete="CASCADE"), nullable=False),
+    Column(
+        "profile_slug",
+        Text,
+        ForeignKey("host_profiles.slug", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    Column("priorite", Integer, nullable=False),
+    UniqueConstraint("offer_slug", "profile_slug", name="uq_offer_host_profile"),
+    CheckConstraint("priorite >= 0", name="ck_offer_host_profile_priorite"),
+)
+Index("ix_offer_host_profiles_profile", offer_host_profiles.c.profile_slug)
+
+
 # Prix d'une offre, PAR DEVISE. Montant en unités mineures (centimes) : entier,
 # jamais un flottant — c'est la règle de la facturation et celle de l'API Stripe.
 #

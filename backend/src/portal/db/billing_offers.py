@@ -18,7 +18,7 @@ from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..billing.models import Offer, OfferPrice, TaxRate
-from .tables import offer_prices, offers, subscriptions, tax_rates
+from .tables import offer_host_profiles, offer_prices, offers, subscriptions, tax_rates
 
 # ─── Taux de taxe ────────────────────────────────────────────────────────────
 
@@ -90,7 +90,9 @@ async def delete_tax_rate(rate_id: int, conn: AsyncConnection) -> bool:
 # ─── Offres ──────────────────────────────────────────────────────────────────
 
 
-def _row_to_offer(row: dict[str, Any], prix: list[OfferPrice]) -> Offer:
+def _row_to_offer(
+    row: dict[str, Any], prix: list[OfferPrice], profils: list[str] | None = None
+) -> Offer:
     return Offer.model_validate(
         {
             "slug": row["slug"],
@@ -109,6 +111,7 @@ def _row_to_offer(row: dict[str, Any], prix: list[OfferPrice]) -> Offer:
             "is_free": row["is_free"],
             "duration_days": row["duration_days"],
             "prices": prix,
+            "host_profiles": profils or [],
         }
     )
 
@@ -136,13 +139,35 @@ async def _prix_par_offre(slugs: list[str], conn: AsyncConnection) -> dict[str, 
     return dict(groupes)
 
 
+async def _profils_par_offre(slugs: list[str], conn: AsyncConnection) -> dict[str, list[str]]:
+    """Profils de host des offres demandées, dans l'ordre de priorité.
+
+    Une requête, pas N — et le tri sur `priorite` est ce qui rend la liste
+    reproductible : sans lui, la priorité saisie par l'administrateur ne
+    survivrait pas au premier rechargement.
+    """
+    if not slugs:
+        return {}
+    stmt = (
+        select(offer_host_profiles)
+        .where(offer_host_profiles.c.offer_slug.in_(slugs))
+        .order_by(offer_host_profiles.c.offer_slug, offer_host_profiles.c.priorite)
+    )
+    groupes: dict[str, list[str]] = defaultdict(list)
+    for row in (await conn.execute(stmt)).mappings().all():
+        groupes[row["offer_slug"]].append(row["profile_slug"])
+    return dict(groupes)
+
+
 async def list_offers(conn: AsyncConnection, *, published_only: bool = False) -> list[Offer]:
     stmt = select(offers)
     if published_only:
         stmt = stmt.where(offers.c.published.is_(True))
     rows = [dict(r) for r in (await conn.execute(stmt.order_by(offers.c.slug))).mappings().all()]
-    prix = await _prix_par_offre([r["slug"] for r in rows], conn)
-    return [_row_to_offer(r, prix.get(r["slug"], [])) for r in rows]
+    slugs = [r["slug"] for r in rows]
+    prix = await _prix_par_offre(slugs, conn)
+    profils = await _profils_par_offre(slugs, conn)
+    return [_row_to_offer(r, prix.get(r["slug"], []), profils.get(r["slug"], [])) for r in rows]
 
 
 async def get_offer(slug: str, conn: AsyncConnection) -> Offer | None:
@@ -150,7 +175,8 @@ async def get_offer(slug: str, conn: AsyncConnection) -> Offer | None:
     if row is None:
         return None
     prix = await _prix_par_offre([slug], conn)
-    return _row_to_offer(dict(row), prix.get(slug, []))
+    profils = await _profils_par_offre([slug], conn)
+    return _row_to_offer(dict(row), prix.get(slug, []), profils.get(slug, []))
 
 
 async def upsert_offer(offre: Offer, conn: AsyncConnection) -> None:
@@ -159,6 +185,10 @@ async def upsert_offer(offre: Offer, conn: AsyncConnection) -> None:
     Les prix sont effacés puis réinsérés : le corps reçu décrit l'état voulu du
     tarif, pas un delta. Un prix retiré du corps doit disparaître, sans quoi une
     devise abandonnée resterait vendable.
+
+    Même traitement pour les profils de host, et pour la même raison — avec en
+    plus le rang, réécrit depuis la position dans la liste : c'est elle qui porte
+    la priorité, un rang conservé d'une écriture à l'autre s'en écarterait.
     """
     vals: dict[str, Any] = {
         "slug": offre.slug,
@@ -194,6 +224,18 @@ async def upsert_offer(offre: Offer, conn: AsyncConnection) -> None:
             [{"offer_slug": offre.slug, **p.model_dump()} for p in offre.prices],
         )
 
+    await conn.execute(
+        delete(offer_host_profiles).where(offer_host_profiles.c.offer_slug == offre.slug)
+    )
+    if offre.host_profiles:
+        await conn.execute(
+            insert(offer_host_profiles),
+            [
+                {"offer_slug": offre.slug, "profile_slug": slug, "priorite": rang}
+                for rang, slug in enumerate(offre.host_profiles)
+            ],
+        )
+
 
 async def delete_offer(slug: str, conn: AsyncConnection) -> bool:
     res = await conn.execute(delete(offers).where(offers.c.slug == slug))
@@ -208,3 +250,18 @@ async def offer_reference(slug: str, conn: AsyncConnection) -> bool:
     """
     stmt = select(func.count()).select_from(subscriptions).where(subscriptions.c.offer_slug == slug)
     return bool((await conn.execute(stmt)).scalar_one())
+
+
+async def offres_utilisant_profil(profile_slug: str, conn: AsyncConnection) -> list[str]:
+    """Offres qui déclarent ce profil de host, par ordre alphabétique.
+
+    Supprimer un profil référencé rendrait ces offres improvisionnables sans que
+    rien ne le signale : la route s'en sert pour refuser, en NOMMANT les offres —
+    un refus qui ne dit pas laquelle oblige à chercher à la main.
+    """
+    stmt = (
+        select(offer_host_profiles.c.offer_slug)
+        .where(offer_host_profiles.c.profile_slug == profile_slug)
+        .order_by(offer_host_profiles.c.offer_slug)
+    )
+    return [r[0] for r in (await conn.execute(stmt)).all()]

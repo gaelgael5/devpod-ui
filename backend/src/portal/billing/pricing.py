@@ -179,11 +179,18 @@ def publiable(offre: Offer, devises_actives: Iterable[str]) -> bool:
     terme ne peut pas se facturer, et un essai sans fin n'est pas un essai —
     c'est un produit offert.
 
+    **Un profil de host** est exigé de toute offre, gratuite comprise : il dit
+    ce que la souscription sait faire naître. Sans lui, `provisioning` connaît
+    le verdict — ouvrir une machine — mais pas le gabarit, et l'échec tombe
+    après le paiement, au moment le plus coûteux.
+
     **Un prix dans une devise activée** n'est exigé que d'une offre payante :
     sans lui elle n'est proposable à personne. Une offre gratuite, elle, n'a
     rien à encaisser.
     """
     if offre.duration_days is None:
+        return False
+    if not offre.host_profiles:
         return False
     if offre.is_free:
         return True

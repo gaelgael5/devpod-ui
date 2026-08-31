@@ -40,11 +40,12 @@ TVA196 = TaxRate(
 
 
 def _offre(**prix: int) -> Offer:
-    # Une duree est posee : sans elle l'offre n'est pas publiable, et ces
-    # tests-ci parlent des DEVISES.
+    # Une duree ET un profil de host sont poses : sans eux l'offre n'est pas
+    # publiable, et ces tests-ci parlent des DEVISES.
     return Offer(
         slug="standard",
         duration_days=30,
+        host_profiles=["host-standard"],
         prices=[OfferPrice(currency=c, amount_minor=m) for c, m in prix.items()],
     )
 
@@ -193,7 +194,7 @@ def test_aucune_devise_activee_rend_toute_offre_impubliable() -> None:
 
 def test_offre_gratuite_publiable_sans_aucun_prix():
     """Un forfait de bienvenue n'a pas de prix — exiger une devise l'interdirait."""
-    offre = Offer(slug="bienvenue", is_free=True, duration_days=30)
+    offre = Offer(slug="bienvenue", is_free=True, duration_days=30, host_profiles=["host-standard"])
 
     assert publiable(offre, ["EUR"]) is True
 
@@ -219,6 +220,7 @@ def test_offre_payante_avec_prix_et_duree_publiable():
     offre = Offer(
         slug="standard",
         duration_days=365,
+        host_profiles=["host-standard"],
         prices=[OfferPrice(currency="EUR", amount_minor=1200)],
     )
 
@@ -230,3 +232,34 @@ def test_offre_gratuite_ne_manque_d_aucune_devise():
     offre = Offer(slug="bienvenue", is_free=True, duration_days=30)
 
     assert devises_manquantes(offre, ["EUR", "USD"]) == []
+
+
+# ─── Profil de host : sans lui, rien ne peut être provisionné ─────────────────
+
+
+def test_offre_sans_profil_de_host_non_publiable():
+    """Publier une offre que rien ne sait provisionner, c'est vendre un accès
+    qui échouera à la souscription — au moment le plus coûteux, après le
+    paiement. Le refus doit tomber ici."""
+    offre = Offer(
+        slug="standard",
+        duration_days=30,
+        host_profiles=[],
+        prices=[OfferPrice(currency="EUR", amount_minor=1200)],
+    )
+
+    assert publiable(offre, ["EUR"]) is False
+
+
+def test_offre_gratuite_sans_profil_de_host_non_publiable():
+    """La règle ne dépend pas du tarif : une offre gratuite se provisionne
+    aussi."""
+    offre = Offer(slug="bienvenue", is_free=True, duration_days=30)
+
+    assert publiable(offre, ["EUR"]) is False
+
+
+def test_offre_gratuite_avec_profil_de_host_publiable():
+    offre = Offer(slug="bienvenue", is_free=True, duration_days=30, host_profiles=["host-standard"])
+
+    assert publiable(offre, ["EUR"]) is True

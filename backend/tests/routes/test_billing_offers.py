@@ -33,6 +33,7 @@ class _Store:
         self.taux: dict[int, TaxRate] = {}
         self.offres: dict[str, Offer] = {}
         self.providers: set[str] = {"stripe-fr"}
+        self.profils_host: set[str] = {"host-standard", "host-gros"}
         self.offres_referencees: set[str] = set()
         self._seq = 0
 
@@ -102,6 +103,9 @@ def client(store: _Store, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def _get_provider(slug: str, _conn: Any) -> Any:
         return object() if slug in store.providers else None
 
+    async def _get_host_profile(slug: str, _conn: Any) -> Any:
+        return object() if slug in store.profils_host else None
+
     for nom, impl in {
         "get_country": _get_country,
         "devises_actives": _devises_actives,
@@ -116,6 +120,7 @@ def client(store: _Store, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         "delete_offer": _delete_offer,
         "offer_reference": _offer_reference,
         "get_provider": _get_provider,
+        "get_host_profile": _get_host_profile,
     }.items():
         monkeypatch.setattr(billing_offers, nom, impl)
     return TestClient(app)
@@ -234,9 +239,10 @@ def _offre(**extra: Any) -> dict[str, Any]:
         "max_workspaces": 3,
         "provider_slug": "stripe-fr",
         "published": False,
-        # Une duree est posee : sans elle l'offre n'est pas publiable, et la
-        # plupart de ces tests parlent des PRIX.
+        # Une duree ET un profil de host sont poses : sans eux l'offre n'est pas
+        # publiable, et la plupart de ces tests parlent des PRIX.
         "duration_days": 30,
+        "host_profiles": ["host-standard"],
         "prices": [{"currency": "EUR", "amount_minor": 1200}],
     }
     base.update(extra)
@@ -363,5 +369,57 @@ def test_refuse_de_publier_sans_duree_en_le_disant(client: TestClient) -> None:
 def test_refuse_une_offre_gratuite_qui_porte_un_prix(client: TestClient) -> None:
     """Gratuit ET tarifé : l'un des deux serait applique, et personne ne sait lequel."""
     res = client.put("/admin/billing/offers/solo", json=_offre(is_free=True))
+
+    assert res.status_code == 422
+
+
+# ─── Profils de host : ce que l'offre sait provisionner ───────────────────────
+
+
+def test_conserve_l_ordre_des_profils_de_host(client: TestClient, store: _Store) -> None:
+    """L'ordre EST la priorité : le renvoyer mélangé ferait silencieusement
+    changer le gabarit ouvert à la souscription."""
+    res = client.put(
+        "/admin/billing/offers/solo",
+        json=_offre(host_profiles=["host-gros", "host-standard"]),
+    )
+
+    assert res.status_code == 200
+    assert store.offres["solo"].host_profiles == ["host-gros", "host-standard"]
+    assert res.json()["host_profiles"] == ["host-gros", "host-standard"]
+
+
+def test_refuse_un_profil_de_host_inconnu(client: TestClient) -> None:
+    """Sans ce refus, la clé étrangère rendrait un 500 sans nommer le fautif."""
+    res = client.put("/admin/billing/offers/solo", json=_offre(host_profiles=["fantome"]))
+
+    assert res.status_code == 422
+    assert "fantome" in res.json()["detail"]
+
+
+def test_refuse_de_publier_une_offre_sans_profil_de_host(client: TestClient) -> None:
+    """Publier ce que rien ne sait provisionner, c'est vendre un accès qui
+    échouera APRÈS le paiement."""
+    res = client.put("/admin/billing/offers/solo", json=_offre(published=True, host_profiles=[]))
+
+    assert res.status_code == 422
+    assert "profil de host" in res.json()["detail"]
+
+
+def test_un_brouillon_sans_profil_de_host_reste_enregistrable(
+    client: TestClient, store: _Store
+) -> None:
+    """Même règle que la durée : exigée à la publication, pas à la saisie."""
+    res = client.put("/admin/billing/offers/solo", json=_offre(published=False, host_profiles=[]))
+
+    assert res.status_code == 200
+    assert store.offres["solo"].host_profiles == []
+
+
+def test_un_meme_profil_liste_deux_fois_est_refuse(client: TestClient) -> None:
+    res = client.put(
+        "/admin/billing/offers/solo",
+        json=_offre(host_profiles=["host-standard", "host-standard"]),
+    )
 
     assert res.status_code == 422

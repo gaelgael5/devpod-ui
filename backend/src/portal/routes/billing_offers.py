@@ -38,6 +38,7 @@ from ..db.billing_offers import (
     upsert_offer,
 )
 from ..db.engine import get_conn
+from ..db.host_profiles import get_host_profile
 
 router = APIRouter(tags=["billing-offers"])
 log = structlog.get_logger(__name__)
@@ -222,6 +223,12 @@ async def admin_save_offer(
             status_code=422, detail=f"Canal de paiement {body.provider_slug!r} introuvable"
         )
 
+    # Un profil inconnu partirait se faire refuser par la clé étrangère, en 500
+    # et sans nommer le fautif. On le dit ici, avec son slug.
+    for profil in body.host_profiles:
+        if await get_host_profile(profil, conn) is None:
+            raise HTTPException(status_code=422, detail=f"Profil de host {profil!r} introuvable")
+
     actives = await devises_actives(conn)
     if body.published:
         # Deux refus distincts : le message doit dire lequel, sinon
@@ -233,6 +240,15 @@ async def admin_save_offer(
                     "Offre non publiable : aucune durée de forfait — "
                     "un essai sans fin est un produit offert, et un abonnement "
                     "sans terme ne se facture pas"
+                ),
+            )
+        if not body.host_profiles:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Offre non publiable : aucun profil de host — rien ne dirait "
+                    "quelle machine ouvrir à la souscription, et l'échec "
+                    "tomberait après le paiement"
                 ),
             )
         if not publiable(body, actives):

@@ -269,6 +269,15 @@ class Offer(BaseModel):
     # `None` = pas encore renseignee — l'offre reste un brouillon, la
     # publication l'exige (cf. `pricing.publiable`).
     duration_days: int | None = None
+    # Profils de host que l'offre sait provisionner, DU PLUS PRIORITAIRE AU
+    # MOINS. L'ordre est la priorite : porter un rang a part se desynchroniserait
+    # de la liste au premier retrait.
+    #
+    # Le profil de host donne le profil de machine, donc le type d'hyperviseur,
+    # donc le script de creation. Sans lui, `provisioning` sait qu'il faut ouvrir
+    # une machine mais pas laquelle. Liste vide = brouillon : c'est la
+    # PUBLICATION qui exige un profil (cf. `pricing.publiable`).
+    host_profiles: list[str] = Field(default_factory=list)
 
     @field_validator("currency_markup")
     @classmethod
@@ -296,6 +305,20 @@ class Offer(BaseModel):
     def _duree(cls, v: int | None) -> int | None:
         if v is not None and v <= 0:
             raise ValueError("duration_days : un forfait dure au moins un jour")
+        return v
+
+    @field_validator("host_profiles")
+    @classmethod
+    def _profils_host(cls, v: list[str]) -> list[str]:
+        for slug in v:
+            if not _SLUG_RE.fullmatch(slug):
+                raise ValueError(f"profil de host {slug!r} invalide : ^[a-z0-9][a-z0-9-]{{0,62}}$")
+        if len(v) != len(set(v)):
+            doublons = sorted({s for s in v if v.count(s) > 1})
+            raise ValueError(
+                f"profil de host listé deux fois : {', '.join(doublons)} — "
+                "la priorité en deviendrait ambiguë"
+            )
         return v
 
     @model_validator(mode="after")

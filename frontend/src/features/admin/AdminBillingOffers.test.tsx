@@ -29,6 +29,11 @@ const STRIPE = {
   secret_slug: '',
 }
 
+const PROFILS_HOST = [
+  { slug: 'host-standard', label: 'Host standard', machine_profile: 'pve-4g', variables: {} },
+  { slug: 'host-gros', label: 'Host gros', machine_profile: 'pve-16g', variables: {} },
+]
+
 const STANDARD = {
   slug: 'standard',
   label: 'Standard',
@@ -46,12 +51,14 @@ const STANDARD = {
   currency_markup: 1,
   is_free: false,
   duration_days: 30,
+  host_profiles: ['host-standard'],
 }
 
 function renderPage(offres: unknown[] = [STANDARD]) {
   server.use(
     http.get('/admin/billing/offers', () => HttpResponse.json(offres)),
     http.get('/admin/billing/providers', () => HttpResponse.json([STRIPE])),
+    http.get('/admin/host-profiles', () => HttpResponse.json(PROFILS_HOST)),
     http.get('/admin/billing/currencies', () =>
       HttpResponse.json([
         { code: 'EUR', enabled: true, is_default: true },
@@ -87,6 +94,12 @@ async function ongletTarif() {
 async function ongletDuree() {
   await userEvent.click(
     await screen.findByRole('tab', { name: i18n.t('admin.offers.tabDuration') }),
+  )
+}
+
+async function ongletProfils() {
+  await userEvent.click(
+    await screen.findByRole('tab', { name: i18n.t('admin.offers.tabHostProfiles') }),
   )
 }
 
@@ -358,5 +371,83 @@ describe('AdminBillingOffers', () => {
 
     const majoration = screen.getByLabelText(i18n.t('admin.offers.markup')) as HTMLInputElement
     expect(majoration.value).toBe('1')
+  })
+})
+
+describe('OfferEditor — profils de host', () => {
+  async function ouvrirProfils(offre: Record<string, unknown>) {
+    renderPage([{ ...STANDARD, ...offre }])
+    const ligne = await screen.findByTestId('offre-standard')
+    await userEvent.click(within(ligne).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+    await ongletProfils()
+  }
+
+  it("liste les profils de l'offre dans leur ordre de priorite", async () => {
+    await ouvrirProfils({ host_profiles: ['host-gros', 'host-standard'] })
+
+    const lignes = await screen.findAllByTestId(/^profil-host-/)
+    expect(lignes.map((l) => l.getAttribute('data-testid'))).toEqual([
+      'profil-host-host-gros',
+      'profil-host-host-standard',
+    ])
+    // Le rang est montre : sans lui, rien ne dit que l'ordre a un sens.
+    expect(lignes[0]).toHaveTextContent('1')
+    expect(lignes[1]).toHaveTextContent('2')
+  })
+
+  it('remonte un profil dans la priorite', async () => {
+    await ouvrirProfils({ host_profiles: ['host-standard', 'host-gros'] })
+
+    await userEvent.click(
+      within(screen.getByTestId('profil-host-host-gros')).getByRole('button', {
+        name: i18n.t('admin.offers.hostProfileUp'),
+      }),
+    )
+
+    const lignes = await screen.findAllByTestId(/^profil-host-/)
+    expect(lignes.map((l) => l.getAttribute('data-testid'))).toEqual([
+      'profil-host-host-gros',
+      'profil-host-host-standard',
+    ])
+  })
+
+  it('ne propose pas deux fois un profil deja choisi', async () => {
+    await ouvrirProfils({ host_profiles: ['host-standard'] })
+
+    const choix = await screen.findByTestId('ajout-profil-host')
+    const proposes = within(choix)
+      .getAllByRole('option')
+      .map((o) => (o as HTMLOptionElement).value)
+      .filter(Boolean)
+    expect(proposes).toEqual(['host-gros'])
+  })
+
+  it('envoie les profils dans leur ordre de priorite', async () => {
+    let envoye: Record<string, unknown> = {}
+    server.use(
+      http.put('/admin/billing/offers/:slug', async ({ request }) => {
+        envoye = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json({ ...envoye, devises_manquantes: [] })
+      }),
+    )
+    await ouvrirProfils({ host_profiles: ['host-standard'] })
+
+    await userEvent.selectOptions(await screen.findByTestId('ajout-profil-host'), 'host-gros')
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('common.save') }))
+
+    await waitFor(() => expect(envoye.host_profiles).toEqual(['host-standard', 'host-gros']))
+  })
+
+  it("ramene sur l'onglet quand on publie sans aucun profil", async () => {
+    // Le refus doit designer l'onglet : sans profil, le serveur rendrait un 422
+    // et rien ne dirait ou corriger.
+    await ouvrirProfils({ host_profiles: [] })
+
+    // « Standard » est deja publiee : on ne retouche pas la case, on enregistre.
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('common.save') }))
+
+    expect(
+      await screen.findByText(i18n.t('admin.offers.champsManquantsProfils')),
+    ).toBeInTheDocument()
   })
 })

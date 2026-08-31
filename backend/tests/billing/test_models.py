@@ -110,9 +110,7 @@ def test_une_periode_inversee_est_refusee() -> None:
 
 def test_un_taux_negatif_est_refuse() -> None:
     with pytest.raises(ValidationError):
-        TaxRate(
-            country_code="FR", rate=Decimal("-0.2"), label="x", valid_from=date(2026, 1, 1)
-        )
+        TaxRate(country_code="FR", rate=Decimal("-0.2"), label="x", valid_from=date(2026, 1, 1))
 
 
 def test_sans_valid_to_le_taux_est_en_vigueur() -> None:
@@ -204,3 +202,35 @@ def test_offre_gratuite_avec_un_prix_est_refusee():
 def test_duree_nulle_ou_negative_refusee():
     with pytest.raises(ValidationError):
         Offer(slug="standard", duration_days=0)
+
+
+# ─── Profils de host : ce que l'offre sait provisionner ───────────────────────
+
+
+def test_les_profils_de_host_sont_ordonnes_par_priorite():
+    """L'ordre EST la priorité : le premier est celui qu'on essaie d'abord.
+
+    Un ensemble non ordonné aurait obligé à porter un rang à part, qui se
+    désynchronise de la liste au premier retrait.
+    """
+    offre = Offer(slug="standard", host_profiles=["gros", "petit"])
+
+    assert offre.host_profiles == ["gros", "petit"]
+
+
+def test_un_profil_de_host_ne_peut_pas_figurer_deux_fois():
+    """Deux fois le même profil ne dit rien de plus, et rend la priorité
+    ambiguë : lequel des deux rangs compte ?"""
+    with pytest.raises(ValidationError, match="deux fois"):
+        Offer(slug="standard", host_profiles=["gros", "gros"])
+
+
+def test_un_slug_de_profil_de_host_est_valide_comme_les_autres():
+    with pytest.raises(ValidationError, match="invalide"):
+        Offer(slug="standard", host_profiles=["Gros Profil"])
+
+
+def test_une_offre_sans_profil_de_host_reste_saisissable():
+    """La liste vide est un brouillon, pas une erreur — c'est la PUBLICATION
+    qui exige un profil, comme elle exige déjà une durée et un prix."""
+    assert Offer(slug="standard").host_profiles == []

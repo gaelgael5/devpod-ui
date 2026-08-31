@@ -1085,7 +1085,17 @@
       "isFreeOn": "Aucun prix : l'offre sert à essayer le produit, et s'arrête au terme de sa durée.",
       "isFreeOff": "Offre payante : au moins un prix dans une devise acceptée est requis pour la publier.",
       "freeNoPricing": "Offre gratuite : il n'y a rien à tarifer. Sa durée reste à définir dans l'onglet « Durée ».",
-      "champsManquantsDuree": "Une offre publiée doit avoir une durée."
+      "champsManquantsDuree": "Une offre publiée doit avoir une durée.",
+      "tabHostProfiles": "Profils de host",
+      "hostProfilesHelp": "Les profils de host que cette offre sait ouvrir, du plus prioritaire au moins. Le profil de host porte le profil de machine, donc le type d'hyperviseur et le script de création : sans lui, rien ne dirait quelle machine ouvrir à la souscription. L'ordre est la priorité — le premier est essayé d'abord.",
+      "noHostProfile": "Aucun profil de host. L'offre reste enregistrable, mais la publication en exige au moins un.",
+      "addHostProfile": "Ajouter un profil de host",
+      "chooseHostProfile": "Choisir un profil…",
+      "noHostProfileLeft": "Tous les profils de host sont déjà listés",
+      "hostProfileUp": "Monter dans la priorité",
+      "hostProfileDown": "Descendre dans la priorité",
+      "hostProfileRemove": "Retirer de l'offre",
+      "champsManquantsProfils": "Il manque un profil de host : rien ne dirait quelle machine ouvrir."
     }
   },
   "errors": {

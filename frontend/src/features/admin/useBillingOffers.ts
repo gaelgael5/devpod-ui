@@ -50,6 +50,10 @@ export interface Offer {
   /** Duree du forfait EN JOURS. Tout forfait est borne, gratuit comme payant.
    *  `null` = pas encore renseignee : la publication l'exige. */
   duration_days: number | null
+  /** Profils de host que l'offre sait provisionner, DU PLUS PRIORITAIRE AU
+   *  MOINS. L'ordre EST la priorite — porter un rang a part se desynchroniserait
+   *  de la liste au premier retrait. Vide = brouillon : la publication l'exige. */
+  host_profiles: string[]
 }
 
 /** Reponse d'enregistrement : l'offre, plus ce qui lui manque pour etre vendable. */
@@ -75,6 +79,7 @@ export function offreVide(): Offer {
     currency_markup: 1,
     is_free: false,
     duration_days: 30,
+    host_profiles: [],
   }
 }
 
