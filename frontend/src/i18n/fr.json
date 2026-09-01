@@ -1079,6 +1079,8 @@
       "maxWorkspaces": "Workspaces maximum",
       "maxHosts": "Hosts dédiés maximum",
       "unlimited": "illimité",
+      "priority": "Ordre d'affichage",
+      "priorityHelp": "Position sur la page publique des forfaits, croissante : 0 s'affiche en premier. À valeur égale, le slug départage.",
       "quotaHelp": "Champ vide = illimité. Les deux quotas sont indépendants, et la capacité physique de la machine prime toujours sur eux.",
       "quotas": "Workspaces : {{workspaces}} · hosts dédiés : {{hosts}}",
       "provider": "Canal de vente",

@@ -113,6 +113,25 @@ export default function OfferGeneralTab({
         </div>
       </div>
       <p className="-mt-2 text-xs text-muted-foreground">{t('admin.offers.quotaHelp')}</p>
+
+      <div className="flex flex-col gap-1.5 sm:max-w-xs">
+        <Label htmlFor="offre-priorite">{t('admin.offers.priority')}</Label>
+        <Input
+          id="offre-priorite"
+          type="number"
+          min={0}
+          value={brouillon.priorite}
+          onChange={(e) =>
+            // Vide pendant la saisie : on retombe sur le defaut plutot que sur
+            // NaN, qui ferait echouer la validation sans rien dire a l'admin.
+            setBrouillon((b) => ({
+              ...b,
+              priorite: e.target.value === '' ? 100 : Math.max(0, Number(e.target.value)),
+            }))
+          }
+        />
+        <p className="text-xs text-muted-foreground">{t('admin.offers.priorityHelp')}</p>
+      </div>
     </div>
   )
 }

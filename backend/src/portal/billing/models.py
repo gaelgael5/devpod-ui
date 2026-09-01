@@ -269,6 +269,10 @@ class Offer(BaseModel):
     # `None` = pas encore renseignee — l'offre reste un brouillon, la
     # publication l'exige (cf. `pricing.publiable`).
     duration_days: int | None = None
+    # Ordre d'affichage sur la page publique, croissant : 0 en premier. C'est
+    # l'administrateur qui le decide — le tri par slug etait alphabetique, donc
+    # sans rapport avec la facon dont on veut presenter le catalogue.
+    priorite: int = 100
     # Profils de host que l'offre sait provisionner, DU PLUS PRIORITAIRE AU
     # MOINS. L'ordre est la priorite : porter un rang a part se desynchroniserait
     # de la liste au premier retrait.

@@ -110,6 +110,7 @@ def _row_to_offer(
             "currency_markup": row["currency_markup"],
             "is_free": row["is_free"],
             "duration_days": row["duration_days"],
+            "priorite": row["priorite"],
             "prices": prix,
             "host_profiles": profils or [],
         }
@@ -163,7 +164,10 @@ async def list_offers(conn: AsyncConnection, *, published_only: bool = False) ->
     stmt = select(offers)
     if published_only:
         stmt = stmt.where(offers.c.published.is_(True))
-    rows = [dict(r) for r in (await conn.execute(stmt.order_by(offers.c.slug))).mappings().all()]
+    # Priorite d'abord, slug pour departager : sans cette seconde cle le
+    # catalogue changerait d'ordre d'un rechargement a l'autre.
+    stmt = stmt.order_by(offers.c.priorite, offers.c.slug)
+    rows = [dict(r) for r in (await conn.execute(stmt)).mappings().all()]
     slugs = [r["slug"] for r in rows]
     prix = await _prix_par_offre(slugs, conn)
     profils = await _profils_par_offre(slugs, conn)
@@ -206,6 +210,7 @@ async def upsert_offer(offre: Offer, conn: AsyncConnection) -> None:
         "currency_markup": offre.currency_markup,
         "is_free": offre.is_free,
         "duration_days": offre.duration_days,
+        "priorite": offre.priorite,
     }
     existe = (
         await conn.execute(select(offers.c.slug).where(offers.c.slug == offre.slug))

@@ -1549,9 +1549,15 @@ offers = Table(
     # NULL = pas encore renseignee : l'offre reste un brouillon, la publication
     # l'exige.
     Column("duration_days", Integer, nullable=True),
+    # Ordre d'affichage decide par l'administrateur, croissant : 0 en premier.
+    # Le tri par slug etait alphabetique, donc arbitraire commercialement.
+    # A priorite egale, `slug` departage — un tri instable ferait bouger le
+    # catalogue d'un rechargement a l'autre.
+    Column("priorite", Integer, nullable=False, server_default="100"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint("hosting_type IN ('dedie','mutualise')", name="ck_offer_hosting_type"),
+    CheckConstraint("priorite >= 0", name="ck_offer_priorite"),
     CheckConstraint("duration_days IS NULL OR duration_days > 0", name="ck_offer_duration"),
     CheckConstraint("currency_markup > 0", name="ck_offer_markup"),
     CheckConstraint("max_workspaces IS NULL OR max_workspaces > 0", name="ck_offer_max_ws"),

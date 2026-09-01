@@ -30,6 +30,8 @@ export interface Offer {
   /** Descriptions en markdown, par langue. */
   descriptions: Record<string, string>
   hosting_type: HostingType
+  /** Ordre d'affichage public, croissant : 0 en premier. */
+  priorite: number
   /** `null` = illimite. Les deux quotas sont independants. */
   max_workspaces: number | null
   max_hosts_dedies: number | null
@@ -68,6 +70,7 @@ export function offreVide(): Offer {
     titles: {},
     descriptions: {},
     hosting_type: 'mutualise',
+    priorite: 100,
     max_workspaces: null,
     max_hosts_dedies: null,
     variables: {},

@@ -1079,6 +1079,8 @@
       "maxWorkspaces": "Max workspaces",
       "maxHosts": "Max dedicated hosts",
       "unlimited": "unlimited",
+      "priority": "Display order",
+      "priorityHelp": "Position on the public plans page, ascending: 0 shows first. Ties are broken by slug.",
       "quotaHelp": "Empty field = unlimited. Both quotas are independent, and the machine's physical capacity always takes precedence.",
       "quotas": "Workspaces: {{workspaces}} · dedicated hosts: {{hosts}}",
       "provider": "Sales channel",

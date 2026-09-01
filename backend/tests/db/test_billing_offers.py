@@ -266,3 +266,40 @@ async def test_duree_absente_reste_absente(db_conn):
     assert offre is not None
     assert offre.duration_days is None
     assert offre.is_free is False
+
+
+async def test_la_priorite_decide_l_ordre_et_le_slug_departage(db_conn) -> None:
+    """L'ordre du catalogue appartient à l'administrateur, pas à l'alphabet.
+
+    Le tri se faisait sur `slug` : l'offre gratuite se retrouvait en dernier
+    parce que son slug commence par un `w`, sans moyen de la déplacer.
+    """
+    await upsert_offer(SOLO.model_copy(update={"slug": "welcome", "priorite": 0}), db_conn)
+    await upsert_offer(SOLO.model_copy(update={"slug": "alpha", "priorite": 50}), db_conn)
+    # Deux ex aequo : le slug départage, sinon l'ordre changerait d'un
+    # rechargement à l'autre.
+    await upsert_offer(SOLO.model_copy(update={"slug": "zeta", "priorite": 10}), db_conn)
+    await upsert_offer(SOLO.model_copy(update={"slug": "beta", "priorite": 10}), db_conn)
+
+    ordre = [o.slug for o in await list_offers(db_conn)]
+
+    assert ordre == ["welcome", "beta", "zeta", "alpha"]
+
+
+async def test_la_priorite_survit_a_la_relecture(db_conn) -> None:
+    await upsert_offer(SOLO.model_copy(update={"priorite": 7}), db_conn)
+
+    relue = await get_offer(SOLO.slug, db_conn)
+
+    assert relue is not None
+    assert relue.priorite == 7
+
+
+async def test_une_offre_ecrite_sans_priorite_prend_le_defaut(db_conn) -> None:
+    """Le parc existant garde son ordre : défaut identique pour tous."""
+    await upsert_offer(SOLO, db_conn)
+
+    relue = await get_offer(SOLO.slug, db_conn)
+
+    assert relue is not None
+    assert relue.priorite == 100
