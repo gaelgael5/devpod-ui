@@ -7,7 +7,10 @@ import { renderWithProviders } from '@/test/renderWithProviders'
 import i18n from '@/i18n'
 import LandingPage from './LandingPage'
 
-const TITRE_FR = 'Vos environnements de développement, dans le navigateur'
+// Ancré sur la STRUCTURE et non sur une phrase : le texte de la landing est
+// editorial, il sera relu et reecrit. Un test qui epingle une formulation
+// casserait a chaque passe de relecture sans rien prouver de plus.
+const titreH1 = () => screen.findByRole('heading', { level: 1 })
 
 // i18n est un singleton, et sa langue initiale depend du detecteur (navigateur,
 // localStorage). Sans point de depart explicite, un test qui bascule la langue
@@ -24,7 +27,7 @@ describe('LandingPage', () => {
     server.use(http.get('/me', () => new HttpResponse(null, { status: 401 })))
     renderWithProviders(<LandingPage />)
 
-    expect(await screen.findByText(TITRE_FR)).toBeInTheDocument()
+    expect(await titreH1()).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Essayez gratuitement' })).toHaveAttribute(
       'href',
       '/forfaits'
@@ -39,7 +42,7 @@ describe('LandingPage', () => {
     server.use(http.get('/me', () => new HttpResponse(null, { status: 401 })))
     renderWithProviders(<LandingPage />)
 
-    await screen.findByText(TITRE_FR)
+    await titreH1()
     // Le contenu vit dans i18n : on verifie que les cles sont resolues, pas
     // qu'un texte precis est ecrit — sinon toute relecture editoriale casse le test.
     expect(screen.getByRole('heading', { name: 'Comment ça marche' })).toBeInTheDocument()
@@ -53,7 +56,7 @@ describe('LandingPage', () => {
     renderWithProviders(<LandingPage />)
 
     await waitFor(() => {
-      expect(screen.queryByText(TITRE_FR)).not.toBeInTheDocument()
+      expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
     })
   })
 
@@ -74,7 +77,7 @@ describe('LandingPage', () => {
     )
 
     renderWithProviders(<LandingPage />)
-    await screen.findByText(TITRE_FR)
+    await titreH1()
 
     await userEvent.selectOptions(screen.getByRole('combobox'), 'en')
 
@@ -91,13 +94,13 @@ describe('LandingPage', () => {
     server.use(http.get('/me', () => new HttpResponse(null, { status: 500 })))
     renderWithProviders(<LandingPage />)
 
-    expect(await screen.findByText(TITRE_FR)).toBeInTheDocument()
+    expect(await titreH1()).toBeInTheDocument()
   })
 
   it('retient le choix de langue dans le localStorage', async () => {
     server.use(http.get('/me', () => new HttpResponse(null, { status: 401 })))
     renderWithProviders(<LandingPage />)
-    await screen.findByText(TITRE_FR)
+    await titreH1()
 
     await userEvent.selectOptions(screen.getByRole('combobox'), 'en')
 
