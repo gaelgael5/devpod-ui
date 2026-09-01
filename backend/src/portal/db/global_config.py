@@ -245,6 +245,7 @@ def _host_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "profile_slug": row["profile_slug"],
         "capacity_workspaces": row["capacity_workspaces"],
         "accepts_mutualise": row["accepts_mutualise"],
+        "hypervisor": row["hypervisor"],
     }
 
 
@@ -392,4 +393,5 @@ def _host_to_row(h: HostConfig) -> dict[str, Any]:
         "profile_slug": h.profile_slug,
         "capacity_workspaces": h.capacity_workspaces,
         "accepts_mutualise": h.accepts_mutualise,
+        "hypervisor": h.hypervisor,
     }

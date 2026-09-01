@@ -64,6 +64,7 @@ def client(monkeypatch: pytest.MonkeyPatch, enregistre: list[GlobalConfig]) -> T
         type="docker-tls",
         docker_host="tcp://10.0.0.5:2376",
         profile_slug="gros-noeud",
+        hypervisor="pve-1",
         capacity_workspaces=10,
     )
     monkeypatch.setattr(admin, "load_global", lambda: _config(host))
@@ -112,6 +113,23 @@ def test_profil_d_origine_survit_a_un_update_qui_l_ignore(
 
     assert resp.status_code == 200
     assert enregistre[-1].hosts[0].profile_slug == "gros-noeud"
+
+
+def test_l_hyperviseur_d_origine_survit_a_un_update_qui_l_ignore(
+    client: TestClient, enregistre: list[GlobalConfig]
+) -> None:
+    """Même piège que `profile_slug`, même remède.
+
+    L'hyperviseur qui a monté la machine est une PROVENANCE : posée au
+    provisionnement, jamais saisie par l'administrateur. Le handler reconstruit
+    un `HostConfig` champ par champ — l'oublier ici l'effacerait à chaque
+    changement d'adresse IP, et le comptage des machines par hyperviseur se
+    remettrait à mentir sans que rien ne le signale.
+    """
+    resp = client.put("/admin/hosts/worker01", json=_corps(capacity_workspaces=8))
+
+    assert resp.status_code == 200
+    assert enregistre[-1].hosts[0].hypervisor == "pve-1"
 
 
 def test_capacite_absente_du_corps_est_preservee(

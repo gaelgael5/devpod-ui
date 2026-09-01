@@ -162,6 +162,11 @@ hosts = Table(
     Column("capacity_workspaces", Integer, nullable=True),
     # Ouverture au pool mutualise, acte delibere de l'exploitant.
     Column("accepts_mutualise", Boolean, nullable=False, server_default="false"),
+    # Hyperviseur qui a monte la machine : PROVENANCE, pas contrainte — comme
+    # `profile_slug`. Pas de cle etrangere : supprimer un hyperviseur ne doit ni
+    # effacer des machines ni bloquer l'operation. Vide = provenance inconnue
+    # (enrolee a la main), et surtout pas un hyperviseur par defaut.
+    Column("hypervisor", Text, nullable=False, server_default=""),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint(
         "capacity_workspaces IS NULL OR capacity_workspaces >= 0", name="ck_host_capacity"

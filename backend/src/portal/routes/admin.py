@@ -1088,6 +1088,7 @@ async def update_host(
         # Provenance conservée : elle est posée au provisionnement, pas saisie
         # par l'administrateur — et l'oublier ici l'effacerait à chaque update.
         profile_slug=existing.profile_slug,
+        hypervisor=existing.hypervisor,
         # Champ absent du corps = préservé ; présent à `null` = effacé.
         capacity_workspaces=(
             body.capacity_workspaces

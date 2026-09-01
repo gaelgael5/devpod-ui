@@ -154,6 +154,7 @@ def full_cfg() -> GlobalConfig:
                     "address": "192.168.1.20",
                     "host_cert_slug": "hosts/worker01",
                     "profile_slug": "gros-noeud",
+                    "hypervisor": "pve-1",
                     "capacity_workspaces": 12,
                     "accepts_mutualise": True,
                 }
@@ -319,6 +320,10 @@ async def test_host_capacite_et_provenance_round_trip(db_conn, full_cfg):
     assert h.profile_slug == "gros-noeud"
     assert h.capacity_workspaces == 12
     assert h.accepts_mutualise is True
+    # Provenance : sans elle, compter les machines par hyperviseur retombe sur
+    # un rapprochement de NOMS de noeuds, ambigu des que deux hyperviseurs en
+    # partagent un — et `pve` est le nom d'hote par defaut de Proxmox.
+    assert h.hypervisor == "pve-1"
 
 
 @pytest.mark.asyncio
@@ -337,6 +342,9 @@ async def test_host_sans_capacite_reste_sans_capacite(db_conn, minimal_cfg):
     assert h.capacity_workspaces is None
     assert h.accepts_mutualise is False
     assert h.profile_slug == ""
+    # Enrolee a la main : provenance INCONNUE. Vide, et surtout pas un
+    # hyperviseur par defaut qui ferait mentir tous les comptages.
+    assert h.hypervisor == ""
 
 
 @pytest.mark.asyncio

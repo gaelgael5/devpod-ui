@@ -359,6 +359,12 @@ class HostConfig(BaseModel):
     # Cette machine peut-elle accueillir les workspaces d'offres mutualisees ?
     # Faux par defaut : ouvrir un noeud au public est un acte delibere.
     accepts_mutualise: bool = False
+    # Hyperviseur qui a monte la machine. PROVENANCE, pas contrainte : le lien
+    # par nom de noeud (`proxmox_node`) est ambigu des que deux hyperviseurs
+    # partagent un noeud, et `pve` est le nom d'hote par defaut de Proxmox.
+    # Vide = provenance inconnue : machine enrolee a la main, ou montee avant
+    # que cette colonne existe. Ni une erreur, ni un hyperviseur par defaut.
+    hypervisor: str = ""
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
