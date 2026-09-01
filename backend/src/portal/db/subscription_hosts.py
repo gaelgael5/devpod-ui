@@ -82,6 +82,19 @@ async def machines_de(subscription_id: str, conn: AsyncConnection) -> list[str]:
     return [nom for (nom,) in (await conn.execute(stmt)).all()]
 
 
+async def places_promises_par_host(conn: AsyncConnection) -> dict[str, int]:
+    """Places vendues par machine, en UNE requete.
+
+    Le pool se lit a chaque souscription : une requete par machine y ferait un
+    N+1, et une machine oubliee fausserait le verdict.
+    """
+    stmt = select(
+        subscription_hosts.c.host_name,
+        func.coalesce(func.sum(subscription_hosts.c.allocated_workspaces), 0),
+    ).group_by(subscription_hosts.c.host_name)
+    return {nom: int(total) for nom, total in (await conn.execute(stmt)).all()}
+
+
 async def places_promises(host_name: str, conn: AsyncConnection) -> int:
     """Places déjà vendues sur cette machine, tous abonnements confondus.
 

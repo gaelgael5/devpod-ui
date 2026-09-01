@@ -4,10 +4,17 @@ Ce module lit ; il ne décide pas. Le verdict — assigner, ouvrir une machine, 
 rien faire — appartient à `billing.provisioning`, qui travaille sur ce que ce
 module lui donne.
 
-La règle des deux plafonds n'est pas réécrite ici : elle vit dans
-`billing.ownership` (`limite_effective`, `capacite_restante`), et ce module s'y
-adosse. La dupliquer en SQL ferait exister deux vérités qui divergeraient au
-premier changement.
+La règle des places libres n'est pas réécrite ici : elle vit dans
+`billing.allocation.places_libres`. La dupliquer en SQL ferait exister deux
+vérités qui divergeraient au premier changement.
+
+**Le pool se lit sur la MACHINE, pas sur la propriété.** La migration 117 l'a
+posé et l'écrit noir sur blanc : `hosts.accepts_mutualise` dit quelles machines
+le pool peut remplir, et *une machine mutualisée n'a pas de propriétaire*. Ce
+module interrogeait encore `host_ownership`, dont la clé primaire est le nom de
+la machine et dont `owner_login` est NOT NULL — c'est-à-dire la définition d'une
+machine DÉDIÉE. S'y adosser obligeait à inventer un propriétaire à une machine
+qui, par construction, n'en a pas.
 """
 
 from __future__ import annotations
@@ -15,9 +22,10 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..billing.ownership import HostOwnership, capacite_restante
+from ..billing.allocation import places_libres
 from ..billing.provisioning import HostDisponible
-from .tables import host_ownership, workspaces
+from .subscription_hosts import machines_de, places_promises_par_host
+from .tables import hosts, workspaces
 
 
 async def _workspaces_par_host(conn: AsyncConnection) -> dict[str, int]:
@@ -32,53 +40,49 @@ async def _workspaces_par_host(conn: AsyncConnection) -> dict[str, int]:
 
 
 async def pool_mutualise(conn: AsyncConnection) -> list[HostDisponible]:
-    """Hosts mutualisés et leurs places restantes, triés par nom.
+    """Hosts ouverts au pool et leurs places restantes, triés par nom.
 
-    `places_restantes` vaut `None` quand aucun plafond ne s'applique — profil de
-    host sans `capacity_workspaces`. C'est un trou de configuration, pas une
-    machine infinie, et le décideur le traite comme tel.
+    `places_restantes` vaut `None` quand la machine ne déclare pas de capacité.
+    C'est un trou de configuration, pas une machine infinie, et le décideur le
+    traite comme tel.
     """
     stmt = (
-        select(host_ownership)
-        .where(host_ownership.c.hosting_type == "mutualise")
-        .order_by(host_ownership.c.host_name)
+        select(hosts.c.name, hosts.c.capacity_workspaces)
+        .where(hosts.c.accepts_mutualise.is_(True))
+        .order_by(hosts.c.name)
     )
-    lignes = (await conn.execute(stmt)).mappings().all()
+    lignes = (await conn.execute(stmt)).all()
     if not lignes:
         return []
 
+    # Deux décomptes globaux, pas deux requêtes par machine.
+    promises = await places_promises_par_host(conn)
     utilises = await _workspaces_par_host(conn)
-    pool: list[HostDisponible] = []
-    for ligne in lignes:
-        proprietaire = HostOwnership(
-            host_name=ligne["host_name"],
-            owner_login=ligne["owner_login"],
-            hosting_type=ligne["hosting_type"],
-            offer_slug=ligne["offer_slug"],
-            capacity_workspaces=ligne["capacity_workspaces"],
-            offer_max_workspaces=ligne["offer_max_workspaces"],
+    return [
+        HostDisponible(
+            host_name=nom,
+            places_restantes=places_libres(
+                capacite, promises.get(nom, 0), utilises.get(nom, 0)
+            ),
         )
-        pool.append(
-            HostDisponible(
-                host_name=proprietaire.host_name,
-                places_restantes=capacite_restante(
-                    proprietaire, utilises.get(proprietaire.host_name, 0)
-                ),
-            )
-        )
-    return pool
+        for nom, capacite in lignes
+    ]
 
 
-async def a_deja_une_machine(owner_login: str, offer_slug: str, conn: AsyncConnection) -> bool:
-    """Ce compte a-t-il déjà une machine provisionnée pour cette offre ?
+async def a_deja_une_machine(subscription_id: str, conn: AsyncConnection) -> bool:
+    """Cet ABONNEMENT a-t-il déjà sa machine ?
 
-    C'est le garde-fou de l'idempotence : `activation` arrive après
-    `debut_essai` pour le même abonnement, et ne doit rien recréer. Le couple
-    (propriétaire, offre) suffit à le dire — un même compte peut porter deux
-    offres distinctes, chacune avec sa machine.
+    Garde-fou de l'idempotence : `activation` arrive après `debut_essai` pour le
+    même abonnement, et ne doit rien recréer.
+
+    La clé est l'abonnement, et **pas** le couple (compte, offre) — c'est ce que
+    dit la migration 118, et l'ancienne clé disait le contraire : un même compte
+    peut souscrire deux fois la même offre, ce qui est parfaitement légitime, et
+    le couple les confondait. La seconde souscription était alors considérée
+    comme déjà provisionnée et ne recevait rien, en silence.
+
+    Limiter l'offre de bienvenue à une par compte est une règle d'ÉLIGIBILITÉ,
+    évaluée à la souscription, et surtout pas une exception glissée ici : le
+    provisioning n'a pas à connaître les règles de vente.
     """
-    stmt = select(host_ownership.c.host_name).where(
-        host_ownership.c.owner_login == owner_login,
-        host_ownership.c.offer_slug == offer_slug,
-    )
-    return (await conn.execute(stmt)).first() is not None
+    return bool(await machines_de(subscription_id, conn))

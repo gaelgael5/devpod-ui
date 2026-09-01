@@ -24,8 +24,8 @@ from portal.config.models import (
     ServerConfig,
 )
 from portal.db.provisioning_runs import lire, lister_echecs
+from portal.db.subscription_hosts import rattacher
 from portal.db.tables import (
-    host_ownership,
     host_profiles,
     hosts,
     machine_profiles,
@@ -134,12 +134,17 @@ async def _seed(conn, *, login: str = "alice", offre: str = "standard", hebergem
 
 
 async def _seed_host_mutualise(conn, *, nom: str, owner: str, capacite: int | None) -> None:
-    await conn.execute(insert(hosts).values(name=nom, type="docker-tls"))
+    """Une machine ouverte au pool.
+
+    `owner` n'est plus utilise : une machine mutualisee n'a pas de proprietaire,
+    et le pool se lit sur `hosts.accepts_mutualise` (migrations 117 et 125). Le
+    parametre reste pour ne pas toucher les appelants.
+    """
     await conn.execute(
-        insert(host_ownership).values(
-            host_name=nom,
-            owner_login=owner,
-            hosting_type="mutualise",
+        insert(hosts).values(
+            name=nom,
+            type="docker-tls",
+            accepts_mutualise=True,
             capacity_workspaces=capacite,
         )
     )
@@ -218,15 +223,9 @@ async def test_activation_apres_une_machine_existante_ne_provisionne_pas(db_conn
     est « rien » — et la tentative est tout de même tracée."""
     sub = await _seed(db_conn)
     await db_conn.execute(insert(hosts).values(name="vm-alice", type="docker-tls"))
-    await db_conn.execute(
-        insert(host_ownership).values(
-            host_name="vm-alice",
-            owner_login="alice",
-            hosting_type="dedie",
-            offer_slug="standard",
-            capacity_workspaces=4,
-        )
-    )
+    # La cle d'idempotence est l'ABONNEMENT : c'est son rattachement qui dit
+    # qu'il a deja sa machine, pas une ligne de propriete.
+    await rattacher(sub, "vm-alice", None, db_conn)
     executeur = ExecuteurFactice()
 
     res = await traiter(

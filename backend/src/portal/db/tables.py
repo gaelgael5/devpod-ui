@@ -1723,15 +1723,16 @@ host_ownership = Table(
     Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
     Column("hosting_type", Text, nullable=False, server_default="dedie"),
     Column("offer_slug", Text, nullable=True),
-    # NULL = pas de plafond de ce cote-la, pour les deux.
-    Column("capacity_workspaces", Integer, nullable=True),
+    # La capacite d'accueil N'EST PAS ici : c'est un fait de la MACHINE, il vit
+    # sur `hosts.capacity_workspaces` depuis la migration 117. La recopier sur
+    # la propriete creait une seconde verite (migration 125).
+    #
+    # `offer_max_workspaces` reste : quota du forfait fige au provisionnement,
+    # donnee commerciale, qui n'a aucune raison de vivre sur la machine.
+    # NULL = pas de plafond de ce cote-la.
     Column("offer_max_workspaces", Integer, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint("hosting_type IN ('dedie','mutualise')", name="ck_ownership_hosting_type"),
-    CheckConstraint(
-        "capacity_workspaces IS NULL OR capacity_workspaces >= 0",
-        name="ck_ownership_capacity",
-    ),
 )
 Index("ix_host_ownership_owner", host_ownership.c.owner_login)
 

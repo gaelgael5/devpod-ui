@@ -108,7 +108,9 @@ async def traiter(
     et pour la même raison — ce module séquence, il ne relit pas le catalogue
     commercial.
     """
-    deja = await a_deja_une_machine(owner_login, offer_slug, conn)
+    # Cle d'idempotence : l'ABONNEMENT. Le couple (compte, offre) confondait
+    # deux souscriptions legitimes a la meme offre (migration 118).
+    deja = await a_deja_une_machine(subscription_id, conn)
     pool = await pool_mutualise(conn) if hosting_type == "mutualise" else []
     cible = resoudre_cible(host_profiles, await charger_catalogue(conn), NOEUDS_EXCLUS)
     decision = decider(

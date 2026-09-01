@@ -48,6 +48,11 @@ class HostOwnership(BaseModel):
     workspaces qui peuvent y tourner sans la faire planter. C'est une donnée de
     dimensionnement, pas une donnée commerciale, et elle prime sur tout.
 
+    Elle n'est PAS stockée sur la ligne de propriété : le fait vit sur la
+    machine (`hosts.capacity_workspaces`), et l'appelant l'y lit pour construire
+    cet objet. La recopier créerait une seconde vérité, qui divergerait au
+    premier redimensionnement — c'est ce que la migration 125 a supprimé.
+
     `offer_max_workspaces` est le quota du forfait qui a provisionné la machine,
     figé au provisionnement — un changement de catalogue ne redimensionne pas
     rétroactivement une machine déjà livrée.

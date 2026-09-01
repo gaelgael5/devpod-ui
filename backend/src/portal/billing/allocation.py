@@ -42,6 +42,30 @@ class Part(BaseModel):
     allocated_workspaces: int = Field(gt=0)
 
 
+def places_libres(capacite: int | None, promises: int, utilises: int) -> int | None:
+    """Places encore vendables sur une machine du pool.
+
+    Seule la capacite PHYSIQUE s'applique ici. Le quota du forfait est une
+    limite par abonnement, pas par machine : sur un host mutualise, plusieurs
+    abonnes cohabitent, chacun avec le sien — il se verifie a l'attribution
+    d'une part (`verifier_part`), pas au choix de la machine.
+
+    On retient le PLUS GRAND des deux occupants, et les deux comptent :
+
+    - `promises` est un engagement. Une place vendue et pas encore utilisee
+      reste indisponible : compter les workspaces poses a la place reviendrait
+      a revendre deux fois la meme place.
+    - `utilises` rattrape ce que les engagements ignorent — une machine enrolee
+      a la main peut porter des workspaces qu'aucun abonnement ne couvre.
+
+    `None` = aucune capacite declaree. C'est un trou de configuration, pas une
+    machine infinie, et le decideur le traite comme tel.
+    """
+    if capacite is None:
+        return None
+    return max(0, capacite - max(promises, utilises))
+
+
 def parts_disponibles(quota_forfait: int | None, parts: list[Part]) -> int | None:
     """Workspaces encore attribuables sur ce quota. `None` = quota illimité.
 
