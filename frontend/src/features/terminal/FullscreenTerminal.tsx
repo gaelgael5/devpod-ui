@@ -493,11 +493,18 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     const planifierAjustement = () => {
       clearTimeout(ajustement)
       ajustement = setTimeout(() => {
-        safeFit()
-        // Redessin complet : les tailles intermediaires laissent des residus,
-        // et Safari mobile garde en cache des dimensions de caractere qui ne
-        // valent plus rien apres le changement.
-        terminal.refresh(0, terminal.rows - 1)
+        // Le NUDGE, et non `terminal.refresh()` seul.
+        //
+        // `refresh()` redessine le tampon LOCAL de xterm. Si tmux y a ecrit une
+        // trame entrelacee pendant que le clavier s'ouvrait, on la redessine a
+        // l'identique : proprement, mais toujours fausse. Seul l'aller-retour
+        // de taille fait repeindre tmux (cf. `refreshRef`), et c'est ce que le
+        // bouton « rafraichir » faisait a la main pendant que le recalage
+        // automatique, lui, ne le faisait jamais.
+        //
+        // Deux SIGWINCH par recalage : ce chemin RESTE donc derriere le
+        // debounce, qui existe pour eviter exactement cette rafale.
+        refreshRef.current?.()
       }, AJUSTEMENT_MS)
     }
 
@@ -505,6 +512,14 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     window.addEventListener('resize', onResize)
     const ro = new ResizeObserver(planifierAjustement)
     if (termRef.current) ro.observe(termRef.current)
+    // Clavier mobile. iOS ne fait varier NI `window.resize` NI la hauteur du
+    // viewport de mise en page (cf. `useVisualViewportHeight`) : sans ces deux
+    // ecouteurs, le recalage n'arrive qu'indirectement — etat React, puis
+    // hauteur du conteneur, puis ResizeObserver — et PAS DU TOUT quand iOS
+    // deplace le viewport visuel sans le redimensionner.
+    const vueVisuelle = window.visualViewport
+    vueVisuelle?.addEventListener('resize', planifierAjustement)
+    vueVisuelle?.addEventListener('scroll', planifierAjustement)
 
     // Retour sur l'onglet : re-mesurer puis forcer un redessin complet. Safari
     // mobile réduit la page en arrière-plan (barre d'adresse, clavier) et les
@@ -542,6 +557,8 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       intentional = true
       clearTimeout(ajustement)
       window.removeEventListener('resize', onResize)
+      vueVisuelle?.removeEventListener('resize', planifierAjustement)
+      vueVisuelle?.removeEventListener('scroll', planifierAjustement)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onVisible)
       window.removeEventListener('pageshow', onVisible)

@@ -451,6 +451,87 @@ describe('FullscreenTerminal — taille initiale', () => {
   })
 })
 
+describe('FullscreenTerminal — recalage au clavier mobile', () => {
+  /** jsdom n'a pas `visualViewport` — et c'est precisement l'API iOS a couvrir. */
+  function poserViewportVisuel() {
+    const vue = new EventTarget() as EventTarget & { height: number }
+    vue.height = 400
+    Object.defineProperty(window, 'visualViewport', { value: vue, configurable: true })
+    return vue
+  }
+
+  function messagesResize() {
+    return sockets[0].send.mock.calls
+      .map((appel) => String(appel[0]))
+      .filter((message) => message.includes('"type":"resize"'))
+  }
+
+  it('se recale quand le viewport visuel change, sans window.resize', () => {
+    // iOS ne fait varier NI `window.resize` NI la hauteur du viewport de mise
+    // en page a l'ouverture du clavier : sans ecouteur sur `visualViewport`,
+    // rien ne declenche le recalage.
+    const vue = poserViewportVisuel()
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    const fit = fitAddons.at(-1)!.fit
+    fit.mockClear()
+
+    act(() => { vue.dispatchEvent(new Event('resize')) })
+    act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
+
+    expect(fit).toHaveBeenCalled()
+  })
+
+  it('suit aussi le DEPLACEMENT du viewport, qui ne le redimensionne pas', () => {
+    // iOS fait defiler le viewport visuel sans changer sa taille : aucun
+    // ResizeObserver ne se declenche alors, et l'ecran reste decale.
+    const vue = poserViewportVisuel()
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    const fit = fitAddons.at(-1)!.fit
+    fit.mockClear()
+
+    act(() => { vue.dispatchEvent(new Event('scroll')) })
+    act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
+
+    expect(fit).toHaveBeenCalled()
+  })
+
+  it('fait REPEINDRE tmux, au lieu de redessiner la trame locale', () => {
+    // Le coeur du defaut : `terminal.refresh()` redessine le tampon de xterm.
+    // Si tmux y a ecrit une trame entrelacee pendant l'ouverture du clavier, on
+    // la redessine a l'identique. tmux ne repeint que sur CHANGEMENT de taille,
+    // d'ou la taille volontairement fausse qui doit partir sur la socket.
+    const vue = poserViewportVisuel()
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    act(() => { vue.dispatchEvent(new Event('resize')) })
+    act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
+
+    expect(messagesResize().length).toBeGreaterThan(0)
+  })
+
+  it('ne recale qu\'une fois pour une rafale de paliers', () => {
+    // Le clavier ne s'ouvre pas d'un coup : le viewport retrecit par paliers.
+    // Un recalage par palier renverrait la rafale de SIGWINCH que le debounce
+    // existe pour eviter — et qui produisait l'entrelacement.
+    const vue = poserViewportVisuel()
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    act(() => {
+      for (let i = 0; i < 8; i++) vue.dispatchEvent(new Event('resize'))
+    })
+    act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
+
+    // Un seul aller-retour : la taille fausse puis la vraie, pas huit.
+    expect(messagesResize().length).toBeLessThanOrEqual(2)
+  })
+})
+
 describe('FullscreenTerminal — clavier mobile', () => {
   it('n’ouvre pas le clavier en envoyant depuis la barre', async () => {
     renderTerminal()
