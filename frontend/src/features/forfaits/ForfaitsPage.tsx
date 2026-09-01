@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import LanguageSelect from '@/shared/nav/LanguageSelect'
+import Markdown from '@/shared/Markdown'
 import { useOffresPubliques, type OffrePubliee } from './useOffresPubliques'
 
 /**
@@ -91,11 +92,18 @@ function Carte({ offre }: { offre: OffrePubliee }) {
   const titre = offre.titles[langue] ?? offre.titles.en ?? offre.slug
   const description = offre.descriptions[langue] ?? offre.descriptions.en ?? ''
 
+  // Titre ET description sont saisis en markdown par l'administrateur (cf.
+  // `MarkdownField` cote admin) : les afficher bruts montrait les `**` au
+  // visiteur. Le titre est rendu INLINE pour ne pas glisser un bloc dans le h2.
   return (
     <article className="flex flex-col gap-4 rounded-lg border p-6">
-      <header className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold">{titre}</h2>
-        {description && <p className="text-sm text-muted-foreground">{description}</p>}
+      <header className="flex flex-col gap-2">
+        <h2 className="text-lg font-semibold">
+          <Markdown inline>{titre}</Markdown>
+        </h2>
+        {description && (
+          <Markdown className="text-sm text-muted-foreground">{description}</Markdown>
+        )}
       </header>
       <Prix offre={offre} />
       <Quotas offre={offre} />

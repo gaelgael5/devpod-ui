@@ -47,6 +47,23 @@ describe('ForfaitsPage', () => {
     expect(screen.getByText('Durée : 30 jours')).toBeInTheDocument()
   })
 
+  it('rend le markdown du titre et de la description', async () => {
+    // Les deux champs sont saisis en markdown cote admin : les afficher bruts
+    // montrait les `**` au visiteur.
+    servir([
+      offre({
+        titles: { fr: 'Offre **plus**' },
+        descriptions: { fr: 'Tout pour démarrer :\n\n- deux workspaces\n- **rien à installer**' },
+      }),
+    ])
+    renderWithProviders(<ForfaitsPage />)
+
+    expect(await screen.findByText('plus')).toBeInTheDocument()
+    expect(screen.getByText('rien à installer')).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem').some((li) => li.textContent?.includes('deux workspaces'))).toBe(true)
+    expect(screen.queryByText(/\*\*/)).not.toBeInTheDocument()
+  })
+
   it('rend les quotas du dédié différemment de ceux du mutualisé', async () => {
     servir([
       offre({
