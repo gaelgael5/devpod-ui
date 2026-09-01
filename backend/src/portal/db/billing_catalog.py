@@ -112,6 +112,21 @@ async def devises_actives(conn: AsyncConnection) -> list[str]:
     return list((await conn.execute(stmt)).scalars().all())
 
 
+async def devise_par_defaut(conn: AsyncConnection) -> str | None:
+    """Devise dans laquelle presenter un prix quand rien ne designe le pays.
+
+    Un index partiel unique garantit qu'AU PLUS une devise porte le defaut. La
+    desactiver sans en designer une autre est un trou de configuration, pas un
+    repli : on rend `None` plutot que d'en choisir une au hasard, et l'appelant
+    decide quoi afficher — un prix dans une devise qu'on ne sait pas encaisser
+    serait pire que pas de prix du tout.
+    """
+    stmt = select(currencies.c.code).where(
+        currencies.c.is_default.is_(True), currencies.c.enabled.is_(True)
+    )
+    return (await conn.execute(stmt)).scalars().first()
+
+
 # ─── Canaux de paiement ──────────────────────────────────────────────────────
 
 

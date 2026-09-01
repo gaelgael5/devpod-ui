@@ -29,6 +29,7 @@ from .routes.applications import router as applications_router
 from .routes.automations import router as automations_router
 from .routes.billing_catalog import router as billing_catalog_router
 from .routes.billing_offers import router as billing_offers_router
+from .routes.billing_offers import router_public as billing_offers_public_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
@@ -482,6 +483,9 @@ def create_app() -> FastAPI:
     app.include_router(test_vm_router, prefix="/me")
     app.include_router(plugins_router)
     app.include_router(recipes_public_router)
+    # Offres publiees, sans authentification : la page des forfaits doit etre
+    # lisible par un visiteur qui n'a pas encore de compte.
+    app.include_router(billing_offers_public_router)
     app.include_router(event_schemas_router)
     app.include_router(recipes_me_router, prefix="/me")
     app.include_router(admin_router, prefix="/admin")

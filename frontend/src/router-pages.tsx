@@ -60,6 +60,8 @@ export const ApplicationsPage = lazy(() => import('@/features/applications/Appli
 export const AdminCompose = lazy(() => import('@/features/compose/AdminCompose'))
 export const AdminJinjaTemplates = lazy(() => import('@/features/admin/AdminJinjaTemplates'))
 export const ProfilePage = lazy(() => import('@/features/profile/ProfilePage'))
+export const LandingPage = lazy(() => import('@/features/landing/LandingPage'))
+export const ForfaitsPage = lazy(() => import('@/features/forfaits/ForfaitsPage'))
 
 export function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>

@@ -24,7 +24,12 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..auth.rbac import UserInfo, require_admin
 from ..billing.models import Offer, TaxRate
 from ..billing.pricing import devises_manquantes, publiable
-from ..db.billing_catalog import devises_actives, get_country, get_provider
+from ..db.billing_catalog import (
+    devise_par_defaut,
+    devises_actives,
+    get_country,
+    get_provider,
+)
 from ..db.billing_offers import (
     add_tax_rate,
     close_tax_rate,
@@ -42,6 +47,76 @@ from ..db.host_profiles import get_host_profile
 
 router = APIRouter(tags=["billing-offers"])
 log = structlog.get_logger(__name__)
+
+#: Routes servies SANS authentification. Montees a la racine, hors du prefixe
+#: `/admin` : la page publique des forfaits doit etre lisible par quelqu'un qui
+#: n'a pas encore de compte — c'est sa raison d'etre.
+router_public = APIRouter(tags=["billing-offers"])
+
+
+class OffrePubliee(BaseModel):
+    """Ce qu'un visiteur ANONYME a le droit de savoir d'une offre.
+
+    Une LISTE BLANCHE, et non un `model_dump()` de `Offer`. Le modele porte
+    aussi `variables` (gabarit de VM, capacite des hosts), `provider_slug` et
+    les profils de host : de l'infrastructure, qui n'a rien a faire sur une page
+    ouverte a tous. Une liste blanche se relit ; une liste noire s'oublie au
+    prochain champ ajoute au modele — et la fuite est alors silencieuse.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str
+    titles: dict[str, str]
+    descriptions: dict[str, str]
+    hosting_type: str
+    max_workspaces: int | None
+    max_hosts_dedies: int | None
+    is_free: bool
+    duration_days: int | None
+    #: Devise par defaut du catalogue. `None` si aucune n'est designee ou si
+    #: celle qui l'est a ete desactivee.
+    currency: str | None
+    #: Montant TEL QU'IL EST SAISI, en unites mineures. `None` quand l'offre n'a
+    #: pas de prix dans cette devise : la page l'affiche alors sans prix plutot
+    #: que de convertir depuis une autre devise a un taux qui ferait diverger
+    #: l'affiche du debite.
+    amount_minor: int | None
+    #: Sens du montant. AUCUNE taxe n'est calculee ici : sans pays connu, un TTC
+    #: serait un prix faux, et un prix faux est pire qu'un prix absent.
+    prices_include_tax: bool
+
+
+def _vue_publique(offre: Offer, devise: str | None) -> OffrePubliee:
+    prix = offre.prix(devise) if devise else None
+    return OffrePubliee(
+        slug=offre.slug,
+        titles=dict(offre.titles),
+        descriptions=dict(offre.descriptions),
+        hosting_type=offre.hosting_type,
+        max_workspaces=offre.max_workspaces,
+        max_hosts_dedies=offre.max_hosts_dedies,
+        is_free=offre.is_free,
+        duration_days=offre.duration_days,
+        currency=devise,
+        amount_minor=None if prix is None else prix.amount_minor,
+        prices_include_tax=offre.prices_include_tax,
+    )
+
+
+@router_public.get("/offers")
+async def list_public_offers(
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[OffrePubliee]:
+    """Offres PUBLIEES, pour la page publique des forfaits.
+
+    `published_only=True` n'est pas un confort d'affichage : une offre non
+    publiee est un brouillon ou une offre retiree du catalogue. La servir la
+    rendrait souscriptible par quiconque en devine l'existence.
+    """
+    devise = await devise_par_defaut(conn)
+    offres = await list_offers(conn, published_only=True)
+    return [_vue_publique(o, devise) for o in offres]
 
 
 class FinDeValidite(BaseModel):

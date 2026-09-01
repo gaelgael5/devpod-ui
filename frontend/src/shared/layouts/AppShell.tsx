@@ -19,7 +19,8 @@ import { cn } from '@/lib/utils'
 import { useLogsConfig } from '@/features/grafana/useLogsConfig'
 import SectionNav from '@/shared/nav/SectionNav'
 import { SECTION_FORFAITS, SECTION_MACHINES } from '@/shared/nav/sections'
-import { useMyCulture, useSetCulture } from '@/features/profile/useCulture'
+import { useMyCulture } from '@/features/profile/useCulture'
+import { useLanguageChoice } from '@/shared/hooks/useLanguageChoice'
 
 const RAIL_LINK =
   'flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
@@ -34,7 +35,10 @@ export default function AppShell() {
   const { theme, toggle } = useThemeStore()
   const { data: logsConfig } = useLogsConfig()
   const { data: culture } = useMyCulture()
-  const setCulture = useSetCulture()
+  // Meme regle de changement que sur la landing, un seul endroit ou elle vit.
+  // `persist: true` : ici il y a un compte, et la culture sert au-dela de
+  // l'ecran (gabarits des messages envoyes a l'utilisateur).
+  const langue = useLanguageChoice({ persist: true })
 
   // La base fait foi : le localStorage d'i18next n'est qu'un cache d'affichage,
   // perdu au premier nettoyage et propre a ce navigateur. On s'aligne sur ce que
@@ -48,11 +52,11 @@ export default function AppShell() {
     window.location.href = '/auth/logout'
   }
 
-  // Le raccourci persiste desormais le choix : sans cela l'ecran passait en
-  // anglais pendant que le compte restait en francais, et les messages envoyes
-  // a l'utilisateur suivaient une langue qu'il n'avait jamais demandee.
+  // Le raccourci persiste le choix : sans cela l'ecran passait en anglais
+  // pendant que le compte restait en francais, et les messages envoyes a
+  // l'utilisateur suivaient une langue qu'il n'avait jamais demandee.
   function toggleLang() {
-    setCulture.mutate(i18n.language.startsWith('fr') ? 'en' : 'fr')
+    langue.choose(langue.current === 'fr' ? 'en' : 'fr')
   }
 
   return (

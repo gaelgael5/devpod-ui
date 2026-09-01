@@ -36,7 +36,7 @@ export default function VaultRecover() {
             <CardTitle>Nouveau code de secours</CardTitle>
           </CardHeader>
           <CardContent>
-            <RecoveryCodeDisplay code={newCode} onConfirmed={() => navigate('/')} />
+            <RecoveryCodeDisplay code={newCode} onConfirmed={() => navigate('/workspaces')} />
           </CardContent>
         </Card>
       </div>

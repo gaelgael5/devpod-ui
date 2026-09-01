@@ -38,7 +38,7 @@ export default function VaultSetup() {
           <CardContent>
             <RecoveryCodeDisplay
               code={recoveryCode}
-              onConfirmed={() => navigate('/')}
+              onConfirmed={() => navigate('/workspaces')}
             />
           </CardContent>
         </Card>

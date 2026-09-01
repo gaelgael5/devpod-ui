@@ -1,4 +1,40 @@
 {
+  "landing": {
+    "title": "Your development environments, in the browser",
+    "subtitle": "Open a ready-to-work VS Code in minutes. Your environments are described as devcontainers, run on your own infrastructure, and reachable from any machine — with nothing to install on it.",
+    "ctaTry": "Try it free",
+    "ctaLogin": "Sign in",
+    "howTitle": "How it works",
+    "step1Title": "Sign in",
+    "step1Body": "An account is all you need. No Docker to install locally, no keys to copy around — the portal handles that.",
+    "step2Title": "Describe your environment",
+    "step2Body": "A devcontainer file, or a profile that is already set up. Languages, tools, services: whatever your project needs, versioned alongside it.",
+    "step3Title": "Open your workspace",
+    "step3Body": "VS Code opens in the browser, on a machine sized for your project. Close the tab — your work stays put.",
+    "whyTitle": "What changes",
+    "why1Title": "Nothing to install",
+    "why1Body": "A browser is enough. The same environment from your usual machine, a loaner laptop, or one you have never seen before.",
+    "why2Title": "On your infrastructure",
+    "why2Body": "The portal and the workspaces run on your own machines. Your code goes to no one else.",
+    "why3Title": "Standard formats",
+    "why3Body": "devcontainer.json and Features. What you describe here stays usable elsewhere — nothing locks you in."
+  },
+  "forfaits": {
+    "title": "Our plans",
+    "backHome": "← Home",
+    "loading": "Loading plans…",
+    "loadFailed": "Plans could not be loaded. Please try again shortly.",
+    "none": "No plan is available at the moment.",
+    "free": "Free",
+    "priceUnavailable": "Price on request",
+    "taxIncluded": "incl. tax",
+    "taxExcluded": "excl. tax",
+    "unlimited": "unlimited",
+    "dedicatedHosts": "Dedicated machines: {{value}}",
+    "hostCapacity": "Workspaces per machine: {{value}}",
+    "sharedQuota": "Workspaces included: {{value}}",
+    "duration": "Duration: {{value}} days"
+  },
   "terminal": {
     "invalidTarget": "Invalid terminal target."
   },

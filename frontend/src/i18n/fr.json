@@ -1,4 +1,40 @@
 {
+  "landing": {
+    "title": "Vos environnements de développement, dans le navigateur",
+    "subtitle": "Ouvrez un VS Code prêt à travailler en quelques minutes. Vos environnements sont décrits en devcontainer, exécutés sur votre infrastructure, et accessibles depuis n'importe quel poste — sans rien y installer.",
+    "ctaTry": "Essayez gratuitement",
+    "ctaLogin": "Se connecter",
+    "howTitle": "Comment ça marche",
+    "step1Title": "Connectez-vous",
+    "step1Body": "Un compte suffit. Ni Docker à installer sur votre poste, ni clés à recopier : le portail s'en charge.",
+    "step2Title": "Décrivez votre environnement",
+    "step2Body": "Un fichier devcontainer, ou un profil déjà prêt. Langages, outils, services : ce dont votre projet a besoin, versionné avec lui.",
+    "step3Title": "Ouvrez votre workspace",
+    "step3Body": "VS Code s'ouvre dans le navigateur, sur une machine dimensionnée pour votre projet. Fermez l'onglet : votre travail reste là.",
+    "whyTitle": "Ce qui change",
+    "why1Title": "Rien à installer",
+    "why1Body": "Un navigateur suffit. Le même environnement depuis votre poste habituel, un portable de prêt ou une machine que vous découvrez.",
+    "why2Title": "Sur votre infrastructure",
+    "why2Body": "Le portail et les workspaces tournent sur vos propres machines. Votre code ne part chez personne.",
+    "why3Title": "Des formats standards",
+    "why3Body": "devcontainer.json et les Features. Ce que vous décrivez ici reste utilisable ailleurs — rien ne vous retient."
+  },
+  "forfaits": {
+    "title": "Nos forfaits",
+    "backHome": "← Accueil",
+    "loading": "Chargement des forfaits…",
+    "loadFailed": "Les forfaits n'ont pas pu être chargés. Réessayez dans un instant.",
+    "none": "Aucun forfait n'est proposé pour le moment.",
+    "free": "Gratuit",
+    "priceUnavailable": "Prix sur demande",
+    "taxIncluded": "TTC",
+    "taxExcluded": "HT",
+    "unlimited": "illimité",
+    "dedicatedHosts": "Machines dédiées : {{value}}",
+    "hostCapacity": "Workspaces par machine : {{value}}",
+    "sharedQuota": "Workspaces inclus : {{value}}",
+    "duration": "Durée : {{value}} jours"
+  },
   "terminal": {
     "invalidTarget": "Cible de terminal invalide."
   },

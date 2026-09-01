@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { createBrowserRouter } from 'react-router-dom'
 import AppShell from '@/shared/layouts/AppShell'
 import AdminGuard from '@/shared/layouts/AdminGuard'
 import VaultGuard from '@/shared/layouts/VaultGuard'
@@ -38,6 +38,8 @@ import {
   ConsentPage,
   CredentialsPage,
   ProfileEditor,
+  ForfaitsPage,
+  LandingPage,
   ProfileList,
   ProfilePage,
   RecipeCatalog,
@@ -54,6 +56,13 @@ import {
 } from '@/router-pages'
 
 export const router = createBrowserRouter([
+  // Accueil PUBLIC : un visiteur sans compte doit pouvoir lire ce que fait
+  // l'application. La page redirige elle-meme un utilisateur deja connecte
+  // vers ses workspaces — d'ou l'absence de `RequireAuth` ici.
+  { path: '/', element: <Wrap><LandingPage /></Wrap> },
+  // Forfaits : publique elle aussi. Un visiteur doit pouvoir comparer les
+  // offres avant de creer un compte, sinon la landing envoie dans le vide.
+  { path: '/forfaits', element: <Wrap><ForfaitsPage /></Wrap> },
   { path: '/auth/login', element: <LoginPage /> },
   { path: '/auth/callback', element: <AuthCallbackPage /> },
   {
@@ -130,7 +139,6 @@ export const router = createBrowserRouter([
       </RequireAuth>
     ),
     children: [
-      { index: true, element: <Navigate to="/workspaces" replace /> },
       { path: '/workspaces', element: <Wrap><WorkspaceList /></Wrap> },
       { path: '/sessions', element: <Wrap><SessionsView /></Wrap> },
       { path: '/workspaces/new', element: <Wrap><WorkspaceCreate /></Wrap> },

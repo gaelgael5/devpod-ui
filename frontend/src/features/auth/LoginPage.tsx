@@ -35,7 +35,7 @@ export default function LoginPage() {
         body: JSON.stringify({ username, password }),
       })
       if (res.ok) {
-        window.location.href = '/'
+        window.location.href = '/workspaces'
       } else {
         setError(t('auth.invalidCredentials'))
       }
