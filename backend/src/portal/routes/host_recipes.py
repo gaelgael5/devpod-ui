@@ -28,7 +28,7 @@ from ..config.models import HostConfig
 from ..config.store import load_global
 from ..db.engine import get_conn
 from ..db.recipes import load_recipes_as_dict
-from ..db.test_hosts import workspace_context_for_host
+from ..db.test_hosts import is_owned_test_host, workspace_context_for_host
 from ..devpod.host_exec import run_host_command
 from ..events.bus import emit_event
 from ..mcp.devpod_tools.operations import launch_operation
@@ -237,17 +237,37 @@ async def apply_host_recipe(
 #
 # Poser une recette de la galerie sur SA machine de test n'a pas a passer par un
 # administrateur — c'est sa machine. La garde n'est donc pas le role mais la
-# PROPRIETE : `_require_ws_and_host` verifie que la VM est bien attachee a un
-# workspace de cet utilisateur. Le reste — familles declarees, preconditions,
-# validation des parametres — est rigoureusement le meme code que cote admin.
+# PROPRIETE : deux controles, et il en faut DEUX.
+#
+# `_require_ws_and_host` ne verifie que le WORKSPACE — il valide `host_name` par
+# regex sans jamais le rapprocher de quoi que ce soit. Croire l'inverse a ouvert
+# une faille : tout utilisateur pouvait viser n'importe quelle machine de
+# l'inventaire, y compris celle d'un autre locataire ou un noeud du portail, et
+# y faire executer une recette avec les droits d'administration.
+#
+# `is_owned_test_host` est le second, celui qui rattache la machine au couple
+# (login, workspace) — le meme predicat que les routes soeurs de `test_vm.py`.
+# Proprietaire et non simple destinataire d'un partage : il s'agit d'execution
+# privilegiee, un workspace a qui la VM est seulement partagee n'y a pas droit.
+#
+# Le reste — familles declarees, preconditions, validation des parametres — est
+# rigoureusement le meme code que cote admin.
 
 me_router = APIRouter(tags=["host-recipes"])
 
 
-async def _host_de_mon_workspace(ws: str, host_name: str, login: str) -> HostConfig:
+async def _host_de_mon_workspace(
+    ws: str, host_name: str, login: str, conn: AsyncConnection
+) -> HostConfig:
     from .test_vm import _require_ws_and_host
 
     await _require_ws_and_host(ws, host_name, login)
+    # Avant TOUTE connexion a la machine : la sonde SSH du catalogue part sinon
+    # vers un host qu'on n'a pas le droit de toucher.
+    if not await is_owned_test_host(login, ws, host_name, conn):
+        raise HTTPException(
+            status_code=404, detail=f"Machine {host_name!r} non rattachee a {ws!r}"
+        )
     host = _load_host(host_name)
     if host is None:
         raise HTTPException(status_code=404, detail=f"Machine {host_name!r} introuvable")
@@ -261,7 +281,7 @@ async def list_my_test_host_recipes(
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, Any]:
-    host = await _host_de_mon_workspace(ws, host_name, user.login)
+    host = await _host_de_mon_workspace(ws, host_name, user.login, conn)
     return await _catalogue_pour_host(host, user.login, conn)
 
 
@@ -274,7 +294,7 @@ async def apply_my_test_host_recipe(
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, str]:
-    host = await _host_de_mon_workspace(ws, host_name, user.login)
+    host = await _host_de_mon_workspace(ws, host_name, user.login, conn)
     options = body.options if body else {}
     oid = await _lancer_application(host, recipe_id, options, user.login, conn)
     return {"operation_id": oid}
