@@ -78,6 +78,7 @@ from .routes.termix import router as termix_instances_router
 from .routes.test_vm import router as test_vm_router
 from .routes.vault import router as vault_router
 from .routes.vscode_proxy import router as vscode_proxy_router
+from .routes.webhooks_paiement import router as webhooks_paiement_router
 from .routes.workspace_groups import router as workspace_groups_router
 from .routes.workspace_messages import router as workspace_messages_router
 from .routes.workspace_ops import _get_service
@@ -490,6 +491,9 @@ def create_app() -> FastAPI:
     # Offres publiees, sans authentification : la page des forfaits doit etre
     # lisible par un visiteur qui n'a pas encore de compte.
     app.include_router(billing_offers_public_router)
+    # Webhooks du canal de vente : route NON AUTHENTIFIEE, protegee par la
+    # seule signature. Montee a la racine, le fournisseur ne connait que l'URL.
+    app.include_router(webhooks_paiement_router)
     app.include_router(event_schemas_router)
     app.include_router(recipes_me_router, prefix="/me")
     app.include_router(admin_router, prefix="/admin")
