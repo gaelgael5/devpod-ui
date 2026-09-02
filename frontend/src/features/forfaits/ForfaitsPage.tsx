@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import LanguageSelect from '@/shared/nav/LanguageSelect'
 import Markdown from '@/shared/Markdown'
+import { useOptionalSession } from '@/features/auth/useOptionalSession'
 import { useOffresPubliques, type OffrePubliee } from './useOffresPubliques'
 
 /**
@@ -114,20 +115,38 @@ function Carte({ offre }: { offre: OffrePubliee }) {
 export default function ForfaitsPage() {
   const { t } = useTranslation()
   const { data: offres, isLoading, isError } = useOffresPubliques()
+  // La page sert deux publics : un visiteur qui compare avant de creer un
+  // compte, et un abonne qui vient voir ce qui existe. Le contenu est le meme —
+  // le catalogue publie — mais l'en-tete ne peut pas l'etre : proposer « Se
+  // connecter » a quelqu'un de deja connecte, et le renvoyer vers la page de
+  // presentation plutot que vers ses workspaces, serait absurde.
+  //
+  // `useOptionalSession` et non `useSession` : cette page reste PUBLIQUE, et un
+  // 401 y signifie « anonyme », pas « erreur ». Voir son commentaire.
+  const { data: session } = useOptionalSession()
+  const connecte = Boolean(session)
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="flex items-center justify-between px-6 py-4">
-        <Link to="/" className="text-sm text-muted-foreground hover:text-foreground">
-          {t('forfaits.backHome')}
+        <Link
+          to={connecte ? '/workspaces' : '/'}
+          className="text-sm text-muted-foreground hover:text-foreground"
+        >
+          {t(connecte ? 'forfaits.backApp' : 'forfaits.backHome')}
         </Link>
         <div className="flex items-center gap-3">
-          <Link
-            to="/auth/login"
-            className="inline-flex h-9 items-center rounded-md border px-4 text-sm font-medium transition-colors hover:bg-muted"
-          >
-            {t('landing.ctaLogin')}
-          </Link>
+          {!connecte && (
+            <Link
+              to="/auth/login"
+              className="inline-flex h-9 items-center rounded-md border px-4 text-sm font-medium transition-colors hover:bg-muted"
+            >
+              {t('landing.ctaLogin')}
+            </Link>
+          )}
+          {/* Le selecteur ne persiste pas : un visiteur anonyme n'a pas de
+              compte ou ranger son choix, et un abonne a le sien dans son
+              profil. Voir `useLanguageChoice`. */}
           <LanguageSelect persist={false} />
         </div>
       </header>

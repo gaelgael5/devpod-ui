@@ -96,6 +96,27 @@ describe('ForfaitsPage', () => {
     expect(screen.queryByText('TTC')).not.toBeInTheDocument()
   })
 
+  it('propose de se connecter à un visiteur anonyme', async () => {
+    server.use(http.get('/me', () => new HttpResponse(null, { status: 401 })))
+    servir([offre()])
+    renderWithProviders(<ForfaitsPage />)
+
+    expect(await screen.findByRole('link', { name: 'Se connecter' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Accueil/ })).toHaveAttribute('href', '/')
+  })
+
+  it('renvoie un abonné vers ses workspaces, et ne lui propose pas de se connecter', async () => {
+    // Le handler par defaut de /me rend un utilisateur connecte.
+    servir([offre()])
+    renderWithProviders(<ForfaitsPage />)
+
+    expect(await screen.findByRole('link', { name: /Mes workspaces/ })).toHaveAttribute(
+      'href',
+      '/workspaces'
+    )
+    expect(screen.queryByRole('link', { name: 'Se connecter' })).not.toBeInTheDocument()
+  })
+
   it("n'affiche pas de prix quand l'offre n'en a pas dans la devise par défaut", async () => {
     servir([offre({ amount_minor: null })])
     renderWithProviders(<ForfaitsPage />)

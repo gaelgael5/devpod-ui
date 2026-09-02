@@ -50,3 +50,38 @@ describe('AppShell — menu admin', () => {
     expect(screen.getByText(/utilisateurs|users/i)).toBeInTheDocument()
   })
 })
+
+
+describe('AppShell — acces aux forfaits', () => {
+  beforeEach(() => useUserStore.setState({ user: null }))
+
+  async function ouvrirMenu(admin: boolean) {
+    useUserStore.setState({
+      user: { login: 'alice', roles: admin ? ['dev', 'admin'] : ['dev'], is_admin: admin },
+    })
+    renderWithProviders(<AppShell />)
+    await userEvent.click(screen.getByText('al'))
+  }
+
+  it('propose les forfaits a un utilisateur SANS role admin', async () => {
+    // Consulter ce qui est propose regarde tout abonne : l'entree vit hors du
+    // bloc reserve a l'administration, et c'est tout l'objet de ce test.
+    await ouvrirMenu(false)
+
+    expect(screen.getByText(/nos forfaits|our plans/i)).toBeInTheDocument()
+  })
+
+  it("ne montre a un non-admin aucune entree d'administration", async () => {
+    await ouvrirMenu(false)
+
+    expect(screen.queryByText(/^gestion$|^manage$/i)).toBeNull()
+    expect(screen.queryByText(/^machines$/i)).toBeNull()
+    expect(screen.queryByText(/utilisateurs|users/i)).toBeNull()
+  })
+
+  it('la propose aussi a un administrateur', async () => {
+    await ouvrirMenu(true)
+
+    expect(screen.getByText(/nos forfaits|our plans/i)).toBeInTheDocument()
+  })
+})

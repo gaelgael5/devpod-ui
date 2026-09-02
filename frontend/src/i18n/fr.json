@@ -21,6 +21,8 @@
   },
   "forfaits": {
     "title": "Nos forfaits",
+    "navLabel": "Nos forfaits",
+    "backApp": "← Mes workspaces",
     "backHome": "← Accueil",
     "loading": "Chargement des forfaits…",
     "loadFailed": "Les forfaits n'ont pas pu être chargés. Réessayez dans un instant.",

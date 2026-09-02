@@ -21,6 +21,8 @@
   },
   "forfaits": {
     "title": "Our plans",
+    "navLabel": "Our plans",
+    "backApp": "← My workspaces",
     "backHome": "← Home",
     "loading": "Loading plans…",
     "loadFailed": "Plans could not be loaded. Please try again shortly.",

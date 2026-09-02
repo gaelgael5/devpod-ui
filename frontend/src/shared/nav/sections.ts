@@ -35,6 +35,11 @@ export const SECTION_FORFAITS: Section = {
     { path: '/admin/host-profiles', labelKey: 'admin.hostProfiles.navLabel' },
     { path: '/admin/billing-catalog', labelKey: 'admin.billing.navLabel' },
     { path: '/admin/billing-offers', labelKey: 'admin.offers.navLabel' },
+    // La page telle que le CLIENT la voit. Elle n'est pas un ecran
+    // d'administration, mais c'est ici qu'un administrateur pense a la
+    // regarder : editer une offre sans pouvoir verifier son rendu revient a
+    // publier a l'aveugle.
+    { path: '/forfaits', labelKey: 'forfaits.navLabel' },
   ],
 }
 
