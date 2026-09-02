@@ -802,7 +802,8 @@
       "closeLabel": "Close terminal",
       "connClosed": "\r\n[Connection closed]\r\n",
       "connError": "\r\n[Connection error]\r\n",
-      "selectionShiftHint": "The remote application uses the mouse: hold Shift while dragging to select"
+      "selectionShiftHint": "The remote application uses the mouse: hold Shift while dragging to select",
+      "clipboardDenied": "Clipboard write refused by the browser — the copy did not go through"
     },
     "bootstrap": {
       "btn": "Configure SSH",

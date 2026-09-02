@@ -15,6 +15,7 @@ import { isTouchOnly } from './isTouchOnly'
 import { createHistoryScroller, pixelsDeMolette } from './historyScroll'
 import { createDoubleTapDetector } from './doubleTap'
 import { createSelectionHintDetector } from './selectionHint'
+import { decodeOsc52 } from './osc52'
 import { isPastLineEnd } from './lineHitTest'
 import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
 import '@xterm/xterm/css/xterm.css'
@@ -149,6 +150,40 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     const searchAddon = new SearchAddon()
     const searchOk = loadOptional('search', () => searchAddon)
     searchRef.current = searchOk ? searchAddon : null
+    // OSC 52 : le presse-papier reclame par l'application distante. tmux relaie
+    // deja la sequence (`set-clipboard external`) mais xterm.js ne l'implemente
+    // pas — elle arrivait ici et y etait jetee, d'ou le « copied ... » affiche
+    // par le TUI pendant que le presse-papier systeme restait inchange.
+    //
+    // Le gestionnaire rend TOUJOURS `true` : la sequence est consommee, qu'elle
+    // soit honoree ou refusee. Rendre `false` la ferait retomber sur le
+    // traitement par defaut, qui la recracherait a l'ecran en clair.
+    let osc52Logs = 0
+    const tracerOsc52 = (message: string) => {
+      if (osc52Logs < 10) {
+        osc52Logs++
+        console.warn(`terminal_osc52: ${message}`)
+      }
+    }
+    const osc52Disposable = terminal.parser.registerOscHandler(52, (charge) => {
+      const resultat = decodeOsc52(charge)
+      if (!resultat.ok) {
+        tracerOsc52(`refus ${JSON.stringify({ raison: resultat.raison })}`)
+        return true
+      }
+      if (!navigator.clipboard) {
+        tracerOsc52('navigator.clipboard indisponible')
+        return true
+      }
+      navigator.clipboard.writeText(resultat.texte).catch((err: unknown) => {
+        // L'application distante a deja annonce « copie » : un echec muet
+        // laisserait croire que le presse-papier contient le texte.
+        tracerOsc52(`echec ${String(err)}`)
+        toast.error(tRef.current('admin.sshTerminal.clipboardDenied'))
+      })
+      return true
+    })
+
     const resultsDisposable = searchOk
       ? searchAddon.onDidChangeResults((r) =>
           setSearchResults({ resultIndex: r.resultIndex, resultCount: r.resultCount }),
@@ -600,6 +635,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       resizeDisposable.dispose()
       selectionDisposable.dispose()
       resultsDisposable.dispose()
+      osc52Disposable.dispose()
       clearTimeout(copyTimer)
       ws.close()
       terminal.dispose()

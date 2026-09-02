@@ -802,7 +802,8 @@
       "closeLabel": "Fermer le terminal",
       "connClosed": "\r\n[Connexion fermée]\r\n",
       "connError": "\r\n[Erreur de connexion]\r\n",
-      "selectionShiftHint": "L'application distante utilise la souris : maintenez Maj en glissant pour sélectionner"
+      "selectionShiftHint": "L'application distante utilise la souris : maintenez Maj en glissant pour sélectionner",
+      "clipboardDenied": "Presse-papier refusé par le navigateur — la copie n'a pas abouti"
     },
     "bootstrap": {
       "btn": "Configurer SSH",

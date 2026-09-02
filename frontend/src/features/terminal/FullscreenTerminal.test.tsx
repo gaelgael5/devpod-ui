@@ -120,6 +120,15 @@ class MockTerminal {
     return { dispose: vi.fn() }
   })
 
+  /** Gestionnaires OSC enregistres par le composant, indexes par identifiant. */
+  private oscHandlers = new Map<number, (charge: string) => boolean | Promise<boolean>>()
+  parser = {
+    registerOscHandler: vi.fn((ident: number, cb: (charge: string) => boolean | Promise<boolean>) => {
+      this.oscHandlers.set(ident, cb)
+      return { dispose: vi.fn() }
+    }),
+  }
+
   options: Record<string, unknown>
 
   constructor(options: Record<string, unknown> = {}) {
@@ -136,6 +145,11 @@ class MockTerminal {
   /** Simule une frappe au clavier : xterm la ressort par `onData`. */
   simulateData(data: string) {
     this.dataCb?.(data)
+  }
+
+  /** Simule une sequence OSC recue de la session (52 = presse-papier). */
+  simulateOsc(ident: number, charge: string) {
+    return this.oscHandlers.get(ident)?.(charge)
   }
 
   /** Selection posee sur du vide : active, mais sans texte a en tirer. */
@@ -247,6 +261,40 @@ function renderTerminal() {
     </I18nextProvider>,
   )
 }
+
+describe('FullscreenTerminal — OSC 52 (presse-papier demandé par la session)', () => {
+  /** Encode comme le fait tmux : UTF-8 puis base64. */
+  function encode(texte: string): string {
+    return btoa(String.fromCharCode(...new TextEncoder().encode(texte)))
+  }
+
+  it('écrit dans le presse-papier ce que la session a copié', () => {
+    renderTerminal()
+    act(() => {
+      terminals[0].simulateOsc(52, `c;${encode('copié par tmux')}`)
+    })
+    expect(writeText).toHaveBeenCalledWith('copié par tmux')
+  })
+
+  it('consomme la séquence même refusée, pour ne pas la recracher à l’écran', () => {
+    // Rendre `false` ferait retomber xterm sur son traitement par défaut, qui
+    // afficherait la charge base64 en clair au milieu de la session.
+    renderTerminal()
+    act(() => {
+      expect(terminals[0].simulateOsc(52, 'c;?')).toBe(true)
+      expect(terminals[0].simulateOsc(52, `c;${encode('ok')}`)).toBe(true)
+    })
+  })
+
+  it('ne répond pas à une demande de lecture du presse-papier', () => {
+    // `?` = l'application distante veut LIRE le presse-papier de l'utilisateur.
+    renderTerminal()
+    act(() => {
+      terminals[0].simulateOsc(52, 'c;?')
+    })
+    expect(writeText).not.toHaveBeenCalled()
+  })
+})
 
 describe('FullscreenTerminal — copy-on-select', () => {
   it('copie automatiquement la sélection dans le presse-papier', () => {
