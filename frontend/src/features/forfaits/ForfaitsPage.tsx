@@ -94,8 +94,8 @@ function Quotas({ offre }: { offre: OffrePubliee }) {
   )
 }
 
-function Carte({ offre }: { offre: OffrePubliee }) {
-  const { i18n } = useTranslation()
+function Carte({ offre, connecte }: { offre: OffrePubliee; connecte: boolean }) {
+  const { t, i18n } = useTranslation()
   // Le titre vient de l'offre, pas des clés i18n : c'est l'administrateur qui
   // l'a saisi, langue par langue. À défaut de traduction, le slug reste
   // identifiable — mieux qu'une carte anonyme.
@@ -118,6 +118,14 @@ function Carte({ offre }: { offre: OffrePubliee }) {
       </header>
       <Prix offre={offre} />
       <Quotas offre={offre} />
+      {/* Un visiteur anonyme ne peut pas souscrire : on l'envoie se connecter
+          plutot que de lui laisser decouvrir un 401 apres avoir tout rempli. */}
+      <Link
+        to={connecte ? `/forfaits/${offre.slug}` : '/auth/login'}
+        className="mt-auto inline-flex h-10 items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+      >
+        {t('forfaits.choisir')}
+      </Link>
     </article>
   )
 }
@@ -173,7 +181,7 @@ export default function ForfaitsPage() {
         {offres && offres.length > 0 && (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {offres.map((offre) => (
-              <Carte key={offre.slug} offre={offre} />
+              <Carte key={offre.slug} offre={offre} connecte={connecte} />
             ))}
           </div>
         )}

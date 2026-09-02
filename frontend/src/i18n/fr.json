@@ -19,6 +19,23 @@
     "why3Title": "Ton IA, ton hébergement",
     "why3Body": "Six agents pris en charge — Claude, Cline, Copilot, Cursor, Windsurf, Kimi Code — et deux modes à parité : en service, ou chez toi. La licence FSL rend les deux possibles."
   },
+  "souscription": {
+    "titre": "Confirmer votre forfait",
+    "retour": "← Tous les forfaits",
+    "recapTitre": "Ce à quoi vous souscrivez",
+    "duree": "Durée",
+    "auTerme": "Au terme",
+    "pays": "Pays",
+    "paysAide": "Déduit de votre connexion. Corrigez-le s'il est faux : il détermine la taxe applicable.",
+    "devise": "Devise",
+    "confirmation": "Je confirme vouloir souscrire ce forfait.",
+    "valider": "Souscrire",
+    "envoi": "Souscription en cours…",
+    "offreIntrouvable": "Ce forfait n'existe pas ou n'est plus proposé.",
+    "merciTitre": "Votre forfait est enregistré",
+    "merciCorps": "Vous pouvez dès à présent revenir à vos workspaces.",
+    "versWorkspaces": "Aller à mes workspaces"
+  },
   "forfaits": {
     "title": "Nos forfaits",
     "navLabel": "Nos forfaits",
@@ -26,6 +43,7 @@
     "renews": "Se reconduit automatiquement au terme",
     "endsAtTerm": "S'arrête au terme, sans reconduction",
     "oncePerAccount": "Une seule souscription par compte",
+    "choisir": "Choisir ce forfait",
     "backHome": "← Accueil",
     "loading": "Chargement des forfaits…",
     "loadFailed": "Les forfaits n'ont pas pu être chargés. Réessayez dans un instant.",

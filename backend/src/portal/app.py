@@ -73,6 +73,7 @@ from .routes.skill_placements import router as skill_placements_router
 from .routes.skills import router as skills_router
 from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
+from .routes.subscriptions import router as subscriptions_router
 from .routes.termix import router as termix_instances_router
 from .routes.test_vm import router as test_vm_router
 from .routes.vault import router as vault_router
@@ -481,6 +482,9 @@ def create_app() -> FastAPI:
     app.include_router(workspace_sessions_router, prefix="/me")
     app.include_router(agent_messages_router, prefix="/me")
     app.include_router(test_vm_router, prefix="/me")
+    # Souscription d'un forfait : cree l'abonnement, et rien d'autre — ni
+    # paiement, ni provisionnement, ni message.
+    app.include_router(subscriptions_router, prefix="/me")
     app.include_router(plugins_router)
     app.include_router(recipes_public_router)
     # Offres publiees, sans authentification : la page des forfaits doit etre

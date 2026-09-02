@@ -19,6 +19,23 @@
     "why3Title": "Your AI, your hosting",
     "why3Body": "Six agents supported — Claude, Cline, Copilot, Cursor, Windsurf, Kimi Code — and two modes at parity: as a service, or on your own machines. The FSL licence is what makes both possible."
   },
+  "souscription": {
+    "titre": "Confirm your plan",
+    "retour": "← All plans",
+    "recapTitre": "What you are subscribing to",
+    "duree": "Duration",
+    "auTerme": "At term",
+    "pays": "Country",
+    "paysAide": "Detected from your connection. Correct it if it is wrong: it determines the applicable tax.",
+    "devise": "Currency",
+    "confirmation": "I confirm that I want to subscribe to this plan.",
+    "valider": "Subscribe",
+    "envoi": "Subscribing…",
+    "offreIntrouvable": "This plan does not exist or is no longer offered.",
+    "merciTitre": "Your plan is registered",
+    "merciCorps": "You can now go back to your workspaces.",
+    "versWorkspaces": "Go to my workspaces"
+  },
   "forfaits": {
     "title": "Our plans",
     "navLabel": "Our plans",
@@ -26,6 +43,7 @@
     "renews": "Renews automatically at term",
     "endsAtTerm": "Ends at term, no renewal",
     "oncePerAccount": "One subscription per account",
+    "choisir": "Choose this plan",
     "backHome": "← Home",
     "loading": "Loading plans…",
     "loadFailed": "Plans could not be loaded. Please try again shortly.",

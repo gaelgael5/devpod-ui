@@ -14,13 +14,20 @@ function makeQueryClient() {
   })
 }
 
+/**
+ * `path` sert aux ecrans qui lisent leurs parametres d'URL (`useParams`).
+ *
+ * Le defaut attrape-tout suffit tant qu'un composant ne lit que son chemin ;
+ * des qu'il attend un segment nomme, il faut declarer le motif, sinon
+ * `useParams` rend un objet vide et le composant croit sa cible introuvable.
+ */
 export function renderWithProviders(
   ui: React.ReactElement,
-  { route = '/' }: { route?: string } = {}
+  { route = '/', path = '*' }: { route?: string; path?: string } = {}
 ): RenderResult {
   const queryClient = makeQueryClient()
   const router = createMemoryRouter(
-    [{ path: '*', element: <I18nextProvider i18n={i18n}>{ui}</I18nextProvider> }],
+    [{ path, element: <I18nextProvider i18n={i18n}>{ui}</I18nextProvider> }],
     { initialEntries: [route] }
   )
   return render(
