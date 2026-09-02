@@ -73,6 +73,16 @@ function Quotas({ offre }: { offre: OffrePubliee }) {
 
   if (offre.duration_days !== null) {
     lignes.push(t('forfaits.duration', { value: offre.duration_days }))
+    // Ce qui advient AU TERME est une information matérielle avant de
+    // s'engager : elle dit si le client sera prélevé à nouveau. On l'affiche
+    // dans les deux cas — « ne se reconduit pas » rassure autant que
+    // « se reconduit » avertit, et un silence laisserait deviner.
+    lignes.push(
+      t(offre.tacite_reconduction ? 'forfaits.renews' : 'forfaits.endsAtTerm'),
+    )
+  }
+  if (offre.une_par_compte) {
+    lignes.push(t('forfaits.oncePerAccount'))
   }
 
   return (

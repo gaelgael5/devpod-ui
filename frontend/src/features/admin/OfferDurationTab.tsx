@@ -65,6 +65,44 @@ export default function OfferDurationTab({ brouillon, setBrouillon }: OngletProp
         <p className="text-xs text-muted-foreground">{t('admin.offers.durationHelp')}</p>
       </div>
 
+      <div className="flex flex-col gap-1.5 rounded-lg border p-3">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={brouillon.tacite_reconduction}
+            onChange={(e) =>
+              setBrouillon((b) => ({ ...b, tacite_reconduction: e.target.checked }))
+            }
+          />
+          {t('admin.offers.tacitRenewal')}
+        </label>
+        <p className="text-xs text-muted-foreground">
+          {t(
+            brouillon.tacite_reconduction
+              ? 'admin.offers.tacitRenewalOn'
+              : 'admin.offers.tacitRenewalOff',
+          )}
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-1.5 rounded-lg border p-3">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={brouillon.une_par_compte}
+            onChange={(e) => setBrouillon((b) => ({ ...b, une_par_compte: e.target.checked }))}
+          />
+          {t('admin.offers.oncePerAccount')}
+        </label>
+        <p className="text-xs text-muted-foreground">
+          {t(
+            brouillon.une_par_compte
+              ? 'admin.offers.oncePerAccountOn'
+              : 'admin.offers.oncePerAccountOff',
+          )}
+        </p>
+      </div>
+
       {echeance !== null && (
         <p
           className="rounded-md border border-dashed p-3 text-xs text-muted-foreground"

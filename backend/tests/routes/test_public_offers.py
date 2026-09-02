@@ -34,6 +34,8 @@ CHAMPS_PUBLICS = {
     "max_hosts_dedies",
     "is_free",
     "duration_days",
+    "tacite_reconduction",
+    "une_par_compte",
     "currency",
     "amount_minor",
     "prices_include_tax",

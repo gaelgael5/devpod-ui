@@ -269,6 +269,14 @@ class Offer(BaseModel):
     # `None` = pas encore renseignee — l'offre reste un brouillon, la
     # publication l'exige (cf. `pricing.publiable`).
     duration_days: int | None = None
+    # Au terme du forfait : reconduction, ou arret ? Faux par defaut — un defaut
+    # qui coute de l'argent au client n'est pas un defaut acceptable.
+    tacite_reconduction: bool = False
+    # Ce forfait est-il reprenable par le meme compte ? Faux = repetable, ce qui
+    # est le cas normal. Vrai reserve l'offre a une souscription par compte :
+    # c'est ce qui borne une offre de bienvenue, sans rien coder en dur sur
+    # `is_free`. La regle s'evalue a la SOUSCRIPTION, pas au provisionnement.
+    une_par_compte: bool = False
     # Ordre d'affichage sur la page publique, croissant : 0 en premier. C'est
     # l'administrateur qui le decide — le tri par slug etait alphabetique, donc
     # sans rapport avec la facon dont on veut presenter le catalogue.

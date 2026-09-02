@@ -17,6 +17,8 @@ function offre(extra: Partial<OffrePubliee> = {}): OffrePubliee {
     max_hosts_dedies: null,
     is_free: false,
     duration_days: 30,
+    tacite_reconduction: false,
+    une_par_compte: false,
     currency: 'EUR',
     amount_minor: 1200,
     prices_include_tax: true,
@@ -79,6 +81,37 @@ describe('ForfaitsPage', () => {
     expect(await screen.findByText('Machines dédiées : 2')).toBeInTheDocument()
     expect(screen.getByText('Workspaces par machine : 8')).toBeInTheDocument()
     expect(screen.queryByText(/Workspaces inclus/)).not.toBeInTheDocument()
+  })
+
+  it('dit ce qui advient au terme, dans les deux cas', async () => {
+    // Information matérielle avant de s'engager : elle dit si le client sera
+    // prélevé à nouveau. Un silence laisserait deviner.
+    servir([offre({ tacite_reconduction: true })])
+    renderWithProviders(<ForfaitsPage />)
+
+    expect(await screen.findByText(/Se reconduit automatiquement/)).toBeInTheDocument()
+  })
+
+  it("annonce l'arrêt au terme quand il n'y a pas de reconduction", async () => {
+    servir([offre({ tacite_reconduction: false })])
+    renderWithProviders(<ForfaitsPage />)
+
+    expect(await screen.findByText(/S'arrête au terme/)).toBeInTheDocument()
+  })
+
+  it('signale une offre réservée à une souscription par compte', async () => {
+    servir([offre({ une_par_compte: true })])
+    renderWithProviders(<ForfaitsPage />)
+
+    expect(await screen.findByText(/Une seule souscription par compte/)).toBeInTheDocument()
+  })
+
+  it('ne dit rien de l\'unicité quand l\'offre est répétable', async () => {
+    servir([offre({ une_par_compte: false })])
+    renderWithProviders(<ForfaitsPage />)
+
+    await screen.findByText('Standard')
+    expect(screen.queryByText(/Une seule souscription par compte/)).not.toBeInTheDocument()
   })
 
   it('lit « illimité » sur un quota nul, jamais zéro', async () => {

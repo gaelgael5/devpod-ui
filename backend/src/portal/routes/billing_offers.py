@@ -74,6 +74,11 @@ class OffrePubliee(BaseModel):
     max_hosts_dedies: int | None
     is_free: bool
     duration_days: int | None
+    #: Au terme, le forfait repart-il ? Information materielle avant de
+    #: s'engager : elle dit si le client sera preleve a nouveau.
+    tacite_reconduction: bool
+    #: Ce forfait est-il reserve a une souscription par compte ?
+    une_par_compte: bool
     #: Devise par defaut du catalogue. `None` si aucune n'est designee ou si
     #: celle qui l'est a ete desactivee.
     currency: str | None
@@ -98,6 +103,8 @@ def _vue_publique(offre: Offer, devise: str | None) -> OffrePubliee:
         max_hosts_dedies=offre.max_hosts_dedies,
         is_free=offre.is_free,
         duration_days=offre.duration_days,
+        tacite_reconduction=offre.tacite_reconduction,
+        une_par_compte=offre.une_par_compte,
         currency=devise,
         amount_minor=None if prix is None else prix.amount_minor,
         prices_include_tax=offre.prices_include_tax,

@@ -1554,6 +1554,14 @@ offers = Table(
     # NULL = pas encore renseignee : l'offre reste un brouillon, la publication
     # l'exige.
     Column("duration_days", Integer, nullable=True),
+    # Au terme, le forfait repart-il ? Faux par defaut : reconduire d'office
+    # prelegerait quelqu'un qui n'a rien demande.
+    Column("tacite_reconduction", Boolean, nullable=False, server_default="false"),
+    # Ce forfait peut-il etre repris par le meme compte ? Faux par defaut, donc
+    # repetable : prendre deux fois le meme forfait payant est legitime. Un
+    # PARAMETRE et non une exception sur `is_free` — c'est une decision
+    # commerciale, pas une propriete de la gratuite.
+    Column("une_par_compte", Boolean, nullable=False, server_default="false"),
     # Ordre d'affichage decide par l'administrateur, croissant : 0 en premier.
     # Le tri par slug etait alphabetique, donc arbitraire commercialement.
     # A priorite egale, `slug` departage — un tri instable ferait bouger le

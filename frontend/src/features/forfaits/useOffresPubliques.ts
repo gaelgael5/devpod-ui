@@ -13,6 +13,10 @@ export interface OffrePubliee {
   max_hosts_dedies: number | null
   is_free: boolean
   duration_days: number | null
+  /** Au terme, le forfait repart-il ? Information matérielle avant de s'engager. */
+  tacite_reconduction: boolean
+  /** Réservé à une souscription par compte. */
+  une_par_compte: boolean
   /** Devise par défaut du catalogue ; `null` si aucune n'est désignée. */
   currency: string | null
   /** Montant tel qu'il est saisi, en unités mineures. `null` = pas de prix dans cette devise. */

@@ -110,6 +110,8 @@ def _row_to_offer(
             "currency_markup": row["currency_markup"],
             "is_free": row["is_free"],
             "duration_days": row["duration_days"],
+            "tacite_reconduction": row["tacite_reconduction"],
+            "une_par_compte": row["une_par_compte"],
             "priorite": row["priorite"],
             "prices": prix,
             "host_profiles": profils or [],
@@ -210,6 +212,8 @@ async def upsert_offer(offre: Offer, conn: AsyncConnection) -> None:
         "currency_markup": offre.currency_markup,
         "is_free": offre.is_free,
         "duration_days": offre.duration_days,
+        "tacite_reconduction": offre.tacite_reconduction,
+        "une_par_compte": offre.une_par_compte,
         "priorite": offre.priorite,
     }
     existe = (

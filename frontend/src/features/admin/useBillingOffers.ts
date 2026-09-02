@@ -30,6 +30,10 @@ export interface Offer {
   /** Descriptions en markdown, par langue. */
   descriptions: Record<string, string>
   hosting_type: HostingType
+  /** Au terme : le forfait repart-il, ou s'arrête-t-il ? */
+  tacite_reconduction: boolean
+  /** Réservé à une souscription par compte. */
+  une_par_compte: boolean
   /** Ordre d'affichage public, croissant : 0 en premier. */
   priorite: number
   /** `null` = illimite. Les deux quotas sont independants. */
@@ -70,6 +74,8 @@ export function offreVide(): Offer {
     titles: {},
     descriptions: {},
     hosting_type: 'mutualise',
+    tacite_reconduction: false,
+    une_par_compte: false,
     priorite: 100,
     max_workspaces: null,
     max_hosts_dedies: null,
