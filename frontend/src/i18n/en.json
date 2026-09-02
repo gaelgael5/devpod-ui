@@ -1085,6 +1085,7 @@
       "empty": "No offer yet. Nothing is sellable until an offer is published.",
       "new": "New offer",
       "edit": "Edit offer",
+      "clone": "Duplicate",
       "delete": "Delete offer",
       "deleted": "Offer {{slug}} deleted",
       "saved": "Offer {{slug}} saved",

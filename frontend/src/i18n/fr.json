@@ -1085,6 +1085,7 @@
       "empty": "Aucune offre. Rien n'est vendable tant qu'aucune offre n'est publiée.",
       "new": "Nouvelle offre",
       "edit": "Modifier l'offre",
+      "clone": "Dupliquer",
       "delete": "Supprimer l'offre",
       "deleted": "Offre {{slug}} supprimée",
       "saved": "Offre {{slug}} enregistrée",

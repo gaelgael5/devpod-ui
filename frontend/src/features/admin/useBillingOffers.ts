@@ -92,6 +92,35 @@ export function offreVide(): Offer {
   }
 }
 
+/**
+ * Copie d'une offre existante, prete a etre saisie comme une nouvelle.
+ *
+ * Trois champs ne se copient PAS, et chacun pour une raison qui coute cher :
+ *
+ * - `slug` est vide. L'enregistrement est un PUT sur le slug : le garder
+ *   ECRASERAIT l'offre source au lieu d'en creer une seconde.
+ * - `published` retombe a faux. Cloner une offre publiee puis enregistrer sans
+ *   relire pousserait un doublon sur la page publique.
+ * - `provider_price_id` est vide. Il designe le prix de l'offre SOURCE chez le
+ *   fournisseur ; le recopier ferait pointer deux offres sur le meme tarif.
+ *
+ * Les objets et tableaux sont copies en PROFONDEUR : un etalement superficiel
+ * partagerait les references avec l'offre du cache de requetes, et saisir dans
+ * le brouillon modifierait l'original affiche dans la liste.
+ */
+export function offreClonee(source: Offer): Offer {
+  return {
+    ...source,
+    slug: '',
+    published: false,
+    titles: { ...source.titles },
+    descriptions: { ...source.descriptions },
+    variables: { ...source.variables },
+    host_profiles: [...source.host_profiles],
+    prices: source.prices.map((p) => ({ ...p, provider_price_id: '' })),
+  }
+}
+
 const CLE_OFFRES = ['admin', 'billing', 'offers'] as const
 
 export function useOffers() {

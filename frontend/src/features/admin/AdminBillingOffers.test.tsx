@@ -54,7 +54,7 @@ const STANDARD = {
   host_profiles: ['host-standard'],
 }
 
-function renderPage(offres: unknown[] = [STANDARD]) {
+function renderPage(offres: unknown[] = [STANDARD], depart = '/admin/billing-offers') {
   server.use(
     http.get('/admin/billing/offers', () => HttpResponse.json(offres)),
     http.get('/admin/billing/providers', () => HttpResponse.json([STRIPE])),
@@ -73,7 +73,7 @@ function renderPage(offres: unknown[] = [STANDARD]) {
   return render(
     <QueryClientProvider client={queryClient}>
       <I18nextProvider i18n={i18n}>
-        <MemoryRouter initialEntries={['/admin/billing-offers']}>
+        <MemoryRouter initialEntries={[depart]}>
           <Routes>
             <Route path="/admin/billing-offers" element={<AdminBillingOffers />} />
             <Route path="/admin/billing-offers/new" element={<OfferEditor />} />
@@ -448,6 +448,99 @@ describe('OfferEditor — profils de host', () => {
 
     expect(
       await screen.findByText(i18n.t('admin.offers.champsManquantsProfils')),
+    ).toBeInTheDocument()
+  })
+})
+
+describe('duplication d\'une offre', () => {
+  async function dupliquer() {
+    renderPage()
+    const carte = await screen.findByTestId('offre-standard')
+    await userEvent.click(within(carte).getByLabelText(i18n.t('admin.offers.clone')))
+  }
+
+  it('reprend le contenu de la source', async () => {
+    await dupliquer()
+
+    expect(await screen.findByLabelText(i18n.t('admin.offers.shortName'))).toHaveValue('Standard')
+  })
+
+  it("laisse l'identifiant VIDE", async () => {
+    // Le plus important du lot. L'enregistrement est un PUT sur le slug :
+    // reprendre celui de la source ecraserait l'offre copiee au lieu d'en
+    // creer une seconde.
+    await dupliquer()
+
+    expect(await screen.findByLabelText(i18n.t('admin.offers.slug'))).toHaveValue('')
+  })
+
+  it('ne reprend pas la publication', async () => {
+    // Cloner une offre publiee puis enregistrer sans relire pousserait un
+    // doublon sur la page publique.
+    await dupliquer()
+    await ongletTarif()
+
+    expect(screen.getByLabelText(i18n.t('admin.offers.publish'))).not.toBeChecked()
+  })
+
+  it('enregistre sous le NOUVEAU slug, sans toucher a la source', async () => {
+    const recus: { url: string; corps: Record<string, unknown> }[] = []
+    await dupliquer()
+    server.use(
+      http.put('/admin/billing/offers/:slug', async ({ request, params }) => {
+        recus.push({ url: String(params.slug), corps: (await request.json()) as never })
+        return HttpResponse.json({ ...STANDARD, slug: params.slug, devises_manquantes: [] })
+      }),
+    )
+
+    await userEvent.type(
+      await screen.findByLabelText(i18n.t('admin.offers.slug')),
+      'standard-bis',
+    )
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('common.save') }))
+
+    await waitFor(() => expect(recus).toHaveLength(1))
+    expect(recus[0].url).toBe('standard-bis')
+    // Le tarif suit la copie : c'est tout l'interet de dupliquer.
+    expect(recus[0].corps.prices).toEqual([
+      { currency: 'EUR', amount_minor: 1200, provider_price_id: '' },
+    ])
+  })
+
+  it("ne reprend pas l'identifiant de prix du fournisseur", async () => {
+    // Il designe le prix de l'offre SOURCE chez le fournisseur. Le recopier
+    // ferait pointer deux offres sur le meme tarif, et une modification de
+    // l'une changerait le prix facture de l'autre.
+    const recus: Record<string, unknown>[] = []
+    renderPage([
+      { ...STANDARD, prices: [{ currency: 'EUR', amount_minor: 1200, provider_price_id: 'price_source' }] },
+    ])
+    const carte = await screen.findByTestId('offre-standard')
+    await userEvent.click(within(carte).getByLabelText(i18n.t('admin.offers.clone')))
+    server.use(
+      http.put('/admin/billing/offers/:slug', async ({ request }) => {
+        recus.push((await request.json()) as never)
+        return HttpResponse.json({ ...STANDARD, devises_manquantes: [] })
+      }),
+    )
+
+    await userEvent.type(await screen.findByLabelText(i18n.t('admin.offers.slug')), 'standard-bis')
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('common.save') }))
+
+    await waitFor(() => expect(recus).toHaveLength(1))
+    expect(recus[0].prices).toEqual([
+      { currency: 'EUR', amount_minor: 1200, provider_price_id: '' },
+    ])
+  })
+
+  it("rend introuvable une source qui n'existe plus", async () => {
+    // On entre directement par l'URL : un lien garde en favori, ou une offre
+    // supprimee entre l'affichage de la liste et le clic.
+    renderPage([], '/admin/billing-offers/new?depuis=fantome')
+
+    // Meme ecran qu'une offre a editer introuvable : le slug ne designe rien.
+    expect(
+      await screen.findByText(i18n.t('admin.offers.notFound', { slug: 'fantome' })),
     ).toBeInTheDocument()
   })
 })

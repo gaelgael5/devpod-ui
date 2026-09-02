@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { Copy, Pencil, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { useDeleteOffer, useOffers, type Offer } from './useBillingOffers'
@@ -101,6 +101,17 @@ export default function AdminBillingOffers() {
                 onClick={() => navigate(`/admin/billing-offers/${encodeURIComponent(o.slug)}`)}
               >
                 <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                aria-label={t('admin.offers.clone')}
+                onClick={() =>
+                  navigate(`/admin/billing-offers/new?depuis=${encodeURIComponent(o.slug)}`)
+                }
+              >
+                <Copy className="h-3.5 w-3.5" />
               </Button>
               <Button
                 size="icon"

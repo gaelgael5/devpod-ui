@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useProviders, type PaymentProvider } from './useBillingCatalog'
-import { offreVide, useOffers, useSaveOffer, type Offer } from './useBillingOffers'
+import { offreClonee, offreVide, useOffers, useSaveOffer, type Offer } from './useBillingOffers'
 import { LANGUE_PIVOT } from './offerDraft'
 import OfferGeneralTab from './OfferGeneralTab'
 import OfferDescriptionTab from './OfferDescriptionTab'
@@ -171,22 +171,30 @@ function OfferForm({ offre, canaux }: { offre: Offer; canaux: PaymentProvider[] 
 export default function OfferEditor() {
   const { t } = useTranslation()
   const { slug } = useParams<{ slug: string }>()
+  const [params] = useSearchParams()
   const navigate = useNavigate()
   const { data: offres, isLoading } = useOffers()
   const { data: canaux = [] } = useProviders()
 
-  if (!slug) return <OfferForm offre={offreVide()} canaux={canaux} />
+  // Creation depuis zero. Le clonage porte `?depuis=`, et lui a besoin du
+  // catalogue : il tombe donc dans le chemin de chargement ci-dessous.
+  const source = params.get('depuis')
+  if (!slug && !source) return <OfferForm offre={offreVide()} canaux={canaux} />
 
   if (isLoading || offres === undefined) {
     return <p className="p-4 text-sm text-muted-foreground">{t('common.loading')}</p>
   }
 
-  const offre = offres.find((o) => o.slug === slug)
+  const cherche = slug ?? source
+  const trouvee = offres.find((o) => o.slug === cherche)
+  // Une offre a cloner qui n'existe plus rend le meme ecran qu'une offre a
+  // editer introuvable : dans les deux cas, le slug demande ne designe rien.
+  const offre = trouvee && source && !slug ? offreClonee(trouvee) : trouvee
   if (!offre) {
     return (
       <div className="mx-auto flex max-w-3xl flex-col items-start gap-3 p-4">
         <p className="text-sm text-muted-foreground">
-          {t('admin.offers.notFound', { slug })}
+          {t('admin.offers.notFound', { slug: cherche })}
         </p>
         <Button type="button" variant="outline" onClick={() => navigate(RETOUR)}>
           {t('common.back')}
