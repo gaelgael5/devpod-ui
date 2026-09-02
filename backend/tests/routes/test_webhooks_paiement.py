@@ -25,7 +25,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from portal.billing.models import PaymentProvider
+from portal.billing.canaux.stripe import CanalStripe
+from portal.billing.models import Offer, PaymentProvider
 from portal.billing.subscriptions import Subscription, SubscriptionEvent
 from portal.db.engine import get_conn
 from portal.routes import webhooks_paiement as routes
@@ -74,7 +75,24 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         "vus": set(),
         "journal": [],
         "etats": [],
+        "offre": Offer(
+            slug="standard", label="Standard", duration_days=30, tacite_reconduction=True
+        ),
+        "coupures": [],
+        "coupure_echoue": False,
     }
+
+    class _CanalTemoin(CanalStripe):
+        """Vrai adaptateur, sauf la coupure — qu'on observe au lieu d'émettre."""
+
+        async def couper_reconduction(self, provider_subscription_id: str, cle_api: str) -> None:
+            if etat["coupure_echoue"]:
+                raise RuntimeError("canal en erreur")
+            etat["coupures"].append(provider_subscription_id)
+
+    async def _get_offer(slug: str, _conn: Any) -> Offer | None:
+        offre = etat["offre"]
+        return offre if offre and offre.slug == slug else None
 
     async def _get_provider(slug: str, _conn: Any) -> PaymentProvider | None:
         p = etat["provider"]
@@ -116,8 +134,10 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         "get": _get,
         "par_identifiant_fournisseur": _par_fournisseur,
         "enregistrer_etat": _enregistrer_etat,
+        "get_offer": _get_offer,
     }.items():
         monkeypatch.setattr(routes, nom, impl)
+    monkeypatch.setattr(routes, "CANAUX", {"stripe": _CanalTemoin()})
 
     client = TestClient(app)
     client.etat = etat  # type: ignore[attr-defined]
@@ -286,3 +306,80 @@ def test_une_transition_impossible_est_refusee_sans_erreur(client: TestClient) -
     assert reponse.json()["statut"] == "refuse"
     assert client.etat["etats"] == []  # type: ignore[attr-defined]
     assert len(client.etat["journal"]) == 1  # type: ignore[attr-defined]
+
+
+# ─── Rattachement et reconduction ────────────────────────────────────────────
+
+
+def _souscription_creee(**objet: Any) -> bytes:
+    base: dict[str, Any] = {
+        "id": "sub_42",
+        "metadata": {"portal_subscription_id": ABO_ID},
+    }
+    base.update(objet)
+    return json.dumps(
+        {"id": "evt_sub", "type": "customer.subscription.created", "data": {"object": base}}
+    ).encode()
+
+
+def test_l_identifiant_du_fournisseur_est_retenu(client: TestClient) -> None:
+    """Sans lui, la facture qui suit arriverait orpheline.
+
+    C'est le seul événement qui le porte : sur une facture, les métadonnées sont
+    celles de la facture, pas celles de l'abonnement.
+    """
+    reponse = _poster(client, _souscription_creee())
+
+    assert reponse.json()["statut"] == "applique"
+    (maj,) = client.etat["etats"]  # type: ignore[attr-defined]
+    assert maj.provider_subscription_id == "sub_42"
+
+
+def test_une_souscription_sans_essai_n_est_plus_ignoree(client: TestClient) -> None:
+    """Régression : la version précédente la jetait, et cassait le rattachement."""
+    reponse = _poster(client, _souscription_creee(trial_end=None))
+
+    assert reponse.json()["statut"] == "applique"
+
+
+def test_un_forfait_sans_reconduction_est_coupe(client: TestClient) -> None:
+    """Le fournisseur reconduit par défaut, et refuse qu'on le dise à l'ouverture."""
+    client.etat["offre"] = client.etat["offre"].model_copy(  # type: ignore[attr-defined]
+        update={"tacite_reconduction": False}
+    )
+
+    _poster(client, _souscription_creee())
+
+    assert client.etat["coupures"] == ["sub_42"]  # type: ignore[attr-defined]
+
+
+def test_un_forfait_reconductible_n_est_pas_coupe(client: TestClient) -> None:
+    _poster(client, _souscription_creee())
+
+    assert client.etat["coupures"] == []  # type: ignore[attr-defined]
+
+
+def test_une_coupure_en_echec_n_interrompt_pas_le_traitement(client: TestClient) -> None:
+    """L'événement est déjà appliqué : rendre une erreur ferait rejouer le
+    webhook, qui répondrait « déjà traité » sans retenter la coupure.
+    """
+    client.etat["offre"] = client.etat["offre"].model_copy(  # type: ignore[attr-defined]
+        update={"tacite_reconduction": False}
+    )
+    client.etat["coupure_echoue"] = True  # type: ignore[attr-defined]
+
+    reponse = _poster(client, _souscription_creee())
+
+    assert reponse.status_code == 200
+    assert reponse.json()["statut"] == "applique"
+
+
+def test_une_facture_payee_ne_declenche_aucune_coupure(client: TestClient) -> None:
+    """La coupure se pose à la création, pas à chaque échéance."""
+    client.etat["offre"] = client.etat["offre"].model_copy(  # type: ignore[attr-defined]
+        update={"tacite_reconduction": False}
+    )
+
+    _poster(client, _charge())
+
+    assert client.etat["coupures"] == []  # type: ignore[attr-defined]

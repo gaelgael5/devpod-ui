@@ -172,11 +172,41 @@ def test_une_souscription_avec_essai_ouvre_un_debut_d_essai(canal: CanalStripe) 
     assert evenement.kind == "debut_essai"
 
 
-def test_une_souscription_sans_essai_n_ouvre_rien(canal: CanalStripe) -> None:
-    """Elle facture tout de suite : l'`activation` viendra de la facture."""
+def test_une_souscription_sans_essai_remonte_quand_meme(canal: CanalStripe) -> None:
+    """Elle facture tout de suite, mais l'événement ne doit PAS être ignoré.
+
+    C'est le seul endroit où le fournisseur rend l'identifiant de l'abonnement
+    qu'il vient de créer. L'ignorer — ce que faisait la version précédente —
+    rendait orpheline la facture qui suivait, faute de savoir à quoi la
+    rattacher. Sur l'état, c'est un non-événement : on est déjà en `essai`.
+    """
     charge = _evenement("customer.subscription.created", {"trial_end": None})
 
-    assert canal.normaliser(charge) is None
+    evenement = canal.normaliser(charge)
+
+    assert evenement is not None
+    assert evenement.kind == "debut_essai"
+
+
+def test_l_identifiant_d_abonnement_se_lit_sur_la_souscription(canal: CanalStripe) -> None:
+    charge = _evenement("customer.subscription.created", {"id": "sub_42"})
+
+    assert canal.identifiant_abonnement(charge) == "sub_42"
+
+
+def test_l_identifiant_d_abonnement_se_lit_autrement_sur_une_facture(
+    canal: CanalStripe,
+) -> None:
+    """Sur une facture, `id` est celui de la FACTURE — le confondre casserait tout."""
+    charge = _evenement("invoice.paid", {"id": "in_7", "subscription": "sub_42"})
+
+    assert canal.identifiant_abonnement(charge) == "sub_42"
+
+
+def test_sans_rattachement_lisible_l_identifiant_est_absent(canal: CanalStripe) -> None:
+    charge = _evenement("invoice.paid", {"id": "in_7"})
+
+    assert canal.identifiant_abonnement(charge) is None
 
 
 def test_la_premiere_facture_payee_active(canal: CanalStripe) -> None:

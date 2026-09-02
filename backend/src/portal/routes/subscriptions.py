@@ -2,11 +2,18 @@
 
 Ce que fait cette route, et surtout ce qu'elle ne fait pas.
 
-Elle **crée l'abonnement**, et rien d'autre. Elle ne prend aucun paiement, ne
-provisionne aucune machine et n'envoie aucun message : chacun de ces trois
-chantiers a son étape dans l'ordre d'exécution. Une offre gratuite est donc
-d'ores et déjà souscriptible de bout en bout ; une offre payante s'arrête
-proprement au seuil du paiement, avec un abonnement en attente.
+Elle **crée l'abonnement**, puis **ouvre son paiement** — en deux routes et non
+en une. L'abonnement existe déjà quand on demande à payer : un client qui
+abandonne la page de paiement, ou dont la carte est refusée, reprend là où il en
+était sans qu'on lui crée un second abonnement à chaque tentative.
+
+Elle ne provisionne aucune machine et n'envoie aucun message : ces deux
+chantiers ont leur étape dans l'ordre d'exécution. Une offre gratuite est
+souscriptible de bout en bout et n'ouvre jamais de paiement.
+
+L'ouverture prend un identifiant dans l'URL. Rien dans un UUID n'empêche d'en
+réclamer un autre : l'appartenance se vérifie AVANT tout le reste, et le même
+404 répond à « n'existe pas » et à « n'est pas à vous ».
 
 Le PAYS décide de la taxe. Il est pré-rempli depuis l'en-tête `CF-IPCountry` que
 Cloudflare pose lui-même, mais c'est le choix du client qui est enregistré : une
@@ -25,17 +32,23 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
+from ..billing.canal import CanalDeVente, DemandePaiement, PaiementImpossible
+from ..billing.canaux import CANAUX
 from ..billing.eligibilite import SouscriptionRefusee, verifier
 from ..billing.subscriptions import Subscription, fin_de_forfait
+from ..config.store import load_global
 from ..db.billing_catalog import (
     devise_par_defaut,
     devises_actives,
+    get_provider,
     list_countries,
     list_country_providers,
 )
 from ..db.billing_offers import get_offer
 from ..db.engine import get_conn
-from ..db.subscriptions import creer, list_de, offres_deja_souscrites
+from ..db.subscriptions import creer, get, list_de, offres_deja_souscrites
+from ..db.user_config import email_de
+from ..secrets.system import reveal_system_secret
 
 router = APIRouter(tags=["subscriptions"])
 log = structlog.get_logger(__name__)
@@ -176,3 +189,116 @@ async def souscrire(
         gratuite=offre.is_free,
     )
     return abonnement.model_dump(mode="json")
+
+
+class OuverturePaiement(BaseModel):
+    """Où envoyer le client pour qu'il paie."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str
+
+
+@router.post("/subscriptions/{subscription_id}/paiement")
+async def ouvrir_paiement(
+    subscription_id: str,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> OuverturePaiement:
+    """Ouvre la page de paiement d'un abonnement en attente.
+
+    Séparée de la souscription, et pas fondue dedans : l'abonnement existe déjà
+    quand on arrive ici. Un client qui abandonne la page de paiement, ou dont la
+    carte est refusée, doit pouvoir reprendre sans re-souscrire — et sans qu'on
+    lui crée un second abonnement à chaque tentative.
+    """
+    abonnement = await get(subscription_id, conn)
+    # L'appartenance est vérifiée AVANT tout le reste, et le même 404 répond à
+    # « n'existe pas » et « n'est pas à vous » : distinguer les deux dirait à un
+    # curieux quels identifiants sont valides.
+    if abonnement is None or abonnement.login != user.login:
+        raise HTTPException(status_code=404, detail="Abonnement introuvable")
+
+    if abonnement.state not in {"essai", "echec_paiement"}:
+        # Un abonnement actif est déjà payé ; un résilié n'est pas repayable.
+        raise HTTPException(
+            status_code=409,
+            detail="Cet abonnement n'attend pas de paiement.",
+        )
+
+    offre = await get_offer(abonnement.offer_slug, conn)
+    if offre is None:
+        raise HTTPException(status_code=404, detail="Offre introuvable")
+    if offre.is_free:
+        # Pas une erreur de l'utilisateur : une offre gratuite n'a simplement
+        # aucun paiement à ouvrir.
+        raise HTTPException(status_code=409, detail="Cette offre est gratuite.")
+
+    canal, cle_api = await _canal_et_clef(abonnement.provider_slug, conn)
+    base = load_global().server.external_url.rstrip("/")
+    assert offre.duration_days is not None  # garanti par `verifier` a la souscription
+    demande = DemandePaiement(
+        subscription_id=abonnement.id,
+        libelle=offre.label or offre.slug,
+        devise=abonnement.currency,
+        # INSTANTANÉ figé à la souscription, jamais relu au catalogue : le prix
+        # affiché au client est celui qu'il doit payer, même si le tarif a
+        # changé entre-temps.
+        montant_minor=abonnement.amount_minor,
+        duree_jours=offre.duration_days,
+        reconduction=offre.tacite_reconduction,
+        # Pré-remplit la page de paiement. Vide si le compte n'a pas d'adresse
+        # connue : le fournisseur la demandera lui-même, il en a besoin pour le
+        # reçu.
+        email=await email_de(user.login, conn),
+        url_succes=f"{base}/forfaits/retour?abonnement={abonnement.id}",
+        url_abandon=f"{base}/forfaits",
+    )
+
+    try:
+        url = await canal.ouvrir_paiement(demande, cle_api)
+    except PaiementImpossible as exc:
+        # Le motif du fournisseur est journalisé, pas rendu : il décrit notre
+        # requête, et l'utilisateur n'a rien à en faire.
+        log.error(
+            "paiement_ouverture_refusee",
+            subscription_id=abonnement.id,
+            provider=abonnement.provider_slug,
+            raison=str(exc),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Le canal de paiement n'a pas pu ouvrir la page. Réessayez.",
+        ) from exc
+
+    log.info(
+        "paiement_ouvert",
+        subscription_id=abonnement.id,
+        provider=abonnement.provider_slug,
+        by=user.login,
+    )
+    return OuverturePaiement(url=url)
+
+
+async def _canal_et_clef(
+    provider_slug: str | None, conn: AsyncConnection
+) -> tuple[CanalDeVente, str]:
+    """Adaptateur du canal et sa clef d'API, ou 409 si le canal n'est pas prêt."""
+    provider = await get_provider(provider_slug, conn) if provider_slug else None
+    canal = CANAUX.get(provider.kind) if provider else None
+    if provider is None or canal is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Aucun canal de paiement n'est configuré pour cet abonnement.",
+        )
+    if not provider.enabled:
+        raise HTTPException(status_code=409, detail="Ce canal de paiement est désactivé.")
+    try:
+        cle_api = await reveal_system_secret(provider.secret_slug, conn)
+    except Exception as exc:  # noqa: BLE001 — secret absent ou coffre indisponible
+        log.error("paiement_clef_illisible", provider=provider.slug, slug=provider.secret_slug)
+        raise HTTPException(
+            status_code=409,
+            detail="La clef du canal de paiement est introuvable.",
+        ) from exc
+    return canal, cle_api

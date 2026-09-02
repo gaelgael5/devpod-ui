@@ -438,3 +438,17 @@ def _ws_to_row(login: str, ws: WorkspaceSpec) -> dict[str, Any]:
         "keep_active": ws.keep_active,
         "memory_limit": ws.memory_limit,
     }
+
+
+async def email_de(login: str, conn: AsyncConnection) -> str:
+    """Courriel du compte, ou `""` s'il n'est pas connu.
+
+    Prend la connexion courante, contrairement à `owner_identity_subject` qui
+    ouvre la sienne : appelée dans une requête, elle doit voir ce que la
+    transaction en cours a écrit, et ne pas consommer une seconde connexion du
+    pool pour lire une colonne.
+    """
+    row = (
+        (await conn.execute(select(users.c.email).where(users.c.login == login))).scalars().first()
+    )
+    return row or ""

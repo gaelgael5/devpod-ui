@@ -1,19 +1,26 @@
-"""Adaptateur Stripe : signature, puis traduction vers les cinq événements.
+"""Adaptateur Stripe : signature, traduction, et ouverture du paiement.
 
 **Aucune dépendance au SDK Stripe.** La vérification de signature est un HMAC
 SHA-256 sur `<horodatage>.<corps brut>`, et la traduction est une lecture de
 JSON : embarquer une bibliothèque pour cela ajouterait une surface de mise à
 jour sans rien apporter.
 
-Le mapping suit ce que le cadrage a décidé, et il repose sur deux champs que
+Le mapping suit ce que le cadrage a décidé, et il repose sur un champ que
 Stripe ne met pas en évidence :
 
-- **`trial_end`** distingue une souscription qui ouvre un essai d'une
-  souscription qui facture tout de suite ;
 - **`billing_reason`** distingue, sur une facture payée, le PREMIER paiement
   (`subscription_create`) d'un renouvellement (`subscription_cycle`). Sans lui,
   les deux sont la même facture payée, et l'on enverrait un courriel de
   bienvenue à chaque échéance.
+
+Le sens de SORTIE — ouvrir une session, couper la reconduction — repose sur deux
+constats vérifiés contre l'API réelle, et non lus dans la documentation :
+
+- le prix se décrit **en ligne** en mode abonnement, donc rien n'oblige à
+  répliquer notre catalogue chez le fournisseur ;
+- `cancel_at_period_end` est **refusé** à la création de session et ne s'accepte
+  que sur l'abonnement. Un forfait sans tacite reconduction se reconduirait donc
+  si l'on s'en tenait à l'ouverture.
 """
 
 from __future__ import annotations
@@ -24,8 +31,23 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from ..canal import SignatureInvalide
+import httpx
+
+from ..canal import DemandePaiement, PaiementImpossible, SignatureInvalide
 from ..subscriptions import EventKind, SubscriptionEvent
+
+#: Racine de l'API. Constante nommée pour que les tests la détournent d'un seul
+#: point plutôt que par des chaînes éparpillées.
+API = "https://api.stripe.com"
+
+#: Version d'API épinglée, telle que servie par le compte au moment du câblage.
+#: La laisser implicite reviendrait à confier la forme de nos charges utiles à
+#: un réglage de tableau de bord.
+VERSION_API = "2026-08-26.dahlia"
+
+#: Un paiement se joue devant un utilisateur qui attend. Au-delà, mieux vaut un
+#: message d'échec qu'une page blanche.
+DELAI = 15.0
 
 #: Au-delà, une charge rejouée est refusée. Cinq minutes est la tolérance que
 #: Stripe recommande : assez pour absorber une horloge décalée, trop court pour
@@ -127,9 +149,16 @@ class CanalStripe:
     @staticmethod
     def _kind(type_evenement: str, objet: Mapping[str, Any]) -> EventKind | None:
         if type_evenement == "customer.subscription.created":
-            # Sans `trial_end`, la souscription facture immédiatement :
-            # l'`activation` viendra de la facture, pas d'ici.
-            return "debut_essai" if objet.get("trial_end") else None
+            # Remonté QUEL QUE SOIT l'essai, et c'est délibéré. Sans `trial_end`
+            # l'abonnement facture immédiatement, donc l'`activation` viendra de
+            # la facture et non d'ici — mais l'événement doit tout de même
+            # passer : c'est le SEUL endroit où le fournisseur nous rend
+            # l'identifiant de l'abonnement qu'il vient de créer. L'ignorer
+            # rendrait orpheline la facture qui suit.
+            #
+            # Sur l'ÉTAT c'est un non-événement : `debut_essai` laisse en
+            # `essai`, où la souscription se trouve déjà.
+            return "debut_essai"
         if type_evenement == "customer.subscription.deleted":
             return "resiliation"
         if type_evenement == "invoice.payment_failed":
@@ -154,8 +183,137 @@ class CanalStripe:
         return str(valeur) if valeur else None
 
     @staticmethod
+    def identifiant_abonnement(payload: Mapping[str, object]) -> str | None:
+        """Identifiant de l'abonnement CHEZ LE FOURNISSEUR, s'il est lisible.
+
+        Il ne se lit pas au même endroit selon l'événement : sur une
+        souscription c'est l'objet lui-même, sur une facture c'est le champ qui
+        la rattache. Le confondre ferait enregistrer un identifiant de facture
+        comme identifiant d'abonnement, et toute résolution ultérieure
+        échouerait.
+        """
+        donnees = payload.get("data")
+        objet = donnees.get("object") if isinstance(donnees, dict) else None
+        if not isinstance(objet, dict):
+            return None
+        type_evenement = str(payload.get("type") or "")
+        brut = (
+            objet.get("id")
+            if type_evenement.startswith("customer.subscription.")
+            else objet.get("subscription")
+        )
+        return str(brut) if brut else None
+
+    @staticmethod
     def _instant(payload: Mapping[str, object]) -> datetime | None:
         brut = payload.get("created")
         if not isinstance(brut, int):
             return None
         return datetime.fromtimestamp(brut, tz=UTC)
+
+    # ─── Ouverture du paiement ───────────────────────────────────────────────
+
+    async def ouvrir_paiement(self, demande: DemandePaiement, cle_api: str) -> str:
+        """Crée une session de paiement hébergée et rend son URL.
+
+        **Le prix est décrit EN LIGNE**, pas référencé par un identifiant Stripe.
+        Vérifié contre l'API : `price_data` est accepté en mode abonnement. Le
+        catalogue reste donc chez nous, seule source de vérité — synchroniser
+        produits et prix chez le fournisseur ferait exister deux catalogues, et
+        deux catalogues divergent.
+
+        La durée passe en jours (`interval=day`), quelle qu'elle soit : c'est ce
+        qui permet un forfait de 45 jours sans le tordre en « mois ».
+        """
+        corps: dict[str, str] = {
+            "mode": "subscription",
+            "line_items[0][quantity]": "1",
+            "line_items[0][price_data][currency]": demande.devise.lower(),
+            "line_items[0][price_data][unit_amount]": str(demande.montant_minor),
+            "line_items[0][price_data][product_data][name]": demande.libelle,
+            "line_items[0][price_data][recurring][interval]": "day",
+            "line_items[0][price_data][recurring][interval_count]": str(demande.duree_jours),
+            "success_url": demande.url_succes,
+            "cancel_url": demande.url_abandon,
+            # Posée sur L'ABONNEMENT, pas sur la session : la session disparaît
+            # du récit une fois payée, alors que les événements de cycle —
+            # renouvellement, échec, résiliation — portent l'abonnement. Sur la
+            # session seule, tout ce qui suit le premier paiement serait orphelin.
+            "subscription_data[metadata][portal_subscription_id]": demande.subscription_id,
+        }
+        if demande.email:
+            corps["customer_email"] = demande.email
+
+        session = await self._appeler(
+            "/v1/checkout/sessions",
+            corps,
+            cle_api,
+            # Idempotence côté fournisseur : deux clics ne doivent pas ouvrir
+            # deux sessions, donc facturer deux fois. Notre identifiant
+            # d'abonnement est la clef naturelle — il est unique et stable.
+            idempotence=f"paiement:{demande.subscription_id}",
+        )
+        url = session.get("url")
+        if not isinstance(url, str) or not url:
+            # Accepté mais sans URL : on ne rend pas de chaîne vide, l'appelant
+            # redirigerait vers nulle part et le client croirait avoir payé.
+            raise PaiementImpossible("le canal n'a pas rendu d'URL de paiement")
+        return url
+
+    async def couper_reconduction(self, provider_subscription_id: str, cle_api: str) -> None:
+        """Programme l'arrêt au terme de la période en cours.
+
+        `cancel_at_period_end` est REFUSÉ à la création de session — vérifié
+        contre l'API. Il ne s'accepte que sur l'abonnement, donc après coup.
+        C'est la raison d'être de cette seconde méthode : sans elle, un forfait
+        déclaré sans tacite reconduction se reconduirait quand même.
+        """
+        await self._appeler(
+            f"/v1/subscriptions/{provider_subscription_id}",
+            {"cancel_at_period_end": "true"},
+            cle_api,
+            idempotence=f"sans-reconduction:{provider_subscription_id}",
+        )
+
+    @staticmethod
+    async def _appeler(
+        chemin: str, corps: Mapping[str, str], cle_api: str, idempotence: str
+    ) -> dict[str, Any]:
+        """Un appel à l'API du fournisseur, authentifié et versionné."""
+        if not cle_api:
+            # Sans clef, l'appel partirait pour revenir en 401. Autant le dire
+            # ici, où la cause est lisible.
+            raise PaiementImpossible("aucune clef d'API n'est configurée pour ce canal")
+
+        async with httpx.AsyncClient(timeout=DELAI) as client:
+            try:
+                reponse = await client.post(
+                    f"{API}{chemin}",
+                    data=dict(corps),
+                    auth=(cle_api, ""),
+                    headers={
+                        # Version ÉPINGLÉE : sans elle, un changement fait au
+                        # tableau de bord modifierait la forme des réponses et
+                        # des webhooks sans qu'on touche une ligne de code.
+                        "Stripe-Version": VERSION_API,
+                        "Idempotency-Key": idempotence,
+                    },
+                )
+            except httpx.HTTPError as exc:
+                raise PaiementImpossible("le canal de paiement est injoignable") from exc
+
+        try:
+            charge = reponse.json()
+        except ValueError as exc:
+            raise PaiementImpossible("réponse illisible du canal de paiement") from exc
+        if not isinstance(charge, dict):
+            raise PaiementImpossible("réponse illisible du canal de paiement")
+
+        if reponse.status_code >= 400:
+            erreur = charge.get("error")
+            motif = erreur.get("message") if isinstance(erreur, dict) else None
+            # Le motif du fournisseur est journalisé par l'appelant, pas rendu
+            # tel quel à l'utilisateur : il décrit notre requête, pas son
+            # problème à lui.
+            raise PaiementImpossible(str(motif or f"refus du canal ({reponse.status_code})"))
+        return cast(dict[str, Any], charge)

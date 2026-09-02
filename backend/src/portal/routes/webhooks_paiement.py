@@ -29,8 +29,8 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..billing.canal import CanalDeVente, SignatureInvalide
-from ..billing.canaux.stripe import CanalStripe
+from ..billing.canal import SignatureInvalide
+from ..billing.canaux import CANAUX
 from ..billing.models import PaymentProvider
 from ..billing.subscriptions import (
     Subscription,
@@ -39,6 +39,7 @@ from ..billing.subscriptions import (
     appliquer,
 )
 from ..db.billing_catalog import get_provider
+from ..db.billing_offers import get_offer
 from ..db.engine import get_conn
 from ..db.subscription_events import enregistrer
 from ..db.subscriptions import enregistrer_etat, get, par_identifiant_fournisseur
@@ -46,10 +47,6 @@ from ..secrets.system import reveal_system_secret
 
 router = APIRouter(tags=["webhooks"])
 log = structlog.get_logger(__name__)
-
-#: Un adaptateur par `PaymentProvider.kind`. Ajouter un canal, c'est ajouter une
-#: entrée ici — le reste du portail continue de parler des cinq événements.
-CANAUX: dict[str, CanalDeVente] = {"stripe": CanalStripe()}
 
 #: Au-delà, on refuse de lire. Un webhook de cycle d'abonnement pèse quelques
 #: kilo-octets ; accepter un corps arbitraire sur une route ouverte serait
@@ -120,6 +117,14 @@ async def recevoir(
         )
         return {"statut": "orphelin"}
 
+    # L'identifiant du fournisseur est RETENU dès qu'il est lisible. C'est lui
+    # qui rattachera les événements suivants quand la métadonnée manquera — sur
+    # une facture, notamment, qui porte les siennes et pas celles de
+    # l'abonnement.
+    apercu = canal.identifiant_abonnement(charge)
+    if apercu and apercu != abonnement.provider_subscription_id:
+        abonnement = abonnement.model_copy(update={"provider_subscription_id": apercu})
+
     try:
         maj = appliquer(abonnement, evenement, datetime.now(UTC))
     except TransitionRefusee as exc:
@@ -136,6 +141,7 @@ async def recevoir(
         return {"statut": "refuse"}
 
     await enregistrer_etat(maj, conn)
+    await _couper_si_sans_reconduction(maj, evenement, provider, conn)
     log.info(
         "webhook_applique",
         provider=provider_slug,
@@ -182,3 +188,48 @@ async def _resoudre(
     # l'objet lui-même.
     reference = objet.get("subscription") or objet.get("id")
     return await par_identifiant_fournisseur(str(reference or ""), conn)
+
+
+async def _couper_si_sans_reconduction(
+    abonnement: Subscription,
+    evenement: SubscriptionEvent,
+    provider: PaymentProvider,
+    conn: AsyncConnection,
+) -> None:
+    """Coupe la reconduction quand le forfait ne se reconduit pas.
+
+    Le fournisseur reconduit PAR DÉFAUT, et refuse qu'on le lui dise à
+    l'ouverture de la session — vérifié contre l'API. La coupure se pose donc
+    ici, sur l'abonnement, dès qu'il existe.
+
+    Un échec n'interrompt pas le traitement : l'événement est déjà appliqué et
+    journalisé, et rendre une erreur ferait rejouer le webhook, qui répondrait
+    « déjà traité » sans retenter. Il est donc journalisé en ERREUR — c'est de
+    l'argent qui serait prélevé à tort, pas un incident cosmétique.
+    """
+    if evenement.kind != "debut_essai" or not abonnement.provider_subscription_id:
+        return
+    offre = await get_offer(abonnement.offer_slug, conn)
+    if offre is None or offre.tacite_reconduction:
+        return
+
+    canal = CANAUX.get(provider.kind)
+    if canal is None:
+        return
+    try:
+        cle = await reveal_system_secret(provider.secret_slug, conn)
+        await canal.couper_reconduction(abonnement.provider_subscription_id, cle)
+    except Exception as exc:  # noqa: BLE001 — clef illisible, canal en erreur
+        log.error(
+            "reconduction_non_coupee",
+            subscription_id=abonnement.id,
+            provider=provider.slug,
+            provider_subscription_id=abonnement.provider_subscription_id,
+            raison=str(exc),
+        )
+        return
+    log.info(
+        "reconduction_coupee",
+        subscription_id=abonnement.id,
+        provider_subscription_id=abonnement.provider_subscription_id,
+    )
