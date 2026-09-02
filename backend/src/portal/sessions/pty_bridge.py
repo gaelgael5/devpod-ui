@@ -58,8 +58,18 @@ def requested_size(cols: int | None, rows: int | None) -> tuple[int, int] | None
 
 
 def set_pty_size(fd: int, cols: int, rows: int) -> None:
-    with contextlib.suppress(OSError):
+    """Applique la taille au PTY maître. Un échec est journalisé, jamais avalé.
+
+    Le `suppress(OSError)` d'origine rendait la panne muette : mesuré le
+    02/09/2026, trois redimensionnements envoyés par le navigateur (149, 104
+    puis 234 colonnes) laissaient le PTY distant figé sur sa taille d'ouverture,
+    sans une ligne de log nulle part. tmux dessinait alors des lignes plus
+    larges que le terminal, qui se repliaient en escalier sur le bord gauche.
+    """
+    try:
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+    except OSError as exc:
+        _log.warning("pty_set_size_failed", cols=cols, rows=rows, errno=exc.errno)
 
 
 async def spawn_on_pty(
@@ -111,6 +121,38 @@ async def run_pty_bridge(
     def _pty_resize(cols: int, rows: int) -> None:
         set_pty_size(master_fd, cols, rows)
 
+    # Bornée comme les autres sondes : un glissé de fenêtre produit une rafale,
+    # et l'intérêt est de savoir SI les trames arrivent, pas de les compter toutes.
+    controls = 0
+
+    def _handle_control(payload: str) -> None:
+        """Traite une trame texte (message de contrôle). Aucun échec silencieux.
+
+        Chaque sortie sans effet se journalise : c'est le seul moyen de
+        distinguer « la trame n'arrive pas » de « la trame arrive et n'est pas
+        appliquée » — les deux étaient indiscernables tant que tout le bloc
+        était sous `suppress(Exception)`.
+        """
+        nonlocal controls
+        try:
+            msg = json.loads(payload)
+        except ValueError:
+            _log.warning(f"{log_label}_control_invalid_json", size=len(payload))
+            return
+        if not isinstance(msg, dict) or msg.get("type") != "resize":
+            _log.warning(f"{log_label}_control_unknown", payload=payload[:120])
+            return
+        try:
+            cols = max(1, int(msg.get("cols", 80)))
+            rows = max(1, int(msg.get("rows", 24)))
+        except (TypeError, ValueError):
+            _log.warning(f"{log_label}_control_bad_size", payload=payload[:120])
+            return
+        _pty_resize(cols, rows)
+        if controls < 20:
+            controls += 1
+            _log.info(f"{log_label}_resize_applied", cols=cols, rows=rows)
+
     async def _ws_to_pty() -> None:
         try:
             while True:
@@ -121,13 +163,7 @@ async def run_pty_bridge(
                 raw: bytes | None = message.get("bytes")
                 if text:
                     # Trame texte = message de contrôle (resize)
-                    with contextlib.suppress(Exception):
-                        msg = json.loads(text)
-                        if msg.get("type") == "resize":
-                            _pty_resize(
-                                max(1, int(msg.get("cols", 80))),
-                                max(1, int(msg.get("rows", 24))),
-                            )
+                    _handle_control(text)
                 elif raw:
                     with contextlib.suppress(OSError):
                         os.write(master_fd, raw)
