@@ -30,6 +30,13 @@ interface Props {
    * son prompt en cours de route — le texte arrive abîmé.
    */
   onPaste: (text: string) => void
+  /**
+   * L'application distante capte-t-elle la souris (tmux, TUI plein écran) ?
+   * Dans ce cas le glissé ne sélectionne rien et « Copier » ne trouve rien :
+   * le message doit dire quoi faire (Maj) plutôt que constater le vide.
+   * Lu au clic — le mode change en cours de session, sans événement à écouter.
+   */
+  souriCapturee?: () => boolean
   /** Ouvre ou masque le clavier mobile. Absent = bouton masque. */
   onToggleKeyboard?: () => void
   /** Le clavier est-il ouvert ? Pilote l'etat du bouton pour le lecteur d'ecran. */
@@ -62,6 +69,7 @@ export default function TerminalKeybar({
   onSend,
   onPaste,
   getSelection,
+  souriCapturee,
   onSearch,
   onToggleKeyboard,
   keyboardOpen = false,
@@ -87,7 +95,13 @@ export default function TerminalKeybar({
   const copy = async () => {
     const sel = getSelection()
     if (!sel) {
-      toast.info(t('workspaces.terminals.keybar.copyEmpty'))
+      toast.info(
+        t(
+          souriCapturee?.()
+            ? 'workspaces.terminals.keybar.copyEmptyMouseTracking'
+            : 'workspaces.terminals.keybar.copyEmpty',
+        ),
+      )
       return
     }
     try {

@@ -195,8 +195,9 @@
         "pasteError": "Clipboard unavailable",
         "pasteEmpty": "Clipboard is empty",
         "copy": "Copy",
-        "copyTitle": "Copy the terminal selection",
+        "copyTitle": "Copy the selection (Shift+drag to select inside a full-screen application)",
         "copyEmpty": "No selection to copy",
+        "copyEmptyMouseTracking": "Nothing selected: the application grabs the mouse — hold Shift while dragging",
         "copied": "Selection copied",
         "arrowUp": "Arrow up",
         "arrowDown": "Arrow down",
@@ -800,7 +801,8 @@
       "windowTitle": "SSH Terminal",
       "closeLabel": "Close terminal",
       "connClosed": "\r\n[Connection closed]\r\n",
-      "connError": "\r\n[Connection error]\r\n"
+      "connError": "\r\n[Connection error]\r\n",
+      "selectionShiftHint": "The remote application uses the mouse: hold Shift while dragging to select"
     },
     "bootstrap": {
       "btn": "Configure SSH",

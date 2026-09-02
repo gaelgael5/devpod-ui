@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RotateCw } from 'lucide-react'
+import { toast } from 'sonner'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -13,6 +14,7 @@ import { createLinkCollector } from './linkCollector'
 import { isTouchOnly } from './isTouchOnly'
 import { createHistoryScroller, pixelsDeMolette } from './historyScroll'
 import { createDoubleTapDetector } from './doubleTap'
+import { createSelectionHintDetector } from './selectionHint'
 import { isPastLineEnd } from './lineHitTest'
 import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
 import '@xterm/xterm/css/xterm.css'
@@ -417,6 +419,33 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     const termHost = termRef.current
     termHost?.addEventListener('mousedown', diagMouse)
     termHost?.addEventListener('mouseup', diagMouse)
+
+    // Glissé stérile : l'annoncer plutôt que de le laisser muet. Le `mouseup`
+    // est guetté sur `window` et non sur la surface — un glissé de sélection
+    // finit souvent hors du terminal, et l'écouteur de xterm (sur `document`)
+    // passe alors avant le nôtre : `hasSelection` est déjà à jour quand on lit.
+    const indiceSelection = createSelectionHintDetector()
+    const surDebutGlisse = (ev: MouseEvent) => {
+      if (ev.button !== 0) return
+      indiceSelection.start(ev.clientX, ev.clientY, {
+        shift: ev.shiftKey,
+        suiviSouris: terminal.modes.mouseTrackingMode !== 'none',
+      })
+    }
+    const surFinGlisse = (ev: MouseEvent) => {
+      if (ev.button !== 0) return
+      const manque = indiceSelection.end(ev.clientX, ev.clientY, {
+        selectionActive: terminal.hasSelection(),
+      })
+      // `id` fixe : deux glissés rapprochés remplacent le toast au lieu de l'empiler.
+      if (manque) {
+        toast.info(tRef.current('admin.sshTerminal.selectionShiftHint'), {
+          id: 'terminal-selection-shift',
+        })
+      }
+    }
+    termHost?.addEventListener('mousedown', surDebutGlisse)
+    window.addEventListener('mouseup', surFinGlisse)
     let selLogs = 0
 
     let copyTimer: ReturnType<typeof setTimeout> | undefined
@@ -564,6 +593,8 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       window.removeEventListener('pageshow', onVisible)
       termHost?.removeEventListener('mousedown', diagMouse)
       termHost?.removeEventListener('mouseup', diagMouse)
+      termHost?.removeEventListener('mousedown', surDebutGlisse)
+      window.removeEventListener('mouseup', surFinGlisse)
       ro.disconnect()
       dataDisposable.dispose()
       resizeDisposable.dispose()
@@ -713,6 +744,12 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         getSelection={() =>
           terminalRef.current?.getSelection() || lastSelectionRef.current
         }
+        // Terminal pas encore monté : `undefined !== 'none'` aurait annoncé une
+        // capture souris qui n'existe pas, et le message aurait parlé de Maj à tort.
+        souriCapturee={() => {
+          const mode = terminalRef.current?.modes.mouseTrackingMode
+          return mode !== undefined && mode !== 'none'
+        }}
       />
     </div>
   )

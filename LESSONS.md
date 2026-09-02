@@ -13,6 +13,7 @@
 - `PORTAL_VAULT_KEK` : un `info=` HKDF distinct par consommateur (domain separation) ; `VaultClient.whoami()` n'existe pas sur vault.yoops.org (`_resolve_wallet_id()` + `_parsed.*`).
 
 ## [frontend]
+- Bug d'IHM signalé : demander l'URL AVANT de diagnostiquer. Un « copier-coller cassé dans le terminal » a été analysé comme openvscode alors que c'était le terminal du portail (`FullscreenTerminal`). Ensuite, lire Loki (`job="faro"`, préfixes `terminal_diag`) plutôt que supposer : `mouseTrackingMode="any"` ⇒ le TUI capte la souris, la sélection xterm exige Maj.
 - Typecheck local = `tsc -b` (comme `npm run build`), PAS `tsc --noEmit` : avec project references (tsconfig.app.json), `--noEmit` sur la racine ne traverse rien et laisse passer des erreurs (`exactOptionalPropertyTypes`, narrowing d'optional chaining) qui cassent le build Docker.
 - lucide-react ≥1.0 a renommé des icônes — import inexistant = crash silencieux, vérifier `tsc -b`.
 - Jamais de nom de rôle en dur (config serveur) : le backend expose `is_admin` ; en changeant une valeur configurable, grepper ses littéraux dans TOUT le repo.
