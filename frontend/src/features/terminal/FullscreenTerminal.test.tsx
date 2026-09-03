@@ -853,8 +853,25 @@ describe('FullscreenTerminal — bouton clavier', () => {
 })
 
 describe('FullscreenTerminal — retour sur la session', () => {
+  /** Etat de `document.hidden`, pilote par `masquer` / `revenir`. */
+  let masquee = false
+
+  beforeEach(() => {
+    masquee = false
+    vi.spyOn(document, 'hidden', 'get').mockImplementation(() => masquee)
+  })
+
+  /** Met la page en arriere-plan : c'est la SEULE raison de recaler au retour. */
+  function masquer() {
+    masquee = true
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+  }
+
   /** Simule un retour au premier plan (onglet, ou retour arriere de Safari). */
   function revenir() {
+    masquee = false
     act(() => {
       document.dispatchEvent(new Event('visibilitychange'))
       vi.advanceTimersByTime(50)
@@ -922,7 +939,7 @@ describe('FullscreenTerminal — retour sur la session', () => {
       .filter((message) => message.includes('"type":"resize"'))
   }
 
-  it('fait REPEINDRE tmux au retour, pas seulement le tampon local', () => {
+  it('fait REPEINDRE tmux au retour d\u2019un onglet reellement masque', () => {
     // Le defaut vu en production : on revient sur l'onglet et l'ecran reste
     // casse — residus en colonne 0, rangees sautees. `terminal.refresh()` seul
     // redessine a l'identique la trame que tmux a ecrite pendant que les tailles
@@ -931,10 +948,46 @@ describe('FullscreenTerminal — retour sur la session', () => {
     act(() => { vi.runAllTimers() })
     sockets[0].send.mockClear()
 
+    masquer()
     revenir()
     act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
 
     expect(messagesResize().length).toBeGreaterThan(0)
+  })
+
+  it('ne recale pas sur un focus sans que la page ait ete masquee', () => {
+    // La regression du 03/09 09:08 (6bada4d7) : `onVisible` a ete branche sur
+    // `planifierAjustement`, donc sur le NUDGE. `focus` part a chaque retour
+    // dans la fenetre — un alt-tab, un clic — et envoyait un aller-retour de
+    // taille sur un ecran qui n'avait pas bouge d'un pixel. Deux SIGWINCH pour
+    // rien, dont un se perd (le noyau ne les met pas en file) : tmux reste cale
+    // sur la taille intermediaire, une ligne d'ecart, et tout le redessin
+    // decale. Sur desktop, des dizaines de fois par heure.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+      vi.advanceTimersByTime(AJUSTEMENT_MS)
+    })
+
+    expect(messagesResize()).toEqual([])
+  })
+
+  it('verifie la socket a chaque focus, masquage ou non', () => {
+    // La detection de socket morte ne doit PAS suivre la garde du recalage :
+    // Safari coupe la WebSocket en arriere-plan sans toujours delivrer `close`,
+    // et une session figee et muette est bien pire qu'un nudge de trop.
+    renderTerminal()
+    sockets[0].readyState = MockWebSocket.CLOSED
+
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+      vi.advanceTimersByTime(50)
+    })
+
+    expect(sockets).toHaveLength(2)
   })
 
   it('ne recale qu’une fois quand focus et visibilitychange arrivent ensemble', () => {
@@ -943,15 +996,18 @@ describe('FullscreenTerminal — retour sur la session', () => {
     // le recalage existe justement pour eviter.
     renderTerminal()
     act(() => { vi.runAllTimers() })
+    masquer()
     sockets[0].send.mockClear()
 
     act(() => {
+      masquee = false
       document.dispatchEvent(new Event('visibilitychange'))
       window.dispatchEvent(new Event('focus'))
     })
     act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
 
     // La taille fausse puis la vraie, pas quatre messages.
+    expect(messagesResize().length).toBeGreaterThan(0)
     expect(messagesResize().length).toBeLessThanOrEqual(2)
   })
 

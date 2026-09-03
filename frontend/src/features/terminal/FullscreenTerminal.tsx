@@ -636,8 +636,30 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // Retour sur l'onglet : re-mesurer puis forcer un redessin complet. Safari
     // mobile réduit la page en arrière-plan (barre d'adresse, clavier) et les
     // dimensions de caractère mises en cache par xterm ne valent plus rien.
+    //
+    // La page a-t-elle ete masquee depuis le dernier recalage ? C'est la SEULE
+    // raison de nudger au retour, et la garde manquait.
+    //
+    // Un nudge n'est pas gratuit : c'est un aller-retour de taille, donc deux
+    // SIGWINCH — que le noyau ne met pas en file. Quand ils se suivent de trop
+    // pres, tmux n'en voit qu'un, reste cale sur la taille INTERMEDIAIRE alors
+    // que le PTY et xterm sont sur la vraie, et une ligne d'ecart suffit a
+    // decaler tout le redessin (mesure en production le 03/09 : les deux
+    // trames arrivaient a 0 ms d'ecart).
+    //
+    // `focus` part a chaque retour dans la fenetre — un alt-tab, un clic — sur
+    // un ecran qui n'a pas bouge d'un pixel. Le brancher sur le recalage
+    // envoyait ce nudge des dizaines de fois par heure : chaque envoi une
+    // chance de desynchroniser tmux, pour rien. Seul un vrai masquage justifie
+    // le nudge, parce que la, tmux a pu peindre pendant que les geometries
+    // divergeaient.
+    let aEteMasquee = false
+
     const onVisible = () => {
-      if (document.hidden) return
+      if (document.hidden) {
+        aEteMasquee = true
+        return
+      }
       // Safari coupe la WebSocket en mettant la page en arriere-plan, et ne
       // delivre pas toujours le `close` au retour : l'application se croit
       // connectee, l'overlay de reconnexion ne s'affiche pas, et plus rien de
@@ -653,6 +675,9 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         setEpoch((e) => e + 1)
         return
       }
+      // Rien n'a ete masque : rien a repeindre (cf. le drapeau plus haut).
+      if (!aEteMasquee) return
+      aEteMasquee = false
       // Le NUDGE, pas `terminal.refresh()` seul — meme raison qu'au recalage
       // (cf. `planifierAjustement`). Pendant l'absence, tmux a peint alors que
       // sa geometrie et celle de xterm divergeaient : la trame locale EST
@@ -670,8 +695,13 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     window.addEventListener('focus', onVisible)
     // Retour depuis le cache de navigation (bouton « precedent » de Safari) :
     // la page revient telle quelle, sans `visibilitychange`, avec une socket
-    // deja morte.
-    window.addEventListener('pageshow', onVisible)
+    // deja morte. Aucun `visibilitychange` n'a donc pose le drapeau, alors que
+    // l'ecran a bel et bien vecu hors du premier plan : on le pose ici.
+    const onPageShow = () => {
+      aEteMasquee = true
+      onVisible()
+    }
+    window.addEventListener('pageshow', onPageShow)
 
     return () => {
       intentional = true
@@ -681,7 +711,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       vueVisuelle?.removeEventListener('scroll', planifierAjustement)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onVisible)
-      window.removeEventListener('pageshow', onVisible)
+      window.removeEventListener('pageshow', onPageShow)
       termHost?.removeEventListener('mousedown', diagMouse)
       termHost?.removeEventListener('mouseup', diagMouse)
       termHost?.removeEventListener('mousedown', surDebutGlisse)
