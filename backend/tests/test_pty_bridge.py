@@ -141,3 +141,56 @@ def test_set_pty_size_journalise_un_descripteur_invalide(monkeypatch):
 
     assert avertissements[0][0] == "pty_set_size_failed"
     assert avertissements[0][1]["cols"] == 100
+
+
+@pytest.mark.asyncio
+async def test_sonde_client_journalisee_avec_le_resize(monkeypatch):
+    """La sonde voyage sur la trame `resize`, jamais sur une trame a elle.
+
+    Une trame de controle supplementaire fermait la session a chaque ouverture
+    du clavier mobile (03/09). Les champs sont donc optionnels et embarques :
+    un client plus ancien ne les envoie pas, le pont journalise sans eux.
+    """
+    infos: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        "portal.sessions.pty_bridge._log",
+        type(
+            "L",
+            (),
+            {
+                "warning": lambda _self, evt, **kw: None,
+                "info": lambda _self, evt, **kw: infos.append((evt, kw)),
+            },
+        )(),
+    )
+    monkeypatch.setattr("portal.sessions.pty_bridge.set_pty_size", lambda *a: None)
+
+    ws = _FakeWebSocket(
+        [
+            {
+                "type": "websocket.receive",
+                "text": json.dumps(
+                    {"type": "resize", "cols": 54, "rows": 28, "haut": 900, "vv": 420, "octets": 17}
+                ),
+            },
+            # Client sans la sonde : la trame reste valide, on journalise sans.
+            {
+                "type": "websocket.receive",
+                "text": json.dumps({"type": "resize", "cols": 54, "rows": 49}),
+            },
+        ]
+    )
+    await run_pty_bridge(
+        ws,  # type: ignore[arg-type]
+        ["sleep", "5"],
+        {"TERM": "xterm", "PATH": "/usr/bin:/bin"},
+        _FakeTerminal(),  # type: ignore[arg-type]
+        log_label="test",
+        initial_size=(80, 24),
+    )
+
+    appliques = [kw for evt, kw in infos if evt == "test_resize_applied"]
+    assert appliques == [
+        {"cols": 54, "rows": 28, "haut": 900, "vv": 420, "octets": 17},
+        {"cols": 54, "rows": 49},
+    ]

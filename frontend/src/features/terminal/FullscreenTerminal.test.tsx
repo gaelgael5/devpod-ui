@@ -1249,6 +1249,31 @@ describe('FullscreenTerminal — rafraichir l’affichage', () => {
     expect(envoyes.at(-1)!.rows).toBe(terminals[0].rows)
   })
 
+  it('embarque la sonde sur la trame de taille, sans trame supplementaire', () => {
+    // La sonde voyage sur un message qui EXISTE deja : une trame de controle a
+    // elle fermait la session a chaque ouverture du clavier mobile (03/09).
+    // `haut` (conteneur) contre `vv` (viewport visible) doit permettre de voir
+    // si xterm calcule des lignes que l'utilisateur ne voit pas.
+    renderTerminal()
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+    sockets[0].send.mockClear()
+
+    rafraichir()
+    act(() => vi.advanceTimersByTime(50))
+
+    const envoyes = resizesEnvoyes() as unknown as Array<Record<string, number>>
+    expect(envoyes.length).toBeGreaterThan(0)
+    // 300 : la hauteur stubee du conteneur (cf. beforeEach).
+    expect(envoyes.at(-1)!.haut).toBe(300)
+    expect(envoyes.at(-1)!).toHaveProperty('octets')
+    // Aucune trame qui ne soit pas un `resize` : c'est tout l'interet.
+    const types = sockets[0].send.mock.calls
+      .map((c) => c[0])
+      .filter((d): d is string => typeof d === 'string')
+      .map((d) => (JSON.parse(d) as { type: string }).type)
+    expect(new Set(types)).toEqual(new Set(['resize']))
+  })
+
   it('redessine le terminal', () => {
     renderTerminal()
     act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))

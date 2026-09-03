@@ -116,6 +116,25 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // qui n'existe pas et tout est décalé. Le contenu étant alors mal reflowé,
     // les URL coupées par le retour à la ligne deviennent illisibles pour la
     // détection de liens — mêmes causes, deux symptômes (signalés le 20/08).
+    // Derniere mesure prise au `fit`, embarquee sur la prochaine trame `resize`.
+    //
+    // La sonde voyage sur un message qui EXISTE deja. Une trame de controle
+    // supplementaire avait ferme la session a chaque ouverture du clavier
+    // (03/09) : on ne rajoute plus rien sur ce canal. Un backend en retard d'un
+    // deploiement ignore simplement ces champs.
+    //
+    // `haut` (le conteneur) contre `vv` (le viewport visible) : si le conteneur
+    // depasse, xterm calcule des lignes qui existent pour lui mais que
+    // l'utilisateur ne voit pas — tmux y ecrit, les croit affichees, ne les
+    // repeint plus. C'est ce qui decale la saisie d'une a deux lignes a
+    // l'ouverture du clavier.
+    //
+    // `octets` : ce que xterm n'a pas encore analyse. Redimensionner file non
+    // vide fait interpreter contre la NOUVELLE geometrie des octets emis pour
+    // l'ancienne.
+    let mesure: { haut: number; vv: number; octets: number } | null = null
+    let octetsEnAttente = 0
+
     const safeFit = () => {
       const el = termRef.current
       if (!el || document.hidden) return
@@ -123,6 +142,11 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       if (width < 2 || height < 2) return
       try {
         fitAddon.fit()
+        mesure = {
+          haut: Math.round(height),
+          vv: Math.round(window.visualViewport?.height ?? 0),
+          octets: octetsEnAttente,
+        }
       } catch (err) {
         console.warn('[terminal] fit ignoré', err)
       }
@@ -261,7 +285,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
 
     const sendResize = (cols: number, rows: number) => {
       if (resize && ws.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+        ws.send(JSON.stringify({ type: 'resize', cols, rows, ...(mesure ?? {}) }))
     }
     ws.onopen = () => sendResize(terminal.cols, terminal.rows)
 
@@ -543,7 +567,12 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     ws.onmessage = (e) => {
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
       links.push(typeof data === 'string' ? data : decoder.decode(data, { stream: true }))
-      terminal.write(data)
+      // `write` est ASYNCHRONE : xterm met en file et analyse plus tard. Le
+      // rappel de vidage donne ce qui reste a analyser — c'est `octets`.
+      octetsEnAttente += data.length
+      terminal.write(data, () => {
+        octetsEnAttente = Math.max(0, octetsEnAttente - data.length)
+      })
     }
     ws.onclose = () => {
       terminal.write(tRef.current('admin.sshTerminal.connClosed'))

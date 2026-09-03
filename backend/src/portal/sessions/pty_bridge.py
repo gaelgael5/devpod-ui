@@ -151,7 +151,14 @@ async def run_pty_bridge(
         _pty_resize(cols, rows)
         if controls < 20:
             controls += 1
-            _log.info(f"{log_label}_resize_applied", cols=cols, rows=rows)
+            # Sonde client embarquee sur la trame, jamais sur une trame a elle :
+            # une trame de controle supplementaire fermait la session a chaque
+            # ouverture du clavier mobile (03/09). Champs absents = client plus
+            # ancien, ou mesure pas encore prise.
+            sonde = {
+                cle: msg[cle] for cle in ("haut", "vv", "octets") if isinstance(msg.get(cle), int)
+            }
+            _log.info(f"{log_label}_resize_applied", cols=cols, rows=rows, **sonde)
 
     async def _ws_to_pty() -> None:
         try:
