@@ -141,3 +141,54 @@ def test_set_pty_size_journalise_un_descripteur_invalide(monkeypatch):
 
     assert avertissements[0][0] == "pty_set_size_failed"
     assert avertissements[0][1]["cols"] == 100
+
+
+@pytest.mark.asyncio
+async def test_trame_diag_journalisee_sans_toucher_au_pty(monkeypatch):
+    """La sonde du navigateur remonte aux logs — c'est son seul débouché.
+
+    Sur mobile la console est hors d'atteinte : sans ce chemin, le diagnostic
+    client ne se lit nulle part. Une trame `diag` se journalise donc en `info`,
+    ne compte pas comme trame inconnue, et ne redimensionne rien.
+    """
+    infos: list[tuple[str, dict]] = []
+    avertissements: list[str] = []
+    monkeypatch.setattr(
+        "portal.sessions.pty_bridge._log",
+        type(
+            "L",
+            (),
+            {
+                "warning": lambda _self, evt, **kw: avertissements.append(evt),
+                "info": lambda _self, evt, **kw: infos.append((evt, kw)),
+            },
+        )(),
+    )
+    tailles: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "portal.sessions.pty_bridge.set_pty_size",
+        lambda fd, cols, rows: tailles.append((cols, rows)),
+    )
+
+    ws = _FakeWebSocket(
+        [
+            {
+                "type": "websocket.receive",
+                "text": json.dumps({"type": "diag", "event": "fit", "detail": "haut=900 vv=420"}),
+            },
+        ]
+    )
+    await run_pty_bridge(
+        ws,  # type: ignore[arg-type]
+        ["sleep", "5"],
+        {"TERM": "xterm", "PATH": "/usr/bin:/bin"},
+        _FakeTerminal(),  # type: ignore[arg-type]
+        log_label="test",
+        initial_size=(80, 24),
+    )
+
+    assert avertissements == []
+    diags = [kw for evt, kw in infos if evt == "test_client_diag"]
+    assert diags == [{"event": "fit", "detail": "haut=900 vv=420"}]
+    # Seule la taille d'ouverture : une trame `diag` ne redimensionne rien.
+    assert tailles == [(80, 24)]

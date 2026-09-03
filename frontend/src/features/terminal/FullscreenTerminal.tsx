@@ -116,13 +116,43 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // qui n'existe pas et tout est décalé. Le contenu étant alors mal reflowé,
     // les URL coupées par le retour à la ligne deviennent illisibles pour la
     // détection de liens — mêmes causes, deux symptômes (signalés le 20/08).
+    // Octets remis a xterm et pas encore analyses (cf. le rappel de `write`).
+    let enAttente = 0
+    // Remontee de diagnostic par le canal de controle deja en place. Sur mobile
+    // la console du navigateur est hors d'atteinte : sans ce chemin, la sonde
+    // ne se lit nulle part. Bornee comme son homologue serveur.
+    let diagsEnvoyes = 0
+    const sendDiag = (event: string, detail: string) => {
+      const socket = wsRef.current
+      if (!resize || diagsEnvoyes >= 40 || socket?.readyState !== WebSocket.OPEN) return
+      diagsEnvoyes++
+      socket.send(JSON.stringify({ type: 'diag', event, detail }))
+    }
+
     const safeFit = () => {
       const el = termRef.current
       if (!el || document.hidden) return
       const { width, height } = el.getBoundingClientRect()
       if (width < 2 || height < 2) return
+      const avant = terminal.rows
       try {
         fitAddon.fit()
+        // SONDE. Deux mesures, deux questions.
+        //
+        // `haut` (le conteneur) contre `vv` (le viewport visible) : si le
+        // conteneur est plus grand, xterm calcule des lignes qui existent pour
+        // lui mais que l'utilisateur ne voit pas — tmux y ecrit, les croit
+        // affichees, et ne les repeint plus. C'est ce qui decale la saisie
+        // d'une ou deux lignes a l'ouverture du clavier.
+        //
+        // `octets` : redimensionner file non vide fait analyser contre la
+        // NOUVELLE geometrie des octets emis pour l'ancienne.
+        const vv = window.visualViewport
+        sendDiag(
+          'fit',
+          `haut=${Math.round(height)} vv=${vv ? Math.round(vv.height) : '-'}` +
+            ` rows=${avant}->${terminal.rows} cols=${terminal.cols} octets=${enAttente}`,
+        )
       } catch (err) {
         console.warn('[terminal] fit ignoré', err)
       }
@@ -543,7 +573,13 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     ws.onmessage = (e) => {
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
       links.push(typeof data === 'string' ? data : decoder.decode(data, { stream: true }))
-      terminal.write(data)
+      // `write` est ASYNCHRONE : xterm met en file et analyse plus tard. Le
+      // rappel de vidage nous dit ce qui reste a analyser — c'est la mesure
+      // dont depend la sonde de `safeFit`.
+      enAttente += data.length
+      terminal.write(data, () => {
+        enAttente = Math.max(0, enAttente - data.length)
+      })
     }
     ws.onclose = () => {
       terminal.write(tRef.current('admin.sshTerminal.connClosed'))
