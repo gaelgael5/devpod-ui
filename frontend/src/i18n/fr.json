@@ -218,7 +218,9 @@
         "previous": "Précédent",
         "next": "Suivant",
         "close": "Fermer la recherche"
-      }
+      },
+      "takenOver": "Session reprise sur un autre appareil. Un seul écran à la fois : reprendre la main ici déconnectera l'autre.",
+      "takeBack": "Reprendre la main"
     },
     "initializers": {
       "button": "Initialiser",

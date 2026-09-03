@@ -218,9 +218,17 @@ async def run_pty_bridge(
             t.cancel()
 
     registry.register(live_term, closer=_closer)
+    # Un seul ecran a la fois. Deux clients tmux sur une meme session font caler
+    # la fenetre sur le dernier actif : l'autre recoit des cellules calculees
+    # pour une geometrie qui n'est pas la sienne. Le nouveau venu prend la main.
+    evinces = registry.evict_others(live_term)
+    if evinces:
+        _log.info(f"{log_label}_evicted_others", count=evinces)
     try:
         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:
+        # Lu AVANT `unregister`, qui efface le motif.
+        evince = registry.was_evicted(live_term.id)
         registry.unregister(live_term.id)
         for t in tasks:
             t.cancel()
@@ -230,6 +238,11 @@ async def run_pty_bridge(
         with contextlib.suppress(OSError):
             os.close(master_fd)
         with contextlib.suppress(Exception):
-            await websocket.close()
+            # 4409 : le navigateur distingue « repris ailleurs » d'une coupure
+            # reseau, et propose de reprendre la main plutot qu'un message muet.
+            if evince:
+                await websocket.close(code=4409, reason="Session reprise sur un autre appareil")
+            else:
+                await websocket.close()
 
     return proc.returncode

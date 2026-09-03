@@ -42,8 +42,10 @@ class _FakeWebSocket:
     async def send_bytes(self, data: bytes) -> None:
         self.sent.append(data)
 
-    async def close(self) -> None:
-        return None
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        # Enregistre le motif : le pont doit fermer avec un code parlant quand
+        # la session est reprise sur un autre appareil.
+        self.closed: tuple[int, str] = (code, reason)
 
 
 class _FakeTerminal:

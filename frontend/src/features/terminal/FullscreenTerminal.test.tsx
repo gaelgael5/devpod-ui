@@ -2,7 +2,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { I18nextProvider } from 'react-i18next'
 import i18n from '@/i18n'
-import FullscreenTerminal, { AJUSTEMENT_MS } from './FullscreenTerminal'
+import FullscreenTerminal, { AJUSTEMENT_MS, CODE_REPRISE_AILLEURS } from './FullscreenTerminal'
 import { ENTER_COPY, EXIT_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScroll'
 
 // Mock xterm : capture l'instance pour déclencher onSelectionChange depuis les
@@ -210,7 +210,7 @@ class MockWebSocket {
   close = vi.fn()
   onopen: (() => void) | null = null
   onmessage: ((e: unknown) => void) | null = null
-  onclose: (() => void) | null = null
+  onclose: ((ev: { code: number }) => void) | null = null
   onerror: (() => void) | null = null
 
   constructor(url?: string) {
@@ -882,6 +882,30 @@ describe('FullscreenTerminal — retour sur la session', () => {
     })
 
     expect(sockets).toHaveLength(2)
+  })
+
+  it('annonce une reprise sur un autre appareil, pas une coupure reseau', () => {
+    // Un seul ecran a la fois : le second evince le premier, et le pont ferme
+    // avec 4409. Sans ce message, l'utilisateur voit son ecran s'arreter sans
+    // aucun moyen de comprendre pourquoi.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+
+    act(() => sockets[0].onclose?.({ code: CODE_REPRISE_AILLEURS }))
+
+    expect(screen.getByText(/autre appareil|another device/i)).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /reprendre la main|take back/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('garde le message de coupure sur une fermeture ordinaire', () => {
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+
+    act(() => sockets[0].onclose?.({ code: 1006 }))
+
+    expect(screen.getByText(/déconnectée|disconnected/i)).toBeInTheDocument()
   })
 
   it('ne reconnecte pas une socket vivante', () => {

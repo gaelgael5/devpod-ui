@@ -83,9 +83,7 @@ def test_live_terminal_is_frozen() -> None:
 
 def test_close_matching_invokes_closer_and_counts() -> None:
     called: list[str] = []
-    registry.register(
-        _term("a", "alice", "test", "node-vm"), closer=lambda: called.append("a")
-    )
+    registry.register(_term("a", "alice", "test", "node-vm"), closer=lambda: called.append("a"))
     n = registry.close_matching(family="test", target="node-vm", session=None, owner="alice")
     assert n == 1
     assert called == ["a"]
@@ -121,3 +119,56 @@ def test_close_matching_terminal_without_closer_not_counted() -> None:
     registry.register(_term("a", "alice", "host", "node1"))  # pas de closer
     n = registry.close_matching(family="host", target="node1", session=None, owner=None)
     assert n == 0
+
+
+def test_evict_others_ferme_le_terminal_precedent() -> None:
+    """Un seul écran à la fois : le nouveau venu évince le précédent."""
+    ferme: list[str] = []
+    ancien = _term("a", "alice", "workspace", "alice-ws", "main")
+    registry.register(ancien, closer=lambda: ferme.append("a"))
+    nouveau = _term("b", "alice", "workspace", "alice-ws", "main")
+    registry.register(nouveau, closer=lambda: ferme.append("b"))
+
+    n = registry.evict_others(nouveau)
+
+    assert n == 1
+    assert ferme == ["a"]
+    # Le motif est lisible par le pont, qui ferme alors avec un code parlant.
+    assert registry.was_evicted("a") is True
+    assert registry.was_evicted("b") is False
+
+
+def test_evict_others_epargne_les_autres_sessions_et_proprietaires() -> None:
+    """L'éviction est bornée à (family, target, session, owner)."""
+    ferme: list[str] = []
+    registry.register(
+        _term("autre-session", "alice", "workspace", "alice-ws", "build"),
+        closer=lambda: ferme.append("autre-session"),
+    )
+    registry.register(
+        _term("autre-owner", "bob", "workspace", "alice-ws", "main"),
+        closer=lambda: ferme.append("autre-owner"),
+    )
+    registry.register(
+        _term("autre-cible", "alice", "workspace", "autre-ws", "main"),
+        closer=lambda: ferme.append("autre-cible"),
+    )
+    nouveau = _term("b", "alice", "workspace", "alice-ws", "main")
+    registry.register(nouveau, closer=lambda: ferme.append("b"))
+
+    assert registry.evict_others(nouveau) == 0
+    assert ferme == []
+
+
+def test_unregister_oublie_le_motif_d_eviction() -> None:
+    """Sans cet oubli, un id recyclé hériterait du motif du précédent."""
+    ancien = _term("a", "alice", "workspace", "alice-ws", "main")
+    registry.register(ancien, closer=lambda: None)
+    nouveau = _term("b", "alice", "workspace", "alice-ws", "main")
+    registry.register(nouveau, closer=lambda: None)
+    registry.evict_others(nouveau)
+    assert registry.was_evicted("a") is True
+
+    registry.unregister("a")
+
+    assert registry.was_evicted("a") is False

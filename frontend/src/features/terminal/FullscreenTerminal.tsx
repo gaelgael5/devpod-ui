@@ -46,6 +46,9 @@ interface Props {
  * court pour que le terminal ne reste pas visiblement mal dimensionne.
  */
 export const AJUSTEMENT_MS = 150
+// Code de fermeture applicatif : la session a ete reprise sur un autre
+// appareil. Cote pont, `pty_bridge.run_pty_bridge`.
+export const CODE_REPRISE_AILLEURS = 4409
 
 export default function FullscreenTerminal({ wsPath, title, resize = true }: Props) {
   const { t } = useTranslation()
@@ -66,6 +69,11 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null)
   const [disconnected, setDisconnected] = useState(false)
+  // Fermeture 4409 : la session a ete reprise sur un autre appareil. Distingue
+  // d'une coupure reseau, sinon l'utilisateur n'a aucun moyen de comprendre
+  // pourquoi son ecran s'est arrete — et il en va de la lisibilite du choix
+  // « un seul ecran a la fois ».
+  const [repriseAilleurs, setRepriseAilleurs] = useState(false)
   const [epoch, setEpoch] = useState(0)
   const tRef = useRef(t)
   useLayoutEffect(() => {
@@ -574,8 +582,9 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         octetsEnAttente = Math.max(0, octetsEnAttente - data.length)
       })
     }
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       terminal.write(tRef.current('admin.sshTerminal.connClosed'))
+      if (ev.code === CODE_REPRISE_AILLEURS) setRepriseAilleurs(true)
       if (!intentional) setDisconnected(true)
     }
     ws.onerror = () => terminal.write(tRef.current('admin.sshTerminal.connError'))
@@ -805,14 +814,24 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         />
         {disconnected && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 backdrop-blur-sm">
-            <p className="text-sm text-white/80">{t('workspaces.terminals.disconnected')}</p>
+            <p className="max-w-sm px-4 text-center text-sm text-white/80">
+              {repriseAilleurs
+                ? t('workspaces.terminals.takenOver')
+                : t('workspaces.terminals.disconnected')}
+            </p>
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => { setDisconnected(false); setEpoch((e) => e + 1) }}
+              onClick={() => {
+                setDisconnected(false)
+                setRepriseAilleurs(false)
+                setEpoch((e) => e + 1)
+              }}
             >
               <RotateCw className="mr-1 h-3.5 w-3.5" />
-              {t('workspaces.terminals.reconnect')}
+              {repriseAilleurs
+                ? t('workspaces.terminals.takeBack')
+                : t('workspaces.terminals.reconnect')}
             </Button>
           </div>
         )}

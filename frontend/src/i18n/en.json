@@ -218,7 +218,9 @@
         "previous": "Previous",
         "next": "Next",
         "close": "Close search"
-      }
+      },
+      "takenOver": "Session taken over on another device. One screen at a time: taking it back here will disconnect the other.",
+      "takeBack": "Take back"
     },
     "initializers": {
       "button": "Initialize",
