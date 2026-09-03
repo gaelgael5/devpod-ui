@@ -605,10 +605,18 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         setEpoch((e) => e + 1)
         return
       }
-      requestAnimationFrame(() => {
-        safeFit()
-        terminal.refresh(0, terminal.rows - 1)
-      })
+      // Le NUDGE, pas `terminal.refresh()` seul — meme raison qu'au recalage
+      // (cf. `planifierAjustement`). Pendant l'absence, tmux a peint alors que
+      // sa geometrie et celle de xterm divergeaient : la trame locale EST
+      // fausse, la redessiner la reproduit a l'identique. Residus de deux
+      // caracteres en colonne 0, rangees sautees — et rien ne repare tant
+      // qu'aucun changement de taille ne repart, ce qui donnait l'illusion que
+      // seul un redimensionnement manuel remettait l'ecran d'aplomb.
+      //
+      // Par le debounce, et non en direct : `focus` et `visibilitychange`
+      // partent ensemble pour un seul retour (cf. plus haut), et deux nudges
+      // coup sur coup, c'est la rafale de SIGWINCH qu'on cherche a eviter.
+      planifierAjustement()
     }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)

@@ -892,6 +892,45 @@ describe('FullscreenTerminal — retour sur la session', () => {
     expect(sockets).toHaveLength(1)
   })
 
+  function messagesResize() {
+    return sockets[0].send.mock.calls
+      .map((appel) => String(appel[0]))
+      .filter((message) => message.includes('"type":"resize"'))
+  }
+
+  it('fait REPEINDRE tmux au retour, pas seulement le tampon local', () => {
+    // Le defaut vu en production : on revient sur l'onglet et l'ecran reste
+    // casse — residus en colonne 0, rangees sautees. `terminal.refresh()` seul
+    // redessine a l'identique la trame que tmux a ecrite pendant que les tailles
+    // divergeaient. Seul l'aller-retour de taille fait repeindre tmux.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    revenir()
+    act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
+
+    expect(messagesResize().length).toBeGreaterThan(0)
+  })
+
+  it('ne recale qu’une fois quand focus et visibilitychange arrivent ensemble', () => {
+    // Les deux evenements partent pour un seul retour au premier plan. Sans
+    // debounce, c'est deux allers-retours de taille — la rafale de SIGWINCH que
+    // le recalage existe justement pour eviter.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      window.dispatchEvent(new Event('focus'))
+    })
+    act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
+
+    // La taille fausse puis la vraie, pas quatre messages.
+    expect(messagesResize().length).toBeLessThanOrEqual(2)
+  })
+
   it('ne reconnecte pas une socket en cours d’ouverture', () => {
     // `focus` et `visibilitychange` arrivent ensemble : remonter ici bouclerait.
     renderTerminal()
