@@ -47,11 +47,6 @@ def _attach_controlling_tty() -> None:
         fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
 
-# Une anomalie se voit sur les premieres occurrences ; au-dela on ne fait que
-# remplir Loki avec la meme ligne.
-MAX_DIAGS = 40
-
-
 def requested_size(cols: int | None, rows: int | None) -> tuple[int, int] | None:
     """Taille demandée par le client, bornée. `None` si non fournie.
 
@@ -129,10 +124,6 @@ async def run_pty_bridge(
     # Bornée comme les autres sondes : un glissé de fenêtre produit une rafale,
     # et l'intérêt est de savoir SI les trames arrivent, pas de les compter toutes.
     controls = 0
-    # Sonde client, bornée pour la même raison : le navigateur en émet une par
-    # anomalie observée, et sur mobile la console est hors d'atteinte — c'est le
-    # seul chemin qui remonte le diagnostic jusqu'aux logs du portail.
-    diags = 0
 
     def _handle_control(payload: str) -> None:
         """Traite une trame texte (message de contrôle). Aucun échec silencieux.
@@ -142,20 +133,11 @@ async def run_pty_bridge(
         appliquée » — les deux étaient indiscernables tant que tout le bloc
         était sous `suppress(Exception)`.
         """
-        nonlocal controls, diags
+        nonlocal controls
         try:
             msg = json.loads(payload)
         except ValueError:
             _log.warning(f"{log_label}_control_invalid_json", size=len(payload))
-            return
-        if isinstance(msg, dict) and msg.get("type") == "diag":
-            if diags < MAX_DIAGS:
-                diags += 1
-                _log.info(
-                    f"{log_label}_client_diag",
-                    event=str(msg.get("event", ""))[:60],
-                    detail=str(msg.get("detail", ""))[:200],
-                )
             return
         if not isinstance(msg, dict) or msg.get("type") != "resize":
             _log.warning(f"{log_label}_control_unknown", payload=payload[:120])
