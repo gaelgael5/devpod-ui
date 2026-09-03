@@ -1226,6 +1226,29 @@ describe('FullscreenTerminal — rafraichir l’affichage', () => {
     expect(envoyes[1].rows).toBe(terminals[0].rows)
   })
 
+  it('envoie la taille COURANTE, pas celle capturee avant la frame', () => {
+    // La vraie taille part une frame apres la fausse. Si xterm se recale dans
+    // cet intervalle — police chargee, barre de touches, chrome mobile — la
+    // valeur capturee est perimee, et c'est elle qui arrive en DERNIER : le PTY
+    // reste sur l'ancienne geometrie pendant que xterm est sur la nouvelle.
+    //
+    // Une ligne d'ecart suffit. tmux n'emet alors que les cellules qu'il croit
+    // modifiees, en se fiant a un modele faux : le texte s'entrelace caractere
+    // par caractere des que l'ecran defile. Observe en production le 03/09,
+    // PTY a 65 lignes contre 64 pour xterm.
+    renderTerminal()
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+    sockets[0].send.mockClear()
+
+    rafraichir()
+    // Entre la fausse taille et la vraie, le terminal bouge.
+    terminals[0].rows = FITTED_ROWS + 5
+    act(() => vi.advanceTimersByTime(50))
+
+    const envoyes = resizesEnvoyes()
+    expect(envoyes.at(-1)!.rows).toBe(terminals[0].rows)
+  })
+
   it('redessine le terminal', () => {
     renderTerminal()
     act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))

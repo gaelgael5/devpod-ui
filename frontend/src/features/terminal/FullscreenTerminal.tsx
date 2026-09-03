@@ -281,10 +281,20 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
      */
     refreshRef.current = () => {
       safeFit()
-      const { cols, rows } = terminal
-      sendResize(cols, Math.max(1, rows - 1))
+      sendResize(terminal.cols, Math.max(1, terminal.rows - 1))
       requestAnimationFrame(() => {
-        sendResize(cols, rows)
+        // Taille RELUE, jamais celle capturee avant la frame. xterm peut s'etre
+        // recale dans l'intervalle — police chargee, barre de touches, chrome
+        // mobile — et c'est ce message qui arrive en DERNIER : envoyer la
+        // valeur perimee laisse le PTY sur l'ancienne geometrie alors que xterm
+        // est deja sur la nouvelle.
+        //
+        // Une ligne d'ecart suffit a tout casser. tmux n'emet que les cellules
+        // qu'il croit modifiees, en se fiant a un modele de l'ecran devenu
+        // faux : le texte s'entrelace caractere par caractere des que l'ecran
+        // defile. Vu en production le 03/09, PTY a 65 lignes contre 64 pour
+        // xterm.
+        sendResize(terminal.cols, terminal.rows)
         terminal.refresh(0, terminal.rows - 1)
       })
     }
