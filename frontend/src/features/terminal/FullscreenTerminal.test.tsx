@@ -214,6 +214,26 @@ vi.mock('@xterm/addon-web-links', () => ({
   }),
 }))
 
+// Renderer WebGL. On capture l'instance pour verifier le chargement et declencher
+// la perte de contexte depuis les tests. Le vrai addon exige un contexte WebGL,
+// absent de jsdom : sans mock, sa construction leverait.
+const webglInstances: Array<{ onContextLoss: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; lossCb: (() => void) | null }> = []
+let webglShouldThrow = false
+vi.mock('@xterm/addon-webgl', () => ({
+  WebglAddon: vi.fn(function (this: Record<string, unknown>) {
+    if (webglShouldThrow) throw new Error('WebGL indisponible')
+    const inst = this as unknown as (typeof webglInstances)[number]
+    inst.lossCb = null
+    inst.onContextLoss = vi.fn((cb: () => void) => {
+      inst.lossCb = cb
+      return { dispose: vi.fn() }
+    })
+    inst.dispose = vi.fn()
+    ;(this as Record<string, unknown>).activate = vi.fn()
+    webglInstances.push(inst)
+  }),
+}))
+
 const sockets: MockWebSocket[] = []
 
 class MockWebSocket {
@@ -256,6 +276,8 @@ beforeEach(() => {
   })
   terminals.length = 0
   fitAddons.length = 0
+  webglInstances.length = 0
+  webglShouldThrow = false
   sockets.length = 0
   linkHandler = null
   writeText.mockClear()
@@ -360,6 +382,35 @@ describe('FullscreenTerminal — copy-on-select', () => {
     writeText.mockClear()
     fireEvent.click(screen.getByRole('button', { name: /copier|copy/i }))
     expect(writeText).toHaveBeenCalledWith('texte choisi')
+  })
+})
+
+describe('FullscreenTerminal — renderer WebGL', () => {
+  it('charge le renderer WebGL quand il est disponible', () => {
+    // Le renderer DOM par defaut laisse des residus au scroll (decalage de
+    // lignes, 04/09). WebGL a un modele de rendu distinct qui ne les accumule pas.
+    renderTerminal()
+    expect(webglInstances.length).toBe(1)
+    // Charge sur le terminal (loadAddon appele avec l'instance webgl).
+    const loaded = terminals[0].loadAddon.mock.calls.some((c) => webglInstances.includes(c[0]))
+    expect(loaded).toBe(true)
+  })
+
+  it('retombe sur le DOM si WebGL echoue, sans casser le terminal', () => {
+    webglShouldThrow = true
+    // Ne jette pas : le terminal s'ouvre quand meme (renderer DOM).
+    expect(() => renderTerminal()).not.toThrow()
+    expect(terminals[0].open).toHaveBeenCalled()
+  })
+
+  it('retombe sur le DOM a la perte de contexte WebGL', () => {
+    // Un contexte WebGL peut etre perdu (veille, pression GPU) : sans repli, le
+    // terminal se fige en noir. On dispose l'addon, xterm reprend le rendu DOM.
+    renderTerminal()
+    const webgl = webglInstances[0]
+    expect(webgl.lossCb).toBeTruthy()
+    webgl.lossCb!()
+    expect(webgl.dispose).toHaveBeenCalled()
   })
 })
 

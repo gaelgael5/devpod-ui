@@ -7,6 +7,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import { UnicodeGraphemesAddon } from '@xterm/addon-unicode-graphemes'
+import { WebglAddon } from '@xterm/addon-webgl'
 import { Button } from '@/components/ui/button'
 import TerminalKeybar from '@/features/workspaces/TerminalKeybar'
 import { openTerminalLink } from './openTerminalLink'
@@ -256,6 +257,27 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
 
     if (termRef.current) {
       terminal.open(termRef.current)
+      // Renderer WebGL — chargé APRÈS open() (il s'accroche à l'élément rendu).
+      //
+      // Le renderer DOM par défaut laissait des résidus au scroll : dans
+      // l'interaction avec le protocole de diff de tmux, des lignes se
+      // décalaient à gauche et d'anciennes cellules subsistaient en colonne 0
+      // (04/09). Ni la géométrie ni la largeur des caractères n'étaient en
+      // cause (tmux et xterm concordent) — c'est le chemin de rendu DOM. WebGL
+      // a un modèle distinct qui n'accumule pas ces fossiles.
+      //
+      // Repli DOM garanti : `loadOptional` avale l'échec de construction (pas
+      // de WebGL disponible), et `onContextLoss` dispose l'addon si le contexte
+      // est perdu (onglet en veille, pression GPU) — sans quoi le terminal se
+      // figerait en noir. xterm reprend alors le rendu DOM tout seul.
+      loadOptional('webgl', () => {
+        const webgl = new WebglAddon()
+        webgl.onContextLoss(() => {
+          console.warn('[terminal] contexte WebGL perdu, repli DOM')
+          webgl.dispose()
+        })
+        return webgl
+      })
       // Le bouton « clavier » bascule : il lui faut l'etat courant de la saisie.
       input = terminal.textarea ?? null
       inputRef.current = input
