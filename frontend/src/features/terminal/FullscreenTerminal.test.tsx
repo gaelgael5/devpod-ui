@@ -677,7 +677,7 @@ describe('FullscreenTerminal — re-rendu apres la sortie de l\u2019agent', () =
     act(() => { vi.runAllTimers() })
     sockets[0].send.mockClear()
 
-    act(() => { sockets[0].onmessage?.({ data: 'du texte qui defile' }) })
+    act(() => { sockets[0].onmessage?.({ data: 'du texte qui defile\n' }) })
     act(() => { terminals[0].draine() })
     expect(redrawsEnvoyes()).toHaveLength(0)  // throttle : pas immediat
 
@@ -686,13 +686,28 @@ describe('FullscreenTerminal — re-rendu apres la sortie de l\u2019agent', () =
     expect(redrawsEnvoyes().length).toBeGreaterThan(0)
   })
 
+  it('ne declenche AUCUN refresh sur une trame sans saut de ligne', () => {
+    // Curseur qui clignote, spinner, statut redessine en place : pas de ligne,
+    // donc pas de refresh-client (sinon scintillement du curseur du bas).
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    act(() => { sockets[0].onmessage?.({ data: '\x1b[5;10H' }) })  // deplacement curseur, pas de \n
+    act(() => { terminals[0].draine() })
+    act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
+    act(() => { terminals[0].draine() })
+
+    expect(redrawsEnvoyes()).toHaveLength(0)
+  })
+
   it('ne declenche qu\u2019un refresh pour une salve continue', () => {
     renderTerminal()
     act(() => { vi.runAllTimers() })
     sockets[0].send.mockClear()
 
     act(() => {
-      for (let i = 0; i < 5; i++) sockets[0].onmessage?.({ data: 'trame' })
+      for (let i = 0; i < 5; i++) sockets[0].onmessage?.({ data: 'trame\n' })
     })
     act(() => { terminals[0].draine() })
     act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })

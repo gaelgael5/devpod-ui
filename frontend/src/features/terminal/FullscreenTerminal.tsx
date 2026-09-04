@@ -622,13 +622,19 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     ws.onmessage = (e) => {
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
       links.push(typeof data === 'string' ? data : decoder.decode(data, { stream: true }))
+      // Le re-rendu (refresh-client) n'a de sens qu'a l'arrivee d'une LIGNE :
+      // c'est le defilement qui laisse des residus. Les trames sans saut de
+      // ligne — curseur qui clignote, spinner, barre de statut redessinee en
+      // place — ne doivent rien declencher, sinon chaque refresh-client renvoie
+      // tout l'ecran pour rien et fait scintiller le curseur du bas.
+      const aUneLigne = typeof data === 'string' ? data.includes('\n') : data.includes(0x0a)
       // `write` est ASYNCHRONE : xterm met en file et analyse plus tard. Le
       // rappel de vidage alimente la file (sonde `octets`) ET declenche le
       // re-rendu — APRES l'analyse, quand le buffer est a jour, pas au jugé.
       file.arrive(data.length)
       terminal.write(data, () => {
         file.analyse(data.length)
-        forcerReRendu()
+        if (aUneLigne) forcerReRendu()
       })
     }
     ws.onclose = (ev) => {
