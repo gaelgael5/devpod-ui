@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..billing.canal import SignatureInvalide
 from ..billing.canaux import CANAUX
+from ..billing.declencheur import lancer_provisioning
 from ..billing.models import PaymentProvider
 from ..billing.subscriptions import (
     Subscription,
@@ -142,6 +143,7 @@ async def recevoir(
 
     await enregistrer_etat(maj, conn)
     await _couper_si_sans_reconduction(maj, evenement, provider, conn)
+    await _provisionner_si_du(maj, evenement, conn)
     log.info(
         "webhook_applique",
         provider=provider_slug,
@@ -184,6 +186,43 @@ async def _resoudre(
         if trouve is not None:
             return trouve
     return await par_identifiant_fournisseur(reference or "", conn)
+
+
+async def _provisionner_si_du(
+    abonnement: Subscription, evenement: SubscriptionEvent, conn: AsyncConnection
+) -> None:
+    """Déclenche le provisioning quand l'événement ouvre (ou confirme) l'accès.
+
+    En TÂCHE DE FOND : monter une VM prend des minutes, et le fournisseur
+    rejoue sur timeout. La réponse du webhook n'attend pas l'issue — le
+    registre du provisioning la porte, listable et rejouable.
+
+    `debut_essai` ET `activation` déclenchent, et c'est l'orchestrateur qui
+    garantit qu'un abonnement déjà servi ne reçoit pas de seconde machine.
+    L'offre est relue ici : c'est elle qui dit le type d'hébergement et les
+    profils de host — le webhook n'en sait rien.
+    """
+    if evenement.kind not in {"debut_essai", "activation"}:
+        return
+    offre = await get_offer(abonnement.offer_slug, conn)
+    if offre is None:
+        # L'abonnement pointe une offre disparue : rien à monter, mais l'écart
+        # doit se voir — le client a peut-être payé.
+        log.error(
+            "provisioning_offre_introuvable",
+            subscription_id=abonnement.id,
+            offer=abonnement.offer_slug,
+        )
+        return
+    lancer_provisioning(
+        subscription_id=abonnement.id,
+        provider_event_id=evenement.provider_event_id,
+        evenement=evenement.kind,
+        owner_login=abonnement.login,
+        offer_slug=offre.slug,
+        hosting_type=offre.hosting_type,
+        host_profiles=list(offre.host_profiles),
+    )
 
 
 async def _couper_si_sans_reconduction(

@@ -127,6 +127,11 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def _enregistrer_etat(abonnement: Subscription, _conn: Any) -> None:
         etat["etats"].append(abonnement)
 
+    def _lancer_provisioning(**kwargs: Any) -> None:
+        etat["provisionnements"].append(kwargs)
+
+    etat["provisionnements"] = []
+
     for nom, impl in {
         "get_provider": _get_provider,
         "reveal_system_secret": _reveal,
@@ -135,6 +140,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         "par_identifiant_fournisseur": _par_fournisseur,
         "enregistrer_etat": _enregistrer_etat,
         "get_offer": _get_offer,
+        "lancer_provisioning": _lancer_provisioning,
     }.items():
         monkeypatch.setattr(routes, nom, impl)
     monkeypatch.setattr(routes, "CANAUX", {"stripe": _CanalTemoin()})
@@ -312,6 +318,32 @@ def test_une_facture_basil_se_resout_par_le_parent(client: TestClient) -> None:
     reponse = _poster(client, corps)
 
     assert reponse.json()["statut"] == "applique"
+
+
+def test_l_activation_declenche_le_provisioning_en_fond(client: TestClient) -> None:
+    """C'est le webhook qui fait naître la machine — via l'orchestrateur, en
+    tâche de fond : la réponse au fournisseur n'attend pas un clone de VM."""
+    corps = _charge("invoice.paid", billing_reason="subscription_create")
+
+    reponse = _poster(client, corps)
+
+    assert reponse.json()["statut"] == "applique"
+    (lance,) = client.etat["provisionnements"]  # type: ignore[attr-defined]
+    assert lance["subscription_id"] == ABO_ID
+    assert lance["evenement"] == "activation"
+    assert lance["provider_event_id"] == "evt_1"
+    # Type d'hébergement et profils viennent de l'OFFRE — le webhook n'en sait rien.
+    assert lance["hosting_type"] == "mutualise"
+
+
+def test_une_resiliation_ne_provisionne_rien(client: TestClient) -> None:
+    client.etat["abonnements"][ABO_ID] = _abonnement(state="actif")  # type: ignore[attr-defined]
+    corps = _charge("customer.subscription.deleted")
+
+    reponse = _poster(client, corps)
+
+    assert reponse.json()["statut"] == "applique"
+    assert client.etat["provisionnements"] == []  # type: ignore[attr-defined]
 
 
 def test_une_transition_impossible_est_refusee_sans_erreur(client: TestClient) -> None:

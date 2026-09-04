@@ -54,19 +54,21 @@ class Executeur(Protocol):
 
     Chaque méthode est responsable de **persister le rattachement** qu'elle
     crée (propriété de la machine, place accordée) : c'est elle qui connaît le
-    modèle de partage retenu, et lui seul.
+    modèle de partage retenu, et lui seul. Le rattachement pend de
+    l'ABONNEMENT (migration 118) — d'où `subscription_id` sur chaque méthode :
+    sans lui, l'exécuteur ne saurait pas à qui la place revient.
     """
 
     async def creer_vm_dediee(
-        self, *, owner_login: str, offer_slug: str, noeud: str, cible: Cible
+        self, *, subscription_id: str, owner_login: str, offer_slug: str, noeud: str, cible: Cible
     ) -> HostProvisionne: ...
 
     async def creer_host_mutualise(
-        self, *, owner_login: str, offer_slug: str, cible: Cible
+        self, *, subscription_id: str, owner_login: str, offer_slug: str, cible: Cible
     ) -> HostProvisionne: ...
 
     async def assigner_host(
-        self, *, owner_login: str, offer_slug: str, host_name: str
+        self, *, subscription_id: str, owner_login: str, offer_slug: str, host_name: str
     ) -> HostProvisionne: ...
 
 
@@ -162,7 +164,7 @@ async def traiter(
 
     await marquer(run_id, "en_cours", conn)
     try:
-        provisionne = await _executer(decision, executeur, owner_login, offer_slug)
+        provisionne = await _executer(decision, executeur, subscription_id, owner_login, offer_slug)
     except Exception as exc:  # noqa: BLE001 — l'échec se trace, il ne remonte pas
         await marquer(run_id, "echec", conn, erreur=str(exc))
         _log.error(
@@ -189,7 +191,11 @@ async def traiter(
 
 
 async def _executer(
-    decision: Decision, executeur: Executeur, owner_login: str, offer_slug: str
+    decision: Decision,
+    executeur: Executeur,
+    subscription_id: str,
+    owner_login: str,
+    offer_slug: str,
 ) -> HostProvisionne:
     if decision.action == "creer_vm_dediee":
         # `decider` ne rend cette action qu'avec une cible : l'absence ici
@@ -197,6 +203,7 @@ async def _executer(
         if decision.cible is None:
             raise RuntimeError("verdict creer_vm_dediee sans cible")
         return await executeur.creer_vm_dediee(
+            subscription_id=subscription_id,
             owner_login=owner_login,
             offer_slug=offer_slug,
             noeud=decision.noeud or "",
@@ -206,10 +213,16 @@ async def _executer(
         if decision.cible is None:
             raise RuntimeError("verdict creer_host_mutualise sans cible")
         return await executeur.creer_host_mutualise(
-            owner_login=owner_login, offer_slug=offer_slug, cible=decision.cible
+            subscription_id=subscription_id,
+            owner_login=owner_login,
+            offer_slug=offer_slug,
+            cible=decision.cible,
         )
     if decision.action == "assigner_host":
         return await executeur.assigner_host(
-            owner_login=owner_login, offer_slug=offer_slug, host_name=decision.host_name or ""
+            subscription_id=subscription_id,
+            owner_login=owner_login,
+            offer_slug=offer_slug,
+            host_name=decision.host_name or "",
         )
     raise RuntimeError(f"action de provisioning inconnue : {decision.action!r}")

@@ -86,6 +86,11 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def _list_de(login: str, _conn: Any) -> list[Subscription]:
         return [s for s in etat["crees"] if s.login == login]
 
+    def _lancer_provisioning(**kwargs: Any) -> None:
+        etat["provisionnements"].append(kwargs)
+
+    etat["provisionnements"] = []
+
     for nom, impl in {
         "get_offer": _get_offer,
         "devise_par_defaut": _devise_par_defaut,
@@ -95,6 +100,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         "offres_deja_souscrites": _offres_deja_souscrites,
         "creer": _creer,
         "list_de": _list_de,
+        "lancer_provisioning": _lancer_provisioning,
     }.items():
         monkeypatch.setattr(routes, nom, impl)
 
@@ -181,6 +187,32 @@ def test_deux_souscriptions_a_une_offre_repetable_passent(client: TestClient) ->
     client.etat["deja_souscrites"] = {"standard"}  # type: ignore[attr-defined]
 
     assert client.post("/me/subscriptions", json=_corps()).status_code == 201
+
+
+def test_une_offre_gratuite_declenche_son_provisioning(client: TestClient) -> None:
+    """Une offre gratuite ne recevra jamais de webhook : son `debut_essai` part
+    d'ici, en tâche de fond. C'est le seul parcours exerçable de bout en bout
+    tant qu'aucun compte de paiement n'existe."""
+    client.etat["offres"]["standard"] = _offre(  # type: ignore[attr-defined]
+        is_free=True, prices=[], provider_slug=None, host_profiles=["host-standard"]
+    )
+
+    reponse = client.post("/me/subscriptions", json=_corps())
+
+    assert reponse.status_code == 201
+    (lance,) = client.etat["provisionnements"]  # type: ignore[attr-defined]
+    assert lance["evenement"] == "debut_essai"
+    assert lance["subscription_id"] == reponse.json()["id"]
+    assert lance["provider_event_id"] == f"souscription:{reponse.json()['id']}"
+    assert lance["host_profiles"] == ["host-standard"]
+
+
+def test_une_offre_payante_ne_provisionne_pas_avant_le_paiement(client: TestClient) -> None:
+    """Donner la machine à la souscription d'une offre payante reviendrait à la
+    donner gratuitement : le provisioning attend l'événement du canal de vente."""
+    assert client.post("/me/subscriptions", json=_corps()).status_code == 201
+
+    assert client.etat["provisionnements"] == []  # type: ignore[attr-defined]
 
 
 def test_un_pays_sans_canal_journalise_la_vente_perdue(client: TestClient) -> None:

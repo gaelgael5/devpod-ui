@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..auth.rbac import UserInfo, require_user
 from ..billing.canal import CanalDeVente, DemandePaiement, PaiementImpossible
 from ..billing.canaux import CANAUX
+from ..billing.declencheur import lancer_provisioning
 from ..billing.eligibilite import CanalIndisponible, SouscriptionRefusee, verifier
 from ..billing.subscriptions import Subscription, fin_de_forfait
 from ..config.store import load_global
@@ -197,6 +198,23 @@ async def souscrire(
         pays=abonnement.country_code,
         gratuite=offre.is_free,
     )
+    if offre.is_free:
+        # Une offre gratuite ne recevra jamais de webhook : son `debut_essai`
+        # se déclenche ICI, en fond. L'identifiant d'événement est synthétique
+        # et stable — un rejeu de cette route créerait un AUTRE abonnement, et
+        # c'est le registre du provisioning qui garantit l'unicité par
+        # événement. Les offres payantes, elles, provisionnent sur les
+        # événements du canal de vente : donner la machine avant le paiement
+        # reviendrait à la donner gratuitement.
+        lancer_provisioning(
+            subscription_id=abonnement.id,
+            provider_event_id=f"souscription:{abonnement.id}",
+            evenement="debut_essai",
+            owner_login=user.login,
+            offer_slug=offre.slug,
+            hosting_type=offre.hosting_type,
+            host_profiles=list(offre.host_profiles),
+        )
     return abonnement.model_dump(mode="json")
 
 

@@ -48,19 +48,25 @@ class ExecuteurFactice:
         self.appels: list[tuple[str, str]] = []
         self.casse = casse
 
-    async def creer_vm_dediee(self, *, owner_login, offer_slug, noeud, cible) -> HostProvisionne:
+    async def creer_vm_dediee(
+        self, *, subscription_id, owner_login, offer_slug, noeud, cible
+    ) -> HostProvisionne:
         self.appels.append(("creer_vm_dediee", noeud))
         if self.casse:
             raise RuntimeError("qm clone a rendu 1 : storage plein")
         return HostProvisionne(host_name=f"vm-{owner_login}", capacity_workspaces=4)
 
-    async def creer_host_mutualise(self, *, owner_login, offer_slug, cible) -> HostProvisionne:
+    async def creer_host_mutualise(
+        self, *, subscription_id, owner_login, offer_slug, cible
+    ) -> HostProvisionne:
         self.appels.append(("creer_host_mutualise", offer_slug))
         if self.casse:
             raise RuntimeError("pool injoignable")
         return HostProvisionne(host_name="mut-neuf", capacity_workspaces=8)
 
-    async def assigner_host(self, *, owner_login, offer_slug, host_name) -> HostProvisionne:
+    async def assigner_host(
+        self, *, subscription_id, owner_login, offer_slug, host_name
+    ) -> HostProvisionne:
         self.appels.append(("assigner_host", host_name))
         if self.casse:
             raise RuntimeError("host injoignable")
@@ -383,8 +389,10 @@ async def test_une_machine_mutualisee_ne_recoit_aucune_ligne_de_propriete(db_con
     class ExecuteurConforme(ExecuteurFactice):
         """Persiste le rattachement comme le contrat l'exige — côté pool."""
 
-        async def assigner_host(self, *, owner_login, offer_slug, host_name) -> HostProvisionne:
-            await rattacher(sub, host_name, 1, db_conn)
+        async def assigner_host(
+            self, *, subscription_id, owner_login, offer_slug, host_name
+        ) -> HostProvisionne:
+            await rattacher(subscription_id, host_name, 1, db_conn)
             return HostProvisionne(host_name=host_name)
 
     res = await traiter(
