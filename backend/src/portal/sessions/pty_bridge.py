@@ -19,6 +19,7 @@ import os
 import pty
 import struct
 import termios
+from collections.abc import Awaitable, Callable
 
 import structlog
 from fastapi import WebSocket
@@ -131,8 +132,14 @@ async def run_pty_bridge(
     *,
     log_label: str,
     initial_size: tuple[int, int] | None = None,
+    on_redraw: Callable[[], Awaitable[None]] | None = None,
 ) -> int | None:
     """Lance `cmd` sur un PTY et fait le pont avec `websocket` jusqu'à fermeture.
+
+    `on_redraw`, s'il est fourni, force un repaint plein écran du terminal (pour
+    un backend tmux : `refresh-client`). Le pont est générique et ne sait pas
+    parler à tmux : la route lui passe ce callback. Une trame `{"type":"redraw"}`
+    le déclenche. Absent (shell brut, host sans tmux) → redraw sans effet.
 
     Retourne le returncode du subprocess (None s'il a fallu le tuer sans code).
     """
@@ -161,6 +168,17 @@ async def run_pty_bridge(
             nudge.cancel()
         nudge, nudge_cible = None, None
 
+    # Repaint plein écran en vol. Court (un aller-retour ssh), mais tracé pour
+    # être annulé au teardown : il écrit sinon sur une session déjà fermée.
+    redraw: asyncio.Task[None] | None = None
+
+    async def _run_redraw() -> None:
+        assert on_redraw is not None
+        try:
+            await on_redraw()
+        except Exception as exc:
+            _log.warning(f"{log_label}_redraw_error", exc_type=type(exc).__name__)
+
     def _journal_borne(evenement: str, **champs: object) -> None:
         nonlocal controls
         if controls >= 40:
@@ -187,13 +205,23 @@ async def run_pty_bridge(
         appliquée » — les deux étaient indiscernables tant que tout le bloc
         était sous `suppress(Exception)`.
         """
-        nonlocal nudge, nudge_cible
+        nonlocal nudge, nudge_cible, redraw
         try:
             msg = json.loads(payload)
         except ValueError:
             _log.warning(f"{log_label}_control_invalid_json", size=len(payload))
             return
-        if not isinstance(msg, dict) or msg.get("type") != "resize":
+        if not isinstance(msg, dict):
+            _log.warning(f"{log_label}_control_unknown", payload=payload[:120])
+            return
+        if msg.get("type") == "redraw":
+            # Repaint plein écran demandé (bouton « Rafraîchir »). Non bloquant :
+            # l'aller-retour ssh ne doit pas figer la lecture des trames.
+            if on_redraw is not None:
+                redraw = asyncio.create_task(_run_redraw())
+            _journal_borne("redraw_requested", handled=on_redraw is not None)
+            return
+        if msg.get("type") != "resize":
             _log.warning(f"{log_label}_control_unknown", payload=payload[:120])
             return
         try:
@@ -310,6 +338,8 @@ async def run_pty_bridge(
         # Avant la fermeture du maître : un nudge survivant poserait une taille
         # sur un descripteur fermé et journaliserait un EBADF sans incident réel.
         _annuler_nudge()
+        if redraw is not None and not redraw.done():
+            redraw.cancel()
         for t in tasks:
             t.cancel()
         if proc.returncode is None:

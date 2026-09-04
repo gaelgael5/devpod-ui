@@ -414,3 +414,58 @@ async def test_une_trame_absorbee_par_le_nudge_laisse_une_trace(monkeypatch):
 
     absorbees = [kw for evt, kw in infos if evt == "test_resize_absorbed_by_nudge"]
     assert absorbees == [{"cols": 265, "rows": 65}]
+
+
+@pytest.mark.asyncio
+async def test_une_trame_redraw_invoque_le_callback(monkeypatch):
+    """`{type:"redraw"}` déclenche le repaint plein écran, pas un resize.
+
+    Le bouton « Rafraîchir » demande à tmux de tout retransmettre (refresh-client) :
+    c'est la seule chose qui efface les résidus côté navigateur. Le pont ne sait pas
+    parler à tmux — la route lui fournit le callback.
+    """
+    monkeypatch.setattr("portal.sessions.pty_bridge.set_pty_size", lambda *_a: None)
+    appels: list[int] = []
+
+    async def _redraw() -> None:
+        appels.append(1)
+
+    ws = _FakeWebSocket(
+        [{"type": "websocket.receive", "text": json.dumps({"type": "redraw"})}],
+        garder_ouvert=True,
+    )
+    tache = asyncio.create_task(
+        run_pty_bridge(
+            ws,  # type: ignore[arg-type]
+            ["sleep", "5"],
+            {"TERM": "xterm", "PATH": "/usr/bin:/bin"},
+            _FakeTerminal(),  # type: ignore[arg-type]
+            log_label="test",
+            initial_size=None,
+            on_redraw=_redraw,
+        )
+    )
+    await asyncio.sleep(0.05)
+    tache.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await tache
+
+    assert appels == [1]
+
+
+@pytest.mark.asyncio
+async def test_une_trame_redraw_sans_callback_ne_casse_pas(monkeypatch):
+    """Endpoint sans tmux (shell brut) : redraw sans effet, jamais d'exception."""
+    monkeypatch.setattr("portal.sessions.pty_bridge.set_pty_size", lambda *_a: None)
+    ws = _FakeWebSocket(
+        [{"type": "websocket.receive", "text": json.dumps({"type": "redraw"})}],
+    )
+    # Ne lève pas, ne bloque pas : le pont se termine normalement.
+    await run_pty_bridge(
+        ws,  # type: ignore[arg-type]
+        ["sleep", "5"],
+        {"TERM": "xterm", "PATH": "/usr/bin:/bin"},
+        _FakeTerminal(),  # type: ignore[arg-type]
+        log_label="test",
+        initial_size=None,
+    )

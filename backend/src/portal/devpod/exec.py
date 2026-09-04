@@ -54,6 +54,27 @@ def remote_tmux_command(session: str) -> str:
     )
 
 
+def tmux_refresh_command(sock_detect: str, tmux_prefix: str, session: str) -> str:
+    """Commande shell distante : force un repaint plein écran du terminal tmux.
+
+    `refresh-client` retransmet TOUT l'écran au client, comme le fait un `attach`
+    (un F5) — c'est le seul moyen d'effacer les résidus déjà peints côté
+    navigateur, que le redessin différentiel de tmux ne renvoie jamais (il croit
+    ces cellules correctes). Un nudge de taille, lui, ne les touche pas.
+
+    On rafraîchit chaque client attaché À CETTE session (la politique « un seul
+    écran » n'en laisse qu'un, mais la boucle reste correcte s'il y en avait
+    plusieurs). `session` est shell-quotée ; le nom de client passe par une
+    variable citée, jamais interpolé.
+    """
+    q = shlex.quote(session)
+    return (
+        f"{sock_detect}; "
+        f"{tmux_prefix} list-clients -t {q} -F '#{{client_name}}' 2>/dev/null | "
+        f'while IFS= read -r c; do {tmux_prefix} refresh-client -t "$c"; done'
+    )
+
+
 async def ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0) -> tuple[int, str]:
     """Exécute une commande non-interactive dans le devcontainer via SSH.
 

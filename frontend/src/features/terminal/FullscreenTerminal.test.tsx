@@ -531,6 +531,11 @@ describe('FullscreenTerminal — recalage au clavier mobile', () => {
       .map((appel) => String(appel[0]))
       .filter((message) => message.includes('"type":"resize"'))
   }
+  function messagesRedraw() {
+    return sockets[0].send.mock.calls
+      .map((appel) => String(appel[0]))
+      .filter((message) => message.includes('"type":"redraw"'))
+  }
 
   it('se recale quand le viewport visuel change, sans window.resize', () => {
     // iOS ne fait varier NI `window.resize` NI la hauteur du viewport de mise
@@ -566,8 +571,8 @@ describe('FullscreenTerminal — recalage au clavier mobile', () => {
   it('fait REPEINDRE tmux, au lieu de redessiner la trame locale', () => {
     // Le coeur du defaut : `terminal.refresh()` redessine le tampon de xterm.
     // Si tmux y a ecrit une trame entrelacee pendant l'ouverture du clavier, on
-    // la redessine a l'identique. tmux ne repeint que sur CHANGEMENT de taille,
-    // d'ou la taille volontairement fausse qui doit partir sur la socket.
+    // la redessine a l'identique. Seul un repaint plein ecran (refresh-client
+    // cote pont) retransmet tout — d'ou la trame `redraw` sur la socket.
     const vue = poserViewportVisuel()
     renderTerminal()
     act(() => { vi.runAllTimers() })
@@ -576,11 +581,7 @@ describe('FullscreenTerminal — recalage au clavier mobile', () => {
     act(() => { vue.dispatchEvent(new Event('resize')) })
     act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
 
-    const trames = messagesResize()
-    expect(trames.length).toBeGreaterThan(0)
-    // Une seule trame, marquee `nudge` : l'aller-retour de taille est execute
-    // par le pont, seul endroit ou l'ecart entre les deux SIGWINCH est tenable.
-    expect(JSON.parse(trames.at(-1)!)).toMatchObject({ nudge: true })
+    expect(messagesRedraw().length).toBeGreaterThan(0)
   })
 
   it('ne recale qu\'une fois pour une rafale de paliers', () => {
@@ -960,12 +961,17 @@ describe('FullscreenTerminal — retour sur la session', () => {
       .map((appel) => String(appel[0]))
       .filter((message) => message.includes('"type":"resize"'))
   }
+  function messagesRedraw() {
+    return sockets[0].send.mock.calls
+      .map((appel) => String(appel[0]))
+      .filter((message) => message.includes('"type":"redraw"'))
+  }
 
   it('fait REPEINDRE tmux au retour d\u2019un onglet reellement masque', () => {
     // Le defaut vu en production : on revient sur l'onglet et l'ecran reste
     // casse — residus en colonne 0, rangees sautees. `terminal.refresh()` seul
     // redessine a l'identique la trame que tmux a ecrite pendant que les tailles
-    // divergeaient. Seul l'aller-retour de taille fait repeindre tmux.
+    // divergeaient. Seul un repaint plein ecran (refresh-client) l'efface.
     renderTerminal()
     act(() => { vi.runAllTimers() })
     sockets[0].send.mockClear()
@@ -974,9 +980,7 @@ describe('FullscreenTerminal — retour sur la session', () => {
     revenir()
     act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
 
-    const trames = messagesResize()
-    expect(trames.length).toBeGreaterThan(0)
-    expect(JSON.parse(trames.at(-1)!)).toMatchObject({ nudge: true })
+    expect(messagesRedraw().length).toBeGreaterThan(0)
   })
 
   it('ne recale pas sur un focus sans que la page ait ete masquee', () => {
@@ -1336,26 +1340,30 @@ describe('FullscreenTerminal — rafraichir l’affichage', () => {
    * anciens — des barres de statut empilees. tmux ne redessine que sur
    * changement de taille : renvoyer la MEME ne declenche rien.
    */
-  function resizesEnvoyes() {
+  function tramesEnvoyees() {
     return sockets[0].send.mock.calls
       .map((c) => c[0])
       .filter((d): d is string => typeof d === 'string')
-      .map((d) => JSON.parse(d) as { type: string; cols: number; rows: number; nudge?: boolean })
-      .filter((m) => m.type === 'resize')
+      .map((d) => JSON.parse(d) as { type: string; cols?: number; rows?: number })
+  }
+  function resizesEnvoyes() {
+    return tramesEnvoyees().filter((m) => m.type === 'resize')
+  }
+  function redrawsEnvoyes() {
+    return tramesEnvoyees().filter((m) => m.type === 'redraw')
   }
 
   function rafraichir() {
     fireEvent.click(screen.getByRole('button', { name: /rafraîchir|refresh/i }))
   }
 
-  it('envoie UNE trame de nudge, pas deux tailles a la merci du reseau', () => {
-    // L'ancien aller-retour partait en deux trames a une frame d'ecart —
-    // livrees dans le MEME segment TCP. Les deux TIOCSWINSZ s'enchainaient en
-    // moins d'une milliseconde (mesure le 03/09) et SIGWINCH, que le noyau ne
-    // met pas en file, etait coalesce : tmux ne voyait qu'un changement, vers
-    // la taille qu'il avait deja, et ne repeignait rien. C'est le pont qui
-    // execute desormais l'aller-retour, avec un ecart qu'il est seul a pouvoir
-    // garantir.
+  it('resynchronise la taille puis demande un repaint plein ecran', () => {
+    // Le nudge de taille ne pouvait PAS effacer les residus deja peints : le
+    // redessin de tmux est differentiel, il ne renvoie que ce qui differe de
+    // son image serveur, et les residus vivent cote navigateur (prouve le
+    // 04/09, 160 ms n'y changeait rien). On realigne d'abord la geometrie
+    // (PTY vu a 91 lignes contre 88 pour xterm), puis on demande
+    // `refresh-client` cote pont — le seul a tout retransmettre, comme un F5.
     renderTerminal()
     act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
     sockets[0].send.mockClear()
@@ -1363,14 +1371,17 @@ describe('FullscreenTerminal — rafraichir l’affichage', () => {
     rafraichir()
     act(() => vi.advanceTimersByTime(50))
 
-    const envoyes = resizesEnvoyes()
-    expect(envoyes).toHaveLength(1)
-    expect(envoyes[0]).toMatchObject({
-      nudge: true,
+    expect(resizesEnvoyes()).toHaveLength(1)
+    expect(resizesEnvoyes()[0]).toMatchObject({
       cols: terminals[0].cols,
-      // La VRAIE taille : c'est le pont qui fabrique l'intermediaire.
       rows: terminals[0].rows,
     })
+    // Aucune trame ne porte `nudge` : l'approche est abandonnee.
+    expect(tramesEnvoyees().some((m) => 'nudge' in m)).toBe(false)
+    // Et le repaint est demande, APRES le resize (la geometrie d'abord).
+    expect(redrawsEnvoyes()).toHaveLength(1)
+    const types = tramesEnvoyees().map((m) => m.type)
+    expect(types.indexOf('resize')).toBeLessThan(types.indexOf('redraw'))
   })
 
   it('ne redimensionne pas tant qu\u2019xterm n\u2019a pas analyse le flux', () => {
@@ -1389,11 +1400,12 @@ describe('FullscreenTerminal — rafraichir l’affichage', () => {
     rafraichir()
     act(() => vi.advanceTimersByTime(50))
     expect(resizesEnvoyes()).toHaveLength(0)
+    expect(redrawsEnvoyes()).toHaveLength(0)
 
-    // xterm finit d'analyser : la trame part, maintenant.
+    // xterm finit d'analyser : les trames partent, maintenant.
     act(() => terminals[0].draine())
     expect(resizesEnvoyes()).toHaveLength(1)
-    expect(resizesEnvoyes()[0]).toMatchObject({ nudge: true })
+    expect(redrawsEnvoyes()).toHaveLength(1)
   })
 
   it('recale malgre un flux continu, au bout du plafond', () => {
@@ -1412,6 +1424,7 @@ describe('FullscreenTerminal — rafraichir l’affichage', () => {
     act(() => vi.advanceTimersByTime(ATTENTE_MAX_MS + 10))
 
     expect(resizesEnvoyes()).toHaveLength(1)
+    expect(redrawsEnvoyes()).toHaveLength(1)
   })
 
   it('envoie la taille COURANTE au moment ou la trame part', () => {
@@ -1453,12 +1466,14 @@ describe('FullscreenTerminal — rafraichir l’affichage', () => {
     // 300 : la hauteur stubee du conteneur (cf. beforeEach).
     expect(envoyes.at(-1)!.haut).toBe(300)
     expect(envoyes.at(-1)!).toHaveProperty('octets')
-    // Aucune trame qui ne soit pas un `resize` : c'est tout l'interet.
+    // La SONDE reste embarquee sur la trame de taille, jamais sur une trame a
+    // elle (leçon du 03/09 : une trame de controle en plus fermait la session
+    // au clavier mobile). Seul `redraw`, demande explicite de repaint, s'ajoute.
     const types = sockets[0].send.mock.calls
       .map((c) => c[0])
       .filter((d): d is string => typeof d === 'string')
       .map((d) => (JSON.parse(d) as { type: string }).type)
-    expect(new Set(types)).toEqual(new Set(['resize']))
+    expect(new Set(types)).toEqual(new Set(['resize', 'redraw']))
   })
 
   it('redessine le terminal', () => {

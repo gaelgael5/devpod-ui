@@ -292,20 +292,17 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     wsRef.current = ws
     terminalRef.current = terminal
 
-    const sendResize = (cols: number, rows: number, nudge = false) => {
+    const sendResize = (cols: number, rows: number) => {
       if (resize && ws.readyState === WebSocket.OPEN)
-        ws.send(
-          JSON.stringify({
-            type: 'resize',
-            cols,
-            rows,
-            // `nudge` demande au pont d'executer l'aller-retour de taille qui
-            // fait repeindre tmux (cf. `refreshRef`). Un backend d'avant ce
-            // champ l'ignore et applique simplement la taille.
-            ...(nudge ? { nudge: true } : {}),
-            ...(mesure ?? {}),
-          }),
-        )
+        ws.send(JSON.stringify({ type: 'resize', cols, rows, ...(mesure ?? {}) }))
+    }
+    // Repaint plein ecran : le pont lance `tmux refresh-client`, qui retransmet
+    // TOUT l'ecran au client. C'est le seul moyen d'effacer les residus deja
+    // peints cote navigateur — le redessin differentiel de tmux ne les renvoie
+    // jamais, il croit ces cellules correctes. Un aller-retour de taille (nudge)
+    // ne les touche pas, quel que soit le delai : mesure le 04/09.
+    const sendRedraw = () => {
+      if (resize && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'redraw' }))
     }
     ws.onopen = () => sendResize(terminal.cols, terminal.rows)
 
@@ -324,26 +321,24 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
      * alors le second (meme contrainte que le defilement de l'historique).
      */
     refreshRef.current = () => {
-      // UNE trame, marquee `nudge` — c'est le pont qui fabrique l'aller-retour.
+      // Deux temps : resynchroniser la geometrie, puis demander le repaint.
       //
-      // L'ancien double envoi (`rows-1` puis `rows` a une frame d'ecart)
-      // arrivait dans le MEME segment TCP : les deux TIOCSWINSZ s'enchainaient
-      // en moins d'une milliseconde, et SIGWINCH — que le noyau ne met pas en
-      // file — etait coalesce. tmux ne voyait qu'un changement, vers la taille
-      // qu'il avait deja, et ne repeignait rien ; ou pire, traitait le premier
-      // seul et restait cale sur `rows-1` (vu en production le 03/09, PTY a 65
-      // lignes contre 64 pour xterm — une ligne d'ecart entrelace tout le
-      // texte). L'ecart entre les deux tailles ne peut etre garanti que la ou
-      // l'ioctl est pose : le pont.
+      // 1. `sendResize` : le PTY et xterm ont pu diverger (mesure le 04/09, PTY
+      //    a 91 lignes contre 88 pour xterm) — on realigne d'abord, sinon le
+      //    repaint retransmettrait a la mauvaise taille.
+      // 2. `sendRedraw` : `tmux refresh-client` cote pont retransmet tout
+      //    l'ecran. C'est ce que fait un F5 (attach), sans reconnexion ni flash,
+      //    et c'est la SEULE chose qui efface les residus deja peints — le nudge
+      //    de taille, lui, ne les touche pas (redessin differentiel de tmux).
       //
-      // Et seulement une fois la file de parsing vide : redimensionner avec du
-      // flux en attente fait interpreter contre la nouvelle geometrie des
-      // octets que tmux a emis pour l'ancienne (4580 octets mesures le 03/09).
-      // La taille est RELUE au moment de l'envoi — xterm peut s'etre recale
-      // pendant l'attente.
+      // Seulement la file de parsing vide : redimensionner ou repeindre avec du
+      // flux en attente fait interpreter contre la nouvelle geometrie des octets
+      // que tmux a emis pour l'ancienne. La taille est RELUE au moment de
+      // l'envoi — xterm peut s'etre recale pendant l'attente.
       file.quandVide(() => {
         safeFit()
-        sendResize(terminal.cols, terminal.rows, true)
+        sendResize(terminal.cols, terminal.rows)
+        sendRedraw()
         terminal.refresh(0, terminal.rows - 1)
       })
     }
