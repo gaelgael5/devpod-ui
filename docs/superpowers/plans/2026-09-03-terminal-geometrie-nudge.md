@@ -59,7 +59,7 @@ trames sans `nudge` — comportement actuel. L'ordre de déploiement est donc li
 | Fichier | Action |
 |---------|--------|
 | `backend/src/portal/sessions/pty_bridge.py` | Modifier — `NUDGE_DELAY_S`, nudge asynchrone annulable |
-| `backend/tests/sessions/test_sigwinch.py` | Créer — test système, vrai PTY, aucun mock |
+| `backend/tests/sessions/test_pty_bridge.py` | Modifier — tests de coalescence (vrai PTY, aucun mock) ; le fichier existait déjà avec ce harnais, pas de `test_sigwinch.py` séparé |
 | `backend/tests/test_pty_bridge.py` | Modifier — `_FakeWebSocket(garder_ouvert=)` + 5 tests |
 | `frontend/src/features/terminal/parseQueue.ts` | Créer — file de parsing xterm, `quandVide` |
 | `frontend/src/features/terminal/parseQueue.test.ts` | Créer — tests unitaires purs |
@@ -165,7 +165,8 @@ delai=0.005s -> COUNT=2
 delai= 0.08s -> COUNT=2
 ```
 
-Créer `backend/tests/sessions/test_sigwinch.py` :
+Les tests vont dans `backend/tests/sessions/test_pty_bridge.py`, qui porte déjà ce harnais
+(vrai PTY, vrai enfant, vrais signaux) et ses helpers `_read_line` / `_set_size` :
 
 ```python
 """SIGWINCH est-il vraiment coalescé ? Test système, sans mock.
@@ -216,13 +217,17 @@ fenêtre de coalescence bien plus large — 5 ms d'écart produisaient déjà le
 production alors que ce test passe à 5 ms. Le dimensionnement du délai reste donc la Task 4,
 sur logs réels. Ce test établit le mécanisme, pas la marge.
 
-- [ ] Créer `backend/tests/sessions/test_sigwinch.py`
-- [ ] Implémenter `_signaux_recus` (subprocess sur PTY, `preexec_fn` avec `setsid` + `TIOCSCTTY`)
-- [ ] Marquer les deux tests `@pytest.mark.slow` s'il existe un marqueur (≈ 0,3 s chacun)
+- [x] Ajouter `_CHILD_OCCUPE` (bloque SIGWINCH le temps d'une « frame ») et sa fixture
+- [x] `test_deux_redimensionnements_colles_ne_font_voir_aucun_changement` — vert AVANT correction
+- [x] `test_espaces_du_delai_du_pont_les_deux_signaux_sont_delivres`
+
+Le masque de signal rend le test déterministe : sans lui, la coalescence dépend de
+l'ordonnanceur et le test serait instable. Un processus qui n'a pas encore traité son signal
+est exactement la situation de tmux en train de dessiner.
 
 ```bash
-cd backend && uv run pytest tests/sessions/test_sigwinch.py -v
-# Le PREMIER test doit passer AVANT toute correction : il décrit le monde tel qu'il est.
+cd backend && uv run pytest tests/sessions/test_pty_bridge.py -v
+# Le PREMIER test passe AVANT toute correction : il décrit le monde tel qu'il est. Constaté.
 ```
 
 ### Étape 1.1 — Test rouge : le nudge applique la taille réduite puis la vraie
@@ -618,6 +623,6 @@ mcp logs_query: {compose_service="portal"} |~ "resize_applied"
 - [ ] `cd backend && uv run ruff check src/ tests/ && uv run mypy src/` vert
 - [ ] `cd frontend && npx vitest run && npm run lint && npx tsc --noEmit` vert
 - [ ] Task 0 déployée et affichage sain confirmé par l'utilisateur
-- [ ] `test_sigwinch.py` vert — le mécanisme est établi sans mock
+- [x] Coalescence établie sans mock dans `tests/sessions/test_pty_bridge.py`
 - [ ] Critères de recette de la Task 4 constatés **dans les logs de test1**, pas déduits
 - [ ] Aucun secret dans le diff
