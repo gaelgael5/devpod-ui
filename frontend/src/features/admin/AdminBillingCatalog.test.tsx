@@ -156,6 +156,67 @@ describe('AdminBillingCatalog', () => {
     expect(within(taux).queryByRole('textbox')).toBeNull()
   })
 
+  it('propose un formulaire Stripe typé, pas un sac de clés libres', async () => {
+    // `StripeConfig` côté serveur n'a que deux champs. Les faire deviner à
+    // l'admin dans un clé/valeur libre, c'est découvrir la faute de frappe au
+    // premier paiement — le formulaire les nomme.
+    renderPage(
+      [FRANCE],
+      [{ ...STRIPE, config: { account_id: 'acct_123', webhook_secret_slug: 'billing.whsec' } }],
+    )
+    server.use(
+      http.get('/admin/automations/secrets', () =>
+        HttpResponse.json([
+          { slug: 'billing.stripe-eu.api-key', label: 'Clé API Stripe', secret_type: 'api_key', storage_type: 'local' },
+          { slug: 'billing.whsec', label: 'Webhook Stripe', secret_type: 'api_key', storage_type: 'local' },
+        ]),
+      ),
+    )
+    const canal = await screen.findByTestId('canal-stripe-eu')
+    await userEvent.click(within(canal).getByRole('button', { name: i18n.t('admin.billing.editProvider') }))
+    const fiche = await screen.findByRole('dialog')
+
+    expect(within(fiche).getByLabelText(i18n.t('admin.billing.stripeAccountId'))).toHaveValue('acct_123')
+    expect(within(fiche).getByLabelText(i18n.t('admin.billing.stripeWebhookSecret'))).toHaveValue('billing.whsec')
+    // Le clé/valeur libre n'a plus sa place sur un canal dont la forme est connue.
+    expect(within(fiche).queryByRole('button', { name: i18n.t('admin.billing.addConfigKey') })).toBeNull()
+  })
+
+  it('enregistre la config Stripe saisie dans le formulaire typé', async () => {
+    renderPage()
+    server.use(
+      http.get('/admin/automations/secrets', () =>
+        HttpResponse.json([
+          { slug: 'billing.whsec', label: 'Webhook Stripe', secret_type: 'api_key', storage_type: 'local' },
+        ]),
+      ),
+    )
+    let recu: Record<string, unknown> = {}
+    server.use(
+      http.put('/admin/billing/providers/:slug', async ({ request }) => {
+        recu = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json(recu)
+      }),
+    )
+    const canal = await screen.findByTestId('canal-stripe-eu')
+    await userEvent.click(within(canal).getByRole('button', { name: i18n.t('admin.billing.editProvider') }))
+    const fiche = await screen.findByRole('dialog')
+
+    await userEvent.type(
+      within(fiche).getByLabelText(i18n.t('admin.billing.stripeAccountId')),
+      'acct_42',
+    )
+    await userEvent.selectOptions(
+      within(fiche).getByLabelText(i18n.t('admin.billing.stripeWebhookSecret')),
+      'billing.whsec',
+    )
+    await userEvent.click(within(fiche).getByRole('button', { name: i18n.t('common.save') }))
+
+    await waitFor(() =>
+      expect(recu.config).toEqual({ account_id: 'acct_42', webhook_secret_slug: 'billing.whsec' }),
+    )
+  })
+
   it('propose les pays ISO avec leur code et ne repropose pas ceux deja enregistres', async () => {
     renderPage()
     await userEvent.click(await screen.findByRole('button', { name: i18n.t('admin.billing.newCountry') }))

@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog'
 import { slugifier } from '@/shared/slug'
 import {
-  useSaveProvider, useSystemSecrets, type PaymentProvider, type TaxMode,
+  useSaveProvider, useSystemSecrets, type PaymentProvider, type SystemSecret, type TaxMode,
 } from './useBillingCatalog'
 
 interface Props {
@@ -19,6 +19,67 @@ interface Props {
 }
 
 const MODES: TaxMode[] = ['manuel', 'automatique']
+
+//: Miroir de `PROVIDER_CONFIG_MODELS` cote serveur : les kinds dont la config a
+//: une forme connue recoivent un formulaire type ; les autres gardent le
+//: cle/valeur libre.
+const KINDS_TYPES = new Set(['stripe'])
+
+/**
+ * Config d'un canal Stripe — les DEUX champs de `StripeConfig`, nommes.
+ *
+ * Le cle/valeur libre faisait deviner les clefs a l'admin : la faute de frappe
+ * etait refusee par le serveur (`extra="forbid"`), mais rien ne disait quoi
+ * saisir. Le secret de webhook se DESIGNE comme la cle API — jamais de valeur
+ * `whsec_…` en clair ici.
+ */
+function StripeConfigFields({
+  config,
+  secrets,
+  onChange,
+}: {
+  config: Record<string, string>
+  secrets: SystemSecret[]
+  onChange: (config: Record<string, string>) => void
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <fieldset className="rounded-lg border p-3">
+      <legend className="px-1 text-sm font-medium">{t('admin.billing.config')}</legend>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="stripe-account">{t('admin.billing.stripeAccountId')}</Label>
+          <Input
+            id="stripe-account"
+            className="font-mono"
+            value={config.account_id ?? ''}
+            placeholder="acct_…"
+            onChange={(e) => onChange({ ...config, account_id: e.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">{t('admin.billing.stripeAccountHelp')}</p>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="stripe-whsec">{t('admin.billing.stripeWebhookSecret')}</Label>
+          <select
+            id="stripe-whsec"
+            className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+            value={config.webhook_secret_slug ?? ''}
+            onChange={(e) => onChange({ ...config, webhook_secret_slug: e.target.value })}
+          >
+            <option value="">{t('admin.billing.noSecret')}</option>
+            {secrets.map((s) => (
+              <option key={s.slug} value={s.slug}>{s.label || s.slug}</option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            {t('admin.billing.stripeWebhookSecretHelp')}
+          </p>
+        </div>
+      </div>
+    </fieldset>
+  )
+}
 
 /**
  * Fiche d'un canal de paiement.
@@ -173,6 +234,13 @@ export default function PaymentProviderEditor({ canal, onClose }: Props) {
             {t('admin.billing.providerEnabled')}
           </label>
 
+          {KINDS_TYPES.has(brouillon.kind) ? (
+            <StripeConfigFields
+              config={brouillon.config}
+              secrets={secrets}
+              onChange={(config) => setBrouillon((b) => ({ ...b, config }))}
+            />
+          ) : (
           <fieldset className="rounded-lg border p-3">
             <legend className="px-1 text-sm font-medium">{t('admin.billing.config')}</legend>
             <p className="mb-2 text-xs text-muted-foreground">{t('admin.billing.configHelp')}</p>
@@ -214,6 +282,7 @@ export default function PaymentProviderEditor({ canal, onClose }: Props) {
               {t('admin.billing.addConfigKey')}
             </Button>
           </fieldset>
+          )}
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>
