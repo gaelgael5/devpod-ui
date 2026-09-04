@@ -670,6 +670,8 @@ describe('FullscreenTerminal — re-rendu apres la sortie de l\u2019agent', () =
     terminals[0].refresh.mockClear()
 
     act(() => { sockets[0].onmessage?.({ data: 'du texte qui defile' }) })
+    // Le re-rendu part du callback de write : rien tant que xterm n'a pas analyse.
+    act(() => { terminals[0].draine() })
     expect(terminals[0].refresh).not.toHaveBeenCalled()  // throttle : pas immediat
 
     act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
@@ -685,6 +687,7 @@ describe('FullscreenTerminal — re-rendu apres la sortie de l\u2019agent', () =
     act(() => {
       for (let i = 0; i < 5; i++) sockets[0].onmessage?.({ data: 'trame' })
     })
+    act(() => { terminals[0].draine() })
     act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
 
     expect(terminals[0].refresh).toHaveBeenCalledTimes(1)

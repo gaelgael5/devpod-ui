@@ -598,11 +598,19 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // apres l'ecriture. Throttle : une sortie continue ne declenche qu'un
     // re-rendu par fenetre, pas un par trame.
     let reRenduTimer: ReturnType<typeof setTimeout> | undefined
+    let diagReRendu = 0
     const forcerReRendu = () => {
       if (reRenduTimer !== undefined) return
       reRenduTimer = setTimeout(() => {
         reRenduTimer = undefined
         terminal.refresh(0, terminal.rows - 1)
+        // Sonde bornee : confirme dans les logs (Faro) que le re-rendu tourne
+        // bien, et a quelle cadence — sinon impossible de distinguer « le code
+        // n'est pas charge » de « le re-rendu ne suffit pas ».
+        if (diagReRendu < 15) {
+          diagReRendu++
+          console.warn('terminal_diag: re-rendu force apres sortie')
+        }
       }, REFRESH_SORTIE_MS)
     }
 
@@ -610,11 +618,13 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
       links.push(typeof data === 'string' ? data : decoder.decode(data, { stream: true }))
       // `write` est ASYNCHRONE : xterm met en file et analyse plus tard. Le
-      // rappel de vidage alimente la file — sonde `octets`, et recalages qui
-      // attendent leur tour.
+      // rappel de vidage alimente la file (sonde `octets`) ET declenche le
+      // re-rendu — APRES l'analyse, quand le buffer est a jour, pas au jugé.
       file.arrive(data.length)
-      terminal.write(data, () => file.analyse(data.length))
-      forcerReRendu()
+      terminal.write(data, () => {
+        file.analyse(data.length)
+        forcerReRendu()
+      })
     }
     ws.onclose = (ev) => {
       terminal.write(tRef.current('admin.sshTerminal.connClosed'))
