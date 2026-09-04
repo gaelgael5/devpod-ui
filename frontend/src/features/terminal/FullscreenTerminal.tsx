@@ -598,27 +598,24 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // apres l'ecriture. Throttle : une sortie continue ne declenche qu'un
     // re-rendu par fenetre, pas un par trame.
     let reRenduTimer: ReturnType<typeof setTimeout> | undefined
-    let diagReRendu = 0
     const forcerReRendu = () => {
       if (reRenduTimer !== undefined) return
       reRenduTimer = setTimeout(() => {
         reRenduTimer = undefined
-        terminal.refresh(0, terminal.rows - 1)
-        // DIAGNOSTIC : dumper les 3 premiers caracteres de chaque ligne du
-        // BUFFER xterm. Si le decalage subsiste apres refresh, c'est que le
-        // buffer lui-meme est corrompu en colonne 0-1 (et non de simples pixels
-        // perimes). Ce dump, compare a `tmux capture-pane` (propre), le prouve
-        // et montre exactement quelles lignes/colonnes divergent.
-        if (diagReRendu < 4) {
-          diagReRendu++
-          const buf = terminal.buffer.active
-          let sig = ''
-          for (let y = 0; y < terminal.rows; y++) {
-            const l = buf.getLine(y)
-            sig += (l ? l.translateToString(true).slice(0, 3) : '   ').padEnd(3).slice(0, 3) + '¦'
-          }
-          console.warn(`terminal_diag: buffer_col ${sig}`)
-        }
+        // Déclenche EXACTEMENT l'action du bouton « Rafraîchir » : `tmux
+        // refresh-client` côté pont renvoie tout l'écran, ce qui force xterm à
+        // réécrire les cellules et donc à les repeindre.
+        //
+        // Pourquoi pas `terminal.refresh` : le buffer de xterm est CORRECT
+        // (dump vérifié en prod), mais les PIXELS restent périmés en colonne
+        // 0-1 au défilement — un artefact de rendu que `terminal.refresh` ne
+        // repeint pas. Seul un renvoi du contenu par tmux les efface, confirmé
+        // à l'écran par l'utilisateur (le bouton nettoie parfaitement).
+        //
+        // Throttle : une sortie continue ne déclenche qu'un refresh par
+        // fenêtre. `refreshRef` passe par `file.quandVide` — le repaint attend
+        // que xterm ait fini d'analyser le flux.
+        refreshRef.current?.()
       }, REFRESH_SORTIE_MS)
     }
 

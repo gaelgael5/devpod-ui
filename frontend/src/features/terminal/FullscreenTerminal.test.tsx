@@ -661,36 +661,44 @@ describe('FullscreenTerminal — autofocus selon l’appareil', () => {
 
 
 describe('FullscreenTerminal — re-rendu apres la sortie de l\u2019agent', () => {
-  it('force un re-rendu complet peu apres une salve de sortie', () => {
+  function redrawsEnvoyes() {
+    return sockets[0].send.mock.calls
+      .map((c) => String(c[0]))
+      .filter((m) => m.includes('"type":"redraw"'))
+  }
+
+  it('declenche un repaint plein ecran (refresh-client) apres une salve de sortie', () => {
     // Le contenu defile quand l'agent ecrit ; le renderer laisse des pixels
-    // perimes en colonne 0-1 (buffer correct, damage-tracking fautif). Un
-    // re-rendu depuis le buffer les efface.
+    // perimes en colonne 0-1 (buffer CORRECT, verifie en prod). Seul un renvoi
+    // du contenu par tmux (refresh-client, comme le bouton) les efface —
+    // terminal.refresh cote client ne repeint pas. On declenche donc l'action
+    // du bouton, throttlee, apres la sortie.
     renderTerminal()
     act(() => { vi.runAllTimers() })
-    terminals[0].refresh.mockClear()
+    sockets[0].send.mockClear()
 
     act(() => { sockets[0].onmessage?.({ data: 'du texte qui defile' }) })
-    // Le re-rendu part du callback de write : rien tant que xterm n'a pas analyse.
     act(() => { terminals[0].draine() })
-    expect(terminals[0].refresh).not.toHaveBeenCalled()  // throttle : pas immediat
+    expect(redrawsEnvoyes()).toHaveLength(0)  // throttle : pas immediat
 
     act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
-    expect(terminals[0].refresh).toHaveBeenCalledWith(0, terminals[0].rows - 1)
+    act(() => { terminals[0].draine() })       // file.quandVide -> sendRedraw
+    expect(redrawsEnvoyes().length).toBeGreaterThan(0)
   })
 
-  it('ne re-rend qu\u2019une fois pour une salve continue', () => {
+  it('ne declenche qu\u2019un refresh pour une salve continue', () => {
     renderTerminal()
     act(() => { vi.runAllTimers() })
-    terminals[0].refresh.mockClear()
+    sockets[0].send.mockClear()
 
-    // Cinq trames rapprochees, dans la meme fenetre de throttle.
     act(() => {
       for (let i = 0; i < 5; i++) sockets[0].onmessage?.({ data: 'trame' })
     })
     act(() => { terminals[0].draine() })
     act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
+    act(() => { terminals[0].draine() })
 
-    expect(terminals[0].refresh).toHaveBeenCalledTimes(1)
+    expect(redrawsEnvoyes()).toHaveLength(1)
   })
 })
 
