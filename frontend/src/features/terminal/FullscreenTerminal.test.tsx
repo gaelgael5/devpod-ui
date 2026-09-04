@@ -678,11 +678,10 @@ describe('FullscreenTerminal — re-rendu apres la sortie de l\u2019agent', () =
     sockets[0].send.mockClear()
 
     act(() => { sockets[0].onmessage?.({ data: 'du texte qui defile\n' }) })
-    act(() => { terminals[0].draine() })
-    expect(redrawsEnvoyes()).toHaveLength(0)  // throttle : pas immediat
+    act(() => { terminals[0].draine() })       // callback de write -> arme le debounce
+    expect(redrawsEnvoyes()).toHaveLength(0)  // debounce : pas immediat
 
     act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
-    act(() => { terminals[0].draine() })       // file.quandVide -> sendRedraw
     expect(redrawsEnvoyes().length).toBeGreaterThan(0)
   })
 
@@ -696,7 +695,6 @@ describe('FullscreenTerminal — re-rendu apres la sortie de l\u2019agent', () =
     act(() => { sockets[0].onmessage?.({ data: '\x1b[5;10H' }) })  // deplacement curseur, pas de \n
     act(() => { terminals[0].draine() })
     act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
-    act(() => { terminals[0].draine() })
 
     expect(redrawsEnvoyes()).toHaveLength(0)
   })
@@ -711,7 +709,6 @@ describe('FullscreenTerminal — re-rendu apres la sortie de l\u2019agent', () =
     })
     act(() => { terminals[0].draine() })
     act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
-    act(() => { terminals[0].draine() })
 
     expect(redrawsEnvoyes()).toHaveLength(1)
   })

@@ -47,8 +47,9 @@ interface Props {
  * court pour que le terminal ne reste pas visiblement mal dimensionne.
  */
 export const AJUSTEMENT_MS = 150
-// Delai avant le re-rendu force qui suit une salve de sortie (cf. `forcerReRendu`).
-export const REFRESH_SORTIE_MS = 100
+// Debounce du re-rendu apres une salve de sortie (cf. `forcerReRendu`) : le
+// refresh-client ne part qu'une fois le defilement calme depuis ce delai.
+export const REFRESH_SORTIE_MS = 200
 // Code de fermeture applicatif : la session a ete reprise sur un autre
 // appareil. Cote pont, `pty_bridge.run_pty_bridge`.
 export const CODE_REPRISE_AILLEURS = 4409
@@ -595,27 +596,26 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // — le redraw d'un defilement insere une ligne et suppose l'indentation
     // (deux espaces) deja vide, sans repeindre ces cellules. On force donc un
     // re-rendu complet du viewport DEPUIS LE BUFFER (qui, lui, est juste), peu
-    // apres l'ecriture. Throttle : une sortie continue ne declenche qu'un
-    // re-rendu par fenetre, pas un par trame.
+    // apres l'ecriture.
+    //
+    // DEBOUNCE, pas throttle : le repaint ne part qu'une fois la sortie CALMEE
+    // (REFRESH_SORTIE_MS sans nouvelle ligne). Un throttle repeindrait en
+    // continu pendant le defilement — et le spinner « thinking » de l'agent, qui
+    // s'anime sans produire de contenu, faisait ainsi partir ~5 refresh-client
+    // par seconde : ecran renvoye en boucle, curseur du bas qui scintille meme
+    // au repos (mesure dans les logs le 04/09).
+    //
+    // `sendRedraw` SEUL (pas `refreshRef`) : c'est `tmux refresh-client` qui
+    // renvoie l'ecran et repeint les cellules perimees (le buffer xterm est
+    // correct, seuls les PIXELS sont perimes — `terminal.refresh` cote client
+    // ne les repeint pas). Passer par `refreshRef` rejouait en plus un `fit` +
+    // un `resize` a chaque fois, pour rien.
     let reRenduTimer: ReturnType<typeof setTimeout> | undefined
     const forcerReRendu = () => {
-      if (reRenduTimer !== undefined) return
+      clearTimeout(reRenduTimer)
       reRenduTimer = setTimeout(() => {
         reRenduTimer = undefined
-        // Déclenche EXACTEMENT l'action du bouton « Rafraîchir » : `tmux
-        // refresh-client` côté pont renvoie tout l'écran, ce qui force xterm à
-        // réécrire les cellules et donc à les repeindre.
-        //
-        // Pourquoi pas `terminal.refresh` : le buffer de xterm est CORRECT
-        // (dump vérifié en prod), mais les PIXELS restent périmés en colonne
-        // 0-1 au défilement — un artefact de rendu que `terminal.refresh` ne
-        // repeint pas. Seul un renvoi du contenu par tmux les efface, confirmé
-        // à l'écran par l'utilisateur (le bouton nettoie parfaitement).
-        //
-        // Throttle : une sortie continue ne déclenche qu'un refresh par
-        // fenêtre. `refreshRef` passe par `file.quandVide` — le repaint attend
-        // que xterm ait fini d'analyser le flux.
-        refreshRef.current?.()
+        sendRedraw()
       }, REFRESH_SORTIE_MS)
     }
 
