@@ -106,15 +106,15 @@ it('verifie la socket a chaque focus, masquage ou non', () => {
 })
 ```
 
-- [ ] Écrire les trois tests
+- [x] Écrire les trois tests
 
 ### Étape 0.2 — Implémenter
 
-- [ ] Poser un drapeau `aEteMasquee` dans le gestionnaire `visibilitychange` quand
+- [x] Poser un drapeau `aEteMasquee` dans le gestionnaire `visibilitychange` quand
       `document.hidden` devient vrai
-- [ ] Dans `onVisible` : la vérification de socket reste inconditionnelle ; l'appel à
+- [x] Dans `onVisible` : la vérification de socket reste inconditionnelle ; l'appel à
       `planifierAjustement()` est gardé par `aEteMasquee`, qui est ensuite consommé
-- [ ] Commenter le *pourquoi* : le nudge n'est pas gratuit, chaque déclenchement est une
+- [x] Commenter le *pourquoi* : le nudge n'est pas gratuit, chaque déclenchement est une
       occasion de désynchroniser tmux tant que la cause 1 n'est pas corrigée
 
 ```bash
@@ -579,7 +579,7 @@ cd frontend && npm run lint && npx tsc --noEmit
 Lire [`TESTER-MON-DEV.md`](../../../TESTER-MON-DEV.md) avant toute manipulation. Les tests unitaires
 ne prouvent rien sur le comportement de tmux — seuls les logs réels le font.
 
-- [ ] `git push` sur `dev`, puis `dev-deploy.sh` sur test1
+- [x] `git push` sur `dev`, puis `dev-deploy.sh` sur test1
 - [ ] Ouvrir une session, lancer un TUI (`htop`, `claude`), redimensionner la fenêtre, basculer
       d'onglet, revenir
 - [ ] Relire les logs :
@@ -589,9 +589,11 @@ mcp logs_query: {compose_service="portal"} |~ "resize_applied"
 ```
 
 **Critères de recette :**
-- toute paire de `resize_applied` d'un même nudge est espacée d'au moins 40 ms (0 ms aujourd'hui) ;
+- toute paire `nudge=debut` / `nudge=fin` est espacée d'au moins 40 ms (0 ms avant correction —
+  les deux moitiés sont journalisées précisément pour rendre cet écart mesurable) ;
 - `octets=0` sur le chemin nominal — une valeur non nulle ne doit plus subsister qu'au plafond ;
-- `nudge=true` présent sur la trame finale ;
+- aucun nudge au chargement initial d'une session ni sur un simple focus — seuls un vrai
+  masquage, un redimensionnement ou le bouton Rafraîchir en déclenchent ;
 - aucun `pty_set_size_failed`.
 
 - [ ] Si tmux ne repeint toujours pas à 80 ms, remonter `NUDGE_DELAY_S` par paliers (120, 160)
@@ -609,7 +611,7 @@ mcp logs_query: {compose_service="portal"} |~ "resize_applied"
 - [ ] Article dans Docflow (workspace `devpod`, bloc `Documentation`) : la géométrie d'un
       terminal web (PTY, SIGWINCH, file de parsing xterm) — ce qui alimente le RAG
 - [ ] Backlog : passer la tâche liée en `en review`
-- [ ] Commit français conventionnel, un par task :
+- [x] Commit français conventionnel, un par task :
       `fix(terminal): le nudge etait coalesce par le noyau, tmux ne repeignait pas`
       `fix(terminal): plus de redimensionnement tant qu'xterm n'a pas analyse le flux`
 

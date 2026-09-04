@@ -138,7 +138,10 @@ async def run_pty_bridge(
         set_pty_size(master_fd, cols, rows)
 
     # Bornée comme les autres sondes : un glissé de fenêtre produit une rafale,
-    # et l'intérêt est de savoir SI les trames arrivent, pas de les compter toutes.
+    # et l'intérêt est de savoir SI les trames arrivent, pas de les compter
+    # toutes. 40 et non 20 : un nudge consomme désormais DEUX lignes (début et
+    # fin — c'est la paire qui rend l'espacement des SIGWINCH mesurable dans
+    # les logs), et une session mobile en mange une paire par cycle de clavier.
     controls = 0
 
     # Nudge en vol, et la taille qu'il finira par poser. Le client demande un
@@ -154,12 +157,12 @@ async def run_pty_bridge(
             nudge.cancel()
         nudge, nudge_cible = None, None
 
-    def _journaliser(cols: int, rows: int, sonde: dict[str, int], **extra: object) -> None:
+    def _journal_borne(evenement: str, **champs: object) -> None:
         nonlocal controls
-        if controls >= 20:
+        if controls >= 40:
             return
         controls += 1
-        _log.info(f"{log_label}_resize_applied", cols=cols, rows=rows, **extra, **sonde)
+        _log.info(f"{log_label}_{evenement}", **champs)
 
     async def _nudge_puis_vraie_taille(cols: int, rows: int, sonde: dict[str, int]) -> None:
         """Seconde moitié du nudge : la vraie taille, une fois le premier signal reçu."""
@@ -170,7 +173,7 @@ async def run_pty_bridge(
         # même taille doit repouvoir déclencher un nudge, sinon un écran ne se
         # repeindrait plus jamais à géométrie constante.
         nudge_cible = None
-        _journaliser(cols, rows, sonde, nudge=True)
+        _journal_borne("resize_applied", cols=cols, rows=rows, nudge="fin", **sonde)
 
     def _handle_control(payload: str) -> None:
         """Traite une trame texte (message de contrôle). Aucun échec silencieux.
@@ -205,8 +208,11 @@ async def run_pty_bridge(
             # Même taille finale : c'est la trame que `onResize` d'xterm émet
             # juste avant celle du nudge. La laisser annuler le nudge ferait
             # dependre le repaint de l'ordre d'arrivée des deux — precisement la
-            # dependance au reseau qu'on supprime.
+            # dependance au reseau qu'on supprime. Absorbée mais pas muette
+            # (l'invariant du docstring) : sans trace, « la trame n'arrive pas »
+            # et « la trame est absorbée » sont indiscernables au diagnostic.
             if (cols, rows) == nudge_cible:
+                _journal_borne("resize_absorbed_by_nudge", cols=cols, rows=rows)
                 return
             # La fenetre a rebouge : la nouvelle taille prime, et le nudge ne
             # doit pas poser la sienne, perimee, apres coup.
@@ -216,12 +222,16 @@ async def run_pty_bridge(
         # `rows == 1`, il n'y a pas de taille intermediaire a poser.
         if msg.get("nudge") is True and rows > 1:
             _pty_resize(cols, rows - 1)
+            # Journalisée aussi : c'est l'écart entre cette ligne et sa jumelle
+            # `nudge="fin"` qui rend l'espacement réel des SIGWINCH mesurable —
+            # et donc NUDGE_DELAY_S calibrable sur des logs de production.
+            _journal_borne("resize_applied", cols=cols, rows=rows - 1, nudge="debut", **sonde)
             nudge_cible = (cols, rows)
             nudge = asyncio.create_task(_nudge_puis_vraie_taille(cols, rows, sonde))
             return
 
         _pty_resize(cols, rows)
-        _journaliser(cols, rows, sonde)
+        _journal_borne("resize_applied", cols=cols, rows=rows, **sonde)
 
     async def _ws_to_pty() -> None:
         try:

@@ -999,6 +999,40 @@ describe('FullscreenTerminal — retour sur la session', () => {
     expect(messagesResize()).toEqual([])
   })
 
+  it('ne programme pas de nudge au chargement initial de la page', () => {
+    // `pageshow` part aussi au premier chargement, pas seulement au retour du
+    // bfcache — et la, rien n'a jamais ete masque. Seul `persisted` distingue
+    // les deux : sans cette garde, chaque ouverture de session envoyait un
+    // aller-retour de taille dans le vide.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    act(() => {
+      window.dispatchEvent(new Event('pageshow'))
+      vi.advanceTimersByTime(AJUSTEMENT_MS)
+    })
+
+    expect(messagesResize()).toEqual([])
+  })
+
+  it('recale au retour depuis le cache de navigation (persisted)', () => {
+    // Le bfcache, lui, est un vrai sejour hors du premier plan : tmux a pu
+    // peindre pendant que les geometries divergeaient.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    act(() => {
+      const e = new Event('pageshow')
+      Object.defineProperty(e, 'persisted', { value: true })
+      window.dispatchEvent(e)
+      vi.advanceTimersByTime(AJUSTEMENT_MS)
+    })
+
+    expect(messagesResize().length).toBeGreaterThan(0)
+  })
+
   it('verifie la socket a chaque focus, masquage ou non', () => {
     // La detection de socket morte ne doit PAS suivre la garde du recalage :
     // Safari coupe la WebSocket en arriere-plan sans toujours delivrer `close`,

@@ -350,3 +350,67 @@ async def test_le_nudge_est_annule_a_la_fermeture_du_pont(monkeypatch):
     await asyncio.sleep(0.6)
 
     assert vues == [(265, 64)]
+
+
+@pytest.mark.asyncio
+async def test_le_nudge_journalise_ses_deux_moities(monkeypatch):
+    """Sans les deux lignes, l'espacement réel des SIGWINCH est invérifiable.
+
+    C'est la seule mesure qui permette de calibrer `NUDGE_DELAY_S` sur des logs
+    de production — et de voir un nudge inopérant AVANT que l'utilisateur ne
+    voie l'écran cassé.
+    """
+    monkeypatch.setattr("portal.sessions.pty_bridge.NUDGE_DELAY_S", 0.01)
+    monkeypatch.setattr("portal.sessions.pty_bridge.set_pty_size", lambda *_a: None)
+    infos: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        "portal.sessions.pty_bridge._log",
+        type(
+            "L",
+            (),
+            {
+                "warning": lambda _self, evt, **kw: None,
+                "info": lambda _self, evt, **kw: infos.append((evt, kw)),
+            },
+        )(),
+    )
+
+    await _pont_vivant([_trame(cols=265, rows=65, nudge=True, octets=0)], duree=0.06)
+
+    nudges = [kw for evt, kw in infos if evt == "test_resize_applied"]
+    assert nudges == [
+        {"cols": 265, "rows": 64, "nudge": "debut", "octets": 0},
+        {"cols": 265, "rows": 65, "nudge": "fin", "octets": 0},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_une_trame_absorbee_par_le_nudge_laisse_une_trace(monkeypatch):
+    """L'invariant de `_handle_control` : aucune sortie sans effet n'est muette.
+
+    Sans cette ligne, « la trame n'arrive pas » et « la trame est absorbée par
+    un nudge en vol » sont indiscernables au diagnostic — le défaut que ce
+    handler dit précisément avoir corrigé.
+    """
+    monkeypatch.setattr("portal.sessions.pty_bridge.NUDGE_DELAY_S", 0.05)
+    monkeypatch.setattr("portal.sessions.pty_bridge.set_pty_size", lambda *_a: None)
+    infos: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        "portal.sessions.pty_bridge._log",
+        type(
+            "L",
+            (),
+            {
+                "warning": lambda _self, evt, **kw: None,
+                "info": lambda _self, evt, **kw: infos.append((evt, kw)),
+            },
+        )(),
+    )
+
+    await _pont_vivant(
+        [_trame(cols=265, rows=65, nudge=True), _trame(cols=265, rows=65)],
+        duree=0.2,
+    )
+
+    absorbees = [kw for evt, kw in infos if evt == "test_resize_absorbed_by_nudge"]
+    assert absorbees == [{"cols": 265, "rows": 65}]

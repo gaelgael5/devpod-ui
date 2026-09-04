@@ -713,8 +713,12 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // la page revient telle quelle, sans `visibilitychange`, avec une socket
     // deja morte. Aucun `visibilitychange` n'a donc pose le drapeau, alors que
     // l'ecran a bel et bien vecu hors du premier plan : on le pose ici.
-    const onPageShow = () => {
-      aEteMasquee = true
+    //
+    // SEULEMENT si `persisted` : `pageshow` part aussi au chargement initial de
+    // la page, ou rien n'a jamais ete masque — poser le drapeau sans condition
+    // programmait un nudge a chaque ouverture de session, pour rien.
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) aEteMasquee = true
       onVisible()
     }
     window.addEventListener('pageshow', onPageShow)

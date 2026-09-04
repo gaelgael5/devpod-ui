@@ -222,3 +222,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Dependances npm — un cache vitest avait ete committe par erreur (b7c7f702)
+node_modules/
