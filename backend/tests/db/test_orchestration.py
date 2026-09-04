@@ -23,9 +23,11 @@ from portal.config.models import (
     OidcConfig,
     ServerConfig,
 )
+from portal.db.host_pool import a_deja_une_machine
 from portal.db.provisioning_runs import lire, lister_echecs
 from portal.db.subscription_hosts import rattacher
 from portal.db.tables import (
+    host_ownership,
     host_profiles,
     hosts,
     machine_profiles,
@@ -364,3 +366,40 @@ async def test_la_cible_retenue_est_recopiee_dans_la_trace(db_conn) -> None:
     assert ligne["host_profile"] == "host-standard"
     assert ligne["machine_profile"] == "pve-4g"
     assert ligne["hypervisor"] == "pve-a"
+
+
+async def test_une_machine_mutualisee_ne_recoit_aucune_ligne_de_propriete(db_conn) -> None:
+    """Une machine mutualisée n'a PAS de propriétaire (migration 117).
+
+    Le rattachement d'un abonnement au pool passe par `subscription_hosts` —
+    c'est le contrat de l'`Executeur` — et JAMAIS par `host_ownership`, qui est
+    la table du dédié (clé = machine, `owner_login` NOT NULL). Une ligne de
+    propriété sur une machine de pool réinventerait le propriétaire que le
+    modèle a supprimé.
+    """
+    sub = await _seed(db_conn, hebergement="mutualise")
+    await _seed_host_mutualise(db_conn, nom="mut-01", owner="alice", capacite=4)
+
+    class ExecuteurConforme(ExecuteurFactice):
+        """Persiste le rattachement comme le contrat l'exige — côté pool."""
+
+        async def assigner_host(self, *, owner_login, offer_slug, host_name) -> HostProvisionne:
+            await rattacher(sub, host_name, 1, db_conn)
+            return HostProvisionne(host_name=host_name)
+
+    res = await traiter(
+        db_conn,
+        subscription_id=sub,
+        provider_event_id="evt_1",
+        evenement="debut_essai",
+        owner_login="alice",
+        offer_slug="standard",
+        hosting_type="mutualise",
+        host_profiles=PROFILS,
+        executeur=ExecuteurConforme(),
+    )
+
+    assert res.state == "fait"
+    assert await a_deja_une_machine(sub, db_conn) is True
+    proprietes = (await db_conn.execute(host_ownership.select())).all()
+    assert proprietes == []
