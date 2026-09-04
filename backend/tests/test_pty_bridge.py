@@ -8,6 +8,7 @@ pont rendaient l'échec indétectable.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import fcntl
 import json
 import os
@@ -27,10 +28,15 @@ def _taille(fd: int) -> tuple[int, int]:
 
 
 class _FakeWebSocket:
-    """Websocket minimal : débite les trames fournies puis se déconnecte."""
+    """Websocket minimal : débite les trames fournies puis se déconnecte.
 
-    def __init__(self, frames: list[dict]) -> None:
-        self._frames = [*frames, {"type": "websocket.disconnect"}]
+    `garder_ouvert` retient la déconnexion. Le nudge est asynchrone : un pont
+    qui se démonte aussitôt ses trames lues l'annulerait avant son terme, et le
+    test ne mesurerait rien.
+    """
+
+    def __init__(self, frames: list[dict], *, garder_ouvert: bool = False) -> None:
+        self._frames = [*frames] if garder_ouvert else [*frames, {"type": "websocket.disconnect"}]
         self.sent: list[bytes] = []
 
     async def receive(self) -> dict:
@@ -196,3 +202,151 @@ async def test_sonde_client_journalisee_avec_le_resize(monkeypatch):
         {"cols": 54, "rows": 28, "haut": 900, "vv": 420, "octets": 17},
         {"cols": 54, "rows": 49},
     ]
+
+
+def _trame(**champs) -> dict:
+    return {"type": "websocket.receive", "text": json.dumps({"type": "resize", **champs})}
+
+
+async def _pont_vivant(frames: list[dict], *, duree: float) -> None:
+    """Fait tourner le pont `duree` secondes sur des trames données, puis coupe.
+
+    Le pont doit RESTER en vie : c'est pendant qu'il vit que la seconde moitié
+    du nudge s'applique.
+    """
+    ws = _FakeWebSocket(frames, garder_ouvert=True)
+    tache = asyncio.create_task(
+        run_pty_bridge(
+            ws,  # type: ignore[arg-type]
+            ["sleep", "5"],
+            {"TERM": "xterm", "PATH": "/usr/bin:/bin"},
+            _FakeTerminal(),  # type: ignore[arg-type]
+            log_label="test",
+            # Aucune taille d'amorcage : ces tests portent sur les trames de
+            # controle, et une taille initiale ajouterait un appel parasite au
+            # journal de l'espion.
+            initial_size=None,
+        )
+    )
+    await asyncio.sleep(duree)
+    tache.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await tache
+
+
+@pytest.mark.asyncio
+async def test_le_nudge_applique_la_taille_reduite_puis_la_vraie(monkeypatch):
+    """Deux SIGWINCH, pas un seul : c'est ce qui fait repeindre tmux."""
+    monkeypatch.setattr("portal.sessions.pty_bridge.NUDGE_DELAY_S", 0.01)
+    vues: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "portal.sessions.pty_bridge.set_pty_size",
+        lambda _fd, cols, rows: vues.append((cols, rows)),
+    )
+
+    await _pont_vivant([_trame(cols=265, rows=65, nudge=True)], duree=0.06)
+
+    assert vues == [(265, 64), (265, 65)]
+
+
+@pytest.mark.asyncio
+async def test_le_nudge_espace_reellement_les_deux_tailles(monkeypatch):
+    """Le coeur de la correction : sans écart, tmux ne voit qu'un changement.
+
+    Mesuré en production le 03/09/2026, les deux trames du navigateur
+    arrivaient dans la même milliseconde. Le délai ne peut pas être tenu là-bas
+    — deux trames émises à une frame d'écart sont livrées dans le même segment
+    TCP — il l'est donc ici, où l'horloge est celle du poseur d'ioctl.
+    """
+    monkeypatch.setattr("portal.sessions.pty_bridge.NUDGE_DELAY_S", 0.05)
+    instants: list[float] = []
+    monkeypatch.setattr(
+        "portal.sessions.pty_bridge.set_pty_size",
+        lambda *_a: instants.append(asyncio.get_running_loop().time()),
+    )
+
+    await _pont_vivant([_trame(cols=265, rows=65, nudge=True)], duree=0.2)
+
+    assert len(instants) == 2
+    assert instants[1] - instants[0] >= 0.04
+
+
+@pytest.mark.asyncio
+async def test_un_resize_vers_une_autre_taille_annule_le_nudge(monkeypatch):
+    """La fenêtre a rebougé pendant le nudge : c'est la NOUVELLE taille qui vaut.
+
+    Sans annulation, le nudge poserait sa taille périmée après coup et laisserait
+    le PTY sur une géométrie que plus personne n'a demandée.
+    """
+    monkeypatch.setattr("portal.sessions.pty_bridge.NUDGE_DELAY_S", 0.05)
+    vues: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "portal.sessions.pty_bridge.set_pty_size",
+        lambda _fd, cols, rows: vues.append((cols, rows)),
+    )
+
+    await _pont_vivant(
+        [_trame(cols=265, rows=65, nudge=True), _trame(cols=100, rows=40)],
+        duree=0.2,
+    )
+
+    assert vues == [(265, 64), (100, 40)]
+
+
+@pytest.mark.asyncio
+async def test_un_resize_vers_la_meme_taille_laisse_le_nudge_finir(monkeypatch):
+    """`onResize` d'xterm émet sa propre trame juste avant celle du nudge.
+
+    Les deux visent la même taille finale. Si la première annulait la seconde —
+    ou l'inverse — l'ordre d'arrivée déciderait du repaint, ce qui est exactement
+    le genre de dépendance au réseau qu'on cherche à supprimer.
+    """
+    monkeypatch.setattr("portal.sessions.pty_bridge.NUDGE_DELAY_S", 0.05)
+    vues: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "portal.sessions.pty_bridge.set_pty_size",
+        lambda _fd, cols, rows: vues.append((cols, rows)),
+    )
+
+    await _pont_vivant(
+        [_trame(cols=265, rows=65, nudge=True), _trame(cols=265, rows=65)],
+        duree=0.2,
+    )
+
+    assert vues == [(265, 64), (265, 65)]
+
+
+@pytest.mark.asyncio
+async def test_le_nudge_ne_descend_pas_a_zero_ligne(monkeypatch):
+    """Un terminal d'une ligne existe ; un terminal de zéro ligne, non."""
+    monkeypatch.setattr("portal.sessions.pty_bridge.NUDGE_DELAY_S", 0.01)
+    vues: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "portal.sessions.pty_bridge.set_pty_size",
+        lambda _fd, cols, rows: vues.append((cols, rows)),
+    )
+
+    await _pont_vivant([_trame(cols=80, rows=1, nudge=True)], duree=0.06)
+
+    assert vues == [(80, 1)]
+
+
+@pytest.mark.asyncio
+async def test_le_nudge_est_annule_a_la_fermeture_du_pont(monkeypatch):
+    """Sinon il pose une taille sur un descripteur déjà fermé, pour rien.
+
+    Le `finally` du pont ferme le maître : une tâche survivante journaliserait
+    un `pty_set_size_failed` (EBADF) sans rapport avec un vrai incident.
+    """
+    monkeypatch.setattr("portal.sessions.pty_bridge.NUDGE_DELAY_S", 0.5)
+    vues: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "portal.sessions.pty_bridge.set_pty_size",
+        lambda _fd, cols, rows: vues.append((cols, rows)),
+    )
+
+    # Le pont est coupé bien avant la fin du délai.
+    await _pont_vivant([_trame(cols=265, rows=65, nudge=True)], duree=0.05)
+    await asyncio.sleep(0.6)
+
+    assert vues == [(265, 64)]
