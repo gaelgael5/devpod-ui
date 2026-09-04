@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Plus, Trash2 } from 'lucide-react'
+import { Copy, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -97,6 +97,17 @@ export default function PaymentProviderEditor({ canal, onClose }: Props) {
   const enregistrer = useSaveProvider()
 
   const entrees = Object.entries(brouillon.config)
+
+  // L'adresse que le FOURNISSEUR appellera : c'est l'admin qui la déclare dans
+  // le dashboard (Stripe : avec la version d'API épinglée), elle doit se lire
+  // ici plutôt que se reconstruire de tête. L'origine du navigateur suffit —
+  // l'administration se fait par l'URL publique, la même que voit Stripe.
+  const urlWebhook = `${window.location.origin}/webhooks/paiement/${brouillon.slug}`
+
+  async function copierUrlWebhook() {
+    await navigator.clipboard.writeText(urlWebhook)
+    toast.success(t('admin.billing.webhookUrlCopied'))
+  }
 
   function setLabel(label: string) {
     setBrouillon((b) => ({ ...b, label, slug: slugManuel ? b.slug : slugifier(label) }))
@@ -282,6 +293,30 @@ export default function PaymentProviderEditor({ canal, onClose }: Props) {
               {t('admin.billing.addConfigKey')}
             </Button>
           </fieldset>
+          )}
+
+          {brouillon.slug && (
+            <div className="flex flex-col gap-1.5">
+              <Label>{t('admin.billing.webhookUrl')}</Label>
+              <div className="flex items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded-md border bg-muted px-2 py-1.5 font-mono text-xs">
+                  {urlWebhook}
+                </code>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8 shrink-0"
+                  aria-label={t('admin.billing.copyWebhookUrl')}
+                  onClick={copierUrlWebhook}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t('admin.billing.webhookUrlHelp')}
+              </p>
+            </div>
           )}
 
           <div className="flex justify-end gap-2">
