@@ -604,12 +604,20 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       reRenduTimer = setTimeout(() => {
         reRenduTimer = undefined
         terminal.refresh(0, terminal.rows - 1)
-        // Sonde bornee : confirme dans les logs (Faro) que le re-rendu tourne
-        // bien, et a quelle cadence — sinon impossible de distinguer « le code
-        // n'est pas charge » de « le re-rendu ne suffit pas ».
-        if (diagReRendu < 15) {
+        // DIAGNOSTIC : dumper les 3 premiers caracteres de chaque ligne du
+        // BUFFER xterm. Si le decalage subsiste apres refresh, c'est que le
+        // buffer lui-meme est corrompu en colonne 0-1 (et non de simples pixels
+        // perimes). Ce dump, compare a `tmux capture-pane` (propre), le prouve
+        // et montre exactement quelles lignes/colonnes divergent.
+        if (diagReRendu < 4) {
           diagReRendu++
-          console.warn('terminal_diag: re-rendu force apres sortie')
+          const buf = terminal.buffer.active
+          let sig = ''
+          for (let y = 0; y < terminal.rows; y++) {
+            const l = buf.getLine(y)
+            sig += (l ? l.translateToString(true).slice(0, 3) : '   ').padEnd(3).slice(0, 3) + '¦'
+          }
+          console.warn(`terminal_diag: buffer_col ${sig}`)
         }
       }, REFRESH_SORTIE_MS)
     }
