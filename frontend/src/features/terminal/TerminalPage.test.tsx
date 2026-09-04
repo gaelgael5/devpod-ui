@@ -58,6 +58,7 @@ describe('TerminalPage — clavier mobile', () => {
     const cbs = new Set<() => void>()
     const vue = {
       height: hauteur,
+      pageTop: 0,
       addEventListener: (_t: string, cb: () => void) => cbs.add(cb),
       removeEventListener: (_t: string, cb: () => void) => cbs.delete(cb),
     }
@@ -65,6 +66,10 @@ describe('TerminalPage — clavier mobile', () => {
     return {
       retrecir(nouvelle: number) {
         vue.height = nouvelle
+        cbs.forEach((cb) => cb())
+      },
+      panner(haut: number) {
+        vue.pageTop = haut
         cbs.forEach((cb) => cb())
       },
     }
@@ -89,6 +94,23 @@ describe('TerminalPage — clavier mobile', () => {
     act(() => vue.retrecir(420))
 
     expect(screen.getByTestId('terminal-page')).toHaveStyle({ height: '420px' })
+  })
+
+  it('suit la zone visible quand Safari panne le viewport (clavier iOS)', () => {
+    // iOS deplace la fenetre visible pour reveler la saisie : sans
+    // compensation, le conteneur — ancre en haut du document — se retrouve
+    // decale, bande vide a l'ecran. On le translate d'autant.
+    const vue = poserVisualViewport(800)
+    renderAt('/terminal?ws=%2Fadmin%2Fhosts%2Fh1%2Fssh')
+
+    act(() => {
+      vue.retrecir(420)
+      vue.panner(60)
+    })
+
+    const page = screen.getByTestId('terminal-page')
+    expect(page).toHaveStyle({ height: '420px' })
+    expect(page).toHaveStyle({ transform: 'translateY(60px)' })
   })
 
   it('garde 100vh sans l’API', () => {

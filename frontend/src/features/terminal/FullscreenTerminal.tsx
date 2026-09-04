@@ -691,7 +691,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     const ro = new ResizeObserver(planifierAjustement)
     if (termRef.current) ro.observe(termRef.current)
     // Clavier mobile. iOS ne fait varier NI `window.resize` NI la hauteur du
-    // viewport de mise en page (cf. `useVisualViewportHeight`) : sans ces deux
+    // viewport de mise en page (cf. `useVisualViewport`) : sans ces deux
     // ecouteurs, le recalage n'arrive qu'indirectement — etat React, puis
     // hauteur du conteneur, puis ResizeObserver — et PAS DU TOUT quand iOS
     // deplace le viewport visuel sans le redimensionner.
