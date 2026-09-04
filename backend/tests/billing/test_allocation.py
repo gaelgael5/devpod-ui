@@ -14,6 +14,7 @@ from portal.billing.allocation import (
     Part,
     QuotaDepasse,
     parts_disponibles,
+    verifier_creation_pool,
     verifier_part,
 )
 
@@ -90,3 +91,52 @@ def test_reposer_sur_la_meme_machine_remplace_la_part():
 def test_part_nulle_ou_negative_refusee():
     with pytest.raises(ValueError):
         Part(host_name="vm1", allocated_workspaces=0)
+
+
+# ─── Création d'un workspace sur une machine du pool ─────────────────────────
+
+
+def test_pool_sous_la_part_la_creation_passe():
+    verifier_creation_pool(
+        host_name="mut-01", part_allouee=3, mes_workspaces=2, capacite=10, utilises=5
+    )
+
+
+def test_pool_sans_part_le_refus_nomme_l_abonnement_manquant():
+    """Sans abonnement donnant une place ici, on ne crée rien — et le message
+    dit quoi faire, pas juste « non »."""
+    with pytest.raises(QuotaDepasse) as err:
+        verifier_creation_pool(
+            host_name="mut-01", part_allouee=0, mes_workspaces=0, capacite=10, utilises=0
+        )
+    assert "abonnement" in str(err.value)
+    assert "mut-01" in str(err.value)
+
+
+def test_pool_part_epuisee_le_refus_nomme_le_quota_du_forfait():
+    with pytest.raises(QuotaDepasse) as err:
+        verifier_creation_pool(
+            host_name="mut-01", part_allouee=2, mes_workspaces=2, capacite=10, utilises=4
+        )
+    assert "forfait" in str(err.value)
+    assert "2/2" in str(err.value)
+
+
+def test_pool_machine_pleine_prime_sur_la_part_restante():
+    """La capacité physique gouverne : même avec une part disponible, une
+    machine pleine ne prend plus rien — et le message appelle une machine,
+    pas un forfait."""
+    with pytest.raises(QuotaDepasse) as err:
+        verifier_creation_pool(
+            host_name="mut-01", part_allouee=5, mes_workspaces=1, capacite=4, utilises=4
+        )
+    assert "capacité" in str(err.value)
+    assert "forfait" not in str(err.value)
+
+
+def test_pool_capacite_inconnue_ne_bloque_pas_une_part_valide():
+    """`None` = non renseignée. La part a été accordée au provisionnement, où la
+    capacité était connue : la retirer après coup bloquerait un droit acquis."""
+    verifier_creation_pool(
+        host_name="mut-01", part_allouee=2, mes_workspaces=1, capacite=None, utilises=9
+    )

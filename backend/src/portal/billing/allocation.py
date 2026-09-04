@@ -77,6 +77,46 @@ def parts_disponibles(quota_forfait: int | None, parts: list[Part]) -> int | Non
     return max(0, quota_forfait - sum(p.allocated_workspaces for p in parts))
 
 
+def verifier_creation_pool(
+    *,
+    host_name: str,
+    part_allouee: int,
+    mes_workspaces: int,
+    capacite: int | None,
+    utilises: int,
+) -> None:
+    """Vérifie qu'un compte peut créer un workspace de plus sur une machine du pool.
+
+    `part_allouee` = somme des places que ses abonnements ouverts lui donnent
+    sur CETTE machine ; zéro couvre aussi le compte sans abonnement. `utilises`
+    = workspaces posés sur la machine, tous comptes confondus.
+
+    L'ordre des refus suit la nature des plafonds : la capacité physique
+    d'abord — elle prime sur tout droit commercial — puis la part du forfait.
+    `capacite` à `None` ne bloque pas : la part a été accordée au
+    provisionnement, où la capacité était connue ; la retirer après coup
+    bloquerait un droit acquis sur un trou de configuration.
+
+    Lève `QuotaDepasse` avec un message affichable, ou ne fait rien.
+    """
+    if part_allouee <= 0:
+        raise QuotaDepasse(
+            f"aucune place sur la machine {host_name} : aucun abonnement ouvert "
+            "ne vous y en donne — souscrivez un forfait, ou utilisez une autre machine"
+        )
+    if capacite is not None and utilises >= capacite:
+        raise QuotaDepasse(
+            f"capacité de la machine {host_name} atteinte ({utilises}/{capacite} "
+            "workspaces) : elle ne peut pas en faire tourner davantage sans planter"
+        )
+    if mes_workspaces >= part_allouee:
+        raise QuotaDepasse(
+            f"quota du forfait atteint sur {host_name} "
+            f"({mes_workspaces}/{part_allouee} workspaces) : "
+            "un forfait supérieur est nécessaire"
+        )
+
+
 def verifier_part(
     quota_forfait: int | None,
     parts: list[Part],

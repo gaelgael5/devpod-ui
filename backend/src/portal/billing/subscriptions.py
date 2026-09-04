@@ -59,6 +59,12 @@ ETAT_APRES: dict[str, SubscriptionState] = {
 #: un état d'abonnement.
 ETATS_CLOS: frozenset[str] = frozenset({"resilie"})
 
+#: États OUVERTS : l'abonnement donne droit au service. `echec_paiement` en est
+#: — on ne coupe pas au premier prélèvement refusé, la fenêtre de relance est la
+#: période de grâce. Seule source de vérité : `Subscription.ouvert` la lit, et
+#: les requêtes SQL qui filtrent sur l'état ouvert la lisent aussi.
+ETATS_OUVERTS: frozenset[str] = frozenset({"essai", "actif", "echec_paiement"})
+
 
 class TransitionRefusee(Exception):
     """L'événement ne peut pas s'appliquer à l'état courant (FR)."""
@@ -125,7 +131,7 @@ class Subscription(BaseModel):
         grâce est exactement la fenêtre de relance — au-delà de la dernière
         tentative, l'abonnement passe `resilie` et se ferme.
         """
-        return self.state in {"essai", "actif", "echec_paiement"}
+        return self.state in ETATS_OUVERTS
 
 
 class SubscriptionEvent(BaseModel):

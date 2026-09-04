@@ -29,16 +29,16 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+# Une seule classe d'excès de quota pour tout le module billing : deux classes
+# homonymes feraient silencieusement passer un `except` à côté de l'autre.
+from .allocation import QuotaDepasse as QuotaDepasse
+
 # Validation d'adresse volontairement permissive : on refuse ce qui n'est
 # manifestement pas une adresse, on ne prétend pas valider le RFC 5322.
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 HostingType = Literal["dedie", "mutualise"]
 GuestState = Literal["invite", "accepte", "revoque"]
-
-
-class QuotaDepasse(Exception):
-    """La création de workspace est refusée (FR, message affichable)."""
 
 
 class HostOwnership(BaseModel):
