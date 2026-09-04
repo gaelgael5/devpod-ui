@@ -290,9 +290,9 @@ async def test_le_nudge_applique_la_taille_reduite_puis_la_vraie(monkeypatch):
     assert vues == [(265, 64), (265, 65)]
 ```
 
-- [ ] Ajouter `import contextlib` en tête du fichier de test
-- [ ] Ajouter le paramètre `garder_ouvert` à `_FakeWebSocket`
-- [ ] Écrire le test ci-dessus
+- [x] Ajouter `import contextlib` en tête du fichier de test
+- [x] Ajouter le paramètre `garder_ouvert` à `_FakeWebSocket`
+- [x] Écrire le test ci-dessus
 
 ```bash
 cd backend && uv run pytest tests/test_pty_bridge.py -k nudge -v   # ROUGE
@@ -324,7 +324,7 @@ async def test_le_nudge_espace_reellement_les_deux_tailles(monkeypatch):
     assert instants[1] - instants[0] >= 0.04
 ```
 
-- [ ] Écrire le test
+- [x] Écrire le test
 
 ### Étape 1.3 — Tests rouges : annulation, taille identique, `rows == 1`, teardown
 
@@ -343,7 +343,7 @@ async def test_le_nudge_est_annule_a_la_fermeture_du_pont(monkeypatch):
     """Sinon il écrit sur un descripteur fermé et journalise un EBADF pour rien."""
 ```
 
-- [ ] Écrire les quatre tests
+- [x] Écrire les quatre tests
 
 ```bash
 cd backend && uv run pytest tests/test_pty_bridge.py -v   # 5 ROUGES, les 4 anciens VERTS
@@ -403,10 +403,10 @@ Le calcul de `sonde` remonte donc avant ce bloc (il alimente les deux chemins), 
 
 Dans le `finally` de `run_pty_bridge`, avant `os.close(master_fd)` : `_annuler_nudge()`.
 
-- [ ] Ajouter `NUDGE_DELAY_S` et son commentaire
-- [ ] Ajouter la tâche annulable et la règle d'annulation
-- [ ] Annuler le nudge au teardown
-- [ ] Remonter le calcul de `sonde` avant le branchement
+- [x] Ajouter `NUDGE_DELAY_S` et son commentaire
+- [x] Ajouter la tâche annulable et la règle d'annulation
+- [x] Annuler le nudge au teardown
+- [x] Remonter le calcul de `sonde` avant le branchement
 
 ```bash
 cd backend && uv run pytest tests/test_pty_bridge.py tests/sessions -v   # TOUT VERT
@@ -469,7 +469,7 @@ describe('parseQueue', () => {
 })
 ```
 
-- [ ] Créer `parseQueue.test.ts` avec ces sept tests
+- [x] Créer `parseQueue.test.ts` (neuf tests)
 
 ```bash
 cd frontend && npx vitest run src/features/terminal/parseQueue.test.ts   # ROUGE
@@ -477,7 +477,7 @@ cd frontend && npx vitest run src/features/terminal/parseQueue.test.ts   # ROUGE
 
 ### Étape 2.2 — Implémenter
 
-- [ ] Créer `parseQueue.ts` (≤ 60 lignes, commentaires au format du dossier : le *pourquoi*)
+- [x] Créer `parseQueue.ts`
 
 ```bash
 cd frontend && npx vitest run src/features/terminal/parseQueue.test.ts   # VERT
@@ -510,9 +510,8 @@ jamais et aucun test ne peut distinguer les deux comportements.
   }
 ```
 
-- [ ] Modifier `MockTerminal.write` et ajouter `draine()`
-- [ ] Vérifier que les tests existants qui comptent les `write` (fermeture, erreur) passent
-      toujours — ils appellent `write` sans rappel
+- [x] Modifier `MockTerminal.write` et ajouter `draine()`
+- [x] Vérifier que les tests existants qui comptent les `write` passent toujours
 
 ### Étape 3.2 — Tests rouges
 
@@ -548,8 +547,8 @@ Tests existants à adapter (le comportement change, pas l'intention) :
 | `fait REPEINDRE tmux, au lieu de redessiner la trame locale` | 548 | attend `nudge:true` sur la trame |
 | `fait REPEINDRE tmux au retour, pas seulement le tampon local` | 925 | idem |
 
-- [ ] Écrire les trois nouveaux tests
-- [ ] Adapter les quatre tests du tableau
+- [x] Écrire les nouveaux tests (quatre : le cas « taille COURANTE » est conservé, adapté au drain)
+- [x] Adapter les tests du tableau
 
 ```bash
 cd frontend && npx vitest run src/features/terminal/FullscreenTerminal.test.tsx   # ROUGES ciblés
@@ -559,15 +558,14 @@ cd frontend && npx vitest run src/features/terminal/FullscreenTerminal.test.tsx 
 
 Dans `FullscreenTerminal.tsx` :
 
-- [ ] Remplacer `octetsEnAttente` par `const file = createParseQueue()` ; `safeFit` lit
+- [x] Remplacer `octetsEnAttente` par `const file = createParseQueue()` ; `safeFit` lit
       `file.enAttente()` pour la sonde
-- [ ] `ws.onmessage` : `file.arrive(data.length)` puis `terminal.write(data, () => file.analyse(data.length))`
-- [ ] `sendResize(cols, rows, nudge = false)` : ajoute `...(nudge ? { nudge: true } : {})`
-- [ ] `refreshRef.current` : plus de `requestAnimationFrame`, plus de double envoi —
+- [x] `ws.onmessage` : `file.arrive(data.length)` puis `terminal.write(data, () => file.analyse(data.length))`
+- [x] `sendResize(cols, rows, nudge = false)` : ajoute `...(nudge ? { nudge: true } : {})`
+- [x] `refreshRef.current` : plus de `requestAnimationFrame`, plus de double envoi —
       `file.quandVide(() => { safeFit(); sendResize(terminal.cols, terminal.rows, true); terminal.refresh(0, terminal.rows - 1) })`
-- [ ] Réécrire le commentaire de `refreshRef` : la raison d'être du nudge ne change pas, mais
-      l'endroit où le délai est tenu, si — et pourquoi il ne peut pas l'être ici
-- [ ] `dispose()` de la file dans le `return` du `useEffect`
+- [x] Réécrire le commentaire de `refreshRef`
+- [x] `dispose()` de la file dans le `return` du `useEffect`
 
 ```bash
 cd frontend && npx vitest run src/features/terminal/   # TOUT VERT
