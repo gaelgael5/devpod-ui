@@ -49,7 +49,15 @@ interface Props {
 export const AJUSTEMENT_MS = 150
 // Debounce du re-rendu apres une salve de sortie (cf. `forcerReRendu`) : le
 // refresh-client ne part qu'une fois le defilement calme depuis ce delai.
-export const REFRESH_SORTIE_MS = 200
+//
+// 500 ms, PLUS LONG que la cadence du spinner « thinking » de l'agent (~300 ms
+// mesures dans les logs le 04/09). Pendant qu'il reflechit, l'agent ne produit
+// aucun contenu — rien ne defile, donc aucun residu a nettoyer — mais son
+// spinner s'anime avec des sauts de ligne. Chaque trame rearme ce debounce ;
+// tant que le spinner tape plus vite que 500 ms, le timer n'expire jamais et
+// aucun refresh ne part : plus de scintillement au repos. Le refresh ne tire
+// qu'une fois la sortie REELLE terminee et l'ecran calme.
+export const REFRESH_SORTIE_MS = 500
 // Code de fermeture applicatif : la session a ete reprise sur un autre
 // appareil. Cote pont, `pty_bridge.run_pty_bridge`.
 export const CODE_REPRISE_AILLEURS = 4409
