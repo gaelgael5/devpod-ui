@@ -40,9 +40,13 @@ _log = structlog.get_logger(__name__)
 # une frame d'écart, sont livrées dans le même segment TCP. Mesuré en production
 # le 03/09/2026, elles arrivaient au pont dans la MÊME milliseconde.
 #
-# Valeur à confirmer sur des logs réels : un tmux occupé à dessiner a une
-# fenêtre de coalescence plus large qu'un processus oisif.
-NUDGE_DELAY_S = 0.08
+# Valeur calibrée sur des logs réels : à 80 ms, l'écart était bien tenu (mesuré
+# à 81 ms côté PTY) mais tmux ne repeignait TOUJOURS pas — résidus en colonne 0
+# encore visibles à l'écran le 04/09. Un tmux occupé à dessiner a une fenêtre de
+# coalescence plus large qu'un processus oisif : le second SIGWINCH tombait
+# encore pendant qu'il traitait le premier. Remonté à 160 ms, palier suivant du
+# plan de calibration.
+NUDGE_DELAY_S = 0.16
 
 
 def _attach_controlling_tty() -> None:
