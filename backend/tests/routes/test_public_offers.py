@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from portal.billing.models import Offer, OfferPrice
+from portal.config.models import HostProfile
 from portal.db.engine import get_conn
 from portal.routes import billing_offers
 
@@ -68,7 +69,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     app.include_router(billing_offers.router_public)
     app.dependency_overrides[get_conn] = lambda: None
 
-    etat: dict[str, Any] = {"offres": [], "devise": "EUR"}
+    etat: dict[str, Any] = {"offres": [], "devise": "EUR", "profils": {}}
 
     async def _list_offers(_conn: Any, *, published_only: bool = False) -> list[Offer]:
         tout = list(etat["offres"])
@@ -77,8 +78,12 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def _devise_par_defaut(_conn: Any) -> str | None:
         return etat["devise"]
 
+    async def _get_host_profile(slug: str, _conn: Any) -> HostProfile | None:
+        return etat["profils"].get(slug)
+
     monkeypatch.setattr(billing_offers, "list_offers", _list_offers)
     monkeypatch.setattr(billing_offers, "devise_par_defaut", _devise_par_defaut)
+    monkeypatch.setattr(billing_offers, "get_host_profile", _get_host_profile)
 
     client = TestClient(app)
     client.etat = etat  # type: ignore[attr-defined]
@@ -125,6 +130,88 @@ def test_l_infrastructure_ne_fuit_pas(client: TestClient) -> None:
 
     for interdit in ("variables", "vm_template", "provider_slug", "stripe-fr", "host_profiles"):
         assert interdit not in corps
+
+
+def _profil(slug: str, capacite: str | None) -> HostProfile:
+    variables = {} if capacite is None else {"capacity_workspaces": capacite}
+    return HostProfile(slug=slug, label=slug, machine_profile="mp-std", variables=variables)
+
+
+class TestPlafondDedie:
+    """En dédié, « illimité » n'existe pas : une machine a une capacité.
+
+    Le plafond affiché est le plafond OPPOSABLE, celui de `limite_effective` :
+    min(capacité déclarée par le profil de host, quota commercial de l'offre).
+    Quand rien n'est déclaré, la réponse est `null` — « non renseigné », que la
+    page n'a pas le droit de lire « illimité ».
+    """
+
+    def test_la_capacite_vient_du_profil_de_host(self, client: TestClient) -> None:
+        client.etat["profils"] = {"h1": _profil("h1", "8")}  # type: ignore[attr-defined]
+        client.etat["offres"] = [  # type: ignore[attr-defined]
+            _offre(hosting_type="dedie", max_workspaces=None, host_profiles=["h1"])
+        ]
+
+        (offre,) = client.get("/offers").json()
+
+        assert offre["max_workspaces"] == 8
+
+    def test_le_quota_de_l_offre_prime_s_il_est_plus_bas(self, client: TestClient) -> None:
+        client.etat["profils"] = {"h1": _profil("h1", "8")}  # type: ignore[attr-defined]
+        client.etat["offres"] = [  # type: ignore[attr-defined]
+            _offre(hosting_type="dedie", max_workspaces=5, host_profiles=["h1"])
+        ]
+
+        (offre,) = client.get("/offers").json()
+
+        assert offre["max_workspaces"] == 5
+
+    def test_la_capacite_prime_sur_un_quota_plus_haut(self, client: TestClient) -> None:
+        client.etat["profils"] = {"h1": _profil("h1", "8")}  # type: ignore[attr-defined]
+        client.etat["offres"] = [  # type: ignore[attr-defined]
+            _offre(hosting_type="dedie", max_workspaces=20, host_profiles=["h1"])
+        ]
+
+        (offre,) = client.get("/offers").json()
+
+        assert offre["max_workspaces"] == 8
+
+    def test_plusieurs_profils_le_plancher_fait_foi(self, client: TestClient) -> None:
+        """Le provisioning peut retomber sur n'importe quel profil de la liste :
+        on promet ce que le moins capable garantit, pas ce que le meilleur offre."""
+        client.etat["profils"] = {  # type: ignore[attr-defined]
+            "h1": _profil("h1", "10"),
+            "h2": _profil("h2", "8"),
+        }
+        client.etat["offres"] = [  # type: ignore[attr-defined]
+            _offre(hosting_type="dedie", max_workspaces=None, host_profiles=["h1", "h2"])
+        ]
+
+        (offre,) = client.get("/offers").json()
+
+        assert offre["max_workspaces"] == 8
+
+    def test_aucune_capacite_declaree_rend_null_pas_illimite(self, client: TestClient) -> None:
+        client.etat["profils"] = {"h1": _profil("h1", None)}  # type: ignore[attr-defined]
+        client.etat["offres"] = [  # type: ignore[attr-defined]
+            _offre(hosting_type="dedie", max_workspaces=None, host_profiles=["h1"])
+        ]
+
+        (offre,) = client.get("/offers").json()
+
+        assert offre["max_workspaces"] is None
+
+    def test_le_mutualise_ne_consulte_pas_les_profils(self, client: TestClient) -> None:
+        """En mutualisé, `max_workspaces` est le quota personnel du souscripteur,
+        pas la capacité d'une machine : le profil de host n'a rien à y dire."""
+        client.etat["profils"] = {"h1": _profil("h1", "8")}  # type: ignore[attr-defined]
+        client.etat["offres"] = [  # type: ignore[attr-defined]
+            _offre(hosting_type="mutualise", max_workspaces=None, host_profiles=["h1"])
+        ]
+
+        (offre,) = client.get("/offers").json()
+
+        assert offre["max_workspaces"] is None
 
 
 def test_offre_gratuite_sans_prix(client: TestClient) -> None:

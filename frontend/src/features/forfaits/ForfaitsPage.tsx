@@ -61,13 +61,19 @@ function Quotas({ offre }: { offre: OffrePubliee }) {
   const valeur = (quota: number | null) => (quota === null ? illimite : String(quota))
 
   // Les deux types d'hébergement ne décrivent pas la même chose avec les mêmes
-  // champs : en dédié `max_workspaces` est la capacité de CHAQUE machine, en
+  // champs : en dédié `max_workspaces` est le plafond par machine résolu par le
+  // serveur (capacité du profil de host, bornée par le quota de l'offre), en
   // mutualisé c'est le quota personnel du souscripteur sur le pool.
+  //
+  // En dédié, `null` = NON RENSEIGNÉ, pas illimité — une machine « illimitée »
+  // n'existe pas. On tait la ligne plutôt que de promettre faux.
   const lignes =
     offre.hosting_type === 'dedie'
       ? [
           t('forfaits.dedicatedHosts', { value: valeur(offre.max_hosts_dedies) }),
-          t('forfaits.hostCapacity', { value: valeur(offre.max_workspaces) }),
+          ...(offre.max_workspaces !== null
+            ? [t('forfaits.hostCapacity', { value: String(offre.max_workspaces) })]
+            : []),
         ]
       : [t('forfaits.sharedQuota', { value: valeur(offre.max_workspaces) })]
 

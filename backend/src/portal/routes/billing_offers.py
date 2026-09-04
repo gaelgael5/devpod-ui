@@ -70,6 +70,10 @@ class OffrePubliee(BaseModel):
     titles: dict[str, str]
     descriptions: dict[str, str]
     hosting_type: str
+    #: En mutualise : quota personnel du souscripteur, `None` = illimite. En
+    #: dedie : plafond OPPOSABLE par machine — min(capacite declaree par le
+    #: profil de host, quota de l'offre) — et `None` = NON RENSEIGNE, que la
+    #: page n'affiche pas : une machine « illimitee » n'existe pas.
     max_workspaces: int | None
     max_hosts_dedies: int | None
     is_free: bool
@@ -92,14 +96,35 @@ class OffrePubliee(BaseModel):
     prices_include_tax: bool
 
 
-def _vue_publique(offre: Offer, devise: str | None) -> OffrePubliee:
+async def _plafond_dedie(offre: Offer, conn: AsyncConnection) -> int | None:
+    """Plafond de workspaces par machine réellement opposable, ou `None`.
+
+    Même arbitrage que `ownership.limite_effective` : la capacité déclarée par
+    le profil de host est la contrainte dure, le quota de l'offre une borne
+    commerciale — le plus bas des deux fait foi. Le provisioning pouvant
+    retomber sur n'importe quel profil de la liste, on promet ce que le moins
+    capable garantit, pas ce que le meilleur offre.
+
+    `None` = rien de déclaré nulle part. Ce n'est pas « illimité » : c'est un
+    trou de configuration, et la page publique ne doit rien en dire.
+    """
+    bornes = [offre.max_workspaces] if offre.max_workspaces is not None else []
+    for slug in offre.host_profiles:
+        profil = await get_host_profile(slug, conn)
+        capacite = profil.capacity_workspaces() if profil else None
+        if capacite is not None:
+            bornes.append(capacite)
+    return min(bornes) if bornes else None
+
+
+def _vue_publique(offre: Offer, devise: str | None, max_workspaces: int | None) -> OffrePubliee:
     prix = offre.prix(devise) if devise else None
     return OffrePubliee(
         slug=offre.slug,
         titles=dict(offre.titles),
         descriptions=dict(offre.descriptions),
         hosting_type=offre.hosting_type,
-        max_workspaces=offre.max_workspaces,
+        max_workspaces=max_workspaces,
         max_hosts_dedies=offre.max_hosts_dedies,
         is_free=offre.is_free,
         duration_days=offre.duration_days,
@@ -123,7 +148,18 @@ async def list_public_offers(
     """
     devise = await devise_par_defaut(conn)
     offres = await list_offers(conn, published_only=True)
-    return [_vue_publique(o, devise) for o in offres]
+    vues = []
+    for offre in offres:
+        # En dedie, le plafond affiche vient du profil de host : une machine a
+        # une capacite, « illimite » n'existe pas. En mutualise, le champ reste
+        # le quota personnel de l'offre.
+        plafond = (
+            await _plafond_dedie(offre, conn)
+            if offre.hosting_type == "dedie"
+            else offre.max_workspaces
+        )
+        vues.append(_vue_publique(offre, devise, plafond))
+    return vues
 
 
 class FinDeValidite(BaseModel):

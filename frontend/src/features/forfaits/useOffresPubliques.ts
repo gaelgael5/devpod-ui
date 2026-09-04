@@ -7,7 +7,11 @@ export interface OffrePubliee {
   titles: Record<string, string>
   descriptions: Record<string, string>
   hosting_type: 'dedie' | 'mutualise'
-  /** `null` = illimité. Capacité du host en dédié, quota personnel en mutualisé. */
+  /**
+   * En mutualisé : quota personnel, `null` = illimité. En dédié : plafond par
+   * machine résolu côté serveur (capacité du profil de host bornée par le
+   * quota de l'offre), `null` = non renseigné — jamais « illimité ».
+   */
   max_workspaces: number | null
   /** `null` = illimité. Nombre de machines dédiées que le forfait permet de posséder. */
   max_hosts_dedies: number | null

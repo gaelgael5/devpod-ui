@@ -114,6 +114,25 @@ describe('ForfaitsPage', () => {
     expect(screen.queryByText(/Une seule souscription par compte/)).not.toBeInTheDocument()
   })
 
+  it("en dédié, tait la capacité quand elle n'est pas renseignée — jamais « illimité »", async () => {
+    // `null` en dédié = capacité non renseignée côté profil de host. Une
+    // machine « illimitée » n'existe pas : on ne promet rien plutôt que faux.
+    servir([
+      offre({
+        slug: 'max',
+        titles: { fr: 'Max' },
+        hosting_type: 'dedie',
+        max_hosts_dedies: 2,
+        max_workspaces: null,
+      }),
+    ])
+    renderWithProviders(<ForfaitsPage />)
+
+    expect(await screen.findByText('Machines dédiées : 2')).toBeInTheDocument()
+    expect(screen.queryByText(/Workspaces par machine/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/illimité/)).not.toBeInTheDocument()
+  })
+
   it('lit « illimité » sur un quota nul, jamais zéro', async () => {
     servir([offre({ max_workspaces: null })])
     renderWithProviders(<ForfaitsPage />)
