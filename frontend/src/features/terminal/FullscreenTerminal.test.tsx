@@ -4,6 +4,7 @@ import { I18nextProvider } from 'react-i18next'
 import i18n from '@/i18n'
 import FullscreenTerminal, { AJUSTEMENT_MS, CODE_REPRISE_AILLEURS } from './FullscreenTerminal'
 import { ENTER_COPY, EXIT_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScroll'
+import { ATTENTE_MAX_MS } from './parseQueue'
 
 // Mock xterm : capture l'instance pour déclencher onSelectionChange depuis les
 // tests. jsdom ne rend pas de vrai terminal.
@@ -52,7 +53,24 @@ class MockTerminal {
   })
   dispose = vi.fn()
   focus = vi.fn(() => this.textarea.focus())
-  write = vi.fn()
+  /**
+   * Rappels de `write` non encore honores.
+   *
+   * `write` est ASYNCHRONE dans le vrai xterm : il met en file et rappelle une
+   * fois le flux analyse. Un mock qui n'appelle jamais son rappel laisse la
+   * file eternellement pleine — et aucun test ne peut alors distinguer un
+   * redimensionnement qui attend le vidage d'un qui ne l'attend pas.
+   */
+  ecritures: Array<() => void> = []
+  write = vi.fn((_data: unknown, cb?: () => void) => {
+    if (cb) this.ecritures.push(cb)
+  })
+  /** Vide la file de parsing, comme xterm le fait a son rythme. */
+  draine() {
+    const cbs = this.ecritures
+    this.ecritures = []
+    cbs.forEach((cb) => cb())
+  }
   refresh = vi.fn()
   // xterm normalise et encadre le texte collé, puis le fait ressortir par
   // onData. Le mock reproduit ce relais : sans lui, rien ne partirait vers la WS.
@@ -558,7 +576,11 @@ describe('FullscreenTerminal — recalage au clavier mobile', () => {
     act(() => { vue.dispatchEvent(new Event('resize')) })
     act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
 
-    expect(messagesResize().length).toBeGreaterThan(0)
+    const trames = messagesResize()
+    expect(trames.length).toBeGreaterThan(0)
+    // Une seule trame, marquee `nudge` : l'aller-retour de taille est execute
+    // par le pont, seul endroit ou l'ecart entre les deux SIGWINCH est tenable.
+    expect(JSON.parse(trames.at(-1)!)).toMatchObject({ nudge: true })
   })
 
   it('ne recale qu\'une fois pour une rafale de paliers', () => {
@@ -952,7 +974,9 @@ describe('FullscreenTerminal — retour sur la session', () => {
     revenir()
     act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
 
-    expect(messagesResize().length).toBeGreaterThan(0)
+    const trames = messagesResize()
+    expect(trames.length).toBeGreaterThan(0)
+    expect(JSON.parse(trames.at(-1)!)).toMatchObject({ nudge: true })
   })
 
   it('ne recale pas sur un focus sans que la page ait ete masquee', () => {
@@ -1282,7 +1306,7 @@ describe('FullscreenTerminal — rafraichir l’affichage', () => {
     return sockets[0].send.mock.calls
       .map((c) => c[0])
       .filter((d): d is string => typeof d === 'string')
-      .map((d) => JSON.parse(d) as { type: string; cols: number; rows: number })
+      .map((d) => JSON.parse(d) as { type: string; cols: number; rows: number; nudge?: boolean })
       .filter((m) => m.type === 'resize')
   }
 
@@ -1290,7 +1314,14 @@ describe('FullscreenTerminal — rafraichir l’affichage', () => {
     fireEvent.click(screen.getByRole('button', { name: /rafraîchir|refresh/i }))
   }
 
-  it('envoie une taille differente puis la vraie', () => {
+  it('envoie UNE trame de nudge, pas deux tailles a la merci du reseau', () => {
+    // L'ancien aller-retour partait en deux trames a une frame d'ecart —
+    // livrees dans le MEME segment TCP. Les deux TIOCSWINSZ s'enchainaient en
+    // moins d'une milliseconde (mesure le 03/09) et SIGWINCH, que le noyau ne
+    // met pas en file, etait coalesce : tmux ne voyait qu'un changement, vers
+    // la taille qu'il avait deja, et ne repeignait rien. C'est le pont qui
+    // execute desormais l'aller-retour, avec un ecart qu'il est seul a pouvoir
+    // garantir.
     renderTerminal()
     act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
     sockets[0].send.mockClear()
@@ -1299,31 +1330,73 @@ describe('FullscreenTerminal — rafraichir l’affichage', () => {
     act(() => vi.advanceTimersByTime(50))
 
     const envoyes = resizesEnvoyes()
-    expect(envoyes).toHaveLength(2)
-    expect(envoyes[0].rows).not.toBe(envoyes[1].rows)
-    // La derniere doit etre la VRAIE : rester sur la fausse laisserait le PTY
-    // distant d'une ligne trop court.
-    expect(envoyes[1].rows).toBe(terminals[0].rows)
+    expect(envoyes).toHaveLength(1)
+    expect(envoyes[0]).toMatchObject({
+      nudge: true,
+      cols: terminals[0].cols,
+      // La VRAIE taille : c'est le pont qui fabrique l'intermediaire.
+      rows: terminals[0].rows,
+    })
   })
 
-  it('envoie la taille COURANTE, pas celle capturee avant la frame', () => {
-    // La vraie taille part une frame apres la fausse. Si xterm se recale dans
-    // cet intervalle — police chargee, barre de touches, chrome mobile — la
-    // valeur capturee est perimee, et c'est elle qui arrive en DERNIER : le PTY
-    // reste sur l'ancienne geometrie pendant que xterm est sur la nouvelle.
-    //
-    // Une ligne d'ecart suffit. tmux n'emet alors que les cellules qu'il croit
-    // modifiees, en se fiant a un modele faux : le texte s'entrelace caractere
-    // par caractere des que l'ecran defile. Observe en production le 03/09,
-    // PTY a 65 lignes contre 64 pour xterm.
+  it('ne redimensionne pas tant qu\u2019xterm n\u2019a pas analyse le flux', () => {
+    // 4580 octets non analyses au moment d'un nudge, mesures le 03/09 : emis
+    // par tmux pour l'ANCIENNE geometrie, ils allaient etre interpretes contre
+    // la nouvelle — texte entrelace. La trame ne part que la file vide.
     renderTerminal()
     act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+    act(() => terminals[0].draine())
     sockets[0].send.mockClear()
 
+    // Du flux arrive, que xterm n'a pas encore digere.
+    act(() => {
+      sockets[0].onmessage?.({ data: 'x'.repeat(4580) })
+    })
     rafraichir()
-    // Entre la fausse taille et la vraie, le terminal bouge.
-    terminals[0].rows = FITTED_ROWS + 5
     act(() => vi.advanceTimersByTime(50))
+    expect(resizesEnvoyes()).toHaveLength(0)
+
+    // xterm finit d'analyser : la trame part, maintenant.
+    act(() => terminals[0].draine())
+    expect(resizesEnvoyes()).toHaveLength(1)
+    expect(resizesEnvoyes()[0]).toMatchObject({ nudge: true })
+  })
+
+  it('recale malgre un flux continu, au bout du plafond', () => {
+    // Une session qui ecrit sans discontinuer — `top`, un build — ne vide
+    // jamais sa file. Ne plus jamais se recaler serait pire que se recaler
+    // avec des octets en vol, qui est l'etat d'avant.
+    renderTerminal()
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+    act(() => terminals[0].draine())
+    sockets[0].send.mockClear()
+
+    act(() => {
+      sockets[0].onmessage?.({ data: 'x'.repeat(1000) })
+    })
+    rafraichir()
+    act(() => vi.advanceTimersByTime(ATTENTE_MAX_MS + 10))
+
+    expect(resizesEnvoyes()).toHaveLength(1)
+  })
+
+  it('envoie la taille COURANTE au moment ou la trame part', () => {
+    // Entre la demande de recalage et le vidage de la file, xterm peut s'etre
+    // recale — police chargee, barre de touches. La taille est relue a l'envoi,
+    // jamais capturee avant : une ligne d'ecart suffit a entrelacer le texte
+    // (observe en production le 03/09, PTY a 65 lignes contre 64 pour xterm).
+    renderTerminal()
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+    act(() => terminals[0].draine())
+    sockets[0].send.mockClear()
+
+    act(() => {
+      sockets[0].onmessage?.({ data: 'x'.repeat(100) })
+    })
+    rafraichir()
+    // Pendant l'attente du drain, le terminal bouge.
+    terminals[0].rows = FITTED_ROWS + 5
+    act(() => terminals[0].draine())
 
     const envoyes = resizesEnvoyes()
     expect(envoyes.at(-1)!.rows).toBe(terminals[0].rows)

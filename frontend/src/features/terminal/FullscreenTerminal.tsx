@@ -16,6 +16,7 @@ import { createHistoryScroller, pixelsDeMolette } from './historyScroll'
 import { createDoubleTapDetector } from './doubleTap'
 import { createSelectionHintDetector } from './selectionHint'
 import { decodeOsc52 } from './osc52'
+import { createParseQueue } from './parseQueue'
 import { isPastLineEnd } from './lineHitTest'
 import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
 import '@xterm/xterm/css/xterm.css'
@@ -139,9 +140,9 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     //
     // `octets` : ce que xterm n'a pas encore analyse. Redimensionner file non
     // vide fait interpreter contre la NOUVELLE geometrie des octets emis pour
-    // l'ancienne.
+    // l'ancienne — c'est pour cela que le recalage passe par `file.quandVide`.
     let mesure: { haut: number; vv: number; octets: number } | null = null
-    let octetsEnAttente = 0
+    const file = createParseQueue()
 
     const safeFit = () => {
       const el = termRef.current
@@ -153,7 +154,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         mesure = {
           haut: Math.round(height),
           vv: Math.round(window.visualViewport?.height ?? 0),
-          octets: octetsEnAttente,
+          octets: file.enAttente(),
         }
       } catch (err) {
         console.warn('[terminal] fit ignoré', err)
@@ -291,9 +292,20 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     wsRef.current = ws
     terminalRef.current = terminal
 
-    const sendResize = (cols: number, rows: number) => {
+    const sendResize = (cols: number, rows: number, nudge = false) => {
       if (resize && ws.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ type: 'resize', cols, rows, ...(mesure ?? {}) }))
+        ws.send(
+          JSON.stringify({
+            type: 'resize',
+            cols,
+            rows,
+            // `nudge` demande au pont d'executer l'aller-retour de taille qui
+            // fait repeindre tmux (cf. `refreshRef`). Un backend d'avant ce
+            // champ l'ignore et applique simplement la taille.
+            ...(nudge ? { nudge: true } : {}),
+            ...(mesure ?? {}),
+          }),
+        )
     }
     ws.onopen = () => sendResize(terminal.cols, terminal.rows)
 
@@ -312,21 +324,26 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
      * alors le second (meme contrainte que le defilement de l'historique).
      */
     refreshRef.current = () => {
-      safeFit()
-      sendResize(terminal.cols, Math.max(1, terminal.rows - 1))
-      requestAnimationFrame(() => {
-        // Taille RELUE, jamais celle capturee avant la frame. xterm peut s'etre
-        // recale dans l'intervalle — police chargee, barre de touches, chrome
-        // mobile — et c'est ce message qui arrive en DERNIER : envoyer la
-        // valeur perimee laisse le PTY sur l'ancienne geometrie alors que xterm
-        // est deja sur la nouvelle.
-        //
-        // Une ligne d'ecart suffit a tout casser. tmux n'emet que les cellules
-        // qu'il croit modifiees, en se fiant a un modele de l'ecran devenu
-        // faux : le texte s'entrelace caractere par caractere des que l'ecran
-        // defile. Vu en production le 03/09, PTY a 65 lignes contre 64 pour
-        // xterm.
-        sendResize(terminal.cols, terminal.rows)
+      // UNE trame, marquee `nudge` — c'est le pont qui fabrique l'aller-retour.
+      //
+      // L'ancien double envoi (`rows-1` puis `rows` a une frame d'ecart)
+      // arrivait dans le MEME segment TCP : les deux TIOCSWINSZ s'enchainaient
+      // en moins d'une milliseconde, et SIGWINCH — que le noyau ne met pas en
+      // file — etait coalesce. tmux ne voyait qu'un changement, vers la taille
+      // qu'il avait deja, et ne repeignait rien ; ou pire, traitait le premier
+      // seul et restait cale sur `rows-1` (vu en production le 03/09, PTY a 65
+      // lignes contre 64 pour xterm — une ligne d'ecart entrelace tout le
+      // texte). L'ecart entre les deux tailles ne peut etre garanti que la ou
+      // l'ioctl est pose : le pont.
+      //
+      // Et seulement une fois la file de parsing vide : redimensionner avec du
+      // flux en attente fait interpreter contre la nouvelle geometrie des
+      // octets que tmux a emis pour l'ancienne (4580 octets mesures le 03/09).
+      // La taille est RELUE au moment de l'envoi — xterm peut s'etre recale
+      // pendant l'attente.
+      file.quandVide(() => {
+        safeFit()
+        sendResize(terminal.cols, terminal.rows, true)
         terminal.refresh(0, terminal.rows - 1)
       })
     }
@@ -576,11 +593,10 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
       links.push(typeof data === 'string' ? data : decoder.decode(data, { stream: true }))
       // `write` est ASYNCHRONE : xterm met en file et analyse plus tard. Le
-      // rappel de vidage donne ce qui reste a analyser — c'est `octets`.
-      octetsEnAttente += data.length
-      terminal.write(data, () => {
-        octetsEnAttente = Math.max(0, octetsEnAttente - data.length)
-      })
+      // rappel de vidage alimente la file — sonde `octets`, et recalages qui
+      // attendent leur tour.
+      file.arrive(data.length)
+      terminal.write(data, () => file.analyse(data.length))
     }
     ws.onclose = (ev) => {
       terminal.write(tRef.current('admin.sshTerminal.connClosed'))
@@ -717,6 +733,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       termHost?.removeEventListener('mousedown', surDebutGlisse)
       window.removeEventListener('mouseup', surFinGlisse)
       ro.disconnect()
+      file.dispose()
       dataDisposable.dispose()
       resizeDisposable.dispose()
       selectionDisposable.dispose()
