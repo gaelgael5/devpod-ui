@@ -183,6 +183,36 @@ def test_deux_souscriptions_a_une_offre_repetable_passent(client: TestClient) ->
     assert client.post("/me/subscriptions", json=_corps()).status_code == 201
 
 
+def test_un_pays_sans_canal_journalise_la_vente_perdue(client: TestClient) -> None:
+    """DoD du ticket « Pays sans canal de paiement » : l'exploitant doit savoir
+    que le cas s'est produit. Le client n'y peut rien — c'est un trou de
+    configuration — donc la perte doit remonter côté exploitation, pas rester
+    subie en silence."""
+    import structlog.testing
+
+    with structlog.testing.capture_logs() as journaux:
+        reponse = client.post("/me/subscriptions", json=_corps(country_code="BE"))
+
+    assert reponse.status_code == 409
+    (entree,) = [j for j in journaux if j["event"] == "vente_perdue_pays_sans_canal"]
+    assert entree["offer"] == "standard"
+    assert entree["pays"] == "BE"
+
+
+def test_un_refus_ordinaire_ne_compte_pas_comme_vente_perdue(client: TestClient) -> None:
+    """Une offre « une par compte » déjà souscrite est un refus LÉGITIME, pas un
+    trou de configuration : le journal de vente perdue ne doit pas s'y déclencher."""
+    import structlog.testing
+
+    client.etat["offres"]["standard"] = _offre(une_par_compte=True)  # type: ignore[attr-defined]
+    client.etat["deja_souscrites"] = {"standard"}  # type: ignore[attr-defined]
+
+    with structlog.testing.capture_logs() as journaux:
+        assert client.post("/me/subscriptions", json=_corps()).status_code == 409
+
+    assert not [j for j in journaux if j["event"] == "vente_perdue_pays_sans_canal"]
+
+
 def test_un_pays_sans_canal_est_refuse(client: TestClient) -> None:
     """Refus assumé comme provisoire : c'est un trou de configuration."""
     reponse = client.post("/me/subscriptions", json=_corps(country_code="BE"))

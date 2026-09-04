@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..auth.rbac import UserInfo, require_user
 from ..billing.canal import CanalDeVente, DemandePaiement, PaiementImpossible
 from ..billing.canaux import CANAUX
-from ..billing.eligibilite import SouscriptionRefusee, verifier
+from ..billing.eligibilite import CanalIndisponible, SouscriptionRefusee, verifier
 from ..billing.subscriptions import Subscription, fin_de_forfait
 from ..config.store import load_global
 from ..db.billing_catalog import (
@@ -155,6 +155,15 @@ async def souscrire(
             pays=body.country_code,
         )
     except SouscriptionRefusee as exc:
+        if isinstance(exc, CanalIndisponible):
+            # Vente perdue sur un trou de configuration : le client n'y peut
+            # rien, et l'exploitant doit le voir — pas la subir en silence.
+            log.warning(
+                "vente_perdue_pays_sans_canal",
+                offer=offre.slug,
+                pays=body.country_code,
+                login=user.login,
+            )
         # 409 et non 400 : la demande est bien formée, c'est l'état du compte ou
         # du catalogue qui s'y oppose. Le message est affichable tel quel.
         raise HTTPException(status_code=409, detail=str(exc)) from exc

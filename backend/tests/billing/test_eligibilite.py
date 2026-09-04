@@ -103,6 +103,17 @@ def test_un_canal_indisponible_dans_le_pays_est_refuse() -> None:
         _verifier(_offre(), providers_du_pays=set(), pays="BE")
 
 
+def test_un_canal_indisponible_porte_sa_propre_exception() -> None:
+    """`CanalIndisponible` reste une `SouscriptionRefusee` — même refus pour le
+    client — mais l'appelant peut la reconnaître : c'est une VENTE PERDUE sur un
+    trou de configuration, et l'exploitant doit le savoir (DoD du ticket « Pays
+    sans canal de paiement »)."""
+    from portal.billing.eligibilite import CanalIndisponible
+
+    with pytest.raises(CanalIndisponible):
+        _verifier(_offre(), providers_du_pays=set(), pays="BE")
+
+
 def test_une_offre_sans_canal_de_paiement_est_refusee() -> None:
     with pytest.raises(SouscriptionRefusee, match="canal de paiement"):
         _verifier(_offre(provider_slug=None))

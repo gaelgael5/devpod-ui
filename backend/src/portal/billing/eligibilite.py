@@ -27,6 +27,16 @@ class SouscriptionRefusee(Exception):
     """La souscription n'est pas possible (message FR, affichable tel quel)."""
 
 
+class CanalIndisponible(SouscriptionRefusee):
+    """Le canal de paiement de l'offre n'est pas disponible dans ce pays.
+
+    Même refus pour le client, mais une nature différente : ce n'est pas son
+    état qui s'y oppose, c'est un TROU DE CONFIGURATION — et une vente perdue.
+    L'appelant la distingue pour que la perte remonte côté exploitation au lieu
+    d'être subie en silence (ticket « Pays sans canal de paiement »).
+    """
+
+
 def verifier(
     offre: Offer,
     *,
@@ -77,6 +87,6 @@ def verifier(
     # Refus assumé comme provisoire — le client n'y peut rien, c'est un trou de
     # configuration. Voir le ticket « Pays sans canal de paiement ».
     if offre.provider_slug not in providers_du_pays:
-        raise SouscriptionRefusee(
+        raise CanalIndisponible(
             f"Le moyen de paiement de cette offre n'est pas disponible pour le pays {pays}."
         )
