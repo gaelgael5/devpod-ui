@@ -7,7 +7,6 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import { UnicodeGraphemesAddon } from '@xterm/addon-unicode-graphemes'
-import { WebglAddon } from '@xterm/addon-webgl'
 import { Button } from '@/components/ui/button'
 import TerminalKeybar from '@/features/workspaces/TerminalKeybar'
 import { openTerminalLink } from './openTerminalLink'
@@ -48,6 +47,8 @@ interface Props {
  * court pour que le terminal ne reste pas visiblement mal dimensionne.
  */
 export const AJUSTEMENT_MS = 150
+// Delai avant le re-rendu force qui suit une salve de sortie (cf. `forcerReRendu`).
+export const REFRESH_SORTIE_MS = 100
 // Code de fermeture applicatif : la session a ete reprise sur un autre
 // appareil. Cote pont, `pty_bridge.run_pty_bridge`.
 export const CODE_REPRISE_AILLEURS = 4409
@@ -257,27 +258,6 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
 
     if (termRef.current) {
       terminal.open(termRef.current)
-      // Renderer WebGL — chargé APRÈS open() (il s'accroche à l'élément rendu).
-      //
-      // Le renderer DOM par défaut laissait des résidus au scroll : dans
-      // l'interaction avec le protocole de diff de tmux, des lignes se
-      // décalaient à gauche et d'anciennes cellules subsistaient en colonne 0
-      // (04/09). Ni la géométrie ni la largeur des caractères n'étaient en
-      // cause (tmux et xterm concordent) — c'est le chemin de rendu DOM. WebGL
-      // a un modèle distinct qui n'accumule pas ces fossiles.
-      //
-      // Repli DOM garanti : `loadOptional` avale l'échec de construction (pas
-      // de WebGL disponible), et `onContextLoss` dispose l'addon si le contexte
-      // est perdu (onglet en veille, pression GPU) — sans quoi le terminal se
-      // figerait en noir. xterm reprend alors le rendu DOM tout seul.
-      loadOptional('webgl', () => {
-        const webgl = new WebglAddon()
-        webgl.onContextLoss(() => {
-          console.warn('[terminal] contexte WebGL perdu, repli DOM')
-          webgl.dispose()
-        })
-        return webgl
-      })
       // Le bouton « clavier » bascule : il lui faut l'etat courant de la saisie.
       input = terminal.textarea ?? null
       inputRef.current = input
@@ -606,6 +586,26 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
 
     // `stream: true` : une trame peut couper un caractère multi-octets en deux.
     const decoder = new TextDecoder()
+    // Re-rendu force apres une salve de sortie de l'agent.
+    //
+    // Le contenu defile quand l'agent ecrit, et le renderer de xterm laisse
+    // parfois des pixels perimes en COLONNE 0-1 : le buffer est correct
+    // (verifie au dump), mais le damage-tracking du renderer manque les deux
+    // colonnes de gauche quand une ligne est reecrite a partir de la colonne 3
+    // — le redraw d'un defilement insere une ligne et suppose l'indentation
+    // (deux espaces) deja vide, sans repeindre ces cellules. On force donc un
+    // re-rendu complet du viewport DEPUIS LE BUFFER (qui, lui, est juste), peu
+    // apres l'ecriture. Throttle : une sortie continue ne declenche qu'un
+    // re-rendu par fenetre, pas un par trame.
+    let reRenduTimer: ReturnType<typeof setTimeout> | undefined
+    const forcerReRendu = () => {
+      if (reRenduTimer !== undefined) return
+      reRenduTimer = setTimeout(() => {
+        reRenduTimer = undefined
+        terminal.refresh(0, terminal.rows - 1)
+      }, REFRESH_SORTIE_MS)
+    }
+
     ws.onmessage = (e) => {
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
       links.push(typeof data === 'string' ? data : decoder.decode(data, { stream: true }))
@@ -614,6 +614,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       // attendent leur tour.
       file.arrive(data.length)
       terminal.write(data, () => file.analyse(data.length))
+      forcerReRendu()
     }
     ws.onclose = (ev) => {
       terminal.write(tRef.current('admin.sshTerminal.connClosed'))
@@ -637,6 +638,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     let ajustement: ReturnType<typeof setTimeout> | undefined
     const planifierAjustement = () => {
       clearTimeout(ajustement)
+      clearTimeout(reRenduTimer)
       ajustement = setTimeout(() => {
         // Le NUDGE, et non `terminal.refresh()` seul.
         //

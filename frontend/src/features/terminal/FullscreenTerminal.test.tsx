@@ -2,7 +2,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { I18nextProvider } from 'react-i18next'
 import i18n from '@/i18n'
-import FullscreenTerminal, { AJUSTEMENT_MS, CODE_REPRISE_AILLEURS } from './FullscreenTerminal'
+import FullscreenTerminal, { AJUSTEMENT_MS, CODE_REPRISE_AILLEURS, REFRESH_SORTIE_MS } from './FullscreenTerminal'
 import { ENTER_COPY, EXIT_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScroll'
 import { ATTENTE_MAX_MS } from './parseQueue'
 
@@ -214,26 +214,6 @@ vi.mock('@xterm/addon-web-links', () => ({
   }),
 }))
 
-// Renderer WebGL. On capture l'instance pour verifier le chargement et declencher
-// la perte de contexte depuis les tests. Le vrai addon exige un contexte WebGL,
-// absent de jsdom : sans mock, sa construction leverait.
-const webglInstances: Array<{ onContextLoss: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; lossCb: (() => void) | null }> = []
-let webglShouldThrow = false
-vi.mock('@xterm/addon-webgl', () => ({
-  WebglAddon: vi.fn(function (this: Record<string, unknown>) {
-    if (webglShouldThrow) throw new Error('WebGL indisponible')
-    const inst = this as unknown as (typeof webglInstances)[number]
-    inst.lossCb = null
-    inst.onContextLoss = vi.fn((cb: () => void) => {
-      inst.lossCb = cb
-      return { dispose: vi.fn() }
-    })
-    inst.dispose = vi.fn()
-    ;(this as Record<string, unknown>).activate = vi.fn()
-    webglInstances.push(inst)
-  }),
-}))
-
 const sockets: MockWebSocket[] = []
 
 class MockWebSocket {
@@ -276,8 +256,6 @@ beforeEach(() => {
   })
   terminals.length = 0
   fitAddons.length = 0
-  webglInstances.length = 0
-  webglShouldThrow = false
   sockets.length = 0
   linkHandler = null
   writeText.mockClear()
@@ -382,35 +360,6 @@ describe('FullscreenTerminal — copy-on-select', () => {
     writeText.mockClear()
     fireEvent.click(screen.getByRole('button', { name: /copier|copy/i }))
     expect(writeText).toHaveBeenCalledWith('texte choisi')
-  })
-})
-
-describe('FullscreenTerminal — renderer WebGL', () => {
-  it('charge le renderer WebGL quand il est disponible', () => {
-    // Le renderer DOM par defaut laisse des residus au scroll (decalage de
-    // lignes, 04/09). WebGL a un modele de rendu distinct qui ne les accumule pas.
-    renderTerminal()
-    expect(webglInstances.length).toBe(1)
-    // Charge sur le terminal (loadAddon appele avec l'instance webgl).
-    const loaded = terminals[0].loadAddon.mock.calls.some((c) => webglInstances.includes(c[0]))
-    expect(loaded).toBe(true)
-  })
-
-  it('retombe sur le DOM si WebGL echoue, sans casser le terminal', () => {
-    webglShouldThrow = true
-    // Ne jette pas : le terminal s'ouvre quand meme (renderer DOM).
-    expect(() => renderTerminal()).not.toThrow()
-    expect(terminals[0].open).toHaveBeenCalled()
-  })
-
-  it('retombe sur le DOM a la perte de contexte WebGL', () => {
-    // Un contexte WebGL peut etre perdu (veille, pression GPU) : sans repli, le
-    // terminal se fige en noir. On dispose l'addon, xterm reprend le rendu DOM.
-    renderTerminal()
-    const webgl = webglInstances[0]
-    expect(webgl.lossCb).toBeTruthy()
-    webgl.lossCb!()
-    expect(webgl.dispose).toHaveBeenCalled()
   })
 })
 
@@ -707,6 +656,38 @@ describe('FullscreenTerminal — autofocus selon l’appareil', () => {
     act(() => { vi.runAllTimers() })
 
     expect(terminals[0].focus).toHaveBeenCalled()
+  })
+})
+
+
+describe('FullscreenTerminal — re-rendu apres la sortie de l\u2019agent', () => {
+  it('force un re-rendu complet peu apres une salve de sortie', () => {
+    // Le contenu defile quand l'agent ecrit ; le renderer laisse des pixels
+    // perimes en colonne 0-1 (buffer correct, damage-tracking fautif). Un
+    // re-rendu depuis le buffer les efface.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    terminals[0].refresh.mockClear()
+
+    act(() => { sockets[0].onmessage?.({ data: 'du texte qui defile' }) })
+    expect(terminals[0].refresh).not.toHaveBeenCalled()  // throttle : pas immediat
+
+    act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
+    expect(terminals[0].refresh).toHaveBeenCalledWith(0, terminals[0].rows - 1)
+  })
+
+  it('ne re-rend qu\u2019une fois pour une salve continue', () => {
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    terminals[0].refresh.mockClear()
+
+    // Cinq trames rapprochees, dans la meme fenetre de throttle.
+    act(() => {
+      for (let i = 0; i < 5; i++) sockets[0].onmessage?.({ data: 'trame' })
+    })
+    act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
+
+    expect(terminals[0].refresh).toHaveBeenCalledTimes(1)
   })
 })
 
