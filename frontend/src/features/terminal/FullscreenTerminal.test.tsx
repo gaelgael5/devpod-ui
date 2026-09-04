@@ -666,48 +666,58 @@ describe('FullscreenTerminal — re-rendu apres la sortie de l\u2019agent', () =
       .map((c) => String(c[0]))
       .filter((m) => m.includes('"type":"redraw"'))
   }
+  // Etablit la signature de contenu initiale (le premier onmessage arme
+  // toujours, la signature precedente etant vide).
+  function baseline() {
+    act(() => { sockets[0].onmessage?.({ data: 'x\n' }) })
+    act(() => { terminals[0].draine() })
+    act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
+    sockets[0].send.mockClear()
+  }
 
-  it('declenche un repaint plein ecran (refresh-client) apres une salve de sortie', () => {
-    // Le contenu defile quand l'agent ecrit ; le renderer laisse des pixels
-    // perimes en colonne 0-1 (buffer CORRECT, verifie en prod). Seul un renvoi
-    // du contenu par tmux (refresh-client, comme le bouton) les efface —
-    // terminal.refresh cote client ne repeint pas. On declenche donc l'action
-    // du bouton, throttlee, apres la sortie.
+  it('declenche un refresh quand le contenu DEFILE (plusieurs lignes changent)', () => {
+    // Le buffer est correct mais le renderer laisse des pixels perimes en
+    // colonne 0-1 au defilement ; seul `tmux refresh-client` (redraw) les
+    // efface. On le declenche quand le contenu a vraiment bouge.
     renderTerminal()
     act(() => { vi.runAllTimers() })
-    sockets[0].send.mockClear()
+    baseline()
 
-    act(() => { sockets[0].onmessage?.({ data: 'du texte qui defile\n' }) })
-    act(() => { terminals[0].draine() })       // callback de write -> arme le debounce
+    terminals[0].ligne = 'nouvelle ligne apres defilement'  // le contenu change
+    act(() => { sockets[0].onmessage?.({ data: 'y\n' }) })
+    act(() => { terminals[0].draine() })
     expect(redrawsEnvoyes()).toHaveLength(0)  // debounce : pas immediat
 
     act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
     expect(redrawsEnvoyes().length).toBeGreaterThan(0)
   })
 
-  it('ne declenche AUCUN refresh sur une trame sans saut de ligne', () => {
-    // Curseur qui clignote, spinner, statut redessine en place : pas de ligne,
-    // donc pas de refresh-client (sinon scintillement du curseur du bas).
+  it('ne declenche AUCUN refresh quand le contenu ne change pas (curseur/spinner)', () => {
+    // Claude Code redessine tout l'ecran a chaque image (curseur, spinner) sans
+    // faire defiler : le contenu est identique. Aucun residu, donc aucun
+    // refresh-client — sinon l'ecran renvoye en boucle scintille au repos.
     renderTerminal()
     act(() => { vi.runAllTimers() })
-    sockets[0].send.mockClear()
+    baseline()
 
-    act(() => { sockets[0].onmessage?.({ data: '\x1b[5;10H' }) })  // deplacement curseur, pas de \n
+    // contenu identique (le mock renvoie toujours la meme ligne)
+    act(() => { sockets[0].onmessage?.({ data: 'z\n' }) })
     act(() => { terminals[0].draine() })
     act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
 
     expect(redrawsEnvoyes()).toHaveLength(0)
   })
 
-  it('ne declenche qu\u2019un refresh pour une salve continue', () => {
+  it('un seul refresh pour une rafale de defilement', () => {
     renderTerminal()
     act(() => { vi.runAllTimers() })
-    sockets[0].send.mockClear()
+    baseline()
 
-    act(() => {
-      for (let i = 0; i < 5; i++) sockets[0].onmessage?.({ data: 'trame\n' })
-    })
-    act(() => { terminals[0].draine() })
+    for (let i = 0; i < 5; i++) {
+      terminals[0].ligne = 'defilement ' + i
+      act(() => { sockets[0].onmessage?.({ data: 'd\n' }) })
+      act(() => { terminals[0].draine() })
+    }
     act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
 
     expect(redrawsEnvoyes()).toHaveLength(1)

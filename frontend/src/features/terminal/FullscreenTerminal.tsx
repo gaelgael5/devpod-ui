@@ -50,14 +50,10 @@ export const AJUSTEMENT_MS = 150
 // Debounce du re-rendu apres une salve de sortie (cf. `forcerReRendu`) : le
 // refresh-client ne part qu'une fois le defilement calme depuis ce delai.
 //
-// 500 ms, PLUS LONG que la cadence du spinner « thinking » de l'agent (~300 ms
-// mesures dans les logs le 04/09). Pendant qu'il reflechit, l'agent ne produit
-// aucun contenu — rien ne defile, donc aucun residu a nettoyer — mais son
-// spinner s'anime avec des sauts de ligne. Chaque trame rearme ce debounce ;
-// tant que le spinner tape plus vite que 500 ms, le timer n'expire jamais et
-// aucun refresh ne part : plus de scintillement au repos. Le refresh ne tire
-// qu'une fois la sortie REELLE terminee et l'ecran calme.
-export const REFRESH_SORTIE_MS = 500
+// Court : le declenchement est deja filtre par la signature de contenu (cf.
+// `forcerReRendu`), qui n'arme le timer que sur un vrai defilement. Ce debounce
+// ne sert plus qu'a coalescer une rafale de lignes en un seul refresh-client.
+export const REFRESH_SORTIE_MS = 150
 // Code de fermeture applicatif : la session a ete reprise sur un autre
 // appareil. Cote pont, `pty_bridge.run_pty_bridge`.
 export const CODE_REPRISE_AILLEURS = 4409
@@ -598,28 +594,40 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // Re-rendu force apres une salve de sortie de l'agent.
     //
     // Le contenu defile quand l'agent ecrit, et le renderer de xterm laisse
-    // parfois des pixels perimes en COLONNE 0-1 : le buffer est correct
-    // (verifie au dump), mais le damage-tracking du renderer manque les deux
-    // colonnes de gauche quand une ligne est reecrite a partir de la colonne 3
-    // — le redraw d'un defilement insere une ligne et suppose l'indentation
-    // (deux espaces) deja vide, sans repeindre ces cellules. On force donc un
-    // re-rendu complet du viewport DEPUIS LE BUFFER (qui, lui, est juste), peu
-    // apres l'ecriture.
+    // des pixels perimes en COLONNE 0-1 : le buffer est correct (verifie au
+    // dump en prod), mais les PIXELS restent. Seul `tmux refresh-client` (le
+    // bouton « Rafraichir ») les efface — il RENVOIE tout l'ecran, ce qui force
+    // xterm a reecrire les cellules ; `terminal.refresh` cote client ne les
+    // repeint pas. On declenche donc ce refresh-client, mais AU BON MOMENT.
     //
-    // DEBOUNCE, pas throttle : le repaint ne part qu'une fois la sortie CALMEE
-    // (REFRESH_SORTIE_MS sans nouvelle ligne). Un throttle repeindrait en
-    // continu pendant le defilement — et le spinner « thinking » de l'agent, qui
-    // s'anime sans produire de contenu, faisait ainsi partir ~5 refresh-client
-    // par seconde : ecran renvoye en boucle, curseur du bas qui scintille meme
-    // au repos (mesure dans les logs le 04/09).
+    // LE BON MOMENT = quand le CONTENU a vraiment defile. Claude Code ne scrolle
+    // jamais le terminal : il redessine TOUT l'ecran a chaque image (curseur qui
+    // clignote, spinner, boite de saisie), avec des tonnes de sauts de ligne
+    // (~127/s au repos, mesure). Se fier aux `\n` ferait donc partir un
+    // refresh-client en continu -> ecran renvoye en boucle, scintillement.
     //
-    // `sendRedraw` SEUL (pas `refreshRef`) : c'est `tmux refresh-client` qui
-    // renvoie l'ecran et repeint les cellules perimees (le buffer xterm est
-    // correct, seuls les PIXELS sont perimes — `terminal.refresh` cote client
-    // ne les repeint pas). Passer par `refreshRef` rejouait en plus un `fit` +
-    // un `resize` a chaque fois, pour rien.
+    // On compare donc le CONTENU entre deux images (les 8 premiers caracteres de
+    // chaque ligne) : le curseur et le spinner ne changent qu'UNE ligne en
+    // place ; un vrai defilement en change BEAUCOUP (tout remonte d'un cran).
+    // On ne rafraichit que sur un vrai defilement, puis un court debounce
+    // coalesce une rafale de lignes en un seul refresh.
+    const LIGNES_CHANGEES_MIN = 3
+    let signaturePrec: string[] = []
     let reRenduTimer: ReturnType<typeof setTimeout> | undefined
     const forcerReRendu = () => {
+      const buf = terminal.buffer.active
+      const sig: string[] = []
+      let changees = 0
+      for (let y = 0; y < terminal.rows; y++) {
+        const l = buf.getLine(y)
+        const s = l ? l.translateToString(true).slice(0, 8) : ''
+        sig.push(s)
+        if (s !== (signaturePrec[y] ?? '')) changees++
+      }
+      signaturePrec = sig
+      // Curseur/spinner : au plus quelques lignes changent, en place. Pas un
+      // defilement, donc pas de refresh (sinon scintillement au repos).
+      if (changees <= LIGNES_CHANGEES_MIN) return
       clearTimeout(reRenduTimer)
       reRenduTimer = setTimeout(() => {
         reRenduTimer = undefined
@@ -630,19 +638,13 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     ws.onmessage = (e) => {
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
       links.push(typeof data === 'string' ? data : decoder.decode(data, { stream: true }))
-      // Le re-rendu (refresh-client) n'a de sens qu'a l'arrivee d'une LIGNE :
-      // c'est le defilement qui laisse des residus. Les trames sans saut de
-      // ligne — curseur qui clignote, spinner, barre de statut redessinee en
-      // place — ne doivent rien declencher, sinon chaque refresh-client renvoie
-      // tout l'ecran pour rien et fait scintiller le curseur du bas.
-      const aUneLigne = typeof data === 'string' ? data.includes('\n') : data.includes(0x0a)
       // `write` est ASYNCHRONE : xterm met en file et analyse plus tard. Le
       // rappel de vidage alimente la file (sonde `octets`) ET declenche le
       // re-rendu — APRES l'analyse, quand le buffer est a jour, pas au jugé.
       file.arrive(data.length)
       terminal.write(data, () => {
         file.analyse(data.length)
-        if (aUneLigne) forcerReRendu()
+        forcerReRendu()
       })
     }
     ws.onclose = (ev) => {
