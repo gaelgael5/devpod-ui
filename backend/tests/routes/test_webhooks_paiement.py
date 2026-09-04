@@ -281,6 +281,39 @@ def test_l_abonnement_se_resout_par_l_identifiant_fournisseur(client: TestClient
     assert maj.state == "resilie"
 
 
+def test_une_facture_basil_se_resout_par_le_parent(client: TestClient) -> None:
+    """Depuis Basil, `invoice.subscription` n'existe plus : le rattachement vit
+    sous `parent.subscription_details.subscription`. Sans métadonnée, c'est la
+    seule voie de résolution — la manquer rendrait le webhook « orphelin »."""
+    client.etat["abonnements"] = {  # type: ignore[attr-defined]
+        "abo": _abonnement(
+            id="33333333-3333-3333-3333-333333333333",
+            state="actif",
+            provider_subscription_id="sub_ext",
+        )
+    }
+    corps = json.dumps(
+        {
+            "id": "evt_3",
+            "type": "invoice.paid",
+            "data": {
+                "object": {
+                    "id": "in_7",
+                    "billing_reason": "subscription_cycle",
+                    "parent": {
+                        "type": "subscription_details",
+                        "subscription_details": {"subscription": "sub_ext"},
+                    },
+                }
+            },
+        }
+    ).encode()
+
+    reponse = _poster(client, corps)
+
+    assert reponse.json()["statut"] == "applique"
+
+
 def test_une_transition_impossible_est_refusee_sans_erreur(client: TestClient) -> None:
     """Un renouvellement sur un abonnement résilié : réel, mais inapplicable.
 

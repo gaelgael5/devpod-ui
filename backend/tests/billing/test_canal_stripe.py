@@ -316,3 +316,72 @@ def test_la_charge_brute_est_conservee(canal: CanalStripe) -> None:
 
     assert evenement is not None
     assert evenement.payload["type"] == "customer.subscription.deleted"
+
+
+# ─── Contrat Basil+ : rattachement d'une facture, version d'API ──────────────
+
+
+def test_l_identifiant_d_une_facture_se_lit_sous_parent_depuis_basil(
+    canal: CanalStripe,
+) -> None:
+    """Basil (2025-03-31) a retiré `invoice.subscription` : le rattachement vit
+    désormais sous `parent.subscription_details.subscription`. Avec la version
+    épinglée (dahlia), c'est la SEULE forme que le fournisseur émet."""
+    charge = _evenement(
+        "invoice.paid",
+        {
+            "id": "in_7",
+            "parent": {
+                "type": "subscription_details",
+                "subscription_details": {"subscription": "sub_42"},
+            },
+        },
+    )
+
+    assert canal.identifiant_abonnement(charge) == "sub_42"
+
+
+def test_un_parent_d_un_autre_type_ne_rattache_pas(canal: CanalStripe) -> None:
+    """`parent.type` doit valoir `subscription_details` — une facture de devis
+    porte un parent d'un autre type, et n'a pas d'abonnement à rattacher."""
+    charge = _evenement(
+        "invoice.paid",
+        {"id": "in_7", "parent": {"type": "quote_details", "quote_details": {}}},
+    )
+
+    assert canal.identifiant_abonnement(charge) is None
+
+
+def test_une_version_api_inattendue_est_journalisee(canal: CanalStripe) -> None:
+    """La charge snapshot est versionnée par l'endpoint : une version différente
+    de celle épinglée signale une dérive de contrat — à voir, pas à refuser
+    (refuser ferait rejouer le fournisseur en boucle)."""
+    import structlog.testing
+
+    charge = _evenement(
+        "invoice.paid",
+        {"billing_reason": "subscription_create"},
+        api_version="2019-01-01",
+    )
+
+    with structlog.testing.capture_logs() as journaux:
+        assert canal.normaliser(charge) is not None
+
+    assert any(j["event"] == "webhook_version_api_inattendue" for j in journaux)
+
+
+def test_la_version_epinglee_ne_journalise_rien(canal: CanalStripe) -> None:
+    import structlog.testing
+
+    from portal.billing.canaux.stripe import VERSION_API
+
+    charge = _evenement(
+        "invoice.paid",
+        {"billing_reason": "subscription_create"},
+        api_version=VERSION_API,
+    )
+
+    with structlog.testing.capture_logs() as journaux:
+        assert canal.normaliser(charge) is not None
+
+    assert not any(j["event"] == "webhook_version_api_inattendue" for j in journaux)

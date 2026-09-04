@@ -32,9 +32,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import httpx
+import structlog
 
 from ..canal import DemandePaiement, PaiementImpossible, SignatureInvalide
 from ..subscriptions import EventKind, SubscriptionEvent
+
+log = structlog.get_logger(__name__)
 
 #: Racine de l'API. Constante nommée pour que les tests la détournent d'un seul
 #: point plutôt que par des chaînes éparpillées.
@@ -117,6 +120,18 @@ class CanalStripe:
             raise SignatureInvalide("signature invalide")
 
     def normaliser(self, payload: Mapping[str, object]) -> SubscriptionEvent | None:
+        # La charge snapshot est versionnée par l'endpoint : une version qui ne
+        # correspond pas à celle épinglée signale une dérive de contrat côté
+        # tableau de bord. Journalisée, pas refusée — refuser ferait rejouer le
+        # fournisseur en boucle puis désactiver le point de terminaison.
+        version = payload.get("api_version")
+        if version and version != VERSION_API:
+            log.warning(
+                "webhook_version_api_inattendue",
+                recue=str(version),
+                epinglee=VERSION_API,
+            )
+
         type_evenement = str(payload.get("type") or "")
         objet = cast(dict[str, Any], (payload.get("data") or {})).get("object") or {}
         if not isinstance(objet, dict):
@@ -197,11 +212,25 @@ class CanalStripe:
         if not isinstance(objet, dict):
             return None
         type_evenement = str(payload.get("type") or "")
-        brut = (
-            objet.get("id")
-            if type_evenement.startswith("customer.subscription.")
-            else objet.get("subscription")
-        )
+        if type_evenement.startswith("customer.subscription."):
+            brut = objet.get("id")
+        else:
+            # Basil (2025-03-31) a retiré `invoice.subscription` : le
+            # rattachement vit sous `parent.subscription_details.subscription`,
+            # gardé par `parent.type`. L'ancienne clef reste lue en repli —
+            # elle ne coûte rien et couvre une charge rejouée d'avant Basil.
+            brut = CanalStripe._abonnement_du_parent(objet) or objet.get("subscription")
+        return str(brut) if brut else None
+
+    @staticmethod
+    def _abonnement_du_parent(objet: Mapping[str, Any]) -> str | None:
+        parent = objet.get("parent")
+        if not isinstance(parent, dict) or parent.get("type") != "subscription_details":
+            return None
+        details = parent.get("subscription_details")
+        if not isinstance(details, dict):
+            return None
+        brut = details.get("subscription")
         return str(brut) if brut else None
 
     @staticmethod

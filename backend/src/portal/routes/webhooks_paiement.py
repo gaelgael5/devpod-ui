@@ -94,7 +94,7 @@ async def recevoir(
         return {"statut": "ignore"}
     evenement = evenement.model_copy(update={"provider_slug": provider_slug})
 
-    abonnement = await _resoudre(evenement, charge, conn)
+    abonnement = await _resoudre(evenement, canal.identifiant_abonnement(charge), conn)
 
     # L'écriture du journal TRANCHE l'idempotence, et elle précède la
     # transition : dans cet ordre, un rejeu ne peut pas la rejouer.
@@ -171,23 +171,19 @@ async def _secret_de_signature(provider: PaymentProvider, conn: AsyncConnection)
 
 
 async def _resoudre(
-    evenement: SubscriptionEvent, charge: dict[str, object], conn: AsyncConnection
+    evenement: SubscriptionEvent, reference: str | None, conn: AsyncConnection
 ) -> Subscription | None:
-    """Retrouve l'abonnement visé, par métadonnée puis par identifiant fournisseur."""
+    """Retrouve l'abonnement visé, par métadonnée puis par identifiant fournisseur.
+
+    `reference` vient de `canal.identifiant_abonnement` : c'est l'adaptateur qui
+    sait OÙ chaque fournisseur range le rattachement — le relire ici avait déjà
+    divergé une fois (l'ancienne clef `invoice.subscription`, retirée par Basil).
+    """
     if evenement.subscription_id:
         trouve = await get(evenement.subscription_id, conn)
         if trouve is not None:
             return trouve
-
-    # Repli : l'identifiant du fournisseur, porté par l'objet de l'événement.
-    donnees = charge.get("data")
-    objet = donnees.get("object") if isinstance(donnees, dict) else None
-    if not isinstance(objet, dict):
-        return None
-    # Sur une facture, l'abonnement est référencé ; sur une souscription, c'est
-    # l'objet lui-même.
-    reference = objet.get("subscription") or objet.get("id")
-    return await par_identifiant_fournisseur(str(reference or ""), conn)
+    return await par_identifiant_fournisseur(reference or "", conn)
 
 
 async def _couper_si_sans_reconduction(
