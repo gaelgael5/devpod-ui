@@ -13,6 +13,7 @@ import OfferDescriptionTab from './OfferDescriptionTab'
 import OfferDurationTab from './OfferDurationTab'
 import OfferHostProfilesTab from './OfferHostProfilesTab'
 import OfferPricingTab from './OfferPricingTab'
+import OfferVariablesTab from './OfferVariablesTab'
 
 const RETOUR = '/admin/billing-offers'
 
@@ -112,6 +113,7 @@ function OfferForm({ offre, canaux }: { offre: Offer; canaux: PaymentProvider[] 
           <TabsTrigger value="description">{t('admin.offers.tabDescription')}</TabsTrigger>
           <TabsTrigger value="duree">{t('admin.offers.tabDuration')}</TabsTrigger>
           <TabsTrigger value="profils">{t('admin.offers.tabHostProfiles')}</TabsTrigger>
+          <TabsTrigger value="variables">{t('admin.offers.tabVariables')}</TabsTrigger>
           <TabsTrigger value="tarif">{t('admin.offers.tabPricing')}</TabsTrigger>
         </TabsList>
 
@@ -135,6 +137,10 @@ function OfferForm({ offre, canaux }: { offre: Offer; canaux: PaymentProvider[] 
 
         <TabsContent value="profils" className="mt-4">
           <OfferHostProfilesTab brouillon={brouillon} setBrouillon={setBrouillon} />
+        </TabsContent>
+
+        <TabsContent value="variables" className="mt-4">
+          <OfferVariablesTab brouillon={brouillon} setBrouillon={setBrouillon} />
         </TabsContent>
 
         <TabsContent value="tarif" className="mt-4">

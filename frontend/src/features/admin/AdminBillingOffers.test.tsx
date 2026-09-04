@@ -452,6 +452,91 @@ describe('OfferEditor — profils de host', () => {
   })
 })
 
+describe('OfferEditor — variables personnalisées', () => {
+  async function ouvrirVariables(offre: Record<string, unknown>) {
+    renderPage([{ ...STANDARD, ...offre }])
+    const ligne = await screen.findByTestId('offre-standard')
+    await userEvent.click(within(ligne).getByRole('button', { name: i18n.t('admin.offers.edit') }))
+    await userEvent.click(
+      await screen.findByRole('tab', { name: i18n.t('admin.offers.tabVariables') }),
+    )
+  }
+
+  it("liste les variables de l'offre", async () => {
+    await ouvrirVariables({ variables: { vm_template: '9001', capacity: '12' } })
+
+    expect(await screen.findByTestId('variable-vm_template')).toHaveTextContent('vm_template')
+    expect(screen.getByDisplayValue('9001')).toBeInTheDocument()
+    expect(screen.getByTestId('variable-capacity')).toBeInTheDocument()
+  })
+
+  it('ajoute une variable et l\'envoie à l\'enregistrement', async () => {
+    let envoye: Record<string, unknown> = {}
+    server.use(
+      http.put('/admin/billing/offers/:slug', async ({ request }) => {
+        envoye = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json({ ...envoye, devises_manquantes: [] })
+      }),
+    )
+    await ouvrirVariables({ variables: {} })
+
+    await userEvent.type(
+      screen.getByLabelText(i18n.t('admin.offers.variableKey')),
+      'vm_template',
+    )
+    await userEvent.type(screen.getByLabelText(i18n.t('admin.offers.variableValue')), '9001')
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('admin.offers.addVariable') }))
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('common.save') }))
+
+    await waitFor(() => expect(envoye.variables).toEqual({ vm_template: '9001' }))
+  })
+
+  it('modifie la valeur d\'une variable existante', async () => {
+    let envoye: Record<string, unknown> = {}
+    server.use(
+      http.put('/admin/billing/offers/:slug', async ({ request }) => {
+        envoye = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json({ ...envoye, devises_manquantes: [] })
+      }),
+    )
+    await ouvrirVariables({ variables: { capacity: '12' } })
+
+    const champ = await screen.findByDisplayValue('12')
+    await userEvent.clear(champ)
+    await userEvent.type(champ, '16')
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('common.save') }))
+
+    await waitFor(() => expect(envoye.variables).toEqual({ capacity: '16' }))
+  })
+
+  it('supprime une variable', async () => {
+    await ouvrirVariables({ variables: { vm_template: '9001' } })
+
+    await userEvent.click(
+      within(await screen.findByTestId('variable-vm_template')).getByRole('button', {
+        name: i18n.t('admin.offers.variableRemove'),
+      }),
+    )
+
+    expect(screen.queryByTestId('variable-vm_template')).not.toBeInTheDocument()
+  })
+
+  it('refuse une clef déjà posée plutôt que de l\'écraser en silence', async () => {
+    await ouvrirVariables({ variables: { vm_template: '9001' } })
+
+    await userEvent.type(
+      screen.getByLabelText(i18n.t('admin.offers.variableKey')),
+      'vm_template',
+    )
+    await userEvent.type(screen.getByLabelText(i18n.t('admin.offers.variableValue')), '9999')
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('admin.offers.addVariable') }))
+
+    expect(await screen.findByText(i18n.t('admin.offers.variableExists'))).toBeInTheDocument()
+    expect(screen.getByDisplayValue('9001')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('9999')).toBeInTheDocument()
+  })
+})
+
 describe('duplication d\'une offre', () => {
   async function dupliquer() {
     renderPage()
