@@ -36,6 +36,10 @@ export default function SectionNav() {
           <li key={lien.path}>
             <NavLink
               to={lien.path}
+              // L'ecran d'arrivee sait d'ou l'on vient : la page publique des
+              // forfaits s'en sert pour renvoyer son « Retour » vers l'ecran
+              // d'origine plutot que vers les workspaces.
+              state={{ from: pathname }}
               className={({ isActive }) =>
                 cn(
                   // h-9 : cible tactile confortable sans manger l'ecran.

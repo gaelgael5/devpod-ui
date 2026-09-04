@@ -40,6 +40,7 @@
     "title": "Our plans",
     "navLabel": "Our plans",
     "backApp": "← My workspaces",
+    "back": "← Back",
     "renews": "Renews automatically at term",
     "endsAtTerm": "Ends at term, no renewal",
     "oncePerAccount": "One subscription per account",

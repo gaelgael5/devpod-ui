@@ -150,6 +150,37 @@ describe('ForfaitsPage', () => {
     expect(screen.queryByRole('link', { name: 'Se connecter' })).not.toBeInTheDocument()
   })
 
+  it("renvoie vers la page d'origine quand la navigation la transmet", async () => {
+    // Un administrateur arrive depuis /admin/host-profiles : le renvoyer vers
+    // ses workspaces perdrait le fil de ce qu'il faisait.
+    servir([offre()])
+    renderWithProviders(<ForfaitsPage />, {
+      route: '/forfaits',
+      state: { from: '/admin/host-profiles' },
+    })
+
+    expect(await screen.findByRole('link', { name: /Retour/ })).toHaveAttribute(
+      'href',
+      '/admin/host-profiles'
+    )
+    expect(screen.queryByRole('link', { name: /Mes workspaces/ })).not.toBeInTheDocument()
+  })
+
+  it("ignore une origine qui n'est pas un chemin interne", async () => {
+    // L'etat de navigation est manipulable : une origine externe ou malformee
+    // ne doit jamais devenir un lien.
+    servir([offre()])
+    renderWithProviders(<ForfaitsPage />, {
+      route: '/forfaits',
+      state: { from: '//evil.example.com' },
+    })
+
+    expect(await screen.findByRole('link', { name: /Mes workspaces/ })).toHaveAttribute(
+      'href',
+      '/workspaces'
+    )
+  })
+
   it("n'affiche pas de prix quand l'offre n'en a pas dans la devise par défaut", async () => {
     servir([offre({ amount_minor: null })])
     renderWithProviders(<ForfaitsPage />)

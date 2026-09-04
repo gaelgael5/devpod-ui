@@ -20,15 +20,18 @@ function makeQueryClient() {
  * Le defaut attrape-tout suffit tant qu'un composant ne lit que son chemin ;
  * des qu'il attend un segment nomme, il faut declarer le motif, sinon
  * `useParams` rend un objet vide et le composant croit sa cible introuvable.
+ *
+ * `state` sert aux ecrans qui lisent l'etat de navigation (`useLocation`),
+ * comme la page forfaits qui y trouve sa page d'origine.
  */
 export function renderWithProviders(
   ui: React.ReactElement,
-  { route = '/', path = '*' }: { route?: string; path?: string } = {}
+  { route = '/', path = '*', state }: { route?: string; path?: string; state?: unknown } = {}
 ): RenderResult {
   const queryClient = makeQueryClient()
   const router = createMemoryRouter(
     [{ path, element: <I18nextProvider i18n={i18n}>{ui}</I18nextProvider> }],
-    { initialEntries: [route] }
+    { initialEntries: [{ pathname: route, state }] }
   )
   return render(
     <QueryClientProvider client={queryClient}>

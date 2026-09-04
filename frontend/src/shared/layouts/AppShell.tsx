@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, LayoutGrid, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images, SquareTerminal, Zap, Server, SlidersHorizontal, Receipt } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -29,6 +29,7 @@ const RAIL_ACTIVE = 'bg-muted text-foreground'
 export default function AppShell() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   const user = useUserStore((s) => s.user)
   const clear = useUserStore((s) => s.clear)
   const isAdmin = useUserStore((s) => s.isAdmin())
@@ -153,7 +154,9 @@ export default function AppShell() {
               </DropdownMenuItem>
               {/* Hors du bloc `isAdmin` a dessein : consulter les forfaits
                   proposes regarde tout abonne, pas seulement l'exploitant. */}
-              <DropdownMenuItem onClick={() => navigate('/forfaits')}>
+              {/* `from` : la page forfaits renvoie son « Retour » vers l'ecran
+                  d'ou l'on vient, pas systematiquement vers les workspaces. */}
+              <DropdownMenuItem onClick={() => navigate('/forfaits', { state: { from: pathname } })}>
                 <Receipt size={14} className="mr-2" />
                 {t('forfaits.navLabel')}
               </DropdownMenuItem>

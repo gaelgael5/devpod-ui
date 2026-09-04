@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import LanguageSelect from '@/shared/nav/LanguageSelect'
 import Markdown from '@/shared/Markdown'
@@ -130,8 +130,23 @@ function Carte({ offre, connecte }: { offre: OffrePubliee; connecte: boolean }) 
   )
 }
 
+/**
+ * Page d'origine transmise par la navigation, ou `null`.
+ *
+ * L'etat de navigation est manipulable (history.pushState) : seul un chemin
+ * interne est accepte. `//` est exclu explicitement — un href `//evil.example`
+ * est une URL protocol-relative, donc une sortie du site.
+ */
+function origineDe(state: unknown): string | null {
+  if (typeof state !== 'object' || state === null) return null
+  const from = (state as Record<string, unknown>).from
+  if (typeof from !== 'string' || !from.startsWith('/') || from.startsWith('//')) return null
+  return from
+}
+
 export default function ForfaitsPage() {
   const { t } = useTranslation()
+  const { state } = useLocation()
   const { data: offres, isLoading, isError } = useOffresPubliques()
   // La page sert deux publics : un visiteur qui compare avant de creer un
   // compte, et un abonne qui vient voir ce qui existe. Le contenu est le meme —
@@ -144,14 +159,19 @@ export default function ForfaitsPage() {
   const { data: session } = useOptionalSession()
   const connecte = Boolean(session)
 
+  // Un visiteur peut arriver de plusieurs endroits — le menu profil, la barre
+  // de section admin, une URL directe. Quand la navigation transmet l'origine,
+  // le retour y renvoie ; sinon on retombe sur la destination par defaut.
+  const origine = origineDe(state)
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="flex items-center justify-between px-6 py-4">
         <Link
-          to={connecte ? '/workspaces' : '/'}
+          to={origine ?? (connecte ? '/workspaces' : '/')}
           className="text-sm text-muted-foreground hover:text-foreground"
         >
-          {t(connecte ? 'forfaits.backApp' : 'forfaits.backHome')}
+          {origine ? t('forfaits.back') : t(connecte ? 'forfaits.backApp' : 'forfaits.backHome')}
         </Link>
         <div className="flex items-center gap-3">
           {!connecte && (
