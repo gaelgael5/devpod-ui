@@ -79,3 +79,59 @@ def register_builtin_drivers() -> None:
         ),
     )
     _log.info("provisioning_driver_proxmox_enregistre", modules=str(modules))
+
+    _register_azure(settings, modules)
+
+
+def _register_azure(settings: object, modules: Path) -> None:
+    """Le driver Azure exige EN PLUS les credentials ARM et le tailnet (une VM
+    sans IP publique n'est joignable que par lui) — sans eux, pas
+    d'enregistrement, avec un log qui dit ce qui manque."""
+    import os
+
+    arm_env = {
+        cle: os.environ.get(cle, "")
+        for cle in (
+            "ARM_CLIENT_ID",
+            "ARM_CLIENT_SECRET",
+            "ARM_TENANT_ID",
+            "ARM_SUBSCRIPTION_ID",
+        )
+    }
+    tailnet_key = getattr(settings, "tailnet_api_key", "")
+    if not all(arm_env.values()) or not tailnet_key:
+        _log.info(
+            "provisioning_driver_azure_non_configure",
+            arm=all(arm_env.values()),
+            tailnet=bool(tailnet_key),
+        )
+        return
+    if not (modules / "azure-vm").is_dir():
+        _log.warning("provisioning_module_azure_introuvable", modules=str(modules))
+        return
+
+    from .azure import AzureTofuDriver
+    from .tailnet import TailnetService
+
+    register_driver(
+        "azure",
+        AzureTofuDriver(
+            module_dir=modules / "azure-vm",
+            pg_conn_str=getattr(settings, "tofu_pg_conn_str", "")
+            or _conn_str_depuis(getattr(settings, "database_url", "")),
+            state_passphrase=getattr(settings, "tofu_state_passphrase", ""),
+            arm_env=arm_env,
+            tailnet=TailnetService(
+                api_key=tailnet_key,
+                tag=getattr(settings, "tailnet_tag", "tag:workspace-node"),
+                tailnet=getattr(settings, "tailnet_name", "-"),
+            ),
+            tofu_binary=getattr(settings, "tofu_binary", "tofu"),
+            provider_mirror=(
+                Path(getattr(settings, "tofu_provider_mirror", ""))
+                if getattr(settings, "tofu_provider_mirror", "")
+                else None
+            ),
+        ),
+    )
+    _log.info("provisioning_driver_azure_enregistre")
