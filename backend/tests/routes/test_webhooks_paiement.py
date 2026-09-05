@@ -132,6 +132,11 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     etat["provisionnements"] = []
 
+    async def _publier(kind: str, abonnement: Subscription, **kwargs: Any) -> None:
+        etat["evenements"].append((kind, abonnement, kwargs))
+
+    etat["evenements"] = []
+
     for nom, impl in {
         "get_provider": _get_provider,
         "reveal_system_secret": _reveal,
@@ -141,6 +146,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         "enregistrer_etat": _enregistrer_etat,
         "get_offer": _get_offer,
         "lancer_provisioning": _lancer_provisioning,
+        "publier_evenement_abonnement": _publier,
     }.items():
         monkeypatch.setattr(routes, nom, impl)
     monkeypatch.setattr(routes, "CANAUX", {"stripe": _CanalTemoin()})
@@ -226,6 +232,28 @@ def test_une_premiere_facture_payee_active_l_abonnement(client: TestClient) -> N
     assert reponse.json()["statut"] == "applique"
     (maj,) = client.etat["etats"]  # type: ignore[attr-defined]
     assert maj.state == "actif"
+
+
+def test_une_transition_appliquee_emet_son_evenement_applicatif(client: TestClient) -> None:
+    """Le bus (et derrière lui les automates du workflow) doit voir chaque
+    transition, avec la même clé de dédup que le journal des webhooks."""
+    _poster(client, _charge())
+
+    ((kind, maj, kwargs),) = client.etat["evenements"]  # type: ignore[attr-defined]
+    assert kind == "activation"
+    assert maj.state == "actif"
+    assert kwargs["provider_event_id"] == "evt_1"
+
+
+def test_une_transition_refusee_n_emet_rien(client: TestClient) -> None:
+    """Un webhook en retard sur un abonnement clos ne doit pas faire réagir
+    les automates : rien n'a changé."""
+    client.etat["abonnements"][ABO_ID] = _abonnement(state="resilie")  # type: ignore[attr-defined]
+
+    reponse = _poster(client, _charge())
+
+    assert reponse.json()["statut"] == "refuse"
+    assert client.etat["evenements"] == []  # type: ignore[attr-defined]
 
 
 def test_un_rejeu_ne_s_applique_pas_deux_fois(client: TestClient) -> None:

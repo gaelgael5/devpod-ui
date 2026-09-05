@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
 from ..billing.declencheur import lancer_provisioning
+from ..billing.evenements import publier_evenement_abonnement
 from ..billing.models import Offer
 from ..billing.subscriptions import Subscription, SubscriptionEvent
 from ..db.billing_catalog import devise_par_defaut
@@ -153,6 +154,15 @@ async def offrir_des_essais(
             ),
             abonnement.id,
             conn,
+        )
+        # L'événement applicatif du début d'essai — même payload et même clé de
+        # dédup que le provisioning : les automates (emails, comptes tiers)
+        # voient un essai offert comme n'importe quel début d'essai.
+        await publier_evenement_abonnement(
+            "debut_essai",
+            abonnement,
+            provider_event_id=f"{PREFIXE_ESSAI_ADMIN}{abonnement.id}",
+            conn=conn,
         )
         # Même provisioning qu'une souscription gratuite : l'essai donne le
         # service tout de suite, et l'idempotence est portée par l'événement.

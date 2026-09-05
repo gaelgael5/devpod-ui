@@ -36,6 +36,16 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "compose_service.started",
         "compose_service.stopped",
         "skill.available",
+        # Cycle d'abonnement (fiche « Automate — événements user (forfait) ») :
+        # miroir des kinds du canal de vente — debut_essai, activation,
+        # renouvellement, echec_paiement, resiliation — plus l'expiration du
+        # délai de rétention, émise par le scheduler.
+        "subscription.trial_started",
+        "subscription.activated",
+        "subscription.renewed",
+        "subscription.payment_failed",
+        "subscription.cancelled",
+        "subscription.retention_expired",
     }
 )
 

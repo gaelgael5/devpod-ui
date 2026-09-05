@@ -120,3 +120,19 @@ async def test_les_offres_d_un_autre_compte_ne_comptent_pas(db_conn) -> None:
     await creer(_abonnement(login="bob", offer_slug="welcome"), db_conn)
 
     assert await offres_deja_souscrites("alice", db_conn) == set()
+
+
+async def test_l_offre_ouverte_est_celle_du_dernier_abonnement_vivant(db_conn) -> None:
+    """« Le forfait choisi » des événements user.* : l'abonnement OUVERT du
+    compte — un résilié d'hier ne compte pas, un compte sans abonnement rend None."""
+    from portal.db.subscriptions import offre_ouverte_de
+
+    await _seed_socle(db_conn)
+    await creer(_abonnement(offer_slug="welcome", state="resilie"), db_conn)
+
+    assert await offre_ouverte_de("alice", db_conn) is None
+
+    await creer(_abonnement(offer_slug="standard", state="actif"), db_conn)
+
+    assert await offre_ouverte_de("alice", db_conn) == "standard"
+    assert await offre_ouverte_de("bob", db_conn) is None

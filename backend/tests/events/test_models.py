@@ -37,6 +37,12 @@ def test_registre_contient_les_types_attendus() -> None:
         "compose_service.started",
         "compose_service.stopped",
         "skill.available",
+        "subscription.trial_started",
+        "subscription.activated",
+        "subscription.renewed",
+        "subscription.payment_failed",
+        "subscription.cancelled",
+        "subscription.retention_expired",
     } == EVENT_TYPES
 
 

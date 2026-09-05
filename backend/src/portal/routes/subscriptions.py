@@ -36,6 +36,7 @@ from ..billing.canal import CanalDeVente, DemandePaiement, PaiementImpossible
 from ..billing.canaux import CANAUX
 from ..billing.declencheur import lancer_provisioning
 from ..billing.eligibilite import CanalIndisponible, SouscriptionRefusee, verifier
+from ..billing.evenements import publier_evenement_abonnement
 from ..billing.subscriptions import Subscription, fin_de_forfait
 from ..config.store import load_global
 from ..db.billing_catalog import (
@@ -228,6 +229,15 @@ async def souscrire(
             offer_slug=offre.slug,
             hosting_type=offre.hosting_type,
             host_profiles=list(offre.host_profiles),
+        )
+        # L'événement applicatif du début d'essai : une offre gratuite ne
+        # recevra jamais de webhook, il part donc d'ici, même clé de dédup que
+        # le provisioning.
+        await publier_evenement_abonnement(
+            "debut_essai",
+            abonnement,
+            provider_event_id=f"souscription:{abonnement.id}",
+            conn=conn,
         )
     return abonnement.model_dump(mode="json")
 

@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..billing.canal import SignatureInvalide
 from ..billing.canaux import CANAUX
 from ..billing.declencheur import lancer_provisioning
+from ..billing.evenements import publier_evenement_abonnement
 from ..billing.models import PaymentProvider
 from ..billing.subscriptions import (
     Subscription,
@@ -142,6 +143,11 @@ async def recevoir(
         return {"statut": "refuse"}
 
     await enregistrer_etat(maj, conn)
+    # L'événement applicatif part vers le bus (et derrière lui les automates du
+    # workflow) — best-effort : la transition est actée, l'événement se rattrape.
+    await publier_evenement_abonnement(
+        evenement.kind, maj, provider_event_id=evenement.provider_event_id, conn=conn
+    )
     await _couper_si_sans_reconduction(maj, evenement, provider, conn)
     await _provisionner_si_du(maj, evenement, conn)
     log.info(

@@ -62,22 +62,26 @@ _STR_OR_NULL = {"type": ["string", "null"]}
 # pour matcher les systèmes tiers (Termix : clé = `sub`). Tous optionnels.
 _OWNER = {"login": _STR, "sub": _STR, "email": _STR, "identity": _STR}
 
+# « Le forfait choisi » sur les événements user.* (fiche Automate — événements
+# user) : slug de l'offre de l'abonnement OUVERT du compte, null sans abonnement.
+_OFFRE = {"offre_slug": _STR_OR_NULL}
+
 # dataSchema par type interne (les champs métier vivent à la racine de l'enveloppe :
 # `actor` et `workspace` de l'AppEvent + les clés du `subject`).
 _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
     # Identité utilisateur : `sub` (ancre OIDC) = clé de matching côté systèmes tiers.
     "user.created": _obj(
         ["actor", "login", "sub"],
-        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR, "identity": _STR},
+        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR, "identity": _STR, **_OFFRE},
     ),
     "user.refreshed": _obj(
         ["actor", "login", "sub"],
-        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR, "identity": _STR},
+        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR, "identity": _STR, **_OFFRE},
     ),
     # Session de connexion ouverte / fermée (login OIDC ou local ; logout).
     "user.connected": _obj(
         ["actor", "login", "sub"],
-        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR, "identity": _STR},
+        {"actor": _STR, "login": _STR, "sub": _STR, "email": _STR, "identity": _STR, **_OFFRE},
     ),
     "user.disconnected": _obj(
         ["actor", "login", "sub"],
@@ -204,6 +208,50 @@ _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
             "workspace": _STR,
             "skill_id": _STR,
             "installed_hash": _STR,
+        },
+    ),
+    # Cycle d'abonnement. Noms de champs DÉCIDÉS par la fiche « Automate —
+    # événements user (forfait) » : user_id, user_email, offre_slug,
+    # subscription_id (clé d'idempotence des règles d'automate). `variables` =
+    # les variables personnalisées de l'offre, schéma libre clé/valeur tant que
+    # sa structure exacte n'est pas cadrée.
+    **{
+        t: _obj(
+            ["actor", "user_id", "offre_slug", "subscription_id", "hosting_type"],
+            {
+                "actor": _STR,
+                "user_id": _STR,
+                "user_email": _STR_OR_NULL,
+                "offre_slug": _STR,
+                "subscription_id": _STR,
+                "hosting_type": _STR,
+                "state": _STR,
+                "variables": {"type": "object"},
+            },
+        )
+        for t in (
+            "subscription.trial_started",
+            "subscription.activated",
+            "subscription.renewed",
+            "subscription.payment_failed",
+            "subscription.cancelled",
+        )
+    },
+    # L'expiration du délai de rétention porte en plus l'état qui l'a armée et
+    # le délai appliqué : c'est ce que la règle de destruction doit relire.
+    "subscription.retention_expired": _obj(
+        ["actor", "user_id", "offre_slug", "subscription_id", "hosting_type", "state"],
+        {
+            "actor": _STR,
+            "user_id": _STR,
+            "user_email": _STR_OR_NULL,
+            "offre_slug": _STR,
+            "subscription_id": _STR,
+            "hosting_type": _STR,
+            "state": _STR,
+            "retention_jours": {"type": "integer"},
+            "state_changed_at": _STR_OR_NULL,
+            "variables": {"type": "object"},
         },
     ),
 }

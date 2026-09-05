@@ -145,6 +145,24 @@ async def list_de(login: str, conn: AsyncConnection) -> list[Subscription]:
     return [_row_to_subscription(dict(r)) for r in rows]
 
 
+async def offre_ouverte_de(login: str, conn: AsyncConnection) -> str | None:
+    """Slug de l'offre du dernier abonnement OUVERT du compte, ou `None`.
+
+    C'est « le forfait choisi » que les événements `user.*` portent vers les
+    automates (fiche « Automate — événements user (forfait) ») : celui qui donne
+    droit au service aujourd'hui — pas un abonnement résilié d'hier.
+    """
+    from ..billing.subscriptions import ETATS_OUVERTS
+
+    stmt = (
+        select(subscriptions.c.offer_slug)
+        .where(subscriptions.c.login == login, subscriptions.c.state.in_(tuple(ETATS_OUVERTS)))
+        .order_by(subscriptions.c.created_at.desc(), subscriptions.c.id)
+        .limit(1)
+    )
+    return (await conn.execute(stmt)).scalars().first()
+
+
 async def offres_deja_souscrites(login: str, conn: AsyncConnection) -> set[str]:
     """Slugs des offres que ce compte a déjà souscrites, quel que soit l'état.
 

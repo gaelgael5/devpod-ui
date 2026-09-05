@@ -236,12 +236,22 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     # Rafraîchissement d'identité à chaque login OIDC : re-synchronise l'aval
     # (ex. upsert du user dans Termix), idempotent. Best-effort (hors txn).
     from ..db.engine import _get_engine
+    from ..db.subscriptions import offre_ouverte_de
     from ..db.user_config import get_user_actor
     from ..events.bus import emit_event
 
     async with _get_engine().connect() as conn:
         identity = await get_user_actor(login_name, conn) or ""
-    subject = {"login": login_name, "sub": sub, "email": email, "identity": identity}
+        # « Le forfait choisi » (fiche Automate — événements user) : l'offre de
+        # l'abonnement ouvert du compte, None s'il n'en a pas.
+        offre = await offre_ouverte_de(login_name, conn)
+    subject = {
+        "login": login_name,
+        "sub": sub,
+        "email": email,
+        "identity": identity,
+        "offre_slug": offre,
+    }
     await emit_event("user.refreshed", actor=login_name, subject=subject)
     # Ouverture d'une session de connexion (distinct du rafraîchissement d'identité).
     await emit_event("user.connected", actor=login_name, subject=subject)
