@@ -8,7 +8,9 @@ from portal.devpod.test_vm import (
     build_testhost_ssh_command,
     host_cert_ready,
     map_result_to_host,
+    parse_last_json,
     replace_host_ip,
+    resultat_en_erreur,
     substitute_param_vars,
 )
 from portal.net import build_resolve_fqdn
@@ -79,8 +81,14 @@ def test_substitute_param_vars_plain_value() -> None:
 
 def test_build_test_host_views_maps_ip_and_vmid() -> None:
     hosts = [
-        HostConfig(name="host-test-114-1", type="ssh", address="debian@192.168.10.160",
-                   vmid="114", proxmox_node="pve1", usage="tests"),
+        HostConfig(
+            name="host-test-114-1",
+            type="ssh",
+            address="debian@192.168.10.160",
+            vmid="114",
+            proxmox_node="pve1",
+            usage="tests",
+        ),
     ]
     views = build_test_host_views([("host-test-114-1", "test1")], hosts)
     assert views == [
@@ -179,3 +187,25 @@ def test_testhost_ssh_command_wraps_tmux() -> None:
     assert cmd is not None
     assert "tmux new-session -A -s main" in cmd
     assert "bash -l" in cmd  # tmux absent → shell simple, pas d'échec
+
+
+def test_parse_last_json_trouve_la_ligne_erreur() -> None:
+    sortie = "==> A.10 — Installation...\nssh: connect refused\n{"
+    sortie += '"status":"error","stage":"A.10 (paquets)","vmid":"150","message":"échec"}\n'
+    result = parse_last_json(sortie)
+    assert result is not None
+    assert result["status"] == "error"
+
+
+def test_resultat_en_erreur_detecte_status_error() -> None:
+    result = {"status": "error", "stage": "A.10 (paquets)", "message": "échec — voir stderr"}
+    assert resultat_en_erreur(result) == "A.10 (paquets) — échec — voir stderr"
+
+
+def test_resultat_en_erreur_sans_message_rend_le_stage() -> None:
+    assert resultat_en_erreur({"status": "error", "stage": "A.2"}) == "A.2"
+
+
+def test_resultat_en_erreur_ignore_les_succes() -> None:
+    assert resultat_en_erreur({"status": "ok", "name": "n1"}) is None
+    assert resultat_en_erreur({}) is None

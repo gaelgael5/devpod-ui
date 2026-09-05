@@ -68,6 +68,7 @@ from ..devpod.test_vm import (
     map_result_to_host,
     parse_last_json,
     replace_host_ip,
+    resultat_en_erreur,
     substitute_param_vars,
 )
 from ..devpod.vm_init import (
@@ -411,6 +412,21 @@ async def _provision_test_vm(
                 output_tail=tail,
             )
             job.write(b"\n==> ERREUR : pas de resultat JSON du script de creation\n")
+            job.finish("failed")
+            return
+        erreur_script = resultat_en_erreur(result)
+        if erreur_script is not None:
+            _log.warning(
+                "test_vm_create_failed",
+                login=login,
+                ws=ws,
+                node=node.name,
+                vmid=vmid,
+                reason="script_error",
+                stage=erreur_script,
+                output_tail=tail,
+            )
+            job.write(f"\n==> ERREUR du script de creation : {erreur_script}\n".encode())
             job.finish("failed")
             return
         host = map_result_to_host(result, vmid, node.name)

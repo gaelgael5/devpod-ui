@@ -63,6 +63,16 @@ def parse_last_json(output: str) -> dict[str, object] | None:
     return None
 
 
+def resultat_en_erreur(result: dict[str, object]) -> str | None:
+    """Ligne `{"status":"error","stage":...,"message":...}` émise par le trap du
+    script de création → libellé d'échec exploitable, ou None si succès."""
+    if result.get("status") != "error":
+        return None
+    stage = str(result.get("stage") or "?")
+    message = str(result.get("message") or "")
+    return f"{stage} — {message}" if message else stage
+
+
 def build_test_vm_args(params: dict[str, str], identifier_arg: str, vmid: str) -> dict[str, str]:
     """Args d'exécution : le paramétrage figé du type + l'identifiant fourni."""
     args = dict(params)

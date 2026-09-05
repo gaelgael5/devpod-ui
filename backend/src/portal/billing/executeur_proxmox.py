@@ -122,9 +122,7 @@ class ExecuteurProxmox:
             profil_machine = await get_profile(cible.machine_profile, conn)
             profil_host = await get_host_profile(cible.host_profile, conn)
         if profil_machine is None:
-            raise ProvisioningImpossible(
-                f"profil de machine {cible.machine_profile!r} introuvable"
-            )
+            raise ProvisioningImpossible(f"profil de machine {cible.machine_profile!r} introuvable")
         capacite = profil_host.capacity_workspaces() if profil_host else None
 
         spec = await self._spec(node, cfg)
@@ -213,6 +211,11 @@ class ExecuteurProxmox:
                 "le script de création n'a pas rendu de résultat JSON — "
                 f"fin de sortie : {sortie[-500:]!r}"
             )
+        from ..devpod.test_vm import resultat_en_erreur
+
+        erreur_script = resultat_en_erreur(resultat)
+        if erreur_script is not None:
+            raise ProvisioningImpossible(f"le script de création a échoué : {erreur_script}")
         adresse = str(resultat.get("address") or "")
         utilisateur = str(resultat.get("ssh_user") or "debian")
         if resultat.get("type") == "docker-tls":
