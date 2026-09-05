@@ -116,6 +116,21 @@ interface Options {
   send: (data: string) => void
   /** Planifie l'emission suivante. Injectable pour les tests. */
   schedule?: (cb: () => void) => void
+  /**
+   * L'application suit-elle la souris (mouse tracking actif) ?
+   *
+   * Une TUI plein ecran comme Claude Code vit dans l'ecran alterne du pane et
+   * redessine sur place : l'historique tmux reste VIDE (copy-mode a `[0/0]`,
+   * mesure le 05/09) — le copy-mode n'a rien a defiler. Cette TUI suit la
+   * souris et defile son propre transcript sur les evenements molette : le
+   * geste doit alors parler a L'APPLICATION, pas a tmux.
+   */
+  capteSouris?: () => boolean
+  /**
+   * Sequence molette a envoyer a l'application (SGR, position comprise).
+   * Fournie par l'appelant, qui connait la geometrie du terminal.
+   */
+  sequenceMolette?: (up: boolean) => string
 }
 
 const parDefaut = (cb: () => void) => {
@@ -127,6 +142,8 @@ export function createHistoryScroller({
   isAlternate,
   send,
   schedule = parDefaut,
+  capteSouris = () => false,
+  sequenceMolette = () => '',
 }: Options): HistoryScroller {
   let acc = 0
   let lastY: number | null = null
@@ -150,10 +167,19 @@ export function createHistoryScroller({
       return
     }
 
+    // Application qui suit la souris : le defilement lui appartient. On emet
+    // des evenements molette (une TUI comme Claude Code y defile son
+    // transcript) et on ne touche jamais au copy-mode — son historique est
+    // vide, et le `q` de sortie taperait dans l'application.
+    const molette = capteSouris()
+
     if (acc <= -LINE_PX) {
-      // L'entree en copy-mode occupe sa propre emission : concatenee a une
-      // touche de defilement, elle la ferait perdre (meme lecture PTY).
-      if (!entre) {
+      if (molette) {
+        acc += LINE_PX
+        send(sequenceMolette(true))
+      } else if (!entre) {
+        // L'entree en copy-mode occupe sa propre emission : concatenee a une
+        // touche de defilement, elle la ferait perdre (meme lecture PTY).
         entre = true
         enCopyMode = true
         send(ENTER_COPY)
@@ -165,7 +191,7 @@ export function createHistoryScroller({
       // Pas d'entree en copy-mode vers le bas : sinon un glissement vers le bas
       // depuis la vue directe y ferait entrer, figeant l'affichage sans raison.
       acc -= LINE_PX
-      send(LINE_DOWN)
+      send(molette ? sequenceMolette(false) : LINE_DOWN)
     } else {
       entre = false
       return

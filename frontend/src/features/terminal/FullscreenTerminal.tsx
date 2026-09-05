@@ -359,6 +359,19 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       send: (data) => {
         if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data))
       },
+      // TUI plein ecran (Claude Code) : l'historique tmux du pane est VIDE
+      // (copy-mode a [0/0]) — le defilement appartient a l'application, qui
+      // suit la souris. Le geste devient des evenements molette SGR, vises au
+      // centre de la grille (la position n'influe pas sur un defilement).
+      capteSouris: () => {
+        const mode = terminal.modes.mouseTrackingMode
+        return mode !== undefined && mode !== 'none'
+      },
+      sequenceMolette: (up) => {
+        const x = Math.max(1, Math.floor(terminal.cols / 2))
+        const y = Math.max(1, Math.floor(terminal.rows / 2))
+        return `\x1b[<${up ? 64 : 65};${x};${y}M`
+      },
     })
 
     /** Frappes clavier : le chemin le plus direct, et le dernier reste muet. */

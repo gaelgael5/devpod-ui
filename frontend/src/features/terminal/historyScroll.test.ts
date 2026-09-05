@@ -303,3 +303,76 @@ describe('pixelsDeMolette', () => {
     expect(send.mock.calls.map((c) => c[0])).toContain(ENTER_COPY)
   })
 })
+
+describe('application qui capte la souris (TUI plein ecran, ex. Claude Code)', () => {
+  /**
+   * Dans une session Claude, l'historique tmux est VIDE ([0/0]) : la TUI
+   * occupe l'ecran alterne du pane et redessine sur place, rien n'entre
+   * jamais dans le scrollback. Le copy-mode n'a donc rien a defiler — le
+   * geste doit parler A L'APPLICATION, en evenements molette, comme le fait
+   * une molette de bureau quand la TUI suit la souris.
+   */
+  function scrollerSouris() {
+    const send = vi.fn()
+    const frames: (() => void)[] = []
+    const s = createHistoryScroller({
+      isAlternate: () => true,
+      send,
+      schedule: (cb) => frames.push(cb),
+      capteSouris: () => true,
+      sequenceMolette: (up) => (up ? 'MOLETTE_HAUT' : 'MOLETTE_BAS'),
+    })
+    const tick = (n = 1) => {
+      for (let i = 0; i < n; i++) {
+        const f = frames.shift()
+        if (!f) break
+        f()
+      }
+    }
+    return { s, send, tick }
+  }
+
+  it('emet des evenements molette, jamais le copy-mode', () => {
+    const { s, send, tick } = scrollerSouris()
+    s.wheel(-LINE_PX * 2)
+    tick(10)
+
+    expect(send).toHaveBeenCalledWith('MOLETTE_HAUT')
+    expect(send).not.toHaveBeenCalledWith(ENTER_COPY)
+  })
+
+  it('descend aussi en molette', () => {
+    const { s, send, tick } = scrollerSouris()
+    s.wheel(LINE_PX)
+    tick(5)
+
+    expect(send).toHaveBeenCalledExactlyOnceWith('MOLETTE_BAS')
+  })
+
+  it('une emission par frame, comme les touches', () => {
+    const { s, send, tick } = scrollerSouris()
+    s.wheel(-LINE_PX * 3)
+    tick(1)
+
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  it('exitCopyMode reste muet : rien a quitter, et `q` taperait dans la TUI', () => {
+    const { s, send, tick } = scrollerSouris()
+    s.wheel(-LINE_PX * 2)
+    tick(10)
+    send.mockClear()
+
+    expect(s.exitCopyMode()).toBe(false)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('sans capture souris, le copy-mode reste le chemin', () => {
+    // Le cas VM/logs : le pane a un vrai historique tmux, le copy-mode marche.
+    const { s, send, tick } = scroller()
+    s.wheel(-LINE_PX)
+    tick()
+
+    expect(send).toHaveBeenCalledExactlyOnceWith(ENTER_COPY)
+  })
+})

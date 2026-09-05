@@ -18,6 +18,10 @@ const CURSEUR_BAS = '\x1b[B'
 class MockTerminal {
   cols = 80
   rows = 24
+  // Modes rapportes par xterm. `none` par defaut : les tests d'historique
+  // exercent le chemin copy-mode tmux ; une TUI qui suit la souris (Claude
+  // Code) le met a `any` et bascule le geste en evenements molette.
+  modes = { mouseTrackingMode: 'none' as string }
   // Zone de saisie cachee de xterm. Le vrai composant s'y accroche pour suivre
   // l'etat du clavier mobile : sans elle le bouton « clavier » ne peut rien.
   textarea: HTMLTextAreaElement = document.createElement('textarea')
@@ -757,6 +761,20 @@ describe('FullscreenTerminal — historique au geste', () => {
     act(() => { vi.runAllTimers() })
 
     expect(sent()).toContain(LINE_DOWN)
+  })
+
+  it('parle molette SGR a une TUI qui suit la souris (Claude Code)', () => {
+    // Son historique tmux est VIDE (copy-mode a [0/0]) : le copy-mode n'a rien
+    // a defiler, c'est l'application qui defile son transcript sur la molette.
+    renderTerminal()
+    terminals[0].modes.mouseTrackingMode = 'any'
+
+    fireEvent.wheel(surface(), { deltaY: -LINE_PX })
+    act(() => { vi.runAllTimers() })
+
+    // 64 = molette haut, vise le centre de la grille apres fit (56x20 -> 28;10).
+    expect(sent()).toContain('\x1b[<64;28;10M')
+    expect(sent()).not.toContain(ENTER_COPY)
   })
 
   /** Molette posee la ou l'utilisateur la pose : sur l'element de xterm. */
