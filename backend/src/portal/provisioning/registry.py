@@ -111,7 +111,17 @@ def _register_azure(settings: object, modules: Path) -> None:
         return
 
     from .azure import AzureTofuDriver
+    from .reconciliation import verifier_plafond
     from .tailnet import TailnetService
+
+    async def _garde_plafond(estimation_eur: float) -> None:
+        from ..config.store import load_global
+
+        verifier_plafond(
+            load_global().hosts,
+            estimation_eur,
+            float(getattr(settings, "provisioning_cost_cap_eur_month", 0.0)),
+        )
 
     register_driver(
         "azure",
@@ -132,6 +142,7 @@ def _register_azure(settings: object, modules: Path) -> None:
                 if getattr(settings, "tofu_provider_mirror", "")
                 else None
             ),
+            cost_guard=_garde_plafond,
         ),
     )
     _log.info("provisioning_driver_azure_enregistre")

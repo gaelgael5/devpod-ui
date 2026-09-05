@@ -76,9 +76,13 @@ variable "owner_tags" {
 locals {
   rg_name = var.resource_group != "" ? var.resource_group : "rg-${var.name}"
   image   = split(":", var.image)
+  # Ownership (ticket 11) : posé À LA CRÉATION sur chaque ressource, sans
+  # exception — après coup, une ressource sans tag est indiscernable d'une
+  # ressource légitime et personne n'ose la supprimer. `owner_tags` complète
+  # avec owner=<login> et created-at, composés par l'appelant.
   tags = merge({
-    portal_managed = "true"
-    portal_machine = var.name
+    managed-by = "devflow"
+    machine    = var.name
   }, var.owner_tags)
   # cloud-init : rejoindre le tailnet au premier boot. Échec = pas de repli
   # silencieux : la machine reste injoignable et le driver échoue sur timeout

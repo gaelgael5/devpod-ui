@@ -341,6 +341,12 @@ class HostConfig(BaseModel):
     # chemin driver éprouvé en production de test.
     provider: str = ""
     provider_ref: dict[str, Any] = Field(default_factory=dict)
+    # Garde-fous cloud (ticket 11) — domaine du portail, posés par l'exécuteur
+    # au provisionnement (jamais relus depuis provider_ref, qui est opaque) :
+    # estimation grossière €/mois pour le plafond, et TTL (ISO 8601, vide =
+    # permanent) qui déclenche une ALERTE, jamais un arrêt automatique.
+    cost_estimate_eur_month: float = 0.0
+    expires_at: str = ""
     # Références vers harpo_* (slugs)
     ci_password_secret_slug: str = ""
     host_cert_slug: str = ""

@@ -77,6 +77,62 @@ async def rejouer_run(
     return {"run_id": run_id, "state": resultat.state, "erreur": resultat.erreur}
 
 
+@router.get("/admin/provisioning/reconciliation")
+async def reconciliation(
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Les trois vues confrontées — portail, state OpenTofu, provider — plus
+    les TTL dépassés. Cette route SIGNALE : aucune action destructrice n'existe
+    ici, et une panne d'API provider ne rend pas le parc orphelin."""
+    import os
+
+    from sqlalchemy import text
+
+    from ..config.store import load_global
+    from ..provisioning.azure_inventory import AzureInventaire, InventaireIndisponible
+    from ..provisioning.reconciliation import classer_ecarts, machines_expirees
+
+    cfg = load_global()
+    portail = {h.name for h in cfg.hosts if h.provider == "azure"}
+
+    try:
+        lignes = await conn.execute(text("SELECT name FROM terraform_remote_state.states"))
+        state = {str(r[0]) for r in lignes}
+    except Exception:  # noqa: BLE001 — schéma absent = aucun state, pas une panne
+        state = set()
+
+    provider: set[str] | None = None
+    arm = {
+        k: os.environ.get(k, "")
+        for k in ("ARM_TENANT_ID", "ARM_CLIENT_ID", "ARM_CLIENT_SECRET", "ARM_SUBSCRIPTION_ID")
+    }
+    if all(arm.values()):
+        try:
+            provider = await AzureInventaire(
+                tenant_id=arm["ARM_TENANT_ID"],
+                client_id=arm["ARM_CLIENT_ID"],
+                client_secret=arm["ARM_CLIENT_SECRET"],
+                subscription_id=arm["ARM_SUBSCRIPTION_ID"],
+            ).machines()
+        except InventaireIndisponible as exc:
+            _log.warning("reconciliation_provider_indisponible", error=str(exc))
+
+    ecarts = classer_ecarts(
+        portail=portail,
+        state=state,
+        provider=provider,
+        expirees=machines_expirees(cfg.hosts),
+    )
+    if ecarts.orphelines or ecarts.expirees:
+        _log.warning(
+            "reconciliation_ecarts",
+            orphelines=len(ecarts.orphelines),
+            expirees=len(ecarts.expirees),
+        )
+    return ecarts.model_dump()
+
+
 @router.post("/admin/provisioning/runs/{run_id}/detruire")
 async def detruire_run(
     run_id: int,

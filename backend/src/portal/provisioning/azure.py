@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import tempfile
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,7 @@ import structlog
 
 from .contract import MachineDescriptor, MachineSpec, ResolvedResources
 from .errors import DriverError, EchecApresCreation
+from .reconciliation import estimer_cout_eur_mois
 from .tailnet import TailnetService
 from .tofu import TofuStack
 
@@ -40,6 +41,7 @@ _TAILNET_WAIT_S = 600.0
 _TAILNET_RETRY_S = 10.0
 
 StackFactory = Callable[..., TofuStack]
+CostGuard = Callable[[float], Awaitable[None]]
 
 
 def resoudre_sku(
@@ -76,6 +78,7 @@ class AzureTofuDriver:
         provider_mirror: Path | None = None,
         timeout_s: float = 1800.0,
         stack_factory: StackFactory | None = None,
+        cost_guard: CostGuard | None = None,
     ) -> None:
         self._module_dir = module_dir
         self._pg_conn_str = pg_conn_str
@@ -86,6 +89,7 @@ class AzureTofuDriver:
         self._provider_mirror = provider_mirror
         self._timeout_s = timeout_s
         self._stack_factory = stack_factory
+        self._cost_guard = cost_guard
 
     # ─── Contrat ─────────────────────────────────────────────────────────────
 
@@ -99,6 +103,11 @@ class AzureTofuDriver:
         if not instance_size:
             famille = str(spec.provider.get("sku_family") or "Dads_v5")
             instance_size, resolved = resoudre_sku(spec.cpu, spec.memory_mb, famille)
+
+        # Plafond de coût (ticket 11) : refusé AVANT toute création — clé
+        # tailnet comprise, rien ne doit exister si le plafond est atteint.
+        if self._cost_guard is not None:
+            await self._cost_guard(estimer_cout_eur_mois(instance_size))
 
         # La clé d'enrôlement (usage unique) est créée ICI : le module la
         # consomme en cloud-init — seul chemin vers une machine sans IP
