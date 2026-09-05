@@ -47,6 +47,7 @@ from ..db.billing_catalog import (
 )
 from ..db.billing_offers import get_offer
 from ..db.engine import get_conn
+from ..db.subscription_events import historique_de
 from ..db.subscriptions import creer, get, list_de, offres_deja_souscrites
 from ..db.user_config import email_de
 from ..secrets.system import reveal_system_secret
@@ -126,6 +127,19 @@ async def mes_souscriptions(
     conn: AsyncConnection = Depends(get_conn),
 ) -> list[dict[str, object]]:
     return [s.model_dump(mode="json") for s in await list_de(user.login, conn)]
+
+
+@router.get("/subscriptions/historique")
+async def mon_historique(
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[dict[str, object]]:
+    """L'historique du compte, vu par son titulaire : ses ACHATS uniquement.
+
+    Les entrées d'exploitation (`visibilite=operation`) ne lui sont jamais
+    servies — c'est le filtre porté par l'entrée, pas une seconde requête.
+    """
+    return await historique_de(user.login, conn, achats_seulement=True)
 
 
 @router.post("/subscriptions", status_code=201)

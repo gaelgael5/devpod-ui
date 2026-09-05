@@ -44,6 +44,7 @@ from ..db.billing_offers import (
 )
 from ..db.engine import get_conn
 from ..db.host_profiles import get_host_profile
+from ..db.subscription_events import historique_de, historique_global
 
 router = APIRouter(tags=["billing-offers"])
 log = structlog.get_logger(__name__)
@@ -160,6 +161,34 @@ async def list_public_offers(
         )
         vues.append(_vue_publique(offre, devise, plafond))
     return vues
+
+
+# ─── Historique des abonnements (écrans admin) ───────────────────────────────
+
+
+@router.get("/billing/historique")
+async def admin_historique_global(
+    limite: int = 100,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[dict[str, object]]:
+    """La page globale : les dernières entrées, tous comptes confondus.
+
+    Vue COMPLÈTE — achats et opérations. Les entrées orphelines (webhook
+    authentique jamais rattaché) y figurent avec un login vide : c'est ici
+    qu'un écart de rattachement doit se voir.
+    """
+    return await historique_global(conn, limite=limite)
+
+
+@router.get("/billing/users/{login}/historique")
+async def admin_historique_utilisateur(
+    login: str,
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> list[dict[str, object]]:
+    """La fiche admin d'un compte : son historique COMPLET, opérations comprises."""
+    return await historique_de(login, conn, achats_seulement=False)
 
 
 class FinDeValidite(BaseModel):

@@ -17,12 +17,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import Case, case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..billing.subscriptions import SubscriptionEvent
-from .tables import subscription_events
+from .tables import subscription_events, subscriptions
 
 
 async def enregistrer(
@@ -88,6 +88,82 @@ async def historique(subscription_id: str, conn: AsyncConnection) -> list[dict[s
         )
         .where(subscription_events.c.subscription_id == subscription_id)
         .order_by(subscription_events.c.created_at, subscription_events.c.id)
+    )
+    rows = (await conn.execute(stmt)).mappings().all()
+    return [dict(r) for r in rows]
+
+
+#: Les colonnes servies aux écrans d'historique. Le `payload` n'en est pas :
+#: c'est la charge brute du fournisseur, un outil de rejeu et de diagnostic —
+#: pas une donnée d'affichage, et surtout pas une donnée à servir au client.
+_COLONNES_HISTORIQUE = (
+    subscription_events.c.id,
+    subscription_events.c.kind,
+    subscription_events.c.subscription_id,
+    subscription_events.c.provider_slug,
+    subscription_events.c.provider_event_id,
+    subscription_events.c.visibilite,
+    subscription_events.c.occurred_at,
+    subscription_events.c.created_at,
+)
+
+
+def _attribution() -> Case[str]:
+    """Le compte auquel une entrée appartient.
+
+    L'événement porte son propre `login` quand le canal l'a su, sinon il se lit
+    sur l'abonnement rattaché. Un OU explicite plutôt qu'une préférence figée :
+    les deux chemins existent en base, aucun ne couvre l'autre.
+    """
+    return case(
+        (subscription_events.c.login != "", subscription_events.c.login),
+        else_=func.coalesce(subscriptions.c.login, ""),
+    )
+
+
+async def historique_de(
+    login: str, conn: AsyncConnection, *, achats_seulement: bool
+) -> list[dict[str, object]]:
+    """Les entrées d'un compte, de la plus récente à la plus ancienne.
+
+    `achats_seulement=True` est la vue de l'utilisateur : ses achats, rien de
+    l'exploitation. Les écrans admin passent `False` et voient tout.
+    """
+    proprietaire = _attribution()
+    stmt = (
+        select(*_COLONNES_HISTORIQUE, subscriptions.c.offer_slug)
+        .select_from(
+            subscription_events.outerjoin(
+                subscriptions, subscription_events.c.subscription_id == subscriptions.c.id
+            )
+        )
+        .where(proprietaire == login)
+        .order_by(subscription_events.c.created_at.desc(), subscription_events.c.id.desc())
+    )
+    if achats_seulement:
+        stmt = stmt.where(subscription_events.c.visibilite == "achat")
+    rows = (await conn.execute(stmt)).mappings().all()
+    return [{**dict(r), "login": login} for r in rows]
+
+
+async def historique_global(
+    conn: AsyncConnection, *, limite: int = 100
+) -> list[dict[str, object]]:
+    """La page globale admin : les dernières entrées, tous comptes confondus.
+
+    Bornée — c'est un fil d'activité, pas un export. Les entrées orphelines
+    (webhook authentique jamais rattaché) y figurent avec un login vide :
+    l'écart doit se voir ici, c'est précisément l'endroit où on le cherchera.
+    """
+    stmt = (
+        select(*_COLONNES_HISTORIQUE, subscriptions.c.offer_slug, _attribution().label("login"))
+        .select_from(
+            subscription_events.outerjoin(
+                subscriptions, subscription_events.c.subscription_id == subscriptions.c.id
+            )
+        )
+        .order_by(subscription_events.c.created_at.desc(), subscription_events.c.id.desc())
+        .limit(max(1, min(limite, 500)))
     )
     rows = (await conn.execute(stmt)).mappings().all()
     return [dict(r) for r in rows]

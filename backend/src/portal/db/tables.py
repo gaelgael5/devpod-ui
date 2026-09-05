@@ -1704,12 +1704,20 @@ subscription_events = Table(
     Column("provider_slug", Text, nullable=False),
     Column("provider_event_id", Text, nullable=False),
     Column("payload", JSONB, nullable=False, server_default="{}"),
+    # Visibilite de l'entree (migration 127) : `achat` = le compte en tant que
+    # client, servie a l'utilisateur ; `operation` = geste d'exploitation,
+    # reservee aux ecrans admin. UNE source, trois points d'acces — le filtre
+    # est porte par l'entree, pas par trois requetes divergentes.
+    Column("visibilite", Text, nullable=False, server_default="achat"),
     Column("occurred_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("provider_slug", "provider_event_id", name="uq_subscription_event_provider"),
     CheckConstraint(
         "kind IN ('debut_essai','activation','renouvellement','echec_paiement','resiliation')",
         name="ck_subscription_event_kind",
+    ),
+    CheckConstraint(
+        "visibilite IN ('achat','operation')", name="ck_subscription_event_visibilite"
     ),
 )
 Index("ix_subscription_events_sub", subscription_events.c.subscription_id)

@@ -35,6 +35,7 @@ class _Store:
         self.providers: set[str] = {"stripe-fr"}
         self.profils_host: set[str] = {"host-standard", "host-gros"}
         self.offres_referencees: set[str] = set()
+        self.appels_historique: list[tuple[Any, ...]] = []
         self._seq = 0
 
     def ajoute_taux(self, taux: TaxRate) -> TaxRate:
@@ -106,6 +107,16 @@ def client(store: _Store, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def _get_host_profile(slug: str, _conn: Any) -> Any:
         return object() if slug in store.profils_host else None
 
+    async def _historique_de(
+        login: str, _conn: Any, *, achats_seulement: bool
+    ) -> list[dict[str, Any]]:
+        store.appels_historique.append(("de", login, achats_seulement))
+        return [{"kind": "activation", "login": login}]
+
+    async def _historique_global(_conn: Any, *, limite: int = 100) -> list[dict[str, Any]]:
+        store.appels_historique.append(("global", limite))
+        return [{"kind": "activation", "login": ""}]
+
     for nom, impl in {
         "get_country": _get_country,
         "devises_actives": _devises_actives,
@@ -121,6 +132,8 @@ def client(store: _Store, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         "offer_reference": _offer_reference,
         "get_provider": _get_provider,
         "get_host_profile": _get_host_profile,
+        "historique_de": _historique_de,
+        "historique_global": _historique_global,
     }.items():
         monkeypatch.setattr(billing_offers, nom, impl)
     return TestClient(app)
@@ -423,3 +436,23 @@ def test_un_meme_profil_liste_deux_fois_est_refuse(client: TestClient) -> None:
     )
 
     assert res.status_code == 422
+
+
+# ─── Historique (écrans admin) ───────────────────────────────────────────────
+
+
+def test_la_fiche_admin_d_un_compte_lit_l_historique_complet(
+    client: TestClient, store: _Store
+) -> None:
+    """Vue admin = COMPLÈTE : achats ET opérations — pas le filtre du client."""
+    res = client.get("/admin/billing/users/alice/historique")
+
+    assert res.status_code == 200
+    assert store.appels_historique == [("de", "alice", False)]
+
+
+def test_la_page_globale_passe_sa_borne(client: TestClient, store: _Store) -> None:
+    res = client.get("/admin/billing/historique", params={"limite": 25})
+
+    assert res.status_code == 200
+    assert store.appels_historique == [("global", 25)]

@@ -91,6 +91,14 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     etat["provisionnements"] = []
 
+    async def _historique_de(
+        login: str, _conn: Any, *, achats_seulement: bool
+    ) -> list[dict[str, Any]]:
+        etat["historique_demande"].append((login, achats_seulement))
+        return [{"kind": "activation", "login": login}]
+
+    etat["historique_demande"] = []
+
     for nom, impl in {
         "get_offer": _get_offer,
         "devise_par_defaut": _devise_par_defaut,
@@ -101,6 +109,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         "creer": _creer,
         "list_de": _list_de,
         "lancer_provisioning": _lancer_provisioning,
+        "historique_de": _historique_de,
     }.items():
         monkeypatch.setattr(routes, nom, impl)
 
@@ -213,6 +222,15 @@ def test_une_offre_payante_ne_provisionne_pas_avant_le_paiement(client: TestClie
     assert client.post("/me/subscriptions", json=_corps()).status_code == 201
 
     assert client.etat["provisionnements"] == []  # type: ignore[attr-defined]
+
+
+def test_l_historique_du_titulaire_est_borne_a_ses_achats(client: TestClient) -> None:
+    """La vue de l'utilisateur : SON compte, ses ACHATS — jamais les entrées
+    d'exploitation, et jamais l'historique d'un autre."""
+    reponse = client.get("/me/subscriptions/historique")
+
+    assert reponse.status_code == 200
+    assert client.etat["historique_demande"] == [("bob", True)]  # type: ignore[attr-defined]
 
 
 def test_un_pays_sans_canal_journalise_la_vente_perdue(client: TestClient) -> None:
