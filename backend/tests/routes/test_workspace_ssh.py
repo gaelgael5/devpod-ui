@@ -231,6 +231,13 @@ def test_ws_workspace_ssh_no_start_uses_tmux_main(
     # Le socket tmux est détecté dynamiquement (TMUX_SOCK) puis `new -A -s main`.
     assert "new -A -s main" in command_str
     assert "base64" not in command_str
+    # Sortie du copy-mode AVANT l'attache : une session laissée en copy-mode
+    # (défilement tactile mobile, puis déconnexion) fige l'écran de tout client
+    # qui se rattache — instantané immobile, saisie absorbée sans écho (mesuré
+    # en production le 05/09 : `pane_in_mode=1`, seul `send-keys -X cancel`
+    # rendait la session). L'échec est silencieux quand il n'y a pas de mode.
+    assert "send-keys -t main -X cancel 2>/dev/null" in command_str
+    assert command_str.index("-X cancel") < command_str.index("new -A -s main")
 
 
 def test_ws_workspace_ssh_with_start_encodes_script(
@@ -255,6 +262,9 @@ def test_ws_workspace_ssh_with_start_encodes_script(
     command_str = cmd[-1]
     assert "base64" in command_str
     assert "tmux new -A -s claude-rc" in command_str
+    # Même garde anti copy-mode que la session par défaut (cf. test main).
+    assert "send-keys -t claude-rc -X cancel 2>/dev/null" in command_str
+    assert command_str.index("-X cancel") < command_str.index("new -A -s claude-rc")
 
     import re as _re
     match = _re.search(r"echo ([A-Za-z0-9+/=]+) \| base64 -d", command_str)

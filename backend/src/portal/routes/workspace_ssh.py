@@ -110,6 +110,16 @@ async def workspace_ssh_terminal(
     )
     _tmux = 'TERM=xterm-256color tmux ${TMUX_SOCK:+-S "$TMUX_SOCK"}'
 
+    # Sortie du copy-mode AVANT toute attache. Le défilement tactile mobile
+    # navigue l'historique via copy-mode ; une déconnexion à ce moment-là LAISSE
+    # la session en copy-mode, et tout client qui se rattache voit l'instantané
+    # figé de cet instant, la saisie absorbée sans écho — une session qui
+    # paraît morte alors qu'elle vit (mesuré en production le 05/09 :
+    # `pane_in_mode=1`, seul `send-keys -X cancel` la rendait). L'échec est
+    # silencieux quand il n'y a ni session ni mode : c'est le cas nominal.
+    def _sortie_copy_mode(session_cible: str) -> str:
+        return f"{_tmux} send-keys -t {shlex.quote(session_cible)} -X cancel 2>/dev/null"
+
     tmux_cmd: str
     # Nom de session tmux attaché (pour le registre des terminaux vivants) : None
     # quand aucun tmux n'est en jeu (rebond test, shell brut).
@@ -139,7 +149,10 @@ async def workspace_ssh_terminal(
             await websocket.close(code=4022, reason="Invalid session name")
             return
         # new-session -A : attache si la session existe, crée sinon.
-        tmux_cmd = f"{_sock}; {_tmux} new-session -A -s {shlex.quote(session)}"
+        tmux_cmd = (
+            f"{_sock}; {_sortie_copy_mode(session)}; "
+            f"{_tmux} new-session -A -s {shlex.quote(session)}"
+        )
         session_name = session
     elif start is not None:
         from ..recipes.models import _RECIPE_ID_RE
@@ -167,11 +180,12 @@ async def workspace_ssh_terminal(
         run_script = f'bash -lc "$(echo {b64} | base64 -d)"'
         has_tmux = "command -v tmux >/dev/null 2>&1"
         tmux_cmd = (
-            f"{has_tmux} && {_sock}; {_tmux} new -A -s {start} -- {run_script} || {run_script}"
+            f"{has_tmux} && {_sock}; {_sortie_copy_mode(start)}; "
+            f"{_tmux} new -A -s {start} -- {run_script} || {run_script}"
         )
         session_name = start
     else:
-        tmux_cmd = f"{_sock}; {_tmux} new -A -s main || bash -l"
+        tmux_cmd = f"{_sock}; {_sortie_copy_mode('main')}; {_tmux} new -A -s main || bash -l"
         session_name = "main"
 
     # ── Build commande SSH ────────────────────────────────────────────────────
