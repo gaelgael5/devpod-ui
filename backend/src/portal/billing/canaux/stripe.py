@@ -198,6 +198,11 @@ class CanalStripe:
             return "litige_ouvert"
         if type_evenement == "charge.dispute.closed":
             return "litige_clos"
+        # Prélèvement hors session bloqué par une authentification forte requise :
+        # le renouvellement à J+30 d'un abonnement dont la carte n'a pas été
+        # authentifiée au setup. Journalisé, jamais ignoré en silence.
+        if type_evenement == "invoice.payment_action_required":
+            return "action_requise"
         return None
 
     @staticmethod

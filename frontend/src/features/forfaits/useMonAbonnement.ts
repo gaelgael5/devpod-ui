@@ -34,6 +34,7 @@ export interface EntreeHistorique {
     | 'remboursement'
     | 'litige_ouvert'
     | 'litige_clos'
+    | 'action_requise'
   subscription_id: string | null
   provider_slug: string
   provider_event_id: string

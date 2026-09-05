@@ -43,7 +43,8 @@
       "resiliation": "Cancellation",
       "remboursement": "Refund",
       "litige_ouvert": "Dispute opened",
-      "litige_clos": "Dispute closed"
+      "litige_clos": "Dispute closed",
+      "action_requise": "Action required (authentication)"
     },
     "reprendre": "Resume this subscription",
     "reprendreHint": "Resuming restarts at today's price, for a full term — it does not undo the cancellation.",

@@ -241,6 +241,7 @@ _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
             "subscription.refunded",
             "subscription.dispute_opened",
             "subscription.dispute_closed",
+            "subscription.payment_action_required",
         )
     },
     # L'expiration du délai de rétention porte en plus l'état qui l'a armée et

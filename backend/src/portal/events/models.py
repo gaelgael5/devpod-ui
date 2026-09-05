@@ -51,6 +51,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "subscription.refunded",
         "subscription.dispute_opened",
         "subscription.dispute_closed",
+        "subscription.payment_action_required",
     }
 )
 

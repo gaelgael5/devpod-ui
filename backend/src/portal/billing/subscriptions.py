@@ -51,6 +51,12 @@ EventKind = Literal[
     "remboursement",
     "litige_ouvert",
     "litige_clos",
+    # Un prélèvement hors session exige une authentification forte (3DS/DSP2)
+    # que personne ne peut fournir sur le moment (fiche « SetupIntent à
+    # l'inscription »). Ce n'est PAS un échec de paiement définitif : journalisé
+    # et signalé pour ne pas rester ignoré en silence, l'effet sur l'accès
+    # (attente vs coupure) reste à trancher côté automate.
+    "action_requise",
 ]
 
 #: État dans lequel chaque événement place l'abonnement. La table est
@@ -72,7 +78,7 @@ ETAT_APRES: dict[str, SubscriptionState] = {
 #: l'arbitrage tombe, l'événement passe dans ETAT_APRES et sort d'ici — les
 #: tests exigent que chaque kind soit dans exactement UNE des deux tables.
 KINDS_SANS_TRANSITION: frozenset[str] = frozenset(
-    {"remboursement", "litige_ouvert", "litige_clos"}
+    {"remboursement", "litige_ouvert", "litige_clos", "action_requise"}
 )
 
 #: États CLOS : aucun événement de cycle de facturation ne les fait sortir.

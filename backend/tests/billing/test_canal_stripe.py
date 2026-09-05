@@ -231,6 +231,15 @@ def test_un_litige_ouvert_et_sa_cloture_sont_normalises(canal: CanalStripe) -> N
     assert clos.payload["data"]["object"]["status"] == "lost"
 
 
+def test_une_authentification_requise_est_normalisee(canal: CanalStripe) -> None:
+    """Le renouvellement hors session bloqué par 3DS : journalisé, jamais
+    ignoré en silence (fiche SetupIntent)."""
+    evt = canal.normaliser(_evenement("invoice.payment_action_required", {"id": "in_9"}))
+
+    assert evt is not None
+    assert evt.kind == "action_requise"
+
+
 def test_la_premiere_facture_payee_active(canal: CanalStripe) -> None:
     charge = _evenement("invoice.paid", {"billing_reason": "subscription_create"})
 

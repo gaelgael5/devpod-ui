@@ -43,7 +43,8 @@
       "resiliation": "Résiliation",
       "remboursement": "Remboursement",
       "litige_ouvert": "Litige ouvert",
-      "litige_clos": "Litige clos"
+      "litige_clos": "Litige clos",
+      "action_requise": "Action requise (authentification)"
     },
     "reprendre": "Reprendre cet abonnement",
     "reprendreHint": "La reprise repart au tarif du jour, pour une durée pleine — ce n'est pas une annulation de la résiliation.",

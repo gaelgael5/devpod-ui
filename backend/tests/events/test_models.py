@@ -46,6 +46,7 @@ def test_registre_contient_les_types_attendus() -> None:
         "subscription.refunded",
         "subscription.dispute_opened",
         "subscription.dispute_closed",
+        "subscription.payment_action_required",
     } == EVENT_TYPES
 
 
