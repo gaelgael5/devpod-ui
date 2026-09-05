@@ -28,6 +28,14 @@
 #   --portal-url URL  URL du portail (déclenche l'enrôlement A.12 avec --portal-token)
 #   --portal-token T  Jeton d'enrôlement du portail
 #
+# Tailnet (étape A.10e) : si la variable d'environnement TAILNET_AUTHKEY est
+# posée (clé à usage unique, pré-autorisée), la machine rejoint le tailnet sous
+# le nom --node-name et la ligne `TAILNET_IP=100.x.y.z` est émise sur stdout
+# pour l'appelant. Tailnet demandé mais en échec = échec NET du script — jamais
+# de repli silencieux sur une adresse locale qui ne marchera pas depuis le
+# cloud. La clé transite par l'environnement puis stdin du ssh distant : ni
+# argv local, ni log, ni fichier persistant sur la machine.
+#
 # Contrat de sortie : code 0 si tout est passé ; sinon code d'erreur, avec
 # l'étape atteinte sur stderr. Il n'écrit AUCUN JSON : le descripteur de la
 # machine est composé par l'appelant (clone-vm-node.sh, module IaC, ...).
@@ -44,6 +52,7 @@ PORTAL_URL=""
 # Accepté en variable d'environnement : un argv est lisible par tout processus
 # local (`ps auxww`). L'option --portal-token reste un repli de compatibilité.
 PORTAL_TOKEN="${PORTAL_TOKEN:-}"
+TAILNET_AUTHKEY="${TAILNET_AUTHKEY:-}"
 # Swapfile d'urgence (enabler 74ad4fdf) : sans swap, un pic mémoire transitoire
 # déclenche l'OOM killer immédiatement (incident du 23/07 : networkd tué, host
 # injoignable). 25 % de la RAM, borné, swappiness bas = airbag, pas matelas.
@@ -270,6 +279,51 @@ if [[ "$CPU_TYPE" == "host" ]]; then
     echo "    (--cpu-type host : si /dev/kvm était absent, activer le nesting côté hyperviseur.)"
 fi
 echo "    Effectif au prochain démarrage de session (déjà le cas pour une VM neuve)."
+
+# ─── A.10e — Adhésion au tailnet (ticket 71e95a14) ───────────────────────────
+# L'adresse d'une machine est son IP de tailnet : le portail la joint ensuite
+# en SSH ordinaire, qu'elle soit sur pve2 ou chez un cloud, sans IP publique ni
+# règle de firewall par machine. Le nœud n'est PAS éphémère (un host éteint des
+# jours ne doit pas disparaître seul) : le désenrôlement est explicite, à la
+# destruction, côté portail.
+if [[ -n "$TAILNET_AUTHKEY" ]]; then
+    STAGE="A.10e (tailnet)"
+    [[ -n "$NODE_NAME" ]] || {
+        echo "ERREUR : l'adhésion au tailnet exige --node-name (nom du nœud)." >&2
+        exit 1
+    }
+    echo ""
+    echo "==> A.10e — Adhésion au tailnet (nœud ${NODE_NAME})..."
+
+    # La clé voyage DANS le heredoc (stdin du ssh) : jamais dans l'argv local
+    # (lisible via ps), jamais écrite sur la machine. L'argv distant de
+    # `tailscale up` est transitoire, et la clé est morte après ce premier
+    # usage (à usage unique). Format tskey-* : alphanumérique, sûr à quoter.
+    ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash -s -- "$NODE_NAME" <<REMOTE
+set -e
+TSKEY='${TAILNET_AUTHKEY}'
+if ! command -v tailscale >/dev/null 2>&1; then
+    curl -fsSL https://tailscale.com/install.sh | ${SUDO} sh >/dev/null
+fi
+# Rejouable : un nœud déjà membre garde son identité, on ne re-consomme pas de clé.
+if ${SUDO} tailscale ip -4 >/dev/null 2>&1; then
+    echo "    Déjà membre du tailnet."
+else
+    ${SUDO} tailscale up --auth-key="\$TSKEY" --hostname="\$1"
+fi
+${SUDO} tailscale ip -4 | head -1
+REMOTE
+    # Relire l'IP séparément : la sortie du bloc ci-dessus mêle install et logs.
+    TAILNET_IP=$(ssh -n "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" \
+        "${SUDO} tailscale ip -4 | head -1" | tr -d '[:space:]')
+    [[ "$TAILNET_IP" =~ ^100\. ]] || {
+        echo "ERREUR : adhésion au tailnet sans adresse CGNAT rendue (obtenu : '${TAILNET_IP}')." >&2
+        exit 1
+    }
+    echo "    Nœud membre du tailnet : ${TAILNET_IP}"
+    # Contrat avec l'appelant : cette ligne est parsée (driver, portail).
+    echo "TAILNET_IP=${TAILNET_IP}"
+fi
 
 # ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
 if [[ -n "$NODE_NAME" ]]; then
