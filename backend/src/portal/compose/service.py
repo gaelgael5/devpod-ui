@@ -42,6 +42,7 @@ from .models import ComposeDeployment, ComposeTemplate, DeploymentStatus
 from .override_builder import build_override
 from .port_aliases import parse_port_aliases, rewrite_compose_ports
 from .ports import PortConflict, allocate_ports, check_ports
+from .validation import PORTAL_INJECTED_VARS, referenced_vars, required_vars
 
 _log = structlog.get_logger(__name__)
 
@@ -68,15 +69,35 @@ def _remote_dir(name: str) -> str:
 
 
 def _log_context_vars(host: HostConfig) -> dict[str, str]:
-    """Variables de contexte injectées par le portail (LOKI_URL, HOSTNAME, MODULE, ROLE).
+    """Variables de contexte injectées par le portail à chaque déploiement.
 
-    Retourne un dict vide si logs.enabled=false ou si loki_push_url n'est pas configurée.
+    LOKI_URL / METRICS_URL / HOSTNAME / MODULE / ROLE. Les deux URL sont
+    indépendantes : une chaîne peut être configurée sans l'autre, et un
+    collecteur dont l'URL manque échoue au démarrage (`${VAR:?...}`) plutôt que
+    de tourner sans rien pousser.
+
+    Ces variables sont injectées plutôt que saisies : elles dérivent (IP DHCP du
+    collecteur central), et le resync (`resync_collectors`) peut alors les
+    réaligner sur les déploiements existants — ce qu'une valeur figée à
+    l'installation ne permet pas.
+
+    Retourne un dict vide si logs.enabled=false : rien n'est collecté.
     """
     cfg = load_global()
-    if not cfg.logs.enabled or not cfg.logs.loki_push_url:
+    if not cfg.logs.enabled:
+        return {}
+    urls = {
+        k: v
+        for k, v in (
+            ("LOKI_URL", cfg.logs.loki_push_url),
+            ("METRICS_URL", cfg.logs.metrics_push_url),
+        )
+        if v
+    }
+    if not urls:
         return {}
     return {
-        "LOKI_URL": cfg.logs.loki_push_url,
+        **urls,
         "MODULE": cfg.logs.module,
         "HOSTNAME": host.name,
         "ROLE": _ROLE_MAP.get(host.usage, "workspace"),
@@ -100,6 +121,43 @@ def foreign_env_keys(template: ComposeTemplate, env_values: dict[str, str]) -> l
     """
     declared = {p.key for p in template.parameters}
     return sorted(k for k in env_values if k not in declared)
+
+
+# Où l'utilisateur va renseigner ce qui manque. Le message d'erreur d'un
+# déploiement doit mener à l'écran qui le répare, pas décrire un symptôme.
+_OU_CONFIGURER: dict[str, str] = {
+    "LOKI_URL": "Admin → Gestion → Logs, « URL de push des logs »",
+    "METRICS_URL": "Admin → Gestion → Logs, « URL de push des métriques »",
+}
+_OU_PAR_DEFAUT = "Admin → Gestion → Logs (chaîne d'observabilité désactivée)"
+
+
+def _require_injected_vars(
+    template: ComposeTemplate, env_values: dict[str, str], host: HostConfig
+) -> None:
+    """Refuse un déploiement dont une variable fournie par le PORTAIL manque.
+
+    Les collecteurs gardent leurs variables obligatoires (`${METRICS_URL:?…}`) :
+    sans cible, ne pas démarrer vaut mieux que pousser dans le vide. Mais
+    l'erreur remontait alors de `docker compose`, qui refuse AVANT de créer le
+    conteneur — donc pas de conteneur, pas de logs, aucune cause lisible. Le
+    portail sait avant d'essayer que la variable n'est pas configurée : il le
+    dit, et il dit où la renseigner.
+
+    Une variable saisie par l'utilisateur (paramètre du template) fait l'affaire
+    tout autant que la valeur injectée.
+    """
+    besoins = required_vars(template.compose_content) & PORTAL_INJECTED_VARS
+    if not besoins:
+        return
+    fournies = set(_log_context_vars(host)) | {k for k, v in env_values.items() if v.strip()}
+    manquantes = sorted(besoins - fournies)
+    if not manquantes:
+        return
+    details = ", ".join(f"{v} ({_OU_CONFIGURER.get(v, _OU_PAR_DEFAUT)})" for v in manquantes)
+    raise ComposeServiceError(
+        f"{template.name} attend des variables que le portail ne fournit pas : {details}"
+    )
 
 
 def _reject_foreign_env_keys(template: ComposeTemplate, env_values: dict[str, str]) -> None:
@@ -309,6 +367,7 @@ async def deploy(
     host = _host_for_node(node_id)
     _reject_foreign_env_keys(template, env_values)
     _validate_secret_refs(template, env_values)
+    _require_injected_vars(template, env_values, host)
 
     # Réservation précoce (bug 015) : l'allocation et l'INSERT de la ligne
     # « created » (porteuse des host_ports) se font dans une transaction courte
@@ -530,6 +589,7 @@ async def deploy_stream(
     host = _host_for_node(node_id)
     _reject_foreign_env_keys(template, env_values)
     _validate_secret_refs(template, env_values)
+    _require_injected_vars(template, env_values, host)
     resolved = resolve_env_values(owner_login, secret_ns, env_values)
     rdir = _remote_dir(name)
 
@@ -759,53 +819,94 @@ async def refresh_status(conn: AsyncConnection, uid: str) -> str:
     return status
 
 
-# Template builtin du collecteur de logs (compose_bootstrap) — seul template dont
-# le portail pilote lui-même le contenu ET l'env : il est resynchronisable.
+# Template builtin du collecteur de logs (compose_bootstrap).
 ALLOY_TEMPLATE_ID = "alloy-collector"
+
+# Variables injectées par le portail qui DÉRIVENT : l'adresse du collecteur
+# central change (IP DHCP, déménagement de la stack). Les autres variables
+# injectées (HOSTNAME, ROLE, MODULE) sont des constantes de la machine.
+#
+# Un template qui référence l'une d'elles a un .env que le portail possède : il
+# est resynchronisable, et il DOIT l'être — sinon il pousse vers l'ancienne
+# cible jusqu'à un redéploiement manuel. C'est ce critère, et non un id codé en
+# dur, qui décide : le collecteur de métriques importé depuis la galerie en
+# bénéficie sans que le portail ait à le connaître.
+DRIFTING_INJECTED_VARS: frozenset[str] = frozenset({"LOKI_URL", "METRICS_URL"})
+
+
+def _drifting_vars_of(tpl: ComposeTemplate) -> set[str]:
+    return referenced_vars(tpl.compose_content) & DRIFTING_INJECTED_VARS
 
 
 async def resync_collector_deployments(conn: AsyncConnection) -> dict[str, list[str]]:
-    """Réaligne les collecteurs Alloy déployés sur la config Logs et le template courants.
+    """Réaligne les déploiements dont le portail possède l'env sur la config courante.
 
-    L'env (.env : LOKI_URL…) et les fichiers (config.alloy) sont figés au déploiement :
-    un changement de `loki_push_url` (IP qui dérive) ou un bump du template builtin ne
-    les atteint jamais — les collecteurs poussent alors dans le vide jusqu'à un
-    redéploiement manuel. Ce resync réécrit .env + fichiers + compose sur chaque host
-    et force la recréation (`--force-recreate` : un bind mount modifié ne déclenche
-    pas de recreate). Best-effort par déploiement ; no-op (skip) si les logs sont
-    désactivés — on ne casse pas un collecteur qui tourne en lui retirant sa cible.
+    L'env (.env) et les fichiers (config.alloy) sont figés au déploiement : un
+    changement de `loki_push_url` / `metrics_push_url` (IP qui dérive) ou un bump
+    du template ne les atteint jamais — le collecteur pousse alors dans le vide
+    jusqu'à un redéploiement manuel. Ce resync réécrit .env + fichiers + compose
+    sur chaque host et force la recréation (`--force-recreate` : un bind mount
+    modifié ne déclenche pas de recreate).
+
+    Sont concernés les déploiements dont le template référence une variable
+    injectée qui dérive (cf. `DRIFTING_INJECTED_VARS`) — critère de CONTENU, pas
+    d'identifiant : un collecteur importé depuis la galerie en bénéficie sans
+    que le portail ait à le connaître. Best-effort par déploiement ; un
+    déploiement dont la cible n'est plus configurée est sauté plutôt que réécrit
+    avec un env incomplet.
+
     Déclenché par PUT /admin/logs-config et par le bump de version au boot.
     """
     results: dict[str, list[str]] = {"synced": [], "failed": [], "skipped": []}
-    tpl = await get_template(conn, ALLOY_TEMPLATE_ID)
-    if tpl is None:
-        return results
-    deployments = [
-        d
-        for d in await list_deployments(conn, owner_login=None)
-        if d.template_id == ALLOY_TEMPLATE_ID
-    ]
+
+    templates: dict[str, ComposeTemplate] = {}
+    deployments: list[ComposeDeployment] = []
+    for dep in await list_deployments(conn, owner_login=None):
+        tpl = templates.get(dep.template_id)
+        if tpl is None:
+            tpl = await get_template(conn, dep.template_id)
+            if tpl is None:
+                continue
+            templates[dep.template_id] = tpl
+        if _drifting_vars_of(tpl):
+            deployments.append(dep)
     if not deployments:
         return results
 
+    # Disponibilité des cibles : décidée AVANT de toucher au moindre host. On ne
+    # casse pas un collecteur qui tourne en lui retirant sa cible — si la
+    # variable dont il dépend n'est plus configurée, on le laisse tel quel
+    # plutôt que de réécrire un .env incomplet qui l'empêcherait de redémarrer.
     cfg = load_global()
-    if not cfg.logs.enabled or not cfg.logs.loki_push_url:
-        results["skipped"] = [d.uid for d in deployments]
-        _log.info("collector_resync_skipped_logs_disabled", count=len(deployments))
-        return results
+    disponibles = (
+        {
+            nom
+            for nom, url in (
+                ("LOKI_URL", cfg.logs.loki_push_url),
+                ("METRICS_URL", cfg.logs.metrics_push_url),
+            )
+            if url
+        }
+        if cfg.logs.enabled
+        else set()
+    )
 
     for dep in deployments:
+        tpl = templates[dep.template_id]
+        if not _drifting_vars_of(tpl) <= disponibles:
+            results["skipped"].append(dep.uid)
+            _log.info("collector_resync_skipped_no_target", uid=dep.uid, template=dep.template_id)
+            continue
         try:
             host = _host_for_node(dep.node_id)
+            contexte = _log_context_vars(host)
             user_cfg = await load_user(dep.owner_login)
             resolved = resolve_env_values(dep.owner_login, user_cfg.secret_ns, dep.env_values)
             rdir = _remote_dir(dep.id)
             await write_host_file(host, f"{rdir}/docker-compose.yml", tpl.compose_content)
             for fname, fcontent in tpl.extra_files.items():
                 await write_host_file(host, f"{rdir}/{fname}", fcontent)
-            await write_host_file(
-                host, f"{rdir}/.env", render_env_file(resolved, _log_context_vars(host))
-            )
+            await write_host_file(host, f"{rdir}/.env", render_env_file(resolved, contexte))
             rc, _out, err = await run_host_command(
                 host,
                 f"cd {shlex.quote(rdir)} && docker compose -p {shlex.quote(dep.id)} "

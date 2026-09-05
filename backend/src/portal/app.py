@@ -27,15 +27,23 @@ from .routes.agent_types import admin_router as agent_types_admin_router
 from .routes.agent_types import me_router as agent_types_me_router
 from .routes.applications import router as applications_router
 from .routes.automations import router as automations_router
+from .routes.billing_catalog import router as billing_catalog_router
+from .routes.billing_offers import router as billing_offers_router
+from .routes.billing_offers import router_public as billing_offers_public_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
 from .routes.event_schemas import router as event_schemas_router
 from .routes.host_grants import router as host_grants_router
+from .routes.host_profiles import router as host_profiles_router
+from .routes.host_recipes import me_router as host_recipes_me_router
 from .routes.host_recipes import router as host_recipes_admin_router
 from .routes.host_secrets import router as host_secrets_router
+from .routes.hypervisor_actions import router as hypervisor_actions_router
 from .routes.jinja_template_sources import router_admin as jinja_sources_admin_router
 from .routes.jinja_templates import router as jinja_templates_router
+from .routes.machine_profiles import me_router as machine_profiles_me_router
+from .routes.machine_profiles import router as machine_profiles_admin_router
 from .routes.mcp import router as mcp_router
 from .routes.mcp_discovery import router as mcp_discovery_router
 from .routes.mcp_profiles import router as mcp_profiles_router
@@ -65,10 +73,12 @@ from .routes.skill_placements import router as skill_placements_router
 from .routes.skills import router as skills_router
 from .routes.ssh_proxy import router as ssh_proxy_router
 from .routes.static import router as static_router
+from .routes.subscriptions import router as subscriptions_router
 from .routes.termix import router as termix_instances_router
 from .routes.test_vm import router as test_vm_router
 from .routes.vault import router as vault_router
 from .routes.vscode_proxy import router as vscode_proxy_router
+from .routes.webhooks_paiement import router as webhooks_paiement_router
 from .routes.workspace_groups import router as workspace_groups_router
 from .routes.workspace_messages import router as workspace_messages_router
 from .routes.workspace_ops import _get_service
@@ -473,8 +483,17 @@ def create_app() -> FastAPI:
     app.include_router(workspace_sessions_router, prefix="/me")
     app.include_router(agent_messages_router, prefix="/me")
     app.include_router(test_vm_router, prefix="/me")
+    # Souscription d'un forfait : cree l'abonnement, et rien d'autre — ni
+    # paiement, ni provisionnement, ni message.
+    app.include_router(subscriptions_router, prefix="/me")
     app.include_router(plugins_router)
     app.include_router(recipes_public_router)
+    # Offres publiees, sans authentification : la page des forfaits doit etre
+    # lisible par un visiteur qui n'a pas encore de compte.
+    app.include_router(billing_offers_public_router)
+    # Webhooks du canal de vente : route NON AUTHENTIFIEE, protegee par la
+    # seule signature. Montee a la racine, le fournisseur ne connait que l'URL.
+    app.include_router(webhooks_paiement_router)
     app.include_router(event_schemas_router)
     app.include_router(recipes_me_router, prefix="/me")
     app.include_router(admin_router, prefix="/admin")
@@ -487,10 +506,19 @@ def create_app() -> FastAPI:
     app.include_router(host_secrets_router, prefix="/admin")
     app.include_router(nodes_router, prefix="/admin")
     app.include_router(proxmox_router, prefix="/admin")
+    app.include_router(hypervisor_actions_router, prefix="/admin")
     app.include_router(recipes_admin_router, prefix="/admin")
     # Recettes appliquees SUR une machine (scope=host), distinctes du catalogue.
     app.include_router(host_recipes_admin_router, prefix="/admin")
+    # Machines de test d'un workspace : la garde est la PROPRIETE, pas le role.
+    app.include_router(host_recipes_me_router, prefix="/me")
     app.include_router(operations_admin_router, prefix="/admin")
+    app.include_router(machine_profiles_admin_router, prefix="/admin")
+    app.include_router(host_profiles_router, prefix="/admin")
+    app.include_router(billing_catalog_router, prefix="/admin")
+    app.include_router(billing_offers_router, prefix="/admin")
+    # Lecture ouverte : c'est l'utilisateur qui choisit son profil en creant sa machine.
+    app.include_router(machine_profiles_me_router, prefix="/me")
     app.include_router(recipe_sources_admin_router, prefix="/admin")
     app.include_router(profile_sources_admin_router, prefix="/admin")
     app.include_router(ssh_proxy_router, prefix="/admin")

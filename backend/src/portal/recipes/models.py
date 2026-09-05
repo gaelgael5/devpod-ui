@@ -55,10 +55,14 @@ class RecipePrecondition(BaseModel):
     disk_path: str = "/"
     # Chemin qui doit exister (ex. /dev/kvm pour l'émulateur Android).
     path_exists: str = ""
+    # Chemin qui doit être lisible ET inscriptible par l'utilisateur qui
+    # applique. Un fichier de périphérique peut exister sans être accessible :
+    # /dev/kvm appartient au groupe `kvm`, et l'émulateur échoue sans y être.
+    path_writable: str = ""
     # Architecture attendue, telle que `uname -m` la rapporte.
     arch: str = ""
 
-    @field_validator("disk_path", "path_exists")
+    @field_validator("disk_path", "path_exists", "path_writable")
     @classmethod
     def validate_path(cls, v: str) -> str:
         if v and not _ABS_PATH_RE.fullmatch(v):
@@ -78,19 +82,52 @@ class RecipePrecondition(BaseModel):
     def check_not_empty(self) -> RecipePrecondition:
         """Une précondition qui ne vérifie rien passerait toujours : c'est une
         fausse garantie, pire que pas de garantie du tout."""
-        if self.disk_free_gb is None and not self.path_exists and not self.arch:
+        if (
+            self.disk_free_gb is None
+            and not self.path_exists
+            and not self.path_writable
+            and not self.arch
+        ):
             raise ValueError(
-                "a precondition must check at least one of: disk_free_gb, path_exists, arch"
+                "a precondition must check at least one of: "
+                "disk_free_gb, path_exists, path_writable, arch"
             )
         return self
 
 
+# Valeurs que le portail sait fournir à une recette et qu'elle ne peut pas
+# deviner : le workspace auquel la machine est rattachée. Vocabulaire FERMÉ et
+# déclaré ici — une clé inconnue est refusée à l'import du manifeste, pas
+# ignorée en silence au moment de l'exécution.
+#
+# La recette déclare ce qu'elle veut recevoir, dans SON manifeste. Le portail
+# n'injecte rien qu'elle n'ait demandé : ce qui arrive dans l'environnement du
+# script se lit dans le fichier qu'on est en train d'écrire, pas dans une
+# convention à connaître par ailleurs.
+CONTEXT_KEYS: frozenset[str] = frozenset(
+    {"workspace.id", "workspace.git_url", "workspace.git_ref"}
+)
+
+
 class RecipeOption(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     type: str = "string"
     default: str = ""
     description: str = ""
+    # `from:` en YAML (mot réservé en Python). Valeur héritée du contexte quand
+    # l'utilisateur ne saisit rien : la priorité est SAISIE > CONTEXTE > DÉFAUT,
+    # arbitrée par le portail et non par une cascade de replis dans le script.
+    from_context: str | None = Field(default=None, alias="from")
+
+    @field_validator("from_context")
+    @classmethod
+    def validate_from_context(cls, v: str | None) -> str | None:
+        if v is not None and v not in CONTEXT_KEYS:
+            raise ValueError(
+                f"from: {v!r} inconnu — valeurs possibles : {', '.join(sorted(CONTEXT_KEYS))}"
+            )
+        return v
 
 
 class SecretRef(BaseModel):

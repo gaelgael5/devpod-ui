@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RotateCw } from 'lucide-react'
+import { toast } from 'sonner'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -11,8 +12,11 @@ import TerminalKeybar from '@/features/workspaces/TerminalKeybar'
 import { openTerminalLink } from './openTerminalLink'
 import { createLinkCollector } from './linkCollector'
 import { isTouchOnly } from './isTouchOnly'
-import { createHistoryScroller } from './historyScroll'
+import { createHistoryScroller, pixelsDeMolette } from './historyScroll'
 import { createDoubleTapDetector } from './doubleTap'
+import { createSelectionHintDetector } from './selectionHint'
+import { decodeOsc52 } from './osc52'
+import { createParseQueue } from './parseQueue'
 import { isPastLineEnd } from './lineHitTest'
 import TerminalSearchBar, { type SearchResults } from './TerminalSearchBar'
 import '@xterm/xterm/css/xterm.css'
@@ -43,6 +47,16 @@ interface Props {
  * court pour que le terminal ne reste pas visiblement mal dimensionne.
  */
 export const AJUSTEMENT_MS = 150
+// Debounce du re-rendu apres une salve de sortie (cf. `forcerReRendu`) : le
+// refresh-client ne part qu'une fois le defilement calme depuis ce delai.
+//
+// Court : le declenchement est deja filtre par la signature de contenu (cf.
+// `forcerReRendu`), qui n'arme le timer que sur un vrai defilement. Ce debounce
+// ne sert plus qu'a coalescer une rafale de lignes en un seul refresh-client.
+export const REFRESH_SORTIE_MS = 150
+// Code de fermeture applicatif : la session a ete reprise sur un autre
+// appareil. Cote pont, `pty_bridge.run_pty_bridge`.
+export const CODE_REPRISE_AILLEURS = 4409
 
 export default function FullscreenTerminal({ wsPath, title, resize = true }: Props) {
   const { t } = useTranslation()
@@ -57,10 +71,17 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
   // pour decider d'afficher son clavier. Le bouton « clavier » de la barre la
   // vise directement.
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  /** Publie le rafraichissement d'affichage, defini dans l'effet (ws + terminal). */
+  const refreshRef = useRef<(() => void) | null>(null)
   const [inputFocused, setInputFocused] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null)
   const [disconnected, setDisconnected] = useState(false)
+  // Fermeture 4409 : la session a ete reprise sur un autre appareil. Distingue
+  // d'une coupure reseau, sinon l'utilisateur n'a aucun moyen de comprendre
+  // pourquoi son ecran s'est arrete — et il en va de la lisibilite du choix
+  // « un seul ecran a la fois ».
+  const [repriseAilleurs, setRepriseAilleurs] = useState(false)
   const [epoch, setEpoch] = useState(0)
   const tRef = useRef(t)
   useLayoutEffect(() => {
@@ -111,6 +132,25 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     // qui n'existe pas et tout est décalé. Le contenu étant alors mal reflowé,
     // les URL coupées par le retour à la ligne deviennent illisibles pour la
     // détection de liens — mêmes causes, deux symptômes (signalés le 20/08).
+    // Derniere mesure prise au `fit`, embarquee sur la prochaine trame `resize`.
+    //
+    // La sonde voyage sur un message qui EXISTE deja. Une trame de controle
+    // supplementaire avait ferme la session a chaque ouverture du clavier
+    // (03/09) : on ne rajoute plus rien sur ce canal. Un backend en retard d'un
+    // deploiement ignore simplement ces champs.
+    //
+    // `haut` (le conteneur) contre `vv` (le viewport visible) : si le conteneur
+    // depasse, xterm calcule des lignes qui existent pour lui mais que
+    // l'utilisateur ne voit pas — tmux y ecrit, les croit affichees, ne les
+    // repeint plus. C'est ce qui decale la saisie d'une a deux lignes a
+    // l'ouverture du clavier.
+    //
+    // `octets` : ce que xterm n'a pas encore analyse. Redimensionner file non
+    // vide fait interpreter contre la NOUVELLE geometrie des octets emis pour
+    // l'ancienne — c'est pour cela que le recalage passe par `file.quandVide`.
+    let mesure: { haut: number; vv: number; octets: number } | null = null
+    const file = createParseQueue()
+
     const safeFit = () => {
       const el = termRef.current
       if (!el || document.hidden) return
@@ -118,6 +158,11 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       if (width < 2 || height < 2) return
       try {
         fitAddon.fit()
+        mesure = {
+          haut: Math.round(height),
+          vv: Math.round(window.visualViewport?.height ?? 0),
+          octets: file.enAttente(),
+        }
       } catch (err) {
         console.warn('[terminal] fit ignoré', err)
       }
@@ -145,6 +190,40 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     const searchAddon = new SearchAddon()
     const searchOk = loadOptional('search', () => searchAddon)
     searchRef.current = searchOk ? searchAddon : null
+    // OSC 52 : le presse-papier reclame par l'application distante. tmux relaie
+    // deja la sequence (`set-clipboard external`) mais xterm.js ne l'implemente
+    // pas — elle arrivait ici et y etait jetee, d'ou le « copied ... » affiche
+    // par le TUI pendant que le presse-papier systeme restait inchange.
+    //
+    // Le gestionnaire rend TOUJOURS `true` : la sequence est consommee, qu'elle
+    // soit honoree ou refusee. Rendre `false` la ferait retomber sur le
+    // traitement par defaut, qui la recracherait a l'ecran en clair.
+    let osc52Logs = 0
+    const tracerOsc52 = (message: string) => {
+      if (osc52Logs < 10) {
+        osc52Logs++
+        console.warn(`terminal_osc52: ${message}`)
+      }
+    }
+    const osc52Disposable = terminal.parser.registerOscHandler(52, (charge) => {
+      const resultat = decodeOsc52(charge)
+      if (!resultat.ok) {
+        tracerOsc52(`refus ${JSON.stringify({ raison: resultat.raison })}`)
+        return true
+      }
+      if (!navigator.clipboard) {
+        tracerOsc52('navigator.clipboard indisponible')
+        return true
+      }
+      navigator.clipboard.writeText(resultat.texte).catch((err: unknown) => {
+        // L'application distante a deja annonce « copie » : un echec muet
+        // laisserait croire que le presse-papier contient le texte.
+        tracerOsc52(`echec ${String(err)}`)
+        toast.error(tRef.current('admin.sshTerminal.clipboardDenied'))
+      })
+      return true
+    })
+
     const resultsDisposable = searchOk
       ? searchAddon.onDidChangeResults((r) =>
           setSearchResults({ resultIndex: r.resultIndex, resultCount: r.resultCount }),
@@ -222,9 +301,54 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
 
     const sendResize = (cols: number, rows: number) => {
       if (resize && ws.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+        ws.send(JSON.stringify({ type: 'resize', cols, rows, ...(mesure ?? {}) }))
+    }
+    // Repaint plein ecran : le pont lance `tmux refresh-client`, qui retransmet
+    // TOUT l'ecran au client. C'est le seul moyen d'effacer les residus deja
+    // peints cote navigateur — le redessin differentiel de tmux ne les renvoie
+    // jamais, il croit ces cellules correctes. Un aller-retour de taille (nudge)
+    // ne les touche pas, quel que soit le delai : mesure le 04/09.
+    const sendRedraw = () => {
+      if (resize && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'redraw' }))
     }
     ws.onopen = () => sendResize(terminal.cols, terminal.rows)
+
+    /**
+     * Force tmux a tout redessiner.
+     *
+     * Quand la fenetre tmux et le terminal divergent — deux clients de tailles
+     * differentes, un resize manque — l'ecran garde des rendus anciens : des
+     * barres de statut empilees, des lignes qui se marchent dessus. tmux ne
+     * redessine que sur changement de taille, et renvoyer la MEME taille ne
+     * declenche rien.
+     *
+     * D'ou l'aller-retour : une taille volontairement fausse, puis la vraie a
+     * la frame suivante. Deux SIGWINCH, un redessin complet. Espacer les deux
+     * est necessaire — le PTY regroupe les ecritures rapprochees et tmux perd
+     * alors le second (meme contrainte que le defilement de l'historique).
+     */
+    refreshRef.current = () => {
+      // Deux temps : resynchroniser la geometrie, puis demander le repaint.
+      //
+      // 1. `sendResize` : le PTY et xterm ont pu diverger (mesure le 04/09, PTY
+      //    a 91 lignes contre 88 pour xterm) — on realigne d'abord, sinon le
+      //    repaint retransmettrait a la mauvaise taille.
+      // 2. `sendRedraw` : `tmux refresh-client` cote pont retransmet tout
+      //    l'ecran. C'est ce que fait un F5 (attach), sans reconnexion ni flash,
+      //    et c'est la SEULE chose qui efface les residus deja peints — le nudge
+      //    de taille, lui, ne les touche pas (redessin differentiel de tmux).
+      //
+      // Seulement la file de parsing vide : redimensionner ou repeindre avec du
+      // flux en attente fait interpreter contre la nouvelle geometrie des octets
+      // que tmux a emis pour l'ancienne. La taille est RELUE au moment de
+      // l'envoi — xterm peut s'etre recale pendant l'attente.
+      file.quandVide(() => {
+        safeFit()
+        sendResize(terminal.cols, terminal.rows)
+        sendRedraw()
+        terminal.refresh(0, terminal.rows - 1)
+      })
+    }
 
     const encoder = new TextEncoder()
     // Molette et glissement remontent dans l'historique tmux. Necessaire parce
@@ -234,6 +358,19 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       isAlternate: () => terminal.buffer.active.type === 'alternate',
       send: (data) => {
         if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data))
+      },
+      // TUI plein ecran (Claude Code) : l'historique tmux du pane est VIDE
+      // (copy-mode a [0/0]) — le defilement appartient a l'application, qui
+      // suit la souris. Le geste devient des evenements molette SGR, vises au
+      // centre de la grille (la position n'influe pas sur un defilement).
+      capteSouris: () => {
+        const mode = terminal.modes.mouseTrackingMode
+        return mode !== undefined && mode !== 'none'
+      },
+      sequenceMolette: (up) => {
+        const x = Math.max(1, Math.floor(terminal.cols / 2))
+        const y = Math.max(1, Math.floor(terminal.rows / 2))
+        return `\x1b[<${up ? 64 : 65};${x};${y}M`
       },
     })
 
@@ -293,8 +430,43 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
 
     const surface = termRef.current
     const onWheel = (e: WheelEvent) => {
-      if (scroller.wheel(e.deltaY)) e.preventDefault()
+      if (scroller.wheel(pixelsDeMolette(e, terminal.rows))) e.preventDefault()
     }
+
+    /**
+     * Molette : empeche xterm d'envoyer FLECHE HAUT / BAS a l'application.
+     *
+     * Sous tmux, le tampon alterne n'a pas de scrollback — et xterm traduit
+     * alors la molette en touches de curseur (`ESC [ A` / `ESC [ B`), qu'il
+     * ecrit directement dans la session. Le shell comme Claude Code lisent ces
+     * touches pour ce qu'elles sont : un parcours de l'HISTORIQUE DES
+     * COMMANDES. A la molette, le terminal rappelait donc les commandes
+     * precedentes au lieu de defiler. Verifie dans la source d'@xterm/xterm 6 :
+     * la traduction est gardee par `!buffer.hasScrollback`, sans option pour la
+     * couper (`alternateScroll` / DECSET 1007 n'y existent pas).
+     *
+     * `attachCustomWheelEventHandler` est consulte EN PREMIER sur les deux
+     * chemins molette de xterm — celui des touches de curseur, et celui de
+     * l'evenement souris quand une application suit la souris. Retourner
+     * `false` les coupe tous les deux, et le geste revient au meme scroller que
+     * le glissement du doigt.
+     *
+     * `stopPropagation` est indispensable : xterm ne l'appelle PAS quand notre
+     * handler rend `false` (aucun `cancel` sur ce chemin), et son element est
+     * un ENFANT du conteneur. Sans lui, l'evenement remonterait jusqu'a
+     * `onWheel` qui alimenterait le scroller une seconde fois — un cran de
+     * molette ferait defiler deux fois trop vite.
+     *
+     * Maj rend la main a l'application : sans cette echappatoire, plus aucun
+     * moyen de faire defiler sa propre interface.
+     */
+    terminal.attachCustomWheelEventHandler((e: WheelEvent) => {
+      if (e.shiftKey) return true
+      if (!scroller.wheel(pixelsDeMolette(e, terminal.rows))) return true
+      e.preventDefault()
+      e.stopPropagation()
+      return false
+    })
     const onTouchStart = (e: TouchEvent) => {
       const t = e.touches[0]
       doubleTap.start(t.clientX, t.clientY, e.touches.length)
@@ -308,7 +480,15 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       doubleTap.move(t.clientX, t.clientY)
       // Pas de preventDefault sans mouvement : l'appui long, donc la selection
       // native sur mobile, reste intact.
-      if (scroller.touchMove(t.clientY)) e.preventDefault()
+      if (scroller.touchMove(t.clientY)) {
+        // Defiler clavier ouvert est instable : la geometrie change sous le
+        // doigt (resize en plein geste). Le glissement dit « je veux LIRE » :
+        // on ferme le clavier, l'ecran entier redevient disponible (demande
+        // utilisateur du 05/09). Le blur ne part qu'une fois — apres, la zone
+        // de saisie n'est plus l'element actif.
+        if (document.activeElement === inputRef.current) inputRef.current?.blur()
+        e.preventDefault()
+      }
     }
     const onTouchEnd = (e: TouchEvent) => {
       scroller.touchEnd()
@@ -356,6 +536,33 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     const termHost = termRef.current
     termHost?.addEventListener('mousedown', diagMouse)
     termHost?.addEventListener('mouseup', diagMouse)
+
+    // Glissé stérile : l'annoncer plutôt que de le laisser muet. Le `mouseup`
+    // est guetté sur `window` et non sur la surface — un glissé de sélection
+    // finit souvent hors du terminal, et l'écouteur de xterm (sur `document`)
+    // passe alors avant le nôtre : `hasSelection` est déjà à jour quand on lit.
+    const indiceSelection = createSelectionHintDetector()
+    const surDebutGlisse = (ev: MouseEvent) => {
+      if (ev.button !== 0) return
+      indiceSelection.start(ev.clientX, ev.clientY, {
+        shift: ev.shiftKey,
+        suiviSouris: terminal.modes.mouseTrackingMode !== 'none',
+      })
+    }
+    const surFinGlisse = (ev: MouseEvent) => {
+      if (ev.button !== 0) return
+      const manque = indiceSelection.end(ev.clientX, ev.clientY, {
+        selectionActive: terminal.hasSelection(),
+      })
+      // `id` fixe : deux glissés rapprochés remplacent le toast au lieu de l'empiler.
+      if (manque) {
+        toast.info(tRef.current('admin.sshTerminal.selectionShiftHint'), {
+          id: 'terminal-selection-shift',
+        })
+      }
+    }
+    termHost?.addEventListener('mousedown', surDebutGlisse)
+    window.addEventListener('mouseup', surFinGlisse)
     let selLogs = 0
 
     let copyTimer: ReturnType<typeof setTimeout> | undefined
@@ -405,13 +612,71 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
 
     // `stream: true` : une trame peut couper un caractère multi-octets en deux.
     const decoder = new TextDecoder()
+    // Re-rendu force apres une salve de sortie de l'agent.
+    //
+    // Le contenu defile quand l'agent ecrit, et le renderer de xterm laisse
+    // des pixels perimes en COLONNE 0-1 : le buffer est correct (verifie au
+    // dump en prod), mais les PIXELS restent. Seul `tmux refresh-client` (le
+    // bouton « Rafraichir ») les efface — il RENVOIE tout l'ecran, ce qui force
+    // xterm a reecrire les cellules ; `terminal.refresh` cote client ne les
+    // repeint pas. On declenche donc ce refresh-client, mais AU BON MOMENT.
+    //
+    // LE BON MOMENT = quand le CONTENU a vraiment defile. Claude Code ne scrolle
+    // jamais le terminal : il redessine TOUT l'ecran a chaque image (curseur qui
+    // clignote, spinner, boite de saisie), avec des tonnes de sauts de ligne
+    // (~127/s au repos, mesure). Se fier aux `\n` ferait donc partir un
+    // refresh-client en continu -> ecran renvoye en boucle, scintillement.
+    //
+    // On compare donc le CONTENU entre deux images (les 8 premiers caracteres de
+    // chaque ligne) : le curseur et le spinner ne changent qu'UNE ligne en
+    // place ; un vrai defilement en change BEAUCOUP (tout remonte d'un cran).
+    // On ne rafraichit que sur un vrai defilement, puis un court debounce
+    // coalesce une rafale de lignes en un seul refresh.
+    const LIGNES_CHANGEES_MIN = 3
+    let signaturePrec: string[] = []
+    let reRenduTimer: ReturnType<typeof setTimeout> | undefined
+    const forcerReRendu = () => {
+      const buf = terminal.buffer.active
+      const sig: string[] = []
+      let changees = 0
+      for (let y = 0; y < terminal.rows; y++) {
+        const l = buf.getLine(y)
+        const s = l ? l.translateToString(true).slice(0, 8) : ''
+        sig.push(s)
+        if (s !== (signaturePrec[y] ?? '')) changees++
+      }
+      signaturePrec = sig
+      // Curseur/spinner : au plus quelques lignes changent, en place. Pas un
+      // defilement, donc pas de refresh (sinon scintillement au repos).
+      if (changees <= LIGNES_CHANGEES_MIN) return
+      // Defilement PILOTE par l'utilisateur (glissement, elan) : chaque image
+      // change beaucoup de lignes, et un refresh-client plein ecran par rafale
+      // fait clignoter — ecran blanc au scroll rapide, mesure sur iPhone le
+      // 05/09. Le nettoyage attend la fin du geste : la sortie suivante armera
+      // le refresh normalement.
+      if (scroller.actif()) return
+      clearTimeout(reRenduTimer)
+      reRenduTimer = setTimeout(() => {
+        reRenduTimer = undefined
+        sendRedraw()
+      }, REFRESH_SORTIE_MS)
+    }
+
     ws.onmessage = (e) => {
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
       links.push(typeof data === 'string' ? data : decoder.decode(data, { stream: true }))
-      terminal.write(data)
+      // `write` est ASYNCHRONE : xterm met en file et analyse plus tard. Le
+      // rappel de vidage alimente la file (sonde `octets`) ET declenche le
+      // re-rendu — APRES l'analyse, quand le buffer est a jour, pas au jugé.
+      file.arrive(data.length)
+      terminal.write(data, () => {
+        file.analyse(data.length)
+        forcerReRendu()
+      })
     }
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       terminal.write(tRef.current('admin.sshTerminal.connClosed'))
+      if (ev.code === CODE_REPRISE_AILLEURS) setRepriseAilleurs(true)
       if (!intentional) setDisconnected(true)
     }
     ws.onerror = () => terminal.write(tRef.current('admin.sshTerminal.connError'))
@@ -431,12 +696,20 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     let ajustement: ReturnType<typeof setTimeout> | undefined
     const planifierAjustement = () => {
       clearTimeout(ajustement)
+      clearTimeout(reRenduTimer)
       ajustement = setTimeout(() => {
-        safeFit()
-        // Redessin complet : les tailles intermediaires laissent des residus,
-        // et Safari mobile garde en cache des dimensions de caractere qui ne
-        // valent plus rien apres le changement.
-        terminal.refresh(0, terminal.rows - 1)
+        // Le NUDGE, et non `terminal.refresh()` seul.
+        //
+        // `refresh()` redessine le tampon LOCAL de xterm. Si tmux y a ecrit une
+        // trame entrelacee pendant que le clavier s'ouvrait, on la redessine a
+        // l'identique : proprement, mais toujours fausse. Seul l'aller-retour
+        // de taille fait repeindre tmux (cf. `refreshRef`), et c'est ce que le
+        // bouton « rafraichir » faisait a la main pendant que le recalage
+        // automatique, lui, ne le faisait jamais.
+        //
+        // Deux SIGWINCH par recalage : ce chemin RESTE donc derriere le
+        // debounce, qui existe pour eviter exactement cette rafale.
+        refreshRef.current?.()
       }, AJUSTEMENT_MS)
     }
 
@@ -444,12 +717,42 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
     window.addEventListener('resize', onResize)
     const ro = new ResizeObserver(planifierAjustement)
     if (termRef.current) ro.observe(termRef.current)
+    // Clavier mobile. iOS ne fait varier NI `window.resize` NI la hauteur du
+    // viewport de mise en page (cf. `useVisualViewport`) : sans ces deux
+    // ecouteurs, le recalage n'arrive qu'indirectement — etat React, puis
+    // hauteur du conteneur, puis ResizeObserver — et PAS DU TOUT quand iOS
+    // deplace le viewport visuel sans le redimensionner.
+    const vueVisuelle = window.visualViewport
+    vueVisuelle?.addEventListener('resize', planifierAjustement)
+    vueVisuelle?.addEventListener('scroll', planifierAjustement)
 
     // Retour sur l'onglet : re-mesurer puis forcer un redessin complet. Safari
     // mobile réduit la page en arrière-plan (barre d'adresse, clavier) et les
     // dimensions de caractère mises en cache par xterm ne valent plus rien.
+    //
+    // La page a-t-elle ete masquee depuis le dernier recalage ? C'est la SEULE
+    // raison de nudger au retour, et la garde manquait.
+    //
+    // Un nudge n'est pas gratuit : c'est un aller-retour de taille, donc deux
+    // SIGWINCH — que le noyau ne met pas en file. Quand ils se suivent de trop
+    // pres, tmux n'en voit qu'un, reste cale sur la taille INTERMEDIAIRE alors
+    // que le PTY et xterm sont sur la vraie, et une ligne d'ecart suffit a
+    // decaler tout le redessin (mesure en production le 03/09 : les deux
+    // trames arrivaient a 0 ms d'ecart).
+    //
+    // `focus` part a chaque retour dans la fenetre — un alt-tab, un clic — sur
+    // un ecran qui n'a pas bouge d'un pixel. Le brancher sur le recalage
+    // envoyait ce nudge des dizaines de fois par heure : chaque envoi une
+    // chance de desynchroniser tmux, pour rien. Seul un vrai masquage justifie
+    // le nudge, parce que la, tmux a pu peindre pendant que les geometries
+    // divergeaient.
+    let aEteMasquee = false
+
     const onVisible = () => {
-      if (document.hidden) return
+      if (document.hidden) {
+        aEteMasquee = true
+        return
+      }
       // Safari coupe la WebSocket en mettant la page en arriere-plan, et ne
       // delivre pas toujours le `close` au retour : l'application se croit
       // connectee, l'overlay de reconnexion ne s'affiche pas, et plus rien de
@@ -465,32 +768,58 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         setEpoch((e) => e + 1)
         return
       }
-      requestAnimationFrame(() => {
-        safeFit()
-        terminal.refresh(0, terminal.rows - 1)
-      })
+      // Rien n'a ete masque : rien a repeindre (cf. le drapeau plus haut).
+      if (!aEteMasquee) return
+      aEteMasquee = false
+      // Le NUDGE, pas `terminal.refresh()` seul — meme raison qu'au recalage
+      // (cf. `planifierAjustement`). Pendant l'absence, tmux a peint alors que
+      // sa geometrie et celle de xterm divergeaient : la trame locale EST
+      // fausse, la redessiner la reproduit a l'identique. Residus de deux
+      // caracteres en colonne 0, rangees sautees — et rien ne repare tant
+      // qu'aucun changement de taille ne repart, ce qui donnait l'illusion que
+      // seul un redimensionnement manuel remettait l'ecran d'aplomb.
+      //
+      // Par le debounce, et non en direct : `focus` et `visibilitychange`
+      // partent ensemble pour un seul retour (cf. plus haut), et deux nudges
+      // coup sur coup, c'est la rafale de SIGWINCH qu'on cherche a eviter.
+      planifierAjustement()
     }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
     // Retour depuis le cache de navigation (bouton « precedent » de Safari) :
     // la page revient telle quelle, sans `visibilitychange`, avec une socket
-    // deja morte.
-    window.addEventListener('pageshow', onVisible)
+    // deja morte. Aucun `visibilitychange` n'a donc pose le drapeau, alors que
+    // l'ecran a bel et bien vecu hors du premier plan : on le pose ici.
+    //
+    // SEULEMENT si `persisted` : `pageshow` part aussi au chargement initial de
+    // la page, ou rien n'a jamais ete masque — poser le drapeau sans condition
+    // programmait un nudge a chaque ouverture de session, pour rien.
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) aEteMasquee = true
+      onVisible()
+    }
+    window.addEventListener('pageshow', onPageShow)
 
     return () => {
       intentional = true
       clearTimeout(ajustement)
       window.removeEventListener('resize', onResize)
+      vueVisuelle?.removeEventListener('resize', planifierAjustement)
+      vueVisuelle?.removeEventListener('scroll', planifierAjustement)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onVisible)
-      window.removeEventListener('pageshow', onVisible)
+      window.removeEventListener('pageshow', onPageShow)
       termHost?.removeEventListener('mousedown', diagMouse)
       termHost?.removeEventListener('mouseup', diagMouse)
+      termHost?.removeEventListener('mousedown', surDebutGlisse)
+      window.removeEventListener('mouseup', surFinGlisse)
       ro.disconnect()
+      file.dispose()
       dataDisposable.dispose()
       resizeDisposable.dispose()
       selectionDisposable.dispose()
       resultsDisposable.dispose()
+      osc52Disposable.dispose()
       clearTimeout(copyTimer)
       ws.close()
       terminal.dispose()
@@ -502,6 +831,7 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       input?.removeEventListener('focus', onInputFocus)
       input?.removeEventListener('blur', onInputBlur)
       inputRef.current = null
+      refreshRef.current = null
       terminalRef.current = null
       searchRef.current = null
     }
@@ -612,19 +942,30 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         />
         {disconnected && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 backdrop-blur-sm">
-            <p className="text-sm text-white/80">{t('workspaces.terminals.disconnected')}</p>
+            <p className="max-w-sm px-4 text-center text-sm text-white/80">
+              {repriseAilleurs
+                ? t('workspaces.terminals.takenOver')
+                : t('workspaces.terminals.disconnected')}
+            </p>
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => { setDisconnected(false); setEpoch((e) => e + 1) }}
+              onClick={() => {
+                setDisconnected(false)
+                setRepriseAilleurs(false)
+                setEpoch((e) => e + 1)
+              }}
             >
               <RotateCw className="mr-1 h-3.5 w-3.5" />
-              {t('workspaces.terminals.reconnect')}
+              {repriseAilleurs
+                ? t('workspaces.terminals.takeBack')
+                : t('workspaces.terminals.reconnect')}
             </Button>
           </div>
         )}
       </div>
       <TerminalKeybar
+        onRefreshDisplay={() => refreshRef.current?.()}
         keyboardOpen={inputFocused}
         onToggleKeyboard={toggleKeyboard}
         onSearch={() => setSearchOpen(true)}
@@ -633,6 +974,12 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
         getSelection={() =>
           terminalRef.current?.getSelection() || lastSelectionRef.current
         }
+        // Terminal pas encore monté : `undefined !== 'none'` aurait annoncé une
+        // capture souris qui n'existe pas, et le message aurait parlé de Maj à tort.
+        souriCapturee={() => {
+          const mode = terminalRef.current?.modes.mouseTrackingMode
+          return mode !== undefined && mode !== 'none'
+        }}
       />
     </div>
   )

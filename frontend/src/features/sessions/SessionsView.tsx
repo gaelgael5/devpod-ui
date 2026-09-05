@@ -332,6 +332,18 @@ export default function SessionsView() {
                       <span className="font-normal text-muted-foreground">
                         {t('sessions.count', { n: g.entries.length })}
                       </span>
+                      {/* Les mesures de la machine, comme sur la vue mobile :
+                          elles n'y avaient ete branchees que la, alors que
+                          c'est sur grand ecran qu'il y a le plus de place pour
+                          les lire. Une machine, une mesure — pas une par
+                          session. Rien n'est rendu pour une machine jamais
+                          sondee. */}
+                      {(() => {
+                        const src = g.entries.find((e) => e.disk || e.memory || e.cpu)
+                        return src ? (
+                          <ResourceMetrics disk={src.disk} memory={src.memory} cpu={src.cpu} />
+                        ) : null
+                      })()}
                     </button>
                   </th>
                 </tr>

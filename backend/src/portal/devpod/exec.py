@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shlex
+import time
 
 import structlog
 
@@ -50,6 +51,46 @@ def remote_tmux_command(session: str) -> str:
     return (
         f"command -v tmux >/dev/null 2>&1 && exec tmux new-session -A -s {shlex.quote(session)}"
         " || { echo '[portal] tmux absent : session non persistante'; exec bash -l; }"
+    )
+
+
+def tmux_refresh_command(sock_detect: str, tmux_prefix: str, session: str) -> str:
+    """Commande shell distante : resynchronise la taille puis repeint le terminal.
+
+    Deux temps, dans cet ordre :
+
+    1. `kill -WINCH` sur le PID de chaque client attaché. Derrière `devpod ssh`
+       (login root puis `su - <user>`), le client tmux n'a PAS de terminal de
+       contrôle : le SIGWINCH émis par le TIOCSWINSZ du pont n'atteint personne,
+       et le client garde sa taille d'attache pendant que xterm, lui, a changé
+       (mesuré en production le 05/09 : clavier mobile ouvert, xterm à 28 lignes,
+       client tmux figé à 49 — écran « décalé », que le repaint seul reproduisait
+       à l'identique). Signalé directement au processus, le client relit son tty
+       — que le pont a déjà mis à la bonne taille — et l'annonce au serveur
+       (vérifié sur tmux 3.6, y compris sans terminal de contrôle).
+    2. `refresh-client`, qui retransmet TOUT l'écran au client, comme le fait un
+       `attach` (un F5) — c'est le seul moyen d'effacer les résidus déjà peints
+       côté navigateur, que le redessin différentiel de tmux ne renvoie jamais
+       (il croit ces cellules correctes). Un nudge de taille, lui, ne les touche
+       pas.
+
+    Le `sleep` entre les deux laisse au client le temps d'annoncer sa nouvelle
+    taille au serveur : repeindre avant, c'est retransmettre l'écran à
+    l'ancienne géométrie.
+
+    On traite chaque client attaché À CETTE session (la politique « un seul
+    écran » n'en laisse qu'un, mais la boucle reste correcte s'il y en avait
+    plusieurs). `session` est shell-quotée ; pid et nom de client passent par
+    des variables citées, jamais interpolés.
+    """
+    q = shlex.quote(session)
+    return (
+        f"{sock_detect}; "
+        f"{tmux_prefix} list-clients -t {q} -F '#{{client_pid}}' 2>/dev/null | "
+        'while IFS= read -r p; do kill -WINCH "$p" 2>/dev/null; done; '
+        "sleep 0.2; "
+        f"{tmux_prefix} list-clients -t {q} -F '#{{client_name}}' 2>/dev/null | "
+        f'while IFS= read -r c; do {tmux_prefix} refresh-client -t "$c"; done'
     )
 
 
@@ -110,20 +151,73 @@ async def ws_exec(login: str, ws_id: str, command: str, timeout: float = 30.0) -
     return proc.returncode or 0, output
 
 
+# Anti-empilement du pré-chauffage (incident 30/08). `_warm_running_tunnels`
+# rappelle warm_tunnel à chaque rafraîchissement de l'agrégat sessions (~8 s) ;
+# sans garde, un tunnel froid empilait un handshake `devpod ssh --stdio` de plus
+# toutes les 8 s, chacun tué à son timeout — de la charge pure sur un nœud déjà
+# saturé, et la boucle ne se refermait jamais d'elle-même.
+#
+# Deux gardes, par ws_id : un seul pré-chauffage EN VOL (les appels concurrents
+# renoncent, ils ne font pas la queue — une file ne ferait que différer
+# l'empilement), et un délai avant toute nouvelle tentative. Le délai est court
+# après un succès (le master vit déjà, ControlPersist=300 s) et plus long après
+# un échec : c'est le back-off qui laisse le nœud respirer.
+_WARM_SUCCESS_TTL_S = 60.0
+_WARM_FAILURE_COOLDOWN_S = 60.0
+
+# ws_id -> (échéance monotonic du verdict, tunnel chaud ?)
+_warm_state: dict[str, tuple[float, bool]] = {}
+# ws_id dont un pré-chauffage est en cours.
+_warm_inflight: set[str] = set()
+
+
+def _remember_warm(ws_id: str, warm: bool) -> None:
+    ttl = _WARM_SUCCESS_TTL_S if warm else _WARM_FAILURE_COOLDOWN_S
+    _warm_state[ws_id] = (time.monotonic() + ttl, warm)
+
+
+def reset_warm_state(ws_id: str | None = None) -> None:
+    """Oublie le verdict de pré-chauffage (mutation de cycle de vie, tests).
+
+    Ne touche PAS aux pré-chauffages en vol : leur garde protège un processus
+    `ssh` réel, l'oublier autoriserait précisément le doublon qu'on évite.
+    """
+    if ws_id is None:
+        _warm_state.clear()
+    else:
+        _warm_state.pop(ws_id, None)
+
+
 async def warm_tunnel(login: str, ws_id: str, *, timeout: float = 20.0) -> bool:
     """Pré-chauffe le tunnel SSH d'un workspace : monte le ControlMaster en fond.
 
     Lance un `true` via `ws_exec` — le premier appel établit le master partagé
     (handshake mTLS via devpod), les ouvertures de terminal suivantes s'y rattachent
     instantanément. Idempotent et bon marché si déjà chaud (simple rattachement).
-    Best-effort : ne lève jamais, n'émet aucun secret. Retourne True si le tunnel
-    est chaud (rc 0).
+    Best-effort : ne lève jamais, n'émet aucun secret.
+
+    Dédupliqué et amorti par ws_id (voir `_WARM_SUCCESS_TTL_S` /
+    `_WARM_FAILURE_COOLDOWN_S`) : retourne True si le tunnel est chaud — verdict
+    qui peut venir de la dernière tentative encore valide, sans nouveau handshake.
+    Un appel qui renonce parce qu'un pré-chauffage est déjà en vol retourne le
+    dernier verdict connu, False à défaut.
     """
+    cached = _warm_state.get(ws_id)
+    if cached is not None and cached[0] > time.monotonic():
+        return cached[1]
+    if ws_id in _warm_inflight:
+        return cached[1] if cached is not None else False
+
+    _warm_inflight.add(ws_id)
     try:
         rc, _out = await ws_exec(login, ws_id, "true", timeout=timeout)
     except Exception:
         _log.warning("ssh_warm_tunnel_failed", ws_id=ws_id, exc_info=True)
+        _remember_warm(ws_id, False)
         return False
+    finally:
+        _warm_inflight.discard(ws_id)
     if rc != 0:
         _log.info("ssh_warm_tunnel_cold", ws_id=ws_id, rc=rc)
+    _remember_warm(ws_id, rc == 0)
     return rc == 0

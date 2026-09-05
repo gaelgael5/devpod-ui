@@ -52,3 +52,26 @@ describe('HypervisorArgsForm', () => {
     expect(onChange).toHaveBeenCalledWith('CI_USER', 'x')
   })
 })
+
+describe('HypervisorArgsForm — rappel des variables de templating', () => {
+  /**
+   * Le rappel se lit AU CHAMP : c'est au moment de saisir « host-test-{count++} »
+   * qu'on a besoin de savoir que la variable existe, pas dans un bandeau en tete
+   * de formulaire.
+   */
+  it('affiche les variables a cote de chaque libelle quand templating est actif', () => {
+    renderWithProviders(
+      <HypervisorArgsForm args={ARGS} values={{}} onChange={() => {}} templating />,
+    )
+
+    // Un rappel par champ textuel (CI_USER, IP_CIDR) — pas sur le select VMID.
+    const rappels = screen.getAllByText(/\{count\+\+\}/)
+    expect(rappels).toHaveLength(2)
+  })
+
+  it('ne dit rien sans templating — a la creation les valeurs sont deja resolues', () => {
+    renderWithProviders(<HypervisorArgsForm args={ARGS} values={{}} onChange={() => {}} />)
+
+    expect(screen.queryByText(/\{count\+\+\}/)).toBeNull()
+  })
+})

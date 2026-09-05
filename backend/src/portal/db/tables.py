@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     MetaData,
+    Numeric,
     Table,
     Text,
     UniqueConstraint,
@@ -51,6 +53,8 @@ global_config = Table(
     Column("logs_enabled", Boolean, nullable=False, server_default="false"),
     Column("logs_loki_push_url", Text, nullable=False, server_default=""),
     Column("logs_loki_query_url", Text, nullable=False, server_default=""),
+    # TSDB des metriques machine (endpoint remote_write) — migration 108.
+    Column("logs_metrics_push_url", Text, nullable=False, server_default=""),
     Column("logs_grafana_url", Text, nullable=False, server_default=""),
     Column("logs_module", Text, nullable=False, server_default="devpod"),
     Column("logs_push_token", Text, nullable=False, server_default=""),
@@ -109,6 +113,11 @@ hypervisor_types = Table(
     Column("add_script", Text, nullable=False, server_default=""),
     Column("destroy_script", Text, nullable=False, server_default=""),
     Column("test_host_params", JSONB, nullable=False, server_default="{}"),
+    # Actions et variables declarees par le type (migration 122). Elles ne
+    # vivaient qu'en memoire : servies par le cache de la config globale, elles
+    # disparaissaient au premier rechargement depuis la base.
+    Column("actions", JSONB, nullable=False, server_default="[]"),
+    Column("variables", JSONB, nullable=False, server_default="[]"),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
@@ -144,7 +153,24 @@ hosts = Table(
     Column("storage_type", Text, nullable=False, server_default="local"),
     Column("vault_identifier", Text, nullable=False, server_default=""),
     Column("usage", Text, nullable=False, server_default="workspaces"),
+    # Profil avec lequel la machine a ete montee : provenance, pas contrainte.
+    Column("profile_slug", Text, nullable=False, server_default=""),
+    # Capacite PHYSIQUE : combien de workspaces la machine tient sans planter.
+    # Elle vit ici et non sur la propriete — une machine mutualisee n'a pas de
+    # proprietaire, et une machine enrolee a la main n'a pas de profil.
+    # NULL = non renseigne : ni zero, ni illimite.
+    Column("capacity_workspaces", Integer, nullable=True),
+    # Ouverture au pool mutualise, acte delibere de l'exploitant.
+    Column("accepts_mutualise", Boolean, nullable=False, server_default="false"),
+    # Hyperviseur qui a monte la machine : PROVENANCE, pas contrainte — comme
+    # `profile_slug`. Pas de cle etrangere : supprimer un hyperviseur ne doit ni
+    # effacer des machines ni bloquer l'operation. Vide = provenance inconnue
+    # (enrolee a la main), et surtout pas un hyperviseur par defaut.
+    Column("hypervisor", Text, nullable=False, server_default=""),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "capacity_workspaces IS NULL OR capacity_workspaces >= 0", name="ck_host_capacity"
+    ),
 )
 
 # ─── Tour 2 : Sources distantes ───────────────────────────────────────────────
@@ -391,9 +417,39 @@ recipes = Table(
     Column("options", JSONB, nullable=False, server_default="{}"),
     Column("requires_secrets", JSONB, nullable=False, server_default="[]"),
     Column("installs_after", ARRAY(Text), nullable=False, server_default="{}"),
+    # Portée MACHINE de la recette (workspace | host) et familles visées.
+    # `host_scope` et non `scope` : la colonne `scope` ci-dessus désigne la
+    # portée du CATALOGUE (partagé / propre à un utilisateur), tout autre chose.
+    Column("host_scope", Text, nullable=False, server_default="workspace"),
+    Column("host_usages", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("preconditions", JSONB, nullable=False, server_default="[]"),
+    # URL du manifeste distant d'ou la recette a ete importee — migration 109.
+    # Vide pour une recette creee a la main ou livree avec le produit.
+    Column("source_url", Text, nullable=False, server_default=""),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
+
+# ─── Profils de machine (remplacent test_host_params) ────────────────────────
+
+machine_profiles = Table(
+    "machine_profiles",
+    metadata,
+    Column("slug", Text, primary_key=True),
+    Column("label", Text, nullable=False),
+    # `ressources` est stocke mais pas encore exploite a la creation.
+    Column("machine_type", Text, nullable=False, server_default="test"),
+    # Obligatoire : les params sont types par la spec du script de ce type.
+    Column("hypervisor_type", Text, nullable=False),
+    Column("params", JSONB, nullable=False, server_default="{}"),
+    # [{key, options}] — l'ORDRE compte, d'ou un tableau JSON.
+    Column("recipes", JSONB, nullable=False, server_default="[]"),
+    # [{template_id, deployment_id, params}] — services lances au demarrage.
+    Column("services", JSONB, nullable=False, server_default="[]"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 
 # ─── Tour 6 : workspace_status ───────────────────────────────────────────────
 
@@ -1353,4 +1409,494 @@ mcp_discovery_source = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("login", "slug", name="uq_mcp_discovery_source_login_slug"),
+)
+
+
+# ─── Forfaits : pays, fiscalité, catalogue d'offres ───────────────────────────
+#
+# Périmètre initial : la France seule (cadrage du 27/08). Les États-Unis
+# reviendront en `tax_mode = automatique` — le modèle les porte déjà, aucune
+# migration à prévoir pour ça.
+
+# Pays où la plateforme opère. Le pays RÉFÉRENCE ses providers (un provider peut
+# servir plusieurs pays), et porte ses devises.
+countries = Table(
+    "countries",
+    metadata,
+    Column("code", Text, primary_key=True),  # ISO-3166-1 alpha-2, majuscules
+    Column("label", Text, nullable=False),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+# Devises acceptées dans un pays. `is_default` désigne celle proposée par défaut ;
+# un index partiel unique garantit qu'il n'y en a qu'une par pays — deux défauts
+# rendraient le choix de devise non déterministe au moment de proposer une offre.
+# Devises acceptees par l'application. Jeu GLOBAL : ce que la plateforme sait
+# encaisser ne depend pas du pays de l'acheteur. L'index partiel garantit
+# qu'exactement une devise porte le defaut — deux rendraient le choix
+# indetermine au moment de presenter un prix.
+currencies = Table(
+    "currencies",
+    metadata,
+    Column("code", Text, primary_key=True),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("is_default", Boolean, nullable=False, server_default="false"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+Index(
+    "uq_currency_default",
+    currencies.c.is_default,
+    unique=True,
+    postgresql_where=text("is_default"),
+)
+
+# Canal de paiement. `kind` est le DISCRIMINANT d'adaptateur, `slug` identifie
+# l'INSTANCE : deux comptes Stripe (test et production, ou deux entités
+# juridiques) doivent coexister sans dupliquer le code de l'adaptateur.
+#
+# Aucun secret ici : `secret_slug` référence la table des secrets, jamais la clé
+# elle-même. `config` porte le non-secret propre au `kind`, validé à l'écriture
+# par un modèle pydantic — JSONB pour ne pas faire une table à trous, validé
+# pour ne pas en faire un sac fourre-tout.
+payment_providers = Table(
+    "payment_providers",
+    metadata,
+    Column("slug", Text, primary_key=True),
+    Column("kind", Text, nullable=False),
+    Column("label", Text, nullable=False),
+    # `automatique` = on envoie du HT, le provider calcule la taxe.
+    # `manuel` = on calcule la taxe et on envoie du TTC.
+    Column("tax_mode", Text, nullable=False, server_default="manuel"),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("config", JSONB, nullable=False, server_default="{}"),
+    Column("secret_slug", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("tax_mode IN ('automatique','manuel')", name="ck_provider_tax_mode"),
+)
+
+# Providers utilisables dans un pays, par ordre de priorité croissante.
+country_providers = Table(
+    "country_providers",
+    metadata,
+    Column("country_code", Text, ForeignKey("countries.code", ondelete="CASCADE"), nullable=False),
+    Column(
+        "provider_slug",
+        Text,
+        ForeignKey("payment_providers.slug", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("priority", Integer, nullable=False, server_default="0"),
+    UniqueConstraint("country_code", "provider_slug", name="uq_country_provider"),
+)
+
+# Taux de taxe, en mode `manuel` uniquement.
+#
+# HISTORISÉ, jamais écrasé : une facture émise l'an dernier doit rester
+# reproductible avec le taux de l'époque. Le calcul retient le taux dont la
+# période couvre la DATE D'ÉMISSION, pas le taux courant.
+#
+# `region` vide = tout le pays. Conservée dès maintenant pour un futur pays à
+# taux régionaux : la colonne ne coûte rien, la migration coûterait.
+tax_rates = Table(
+    "tax_rates",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("country_code", Text, ForeignKey("countries.code", ondelete="CASCADE"), nullable=False),
+    Column("region", Text, nullable=False, server_default=""),
+    # NUMERIC et non float : 0.2000 = 20 %. L'exactitude prime sur la commodité.
+    Column("rate", Numeric(7, 4), nullable=False),
+    Column("label", Text, nullable=False),
+    Column("valid_from", Date, nullable=False),
+    Column("valid_to", Date, nullable=True),  # NULL = en vigueur
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("rate >= 0", name="ck_tax_rate_positive"),
+    CheckConstraint("valid_to IS NULL OR valid_to > valid_from", name="ck_tax_rate_period"),
+)
+Index("ix_tax_rates_lookup", tax_rates.c.country_code, tax_rates.c.region, tax_rates.c.valid_from)
+
+# Offre d'abonnement. Les libellés sont i18n (JSONB {langue: texte}).
+offers = Table(
+    "offers",
+    metadata,
+    Column("slug", Text, primary_key=True),
+    # Nom court non traduit (« Standard »), pour l'administration et les
+    # journaux. Le titre montre au client, lui, est traduit.
+    Column("label", Text, nullable=False, server_default=""),
+    Column("titles", JSONB, nullable=False, server_default="{}"),
+    Column("descriptions", JSONB, nullable=False, server_default="{}"),
+    Column("hosting_type", Text, nullable=False, server_default="mutualise"),
+    # NULL = illimité, pour les deux. Deux quotas indépendants.
+    Column("max_workspaces", Integer, nullable=True),
+    Column("max_hosts_dedies", Integer, nullable=True),
+    # Variables libres de l'offre (gabarit VM, capacité du host…), injectées
+    # dans les événements debut_essai / activation.
+    Column("variables", JSONB, nullable=False, server_default="{}"),
+    Column("provider_slug", Text, ForeignKey("payment_providers.slug"), nullable=True),
+    # Une offre non publiée n'est proposée à personne : c'est l'état d'une offre
+    # en cours de saisie, et celui d'une offre retirée du catalogue.
+    Column("published", Boolean, nullable=False, server_default="false"),
+    # Sens du montant saisi : TTC (true) ou HT (false). Explicite plutot que
+    # deduit du mode de taxe du canal — une offre peut changer de canal sans que
+    # ses prix changent de nature.
+    Column("prices_include_tax", Boolean, nullable=False, server_default="false"),
+    # Devises acceptees sans prix propre : derivees du prix par defaut. La
+    # majoration n'est PAS un taux de change, c'est une majoration commerciale.
+    Column("auto_currencies", Boolean, nullable=False, server_default="false"),
+    Column("currency_markup", Numeric(7, 4), nullable=False, server_default="1"),
+    # Offre gratuite : forfait de bienvenue, sans aucun prix. Un drapeau et non
+    # l'absence de tarif — une offre payante dont on a oublie le prix est une
+    # erreur de saisie, pas une offre gratuite.
+    Column("is_free", Boolean, nullable=False, server_default="false"),
+    # Duree du forfait EN JOURS. Tout forfait est borne, gratuit comme payant.
+    # NULL = pas encore renseignee : l'offre reste un brouillon, la publication
+    # l'exige.
+    Column("duration_days", Integer, nullable=True),
+    # Au terme, le forfait repart-il ? Faux par defaut : reconduire d'office
+    # prelegerait quelqu'un qui n'a rien demande.
+    Column("tacite_reconduction", Boolean, nullable=False, server_default="false"),
+    # Ce forfait peut-il etre repris par le meme compte ? Faux par defaut, donc
+    # repetable : prendre deux fois le meme forfait payant est legitime. Un
+    # PARAMETRE et non une exception sur `is_free` — c'est une decision
+    # commerciale, pas une propriete de la gratuite.
+    Column("une_par_compte", Boolean, nullable=False, server_default="false"),
+    # Ordre d'affichage decide par l'administrateur, croissant : 0 en premier.
+    # Le tri par slug etait alphabetique, donc arbitraire commercialement.
+    # A priorite egale, `slug` departage — un tri instable ferait bouger le
+    # catalogue d'un rechargement a l'autre.
+    Column("priorite", Integer, nullable=False, server_default="100"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("hosting_type IN ('dedie','mutualise')", name="ck_offer_hosting_type"),
+    CheckConstraint("priorite >= 0", name="ck_offer_priorite"),
+    CheckConstraint("duration_days IS NULL OR duration_days > 0", name="ck_offer_duration"),
+    CheckConstraint("currency_markup > 0", name="ck_offer_markup"),
+    CheckConstraint("max_workspaces IS NULL OR max_workspaces > 0", name="ck_offer_max_ws"),
+    CheckConstraint("max_hosts_dedies IS NULL OR max_hosts_dedies > 0", name="ck_offer_max_hosts"),
+)
+
+# Profils de host qu'une offre sait provisionner, et dans quel ordre.
+#
+# `priorite` porte le rang (0 = essayé en premier) : une table SQL n'a pas
+# d'ordre propre, et sans rang la liste reviendrait mélangée à chaque relecture.
+# Le rang est réécrit en bloc à chaque enregistrement, comme les prix — le corps
+# reçu décrit l'état voulu, pas un delta.
+#
+# FK RESTRICT vers `host_profiles` : supprimer un profil référencé par une offre
+# rendrait cette offre improvisionnable en silence. La route le refuse en 409 et
+# nomme les offres concernées, comme elle refuse déjà de supprimer une offre
+# souscrite.
+offer_host_profiles = Table(
+    "offer_host_profiles",
+    metadata,
+    Column("offer_slug", Text, ForeignKey("offers.slug", ondelete="CASCADE"), nullable=False),
+    Column(
+        "profile_slug",
+        Text,
+        ForeignKey("host_profiles.slug", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    Column("priorite", Integer, nullable=False),
+    UniqueConstraint("offer_slug", "profile_slug", name="uq_offer_host_profile"),
+    CheckConstraint("priorite >= 0", name="ck_offer_host_profile_priorite"),
+)
+Index("ix_offer_host_profiles_profile", offer_host_profiles.c.profile_slug)
+
+
+# Prix d'une offre, PAR DEVISE. Montant en unités mineures (centimes) : entier,
+# jamais un flottant — c'est la règle de la facturation et celle de l'API Stripe.
+#
+# Le sens du montant dépend du `tax_mode` du provider : HT en `automatique`
+# (le provider ajoute la taxe), TTC en `manuel` (on l'a déjà calculée).
+offer_prices = Table(
+    "offer_prices",
+    metadata,
+    Column("offer_slug", Text, ForeignKey("offers.slug", ondelete="CASCADE"), nullable=False),
+    Column("currency", Text, nullable=False),
+    Column("amount_minor", BigInteger, nullable=False),
+    # Identifiant du prix côté fournisseur (price_id Stripe…), posé à la
+    # synchronisation. Vide tant que l'offre n'a pas été poussée au provider.
+    Column("provider_price_id", Text, nullable=False, server_default=""),
+    UniqueConstraint("offer_slug", "currency", name="uq_offer_price_currency"),
+    CheckConstraint("amount_minor >= 0", name="ck_offer_price_positive"),
+)
+
+
+# ─── Forfaits : abonnements et propriété des machines ────────────────────────
+
+# Abonnement d'un utilisateur à une offre.
+#
+# `currency` et `amount_minor` sont un INSTANTANÉ du prix au moment de la
+# souscription, pas une lecture de `offer_prices` : le catalogue évolue, un
+# abonné garde le prix auquel il a souscrit. C'est aussi ce qui permet de
+# rejouer une facture ancienne.
+subscriptions = Table(
+    "subscriptions",
+    metadata,
+    Column("id", UUID(as_uuid=False), primary_key=True),
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("offer_slug", Text, ForeignKey("offers.slug"), nullable=False),
+    Column("provider_slug", Text, ForeignKey("payment_providers.slug"), nullable=True),
+    # `resilie` est un état CLOS, pas définitif : l'abonnement s'arrête, le
+    # compte demeure, et une reprise le rouvre (au tarif du jour). Le seul acte
+    # définitif est la suppression du compte, qui efface la ligne `users` et
+    # emporte celle-ci en CASCADE — ce n'est pas un état d'abonnement.
+    Column("state", Text, nullable=False, server_default="essai"),
+    Column("country_code", Text, nullable=False),
+    Column("currency", Text, nullable=False),
+    Column("amount_minor", BigInteger, nullable=False),
+    # Identifiant de l'abonnement côté fournisseur (`sub_…`).
+    Column("provider_subscription_id", Text, nullable=False, server_default=""),
+    # Echecs de prelevement CONSECUTIFS de l'episode en cours, remis a zero des
+    # qu'un paiement passe. `next_retry_at` porte la relance programmee : on ne
+    # coupe pas au premier refus (souvent passager), on relance une fois puis on
+    # resilie — de facon reversible.
+    Column("payment_attempts", Integer, nullable=False, server_default="0"),
+    Column("next_retry_at", DateTime(timezone=True), nullable=True),
+    Column("trial_end", DateTime(timezone=True), nullable=True),
+    Column("current_period_end", DateTime(timezone=True), nullable=True),
+    # Jour d'arret du forfait, calcule a la souscription depuis la duree de
+    # l'offre. Distinct de `current_period_end`, qui est la fin de la PERIODE
+    # facturee cote fournisseur : celle-ci se renouvelle, le terme arrete le
+    # service.
+    Column("ends_at", DateTime(timezone=True), nullable=True),
+    # Date du dernier changement d'état : c'est d'elle que le scheduler déduit
+    # l'échéance de rétention, en y ajoutant le délai configuré pour l'événement.
+    Column("state_changed_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "state IN ('essai','actif','echec_paiement','resilie')", name="ck_subscription_state"
+    ),
+    CheckConstraint("amount_minor >= 0", name="ck_subscription_amount"),
+    CheckConstraint("payment_attempts >= 0", name="ck_subscription_attempts"),
+)
+Index("ix_subscriptions_login", subscriptions.c.login)
+Index("ix_subscriptions_state", subscriptions.c.state, subscriptions.c.state_changed_at)
+# Le scheduler de relance demande « qui est du maintenant ? » : index partiel,
+# pour ne pas balayer les abonnements sains a chaque tick.
+Index(
+    "ix_subscriptions_retry",
+    subscriptions.c.next_retry_at,
+    postgresql_where=subscriptions.c.next_retry_at.isnot(None),
+)
+
+# Historique des événements d'abonnement, ET magasin d'idempotence des webhooks.
+#
+# `(provider_slug, provider_event_id)` est UNIQUE : chaque webhook porte un id
+# d'événement, un événement déjà vu est ignoré en silence. Sans cette
+# contrainte, un renvoi du fournisseur — cas normal, ils réessaient — pourrait
+# provisionner deux fois ou facturer deux fois.
+subscription_events = Table(
+    "subscription_events",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column(
+        "subscription_id",
+        UUID(as_uuid=False),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        nullable=True,
+    ),
+    Column("login", Text, nullable=False, server_default=""),
+    Column("kind", Text, nullable=False),
+    Column("provider_slug", Text, nullable=False),
+    Column("provider_event_id", Text, nullable=False),
+    Column("payload", JSONB, nullable=False, server_default="{}"),
+    # Visibilite de l'entree (migration 127) : `achat` = le compte en tant que
+    # client, servie a l'utilisateur ; `operation` = geste d'exploitation,
+    # reservee aux ecrans admin. UNE source, trois points d'acces — le filtre
+    # est porte par l'entree, pas par trois requetes divergentes.
+    Column("visibilite", Text, nullable=False, server_default="achat"),
+    Column("occurred_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("provider_slug", "provider_event_id", name="uq_subscription_event_provider"),
+    CheckConstraint(
+        "kind IN ('debut_essai','activation','renouvellement','echec_paiement','resiliation')",
+        name="ck_subscription_event_kind",
+    ),
+    CheckConstraint(
+        "visibilite IN ('achat','operation')", name="ck_subscription_event_visibilite"
+    ),
+)
+Index("ix_subscription_events_sub", subscription_events.c.subscription_id)
+
+# Propriété d'une machine par un utilisateur (hébergement `dedie`).
+#
+# Deux plafonds distincts, et leur ordre n'est pas negociable :
+#   1. `capacity_workspaces` = ce que la MACHINE supporte, le nombre de
+#      workspaces qui peuvent y tourner sans la faire planter. Limite physique,
+#      elle prime sur tout — aucun forfait ne fait acheter de la RAM.
+#   2. `offer_max_workspaces` = le quota du forfait au provisionnement. Il peut
+#      etre plus bas que la capacite, jamais la relever.
+# C'est une capacite de MACHINE, partagee entre l'owner et ses invites, pas un
+# quota individuel toutes machines confondues.
+host_ownership = Table(
+    "host_ownership",
+    metadata,
+    Column("host_name", Text, ForeignKey("hosts.name", ondelete="CASCADE"), primary_key=True),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("hosting_type", Text, nullable=False, server_default="dedie"),
+    Column("offer_slug", Text, nullable=True),
+    # La capacite d'accueil N'EST PAS ici : c'est un fait de la MACHINE, il vit
+    # sur `hosts.capacity_workspaces` depuis la migration 117. La recopier sur
+    # la propriete creait une seconde verite (migration 125).
+    #
+    # `offer_max_workspaces` reste : quota du forfait fige au provisionnement,
+    # donnee commerciale, qui n'a aucune raison de vivre sur la machine.
+    # NULL = pas de plafond de ce cote-la.
+    Column("offer_max_workspaces", Integer, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("hosting_type IN ('dedie','mutualise')", name="ck_ownership_hosting_type"),
+)
+Index("ix_host_ownership_owner", host_ownership.c.owner_login)
+
+# Ce qu'un ABONNEMENT a obtenu, machine par machine.
+#
+# Une ligne = « cet abonnement dispose de tant de workspaces sur cette
+# machine ». Les deux cas du catalogue ne different que par la presence d'une
+# part :
+#   - `allocated_workspaces` NULL  -> machine DEDIEE. Le forfait limite le
+#     NOMBRE DE MACHINES, pas les workspaces : seule la capacite physique de la
+#     machine borne ce qui tourne dessus.
+#   - un entier                    -> part sur une machine MUTUALISEE. La somme
+#     des parts d'un abonnement ne depasse pas le quota du forfait, et la somme
+#     des parts posees sur une machine ne depasse pas sa capacite. Deux
+#     invariants distincts : l'un commercial, l'autre physique.
+#
+# La cle primaire (abonnement, machine) porte l'idempotence : un webhook rejoue
+# REMPLACE la part au lieu d'en ajouter une seconde.
+subscription_hosts = Table(
+    "subscription_hosts",
+    metadata,
+    Column(
+        "subscription_id",
+        UUID(as_uuid=False),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "host_name",
+        Text,
+        ForeignKey("hosts.name", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("allocated_workspaces", Integer, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "allocated_workspaces IS NULL OR allocated_workspaces > 0",
+        name="ck_subscription_host_part",
+    ),
+)
+Index("ix_subscription_hosts_host", subscription_hosts.c.host_name)
+
+# Invités d'une machine dédiée : l'owner saisit un email, un lien d'invitation
+# part. `login` reste NULL tant que l'invitation n'est pas acceptée — on invite
+# une adresse, pas forcément un compte déjà existant.
+host_guests = Table(
+    "host_guests",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("host_name", Text, ForeignKey("hosts.name", ondelete="CASCADE"), nullable=False),
+    Column("email", Text, nullable=False),
+    Column("login", Text, ForeignKey("users.login", ondelete="SET NULL"), nullable=True),
+    # Sous-limite de l'invité, dans la capacité du host. NULL = pas de
+    # sous-limite : l'invité peut consommer la capacité restante.
+    Column("allocated_workspaces", Integer, nullable=True),
+    Column("state", Text, nullable=False, server_default="invite"),
+    Column("token", Text, nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("accepted_at", DateTime(timezone=True), nullable=True),
+    UniqueConstraint("host_name", "email", name="uq_host_guest_email"),
+    UniqueConstraint("token", name="uq_host_guest_token"),
+    CheckConstraint("state IN ('invite','accepte','revoque')", name="ck_host_guest_state"),
+    CheckConstraint(
+        "allocated_workspaces IS NULL OR allocated_workspaces > 0", name="ck_host_guest_alloc"
+    ),
+)
+Index("ix_host_guests_login", host_guests.c.login)
+
+
+# Profil de host : ce qu'un forfait provisionne.
+#
+# Trois niveaux — le type d'hyperviseur DECLARE les variables, le profil de
+# machine fige les parametres de creation, le profil de host VALUE les
+# variables. `capacity_workspaces` y vit : le profil de machine sait construire
+# la VM, il ne sait pas combien de workspaces elle tient sans planter. Seul
+# l'exploitant le sait, et c'est ici qu'il le dit.
+#
+# Pas de cle etrangere vers `machine_profiles` : le portail valide l'existence
+# du profil a l'enregistrement, et une reference devenue pendante reste lisible
+# — savoir sur quel profil un host a ete monte garde sa valeur meme si ce profil
+# a disparu (meme choix que `hosts.profile_slug`).
+host_profiles = Table(
+    "host_profiles",
+    metadata,
+    Column("slug", Text, primary_key=True),
+    Column("label", Text, nullable=False),
+    Column("machine_profile", Text, nullable=False),
+    # {slug de variable: valeur}, en texte — la declaration porte le type.
+    Column("variables", JSONB, nullable=False, server_default="{}"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+Index("ix_host_profiles_machine", host_profiles.c.machine_profile)
+
+
+# Trace des provisionings : ce qui a ete decide, et ce qui en est advenu.
+#
+# Un abonnement peut etre paye sans que l'acces existe — creation de VM en
+# echec, pool injoignable, script en erreur. Sans registre, cet ecart est
+# INVISIBLE : le client paie, personne ne le sait, et on l'apprend par une
+# reclamation. Cette table rend l'echec listable.
+#
+# `uq_provisioning_run_event` porte l'idempotence : un webhook rejoue — la
+# norme, pas l'exception — ne cree pas une seconde tentative.
+provisioning_runs = Table(
+    "provisioning_runs",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column(
+        "subscription_id",
+        UUID(as_uuid=False),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    # Vide = declenchement manuel depuis l'administration.
+    Column("provider_event_id", Text, nullable=False, server_default=""),
+    Column("kind", Text, nullable=False),
+    Column("owner_login", Text, ForeignKey("users.login", ondelete="CASCADE"), nullable=False),
+    Column("offer_slug", Text, nullable=False),
+    # Verdict recopie tel quel : on doit pouvoir relire ce qui a ete decide
+    # meme si la regle a change depuis.
+    Column("action", Text, nullable=False),
+    Column("host_name", Text, nullable=True),
+    # Gabarit retenu, recopie du verdict. Les trois maillons sont conserves et
+    # pas seulement le dernier : le jour ou l'on se demande pourquoi telle
+    # machine a ete montee ainsi, la reponse doit se lire ici plutot que se
+    # reconstituer depuis une configuration qui a change depuis. NULL pour les
+    # actions qui ne montent rien.
+    Column("host_profile", Text, nullable=True),
+    Column("machine_profile", Text, nullable=True),
+    Column("hypervisor", Text, nullable=True),
+    Column("motif", Text, nullable=False, server_default=""),
+    Column("state", Text, nullable=False, server_default="decide"),
+    # Message du dernier echec. Jamais un secret : c'est une trace d'ecran.
+    Column("erreur", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "action IN ('rien','assigner_host','creer_host_mutualise',"
+        "'creer_vm_dediee','impossible')",
+        name="ck_provisioning_action",
+    ),
+    CheckConstraint("state IN ('decide','en_cours','fait','echec')", name="ck_provisioning_state"),
+    UniqueConstraint("subscription_id", "provider_event_id", name="uq_provisioning_run_event"),
+)
+Index(
+    "ix_provisioning_runs_echec",
+    provisioning_runs.c.state,
+    postgresql_where=text("state = 'echec'"),
 )

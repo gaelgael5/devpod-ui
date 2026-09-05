@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
+from ..billing.allocation import QuotaDepasse
 from ..certificates import service as cert_svc
 from ..config.models import GitCredential, ProfileRef, SourceSpec, UserConfig, WorkspaceSpec
 from ..config.store import (
@@ -23,6 +24,8 @@ from ..config.store import (
 )
 from ..db.engine import get_conn
 from ..db.tables import users
+from ..db.user_config import save_user_db
+from ..db.workspace_quota import verifier_quota_creation, verrouiller_creation
 from ..devpod.git import probe_git_credential, run_git_ls_remote
 from ..secrets import service as secret_svc
 
@@ -247,7 +250,9 @@ async def list_workspaces(user: UserInfo = Depends(require_user)) -> list[dict[s
 
 @router.post("/workspaces", status_code=201)
 async def add_workspace(
-    workspace: WorkspaceSpec, user: UserInfo = Depends(require_user)
+    workspace: WorkspaceSpec,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, object]:
     async with user_config_lock(user.login):
         cfg = await load_user(user.login)
@@ -256,7 +261,18 @@ async def add_workspace(
                 status_code=409, detail=f"Workspace {workspace.name!r} already exists"
             )
         cfg.workspaces.append(workspace)
-        await save_user(user.login, cfg)
+        # Quota du forfait : vérification et écriture dans la MÊME transaction,
+        # sous un verrou par machine cible — deux créations concurrentes qui
+        # voient chacune la dernière place ne doivent pas passer toutes les
+        # deux, et le verrou par login ne couvre pas owner + invité.
+        await verrouiller_creation(workspace.host, conn)
+        try:
+            await verifier_quota_creation(user.login, workspace.host, conn)
+        except QuotaDepasse as exc:
+            # 403 avec le message de la règle, tel quel : il nomme le quota
+            # atteint et ce qui y répond (machine plus grosse, ou forfait).
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        await save_user_db(user.login, cfg, conn)
     _log.info("workspace_added", login=user.login, name=workspace.name)
     return workspace.model_dump(mode="json")
 

@@ -20,3 +20,12 @@ export const i18nReady = i18n
   })
 
 export default i18n
+
+// `<html lang>` suit la langue courante. Sur une page publique ce n'est pas
+// cosmétique : les moteurs d'indexation et les lecteurs d'écran s'y fient.
+function synchroniserLangDocument(langue: string): void {
+  if (typeof document !== 'undefined') document.documentElement.lang = langue.split('-')[0]
+}
+
+void i18nReady.then(() => synchroniserLangDocument(i18n.language))
+i18n.on('languageChanged', synchroniserLangDocument)

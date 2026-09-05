@@ -120,7 +120,7 @@ def test_put_recipe_sources_replaces_list(tmp_path: Path) -> None:
         "https://other.org/recipes/toc.txt",
     ]
     with patch(
-        "portal.routes.recipe_sources._socket.getaddrinfo",
+        "portal.routes._ssrf._socket.getaddrinfo",
         return_value=_MOCK_PUBLIC_ADDR,
     ), TestClient(app) as client:
         resp = client.put("/admin/recipe-sources", json={"sources": new_sources})
@@ -135,7 +135,7 @@ def test_get_after_put_returns_updated_sources(tmp_path: Path) -> None:
     app = _make_admin_app(tmp_path)
     new_sources = ["https://custom.example.com/toc.txt"]
     with patch(
-        "portal.routes.recipe_sources._socket.getaddrinfo",
+        "portal.routes._ssrf._socket.getaddrinfo",
         return_value=_MOCK_PUBLIC_ADDR,
     ), TestClient(app) as client:
         put_resp = client.put("/admin/recipe-sources", json={"sources": new_sources})
@@ -171,7 +171,7 @@ def test_preview_recipe_sources_returns_parsed_recipes(tmp_path: Path) -> None:
     respx.get(sh_url).mock(return_value=Response(200, text=sh_content))
 
     with patch(
-        "portal.routes.recipe_sources._socket.getaddrinfo",
+        "portal.routes._ssrf._socket.getaddrinfo",
         return_value=_MOCK_PUBLIC_ADDR,
     ), TestClient(app) as client:
         client.put("/admin/recipe-sources", json={"sources": [toc_url]})
@@ -202,7 +202,7 @@ def test_preview_rejects_path_traversal_filename(tmp_path: Path) -> None:
     respx.get(toc_url).mock(return_value=Response(200, text="../../../etc/passwd.sh\n"))
 
     with patch(
-        "portal.routes.recipe_sources._socket.getaddrinfo",
+        "portal.routes._ssrf._socket.getaddrinfo",
         return_value=_MOCK_PUBLIC_ADDR,
     ), TestClient(app) as client:
         client.put("/admin/recipe-sources", json={"sources": [toc_url]})
@@ -228,7 +228,7 @@ def test_preview_recipe_sources_failing_source_skipped(tmp_path: Path) -> None:
     respx.get(bad_toc).mock(return_value=Response(500))
 
     with patch(
-        "portal.routes.recipe_sources._socket.getaddrinfo",
+        "portal.routes._ssrf._socket.getaddrinfo",
         return_value=_MOCK_PUBLIC_ADDR,
     ), TestClient(app) as client:
         client.put("/admin/recipe-sources", json={"sources": [good_toc, bad_toc]})
@@ -253,7 +253,7 @@ def test_import_recipe_from_source_basic(tmp_path: Path) -> None:
     respx.get(sh_url).mock(return_value=Response(200, text=sh_content))
 
     with patch(
-        "portal.routes.recipe_sources._socket.getaddrinfo",
+        "portal.routes._ssrf._socket.getaddrinfo",
         return_value=_MOCK_PUBLIC_ADDR,
     ), TestClient(app) as client:
         resp = client.post("/admin/recipe-sources/import", json={"source_url": sh_url})
@@ -286,7 +286,7 @@ def test_import_recipe_collision_generates_suffix(tmp_path: Path) -> None:
     respx.get(sh_url).mock(return_value=Response(200, text=sh_content))
 
     with patch(
-        "portal.routes.recipe_sources._socket.getaddrinfo",
+        "portal.routes._ssrf._socket.getaddrinfo",
         return_value=_MOCK_PUBLIC_ADDR,
     ), TestClient(app) as client:
         resp1 = client.post("/admin/recipe-sources/import", json={"source_url": sh_url})
@@ -354,7 +354,7 @@ transform:
     )
 
     with patch(
-        "portal.routes.recipe_sources._socket.getaddrinfo",
+        "portal.routes._ssrf._socket.getaddrinfo",
         return_value=_MOCK_PUBLIC_ADDR,
     ), TestClient(app) as client:
         resp = client.post(
@@ -396,7 +396,7 @@ copy:
     respx.get(f"{base}/files/absent.json").mock(return_value=Response(404))
 
     with patch(
-        "portal.routes.recipe_sources._socket.getaddrinfo",
+        "portal.routes._ssrf._socket.getaddrinfo",
         return_value=_MOCK_PUBLIC_ADDR,
     ), TestClient(app) as client:
         resp = client.post(
@@ -427,7 +427,7 @@ copy:
     respx.get(f"{base}/install.sh").mock(return_value=Response(404))
 
     with patch(
-        "portal.routes.recipe_sources._socket.getaddrinfo",
+        "portal.routes._ssrf._socket.getaddrinfo",
         return_value=_MOCK_PUBLIC_ADDR,
     ), TestClient(app) as client:
         resp = client.post(
@@ -448,7 +448,7 @@ def test_import_recipe_fetch_failure_returns_502(tmp_path: Path) -> None:
     respx.get(sh_url).mock(return_value=Response(500))
 
     with patch(
-        "portal.routes.recipe_sources._socket.getaddrinfo",
+        "portal.routes._ssrf._socket.getaddrinfo",
         return_value=_MOCK_PUBLIC_ADDR,
     ), TestClient(app) as client:
         resp = client.post(
@@ -470,7 +470,7 @@ def test_import_recipe_invalid_id_rejected(tmp_path: Path) -> None:
     respx.get(sh_url).mock(return_value=Response(200, text="#!/usr/bin/env bash\n"))
 
     with patch(
-        "portal.routes.recipe_sources._socket.getaddrinfo",
+        "portal.routes._ssrf._socket.getaddrinfo",
         return_value=_MOCK_PUBLIC_ADDR,
     ), TestClient(app) as client:
         resp = client.post(

@@ -18,13 +18,34 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useRevealCiPassword, useTestHostsSummary, type HostConfig, type HostCreatePayload, type HostUserWorkspaces, type UserTestGroup } from './useHosts'
+import ActionsMenu from './ActionsMenu'
+import { useHostActions } from './useHypervisorActions'
 import BootstrapSshDialog from './BootstrapSshDialog'
 import GenerateHostDialog from './GenerateHostDialog'
-import TestHostParamsDialog from './TestHostParamsDialog'
+import OrphanDeploymentsDialog from './OrphanDeploymentsDialog'
 import HostRecipesDialog from './HostRecipesDialog'
 import { openTerminalTab } from '@/features/terminal/openTerminalTab'
 
 /** Ouvre le terminal SSH d'un host Docker dans un onglet plein écran. */
+/**
+ * Menu Actions d'une ligne de noeud : les actions de cible « machine »
+ * declarees par le type d'hyperviseur qui l'heberge.
+ *
+ * Composant a part parce que chaque ligne interroge SES actions — un hook ne
+ * s'appelle pas dans une boucle de rendu. Un noeud enrole a la main n'a pas
+ * d'hyperviseur : la liste revient vide et le menu ne s'affiche pas.
+ */
+function HostRowActions({ host }: { host: HostConfig }) {
+  const { data } = useHostActions(host.name)
+  return (
+    <ActionsMenu
+      base={`/admin/hosts/${host.name}`}
+      cibleLabel={host.name}
+      actions={data ?? []}
+    />
+  )
+}
+
 function openHostSsh(name: string): void {
   openTerminalTab(`/admin/hosts/${encodeURIComponent(name)}/ssh`, name)
 }
@@ -36,7 +57,9 @@ const USAGE_VALUES = ['workspaces', 'tests', 'portail', 'ressources', 'autres'] 
 
 const EMPTY: HostCreatePayload = {
   name: '',
-  type: 'docker-tls',
+  // `ssh` par defaut : c'est le cas courant (toutes les machines creees par le
+  // portail), `docker-tls` restant l'exception d'un daemon distant enrole.
+  type: 'ssh',
   default: false,
   docker_host: '',
   address: '',
@@ -46,6 +69,8 @@ const EMPTY: HostCreatePayload = {
   docker_cert_slug: '',
   ssh_cert_slug: '',
   usage: 'workspaces',
+  capacity_workspaces: null,
+  accepts_mutualise: false,
 }
 
 type DialogMode = 'add' | 'edit'
@@ -469,6 +494,7 @@ function TestHostsGroupedSection({
                               {host.address || '—'}
                             </span>
                             <div className="flex items-center gap-1 shrink-0">
+                              <HostRowActions host={host} />
                               <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => actions.onEdit(host)}>
                                 <Pencil className="h-3 w-3" />
                               </Button>
@@ -569,6 +595,7 @@ function OtherHostsSection({
             </span>
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            <HostRowActions host={host} />
             <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => actions.onEdit(host)}>
               <Pencil className="h-3.5 w-3.5" />
             </Button>
@@ -635,6 +662,7 @@ function ResourceHostsSection({
               </span>
             </div>
             <div className="flex items-center gap-1 shrink-0">
+              <HostRowActions host={host} />
               <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => actions.onEdit(host)}>
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
@@ -711,7 +739,7 @@ export default function AdminHosts() {
   const [mode, setMode] = useState<DialogMode>('add')
   const [showCert, setShowCert] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
-  const [testParamsOpen, setTestParamsOpen] = useState(false)
+  const [orphansOpen, setOrphansOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [destroyTarget, setDestroyTarget] = useState<HostConfig | null>(null)
   const [form, setForm] = useState<HostCreatePayload>(EMPTY)
@@ -753,6 +781,8 @@ export default function AdminHosts() {
       // vide = « conserver la clé actuelle », choisir en (re)pose une nouvelle.
       ssh_cert_slug: '',
       usage: host.usage ?? 'workspaces',
+      capacity_workspaces: host.capacity_workspaces ?? null,
+      accepts_mutualise: host.accepts_mutualise ?? false,
     })
     setMode('edit'); setShowCert(false); setOpen(true)
   }
@@ -773,6 +803,10 @@ export default function AdminHosts() {
       // Clé SSH seulement pour un host ssh ('' = ne rien changer côté backend).
       ssh_cert_slug: form.type === 'ssh' ? (form.ssh_cert_slug ?? '') : '',
       usage: form.usage ?? 'workspaces',
+      // Toujours envoyé : le serveur préserve sur champ absent, et l'écran doit
+      // pouvoir remettre une capacité à « non renseigné ».
+      capacity_workspaces: form.capacity_workspaces ?? null,
+      accepts_mutualise: form.accepts_mutualise ?? false,
     }
     const mutation = mode === 'edit' ? updateHost : addHost
     mutation.mutate(payload, { onSuccess: () => handleClose(false) })
@@ -792,6 +826,10 @@ export default function AdminHosts() {
       docker_cert_slug: config.docker_cert_slug ?? '',
       ssh_cert_slug: '',
       usage: config.usage ?? 'workspaces',
+      // Reprise de la capacité déclarée par le profil de host : une valeur par
+      // défaut, que l'exploitant reste libre de corriger avant d'enregistrer.
+      capacity_workspaces: config.capacity_workspaces ?? null,
+      accepts_mutualise: config.accepts_mutualise ?? false,
     })
     setMode('add'); setShowCert(false); setOpen(true)
   }
@@ -846,11 +884,13 @@ export default function AdminHosts() {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{t('admin.hosts')}</h1>
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => setTestParamsOpen(true)}>
-            {t('admin.testHostParams.btn')}
-          </Button>
           <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
             {t('admin.generate.btn')}
+          </Button>
+          {/* La purge vit sur cette page parce que « orphelin » se definit par
+              rapport a l'inventaire qu'elle presente. */}
+          <Button size="sm" variant="outline" onClick={() => setOrphansOpen(true)}>
+            {t('admin.orphans.btn')}
           </Button>
           <Button size="sm" onClick={openAdd}>{t('admin.addHost')}</Button>
         </div>
@@ -885,6 +925,7 @@ export default function AdminHosts() {
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.name')}</th>
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.type')}</th>
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.host')}</th>
+                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.provenance')}</th>
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.default')}</th>
                       <th className="px-4 py-2" />
                     </tr>
@@ -898,6 +939,13 @@ export default function AdminHosts() {
                           <td className="px-4 py-2 text-muted-foreground font-mono text-xs">
                             {h.type === 'ssh' ? (h.address || '—') : (h.docker_host || '—')}
                           </td>
+                          <td className="px-4 py-2 text-xs">
+                            {/* Provenance = fait posé au provisionnement. Vide
+                                n'est ni une erreur ni un défaut : on le dit. */}
+                            {h.hypervisor
+                              ? <span className="font-mono">{h.hypervisor}</span>
+                              : <span className="text-muted-foreground italic">{t('admin.provenanceUnknown')}</span>}
+                          </td>
                           <td className="px-4 py-2">
                             {h.default
                               ? <span className="text-green-600">✓</span>
@@ -905,6 +953,7 @@ export default function AdminHosts() {
                           </td>
                           <td className="px-4 py-2">
                             <div className="flex items-center justify-end gap-1">
+                              <HostRowActions host={h} />
                               <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(h)}>
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
@@ -934,7 +983,7 @@ export default function AdminHosts() {
                           </td>
                         </tr>
                         <tr className="border-b last:border-0 bg-muted/20">
-                          <td colSpan={5} className="px-4 py-2">
+                          <td colSpan={6} className="px-4 py-2">
                             <HostWorkspacesPanel name={h.name} />
                           </td>
                         </tr>
@@ -957,10 +1006,8 @@ export default function AdminHosts() {
         onGenerated={handleGenerated}
       />
 
-      <TestHostParamsDialog
-        open={testParamsOpen}
-        onClose={() => setTestParamsOpen(false)}
-      />
+      <OrphanDeploymentsDialog open={orphansOpen} onClose={() => setOrphansOpen(false)} />
+
 
       {/* ── Dialogue ajout / édition ── */}
       <Dialog open={open} onOpenChange={handleClose}>
@@ -1027,6 +1074,37 @@ export default function AdminHosts() {
                 </SelectContent>
               </Select>
             </div>
+            {(form.usage ?? 'workspaces') !== 'portail' && (
+              <div className="flex flex-col gap-1.5 rounded-md border p-3">
+                <Label htmlFor="h-capacity">{t('admin.form.capacity')}</Label>
+                <Input
+                  id="h-capacity"
+                  type="number"
+                  min={0}
+                  value={form.capacity_workspaces ?? ''}
+                  onChange={(e) =>
+                    set('capacity_workspaces', e.target.value === '' ? null : Number(e.target.value))
+                  }
+                  placeholder={t('admin.form.capacityUnset')}
+                />
+                <p className="text-xs text-muted-foreground">{t('admin.form.capacityHint')}</p>
+                <div className="mt-1 flex items-start gap-2 text-sm">
+                  <input
+                    id="h-accepts-mutualise"
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={form.accepts_mutualise ?? false}
+                    onChange={(e) => set('accepts_mutualise', e.target.checked)}
+                  />
+                  <div>
+                    <Label htmlFor="h-accepts-mutualise">{t('admin.form.acceptsMutualise')}</Label>
+                    <p className="text-xs text-muted-foreground">
+                      {t('admin.form.acceptsMutualiseHint')}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="space-y-1">
               <Label htmlFor="h-ci-password">{t('hosts.form.ci_password', 'Mot de passe console Proxmox (optionnel)')}</Label>
               <Input

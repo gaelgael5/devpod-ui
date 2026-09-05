@@ -43,6 +43,10 @@ class LiveTerminal:
 AttachKey = tuple[Family, str, str | None]
 
 _terminals: dict[str, LiveTerminal] = {}
+# Terminaux fermés parce qu'un autre appareil a pris la main. Le pont y lit le
+# motif avant de fermer le websocket, pour que le navigateur puisse afficher
+# « ouvert ailleurs » plutôt qu'une coupure réseau anonyme.
+_evicted: set[str] = set()
 # Callback de fermeture par id : annule le pont websocket↔ssh du terminal.
 # Séparé de LiveTerminal (qui reste un DTO pur, sérialisable) volontairement.
 _closers: dict[str, Callable[[], None]] = {}
@@ -87,6 +91,47 @@ def unregister(id: str) -> None:
     """Retire un terminal et son closer. Silencieux si l'id est inconnu."""
     _terminals.pop(id, None)
     _closers.pop(id, None)
+    _evicted.discard(id)
+
+
+def evict_others(term: LiveTerminal) -> int:
+    """Ferme les autres terminaux du même propriétaire sur la même session.
+
+    Un seul écran à la fois. Deux clients tmux sur une même session font caler
+    la fenêtre sur le dernier actif (`window-size latest`) : l'autre écran
+    reçoit alors des cellules calculées pour une géométrie qui n'est pas la
+    sienne — curseur mal placé, texte entrelacé, et aucune cause visible pour
+    l'utilisateur (diagnostiqué le 03/09 après trois fausses pistes).
+
+    Le nouveau venu prend la main ; les précédents sont fermés avec un motif,
+    ce qui permet au navigateur de proposer « reconnecter » — et cette
+    reconnexion évincera à son tour celui qui aura pris la place.
+
+    Renvoie le nombre de terminaux évincés.
+    """
+    count = 0
+    for autre in list(_terminals.values()):
+        if autre.id == term.id:
+            continue
+        if (autre.family, autre.target, autre.session, autre.owner) != (
+            term.family,
+            term.target,
+            term.session,
+            term.owner,
+        ):
+            continue
+        closer = _closers.pop(autre.id, None)
+        if closer is None:
+            continue
+        _evicted.add(autre.id)
+        closer()
+        count += 1
+    return count
+
+
+def was_evicted(id: str) -> bool:
+    """Ce terminal a-t-il été fermé au profit d'un autre appareil ?"""
+    return id in _evicted
 
 
 def close_matching(*, family: Family, target: str, session: str | None, owner: str | None) -> int:
@@ -151,3 +196,4 @@ def clear() -> None:
     """Tests uniquement : vide le registre entre deux cas."""
     _terminals.clear()
     _closers.clear()
+    _evicted.clear()

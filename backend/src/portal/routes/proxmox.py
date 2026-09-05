@@ -13,10 +13,22 @@ import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
-from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor, HypervisorType
+from ..config.models import (
+    _PROXMOX_NAME_RE,
+    GlobalConfig,
+    HostConfig,
+    Hypervisor,
+    HypervisorAction,
+    HypervisorType,
+    HypervisorVariable,
+    qualify_action_slug,
+)
 from ..config.store import load_global, save_global
+from ..db.engine import get_conn
+from ..devpod.name_mask import resolve_count_mask
 from ..settings import get_settings
 from ._ssrf import pinned_get, resolve_pinned
 
@@ -339,6 +351,41 @@ class HypervisorTypeRequest(BaseModel):
     name: str
     add_script: str = ""
     destroy_script: str = ""
+    actions: list[HypervisorAction] = []
+    # Variables que les profils de host de ce type auront a renseigner. Sans ce
+    # champ, pydantic ignorait en silence ce que l'IHM envoyait et la
+    # declaration ne survivait pas a l'enregistrement.
+    variables: list[HypervisorVariable] = []
+
+
+def _variables_validees(variables: list[HypervisorVariable]) -> list[HypervisorVariable]:
+    """Refuse deux variables de meme slug.
+
+    La valeur retenue dependrait de l'ordre de saisie. Le modele le refuse deja,
+    mais il leverait une ValidationError au milieu du handler — donc une 500 la
+    ou l'admin merite un 422 qui nomme le doublon.
+    """
+    slugs = [v.slug for v in variables]
+    doublons = sorted({s for s in slugs if slugs.count(s) > 1})
+    if doublons:
+        raise HTTPException(status_code=422, detail=f"variables en double : {', '.join(doublons)}")
+    return list(variables)
+
+
+def _actions_qualifiees(name: str, actions: list[HypervisorAction]) -> list[HypervisorAction]:
+    """Prefixe le slug de chaque action par le type, et refuse les doublons.
+
+    Deux actions du meme slug donneraient deux entrees indiscernables dans la
+    liste — et, le jour ou on les executera, une cible ambigue.
+    """
+    sorties = [a.model_copy(update={"slug": qualify_action_slug(name, a.slug)}) for a in actions]
+    slugs = [a.slug for a in sorties]
+    doublons = sorted({s for s in slugs if slugs.count(s) > 1})
+    if doublons:
+        raise HTTPException(
+            status_code=422, detail=f"slug d'action en double : {', '.join(doublons)}"
+        )
+    return sorties
 
 
 @router.get("/hypervisor-types")
@@ -367,6 +414,8 @@ async def add_hypervisor_type(
         name=body.name,
         add_script=body.add_script,
         destroy_script=body.destroy_script,
+        actions=_actions_qualifiees(body.name, body.actions),
+        variables=_variables_validees(body.variables),
     )
     cfg.hypervisor_types.append(ht)
     await save_global(cfg)
@@ -390,6 +439,8 @@ async def update_hypervisor_type(
         add_script=body.add_script,
         destroy_script=body.destroy_script,
         test_host_params=ht.test_host_params,  # préservé (réglé via /test-params)
+        actions=_actions_qualifiees(name, body.actions),
+        variables=_variables_validees(body.variables),
     )
     cfg.hypervisor_types = [updated if t.name == name else t for t in cfg.hypervisor_types]
     await save_global(cfg)
@@ -402,12 +453,21 @@ async def get_hypervisor_type_script(
     name: str,
     user: UserInfo = Depends(require_admin),
 ) -> dict[str, object]:
-    """Spec JSON brute d'un type (sans résolution SSH des options dynamiques)."""
+    """Spec JSON d'un type, options dynamiques résolues sur les machines du type.
+
+    Un `option_script` décrit les valeurs disponibles *sur l'hyperviseur* (les
+    templates Proxmox clonables, par exemple) : sans l'exécuter, la liste se
+    réduit au seul `auto` déclaré en dur dans la spec. On l'exécute donc sur
+    toutes les machines qui portent ce type ; sans machine enregistrée, la spec
+    part telle quelle.
+    """
     cfg = load_global()
     ht = next((t for t in cfg.hypervisor_types if t.name == name), None)
     if ht is None:
         raise HTTPException(status_code=404, detail=f"Hypervisor type {name!r} not found")
-    return await _fetch_spec_for_type(ht)
+    spec = await _fetch_spec_for_type(ht)
+    await resolve_option_scripts(spec, [n for n in cfg.hypervisors if n.hypervisor_type == name])
+    return spec
 
 
 class TestHostParamsRequest(BaseModel):
@@ -464,6 +524,32 @@ async def list_hypervisors(
 ) -> list[dict[str, object]]:
     cfg = load_global()
     return [n.model_dump(mode="json") for n in cfg.hypervisors]
+
+
+@router.get("/hypervisors/charges")
+async def hypervisor_charges(
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    """Machines portées par hyperviseur, ventilées par nature et vivacité.
+
+    C'est le contrôle visuel de l'équilibrage : si le provisioning envoie tout
+    sur le même hyperviseur, ça doit se voir ici, pas dans les logs. Un
+    hyperviseur déclaré sans machine rend des ZÉROS, pas une absence — le vide
+    ne dit pas s'il est libre ou si le comptage l'a raté.
+    """
+    from ..db.host_counts import ComptesHyperviseur, machines_par_hyperviseur
+
+    comptes = await machines_par_hyperviseur(conn)
+    cfg = load_global()
+    par_hyperviseur = {
+        n.name: comptes.par_hyperviseur.get(n.name, ComptesHyperviseur()).model_dump()
+        for n in cfg.hypervisors
+    }
+    return {
+        "par_hyperviseur": par_hyperviseur,
+        "sans_provenance": comptes.sans_provenance,
+    }
 
 
 @router.post("/hypervisors", status_code=201)
@@ -625,18 +711,16 @@ class ExecuteRequest(BaseModel):
     args: dict[str, str]
 
 
-async def _fetch_spec_for_type(hyp_type: HypervisorType) -> dict[str, object]:
-    """Télécharge la spec JSON d'un type d'hyperviseur (sans résolution SSH)."""
-    if not hyp_type.add_script:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Hypervisor type {hyp_type.name!r} has no add_script configured",
-        )
-    pinned_ip = await asyncio.to_thread(resolve_pinned, hyp_type.add_script)
+async def fetch_script_spec(url: str) -> dict[str, object]:
+    """Télécharge un descripteur JSON de script (création, destruction, action).
+
+    Point de passage unique : l'épinglage sur l'IP résolue (anti-rebinding, bug
+    022) ne doit pas dépendre de l'appelant qui a écrit la requête.
+    """
+    pinned_ip = await asyncio.to_thread(resolve_pinned, url)
     async with httpx.AsyncClient() as client:
         try:
-            # Connexion épinglée sur l'IP validée (anti-rebinding, bug 022)
-            resp = await pinned_get(client, hyp_type.add_script, timeout=15.0, pinned_ip=pinned_ip)
+            resp = await pinned_get(client, url, timeout=15.0, pinned_ip=pinned_ip)
             resp.raise_for_status()
             return dict(resp.json())
         except httpx.HTTPError as exc:
@@ -644,6 +728,16 @@ async def _fetch_spec_for_type(hyp_type: HypervisorType) -> dict[str, object]:
                 status_code=502,
                 detail=f"Failed to fetch script spec: {exc}",
             ) from exc
+
+
+async def _fetch_spec_for_type(hyp_type: HypervisorType) -> dict[str, object]:
+    """Télécharge la spec JSON d'un type d'hyperviseur (sans résolution SSH)."""
+    if not hyp_type.add_script:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Hypervisor type {hyp_type.name!r} has no add_script configured",
+        )
+    return await fetch_script_spec(hyp_type.add_script)
 
 
 async def _fetch_spec(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
@@ -661,34 +755,69 @@ async def _fetch_spec(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
     return await _fetch_spec_for_type(hyp_type)
 
 
-async def resolve_node_script(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
-    """Spec du node avec les options dynamiques (`option_script`) résolues via SSH."""
-    spec = await _fetch_spec(node, cfg)
+def parse_option_lines(output: str) -> list[dict[str, str]]:
+    """Sortie d'un `option_script` → options. Une ligne `valeur|libellé`, ou la
+    valeur seule quand elle fait aussi office de libellé."""
+    options: list[dict[str, str]] = []
+    for ligne in output.strip().splitlines():
+        ligne = ligne.strip()
+        if not ligne:
+            continue
+        if "|" in ligne:
+            val, _, lbl = ligne.partition("|")
+            options.append({"value": val.strip(), "label": lbl.strip()})
+        else:
+            options.append({"value": ligne, "label": ligne})
+    return options
 
+
+async def resolve_option_scripts(
+    spec: dict[str, object],
+    nodes: list[Hypervisor],
+) -> None:
+    """Résout les `option_script` de la spec **en place**, sur les machines données.
+
+    Plusieurs machines d'un même type peuvent proposer des valeurs différentes
+    (des templates Proxmox, par exemple) : on interroge chacune et on fusionne,
+    en dédupliquant sur la valeur — deux nœuds d'un même cluster voient le même
+    `/etc/pve` et renverraient deux fois la même liste.
+
+    Une machine injoignable ne fait pas échouer la spec : les autres répondent.
+    L'erreur n'est remontée à l'UI que si AUCUNE valeur n'a pu être obtenue,
+    sinon un nœud éteint masquerait une liste par ailleurs correcte.
+    """
     for arg in _flatten_args(spec.get("args", [])):  # type: ignore[arg-type]
         option_script = arg.get("option_script")
         if not option_script:
             continue
-        try:
-            output = await _ssh_run(node, str(option_script))
-            dynamic: list[dict[str, str]] = []
-            for v in output.strip().splitlines():
-                v = v.strip()
-                if not v:
+        dynamic: list[dict[str, str]] = []
+        vues: set[str] = set()
+        erreurs: list[str] = []
+        for node in nodes:
+            try:
+                output = await _ssh_run(node, str(option_script))
+            except Exception as exc:
+                erreurs.append(f"{node.name}: {exc}")
+                _log.warning(
+                    "option_script_failed", node=node.name, arg=arg.get("arg"), error=str(exc)
+                )
+                continue
+            for option in parse_option_lines(output):
+                if option["value"] in vues:
                     continue
-                if "|" in v:
-                    val, _, lbl = v.partition("|")
-                    dynamic.append({"value": val.strip(), "label": lbl.strip()})
-                else:
-                    dynamic.append({"value": v, "label": v})
-            raw_opts = arg.get("options") or []
-            existing: list[dict[str, str]] = raw_opts if isinstance(raw_opts, list) else []
-            arg["options"] = existing + dynamic
-        except Exception as exc:
-            err = str(exc)
-            _log.warning("option_script_failed", node=node.name, arg=arg.get("arg"), error=err)
-            arg["_option_script_error"] = err
+                vues.add(option["value"])
+                dynamic.append(option)
+        raw_opts = arg.get("options") or []
+        existing: list[dict[str, str]] = raw_opts if isinstance(raw_opts, list) else []
+        arg["options"] = existing + dynamic
+        if erreurs and not dynamic:
+            arg["_option_script_error"] = "; ".join(erreurs)
 
+
+async def resolve_node_script(node: Hypervisor, cfg: GlobalConfig) -> dict[str, object]:
+    """Spec du node avec les options dynamiques (`option_script`) résolues via SSH."""
+    spec = await _fetch_spec(node, cfg)
+    await resolve_option_scripts(spec, [node])
     return spec
 
 
@@ -719,6 +848,12 @@ async def execute_hypervisor_script(
 
     spec = await _fetch_spec(node, cfg)
     commands_raw: list[str] = spec.get("commands", [])  # type: ignore[assignment]
+
+    # Un profil fige le nom de la machine : sans variable, toutes celles qui en
+    # sortent porteraient le meme nom. `{count++}` n'a pas de compteur de
+    # workspace ici — on le resout contre les noms de hosts deja pris.
+    noms_pris = [h.name for h in cfg.hosts]
+    body.args = {k: resolve_count_mask(v, noms_pris) for k, v in body.args.items()}
 
     settings = get_settings()
     body.args["PORTAL_URL"] = cfg.server.external_url

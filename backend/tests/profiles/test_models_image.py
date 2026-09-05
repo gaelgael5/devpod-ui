@@ -7,6 +7,14 @@ from pydantic import ValidationError
 from portal.profiles.models import ProfileBody
 
 
+def test_le_nom_accepte_la_barre_oblique() -> None:
+    """« C/C++ Dev » est un libellé, pas un chemin : le chemin est dérivé du
+    SLUG, validé séparément. Le refuser rendait 4 profils de la galerie
+    silencieusement absents du catalogue (bug 511a465f)."""
+    assert ProfileBody(name="C/C++ Dev").name == "C/C++ Dev"
+    assert ProfileBody(name="TypeScript / Node.js").name == "TypeScript / Node.js"
+
+
 def test_image_empty_is_default() -> None:
     assert ProfileBody(name="P").image == ""
     assert ProfileBody(name="P", image="  ").image == ""

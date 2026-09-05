@@ -116,3 +116,36 @@ class TestIntegrationMeta:
             RecipeMeta.model_validate(
                 {"id": "outil", "preconditions": [{"path_exists": "/dev/kvm"}]}
             )
+
+
+class TestAccesEnEcriture:
+    """`/dev/kvm` peut EXISTER sans etre accessible : c'est le cas rencontre sur
+    host-test-106-1, ou le script a echoue apres coup avec « pas d'acces ».
+    Le ticket exigeait « present ET accessible en ecriture » — la precondition
+    ne testait que la presence."""
+
+    def test_declare_un_chemin_accessible_en_ecriture(self) -> None:
+        assert _pre(path_writable="/dev/kvm").path_writable == "/dev/kvm"
+
+    def test_teste_lecture_ET_ecriture(self) -> None:
+        cmd = build_check_command([_pre(path_writable="/dev/kvm")])
+
+        assert "-r /dev/kvm" in cmd
+        assert "-w /dev/kvm" in cmd
+
+    def test_message_distinct_de_l_absence(self) -> None:
+        # « absent » et « pas accessible » appellent des gestes differents :
+        # activer le nesting d'un cote, ajouter l'utilisateur au groupe de l'autre.
+        manquantes = parse_check_output("PRECOND_FAIL path_writable /dev/kvm\n")
+
+        assert len(manquantes) == 1
+        assert "accessible" in manquantes[0]
+        assert "absent" not in manquantes[0]
+
+    def test_refuse_un_chemin_relatif(self) -> None:
+        with pytest.raises(ValidationError):
+            _pre(path_writable="dev/kvm")
+
+    def test_compte_comme_une_verification(self) -> None:
+        # Une precondition qui ne porte que `path_writable` est complete.
+        assert _pre(path_writable="/dev/kvm").disk_free_gb is None

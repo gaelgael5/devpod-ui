@@ -133,6 +133,7 @@ def _build_global_config(
                 "enabled": row["logs_enabled"],
                 "loki_push_url": row["logs_loki_push_url"] or None,
                 "loki_query_url": row["logs_loki_query_url"] or None,
+                "metrics_push_url": row["logs_metrics_push_url"] or None,
                 "grafana_url": row["logs_grafana_url"] or None,
                 "module": row["logs_module"],
                 "push_token": row["logs_push_token"] or None,
@@ -207,6 +208,10 @@ def _ht_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "add_script": row["add_script"],
         "destroy_script": row["destroy_script"],
         "test_host_params": dict(row["test_host_params"] or {}),
+        # `or []` couvre les lignes anterieures a la migration 122, dont la
+        # colonne peut etre NULL : une declaration absente est une liste vide.
+        "actions": list(row["actions"] or []),
+        "variables": list(row["variables"] or []),
     }
 
 
@@ -237,6 +242,10 @@ def _host_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "storage_type": row["storage_type"],
         "vault_identifier": row["vault_identifier"],
         "usage": row["usage"],
+        "profile_slug": row["profile_slug"],
+        "capacity_workspaces": row["capacity_workspaces"],
+        "accepts_mutualise": row["accepts_mutualise"],
+        "hypervisor": row["hypervisor"],
     }
 
 
@@ -297,6 +306,7 @@ def _cfg_to_scalars(cfg: GlobalConfig) -> dict[str, Any]:
         "logs_enabled": cfg.logs.enabled,
         "logs_loki_push_url": cfg.logs.loki_push_url or "",
         "logs_loki_query_url": cfg.logs.loki_query_url or "",
+        "logs_metrics_push_url": cfg.logs.metrics_push_url or "",
         "logs_grafana_url": cfg.logs.grafana_url or "",
         "logs_module": cfg.logs.module,
         "logs_push_token": cfg.logs.push_token or "",
@@ -346,6 +356,10 @@ def _ht_to_row(ht: HypervisorType) -> dict[str, Any]:
         "add_script": ht.add_script,
         "destroy_script": ht.destroy_script,
         "test_host_params": dict(ht.test_host_params),
+        # `model_dump` et non un dict fabrique a la main : un champ ajoute plus
+        # tard au modele suit tout seul, au lieu d'etre perdu en silence.
+        "actions": [a.model_dump(mode="json") for a in ht.actions],
+        "variables": [v.model_dump(mode="json") for v in ht.variables],
     }
 
 
@@ -376,4 +390,8 @@ def _host_to_row(h: HostConfig) -> dict[str, Any]:
         "storage_type": h.storage_type,
         "vault_identifier": h.vault_identifier,
         "usage": h.usage,
+        "profile_slug": h.profile_slug,
+        "capacity_workspaces": h.capacity_workspaces,
+        "accepts_mutualise": h.accepts_mutualise,
+        "hypervisor": h.hypervisor,
     }

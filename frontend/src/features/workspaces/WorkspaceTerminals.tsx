@@ -10,7 +10,7 @@ import {
   useWorkspaceSessions,
   useWorkspaceStartRecipes,
 } from './useWorkspaceSessions'
-import { useVisualViewportHeight } from '@/features/terminal/useVisualViewportHeight'
+import { useVisualViewport } from '@/features/terminal/useVisualViewport'
 
 /** Terminal plein écran d'une session de workspace — sans chrome (ni en-tête ni
  panneau latéral) : la gestion des sessions (création, liste, ouverture) vit
@@ -20,7 +20,7 @@ export default function WorkspaceTerminals() {
   const { wsName } = useParams<{ wsName: string }>()
   const [searchParams] = useSearchParams()
   const { t } = useTranslation()
-  const hauteurVisible = useVisualViewportHeight()
+  const vue = useVisualViewport()
   const { data: sessions = [], isFetched } = useWorkspaceSessions(wsName)
   const { data: startRecipes = [] } = useWorkspaceStartRecipes(wsName)
   const urlSession = searchParams.get('session')
@@ -61,8 +61,13 @@ export default function WorkspaceTerminals() {
       // Meme raison que la page terminal plein ecran : le clavier mobile se pose
       // PAR-DESSUS la page sans la redimensionner, donc `h-screen` laissait tout
       // le bas — prompt compris — sous le clavier. Les logs le montraient bien :
-      // la frappe partait (`readyState: 1`), elle etait juste invisible.
-      style={{ height: hauteurVisible ?? '100vh' }}
+      // la frappe partait (`readyState: 1`), elle etait juste invisible. Et pour
+      // reveler la saisie, Safari DEPLACE en plus la fenetre visible (`haut`) :
+      // on translate le conteneur d'autant, sinon tout parait decale.
+      style={{
+        height: vue?.hauteur ?? '100vh',
+        transform: vue ? `translateY(${vue.haut}px)` : undefined,
+      }}
       data-testid="workspace-terminals"
     >
       {/* Deux appareils sur la meme session : tmux cale la fenetre sur le client

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Copy, MessageSquare } from 'lucide-react'
+import { useUserStore } from '@/store/user'
+import OrphanDeploymentsDialog from '@/features/admin/OrphanDeploymentsDialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -163,6 +165,8 @@ export default function DeploymentsPanel() {
   const [deleteTarget, setDeleteTarget] = useState<ComposeDeployment | null>(null)
   const [logsTarget, setLogsTarget] = useState<string | null>(null)
   const [msgTarget, setMsgTarget] = useState<string | null>(null)
+  const [orphansOpen, setOrphansOpen] = useState(false)
+  const isAdmin = useUserStore((st) => st.isAdmin())
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground mt-4">{t('common.loading')}</p>
@@ -176,6 +180,16 @@ export default function DeploymentsPanel() {
 
   return (
     <div className="flex flex-col gap-3 mt-4">
+      {/* C'est ici que les lignes fantomes se voient : une machine supprimee
+          laissait ses deploiements dans la liste, presentes comme « running ». */}
+      {isAdmin && (
+        <div className="flex justify-end">
+          <Button size="sm" variant="outline" onClick={() => setOrphansOpen(true)}>
+            {t('admin.orphans.btn')}
+          </Button>
+        </div>
+      )}
+      <OrphanDeploymentsDialog open={orphansOpen} onClose={() => setOrphansOpen(false)} />
       {deployments.map((dep) => (
         <DeploymentRow
           key={dep.uid}

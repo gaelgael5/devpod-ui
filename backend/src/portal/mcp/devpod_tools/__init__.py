@@ -966,8 +966,11 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
     async def work() -> Any:
         import asyncio
 
+        from ...billing.allocation import QuotaDepasse
         from ...config.models import WorkspaceSpec
         from ...db.engine import _get_engine
+        from ...db.user_config import save_user_db
+        from ...db.workspace_quota import verifier_quota_creation, verrouiller_creation
         from ...devpod.provision import ProvisionParams, provision_workspace
 
         # 1. Sauvegarde du spec dans la config user (le rend visible dans workspace_list).
@@ -987,7 +990,17 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
                 profile=profile_ref,
             )
             cfg.workspaces.append(ws_spec)
-            await save_user(owner_login, cfg)
+            # Même enforcement que la route REST : quota du forfait vérifié et
+            # écrit dans la MÊME transaction, sous verrou par machine cible.
+            # Un chemin de création qui ne compte pas rendrait le quota
+            # contournable par MCP.
+            async with _get_engine().begin() as quota_conn:
+                await verrouiller_creation(node, quota_conn)
+                try:
+                    await verifier_quota_creation(owner_login, node, quota_conn)
+                except QuotaDepasse as exc:
+                    raise DevpodToolError(str(exc)) from exc
+                await save_user_db(owner_login, cfg, quota_conn)
 
         # 2. Provisionnement (lance devpod up en tâche de fond).
         async with _get_engine().begin() as bg_conn:

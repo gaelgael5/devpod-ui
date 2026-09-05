@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   DRAG_SLOP_PX,
   ENTER_COPY,
+  pixelsDeMolette,
   EXIT_COPY,
   LINE_DOWN,
   LINE_PX,
@@ -271,5 +272,221 @@ describe('createHistoryScroller — sortie du copy-mode', () => {
     tick(10)
 
     expect(send.mock.calls.map((c) => c[0])).toContain(ENTER_COPY)
+  })
+})
+
+describe('pixelsDeMolette', () => {
+  const LIGNES_PAR_PAGE = 24
+
+  it('laisse un delta deja en pixels tel quel', () => {
+    expect(pixelsDeMolette({ deltaY: -100, deltaMode: 0 }, LIGNES_PAR_PAGE)).toBe(-100)
+  })
+
+  it('convertit un delta en lignes, sans quoi la molette semble morte', () => {
+    // Firefox rend `3` pour un cran. Lu comme des pixels, il faudrait sept
+    // crans pour franchir les vingt pixels d'une ligne.
+    expect(pixelsDeMolette({ deltaY: -3, deltaMode: 1 }, LIGNES_PAR_PAGE)).toBe(-3 * LINE_PX)
+  })
+
+  it('convertit un delta en pages', () => {
+    expect(pixelsDeMolette({ deltaY: 1, deltaMode: 2 }, LIGNES_PAR_PAGE)).toBe(
+      LINE_PX * LIGNES_PAR_PAGE,
+    )
+  })
+
+  it('franchit une ligne des le premier cran en mode lignes', () => {
+    const { s, send, tick } = scroller()
+
+    s.wheel(pixelsDeMolette({ deltaY: -3, deltaMode: 1 }, LIGNES_PAR_PAGE))
+    tick(10)
+
+    expect(send.mock.calls.map((c) => c[0])).toContain(ENTER_COPY)
+  })
+})
+
+describe('application qui capte la souris (TUI plein ecran, ex. Claude Code)', () => {
+  /**
+   * Dans une session Claude, l'historique tmux est VIDE ([0/0]) : la TUI
+   * occupe l'ecran alterne du pane et redessine sur place, rien n'entre
+   * jamais dans le scrollback. Le copy-mode n'a donc rien a defiler — le
+   * geste doit parler A L'APPLICATION, en evenements molette, comme le fait
+   * une molette de bureau quand la TUI suit la souris.
+   */
+  function scrollerSouris() {
+    const send = vi.fn()
+    const frames: (() => void)[] = []
+    const s = createHistoryScroller({
+      isAlternate: () => true,
+      send,
+      schedule: (cb) => frames.push(cb),
+      capteSouris: () => true,
+      sequenceMolette: (up) => (up ? 'MOLETTE_HAUT' : 'MOLETTE_BAS'),
+    })
+    const tick = (n = 1) => {
+      for (let i = 0; i < n; i++) {
+        const f = frames.shift()
+        if (!f) break
+        f()
+      }
+    }
+    return { s, send, tick }
+  }
+
+  it('emet des evenements molette, jamais le copy-mode', () => {
+    const { s, send, tick } = scrollerSouris()
+    s.wheel(-LINE_PX * 2)
+    tick(10)
+
+    expect(send).toHaveBeenCalledWith('MOLETTE_HAUT')
+    expect(send).not.toHaveBeenCalledWith(ENTER_COPY)
+  })
+
+  it('descend aussi en molette', () => {
+    const { s, send, tick } = scrollerSouris()
+    s.wheel(LINE_PX)
+    tick(5)
+
+    expect(send).toHaveBeenCalledExactlyOnceWith('MOLETTE_BAS')
+  })
+
+  it('une emission par frame, comme les touches', () => {
+    const { s, send, tick } = scrollerSouris()
+    s.wheel(-LINE_PX * 3)
+    tick(1)
+
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  it('exitCopyMode reste muet : rien a quitter, et `q` taperait dans la TUI', () => {
+    const { s, send, tick } = scrollerSouris()
+    s.wheel(-LINE_PX * 2)
+    tick(10)
+    send.mockClear()
+
+    expect(s.exitCopyMode()).toBe(false)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('sans capture souris, le copy-mode reste le chemin', () => {
+    // Le cas VM/logs : le pane a un vrai historique tmux, le copy-mode marche.
+    const { s, send, tick } = scroller()
+    s.wheel(-LINE_PX)
+    tick()
+
+    expect(send).toHaveBeenCalledExactlyOnceWith(ENTER_COPY)
+  })
+})
+
+describe('elan au lacher du doigt', () => {
+  /**
+   * Un grand geste rapide doit continuer sur sa lancee (deceleration
+   * progressive) ; un glissement lent reste ligne a ligne, sans inertie.
+   */
+  function scrollerElan() {
+    const send = vi.fn()
+    const frames: (() => void)[] = []
+    let t = 0
+    const s = createHistoryScroller({
+      isAlternate: () => true,
+      send,
+      schedule: (cb) => frames.push(cb),
+      now: () => t,
+      capteSouris: () => true,
+      sequenceMolette: (up) => (up ? 'HAUT' : 'BAS'),
+    })
+    const avance = (ms: number) => { t += ms }
+    const tick = (n = 1) => {
+      for (let i = 0; i < n; i++) {
+        const f = frames.shift()
+        if (!f) break
+        f()
+      }
+    }
+    return { s, send, tick, avance, frames }
+  }
+
+  function grandGeste(s: ReturnType<typeof scrollerElan>['s'], avance: (ms: number) => void) {
+    // Doigt qui descend VITE : ~3 px/ms, bien au-dela du seuil d'elan.
+    s.touchStart(100)
+    avance(16)
+    s.touchMove(150)  // franchit le seuil de glissement
+    avance(16)
+    s.touchMove(200)
+    s.touchEnd()
+  }
+
+  it('continue de defiler apres le lacher', () => {
+    const { s, send, tick, avance } = scrollerElan()
+    grandGeste(s, avance)
+    send.mockClear()
+
+    tick(30)
+
+    expect(send.mock.calls.length).toBeGreaterThan(0)
+  })
+
+  it('decelere jusqu’a l’arret : la file de frames se vide', () => {
+    const { s, tick, avance, frames } = scrollerElan()
+    grandGeste(s, avance)
+
+    tick(500)
+
+    expect(frames).toHaveLength(0)
+  })
+
+  it('pas d’elan sur un glissement lent', () => {
+    const { s, send, tick, avance } = scrollerElan()
+    s.touchStart(100)
+    avance(100)
+    s.touchMove(115)  // franchit le seuil, ~0.15 px/ms
+    avance(100)
+    s.touchMove(130)
+    s.touchEnd()
+    send.mockClear()
+
+    tick(50)
+
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('poser le doigt arrete l’elan', () => {
+    const { s, send, tick, avance } = scrollerElan()
+    grandGeste(s, avance)
+    tick(2)
+    s.touchStart(100)  // le doigt rattrape l'ecran
+    send.mockClear()
+
+    tick(50)
+
+    expect(send).not.toHaveBeenCalled()
+  })
+})
+
+describe('actif() — le re-rendu force doit se taire pendant le geste', () => {
+  /**
+   * Pendant un defilement pilote par l'utilisateur, chaque image change
+   * beaucoup de lignes : la detection de defilement declencherait des
+   * refresh-client plein ecran en rafale — ecran blanc, clignotement (mesure
+   * sur iPhone le 05/09). L'appelant interroge `actif()` pour suspendre le
+   * nettoyage tant que le geste ou l'elan court.
+   */
+  it('vrai pendant un glissement, faux au repos', () => {
+    const { s } = scroller()
+    expect(s.actif()).toBe(false)
+
+    s.touchStart(100)
+    s.touchMove(100 + DRAG_SLOP_PX + 1)
+
+    expect(s.actif()).toBe(true)
+  })
+
+  it('faux apres la fin du geste une fois tout ecoule', () => {
+    const { s, tick } = scroller()
+    s.touchStart(100)
+    s.touchMove(100 + DRAG_SLOP_PX + 1)
+    s.touchEnd()
+    tick(100)
+
+    expect(s.actif()).toBe(false)
   })
 })

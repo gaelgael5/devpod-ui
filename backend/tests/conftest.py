@@ -83,6 +83,57 @@ async def db_conn(db_engine: AsyncEngine) -> AsyncConnection:
 
 
 @pytest.fixture
+async def db_engine_pool(postgres_url: str) -> AsyncEngine:
+    """Moteur de test à plusieurs connexions, câblé comme moteur global.
+
+    `db_engine` est volontairement limité à UNE connexion : c'est un détecteur
+    de fuite, un code qui oublie de rendre la sienne bloque tout de suite au
+    lieu de dériver en production. Ce garde-fou tombe en revanche à faux dès que
+    le code sous test ouvre sa PROPRE connexion pendant que le test en tient
+    une — `AsyncProfileRepository` fait exactement cela — et le test échoue sur
+    un `QueuePool limit of size 1 reached` qui ne dit rien du comportement
+    teste.
+
+    Ce moteur-ci laisse la place a ces appels imbriques. Il ne remplace pas
+    `db_engine` : le detecteur de fuite garde sa valeur partout ailleurs.
+    """
+    import portal.db.engine as _engine_module
+    from portal.db.tables import metadata
+
+    engine = create_async_engine(postgres_url, pool_size=5, max_overflow=0)
+    _engine_module._engine = engine
+
+    async with engine.begin() as conn:
+        await conn.run_sync(metadata.create_all)
+
+    yield engine
+
+    async with engine.begin() as conn:
+        await conn.run_sync(metadata.drop_all)
+
+    await engine.dispose()
+    _engine_module._engine = None
+
+
+@pytest.fixture
+async def db_conn_pool(db_engine_pool: AsyncEngine) -> AsyncConnection:
+    """Connexion de test sur le moteur multi-connexions, en AUTOCOMMIT.
+
+    Pas de SAVEPOINT ici, contrairement a `db_conn`, et ce n'est pas un oubli :
+    le code sous test ouvre sa PROPRE connexion. Ce qu'un test ecrit dans une
+    transaction non validee — un utilisateur pour satisfaire une cle etrangere,
+    par exemple — resterait invisible depuis cette autre connexion, et
+    l'insertion suivante echouerait sur une violation de FK.
+
+    L'isolation entre tests ne vient donc pas du rollback mais du `drop_all` de
+    `db_engine_pool` : plus lent, mais c'est le prix a payer pour tester du code
+    qui gere lui-meme ses connexions.
+    """
+    async with db_engine_pool.connect() as conn:
+        yield await conn.execution_options(isolation_level="AUTOCOMMIT")
+
+
+@pytest.fixture
 async def db_engine_concurrent(db_engine: AsyncEngine, postgres_url: str) -> AsyncEngine:
     """Moteur secondaire (pool de 2) pour les tests de concurrence (bug 010).
 
@@ -95,6 +146,25 @@ async def db_engine_concurrent(db_engine: AsyncEngine, postgres_url: str) -> Asy
     engine = create_async_engine(postgres_url, pool_size=2, max_overflow=0)
     yield engine
     await engine.dispose()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cles_jetables() -> None:
+    """Pose des clés de session et de vault jetables pour toute la suite.
+
+    `AppSettings` lit un `.env` gitignoré, généré au déploiement par
+    `deploy-portal.sh`. Un clone neuf n'en a aucun : `dev_mode` reste à `False`
+    et `create_app()` lève une `RuntimeError` — 21 tests tombaient pour cette
+    seule raison, indiscernables d'une vraie régression.
+
+    Un test porte son propre environnement ; il ne dépend pas d'un fichier
+    absent du dépôt. `setdefault` : un environnement déjà configuré (CI, poste
+    avec `.env`) reste maître.
+    """
+    os.environ.setdefault("SESSION_SECRET_KEY", f"test-{uuid.uuid4().hex}")
+    # 32 octets en hexadécimal, comme `openssl rand -hex 32` que réclame le message
+    # d'erreur du portail.
+    os.environ.setdefault("PORTAL_VAULT_KEK", uuid.uuid4().hex + uuid.uuid4().hex)
 
 
 @pytest.fixture

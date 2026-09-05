@@ -46,7 +46,7 @@ async def test_list_includes_public_from_other_user(db_conn: AsyncConnection) ->
         private_key_local=_PRIV, private_key_vault_ref=None,
         storage_type="local", vault_identifier=None, conn=db_conn,
     )
-    await set_public("shared", True, db_conn)
+    await set_public("bob", "shared", True, db_conn)
     rows = await list_certificates("alice", db_conn)
     assert any(r["slug"] == "shared" for r in rows)
 
@@ -70,7 +70,7 @@ async def test_get_private_key_public_cert_denied(db_conn: AsyncConnection) -> N
         private_key_local=_PRIV, private_key_vault_ref=None,
         storage_type="local", vault_identifier=None, conn=db_conn,
     )
-    await set_public("shared", True, db_conn)
+    await set_public("bob", "shared", True, db_conn)
     # alice ne peut pas récupérer la clé privée locale d'un cert public qui ne lui appartient pas
     blob = await get_private_key_local("alice", "shared", db_conn)
     assert blob is None

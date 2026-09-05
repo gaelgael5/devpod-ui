@@ -159,6 +159,26 @@ describe('TerminalKeybar', () => {
     expect(writeText).not.toHaveBeenCalled()
     expect(toast.info).toHaveBeenCalled()
   })
+
+  it('explique Maj quand la sélection est vide parce que le TUI capte la souris', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn()
+    stubClipboard({ readText: vi.fn(), writeText })
+    renderWithProviders(
+      <TerminalKeybar
+        onSend={vi.fn()}
+        onPaste={vi.fn()}
+        getSelection={() => ''}
+        souriCapturee={() => true}
+      />
+    )
+
+    // Constater le vide n'apprend rien : sous suivi souris, aucun glissé ne
+    // remplira jamais la sélection tant que Maj n'est pas tenue.
+    await user.click(screen.getByRole('button', { name: /copier|copy/i }))
+    expect(writeText).not.toHaveBeenCalled()
+    expect(vi.mocked(toast.info).mock.calls[0][0]).toMatch(/maj|shift/i)
+  })
 })
 
 describe('TerminalKeybar — bouton clavier', () => {

@@ -20,6 +20,18 @@ export interface HostConfig {
   // Destination : workspaces, tests, portail (machine du portail), ou
   // ressources (service partagé permanent, sans workspace propriétaire — spec 33).
   usage?: 'workspaces' | 'tests' | 'portail' | 'ressources' | 'autres'
+  // Profil avec lequel la machine a été montée. Lecture seule : posé au
+  // provisionnement, jamais saisi ici.
+  profile_slug?: string
+  // Combien de workspaces la machine tient sans planter. `null` = non
+  // renseigné, ce qui n'est ni zéro ni l'infini.
+  capacity_workspaces?: number | null
+  // La machine peut-elle accueillir les workspaces d'offres mutualisées ?
+  accepts_mutualise?: boolean
+  // Hyperviseur qui a monté la machine. Provenance, pas contrainte : posée au
+  // provisionnement, jamais saisie ici. Vide = inconnue (machine enrôlée à la
+  // main, ou antérieure à la colonne) — ni une erreur, ni un défaut.
+  hypervisor?: string
 }
 
 export interface HostCreatePayload {
@@ -34,6 +46,9 @@ export interface HostCreatePayload {
   docker_cert_slug?: string
   ssh_cert_slug?: string
   usage?: 'workspaces' | 'tests' | 'portail' | 'ressources' | 'autres'
+  // Champ ABSENT = le serveur préserve la valeur ; `null` = « non renseigné ».
+  capacity_workspaces?: number | null
+  accepts_mutualise?: boolean
 }
 
 export function useHosts() {

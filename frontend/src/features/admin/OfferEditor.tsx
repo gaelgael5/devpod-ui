@@ -1,0 +1,213 @@
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { ArrowLeft } from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useProviders, type PaymentProvider } from './useBillingCatalog'
+import { offreClonee, offreVide, useOffers, useSaveOffer, type Offer } from './useBillingOffers'
+import { LANGUE_PIVOT } from './offerDraft'
+import OfferGeneralTab from './OfferGeneralTab'
+import OfferDescriptionTab from './OfferDescriptionTab'
+import OfferDurationTab from './OfferDurationTab'
+import OfferHostProfilesTab from './OfferHostProfilesTab'
+import OfferPricingTab from './OfferPricingTab'
+import OfferVariablesTab from './OfferVariablesTab'
+
+const RETOUR = '/admin/billing-offers'
+
+/**
+ * Edition d'une offre, en ecran plein.
+ *
+ * Deux onglets : ce que l'offre EST (nom, textes clients, droits) et comment
+ * elle se VEND (canal, prix, devises). Une offre se saisit en plusieurs
+ * minutes, avec un editeur markdown et autant de blocs que de langues : une
+ * fenetre modale imposait un ascenseur dans un ascenseur, et masquait la liste
+ * derriere elle.
+ *
+ * L'etat vit ici et non dans les onglets : changer d'onglet ne perd rien, et
+ * l'enregistrement part d'un seul brouillon. Les actions restent hors des
+ * onglets, pour qu'on puisse enregistrer sans revenir au premier.
+ */
+function OfferForm({ offre, canaux }: { offre: Offer; canaux: PaymentProvider[] }) {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const existant = Boolean(offre.slug)
+  const [brouillon, setBrouillon] = useState<Offer>(offre)
+  const [slugManuel, setSlugManuel] = useState(existant)
+  const [manquantes, setManquantes] = useState<string[]>([])
+  const [onglet, setOnglet] = useState('general')
+  const enregistrer = useSaveOffer()
+
+  function soumettre(e: React.FormEvent) {
+    e.preventDefault()
+    // Onglet inactif = contenu demonte : le navigateur ne valide plus ses
+    // champs requis. Sans ce controle, une offre sans titre partirait se faire
+    // refuser par le serveur et rien ne designerait le champ fautif. On RAMENE
+    // sur l'onglet concerne, en nommant ce qui manque.
+    if (!brouillon.label.trim() || !brouillon.slug.trim()) {
+      setOnglet('general')
+      toast.error(t('admin.offers.champsManquantsGeneral'))
+      return
+    }
+    if (!(brouillon.titles[LANGUE_PIVOT] ?? '').trim()) {
+      setOnglet('description')
+      toast.error(t('admin.offers.champsManquantsDescription'))
+      return
+    }
+    // La duree n'est exigee qu'a la publication — un brouillon sans terme reste
+    // enregistrable. Le serveur applique la meme regle ; on la double ici pour
+    // designer l'onglet plutot que de rendre un 422 sans cible.
+    if (brouillon.published && brouillon.duration_days === null) {
+      setOnglet('duree')
+      toast.error(t('admin.offers.champsManquantsDuree'))
+      return
+    }
+    // Meme regle pour les profils de host : exiges a la PUBLICATION, pas a la
+    // saisie. Sans profil, rien ne dirait quelle machine ouvrir a la
+    // souscription — et l'echec tomberait apres le paiement.
+    if (brouillon.published && brouillon.host_profiles.length === 0) {
+      setOnglet('profils')
+      toast.error(t('admin.offers.champsManquantsProfils'))
+      return
+    }
+    const prices = brouillon.prices.filter((p) => p.currency !== '')
+    toast.promise(enregistrer.mutateAsync({ ...brouillon, prices }), {
+      loading: '…',
+      success: (res) => {
+        setManquantes(res.devises_manquantes)
+        // Devises manquantes : pas un refus — l'offre reste vendable ailleurs —
+        // mais l'absence doit se voir a la saisie, pas dans une page vide.
+        if (res.devises_manquantes.length === 0) navigate(RETOUR)
+        return t('admin.offers.saved', { slug: brouillon.slug })
+      },
+      error: (err: Error) => err.message,
+    })
+  }
+
+  return (
+    <form onSubmit={soumettre} className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="h-8 w-8 shrink-0"
+          aria-label={t('common.back')}
+          onClick={() => navigate(RETOUR)}
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className="min-w-0">
+          <h1 className="truncate text-xl font-semibold">
+            {existant ? brouillon.label || brouillon.slug : t('admin.offers.new')}
+          </h1>
+          <p className="text-sm text-muted-foreground">{t('admin.offers.help')}</p>
+        </div>
+      </div>
+
+      <Tabs value={onglet} onValueChange={setOnglet}>
+        <TabsList>
+          <TabsTrigger value="general">{t('admin.offers.tabGeneral')}</TabsTrigger>
+          <TabsTrigger value="description">{t('admin.offers.tabDescription')}</TabsTrigger>
+          <TabsTrigger value="duree">{t('admin.offers.tabDuration')}</TabsTrigger>
+          <TabsTrigger value="profils">{t('admin.offers.tabHostProfiles')}</TabsTrigger>
+          <TabsTrigger value="variables">{t('admin.offers.tabVariables')}</TabsTrigger>
+          <TabsTrigger value="tarif">{t('admin.offers.tabPricing')}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="general" className="mt-4">
+          <OfferGeneralTab
+            brouillon={brouillon}
+            setBrouillon={setBrouillon}
+            existant={existant}
+            slugManuel={slugManuel}
+            setSlugManuel={setSlugManuel}
+          />
+        </TabsContent>
+
+        <TabsContent value="description" className="mt-4">
+          <OfferDescriptionTab brouillon={brouillon} setBrouillon={setBrouillon} />
+        </TabsContent>
+
+        <TabsContent value="duree" className="mt-4">
+          <OfferDurationTab brouillon={brouillon} setBrouillon={setBrouillon} />
+        </TabsContent>
+
+        <TabsContent value="profils" className="mt-4">
+          <OfferHostProfilesTab brouillon={brouillon} setBrouillon={setBrouillon} />
+        </TabsContent>
+
+        <TabsContent value="variables" className="mt-4">
+          <OfferVariablesTab brouillon={brouillon} setBrouillon={setBrouillon} />
+        </TabsContent>
+
+        <TabsContent value="tarif" className="mt-4">
+          <OfferPricingTab brouillon={brouillon} setBrouillon={setBrouillon} canaux={canaux} />
+        </TabsContent>
+      </Tabs>
+
+      {manquantes.length > 0 && (
+        <p
+          className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs"
+          data-testid="devises-manquantes"
+        >
+          {t('admin.offers.missingCurrencies', { list: manquantes.join(', ') })}
+        </p>
+      )}
+
+      <div className="flex justify-end gap-2 border-t pt-4">
+        <Button type="button" variant="ghost" onClick={() => navigate(RETOUR)}>
+          {t('common.cancel')}
+        </Button>
+        <Button type="submit">{t('common.save')}</Button>
+      </div>
+    </form>
+  )
+}
+
+/**
+ * Charge l'offre a editer, puis monte le formulaire.
+ *
+ * Le formulaire n'est monte qu'une fois l'offre connue : son etat est seme
+ * depuis ses props, jamais recopie par un effet — sans quoi une reponse tardive
+ * ecraserait une saisie en cours.
+ */
+export default function OfferEditor() {
+  const { t } = useTranslation()
+  const { slug } = useParams<{ slug: string }>()
+  const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const { data: offres, isLoading } = useOffers()
+  const { data: canaux = [] } = useProviders()
+
+  // Creation depuis zero. Le clonage porte `?depuis=`, et lui a besoin du
+  // catalogue : il tombe donc dans le chemin de chargement ci-dessous.
+  const source = params.get('depuis')
+  if (!slug && !source) return <OfferForm offre={offreVide()} canaux={canaux} />
+
+  if (isLoading || offres === undefined) {
+    return <p className="p-4 text-sm text-muted-foreground">{t('common.loading')}</p>
+  }
+
+  const cherche = slug ?? source
+  const trouvee = offres.find((o) => o.slug === cherche)
+  // Une offre a cloner qui n'existe plus rend le meme ecran qu'une offre a
+  // editer introuvable : dans les deux cas, le slug demande ne designe rien.
+  const offre = trouvee && source && !slug ? offreClonee(trouvee) : trouvee
+  if (!offre) {
+    return (
+      <div className="mx-auto flex max-w-3xl flex-col items-start gap-3 p-4">
+        <p className="text-sm text-muted-foreground">
+          {t('admin.offers.notFound', { slug: cherche })}
+        </p>
+        <Button type="button" variant="outline" onClick={() => navigate(RETOUR)}>
+          {t('common.back')}
+        </Button>
+      </div>
+    )
+  }
+
+  return <OfferForm offre={offre} canaux={canaux} />
+}

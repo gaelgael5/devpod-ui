@@ -65,3 +65,15 @@ export async function apiFetchJson<T>(path: string, init?: RequestInit): Promise
   // res.json() returns unknown; caller is responsible for type correctness (no runtime schema validation)
   return res.json() as Promise<T>
 }
+
+/**
+ * Requête HTTP **sans** la redirection globale sur 401.
+ *
+ * `apiFetch` renvoie tout 401 vers `/auth/login` : le bon réflexe derrière une
+ * garde d'authentification, et exactement le mauvais sur une page publique, où
+ * un visiteur anonyme serait éjecté vers la connexion avant d'avoir rien lu.
+ * Ici le 401 est une réponse comme une autre — à l'appelant de la lire.
+ */
+export async function apiFetchOptional(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(`${BASE}${path}`, { credentials: 'include', ...init })
+}

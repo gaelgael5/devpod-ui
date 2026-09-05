@@ -12,7 +12,12 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { flattenArgs, type ScriptArg } from '@/features/admin/useProxmoxScript'
-import { useTestHypervisors, useTestVmScript, useCreateTestVm } from './useTestVm'
+import {
+  useTestHypervisors,
+  useTestVmScript,
+  useCreateTestVm,
+  useUsableProfiles,
+} from './useTestVm'
 
 interface Props {
   wsName: string
@@ -31,6 +36,12 @@ export default function AddTestVmDialog({ wsName, open, onClose }: Props) {
   const [hypervisor, setHypervisor] = useState<string | null>(null)
   const { data: spec, isLoading } = useTestVmScript(open ? hypervisor : null)
   const [vmid, setVmid] = useState('')
+  const { data: profils = [] } = useUsableProfiles(open)
+  const [profil, setProfil] = useState<string>('')
+  // Un profil est type par la spec du script de SON hyperviseur : le backend
+  // refuse un profil prevu pour un autre type. Autant ne proposer que ceux qui
+  // s'appliquent a la machine choisie.
+  const hypervisorType = hypervisors.find((h) => h.name === hypervisor)?.type ?? ''
   const create = useCreateTestVm()
   const logRef = useRef<HTMLPreElement>(null)
 
@@ -64,6 +75,30 @@ export default function AddTestVmDialog({ wsName, open, onClose }: Props) {
 
         {!busy ? (
           <div className="space-y-4 py-2">
+            {/* Le profil decide des parametres de la machine, des recettes
+                installees et des services demarres. On le choisit avant
+                l'hyperviseur, qui ne dit que OU la machine sera creee. */}
+            {profils.length > 0 && (
+              <div className="space-y-1">
+                <Label>{t('workspaces.testVm.profile')}</Label>
+                <Select value={profil} onValueChange={setProfil}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('workspaces.testVm.selectProfile')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {profils
+                      .filter((p) => !hypervisorType || p.hypervisor_type === hypervisorType)
+                      .map((p) => (
+                        <SelectItem key={p.slug} value={p.slug}>{p.label}</SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t('workspaces.testVm.profileHint')}
+                </p>
+              </div>
+            )}
+
             <div className="space-y-1">
               <Label>{t('workspaces.testVm.hypervisor')}</Label>
               {hypLoading ? (
@@ -80,7 +115,17 @@ export default function AddTestVmDialog({ wsName, open, onClose }: Props) {
               ) : (
                 <Select
                   value={hypervisor ?? ''}
-                  onValueChange={(v) => { setHypervisor(v); setVmid('') }}
+                  onValueChange={(v) => {
+                    setHypervisor(v)
+                    setVmid('')
+                    // Le profil selectionne peut ne pas viser ce type : le
+                    // garder enverrait une combinaison que le backend refuse.
+                    const t = hypervisors.find((h) => h.name === v)?.type
+                    setProfil((p) => {
+                      const choisi = profils.find((x) => x.slug === p)
+                      return choisi && choisi.hypervisor_type !== t ? '' : p
+                    })
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder={t('workspaces.testVm.selectHypervisor')} />
@@ -137,7 +182,11 @@ export default function AddTestVmDialog({ wsName, open, onClose }: Props) {
             <>
               <Button variant="ghost" onClick={handleClose}>{t('workspaces.testVm.cancel')}</Button>
               <Button
-                onClick={() => { if (hypervisor && vmid) void create.execute(wsName, hypervisor, vmid) }}
+                onClick={() => {
+                  if (hypervisor && vmid) {
+                    void create.execute(wsName, hypervisor, vmid, profil || undefined)
+                  }
+                }}
                 disabled={!hypervisor || !vmid}
               >
                 {t('workspaces.testVm.create')}

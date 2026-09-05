@@ -1,7 +1,7 @@
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import FullscreenTerminal from './FullscreenTerminal'
-import { useVisualViewportHeight } from './useVisualViewportHeight'
+import { useVisualViewport } from './useVisualViewport'
 
 /**
  * Page plein écran d'un terminal SSH ouvert dans son propre onglet. La cible est
@@ -21,8 +21,10 @@ export default function TerminalPage() {
   const { t } = useTranslation()
   // Le clavier mobile se pose PAR-DESSUS la page sans la redimensionner : en
   // `h-screen`, tout le bas du terminal — prompt, ligne de statut tmux, barre
-  // de touches — passait dessous et devenait invisible.
-  const hauteurVisible = useVisualViewportHeight()
+  // de touches — passait dessous et devenait invisible. Et pour reveler la
+  // saisie, Safari DEPLACE en plus la fenetre visible (`haut`) : sans
+  // translation, tout l'affichage paraissait decale, bande vide a l'ecran.
+  const vue = useVisualViewport()
   const [params] = useSearchParams()
   const ws = params.get('ws') ?? ''
   const title = params.get('title') ?? undefined
@@ -41,8 +43,12 @@ export default function TerminalPage() {
     <div
       className="relative w-screen overflow-hidden bg-[#0d0d1a]"
       // `100vh` en repli : sans l'API, on garde le dimensionnement d'origine
-      // plutot qu'une hauteur inventee.
-      style={{ height: hauteurVisible ?? '100vh' }}
+      // plutot qu'une geometrie inventee. `translate` et non `top` : pas de
+      // reflow, le ResizeObserver du terminal ne repart que sur la hauteur.
+      style={{
+        height: vue?.hauteur ?? '100vh',
+        transform: vue ? `translateY(${vue.haut}px)` : undefined,
+      }}
       data-testid="terminal-page"
     >
       <FullscreenTerminal wsPath={ws} title={title} resize={resize} />

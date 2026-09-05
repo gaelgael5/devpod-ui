@@ -132,6 +132,11 @@ _PORT_FORWARD_SETTLE_S = 3
 # DevPod 0.6.x utilise systématiquement 10800 (--port 10800 dans son agent).
 _OPENVSCODE_SERVER_PORT = 10800
 
+# Contexte devpod utilisé par le portail : un seul, jamais renommé. Il ordonne
+# l'arborescence d'état des DEUX côtés — client (`$DEVPOD_HOME/contexts/<ctx>/`)
+# et agent (`~/.devpod/agent/contexts/<ctx>/` sur le nœud).
+DEVPOD_CONTEXT = "default"
+
 
 def _repo_name_from_url(url: str) -> str:
     """Dérive un nom de répertoire safe depuis une URL git."""
@@ -570,9 +575,15 @@ class DevPodService:
 
         Le state devpod est dans DEVPOD_HOME = safe_user_path(login, 'devpod'),
         pas dans $HOME/.devpod — $HOME est le HOME système du conteneur.
+
+        L'état **client** vit sous `contexts/<contexte>/workspaces/<ws_id>` ; le
+        sous-arbre `agent/` est celui de l'agent, posé sur le NŒUD, jamais dans le
+        DEVPOD_HOME du portail (incident 30/08 : la sonde le cherchait là, donc
+        toujours fausse — un `devpod up` complet était rejoué à chaque
+        redémarrage du portail au lieu du simple relancement du tunnel).
         """
         devpod_home = str(safe_user_path(login, "devpod"))
-        return Path(f"{devpod_home}/agent/contexts/default/workspaces/{ws_id}").exists()
+        return Path(f"{devpod_home}/contexts/{DEVPOD_CONTEXT}/workspaces/{ws_id}").exists()
 
     async def _reconnect_workspace(self, ws_id: str, login: str) -> None:
         """Re-enregistre un workspace dans devpod via devpod up.
@@ -1144,7 +1155,7 @@ class DevPodService:
         # vers workspaces/.devpod-portal-dc/{ws_id}/ — répertoire FRÈRE du workspace
         # DevPod, donc non effacé lors du "Delete old workspace {ws_id}".
         # content/ est toujours à depth 2 sous workspaces/ : workspaces/{ws_id}/content/
-        devpod_workspaces = f"{home}/.devpod/agent/contexts/default/workspaces"
+        devpod_workspaces = f"{home}/.devpod/agent/contexts/{DEVPOD_CONTEXT}/workspaces"
         remote_dir = f"{devpod_workspaces}/.devpod-portal-dc/{ws_id}"
         devcontainer_path = f"../../.devpod-portal-dc/{ws_id}/devcontainer.json"
 

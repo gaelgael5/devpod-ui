@@ -13,6 +13,8 @@ import { useApplyHostRecipe, useHostRecipes, useOperation } from './useHostRecip
 
 interface Props {
   hostName: string | null
+  /** Workspace proprietaire, s'il y en a un : bascule vers les routes `/me`. */
+  wsName?: string
   onClose: () => void
 }
 
@@ -23,10 +25,10 @@ interface Props {
  * une recette de host s'exécute avec les droits d'administration, on ne
  * propose donc jamais d'appliquer ce qui n'a pas été prévu pour elle.
  */
-export default function HostRecipesDialog({ hostName, onClose }: Props) {
+export default function HostRecipesDialog({ hostName, wsName, onClose }: Props) {
   const { t } = useTranslation()
-  const { data, isLoading } = useHostRecipes(hostName)
-  const apply = useApplyHostRecipe(hostName)
+  const { data, isLoading } = useHostRecipes(hostName, wsName)
+  const apply = useApplyHostRecipe(hostName, wsName)
   const [operationId, setOperationId] = useState<string | null>(null)
   const { data: operation } = useOperation(operationId)
 

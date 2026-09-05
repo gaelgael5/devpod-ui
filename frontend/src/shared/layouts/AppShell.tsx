@@ -1,5 +1,6 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, LayoutGrid, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images, SquareTerminal } from 'lucide-react'
+import { useEffect } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { LayoutDashboard, LayoutGrid, Puzzle, LogOut, Sun, Moon, Globe, SquareLibrary, KeyRound, Container, Activity, UserCircle, Images, SquareTerminal, Zap, Server, SlidersHorizontal, Receipt } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   DropdownMenu,
@@ -16,6 +17,10 @@ import { useUserStore } from '@/store/user'
 import { useThemeStore } from '@/store/theme'
 import { cn } from '@/lib/utils'
 import { useLogsConfig } from '@/features/grafana/useLogsConfig'
+import SectionNav from '@/shared/nav/SectionNav'
+import { SECTION_FORFAITS, SECTION_MACHINES } from '@/shared/nav/sections'
+import { useMyCulture } from '@/features/profile/useCulture'
+import { useLanguageChoice } from '@/shared/hooks/useLanguageChoice'
 
 const RAIL_LINK =
   'flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
@@ -24,19 +29,35 @@ const RAIL_ACTIVE = 'bg-muted text-foreground'
 export default function AppShell() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   const user = useUserStore((s) => s.user)
   const clear = useUserStore((s) => s.clear)
   const isAdmin = useUserStore((s) => s.isAdmin())
   const { theme, toggle } = useThemeStore()
   const { data: logsConfig } = useLogsConfig()
+  const { data: culture } = useMyCulture()
+  // Meme regle de changement que sur la landing, un seul endroit ou elle vit.
+  // `persist: true` : ici il y a un compte, et la culture sert au-dela de
+  // l'ecran (gabarits des messages envoyes a l'utilisateur).
+  const langue = useLanguageChoice({ persist: true })
+
+  // La base fait foi : le localStorage d'i18next n'est qu'un cache d'affichage,
+  // perdu au premier nettoyage et propre a ce navigateur. On s'aligne sur ce que
+  // l'utilisateur a choisi dans son profil.
+  useEffect(() => {
+    if (culture && !i18n.language.startsWith(culture)) void i18n.changeLanguage(culture)
+  }, [culture, i18n])
 
   function handleLogout() {
     clear()
     window.location.href = '/auth/logout'
   }
 
+  // Le raccourci persiste le choix : sans cela l'ecran passait en anglais
+  // pendant que le compte restait en francais, et les messages envoyes a
+  // l'utilisateur suivaient une langue qu'il n'avait jamais demandee.
   function toggleLang() {
-    i18n.changeLanguage(i18n.language.startsWith('fr') ? 'en' : 'fr')
+    langue.choose(langue.current === 'fr' ? 'en' : 'fr')
   }
 
   return (
@@ -131,55 +152,104 @@ export default function AppShell() {
                 <Globe size={14} className="mr-2" />
                 {t('nav.language')}: {i18n.language.startsWith('fr') ? 'EN' : 'FR'}
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/abonnement')}>
+                <Receipt size={14} className="mr-2" />
+                {t('abonnement.navLabel')}
+              </DropdownMenuItem>
+              {/* Hors du bloc `isAdmin` a dessein : consulter les forfaits
+                  proposes regarde tout abonne, pas seulement l'exploitant. */}
+              {/* `from` : la page forfaits renvoie son « Retour » vers l'ecran
+                  d'ou l'on vient, pas systematiquement vers les workspaces. */}
+              <DropdownMenuItem onClick={() => navigate('/forfaits', { state: { from: pathname } })}>
+                <Receipt size={14} className="mr-2" />
+                {t('forfaits.navLabel')}
+              </DropdownMenuItem>
 
               {isAdmin && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => navigate('/admin/network')}>
-                    {t('admin.network.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/sessions')}>
-                    {t('admin.sessions.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/logs')}>
-                    {t('admin.logs.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/bastion')}>
-                    {t('admin.bastion.navLabel')}
-                  </DropdownMenuItem>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <SlidersHorizontal size={14} className="mr-2" />
+                      {t('admin.manageMenu')}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onClick={() => navigate('/admin/network')}>
+                        {t('admin.network.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/sessions')}>
+                        {t('admin.sessions.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/logs')}>
+                        {t('admin.logs.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/bastion')}>
+                        {t('admin.bastion.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
+                        {t('admin.oidc.navLabel')}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                   <DropdownMenuItem onClick={() => navigate('/admin/termix-instances')}>
                     {t('admin.termix.navLabel')}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/users')}>
                     {t('admin.users.navLabel')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/workflow')}>
-                    {t('admin.workflow.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/automations')}>
-                    {t('automations.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/automations/contracts')}>
-                    {t('automations.contracts.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/automations/events')}>
-                    {t('automations.events.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/oidc')}>
-                    {t('admin.oidc.navLabel')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/hypervisor-types')}>
-                    {t('admin.hypervisorTypes')}
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/admin/agent-types')}>
                     {t('admin.agentTypes.navLabel')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/hypervisors')}>
-                    {t('admin.hypervisors')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/admin/hosts')}>
-                    {t('admin.hosts')}
-                  </DropdownMenuItem>
+                  {/* Le menu admin s'etait allonge au fil des ecrans : les
+                      quatre pages qui tournent autour des evenements et les
+                      quatre qui decrivent le parc tiennent chacune dans un
+                      sous-menu, comme les galeries. */}
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Zap size={14} className="mr-2" />
+                      {t('admin.eventsMenu')}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onClick={() => navigate('/admin/workflow')}>
+                        {t('admin.workflow.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/automations')}>
+                        {t('automations.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/automations/contracts')}>
+                        {t('automations.contracts.navLabel')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/automations/events')}>
+                        {t('automations.events.navLabel')}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Server size={14} className="mr-2" />
+                      {t('admin.machinesMenu')}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {SECTION_MACHINES.liens.map((l) => (
+                        <DropdownMenuItem key={l.path} onClick={() => navigate(l.path)}>
+                          {t(l.labelKey)}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Receipt size={14} className="mr-2" />
+                      {t('admin.plansMenu')}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {SECTION_FORFAITS.liens.map((l) => (
+                        <DropdownMenuItem key={l.path} onClick={() => navigate(l.path)}>
+                          {t(l.labelKey)}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
                       <Images size={14} className="mr-2" />
@@ -220,6 +290,9 @@ export default function AppShell() {
 
       {/* Main content */}
       <main className="flex-1 overflow-auto p-3 sm:p-6">
+        {/* Montee ici plutot que dans chaque ecran : un ecran ajoute au groupe
+            herite de la barre sans qu'on y pense. Elle ne rend rien ailleurs. */}
+        <SectionNav />
         <Outlet />
       </main>
     </div>

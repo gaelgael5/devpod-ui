@@ -19,7 +19,7 @@ from ..db.engine import _get_engine
 from ..db.test_hosts import list_all_test_hosts, list_test_hosts_for_login
 from ..db.user_config import list_workspace_refs
 from ..db.workspace_status import list_all_status_db, list_by_login_db
-from ..devpod.exec import NO_TMUX_SERVER_RCS, TIMEOUT_RC, warm_tunnel, ws_exec
+from ..devpod.exec import NO_TMUX_SERVER_RCS, TIMEOUT_RC, reset_warm_state, warm_tunnel, ws_exec
 from ..devpod.exec import tmux as _tmux
 from ..devpod.host_exec import run_host_command
 from ..settings import get_settings
@@ -142,7 +142,9 @@ async def _workspace_sessions(
         try:
             out.extend(task.result())
         except Exception:
-            _log.warning("sessions_workspace_probe_failed", ws=tasks[task].get("name"), exc_info=True)
+            _log.warning(
+                "sessions_workspace_probe_failed", ws=tasks[task].get("name"), exc_info=True
+            )
     for task in pending:
         ref = tasks[task]
         # Référencée : sans ça le GC peut annuler la sonde avant qu'elle
@@ -343,15 +345,30 @@ _cache_locks: dict[tuple[str, bool], asyncio.Lock] = {}
 # est pollé toutes les 5 s par CHAQUE onglet terminal ouvert ; l'agrégat /sessions
 # sonde les mêmes workspaces. Une seule sonde par ws_id et par TTL pour tous.
 _WS_PROBE_TTL_S = 4.0
+# Back-off après injoignabilité (incident 30/08) : une sonde qui part en timeout
+# a coûté 30 s de `ssh` + `devpod ssh --stdio` au nœud. La ré-armer 4 s plus tard
+# revenait à taper en boucle sur une machine déjà à genoux — et à retarder
+# d'autant sa sortie de saturation. Le verdict d'injoignabilité tient donc plus
+# longtemps, mais reste sous `_REACHABILITY_WINDOW_S` (l'affichage ne fige pas).
+# Ne s'applique QU'aux échecs de transport : un rc 1/127 (« joignable, aucun
+# serveur tmux ») est un état nominal, il garde le TTL court.
+_WS_PROBE_FAILURE_TTL_S = 20.0
 _ws_probe_cache: dict[str, tuple[float, tuple[int, list[str]]]] = {}
 _ws_probe_locks: dict[str, asyncio.Lock] = {}
+
+
+def _probe_ttl(rc: int) -> float:
+    """TTL de cache d'un verdict de sonde, selon qu'il dit « injoignable » ou non."""
+    reachable = rc == 0 or rc in NO_TMUX_SERVER_RCS
+    return _WS_PROBE_TTL_S if reachable else _WS_PROBE_FAILURE_TTL_S
 
 
 async def probe_workspace_sessions(login: str, ws_id: str) -> tuple[int, list[str]]:
     """(rc brut, sessions) de la sonde tmux d'un workspace, caché TTL court.
 
     Le rc n'est pas interprété ici (voir NO_TMUX_SERVER_RCS / TIMEOUT_RC côté
-    appelants) ; un rc d'échec est aussi caché — pas de marteau sur un host mort.
+    appelants) ; un rc d'échec est aussi caché, et plus longtemps (`_probe_ttl`) —
+    pas de marteau sur un host mort.
     """
     hit = _ws_probe_cache.get(ws_id)
     if hit and hit[0] > time.monotonic():
@@ -368,7 +385,7 @@ async def probe_workspace_sessions(login: str, ws_id: str) -> tuple[int, list[st
         )
         sessions = [s for s in output.strip().splitlines() if s] if rc == 0 else []
         result = (rc, sessions)
-        _ws_probe_cache[ws_id] = (time.monotonic() + _WS_PROBE_TTL_S, result)
+        _ws_probe_cache[ws_id] = (time.monotonic() + _probe_ttl(rc), result)
         return result
 
 
@@ -391,9 +408,11 @@ def reachability_hint(login: str, ws_id: str) -> bool | None:
     now = time.monotonic()
     verdict: bool | None = None
     if hit is not None:
-        probed_at = hit[0] - _WS_PROBE_TTL_S
+        rc = hit[1][0]
+        # L'échéance en cache porte le TTL propre au verdict : c'est lui qu'il
+        # faut retrancher pour dater la sonde, pas le TTL nominal.
+        probed_at = hit[0] - _probe_ttl(rc)
         if now - probed_at <= _REACHABILITY_WINDOW_S:
-            rc = hit[1][0]
             verdict = rc == 0 or rc in NO_TMUX_SERVER_RCS
     if hit is None or hit[0] <= now:
         task = asyncio.create_task(probe_workspace_sessions(login, ws_id))
@@ -403,9 +422,15 @@ def reachability_hint(login: str, ws_id: str) -> bool | None:
 
 
 def invalidate_sessions_cache() -> None:
-    """Vide les caches : la prochaine lecture re-sonde (appelé après toute mutation)."""
+    """Vide les caches : la prochaine lecture re-sonde (appelé après toute mutation).
+
+    Le verdict de pré-chauffage tombe avec : après une action utilisateur (up,
+    ouverture/fermeture de session), le back-off d'un tunnel qui était froid ne
+    doit pas retarder la remontée du terminal.
+    """
     _cache.clear()
     _ws_probe_cache.clear()
+    reset_warm_state()
 
 
 def clear_sessions_cache() -> None:
@@ -414,6 +439,7 @@ def clear_sessions_cache() -> None:
     _cache_locks.clear()
     _ws_probe_cache.clear()
     _ws_probe_locks.clear()
+    reset_warm_state()
 
 
 async def list_sessions(*, login: str, is_admin: bool) -> list[dict[str, Any]]:

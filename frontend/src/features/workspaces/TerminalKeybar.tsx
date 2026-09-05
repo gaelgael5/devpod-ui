@@ -10,6 +10,7 @@ import {
   CornerDownLeft,
   Keyboard,
   OctagonX,
+  RefreshCw,
   Search,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -29,10 +30,19 @@ interface Props {
    * son prompt en cours de route — le texte arrive abîmé.
    */
   onPaste: (text: string) => void
+  /**
+   * L'application distante capte-t-elle la souris (tmux, TUI plein écran) ?
+   * Dans ce cas le glissé ne sélectionne rien et « Copier » ne trouve rien :
+   * le message doit dire quoi faire (Maj) plutôt que constater le vide.
+   * Lu au clic — le mode change en cours de session, sans événement à écouter.
+   */
+  souriCapturee?: () => boolean
   /** Ouvre ou masque le clavier mobile. Absent = bouton masque. */
   onToggleKeyboard?: () => void
   /** Le clavier est-il ouvert ? Pilote l'etat du bouton pour le lecteur d'ecran. */
   keyboardOpen?: boolean
+  /** Force tmux a tout redessiner. Absent = bouton masque. */
+  onRefreshDisplay?: () => void
 }
 
 /** Barre de touches/actions tactiles pour la fenêtre de session SSH.
@@ -59,9 +69,11 @@ export default function TerminalKeybar({
   onSend,
   onPaste,
   getSelection,
+  souriCapturee,
   onSearch,
   onToggleKeyboard,
   keyboardOpen = false,
+  onRefreshDisplay,
 }: Props) {
   const { t } = useTranslation()
 
@@ -83,7 +95,13 @@ export default function TerminalKeybar({
   const copy = async () => {
     const sel = getSelection()
     if (!sel) {
-      toast.info(t('workspaces.terminals.keybar.copyEmpty'))
+      toast.info(
+        t(
+          souriCapturee?.()
+            ? 'workspaces.terminals.keybar.copyEmptyMouseTracking'
+            : 'workspaces.terminals.keybar.copyEmpty',
+        ),
+      )
       return
     }
     try {
@@ -206,6 +224,21 @@ export default function TerminalKeybar({
       >
         <Copy className="h-3.5 w-3.5" />
       </button>
+      {/* Recours quand l'affichage a divergé : deux clients tmux de tailles
+          differentes, un resize manqué, et l'ecran garde des rendus anciens.
+          Sans ce bouton l'utilisateur n'a que la fermeture de session. */}
+      {onRefreshDisplay && (
+        <button
+          type="button"
+          className={btn}
+          onMouseDown={keepFocus}
+          onClick={onRefreshDisplay}
+          title={t('workspaces.terminals.keybar.refreshTitle')}
+          aria-label={t('workspaces.terminals.keybar.refresh')}
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+        </button>
+      )}
       {/* Recherche : le raccourci clavier n'existe pas sur mobile, or c'est
           précisément la cible de cette barre. */}
       {onSearch && (

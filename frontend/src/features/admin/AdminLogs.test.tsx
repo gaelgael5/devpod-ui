@@ -16,6 +16,7 @@ const CONFIG = {
   enabled: true,
   loki_push_url: 'http://192.168.10.196:3100/loki/api/v1/push',
   loki_query_url: 'http://loki:3100',
+  metrics_push_url: 'http://192.168.10.196:8428/api/v1/write',
   grafana_url: 'https://log.dev.yoops.org',
   module: 'devpod',
   has_push_token: false,
@@ -61,6 +62,7 @@ describe('AdminLogs', () => {
       enabled: true,
       loki_push_url: CONFIG.loki_push_url,
       loki_query_url: CONFIG.loki_query_url,
+      metrics_push_url: CONFIG.metrics_push_url,
       grafana_url: CONFIG.grafana_url,
       module: CONFIG.module,
     })
@@ -140,5 +142,35 @@ describe('AdminLogs', () => {
 
     expect(await screen.findByDisplayValue(CONFIG.loki_push_url)).toBeInTheDocument()
     expect(screen.queryByDisplayValue(/192\.168\.10\.164/)).not.toBeInTheDocument()
+  })
+})
+
+describe('AdminLogs — chaîne des métriques', () => {
+  /**
+   * Les deux chaînes sont indépendantes : l'URL des métriques se règle ici,
+   * et le portail l'injecte aux collecteurs comme il injecte celle de Loki.
+   */
+  it('rend l’URL de push des métriques', async () => {
+    server.use(http.get('/admin/logs-config', () => HttpResponse.json(CONFIG)))
+    renderWithProviders(<AdminLogs />)
+
+    expect(await screen.findByDisplayValue(CONFIG.metrics_push_url)).toBeInTheDocument()
+  })
+
+  it('la pré-remplit depuis workspace_host quand elle est vide', async () => {
+    server.use(
+      http.get('/admin/logs-config', () =>
+        HttpResponse.json({ ...CONFIG, metrics_push_url: '' })),
+      http.get('/admin/network', () =>
+        HttpResponse.json({
+          base_domain: '', external_url: '', workspace_host: '192.168.10.164', dev_mode: false,
+          vs_proxy_domain: '', cookie_domain: '',
+        })),
+    )
+    renderWithProviders(<AdminLogs />)
+
+    expect(
+      await screen.findByDisplayValue('http://192.168.10.164:8428/api/v1/write'),
+    ).toBeInTheDocument()
   })
 })

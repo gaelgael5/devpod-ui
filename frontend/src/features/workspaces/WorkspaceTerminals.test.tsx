@@ -127,6 +127,7 @@ describe('WorkspaceTerminals — clavier mobile', () => {
     const cbs = new Set<() => void>()
     const vue = {
       height: hauteur,
+      pageTop: 0,
       addEventListener: (_t: string, cb: () => void) => cbs.add(cb),
       removeEventListener: (_t: string, cb: () => void) => cbs.delete(cb),
     }
@@ -134,6 +135,10 @@ describe('WorkspaceTerminals — clavier mobile', () => {
     return {
       retrecir(nouvelle: number) {
         vue.height = nouvelle
+        cbs.forEach((cb) => cb())
+      },
+      panner(haut: number) {
+        vue.pageTop = haut
         cbs.forEach((cb) => cb())
       },
     }
@@ -161,6 +166,24 @@ describe('WorkspaceTerminals — clavier mobile', () => {
     act(() => vue.retrecir(401))
 
     expect(screen.getByTestId('workspace-terminals')).toHaveStyle({ height: '401px' })
+  })
+
+  it('suit la zone visible quand Safari panne le viewport (clavier iOS)', async () => {
+    // iOS deplace la fenetre visible pour reveler la saisie : sans
+    // compensation, le conteneur reste ancre en haut du document et tout
+    // l'affichage parait decale (bande vide). On le translate d'autant.
+    const vue = poserVisualViewport(800)
+    renderPage()
+    await screen.findByTestId('workspace-terminals')
+
+    act(() => {
+      vue.retrecir(401)
+      vue.panner(44)
+    })
+
+    const page = screen.getByTestId('workspace-terminals')
+    expect(page).toHaveStyle({ height: '401px' })
+    expect(page).toHaveStyle({ transform: 'translateY(44px)' })
   })
 
   it('garde 100vh sans l’API', async () => {

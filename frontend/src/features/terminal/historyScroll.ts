@@ -3,8 +3,14 @@
  *
  * Pourquoi ce module existe : sous tmux, xterm n'a AUCUN historique a faire
  * defiler. tmux occupe l'ecran alterne, le scrollback du terminal reste vide, et
- * xterm ne traduit pas la molette en touches sur ce tampon (aucune notion
- * d'`alternateScroll` dans sa source). Molette et glissement ne font donc rien.
+ * le glissement du doigt ne produit rien.
+ *
+ * La molette, elle, produit PIRE que rien. Sur un tampon sans scrollback, xterm
+ * la traduit en touches de curseur (`ESC [ A` / `ESC [ B`) qu'il ecrit dans la
+ * session — le shell et Claude Code y lisent un parcours de l'historique des
+ * COMMANDES. C'est le comportement que `attachCustomWheelEventHandler` coupe
+ * dans FullscreenTerminal ; sans cela, ce module defilerait pendant que
+ * l'application rappelle ses commandes precedentes.
  *
  * L'historique vit dans le copy-mode de tmux. On traduit le geste en touches
  * plutot que d'activer `mouse on` cote tmux : celui-ci capterait les evenements
@@ -50,6 +56,49 @@ export const LINE_PX = 20
 export const MAX_LIGNES_EN_ATTENTE = 50
 
 /**
+ * Elan (inertie) au lacher du doigt.
+ *
+ * Un grand geste rapide continue sur sa lancee et decelere progressivement ;
+ * un glissement lent reste ligne a ligne, sans inertie. La vitesse est lissee
+ * pendant le geste (moyenne mobile), comparee au seuil au lacher, puis
+ * amortie a chaque frame jusqu'au plancher.
+ */
+/** Vitesse minimale au lacher pour declencher l'elan (px/ms). */
+export const ELAN_SEUIL_PX_MS = 0.3
+/** Amortissement par frame : ~5 % de vitesse perdue toutes les 16 ms. */
+export const ELAN_FROTTEMENT = 0.95
+/** Sous ce plancher (px/ms), l'elan s'arrete. */
+export const ELAN_MIN_PX_MS = 0.05
+/** Duree nominale d'une frame, pour convertir la vitesse en pixels. */
+export const FRAME_MS = 16
+
+/**
+ * `deltaY` d'un evenement molette, converti en PIXELS.
+ *
+ * `deltaY` n'a pas d'unite fixe : `deltaMode` dit laquelle. Firefox, et Chrome
+ * sur certaines configurations, rendent des LIGNES (`deltaMode` 1) — un cran
+ * vaut alors `3`, pas `100`. Lu comme des pixels, un cran n'apportait que trois
+ * pixels la ou il en faut vingt pour une ligne : il fallait SEPT crans pour que
+ * l'ecran bouge d'un cran. Le geste semblait sans effet, alors qu'il etait
+ * seulement divise par trente.
+ *
+ * Le glissement du doigt, lui, est en pixels par nature. D'ou un defilement
+ * tactile correct et une molette inerte sur la meme session — ce qui masquait
+ * la cause.
+ *
+ * `lignesParPage` sert au mode PAGE (`deltaMode` 2, molettes a cran large) :
+ * c'est la hauteur de l'ecran, en lignes.
+ */
+export function pixelsDeMolette(
+  e: { deltaY: number; deltaMode: number },
+  lignesParPage: number,
+): number {
+  if (e.deltaMode === 1) return e.deltaY * LINE_PX
+  if (e.deltaMode === 2) return e.deltaY * LINE_PX * lignesParPage
+  return e.deltaY
+}
+
+/**
  * Deplacement a franchir avant qu'un contact devienne un glissement.
  *
  * Sans ce seuil, `touchMove` consommait le geste des le premier pixel et
@@ -75,6 +124,14 @@ export interface HistoryScroller {
    * ensuite (cf. la note sur les lectures PTY groupees).
    */
   exitCopyMode(): boolean
+  /**
+   * Un defilement pilote par l'utilisateur est-il en cours (glissement, elan,
+   * ou reliquat a ecouler) ? Pendant ce temps, chaque image change beaucoup de
+   * lignes : la detection de defilement de l'appelant declencherait des
+   * refresh-client plein ecran en rafale — ecran blanc, clignotement (mesure
+   * sur iPhone le 05/09). L'appelant suspend ce nettoyage tant que c'est vrai.
+   */
+  actif(): boolean
 }
 
 interface Options {
@@ -84,6 +141,23 @@ interface Options {
   send: (data: string) => void
   /** Planifie l'emission suivante. Injectable pour les tests. */
   schedule?: (cb: () => void) => void
+  /**
+   * L'application suit-elle la souris (mouse tracking actif) ?
+   *
+   * Une TUI plein ecran comme Claude Code vit dans l'ecran alterne du pane et
+   * redessine sur place : l'historique tmux reste VIDE (copy-mode a `[0/0]`,
+   * mesure le 05/09) — le copy-mode n'a rien a defiler. Cette TUI suit la
+   * souris et defile son propre transcript sur les evenements molette : le
+   * geste doit alors parler a L'APPLICATION, pas a tmux.
+   */
+  capteSouris?: () => boolean
+  /**
+   * Sequence molette a envoyer a l'application (SGR, position comprise).
+   * Fournie par l'appelant, qui connait la geometrie du terminal.
+   */
+  sequenceMolette?: (up: boolean) => string
+  /** Horloge en millisecondes (vitesse du geste). Injectable pour les tests. */
+  now?: () => number
 }
 
 const parDefaut = (cb: () => void) => {
@@ -95,6 +169,9 @@ export function createHistoryScroller({
   isAlternate,
   send,
   schedule = parDefaut,
+  capteSouris = () => false,
+  sequenceMolette = () => '',
+  now = () => performance.now(),
 }: Options): HistoryScroller {
   let acc = 0
   let lastY: number | null = null
@@ -107,6 +184,12 @@ export function createHistoryScroller({
   let entre = false
   /** tmux est-il en copy-mode ? Persiste APRES le geste, contrairement a `entre`. */
   let enCopyMode = false
+  /** Vitesse lissee du geste, en px/ms, du signe de `feed`. */
+  let vitesse = 0
+  /** Horodatage du dernier point du geste, pour la vitesse. */
+  let derniereT: number | null = null
+  /** L'elan court-il encore apres le lacher ? */
+  let elanEnCours = false
 
   const plafond = LINE_PX * MAX_LIGNES_EN_ATTENTE
 
@@ -118,10 +201,19 @@ export function createHistoryScroller({
       return
     }
 
+    // Application qui suit la souris : le defilement lui appartient. On emet
+    // des evenements molette (une TUI comme Claude Code y defile son
+    // transcript) et on ne touche jamais au copy-mode — son historique est
+    // vide, et le `q` de sortie taperait dans l'application.
+    const molette = capteSouris()
+
     if (acc <= -LINE_PX) {
-      // L'entree en copy-mode occupe sa propre emission : concatenee a une
-      // touche de defilement, elle la ferait perdre (meme lecture PTY).
-      if (!entre) {
+      if (molette) {
+        acc += LINE_PX
+        send(sequenceMolette(true))
+      } else if (!entre) {
+        // L'entree en copy-mode occupe sa propre emission : concatenee a une
+        // touche de defilement, elle la ferait perdre (meme lecture PTY).
         entre = true
         enCopyMode = true
         send(ENTER_COPY)
@@ -133,7 +225,7 @@ export function createHistoryScroller({
       // Pas d'entree en copy-mode vers le bas : sinon un glissement vers le bas
       // depuis la vue directe y ferait entrer, figeant l'affichage sans raison.
       acc -= LINE_PX
-      send(LINE_DOWN)
+      send(molette ? sequenceMolette(false) : LINE_DOWN)
     } else {
       entre = false
       return
@@ -162,6 +254,17 @@ export function createHistoryScroller({
     return true
   }
 
+  /** Une frame d'elan : amortit, ecoule, se replanifie tant que ca court. */
+  function pasElan() {
+    if (!elanEnCours) return
+    vitesse *= ELAN_FROTTEMENT
+    if (Math.abs(vitesse) < ELAN_MIN_PX_MS || !feed(vitesse * FRAME_MS)) {
+      elanEnCours = false
+      return
+    }
+    schedule(pasElan)
+  }
+
   return {
     wheel: (deltaY) => feed(deltaY),
 
@@ -169,6 +272,12 @@ export function createHistoryScroller({
       lastY = clientY
       departY = clientY
       glisse = false
+      // Le doigt rattrape l'ecran : poser stoppe l'inertie, comme partout —
+      // reliquat compris, sinon l'ecran continuerait de glisser sous le doigt.
+      elanEnCours = false
+      vitesse = 0
+      acc = 0
+      derniereT = now()
     },
 
     touchMove(clientY) {
@@ -183,10 +292,20 @@ export function createHistoryScroller({
         // consomme hors tampon alterne, ou xterm a son propre scrollback.
         glisse = true
         lastY = clientY
+        derniereT = now()
         return feed(0)
       }
       // Le doigt descend => on remonte dans l'historique : signe inverse.
-      const consomme = feed(-(clientY - lastY))
+      const delta = -(clientY - lastY)
+      // Vitesse lissee (px/ms) : l'instantanee d'un doigt est trop nerveuse
+      // pour decider seule de l'elan. Sous 1 ms d'ecart, la division exploserait
+      // en vitesses absurdes (points quasi simultanes) : on saute la mesure.
+      const t = now()
+      if (derniereT !== null && t - derniereT >= 1) {
+        vitesse = 0.7 * (delta / (t - derniereT)) + 0.3 * vitesse
+        derniereT = t
+      }
+      const consomme = feed(delta)
       lastY = clientY
       return consomme
     },
@@ -194,7 +313,16 @@ export function createHistoryScroller({
     touchEnd() {
       lastY = null
       departY = null
+      // Grand geste rapide : on continue sur la lancee. Lent : rien.
+      if (glisse && Math.abs(vitesse) >= ELAN_SEUIL_PX_MS) {
+        elanEnCours = true
+        schedule(pasElan)
+      }
       glisse = false
+    },
+
+    actif() {
+      return glisse || elanEnCours || acc <= -LINE_PX || acc >= LINE_PX
     },
 
     exitCopyMode() {

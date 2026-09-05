@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import re
 import shlex
@@ -109,6 +110,16 @@ async def workspace_ssh_terminal(
     )
     _tmux = 'TERM=xterm-256color tmux ${TMUX_SOCK:+-S "$TMUX_SOCK"}'
 
+    # Sortie du copy-mode AVANT toute attache. Le défilement tactile mobile
+    # navigue l'historique via copy-mode ; une déconnexion à ce moment-là LAISSE
+    # la session en copy-mode, et tout client qui se rattache voit l'instantané
+    # figé de cet instant, la saisie absorbée sans écho — une session qui
+    # paraît morte alors qu'elle vit (mesuré en production le 05/09 :
+    # `pane_in_mode=1`, seul `send-keys -X cancel` la rendait). L'échec est
+    # silencieux quand il n'y a ni session ni mode : c'est le cas nominal.
+    def _sortie_copy_mode(session_cible: str) -> str:
+        return f"{_tmux} send-keys -t {shlex.quote(session_cible)} -X cancel 2>/dev/null"
+
     tmux_cmd: str
     # Nom de session tmux attaché (pour le registre des terminaux vivants) : None
     # quand aucun tmux n'est en jeu (rebond test, shell brut).
@@ -138,7 +149,10 @@ async def workspace_ssh_terminal(
             await websocket.close(code=4022, reason="Invalid session name")
             return
         # new-session -A : attache si la session existe, crée sinon.
-        tmux_cmd = f"{_sock}; {_tmux} new-session -A -s {shlex.quote(session)}"
+        tmux_cmd = (
+            f"{_sock}; {_sortie_copy_mode(session)}; "
+            f"{_tmux} new-session -A -s {shlex.quote(session)}"
+        )
         session_name = session
     elif start is not None:
         from ..recipes.models import _RECIPE_ID_RE
@@ -166,11 +180,12 @@ async def workspace_ssh_terminal(
         run_script = f'bash -lc "$(echo {b64} | base64 -d)"'
         has_tmux = "command -v tmux >/dev/null 2>&1"
         tmux_cmd = (
-            f"{has_tmux} && {_sock}; {_tmux} new -A -s {start} -- {run_script} || {run_script}"
+            f"{has_tmux} && {_sock}; {_sortie_copy_mode(start)}; "
+            f"{_tmux} new -A -s {start} -- {run_script} || {run_script}"
         )
         session_name = start
     else:
-        tmux_cmd = f"{_sock}; {_tmux} new -A -s main || bash -l"
+        tmux_cmd = f"{_sock}; {_sortie_copy_mode('main')}; {_tmux} new -A -s main || bash -l"
         session_name = "main"
 
     # ── Build commande SSH ────────────────────────────────────────────────────
@@ -232,6 +247,46 @@ async def workspace_ssh_terminal(
     live_term = registry.new_terminal(
         family=term_family, target=term_target, owner=effective_owner, session=session_name
     )
+    # Repaint plein écran (bouton « Rafraîchir ») : `tmux refresh-client`
+    # retransmet TOUT l'écran au client, seul moyen d'effacer les résidus déjà
+    # peints côté navigateur (le redessin différentiel de tmux ne les renvoie
+    # jamais). On rejoue la MÊME commande ssh que le terminal, sans `-t -t` et
+    # avec la commande de rafraîchissement : même transport, même user, même
+    # socket, donc accès garanti. Seulement pour un vrai terminal tmux de
+    # session (pas shell brut, pas rebond VM dont le socket diffère).
+    from collections.abc import Awaitable, Callable
+
+    from ..devpod.exec import tmux_refresh_command
+
+    # Toute session tmux LOCALE au conteneur (session explicite, recette `start`,
+    # ou `main` par défaut), qui partage la détection de socket `_sock`. Exclu :
+    # le rebond VM (`ssh_test`), dont le socket tmux est celui, différent, de
+    # l'utilisateur SSH distant ; et le shell brut (session_name None).
+    on_redraw: Callable[[], Awaitable[None]] | None = None
+    if session_name is not None and ssh_test is None:
+        refresh_remote = tmux_refresh_command(_sock, _tmux, session_name)
+        # Sans `-t` : le rafraîchissement est une commande courte non
+        # interactive, pas besoin d'allouer un PTY (le terminal, lui, en a un).
+        redraw_cmd = [arg for arg in cmd if arg != "-t"]
+        redraw_cmd[-1] = refresh_remote
+
+        async def _do_redraw() -> None:
+            proc = await asyncio.create_subprocess_exec(
+                *redraw_cmd,
+                env=devpod_env,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, err = await proc.communicate()
+            if proc.returncode != 0:
+                _log.warning(
+                    "ws_workspace_ssh_redraw_failed",
+                    rc=proc.returncode,
+                    err=err.decode(errors="replace")[:200],
+                )
+
+        on_redraw = _do_redraw
+
     returncode = await run_pty_bridge(
         websocket,
         cmd,
@@ -239,6 +294,7 @@ async def workspace_ssh_terminal(
         live_term,
         log_label="ws_workspace_ssh",
         initial_size=requested_size(cols, rows),
+        on_redraw=on_redraw,
     )
 
     _log.info("ws_workspace_ssh_closed", ws_id=ws_id, returncode=returncode)

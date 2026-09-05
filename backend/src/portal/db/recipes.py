@@ -1,4 +1,5 @@
 """Persistance recipes (métadonnées uniquement — scripts restent sur filesystem)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -26,6 +27,12 @@ def _row_to_meta(row: dict[str, Any]) -> RecipeMeta:
             "options": row["options"] or {},
             "requires_secrets": row["requires_secrets"] or [],
             "installs_after": list(row["installs_after"] or []),
+            # Sans ces trois-la, une recette declarant `scope: host` revenait de
+            # la base en `workspace` : invisible sur toute machine, alors meme
+            # qu'elle figurait au catalogue.
+            "scope": row.get("host_scope") or "workspace",
+            "host_usages": list(row.get("host_usages") or []),
+            "preconditions": row.get("preconditions") or [],
         }
     )
 
@@ -35,14 +42,19 @@ async def upsert_recipe_db(
     scope: str,
     login: str | None,
     conn: AsyncConnection,
+    source_url: str | None = None,
 ) -> None:
+    """Écrit ou met à jour une recette.
+
+    `source_url` : URL du manifeste distant dont elle provient. `None` laisse la
+    valeur en place — une mise à jour partielle ne doit pas couper une recette
+    de son origine.
+    """
     lk = _login_key(login)
     existing = (
         await conn.execute(
             select(recipes.c.id).where(
-                (recipes.c.id == meta.id)
-                & (recipes.c.scope == scope)
-                & (recipes.c.login_key == lk)
+                (recipes.c.id == meta.id) & (recipes.c.scope == scope) & (recipes.c.login_key == lk)
             )
         )
     ).scalar_one_or_none()
@@ -59,7 +71,12 @@ async def upsert_recipe_db(
         "options": {k: v.model_dump() for k, v in meta.options.items()},
         "requires_secrets": [s.model_dump() for s in meta.requires_secrets],
         "installs_after": list(meta.installs_after),
+        "host_scope": meta.scope,
+        "host_usages": list(meta.host_usages),
+        "preconditions": [p.model_dump() for p in meta.preconditions],
     }
+    if source_url is not None:
+        vals["source_url"] = source_url
     if existing is None:
         await conn.execute(insert(recipes).values(**vals))
     else:
@@ -68,12 +85,38 @@ async def upsert_recipe_db(
         await conn.execute(
             update(recipes)
             .where(
-                (recipes.c.id == meta.id)
-                & (recipes.c.scope == scope)
-                & (recipes.c.login_key == lk)
+                (recipes.c.id == meta.id) & (recipes.c.scope == scope) & (recipes.c.login_key == lk)
             )
             .values(**update_vals)
         )
+
+
+async def list_recipes_with_source(conn: AsyncConnection) -> list[dict[str, Any]]:
+    """Recettes partagées qui gardent trace de leur origine distante.
+
+    Filtre sur `source_url` non vide : une recette créée à la main ou livrée
+    avec le produit n'a rien à comparer, l'interroger serait du bruit réseau.
+    """
+    rows = (
+        await conn.execute(
+            select(recipes.c.id, recipes.c.version, recipes.c.source_url).where(
+                (recipes.c.scope == "shared") & (recipes.c.source_url != "")
+            )
+        )
+    ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+async def get_recipe_source_url(recipe_id: str, conn: AsyncConnection) -> str | None:
+    """URL d'origine d'une recette partagée. `None` = recette inconnue ;
+    chaîne vide = recette connue mais sans origine distante."""
+    return (
+        await conn.execute(
+            select(recipes.c.source_url).where(
+                (recipes.c.id == recipe_id) & (recipes.c.scope == "shared")
+            )
+        )
+    ).scalar_one_or_none()
 
 
 async def list_recipes_db(
@@ -99,24 +142,28 @@ async def get_recipe_db(
 ) -> RecipeMeta | None:
     lk = _login_key(login)
     row = (
-        await conn.execute(
-            select(recipes).where(
-                (recipes.c.id == recipe_id)
-                & (recipes.c.scope == scope)
-                & (recipes.c.login_key == lk)
+        (
+            await conn.execute(
+                select(recipes).where(
+                    (recipes.c.id == recipe_id)
+                    & (recipes.c.scope == scope)
+                    & (recipes.c.login_key == lk)
+                )
             )
         )
-    ).mappings().one_or_none()
+        .mappings()
+        .one_or_none()
+    )
     return _row_to_meta(dict(row)) if row is not None else None
 
 
 async def find_recipe_dependents(key: str, conn: AsyncConnection) -> list[str]:
     """Retourne les recipe_id qui ont `key` dans leur installs_after."""
     rows = (
-        await conn.execute(
-            select(recipes.c.id).where(any_(recipes.c.installs_after) == key)
-        )
-    ).scalars().all()
+        (await conn.execute(select(recipes.c.id).where(any_(recipes.c.installs_after) == key)))
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
@@ -132,9 +179,7 @@ async def delete_recipe_db(
     lk = _login_key(login)
     result = await conn.execute(
         delete(recipes).where(
-            (recipes.c.id == recipe_id)
-            & (recipes.c.scope == scope)
-            & (recipes.c.login_key == lk)
+            (recipes.c.id == recipe_id) & (recipes.c.scope == scope) & (recipes.c.login_key == lk)
         )
     )
     return result.rowcount > 0
@@ -165,6 +210,7 @@ async def load_recipes_from_dir_to_db(
             await upsert_recipe_db(meta, scope, login, conn)
         except Exception as exc:
             import structlog as _sl
+
             _sl.get_logger(__name__).warning(
                 "recipe_sync_skip", path=str(meta_file), error=str(exc)
             )

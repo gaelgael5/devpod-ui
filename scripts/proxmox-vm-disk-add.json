@@ -1,0 +1,23 @@
+{
+  "args": [
+    {
+      "arg": "VMID",
+      "label_fr": "VM à agrandir",
+      "label_en": "VM to grow",
+      "description_fr": "Sélectionner la VM (VMs non-templates uniquement).",
+      "description_en": "Select the VM (non-template VMs only).",
+      "type": "select",
+      "required": true,
+      "options": [],
+      "option_script": "PATH=/usr/sbin:/usr/bin:$PATH; for f in /etc/pve/qemu-server/*.conf; do [ -f \"$f\" ] || continue; grep -q '^template: 1' \"$f\" && continue; vmid=$(basename \"$f\" .conf); name=$(awk '/^name:/{print $2; exit}' \"$f\"); echo \"${vmid}|${vmid} — ${name:-?}\"; done | sort -t'|' -k1 -n"
+    }
+  ],
+  "commands": [
+    "curl -fsSL -o /tmp/proxmox-vm-disk.sh https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/proxmox-vm-disk.sh",
+    "chmod +x /tmp/proxmox-vm-disk.sh",
+    "/tmp/proxmox-vm-disk.sh {VMID} --delta +10G"
+  ],
+  "tags": [
+    "vm_disk_add"
+  ]
+}

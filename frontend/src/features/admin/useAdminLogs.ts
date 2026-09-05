@@ -6,6 +6,8 @@ export interface LogsConfig {
   enabled: boolean
   loki_push_url: string
   loki_query_url: string
+  /** Endpoint remote_write du TSDB des metriques machine. */
+  metrics_push_url: string
   grafana_url: string
   module: string
   has_push_token: boolean
@@ -15,6 +17,8 @@ export interface LogsConfigUpdate {
   enabled: boolean
   loki_push_url: string
   loki_query_url: string
+  /** Endpoint remote_write du TSDB des metriques machine. */
+  metrics_push_url: string
   grafana_url: string
   module: string
   push_token?: string

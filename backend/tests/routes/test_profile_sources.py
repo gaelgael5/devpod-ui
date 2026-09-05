@@ -96,7 +96,7 @@ def test_put_profile_sources_saves(tmp_path: Path) -> None:
     urls = ["https://example.com/profiles/"]
     with (
         TestClient(app) as client,
-        patch("portal.routes.profile_sources._check_ssrf", return_value=None),
+        patch("portal.routes.profile_sources.check_ssrf", return_value=None),
     ):
         resp = client.put(
             "/admin/profile-sources",
@@ -180,7 +180,7 @@ def test_import_profile_from_source(tmp_path: Path) -> None:
     app = _make_admin_app(tmp_path)
     with (
         TestClient(app) as client,
-        patch("portal.routes.profile_sources._check_ssrf", return_value=None),
+        patch("portal.routes.profile_sources.check_ssrf", return_value=None),
         patch("portal.routes.profile_sources.httpx.AsyncClient", return_value=mock_client),
     ):
         resp = client.post(
@@ -228,7 +228,7 @@ def test_import_profile_conflict(tmp_path: Path) -> None:
     app = _make_admin_app(tmp_path)
     with (
         TestClient(app) as client,
-        patch("portal.routes.profile_sources._check_ssrf", return_value=None),
+        patch("portal.routes.profile_sources.check_ssrf", return_value=None),
         patch("portal.routes.profile_sources.httpx.AsyncClient", return_value=mock_client),
     ):
         resp = client.post(

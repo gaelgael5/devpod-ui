@@ -70,6 +70,25 @@ ENV_FILE="${DATA_ROOT}/.env"
 _IS_DEV_COMPOSE=0
 [[ "$COMPOSE_FILE" == *docker-compose.dev.yml ]] && _IS_DEV_COMPOSE=1
 
+# ─── Transport git : HTTP/1.1 imposé (incident du 02/09) ─────────────────────
+# git 2.39 (libcurl 7.88 / nghttp2 1.52, pile Debian bookworm) échoue par
+# INTERMITTENCE contre GitHub en HTTP/2 : `GET /info/refs` répond 200, puis
+# `POST /git-upload-pack` répond 401 avec `www-authenticate: Basic realm`. git
+# réclame alors un identifiant sur un dépôt PUBLIC, et le déploiement s'arrête
+# à l'étape 1/5.
+#
+# Mesuré sur une machine de test : 6 échecs sur 6 en HTTP/2, 10 succès sur 10
+# en HTTP/1.1, même seconde, configuration git entièrement vide. `curl` seul ne
+# reproduit pas — il n'enchaîne pas les deux requêtes sur le même flux.
+#
+# Le symptôme trompe deux fois : il ressemble à un dépôt privé (on cherche des
+# droits qui ne manquent pas), et il VA ET VIENT (on croit à un quota, on
+# relance trois fois, « ça marche »). Il retombera.
+#
+# Posé par `-c`, donc sans rien écrire dans la configuration de la machine.
+# À retirer quand les machines de test auront un git récent.
+GIT_HTTP=( -c http.version=HTTP/1.1 )
+
 # ─── Arguments : branche cible + flags ───────────────────────────────────────
 TARGET_BRANCH=""
 RESETDB=0
@@ -239,14 +258,14 @@ echo ""
 if [[ -d "${APP_DIR}/.git" ]]; then
     if [[ -n "$TARGET_BRANCH" ]]; then
         echo "==> [1/5] Repo présent — switch vers ${TARGET_BRANCH}..."
-        git -C "$APP_DIR" fetch origin
+        git "${GIT_HTTP[@]}" -C "$APP_DIR" fetch origin
         git -C "$APP_DIR" checkout "$TARGET_BRANCH"
     else
         TARGET_BRANCH="$(git -C "$APP_DIR" branch --show-current)"
         echo "==> [1/5] Repo présent — pull (${TARGET_BRANCH})..."
     fi
     BEFORE="$(git -C "$APP_DIR" rev-parse HEAD)"
-    git -C "$APP_DIR" pull --ff-only origin "$TARGET_BRANCH"
+    git "${GIT_HTTP[@]}" -C "$APP_DIR" pull --ff-only origin "$TARGET_BRANCH"
     AFTER="$(git -C "$APP_DIR" rev-parse HEAD)"
     # Ré-exécution si le pull a changé quoi que ce soit : garantit que ce script
     # (et install.sh, compose, Dockerfile) tournent dans leur version courante.
@@ -259,7 +278,7 @@ else
     TARGET_BRANCH="${TARGET_BRANCH:-main}"
     echo "==> [1/5] Premier clone (branche ${TARGET_BRANCH})..."
     mkdir -p "$(dirname "$APP_DIR")"
-    git clone --branch "$TARGET_BRANCH" "$REPO_URL" "$APP_DIR"
+    git "${GIT_HTTP[@]}" clone --branch "$TARGET_BRANCH" "$REPO_URL" "$APP_DIR"
 fi
 
 cd "$APP_DIR"
@@ -508,7 +527,9 @@ if [[ $SMOKE_OK -eq 1 ]]; then
         echo "  Login  : ⚠ ni SSO ni auth locale active — voir Admin → Authentification"
     fi
     unset _LOCAL_PASS
-    echo "  Santé  : http://${IP}:8080/health"
+    # Port PUBLIÉ, pas le port interne : sur une stack dev à ports décalés, le
+    # 8080 en dur envoyait vers un port fermé — l'URL affichée ne répondait pas.
+    echo "  Santé  : http://${IP}:${PORTAL_DEV_PORT:-8080}/health"
     echo "  Env    : ${ENV_FILE}"
     echo ""
     echo "  Logs   : docker compose -f ${COMPOSE_FILE} logs -f"

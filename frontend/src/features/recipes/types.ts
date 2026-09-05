@@ -9,6 +9,19 @@ export interface MemoryVolumeSpec {
   mapping: { target: string }
 }
 
+/** Une option declaree par une recette : ce qu'un profil peut y regler. */
+export interface RecipeOption {
+  type: string
+  default: string
+  description: string
+  /**
+   * Cle de contexte dont l'option herite sa valeur quand rien n'est saisi
+   * (`from:` dans le manifeste, ex. `workspace.git_url`). Declaree par la
+   * recette elle-meme : rien n'est injecte qu'elle n'ait demande.
+   */
+  from_context?: string | null
+}
+
 export interface Recipe {
   id: string
   key: string
@@ -21,4 +34,5 @@ export interface Recipe {
   install_script?: string
   builtin?: boolean
   memory_volume?: MemoryVolumeSpec | null
+  options?: Record<string, RecipeOption>
 }

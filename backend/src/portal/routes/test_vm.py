@@ -24,26 +24,41 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_user
 from ..compose import service as csvc
-from ..config.models import _PROXMOX_NAME_RE, GlobalConfig, HostConfig, Hypervisor
+from ..compose.db import (
+    delete_deployments_for_node,
+    get_deployment_by_name_node,
+    get_template,
+)
+from ..config.models import (
+    _PROXMOX_NAME_RE,
+    GlobalConfig,
+    HostConfig,
+    Hypervisor,
+    MachineProfile,
+)
 from ..config.store import load_global, load_user
 from ..db.engine import _get_engine, get_conn
 from ..db.global_config import save_global_db, set_cached_global
+from ..db.machine_profiles import get_profile
 from ..db.mcp_audit import record as _audit_record
+from ..db.recipes import load_recipes_as_dict
 from ..db.test_hosts import (
     assign_test_host,
     count_owned_test_hosts,
     delete_test_host_link,
-    get_test_host_message_id,
     is_owned_test_host,
     list_shared_targets,
     list_test_host_links,
+    list_test_host_message_ids,
     list_test_hosts_detailed,
     list_test_hosts_with_share,
     next_test_alias,
     remove_test_host,
     set_test_host_message_id,
     upsert_test_host_link,
+    workspace_context_for_host,
 )
+from ..devpod.host_exec import run_host_command
 from ..devpod.ssh_exec import run_ssh_capture
 from ..devpod.test_host_share import ShareError, add_share, node_for_host, remove_share
 from ..devpod.test_vm import (
@@ -69,6 +84,8 @@ from ..messages.renderer import build_host_context
 from ..messages.service import delete_message as msg_delete
 from ..messages.service import render_and_create
 from ..net import build_resolve_fqdn, resolve_ipv4
+from ..profiles.provisioning import apply_profile_recipes, deploy_profile_services
+from ..routes.host_recipes import _read_install_script as _read_recipe_script
 from ..secrets.system import (
     delete_system_secret,
     reveal_system_secret,
@@ -110,8 +127,14 @@ _AUDIT_ROOT_PW_REVEAL = "me.test_host.root_password.reveal"
 
 
 def _usable_type_names(cfg: GlobalConfig) -> set[str]:
-    """Types d'hyperviseur prêts pour les VM de test : add_script + paramétrage."""
-    return {t.name for t in cfg.hypervisor_types if t.add_script and t.test_host_params}
+    """Types d'hyperviseur prêts pour les VM de test.
+
+    Le seul prérequis est un script de création : les paramètres viennent du
+    profil choisi, ou à défaut des valeurs par défaut de la spec. Exiger en plus
+    un `test_host_params` rendait le type invisible tant qu'un admin n'était pas
+    passé par l'écran « Test host config » — écran que les profils remplacent.
+    """
+    return {t.name for t in cfg.hypervisor_types if t.add_script}
 
 
 @router.get("/test-hypervisors")
@@ -287,6 +310,10 @@ class CreateTestVmRequest(BaseModel):
 
     hypervisor: str
     vmid: str
+    # Profil de machine : ses parametres remplacent ceux du type, et ses
+    # recettes sont posees apres la creation. Vide = comportement historique
+    # (parametres figes du type), le temps que les profils soient saisis.
+    profile_slug: str = ""
 
 
 @dataclass
@@ -342,6 +369,7 @@ async def _provision_test_vm(
     commands: list[str],
     display: list[str],
     alias: str,
+    profile: MachineProfile | None = None,
     vmid: str,
 ) -> None:
     """Provisionne la VM et ENREGISTRE la machine. Tâche de fond indépendante de la
@@ -374,8 +402,13 @@ async def _provision_test_vm(
         result: dict[str, Any] | None = parse_last_json(output)
         if result is None:
             _log.warning(
-                "test_vm_create_failed", login=login, ws=ws, node=node.name, vmid=vmid,
-                reason="no_json_result", output_tail=tail,
+                "test_vm_create_failed",
+                login=login,
+                ws=ws,
+                node=node.name,
+                vmid=vmid,
+                reason="no_json_result",
+                output_tail=tail,
             )
             job.write(b"\n==> ERREUR : pas de resultat JSON du script de creation\n")
             job.finish("failed")
@@ -383,8 +416,13 @@ async def _provision_test_vm(
         host = map_result_to_host(result, vmid, node.name)
         if not host.name:
             _log.warning(
-                "test_vm_create_failed", login=login, ws=ws, node=node.name, vmid=vmid,
-                reason="no_hostname", output_tail=tail,
+                "test_vm_create_failed",
+                login=login,
+                ws=ws,
+                node=node.name,
+                vmid=vmid,
+                reason="no_hostname",
+                output_tail=tail,
             )
             job.write(b"\n==> ERREUR : le script n'a pas retourne de nom d'hote\n")
             job.finish("failed")
@@ -393,12 +431,21 @@ async def _provision_test_vm(
         new_cfg = load_global()
         if any(h.name == host.name for h in new_cfg.hosts):
             _log.warning(
-                "test_vm_create_failed", login=login, ws=ws, node=node.name, vmid=vmid,
-                reason="host_name_conflict", host=host.name,
+                "test_vm_create_failed",
+                login=login,
+                ws=ws,
+                node=node.name,
+                vmid=vmid,
+                reason="host_name_conflict",
+                host=host.name,
             )
             job.write(f"\n==> ERREUR : un host nomme {host.name!r} existe deja\n".encode())
             job.finish("failed")
             return
+        if profile is not None:
+            # Sans cette reference, on ne sait pas six mois plus tard avec quel
+            # profil la machine a ete montee ni ce qui devait y etre pose.
+            host.profile_slug = profile.slug
         new_cfg.hosts.append(host)
         async with _get_engine().begin() as conn:
             await save_global_db(new_cfg, conn)
@@ -406,27 +453,38 @@ async def _provision_test_vm(
         set_cached_global(new_cfg)  # après commit réussi seulement (bug 034)
 
         await emit_event(
-            "test_server.created", actor=login, workspace=ws,
+            "test_server.created",
+            actor=login,
+            workspace=ws,
             subject={
-                "host_name": host.name, "alias": alias,
-                "address": host.address, "hypervisor": node.name,
+                "host_name": host.name,
+                "alias": alias,
+                "address": host.address,
+                "hypervisor": node.name,
             },
         )
-        _log.info(
-            "test_vm_create_done", login=login, ws=ws, host=host.name, alias=alias, vmid=vmid
-        )
+        _log.info("test_vm_create_done", login=login, ws=ws, host=host.name, alias=alias, vmid=vmid)
 
         # Message contextuel pour les agents (non-bloquant).
         try:
             user_cfg = await load_user(login)
             ctx = build_host_context(
-                owner_login=login, workspace_name=ws, host_name=host.name,
-                alias=alias, address=host.address, culture=user_cfg.culture,
+                owner_login=login,
+                workspace_name=ws,
+                host_name=host.name,
+                alias=alias,
+                address=host.address,
+                culture=user_cfg.culture,
             )
             async with _get_engine().begin() as conn:
                 msg_id = await render_and_create(
-                    conn, key="test_host_available", culture=user_cfg.culture,
-                    owner_login=login, workspace_name=ws, msg_type="test_host", ctx=ctx,
+                    conn,
+                    key="test_host_available",
+                    culture=user_cfg.culture,
+                    owner_login=login,
+                    workspace_name=ws,
+                    msg_type="test_host",
+                    ctx=ctx,
                 )
                 if msg_id is not None:
                     await set_test_host_message_id(host.name, msg_id, conn)
@@ -439,12 +497,82 @@ async def _provision_test_vm(
         async for msg in _init_vm_ssh(login, ws, host, node, alias):
             job.write(msg)
 
+        # Recettes du profil, APRES l'init SSH : elles s'appliquent par SSH.
+        # Un echec est signale sans detruire la machine — elle est creee, et la
+        # recette se re-applique depuis sa fiche une fois la cause levee.
+        if profile is not None and profile.recipes:
+            async with _get_engine().connect() as conn:
+                catalogue = await load_recipes_as_dict(login, conn)
+                # Le depot a builder appartient au WORKSPACE, pas a la recette.
+                contexte_ws = await workspace_context_for_host(host.name, conn)
+            live = load_global()
+            host_live = next((h for h in live.hosts if h.name == host.name), host)
+
+            async def _run(command: str, *, timeout: float) -> tuple[int, str, str]:
+                return await run_host_command(host_live, command, timeout=timeout)
+
+            async for ligne in apply_profile_recipes(
+                profile,
+                host=host_live,
+                catalogue=catalogue,
+                run=_run,
+                read_script=lambda rid: _read_recipe_script(rid, login),
+                context=contexte_ws,
+            ):
+                job.write(ligne.encode())
+
+        # Services du profil, avant l'auto-start : le profil est un choix
+        # explicite pour CETTE machine, l'auto-start une preference globale.
+        if profile is not None and profile.services:
+            live_services = load_global()
+            host_srv = next((h for h in live_services.hosts if h.name == host.name), host)
+            srv_user_cfg = await load_user(login)
+            async with _get_engine().begin() as conn:
+                modeles: dict[str, object] = {}
+                for service in profile.services:
+                    tpl = await get_template(conn, service.template_id)
+                    if tpl is not None:
+                        modeles[service.template_id] = tpl
+
+                async def _deja(nom: str, _conn: AsyncConnection = conn) -> bool:
+                    return await get_deployment_by_name_node(_conn, nom, host.name) is not None
+
+                async def _deploy(
+                    *,
+                    name: str,
+                    template: Any,
+                    node_id: str,
+                    env_values: dict[str, str],
+                    _conn: AsyncConnection = conn,
+                ) -> object:
+                    return await csvc.deploy(
+                        _conn,
+                        name=name,
+                        template=template,
+                        node_id=node_id,
+                        owner_login=login,
+                        secret_ns=srv_user_cfg.secret_ns,
+                        env_values=env_values,
+                    )
+
+                async for ligne in deploy_profile_services(
+                    profile,
+                    host=host_srv,
+                    templates=modeles,
+                    deploy=_deploy,
+                    already_deployed=_deja,
+                ):
+                    job.write(ligne.encode())
+
         # Auto-start : uniquement si le SSH portail a été activé (host_cert_slug posé).
         if host_cert_ready(load_global().hosts, host.name):
             auto_user_cfg = await load_user(login)
             async with _get_engine().begin() as conn:
                 async for line in csvc.deploy_auto_start_templates(
-                    conn, owner_login=login, secret_ns=auto_user_cfg.secret_ns, node_id=host.name,
+                    conn,
+                    owner_login=login,
+                    secret_ns=auto_user_cfg.secret_ns,
+                    node_id=host.name,
                 ):
                     job.write(line.encode())
         job.finish("ok")
@@ -494,7 +622,28 @@ async def create_test_vm(
     # Défauts déclarés par la spec EN BASE, surchargés par les params stockés du type :
     # un arg ajouté à la spec après coup (ex. SWAP_PERCENT=25) s'applique même si les
     # params n'ont pas été re-saisis (sinon placeholder littéral → script en échec).
-    merged_params = {**spec_arg_defaults(spec), **dict(hyp_type.test_host_params)}
+    # Un profil prime sur les parametres figes du type : c'est lui que
+    # l'utilisateur a choisi. Les defauts declares par la spec restent la base,
+    # pour qu'un arg ajoute apres coup s'applique quand meme.
+    profile: MachineProfile | None = None
+    if body.profile_slug:
+        async with _get_engine().connect() as conn:
+            profile = await get_profile(body.profile_slug, conn)
+        if profile is None:
+            raise HTTPException(status_code=404, detail=f"Profil {body.profile_slug!r} introuvable")
+        if profile.hypervisor_type != node.hypervisor_type:
+            # Les parametres d'un profil sont types par la spec d'un type donne.
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Profil {profile.slug!r} prevu pour {profile.hypervisor_type!r}, "
+                    f"machine sur {node.hypervisor_type!r}"
+                ),
+            )
+        figes = dict(profile.params)
+    else:
+        figes = dict(hyp_type.test_host_params)
+    merged_params = {**spec_arg_defaults(spec), **figes}
     args = build_test_vm_args(merged_params, identifier_arg, body.vmid)
     args["PORTAL_URL"] = cfg.server.external_url
     args["PORTAL_TOKEN"] = settings.portal_api_key
@@ -552,6 +701,7 @@ async def create_test_vm(
             display=display,
             alias=alias,
             vmid=body.vmid,
+            profile=profile,
         )
     )
     _create_tasks.add(task)
@@ -632,15 +782,22 @@ async def delete_test_vm(
     except Exception:
         _log.warning("test_vm_ssh_config_cleanup_failed", host=host_name, exc_info=True)
 
-    # 3-5. Nettoyage portail (secret root, association → libère l'alias, host config).
+    # 3-6. Nettoyage portail (secret root, association → libère l'alias, host config,
+    #      déploiements compose).
     async with _get_engine().begin() as conn:
-        message_id = await get_test_host_message_id(host_name, conn)
+        message_ids = await list_test_host_message_ids(host_name, conn)
         await delete_system_secret(f"host.{host_name}.root-password", conn)
         await remove_test_host(host_name, conn)
+        # Les conteneurs sont partis avec la VM : sans ca leurs lignes lui
+        # survivent et ressortent sur la machine suivante qui porte le meme nom.
+        purges = await delete_deployments_for_node(conn, host_name)
+        if purges:
+            _log.info("test_vm_deployments_purged", host=host_name, count=purges)
         if host_cfg is not None:
             cfg.hosts = [h for h in cfg.hosts if h.name != host_name]
             await save_global_db(cfg, conn)
-        await msg_delete(conn, message_id)
+        for message_id in message_ids:
+            await msg_delete(conn, message_id)
     if host_cfg is not None:
         set_cached_global(cfg)  # après commit réussi seulement (bug 034)
 

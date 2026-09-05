@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from portal.config.models import GlobalConfig
+from portal.config.models import GlobalConfig, HostConfig
 from portal.db.global_config import (
     get_cached_global,
     get_optional_cached_global,
@@ -115,6 +115,23 @@ def full_cfg() -> GlobalConfig:
                     "label": "Proxmox VE",
                     "add_script": "add.sh",
                     "destroy_script": "del.sh",
+                    "actions": [
+                        {
+                            "label": "Increase memory +1G",
+                            "slug": "proxmox-increase-memory-1g",
+                            "script": "https://raw.example.com/mem.json",
+                            "cible": "machine",
+                        },
+                        {
+                            "label": "Inventaire",
+                            "slug": "proxmox-inventaire",
+                            "script": "https://raw.example.com/inv.json",
+                            "cible": "hyperviseur",
+                        },
+                    ],
+                    "variables": [
+                        {"label": "Capacité", "slug": "capacity_workspaces", "type": "int"},
+                    ],
                 }
             ],
             "hypervisors": [
@@ -136,6 +153,10 @@ def full_cfg() -> GlobalConfig:
                     "docker_host": "tcp://192.168.1.20:2376",
                     "address": "192.168.1.20",
                     "host_cert_slug": "hosts/worker01",
+                    "profile_slug": "gros-noeud",
+                    "hypervisor": "pve-1",
+                    "capacity_workspaces": 12,
+                    "accepts_mutualise": True,
                 }
             ],
         }
@@ -285,6 +306,67 @@ async def test_hosts_round_trip(db_conn, full_cfg):
 
 
 @pytest.mark.asyncio
+async def test_host_capacite_et_provenance_round_trip(db_conn, full_cfg):
+    """La capacite d'accueil et le profil d'origine survivent au rechargement.
+
+    Ce sont des donnees d'EXPLOITATION : sans elles, le portail ne sait ni
+    combien de workspaces la machine tient, ni sur quel profil elle a ete
+    montee. Les perdre en base revient a ne jamais les avoir saisies.
+    """
+    await save_global_db(full_cfg, db_conn)
+    result = await load_global_db(db_conn)
+
+    h = result.hosts[0]
+    assert h.profile_slug == "gros-noeud"
+    assert h.capacity_workspaces == 12
+    assert h.accepts_mutualise is True
+    # Provenance : sans elle, compter les machines par hyperviseur retombe sur
+    # un rapprochement de NOMS de noeuds, ambigu des que deux hyperviseurs en
+    # partagent un — et `pve` est le nom d'hote par defaut de Proxmox.
+    assert h.hypervisor == "pve-1"
+
+
+@pytest.mark.asyncio
+async def test_supprimer_un_hyperviseur_n_altere_aucune_machine(db_conn, full_cfg):
+    """DoD de la colonne de provenance : PROVENANCE, PAS CONTRAINTE.
+
+    Aucune clé étrangère vers `hypervisors.name` — supprimer l'hyperviseur ne
+    doit ni effacer des machines ni toucher leur provenance : c'est un fait
+    passé, il ne se révise pas."""
+    await save_global_db(full_cfg, db_conn)
+
+    ampute = full_cfg.model_copy(update={"hypervisors": []})
+    await save_global_db(ampute, db_conn)
+    result = await load_global_db(db_conn)
+
+    assert result.hypervisors == []
+    (h,) = result.hosts
+    assert h.name == full_cfg.hosts[0].name
+    assert h.hypervisor == "pve-1"
+
+
+@pytest.mark.asyncio
+async def test_host_sans_capacite_reste_sans_capacite(db_conn, minimal_cfg):
+    """`None` = non renseigne, et le rechargement ne l'invente pas.
+
+    Un host enrole a la main n'a pas de profil : sa capacite est inconnue tant
+    que l'exploitant ne l'a pas dite. La confondre avec zero interdirait tout
+    workspace ; la confondre avec l'infini ferait planter la machine.
+    """
+    cfg = minimal_cfg.model_copy(update={"hosts": [HostConfig(name="brut", type="ssh")]})
+    await save_global_db(cfg, db_conn)
+    result = await load_global_db(db_conn)
+
+    h = result.hosts[0]
+    assert h.capacity_workspaces is None
+    assert h.accepts_mutualise is False
+    assert h.profile_slug == ""
+    # Enrolee a la main : provenance INCONNUE. Vide, et surtout pas un
+    # hyperviseur par defaut qui ferait mentir tous les comptages.
+    assert h.hypervisor == ""
+
+
+@pytest.mark.asyncio
 async def test_hypervisors_round_trip(db_conn, full_cfg):
     await save_global_db(full_cfg, db_conn)
     result = await load_global_db(db_conn)
@@ -306,6 +388,51 @@ async def test_hypervisor_types_round_trip(db_conn, full_cfg):
     assert ht.name == "proxmox"
     assert ht.label == "Proxmox VE"
     assert ht.add_script == "add.sh"
+
+
+@pytest.mark.asyncio
+async def test_actions_et_variables_survivent_a_un_rechargement_depuis_la_base(db_conn, full_cfg):
+    """Regression : les deux listes n'etaient portees par aucune colonne.
+
+    Le test passe DELIBEREMENT par la base — save puis `warm_global_cache`, qui
+    relit — et non par la reponse de l'enregistrement : c'est precisement parce
+    que le cache memoire repondait juste que la perte est restee invisible
+    jusqu'au redemarrage suivant du portail.
+    """
+    invalidate_cache()
+    await save_global_db(full_cfg, db_conn)
+    await warm_global_cache(db_conn)
+
+    ht = get_cached_global().hypervisor_types[0]
+    assert [a.slug for a in ht.actions] == [
+        "proxmox-increase-memory-1g",
+        "proxmox-inventaire",
+    ]
+    assert ht.actions[0].script == "https://raw.example.com/mem.json"
+    assert [a.cible for a in ht.actions] == ["machine", "hyperviseur"]
+    assert [v.slug for v in ht.variables] == ["capacity_workspaces"]
+    assert ht.variables[0].type == "int"
+
+
+@pytest.mark.asyncio
+async def test_type_anterieur_a_la_migration_relit_des_listes_vides(db_conn, minimal_cfg):
+    """Ligne ecrite sans les colonnes de la migration 122 : listes vides, pas d'erreur.
+
+    C'est l'etat de tous les types deja enregistres le jour du deploiement.
+    """
+    from sqlalchemy import insert
+
+    from portal.db.tables import hypervisor_types
+
+    await save_global_db(minimal_cfg, db_conn)
+    await db_conn.execute(
+        insert(hypervisor_types).values(name="legacy", label="Ancien", add_script="add.sh")
+    )
+
+    ht = (await load_global_db(db_conn)).hypervisor_types[0]
+    assert ht.name == "legacy"
+    assert ht.actions == []
+    assert ht.variables == []
 
 
 # ─── Idempotence (double save = update, pas d'erreur de contrainte) ────────────
@@ -407,6 +534,11 @@ def test_set_cached_global_populates_cache(minimal_cfg):
 
 
 @pytest.mark.asyncio
-async def test_load_raises_if_no_row(db_conn):
-    with pytest.raises(FileNotFoundError, match="global_config"):
-        await load_global_db(db_conn)
+async def test_load_rend_none_si_pas_de_ligne(db_conn):
+    """Base vide : `load_global_db` rend None, il ne leve pas.
+
+    Le refus a demenage d'un cran : c'est `get_cached_global()` qui refuse une
+    base sans configuration, la ou `get_optional_cached_global()` accepte None.
+    Ce test decrivait l'ancien contrat.
+    """
+    assert await load_global_db(db_conn) is None

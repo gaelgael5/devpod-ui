@@ -47,6 +47,19 @@ export function flattenArgs(args: ScriptArgOrSub[]): ScriptArg[] {
   return args.flatMap(a => a.type === 'sub' ? a.args : [a])
 }
 
+/**
+ * Valeurs par défaut d'une spec : `default` déclaré, sinon la première option
+ * d'une liste fermée — un select laissé vide n'affiche rien et se sauvegarde
+ * sans valeur, alors que la spec en propose une.
+ */
+export function valeursParDefaut(args: ScriptArgOrSub[]): Record<string, string> {
+  const base: Record<string, string> = {}
+  for (const a of flattenArgs(args)) {
+    base[a.arg] = a.default !== undefined ? String(a.default) : (a.options?.[0]?.value ?? '')
+  }
+  return base
+}
+
 export interface ScriptSpec {
   args: ScriptArgOrSub[]
   commands: string[]
@@ -95,7 +108,14 @@ export function useExecuteScript() {
     setState({ logs: '', running: false, done: false, error: null })
   }, [])
 
-  const execute = useCallback(async (nodeName: string, args: Record<string, string>) => {
+  /**
+   * Streame la sortie d'une route d'execution quelconque.
+   *
+   * Le hook ne connait plus l'URL : creation de VM, action sur l'hyperviseur ou
+   * action sur une machine passent par le meme flux texte, seule la route
+   * change.
+   */
+  const executeAt = useCallback(async (url: string, args: Record<string, string>) => {
     // Un execute() concurrent (retry sans fermer le dialog) ne doit pas laisser
     // l'ancien stream ouvert (bug 020).
     controllerRef.current?.abort()
@@ -103,7 +123,7 @@ export function useExecuteScript() {
     controllerRef.current = controller
     setState({ logs: '', running: true, done: false, error: null })
     try {
-      const res = await apiFetch(`/admin/hypervisors/${nodeName}/execute`, {
+      const res = await apiFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ args }),
@@ -135,6 +155,12 @@ export function useExecuteScript() {
     }
   }, [])
 
+  const execute = useCallback(
+    (nodeName: string, args: Record<string, string>) =>
+      executeAt(`/admin/hypervisors/${nodeName}/execute`, args),
+    [executeAt],
+  )
+
   useEffect(() => {
     return () => {
       controllerRef.current?.abort()
@@ -142,7 +168,7 @@ export function useExecuteScript() {
     }
   }, [])
 
-  return { ...state, execute, reset }
+  return { ...state, execute, executeAt, reset }
 }
 
 /** Extrait la dernière ligne non-vide des logs et tente un parse JSON. */

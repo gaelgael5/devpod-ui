@@ -11,6 +11,21 @@ export const TerminalPage = lazy(() => import('@/features/terminal/TerminalPage'
 export const RecipeCatalog = lazy(() => import('@/features/recipes/RecipeCatalog'))
 export const AdminHosts = lazy(() => import('@/features/admin/AdminHosts'))
 export const AdminRecipes = lazy(() => import('@/features/admin/AdminRecipes'))
+export const AdminMachineProfiles = lazy(
+  () => import('@/features/admin/AdminMachineProfiles'),
+)
+export const AdminHostProfiles = lazy(
+  () => import('@/features/admin/AdminHostProfiles'),
+)
+export const AdminBillingCatalog = lazy(
+  () => import('@/features/admin/AdminBillingCatalog'),
+)
+export const AdminBillingOffers = lazy(
+  () => import('@/features/admin/AdminBillingOffers'),
+)
+export const AdminOfferEditor = lazy(
+  () => import('@/features/admin/OfferEditor'),
+)
 export const AdminProxmox = lazy(() => import('@/features/admin/AdminProxmox'))
 export const AdminHypervisorTypes = lazy(() => import('@/features/admin/AdminHypervisorTypes'))
 export const AdminAgentTypes = lazy(() => import('@/features/admin/AdminAgentTypes'))
@@ -30,6 +45,9 @@ export const SessionsView = lazy(() => import('@/features/sessions/SessionsView'
 export const ProfileList = lazy(() => import('@/features/profiles/ProfileList'))
 export const ProfileEditor = lazy(() => import('@/features/profiles/ProfileEditor'))
 export const AdminProfileEditor = lazy(() => import('@/features/admin/AdminProfileEditor'))
+export const AdminHypervisorTypeEditor = lazy(
+  () => import('@/features/admin/AdminHypervisorTypeEditor'),
+)
 export const AdminProfileSources = lazy(() => import('@/features/admin/AdminProfileSources'))
 export const CredentialsPage = lazy(() => import('@/features/git-credentials/CredentialsPage'))
 export const VaultSetup = lazy(() => import('@/features/vault/VaultSetup'))
@@ -42,6 +60,11 @@ export const ApplicationsPage = lazy(() => import('@/features/applications/Appli
 export const AdminCompose = lazy(() => import('@/features/compose/AdminCompose'))
 export const AdminJinjaTemplates = lazy(() => import('@/features/admin/AdminJinjaTemplates'))
 export const ProfilePage = lazy(() => import('@/features/profile/ProfilePage'))
+export const LandingPage = lazy(() => import('@/features/landing/LandingPage'))
+export const ForfaitsPage = lazy(() => import('@/features/forfaits/ForfaitsPage'))
+export const SouscriptionPage = lazy(() => import('@/features/forfaits/SouscriptionPage'))
+export const AbonnementPage = lazy(() => import('@/features/forfaits/AbonnementPage'))
+export const AdminAbonnements = lazy(() => import('@/features/admin/AdminAbonnements'))
 
 export function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>

@@ -43,8 +43,15 @@ export function useDeleteTestHost(wsName: string) {
       )
       if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`)
     },
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ['me', 'workspaces', wsName, 'test-hosts'] }),
+    // Une machine supprimee disparait de PARTOUT. Elle est listee a trois
+    // endroits — la carte du workspace, l'administration des hosts, la page des
+    // sessions — et n'invalider que la premiere la laissait visible ailleurs,
+    // avec des actions qui echouaient sur une machine inexistante.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['me', 'workspaces', wsName, 'test-hosts'] })
+      qc.invalidateQueries({ queryKey: ['admin', 'hosts'] })
+      qc.invalidateQueries({ queryKey: ['sessions'] })
+    },
   })
 }
 
@@ -150,13 +157,22 @@ export function useCreateTestVm() {
     setState({ logs: '', running: false, done: false, error: null })
   }, [])
 
-  const execute = useCallback(async (wsName: string, hypervisor: string, vmid: string) => {
+  const execute = useCallback(async (
+    wsName: string,
+    hypervisor: string,
+    vmid: string,
+    profileSlug?: string,
+  ) => {
     setState({ logs: '', running: true, done: false, error: null })
     try {
       const { job_id } = await apiFetchJson<CreateJobStart>(`/me/workspaces/${wsName}/test-vm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hypervisor, vmid }),
+        // Sans profil, le backend retombe sur les parametres figes du type :
+        // la creation continue de fonctionner le temps qu'un profil existe.
+        body: JSON.stringify(
+          profileSlug ? { hypervisor, vmid, profile_slug: profileSlug } : { hypervisor, vmid },
+        ),
       })
       let failures = 0
       for (;;) {
@@ -315,5 +331,27 @@ export function useDeleteTestHostLink(wsName: string, hostName: string) {
       qc.invalidateQueries({
         queryKey: ['me', 'workspaces', wsName, 'test-hosts', hostName, 'links'],
       }),
+  })
+}
+
+export interface UsableProfile {
+  slug: string
+  label: string
+  hypervisor_type: string
+  recipes: string[]
+}
+
+/**
+ * Profils que l'utilisateur peut choisir pour sa machine.
+ *
+ * Restreinte aux profils de test cote serveur : creer une machine de
+ * ressources n'existe pas encore, les proposer ici promettrait une action
+ * indisponible.
+ */
+export function useUsableProfiles(enabled: boolean) {
+  return useQuery({
+    queryKey: ['me', 'machine-profiles'],
+    queryFn: () => apiFetchJson<UsableProfile[]>('/me/machine-profiles'),
+    enabled,
   })
 }

@@ -32,7 +32,7 @@ export default function VaultUnlock() {
     setError(null)
     try {
       await mutateAsync(pin)
-      navigate('/')
+      navigate('/workspaces')
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : ''
       setError(

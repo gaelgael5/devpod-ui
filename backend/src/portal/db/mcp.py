@@ -391,8 +391,15 @@ async def expire_workspace_apikeys(
     nouvelle clé est déjà dans les fichiers pour la prochaine. Ne RALLONGE jamais
     une échéance déjà plus proche. `find_apikey_by_hash` filtre sur `expires_at`.
     Retourne le nombre de clefs mises en grâce.
+
+    L'échéance se calcule avec `now()` du SERVEUR, jamais avec l'horloge du
+    portail : c'est le serveur qui juge l'expiration (`expires_at > now()`), et
+    mélanger deux horloges fait dériver la fenêtre de grâce d'autant que leur
+    écart — une clef posée « expirée maintenant » restait valide tant que la
+    base retardait sur le portail (bug du test flaky grace=0, où la borne
+    d'égalité n'était atteinte que si les deux horloges coïncidaient).
     """
-    deadline = datetime.now(UTC) + timedelta(seconds=grace_seconds)
+    deadline = func.now() + timedelta(seconds=grace_seconds)
     q = (
         update(mcp_apikey)
         .where(

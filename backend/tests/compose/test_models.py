@@ -27,6 +27,7 @@ def test_validate_slug() -> None:
 
 def test_deployment_defaults() -> None:
     d = models.ComposeDeployment(
+        uid="00000000-0000-0000-0000-000000000001",
         id="dep1", template_id="t", template_version="1", node_id="n",
         owner_login="alice",
     )

@@ -41,6 +41,28 @@ APPLY_TIMEOUT_S = 3600.0
 Runner = Callable[..., Awaitable[tuple[int, str, str]]]
 
 
+# Sequences ANSI : le script colore ses messages, et remontes tels quels les
+# codes s'affichaient en clair dans l'interface.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# Au-dela, une bulle d'erreur ne sert plus personne — `sdkmanager` est bavard.
+_SORTIE_MAX = 2000
+
+
+def nettoyer_sortie(brut: str) -> str:
+    """Rend une sortie de script lisible par un humain dans l'interface.
+
+    Retire les couleurs, condense les lignes vides d'un preflight verbeux, et
+    borne la longueur en gardant la FIN : c'est la derniere ligne qui porte la
+    cause.
+    """
+    sans_ansi = _ANSI_RE.sub("", brut)
+    lignes = [ligne.rstrip() for ligne in sans_ansi.splitlines()]
+    condense = "\n".join(ligne for ligne in lignes if ligne)
+    if len(condense) <= _SORTIE_MAX:
+        return condense
+    return "…" + condense[-(_SORTIE_MAX - 1) :]
+
+
 class HostApplyError(Exception):
     """Refus ou échec d'application, avec un message exploitable tel quel."""
 
@@ -90,8 +112,17 @@ def parse_state(out: str) -> dict[str, RecipeState]:
 _OPTION_VALUE_RE = re.compile(r"^[A-Za-z0-9 ._/:@+-]{0,255}$")
 
 
-def resolve_options(meta: RecipeMeta, fournies: dict[str, str]) -> dict[str, str]:
-    """Valeurs finales des parametres, defauts declares compris.
+def resolve_options(
+    meta: RecipeMeta,
+    fournies: dict[str, str],
+    context: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Valeurs finales des parametres.
+
+    Priorite : SAISIE > CONTEXTE (`from:`) > DEFAUT. Elle est arbitree ICI, une
+    fois, et non par une cascade de replis dans chaque script — l'auteur d'une
+    recette lit `from: workspace.git_url` dans son manifeste et sait ce qui
+    arrivera dans `RECIPE_OPT_REPO_URL`.
 
     Valide CONTRE LA DECLARATION : un nom absent de la meta est refuse, faute de
     quoi n'importe quel nom arriverait dans l'environnement du script.
@@ -102,9 +133,16 @@ def resolve_options(meta: RecipeMeta, fournies: dict[str, str]) -> dict[str, str
                 f"option {nom!r} inconnue pour la recette {meta.id!r} — "
                 f"declarees : {', '.join(sorted(meta.options)) or 'aucune'}"
             )
+    ctx = context or {}
     resolues: dict[str, str] = {}
     for nom, declaration in meta.options.items():
-        valeur = fournies.get(nom, declaration.default)
+        valeur = fournies.get(nom, "").strip()
+        if not valeur and declaration.from_context:
+            # Une valeur de contexte VIDE (workspace sans depot) ne masque pas
+            # le defaut : elle n'apporte rien, autant retomber sur la suite.
+            valeur = ctx.get(declaration.from_context, "").strip()
+        if not valeur:
+            valeur = declaration.default
         if not _OPTION_VALUE_RE.fullmatch(valeur):
             raise HostApplyError(
                 f"valeur invalide pour l'option {nom!r} de {meta.id!r} : {valeur!r}"
@@ -153,6 +191,7 @@ async def apply_recipe_to_host(
     script: str,
     run: Runner,
     options: dict[str, str] | None = None,
+    context: dict[str, str] | None = None,
 ) -> ApplyResult:
     """Pose la recette sur la machine, ou explique pourquoi elle ne l'est pas.
 
@@ -174,7 +213,9 @@ async def apply_recipe_to_host(
     if meta.preconditions:
         rc, out, err = await run(build_check_command(meta.preconditions), timeout=PROBE_TIMEOUT_S)
         if rc != 0:
-            raise HostApplyError(f"vérification des préconditions impossible : {err or out}")
+            raise HostApplyError(
+                f"vérification des préconditions impossible : {nettoyer_sortie(err or out)}"
+            )
         manquantes = parse_check_output(out)
         if manquantes:
             raise HostApplyError(
@@ -187,8 +228,9 @@ async def apply_recipe_to_host(
         if pose and pose.version == meta.version:
             return ApplyResult(changed=False, version=meta.version)
 
-    resolues = resolve_options(meta, options or {})
+    resolues = resolve_options(meta, options or {}, context)
     rc, out, err = await run(build_apply_script(meta, script, resolues), timeout=APPLY_TIMEOUT_S)
     if rc != 0:
-        raise HostApplyError(f"échec de l'application de {meta.id!r} (code {rc}) : {err or out}")
+        cause = nettoyer_sortie(err or out)
+        raise HostApplyError(f"échec de l'application de {meta.id!r} (code {rc}) : {cause}")
     return ApplyResult(changed=True, version=meta.version)

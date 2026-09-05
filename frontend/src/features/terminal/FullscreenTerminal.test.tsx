@@ -2,18 +2,26 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { I18nextProvider } from 'react-i18next'
 import i18n from '@/i18n'
-import FullscreenTerminal, { AJUSTEMENT_MS } from './FullscreenTerminal'
-import { ENTER_COPY, EXIT_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScroll'
+import FullscreenTerminal, { AJUSTEMENT_MS, CODE_REPRISE_AILLEURS, REFRESH_SORTIE_MS } from './FullscreenTerminal'
+import { DRAG_SLOP_PX, ENTER_COPY, EXIT_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScroll'
+import { ATTENTE_MAX_MS } from './parseQueue'
 
 // Mock xterm : capture l'instance pour déclencher onSelectionChange depuis les
 // tests. jsdom ne rend pas de vrai terminal.
 const terminals: MockTerminal[] = []
 /** Largeur d'une colonne dans le mock ; la hauteur de ligne en vaut le double. */
 const CELL_PX = 10
+/** Ce que xterm ecrit dans la session a la molette faute de scrollback. */
+const CURSEUR_HAUT = '\x1b[A'
+const CURSEUR_BAS = '\x1b[B'
 
 class MockTerminal {
   cols = 80
   rows = 24
+  // Modes rapportes par xterm. `none` par defaut : les tests d'historique
+  // exercent le chemin copy-mode tmux ; une TUI qui suit la souris (Claude
+  // Code) le met a `any` et bascule le geste en evenements molette.
+  modes = { mouseTrackingMode: 'none' as string }
   // Zone de saisie cachee de xterm. Le vrai composant s'y accroche pour suivre
   // l'etat du clavier mobile : sans elle le bouton « clavier » ne peut rien.
   textarea: HTMLTextAreaElement = document.createElement('textarea')
@@ -29,9 +37,16 @@ class MockTerminal {
   /** Contenu de toute ligne du tampon. */
   ligne = 'ls -la'
   open = vi.fn((el: HTMLElement) => {
-    this.element = el
-    el.appendChild(this.textarea)
-    el.appendChild(this.screen)
+    // xterm cree SON element comme ENFANT du conteneur (`parent.appendChild`)
+    // et y pose ses ecouteurs. Le mock doit reproduire ce niveau : c'est lui
+    // qui decide si un `wheel` traite par xterm remonte, ou non, jusqu'a
+    // l'ecouteur que le composant pose sur le conteneur.
+    this.element = document.createElement('div')
+    this.element.classList.add('xterm')
+    el.appendChild(this.element)
+    this.element.appendChild(this.textarea)
+    this.element.appendChild(this.screen)
+    this.element.addEventListener('wheel', (e) => this.routeWheel(e as WheelEvent))
     this.screen.getBoundingClientRect = () =>
       ({
         left: 0,
@@ -42,7 +57,24 @@ class MockTerminal {
   })
   dispose = vi.fn()
   focus = vi.fn(() => this.textarea.focus())
-  write = vi.fn()
+  /**
+   * Rappels de `write` non encore honores.
+   *
+   * `write` est ASYNCHRONE dans le vrai xterm : il met en file et rappelle une
+   * fois le flux analyse. Un mock qui n'appelle jamais son rappel laisse la
+   * file eternellement pleine — et aucun test ne peut alors distinguer un
+   * redimensionnement qui attend le vidage d'un qui ne l'attend pas.
+   */
+  ecritures: Array<() => void> = []
+  write = vi.fn((_data: unknown, cb?: () => void) => {
+    if (cb) this.ecritures.push(cb)
+  })
+  /** Vide la file de parsing, comme xterm le fait a son rythme. */
+  draine() {
+    const cbs = this.ecritures
+    this.ecritures = []
+    cbs.forEach((cb) => cb())
+  }
   refresh = vi.fn()
   // xterm normalise et encadre le texte collé, puis le fait ressortir par
   // onData. Le mock reproduit ce relais : sans lui, rien ne partirait vers la WS.
@@ -78,10 +110,46 @@ class MockTerminal {
     return { dispose: vi.fn() }
   })
   onResize = vi.fn(() => ({ dispose: vi.fn() }))
+  /** Point d'extension d'xterm pour la molette, consulte par `routeWheel`. */
+  customWheelHandler: ((e: WheelEvent) => boolean) | null = null
+  attachCustomWheelEventHandler = vi.fn((cb: (e: WheelEvent) => boolean) => {
+    this.customWheelHandler = cb
+  })
+
+  /**
+   * Le chemin molette d'@xterm/xterm 6, reproduit a l'identique.
+   *
+   * Ce que fait la vraie source, dans cet ordre : le handler personnalise est
+   * consulte EN PREMIER et un `false` fait sortir SANS annuler l'evenement —
+   * donc sans `stopPropagation`, l'evenement continue de remonter. Sinon, et
+   * seulement si le tampon n'a pas de scrollback (ecran alterne = tmux), xterm
+   * ECRIT une touche de curseur dans la session, puis annule l'evenement.
+   *
+   * C'est cette touche que le shell et Claude Code lisent comme un parcours de
+   * l'historique des commandes. Sans ce niveau de fidelite, le mock ne peut ni
+   * reproduire le bug, ni montrer la double alimentation du scroller.
+   */
+  private routeWheel(e: WheelEvent) {
+    if (this.customWheelHandler?.(e) === false) return
+    if (this.buffer.active.type !== 'alternate') return
+    if (e.deltaY === 0) return
+    this.dataCb?.(e.deltaY < 0 ? CURSEUR_HAUT : CURSEUR_BAS)
+    e.preventDefault()
+    e.stopPropagation()
+  }
   onSelectionChange = vi.fn((cb: () => void) => {
     this.selectionCb = cb
     return { dispose: vi.fn() }
   })
+
+  /** Gestionnaires OSC enregistres par le composant, indexes par identifiant. */
+  private oscHandlers = new Map<number, (charge: string) => boolean | Promise<boolean>>()
+  parser = {
+    registerOscHandler: vi.fn((ident: number, cb: (charge: string) => boolean | Promise<boolean>) => {
+      this.oscHandlers.set(ident, cb)
+      return { dispose: vi.fn() }
+    }),
+  }
 
   options: Record<string, unknown>
 
@@ -99,6 +167,11 @@ class MockTerminal {
   /** Simule une frappe au clavier : xterm la ressort par `onData`. */
   simulateData(data: string) {
     this.dataCb?.(data)
+  }
+
+  /** Simule une sequence OSC recue de la session (52 = presse-papier). */
+  simulateOsc(ident: number, charge: string) {
+    return this.oscHandlers.get(ident)?.(charge)
   }
 
   /** Selection posee sur du vide : active, mais sans texte a en tirer. */
@@ -159,7 +232,7 @@ class MockWebSocket {
   close = vi.fn()
   onopen: (() => void) | null = null
   onmessage: ((e: unknown) => void) | null = null
-  onclose: (() => void) | null = null
+  onclose: ((ev: { code: number }) => void) | null = null
   onerror: (() => void) | null = null
 
   constructor(url?: string) {
@@ -210,6 +283,40 @@ function renderTerminal() {
     </I18nextProvider>,
   )
 }
+
+describe('FullscreenTerminal — OSC 52 (presse-papier demandé par la session)', () => {
+  /** Encode comme le fait tmux : UTF-8 puis base64. */
+  function encode(texte: string): string {
+    return btoa(String.fromCharCode(...new TextEncoder().encode(texte)))
+  }
+
+  it('écrit dans le presse-papier ce que la session a copié', () => {
+    renderTerminal()
+    act(() => {
+      terminals[0].simulateOsc(52, `c;${encode('copié par tmux')}`)
+    })
+    expect(writeText).toHaveBeenCalledWith('copié par tmux')
+  })
+
+  it('consomme la séquence même refusée, pour ne pas la recracher à l’écran', () => {
+    // Rendre `false` ferait retomber xterm sur son traitement par défaut, qui
+    // afficherait la charge base64 en clair au milieu de la session.
+    renderTerminal()
+    act(() => {
+      expect(terminals[0].simulateOsc(52, 'c;?')).toBe(true)
+      expect(terminals[0].simulateOsc(52, `c;${encode('ok')}`)).toBe(true)
+    })
+  })
+
+  it('ne répond pas à une demande de lecture du presse-papier', () => {
+    // `?` = l'application distante veut LIRE le presse-papier de l'utilisateur.
+    renderTerminal()
+    act(() => {
+      terminals[0].simulateOsc(52, 'c;?')
+    })
+    expect(writeText).not.toHaveBeenCalled()
+  })
+})
 
 describe('FullscreenTerminal — copy-on-select', () => {
   it('copie automatiquement la sélection dans le presse-papier', () => {
@@ -414,6 +521,92 @@ describe('FullscreenTerminal — taille initiale', () => {
   })
 })
 
+describe('FullscreenTerminal — recalage au clavier mobile', () => {
+  /** jsdom n'a pas `visualViewport` — et c'est precisement l'API iOS a couvrir. */
+  function poserViewportVisuel() {
+    const vue = new EventTarget() as EventTarget & { height: number }
+    vue.height = 400
+    Object.defineProperty(window, 'visualViewport', { value: vue, configurable: true })
+    return vue
+  }
+
+  function messagesResize() {
+    return sockets[0].send.mock.calls
+      .map((appel) => String(appel[0]))
+      .filter((message) => message.includes('"type":"resize"'))
+  }
+  function messagesRedraw() {
+    return sockets[0].send.mock.calls
+      .map((appel) => String(appel[0]))
+      .filter((message) => message.includes('"type":"redraw"'))
+  }
+
+  it('se recale quand le viewport visuel change, sans window.resize', () => {
+    // iOS ne fait varier NI `window.resize` NI la hauteur du viewport de mise
+    // en page a l'ouverture du clavier : sans ecouteur sur `visualViewport`,
+    // rien ne declenche le recalage.
+    const vue = poserViewportVisuel()
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    const fit = fitAddons.at(-1)!.fit
+    fit.mockClear()
+
+    act(() => { vue.dispatchEvent(new Event('resize')) })
+    act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
+
+    expect(fit).toHaveBeenCalled()
+  })
+
+  it('suit aussi le DEPLACEMENT du viewport, qui ne le redimensionne pas', () => {
+    // iOS fait defiler le viewport visuel sans changer sa taille : aucun
+    // ResizeObserver ne se declenche alors, et l'ecran reste decale.
+    const vue = poserViewportVisuel()
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    const fit = fitAddons.at(-1)!.fit
+    fit.mockClear()
+
+    act(() => { vue.dispatchEvent(new Event('scroll')) })
+    act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
+
+    expect(fit).toHaveBeenCalled()
+  })
+
+  it('fait REPEINDRE tmux, au lieu de redessiner la trame locale', () => {
+    // Le coeur du defaut : `terminal.refresh()` redessine le tampon de xterm.
+    // Si tmux y a ecrit une trame entrelacee pendant l'ouverture du clavier, on
+    // la redessine a l'identique. Seul un repaint plein ecran (refresh-client
+    // cote pont) retransmet tout — d'ou la trame `redraw` sur la socket.
+    const vue = poserViewportVisuel()
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    act(() => { vue.dispatchEvent(new Event('resize')) })
+    act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
+
+    expect(messagesRedraw().length).toBeGreaterThan(0)
+  })
+
+  it('ne recale qu\'une fois pour une rafale de paliers', () => {
+    // Le clavier ne s'ouvre pas d'un coup : le viewport retrecit par paliers.
+    // Un recalage par palier renverrait la rafale de SIGWINCH que le debounce
+    // existe pour eviter — et qui produisait l'entrelacement.
+    const vue = poserViewportVisuel()
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    act(() => {
+      for (let i = 0; i < 8; i++) vue.dispatchEvent(new Event('resize'))
+    })
+    act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
+
+    // Un seul aller-retour : la taille fausse puis la vraie, pas huit.
+    expect(messagesResize().length).toBeLessThanOrEqual(2)
+  })
+})
+
 describe('FullscreenTerminal — clavier mobile', () => {
   it('n’ouvre pas le clavier en envoyant depuis la barre', async () => {
     renderTerminal()
@@ -470,6 +663,92 @@ describe('FullscreenTerminal — autofocus selon l’appareil', () => {
   })
 })
 
+
+describe('FullscreenTerminal — re-rendu apres la sortie de l\u2019agent', () => {
+  function redrawsEnvoyes() {
+    return sockets[0].send.mock.calls
+      .map((c) => String(c[0]))
+      .filter((m) => m.includes('"type":"redraw"'))
+  }
+  // Etablit la signature de contenu initiale (le premier onmessage arme
+  // toujours, la signature precedente etant vide).
+  function baseline() {
+    act(() => { sockets[0].onmessage?.({ data: 'x\n' }) })
+    act(() => { terminals[0].draine() })
+    act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
+    sockets[0].send.mockClear()
+  }
+
+  it('declenche un refresh quand le contenu DEFILE (plusieurs lignes changent)', () => {
+    // Le buffer est correct mais le renderer laisse des pixels perimes en
+    // colonne 0-1 au defilement ; seul `tmux refresh-client` (redraw) les
+    // efface. On le declenche quand le contenu a vraiment bouge.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    baseline()
+
+    terminals[0].ligne = 'nouvelle ligne apres defilement'  // le contenu change
+    act(() => { sockets[0].onmessage?.({ data: 'y\n' }) })
+    act(() => { terminals[0].draine() })
+    expect(redrawsEnvoyes()).toHaveLength(0)  // debounce : pas immediat
+
+    act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
+    expect(redrawsEnvoyes().length).toBeGreaterThan(0)
+  })
+
+  it('ne declenche AUCUN refresh quand le contenu ne change pas (curseur/spinner)', () => {
+    // Claude Code redessine tout l'ecran a chaque image (curseur, spinner) sans
+    // faire defiler : le contenu est identique. Aucun residu, donc aucun
+    // refresh-client — sinon l'ecran renvoye en boucle scintille au repos.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    baseline()
+
+    // contenu identique (le mock renvoie toujours la meme ligne)
+    act(() => { sockets[0].onmessage?.({ data: 'z\n' }) })
+    act(() => { terminals[0].draine() })
+    act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
+
+    expect(redrawsEnvoyes()).toHaveLength(0)
+  })
+
+  it('se tait pendant un defilement au geste (sinon l’ecran clignote)', () => {
+    // Pendant un glissement, chaque image change beaucoup de lignes : la
+    // detection « vrai defilement » enverrait des refresh-client plein ecran
+    // en rafale — ecran blanc au scroll rapide, mesure sur iPhone le 05/09.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    baseline()
+
+    // Geste en cours : seuil franchi, doigt toujours pose.
+    const zone = screen.getByTestId('terminal-surface')
+    fireEvent.touchStart(zone, { touches: [{ clientX: 10, clientY: 300 }] })
+    fireEvent.touchMove(zone, { touches: [{ clientX: 10, clientY: 300 - DRAG_SLOP_PX - LINE_PX }] })
+
+    terminals[0].ligne = 'contenu qui defile sous le doigt'
+    act(() => { sockets[0].onmessage?.({ data: 'y\n' }) })
+    act(() => { terminals[0].draine() })
+    act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
+
+    expect(redrawsEnvoyes()).toHaveLength(0)
+  })
+
+  it('un seul refresh pour une rafale de defilement', () => {
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    baseline()
+
+    for (let i = 0; i < 5; i++) {
+      terminals[0].ligne = 'defilement ' + i
+      act(() => { sockets[0].onmessage?.({ data: 'd\n' }) })
+      act(() => { terminals[0].draine() })
+    }
+    act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
+
+    expect(redrawsEnvoyes()).toHaveLength(1)
+  })
+})
+
 describe('FullscreenTerminal — historique au geste', () => {
   function surface() {
     return screen.getByTestId('terminal-surface')
@@ -503,6 +782,82 @@ describe('FullscreenTerminal — historique au geste', () => {
     act(() => { vi.runAllTimers() })
 
     expect(sent()).toContain(LINE_DOWN)
+  })
+
+  it('ferme le clavier des que le geste defile', () => {
+    // Defiler clavier ouvert est instable : la geometrie change sous le doigt
+    // (resize en plein geste). Le glissement dit « je veux LIRE » : on ferme le
+    // clavier, l'ecran entier redevient disponible (demande utilisateur 05/09).
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    terminals[0].textarea.focus()
+    expect(document.activeElement).toBe(terminals[0].textarea)
+
+    fireEvent.touchStart(surface(), { touches: [{ clientX: 10, clientY: 300 }] })
+    fireEvent.touchMove(surface(), {
+      touches: [{ clientX: 10, clientY: 300 - DRAG_SLOP_PX - 1 }],
+    })
+
+    expect(document.activeElement).not.toBe(terminals[0].textarea)
+  })
+
+  it('parle molette SGR a une TUI qui suit la souris (Claude Code)', () => {
+    // Son historique tmux est VIDE (copy-mode a [0/0]) : le copy-mode n'a rien
+    // a defiler, c'est l'application qui defile son transcript sur la molette.
+    renderTerminal()
+    terminals[0].modes.mouseTrackingMode = 'any'
+
+    fireEvent.wheel(surface(), { deltaY: -LINE_PX })
+    act(() => { vi.runAllTimers() })
+
+    // 64 = molette haut, vise le centre de la grille apres fit (56x20 -> 28;10).
+    expect(sent()).toContain('\x1b[<64;28;10M')
+    expect(sent()).not.toContain(ENTER_COPY)
+  })
+
+  /** Molette posee la ou l'utilisateur la pose : sur l'element de xterm. */
+  function moletteSurXterm(deltaY: number, init: Record<string, unknown> = {}) {
+    fireEvent.wheel(terminals[0].element as HTMLElement, { deltaY, ...init })
+  }
+
+  it('n’envoie plus de touche de curseur a l’application', () => {
+    // LE bug : faute de scrollback sous tmux, xterm traduisait la molette en
+    // fleche haut. Le shell et Claude Code y lisent un rappel des commandes
+    // precedentes — a la molette, le terminal remontait dans l'historique des
+    // COMMANDES au lieu de defiler dans celui de l'ECRAN.
+    renderTerminal()
+
+    moletteSurXterm(-LINE_PX * 2)
+    act(() => { vi.runAllTimers() })
+
+    expect(sent()).not.toContain(CURSEUR_HAUT)
+    expect(sent()).toEqual(expect.arrayContaining([ENTER_COPY, LINE_UP]))
+  })
+
+  it('ne compte le cran de molette qu’une fois', () => {
+    // xterm n'annule PAS l'evenement quand le handler rend `false` : sans
+    // `stopPropagation`, il remonterait jusqu'a l'ecouteur du conteneur et le
+    // meme cran alimenterait le scroller deux fois — deux lignes au lieu d'une.
+    renderTerminal()
+
+    moletteSurXterm(-LINE_PX)
+    act(() => { vi.runAllTimers() })
+
+    // Un cran = UNE ligne. Alimente deux fois, le meme cran en donnerait deux.
+    expect(sent()).toContain(ENTER_COPY)
+    expect(sent().filter((d) => d === LINE_UP)).toHaveLength(1)
+  })
+
+  it('rend la molette a l’application quand Maj est enfonce', () => {
+    // Echappatoire : sans elle, plus aucun moyen de faire defiler l'interface
+    // d'une appli qui gere elle-meme la souris.
+    renderTerminal()
+
+    moletteSurXterm(-LINE_PX * 2, { shiftKey: true })
+    act(() => { vi.runAllTimers() })
+
+    expect(sent()).toContain(CURSEUR_HAUT)
+    expect(sent().join('')).not.toContain(LINE_UP)
   })
 
   it('laisse le defilement natif quand tmux n’occupe pas l’ecran alterne', () => {
@@ -642,8 +997,25 @@ describe('FullscreenTerminal — bouton clavier', () => {
 })
 
 describe('FullscreenTerminal — retour sur la session', () => {
+  /** Etat de `document.hidden`, pilote par `masquer` / `revenir`. */
+  let masquee = false
+
+  beforeEach(() => {
+    masquee = false
+    vi.spyOn(document, 'hidden', 'get').mockImplementation(() => masquee)
+  })
+
+  /** Met la page en arriere-plan : c'est la SEULE raison de recaler au retour. */
+  function masquer() {
+    masquee = true
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+  }
+
   /** Simule un retour au premier plan (onglet, ou retour arriere de Safari). */
   function revenir() {
+    masquee = false
     act(() => {
       document.dispatchEvent(new Event('visibilitychange'))
       vi.advanceTimersByTime(50)
@@ -673,12 +1045,153 @@ describe('FullscreenTerminal — retour sur la session', () => {
     expect(sockets).toHaveLength(2)
   })
 
+  it('annonce une reprise sur un autre appareil, pas une coupure reseau', () => {
+    // Un seul ecran a la fois : le second evince le premier, et le pont ferme
+    // avec 4409. Sans ce message, l'utilisateur voit son ecran s'arreter sans
+    // aucun moyen de comprendre pourquoi.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+
+    act(() => sockets[0].onclose?.({ code: CODE_REPRISE_AILLEURS }))
+
+    expect(screen.getByText(/autre appareil|another device/i)).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /reprendre la main|take back/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('garde le message de coupure sur une fermeture ordinaire', () => {
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+
+    act(() => sockets[0].onclose?.({ code: 1006 }))
+
+    expect(screen.getByText(/déconnectée|disconnected/i)).toBeInTheDocument()
+  })
+
   it('ne reconnecte pas une socket vivante', () => {
     renderTerminal()
 
     revenir()
 
     expect(sockets).toHaveLength(1)
+  })
+
+  function messagesResize() {
+    return sockets[0].send.mock.calls
+      .map((appel) => String(appel[0]))
+      .filter((message) => message.includes('"type":"resize"'))
+  }
+  function messagesRedraw() {
+    return sockets[0].send.mock.calls
+      .map((appel) => String(appel[0]))
+      .filter((message) => message.includes('"type":"redraw"'))
+  }
+
+  it('fait REPEINDRE tmux au retour d\u2019un onglet reellement masque', () => {
+    // Le defaut vu en production : on revient sur l'onglet et l'ecran reste
+    // casse — residus en colonne 0, rangees sautees. `terminal.refresh()` seul
+    // redessine a l'identique la trame que tmux a ecrite pendant que les tailles
+    // divergeaient. Seul un repaint plein ecran (refresh-client) l'efface.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    masquer()
+    revenir()
+    act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
+
+    expect(messagesRedraw().length).toBeGreaterThan(0)
+  })
+
+  it('ne recale pas sur un focus sans que la page ait ete masquee', () => {
+    // La regression du 03/09 09:08 (6bada4d7) : `onVisible` a ete branche sur
+    // `planifierAjustement`, donc sur le NUDGE. `focus` part a chaque retour
+    // dans la fenetre — un alt-tab, un clic — et envoyait un aller-retour de
+    // taille sur un ecran qui n'avait pas bouge d'un pixel. Deux SIGWINCH pour
+    // rien, dont un se perd (le noyau ne les met pas en file) : tmux reste cale
+    // sur la taille intermediaire, une ligne d'ecart, et tout le redessin
+    // decale. Sur desktop, des dizaines de fois par heure.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+      vi.advanceTimersByTime(AJUSTEMENT_MS)
+    })
+
+    expect(messagesResize()).toEqual([])
+  })
+
+  it('ne programme pas de nudge au chargement initial de la page', () => {
+    // `pageshow` part aussi au premier chargement, pas seulement au retour du
+    // bfcache — et la, rien n'a jamais ete masque. Seul `persisted` distingue
+    // les deux : sans cette garde, chaque ouverture de session envoyait un
+    // aller-retour de taille dans le vide.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    act(() => {
+      window.dispatchEvent(new Event('pageshow'))
+      vi.advanceTimersByTime(AJUSTEMENT_MS)
+    })
+
+    expect(messagesResize()).toEqual([])
+  })
+
+  it('recale au retour depuis le cache de navigation (persisted)', () => {
+    // Le bfcache, lui, est un vrai sejour hors du premier plan : tmux a pu
+    // peindre pendant que les geometries divergeaient.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    sockets[0].send.mockClear()
+
+    act(() => {
+      const e = new Event('pageshow')
+      Object.defineProperty(e, 'persisted', { value: true })
+      window.dispatchEvent(e)
+      vi.advanceTimersByTime(AJUSTEMENT_MS)
+    })
+
+    expect(messagesResize().length).toBeGreaterThan(0)
+  })
+
+  it('verifie la socket a chaque focus, masquage ou non', () => {
+    // La detection de socket morte ne doit PAS suivre la garde du recalage :
+    // Safari coupe la WebSocket en arriere-plan sans toujours delivrer `close`,
+    // et une session figee et muette est bien pire qu'un nudge de trop.
+    renderTerminal()
+    sockets[0].readyState = MockWebSocket.CLOSED
+
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+      vi.advanceTimersByTime(50)
+    })
+
+    expect(sockets).toHaveLength(2)
+  })
+
+  it('ne recale qu’une fois quand focus et visibilitychange arrivent ensemble', () => {
+    // Les deux evenements partent pour un seul retour au premier plan. Sans
+    // debounce, c'est deux allers-retours de taille — la rafale de SIGWINCH que
+    // le recalage existe justement pour eviter.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    masquer()
+    sockets[0].send.mockClear()
+
+    act(() => {
+      masquee = false
+      document.dispatchEvent(new Event('visibilitychange'))
+      window.dispatchEvent(new Event('focus'))
+    })
+    act(() => { vi.advanceTimersByTime(AJUSTEMENT_MS) })
+
+    // La taille fausse puis la vraie, pas quatre messages.
+    expect(messagesResize().length).toBeGreaterThan(0)
+    expect(messagesResize().length).toBeLessThanOrEqual(2)
   })
 
   it('ne reconnecte pas une socket en cours d’ouverture', () => {
@@ -937,6 +1450,160 @@ describe('FullscreenTerminal — stabilite de l’affichage au redimensionnement
 
     rafaleDeRedimensionnements(2)
     act(() => vi.advanceTimersByTime(AJUSTEMENT_MS))
+
+    expect(terminals[0].refresh).toHaveBeenCalled()
+  })
+})
+
+describe('FullscreenTerminal — rafraichir l’affichage', () => {
+  /**
+   * Quand la fenetre tmux et le terminal divergent, l'ecran garde des rendus
+   * anciens — des barres de statut empilees. tmux ne redessine que sur
+   * changement de taille : renvoyer la MEME ne declenche rien.
+   */
+  function tramesEnvoyees() {
+    return sockets[0].send.mock.calls
+      .map((c) => c[0])
+      .filter((d): d is string => typeof d === 'string')
+      .map((d) => JSON.parse(d) as { type: string; cols?: number; rows?: number })
+  }
+  function resizesEnvoyes() {
+    return tramesEnvoyees().filter((m) => m.type === 'resize')
+  }
+  function redrawsEnvoyes() {
+    return tramesEnvoyees().filter((m) => m.type === 'redraw')
+  }
+
+  function rafraichir() {
+    fireEvent.click(screen.getByRole('button', { name: /rafraîchir|refresh/i }))
+  }
+
+  it('resynchronise la taille puis demande un repaint plein ecran', () => {
+    // Le nudge de taille ne pouvait PAS effacer les residus deja peints : le
+    // redessin de tmux est differentiel, il ne renvoie que ce qui differe de
+    // son image serveur, et les residus vivent cote navigateur (prouve le
+    // 04/09, 160 ms n'y changeait rien). On realigne d'abord la geometrie
+    // (PTY vu a 91 lignes contre 88 pour xterm), puis on demande
+    // `refresh-client` cote pont — le seul a tout retransmettre, comme un F5.
+    renderTerminal()
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+    sockets[0].send.mockClear()
+
+    rafraichir()
+    act(() => vi.advanceTimersByTime(50))
+
+    expect(resizesEnvoyes()).toHaveLength(1)
+    expect(resizesEnvoyes()[0]).toMatchObject({
+      cols: terminals[0].cols,
+      rows: terminals[0].rows,
+    })
+    // Aucune trame ne porte `nudge` : l'approche est abandonnee.
+    expect(tramesEnvoyees().some((m) => 'nudge' in m)).toBe(false)
+    // Et le repaint est demande, APRES le resize (la geometrie d'abord).
+    expect(redrawsEnvoyes()).toHaveLength(1)
+    const types = tramesEnvoyees().map((m) => m.type)
+    expect(types.indexOf('resize')).toBeLessThan(types.indexOf('redraw'))
+  })
+
+  it('ne redimensionne pas tant qu\u2019xterm n\u2019a pas analyse le flux', () => {
+    // 4580 octets non analyses au moment d'un nudge, mesures le 03/09 : emis
+    // par tmux pour l'ANCIENNE geometrie, ils allaient etre interpretes contre
+    // la nouvelle — texte entrelace. La trame ne part que la file vide.
+    renderTerminal()
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+    act(() => terminals[0].draine())
+    sockets[0].send.mockClear()
+
+    // Du flux arrive, que xterm n'a pas encore digere.
+    act(() => {
+      sockets[0].onmessage?.({ data: 'x'.repeat(4580) })
+    })
+    rafraichir()
+    act(() => vi.advanceTimersByTime(50))
+    expect(resizesEnvoyes()).toHaveLength(0)
+    expect(redrawsEnvoyes()).toHaveLength(0)
+
+    // xterm finit d'analyser : les trames partent, maintenant.
+    act(() => terminals[0].draine())
+    expect(resizesEnvoyes()).toHaveLength(1)
+    expect(redrawsEnvoyes()).toHaveLength(1)
+  })
+
+  it('recale malgre un flux continu, au bout du plafond', () => {
+    // Une session qui ecrit sans discontinuer — `top`, un build — ne vide
+    // jamais sa file. Ne plus jamais se recaler serait pire que se recaler
+    // avec des octets en vol, qui est l'etat d'avant.
+    renderTerminal()
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+    act(() => terminals[0].draine())
+    sockets[0].send.mockClear()
+
+    act(() => {
+      sockets[0].onmessage?.({ data: 'x'.repeat(1000) })
+    })
+    rafraichir()
+    act(() => vi.advanceTimersByTime(ATTENTE_MAX_MS + 10))
+
+    expect(resizesEnvoyes()).toHaveLength(1)
+    expect(redrawsEnvoyes()).toHaveLength(1)
+  })
+
+  it('envoie la taille COURANTE au moment ou la trame part', () => {
+    // Entre la demande de recalage et le vidage de la file, xterm peut s'etre
+    // recale — police chargee, barre de touches. La taille est relue a l'envoi,
+    // jamais capturee avant : une ligne d'ecart suffit a entrelacer le texte
+    // (observe en production le 03/09, PTY a 65 lignes contre 64 pour xterm).
+    renderTerminal()
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+    act(() => terminals[0].draine())
+    sockets[0].send.mockClear()
+
+    act(() => {
+      sockets[0].onmessage?.({ data: 'x'.repeat(100) })
+    })
+    rafraichir()
+    // Pendant l'attente du drain, le terminal bouge.
+    terminals[0].rows = FITTED_ROWS + 5
+    act(() => terminals[0].draine())
+
+    const envoyes = resizesEnvoyes()
+    expect(envoyes.at(-1)!.rows).toBe(terminals[0].rows)
+  })
+
+  it('embarque la sonde sur la trame de taille, sans trame supplementaire', () => {
+    // La sonde voyage sur un message qui EXISTE deja : une trame de controle a
+    // elle fermait la session a chaque ouverture du clavier mobile (03/09).
+    // `haut` (conteneur) contre `vv` (viewport visible) doit permettre de voir
+    // si xterm calcule des lignes que l'utilisateur ne voit pas.
+    renderTerminal()
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+    sockets[0].send.mockClear()
+
+    rafraichir()
+    act(() => vi.advanceTimersByTime(50))
+
+    const envoyes = resizesEnvoyes() as unknown as Array<Record<string, number>>
+    expect(envoyes.length).toBeGreaterThan(0)
+    // 300 : la hauteur stubee du conteneur (cf. beforeEach).
+    expect(envoyes.at(-1)!.haut).toBe(300)
+    expect(envoyes.at(-1)!).toHaveProperty('octets')
+    // La SONDE reste embarquee sur la trame de taille, jamais sur une trame a
+    // elle (leçon du 03/09 : une trame de controle en plus fermait la session
+    // au clavier mobile). Seul `redraw`, demande explicite de repaint, s'ajoute.
+    const types = sockets[0].send.mock.calls
+      .map((c) => c[0])
+      .filter((d): d is string => typeof d === 'string')
+      .map((d) => (JSON.parse(d) as { type: string }).type)
+    expect(new Set(types)).toEqual(new Set(['resize', 'redraw']))
+  })
+
+  it('redessine le terminal', () => {
+    renderTerminal()
+    act(() => vi.advanceTimersByTime(AJUSTEMENT_MS * 2))
+    terminals[0].refresh.mockClear()
+
+    rafraichir()
+    act(() => vi.advanceTimersByTime(50))
 
     expect(terminals[0].refresh).toHaveBeenCalled()
   })

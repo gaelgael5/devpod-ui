@@ -72,6 +72,35 @@ services:
       retries: 5
       start_period: 20s
 
+  # TSDB des metriques machine : miroir de Loki cote metriques (doc globals §7).
+  # VictoriaMetrics single-node plutot que Prometheus : meme protocole
+  # (remote_write) et meme langage de requete, pour une empreinte RAM/disque
+  # nettement plus faible sur un parc de cette taille.
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.109.1
+    restart: unless-stopped
+    command:
+      - -storageDataPath=/victoria-metrics-data
+      # Retention alignee sur l'usage : voir venir une saturation, pas faire de
+      # la capacity planning a l'annee. Sans unite, VictoriaMetrics compte en
+      # MOIS — d'ou le `w` explicite.
+      - -retentionPeriod=3w
+      - -httpListenAddr=:8428
+    volumes:
+      - vm_data:/victoria-metrics-data
+    ports:
+      # Publie sur le host : les collecteurs Alloy des machines distantes
+      # poussent dessus, exactement comme sur Loki:3100.
+      - "8428:8428"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8428/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   grafana:
     image: grafana/grafana:11.4.0
     restart: unless-stopped
@@ -111,6 +140,7 @@ networks:
     driver: bridge
 
 volumes:
+  vm_data:
   caddy_acme:
   caddy_config:
   loki_data:

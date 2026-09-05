@@ -90,6 +90,13 @@ class HostCreateRequest(BaseModel):
     # None = défaut à la création ("workspaces"), valeur existante préservée à l'update.
     # ressources (spec 33) : service partagé permanent, sans workspace propriétaire.
     usage: Literal["workspaces", "tests", "portail", "ressources", "autres"] | None = None
+    # Capacité d'accueil de la MACHINE. Champ ABSENT = valeur préservée ; champ
+    # présent à `null` = remis à « non renseigné ». On distingue les deux par
+    # `model_fields_set` : sans ça, un update partiel effacerait la capacité, et
+    # une machine sans capacité connue sort du pool.
+    capacity_workspaces: int | None = Field(default=None, ge=0)
+    # Ouverture au pool mutualisé. None = préservé à l'update, faux à la création.
+    accepts_mutualise: bool | None = None
 
     @field_validator("docker_cert_slug", "ssh_cert_slug")
     @classmethod
@@ -210,6 +217,9 @@ class LogsConfigUpdateRequest(BaseModel):
     enabled: bool
     loki_push_url: str = ""
     loki_query_url: str = ""
+    # TSDB des metriques machine (endpoint remote_write). Optionnelle : la
+    # chaine des logs vit sans, et inversement.
+    metrics_push_url: str = ""
     grafana_url: str = ""
     module: str = "devpod"
     push_token: str = ""  # vide = conserve le token existant (littéral ou ${vault://...})
@@ -220,6 +230,7 @@ def _logs_config_out(cfg: GlobalConfig) -> dict[str, object]:
         "enabled": cfg.logs.enabled,
         "loki_push_url": cfg.logs.loki_push_url or "",
         "loki_query_url": cfg.logs.loki_query_url or "",
+        "metrics_push_url": cfg.logs.metrics_push_url or "",
         "grafana_url": cfg.logs.grafana_url or "",
         "module": cfg.logs.module,
         "has_push_token": bool(cfg.logs.push_token),
@@ -255,6 +266,7 @@ async def put_admin_logs_config(
             "enabled": body.enabled,
             "loki_push_url": body.loki_push_url.strip() or None,
             "loki_query_url": body.loki_query_url.strip() or None,
+            "metrics_push_url": body.metrics_push_url.strip() or None,
             "grafana_url": body.grafana_url.strip() or None,
             "module": body.module.strip() or "devpod",
             "push_token": new_token,
@@ -480,11 +492,30 @@ async def test_events_producer_connection(
     raw = serialize_envelope(envelope)
     signature = compute_signature(secret.encode(), raw)
     try:
-        status = await post_event(cfg.workflow_base_url, cfg.source_id, raw, signature)
+        status, motif = await post_event(cfg.workflow_base_url, cfg.source_id, raw, signature)
     except httpx.HTTPError as exc:
+        # Injoignable : l'appel lui-même a échoué — troisième issue, distincte
+        # du refus par l'ingest.
         _log.warning("events_producer_test_failed", by=user.login, exc_type=type(exc).__name__)
         return {"ok": False, "event_code": envelope["_eventCode"], "error": type(exc).__name__}
-    return {"ok": status == 202, "status_code": status, "event_code": envelope["_eventCode"]}
+    if status != 202:
+        # Joignable mais REFUSÉ : le faux positif historique — un 400 amont
+        # rendu en succès a déjà masqué une erreur de configuration réelle
+        # pendant toute une session de diagnostic. Le motif de l'ingest
+        # (`no_event_context`, signature invalide…) est ce qui rend le refus
+        # exploitable : il part dans la réponse ET dans le journal.
+        _log.warning(
+            "events_producer_test_rejected",
+            by=user.login,
+            status=status,
+            reason=motif,
+        )
+    return {
+        "ok": status == 202,
+        "status_code": status,
+        "event_code": envelope["_eventCode"],
+        "reason": motif,
+    }
 
 
 @router.post("/events-producer/send-test-event")
@@ -998,6 +1029,8 @@ async def add_host(
         storage_type="local",
         vault_identifier="",
         usage=body.usage or "workspaces",
+        capacity_workspaces=body.capacity_workspaces,
+        accepts_mutualise=bool(body.accepts_mutualise),
     )
     # Bundle mTLS matérialisé AVANT persistance : une association invalide
     # (cert sans CA, vault verrouillé…) ne doit pas laisser un host à moitié câblé.
@@ -1071,6 +1104,19 @@ async def update_host(
         storage_type=existing.storage_type,  # conservé (l'update ne doit rien réinitialiser)
         vault_identifier=existing.vault_identifier,  # conservé
         usage=body.usage if body.usage is not None else existing.usage,
+        # Provenance conservée : elle est posée au provisionnement, pas saisie
+        # par l'administrateur — et l'oublier ici l'effacerait à chaque update.
+        profile_slug=existing.profile_slug,
+        hypervisor=existing.hypervisor,
+        # Champ absent du corps = préservé ; présent à `null` = effacé.
+        capacity_workspaces=(
+            body.capacity_workspaces
+            if "capacity_workspaces" in body.model_fields_set
+            else existing.capacity_workspaces
+        ),
+        accepts_mutualise=(
+            existing.accepts_mutualise if body.accepts_mutualise is None else body.accepts_mutualise
+        ),
     )
     # Bundle mTLS : rematérialisé uniquement si le slug CHANGE (un update sans rapport
     # ne doit pas exiger le vault déverrouillé) ; "" = dissociation → purge du bundle.
@@ -1154,8 +1200,30 @@ async def delete_host(
     # 4. Retirer le host de la config
     cfg.hosts = [h for h in cfg.hosts if h.name != name]
     await save_global_db(cfg, conn)
+
+    # 5. Detacher ce qui reference le host par son NOM. Sans ca, une VM de test
+    #    supprimee d'ici laissait son association de workspace et ses
+    #    deploiements compose derriere elle : la machine suivante a porter ce
+    #    nom heritait des lignes de l'ancienne, et la suppression cote workspace
+    #    echouait sur `MultipleResultsFound` — le seul chemin qui aurait permis
+    #    de nettoyer.
+    from ..compose.db import delete_deployments_for_node
+    from ..db.test_hosts import list_test_host_message_ids, remove_test_host
+    from ..messages.service import delete_message as _msg_delete
+
+    for message_id in await list_test_host_message_ids(name, conn):
+        await _msg_delete(conn, message_id)
+    await remove_test_host(name, conn)
+    purges = await delete_deployments_for_node(conn, name)
+
     set_cached_global(cfg)
-    _log.info("host_deleted", name=name, by=user.login, workspaces_deleted=len(rows))
+    _log.info(
+        "host_deleted",
+        name=name,
+        by=user.login,
+        workspaces_deleted=len(rows),
+        deployments_purged=purges,
+    )
     # Retire le serveur de Termix chez tous ses destinataires après commit (best-effort).
     background_tasks.add_task(bastion_servers.deprovision_server_host, name)
 
@@ -1329,7 +1397,7 @@ async def bootstrap_host_ssh(
             slug=cert_slug,
             label=f"SSH key — {name}",
             # Clé souvent collée depuis Windows (CRLF) → « error in libcrypto » côté ssh.
-        private_pem=normalize_pem(private_pem),
+            private_pem=normalize_pem(private_pem),
             public_key=public_key,
             cert_type="ssh-ed25519",
             storage_type="local",

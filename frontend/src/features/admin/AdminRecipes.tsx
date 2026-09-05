@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, RefreshCw, Search } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -9,7 +9,8 @@ import {
 } from '@/components/ui/dialog'
 import type { Recipe } from '@/features/recipes/types'
 import { useAdminRecipes, type RecipeCreateRequest } from './useAdminRecipes'
-import { useRecipeSources, type RemoteRecipe } from './useRecipeSources'
+import { useRecipeSources, useRecipeUpdates } from './useRecipeSources'
+import RecipeGallerySection from './RecipeGallerySection'
 import BashEditor from './BashEditor'
 
 const DEFAULT_SCRIPT = '#!/usr/bin/env bash\nset -e\necho "Installing..."\n'
@@ -44,6 +45,7 @@ export default function AdminRecipes() {
   const { t } = useTranslation()
   const { recipesQuery, deleteRecipe, addRecipe, updateRecipe } = useAdminRecipes()
   const { sourcesQuery, updateSources, previewQuery, importRecipe } = useRecipeSources()
+  const { updatesQuery, updateFromSource } = useRecipeUpdates()
   const { data: recipes, isLoading, isError } = recipesQuery
   const { data: sourcesData } = sourcesQuery
   const {
@@ -56,24 +58,14 @@ export default function AdminRecipes() {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<FormState>(EMPTY)
   const [newSourceUrl, setNewSourceUrl] = useState('')
-  const [galleryFilter, setGalleryFilter] = useState('')
-  const [galleryTypeFilter, setGalleryTypeFilter] =
-    useState<'all' | 'install' | 'start' | 'initialize'>('all')
 
   const sources = sourcesData?.sources ?? []
   const galleryRecipes = useMemo(() => previewData?.recipes ?? [], [previewData])
-  const filteredGallery = useMemo(() => {
-    const q = galleryFilter.trim().toLowerCase()
-    return galleryRecipes.filter((r: RemoteRecipe) => {
-      if (galleryTypeFilter !== 'all' && r.type !== galleryTypeFilter) return false
-      if (!q) return true
-      return (
-        r.id.toLowerCase().includes(q) ||
-        r.name?.toLowerCase().includes(q) ||
-        r.description?.toLowerCase().includes(q)
-      )
-    })
-  }, [galleryRecipes, galleryFilter, galleryTypeFilter])
+  // Indexees par id : la vignette locale n'a qu'a demander la sienne.
+  const misesAJour = useMemo(
+    () => new Map((updatesQuery.data ?? []).map((u) => [u.id, u])),
+    [updatesQuery.data],
+  )
   const isEditing = editingId !== null
   const isPending = addRecipe.isPending || updateRecipe.isPending
 
@@ -167,80 +159,13 @@ export default function AdminRecipes() {
         </div>
       </section>
 
-      {/* ── Galerie ─────────────────────────────────────────────────── */}
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">{t('admin.gallery')}</h2>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => refetchGallery()}
-            disabled={isLoadingGallery}
-          >
-            <RefreshCw
-              className={`h-4 w-4 mr-1 ${isLoadingGallery ? 'animate-spin' : ''}`}
-            />
-            {t('admin.refreshGallery')}
-          </Button>
-        </div>
-        {galleryRecipes.length > 0 && (
-          <div className="mb-4 flex flex-col gap-2">
-            <div className="flex gap-1">
-              {(['all', 'install', 'start', 'initialize'] as const).map((v) => (
-                <Button
-                  key={v}
-                  size="sm"
-                  variant={galleryTypeFilter === v ? 'default' : 'outline'}
-                  onClick={() => setGalleryTypeFilter(v)}
-                >
-                  {t(`admin.galleryType.${v}`)}
-                </Button>
-              ))}
-            </div>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder={t('admin.filterGallery')}
-                value={galleryFilter}
-                onChange={(e) => setGalleryFilter(e.target.value)}
-                className="pl-8 text-sm"
-              />
-            </div>
-          </div>
-        )}
-        {isLoadingGallery && (
-          <p className="text-sm text-muted-foreground">…</p>
-        )}
-        {!isLoadingGallery && galleryRecipes.length === 0 && (
-          <p className="text-sm text-muted-foreground">{t('admin.recipesEmpty')}</p>
-        )}
-        {!isLoadingGallery && galleryRecipes.length > 0 && filteredGallery.length === 0 && (
-          <p className="text-sm text-muted-foreground">{t('admin.galleryNoMatch')}</p>
-        )}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filteredGallery.map((r: RemoteRecipe) => (
-            <div key={r.source_url} className="rounded-lg border bg-card p-4">
-              <div className="mb-1 flex items-start justify-between gap-2">
-                <div>
-                  <div className="font-medium">{r.name}</div>
-                  <div className="text-xs text-muted-foreground font-mono">{r.id}</div>
-                </div>
-                <Button
-                  size="sm"
-                  onClick={() => importRecipe.mutate(r.source_url)}
-                  disabled={importRecipe.isPending}
-                >
-                  {importRecipe.isPending && importRecipe.variables === r.source_url
-                    ? t('admin.importing')
-                    : t('admin.importRecipe')}
-                </Button>
-              </div>
-              <div className="text-sm text-muted-foreground">{r.description}</div>
-              <div className="mt-2 text-xs text-muted-foreground">v{r.version}</div>
-            </div>
-          ))}
-        </div>
-      </section>
+      <RecipeGallerySection
+        recipes={galleryRecipes}
+        isLoading={isLoadingGallery}
+        onRefresh={() => { void refetchGallery() }}
+        onImport={(url) => importRecipe.mutate(url)}
+        importPendingUrl={importRecipe.isPending ? (importRecipe.variables ?? null) : null}
+      />
 
       {/* ── Recettes locales ────────────────────────────────────────── */}
       <section>
@@ -255,11 +180,26 @@ export default function AdminRecipes() {
           <p className="text-muted-foreground">{t('admin.recipesEmpty')}</p>
         )}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {recipes?.map((recipe: Recipe) => (
+          {recipes?.map((recipe: Recipe) => {
+            const maj = misesAJour.get(recipe.id)
+            return (
             <div key={recipe.id} className="rounded-lg border bg-card p-4">
               <div className="mb-1 flex items-start justify-between gap-2">
                 <div className="font-medium">{recipe.id}</div>
                 <div className="flex gap-1">
+                  {/* N'apparait que si la source publie une AUTRE version : un
+                      bouton toujours la n'apprendrait rien. */}
+                  {maj && (
+                    <Button
+                      size="sm"
+                      onClick={() => updateFromSource.mutate(recipe.id)}
+                      disabled={updateFromSource.isPending}
+                    >
+                      {updateFromSource.isPending && updateFromSource.variables === recipe.id
+                        ? t('admin.recipeUpdating')
+                        : t('admin.recipeUpdate', { version: maj.remote_version })}
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -279,9 +219,17 @@ export default function AdminRecipes() {
                 </div>
               </div>
               <div className="text-sm text-muted-foreground">{recipe.description}</div>
-              <div className="mt-2 text-xs text-muted-foreground">v{recipe.version}</div>
+              <div className="mt-2 text-xs text-muted-foreground">
+                v{recipe.version}
+                {maj && (
+                  <span className="ml-2 text-amber-500">
+                    {t('admin.recipeOutdated', { version: maj.remote_version })}
+                  </span>
+                )}
+              </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       </section>
 

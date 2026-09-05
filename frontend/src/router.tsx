@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { createBrowserRouter } from 'react-router-dom'
 import AppShell from '@/shared/layouts/AppShell'
 import AdminGuard from '@/shared/layouts/AdminGuard'
 import VaultGuard from '@/shared/layouts/VaultGuard'
@@ -18,6 +18,7 @@ import {
   AdminNetwork,
   AdminOidc,
   AdminProfileEditor,
+  AdminHypervisorTypeEditor,
   AdminAutomations,
   AutomationEditor,
   AdminContracts,
@@ -25,6 +26,12 @@ import {
   AdminProfileSources,
   AdminProxmox,
   AdminRecipes,
+  AdminMachineProfiles,
+  AdminHostProfiles,
+  AdminBillingCatalog,
+  AdminBillingOffers,
+  AdminAbonnements,
+  AdminOfferEditor,
   AdminSessions,
   AdminWorkflow,
   ApplicationsPage,
@@ -32,6 +39,10 @@ import {
   ConsentPage,
   CredentialsPage,
   ProfileEditor,
+  ForfaitsPage,
+  LandingPage,
+  SouscriptionPage,
+  AbonnementPage,
   ProfileList,
   ProfilePage,
   RecipeCatalog,
@@ -48,6 +59,13 @@ import {
 } from '@/router-pages'
 
 export const router = createBrowserRouter([
+  // Accueil PUBLIC : un visiteur sans compte doit pouvoir lire ce que fait
+  // l'application. La page redirige elle-meme un utilisateur deja connecte
+  // vers ses workspaces — d'ou l'absence de `RequireAuth` ici.
+  { path: '/', element: <Wrap><LandingPage /></Wrap> },
+  // Forfaits : publique elle aussi. Un visiteur doit pouvoir comparer les
+  // offres avant de creer un compte, sinon la landing envoie dans le vide.
+  { path: '/forfaits', element: <Wrap><ForfaitsPage /></Wrap> },
   { path: '/auth/login', element: <LoginPage /> },
   { path: '/auth/callback', element: <AuthCallbackPage /> },
   {
@@ -124,8 +142,12 @@ export const router = createBrowserRouter([
       </RequireAuth>
     ),
     children: [
-      { index: true, element: <Navigate to="/workspaces" replace /> },
       { path: '/workspaces', element: <Wrap><WorkspaceList /></Wrap> },
+      // Souscrire exige un compte : la page vit DANS la coquille authentifiee,
+      // contrairement a la liste des forfaits qui reste publique.
+      { path: '/forfaits/:slug', element: <Wrap><SouscriptionPage /></Wrap> },
+      // Son abonnement : ce qu'il paie, jusqu'a quand, et son historique.
+      { path: '/abonnement', element: <Wrap><AbonnementPage /></Wrap> },
       { path: '/sessions', element: <Wrap><SessionsView /></Wrap> },
       { path: '/workspaces/new', element: <Wrap><WorkspaceCreate /></Wrap> },
       { path: '/recipes', element: <Wrap><RecipeCatalog /></Wrap> },
@@ -137,6 +159,43 @@ export const router = createBrowserRouter([
       {
         path: '/admin/hosts',
         element: <AdminGuard><Wrap><AdminHosts /></Wrap></AdminGuard>,
+      },
+      {
+        // `/admin/profiles` est deja pris par les profils VS Code : les profils
+        // de MACHINE ont leur propre chemin.
+        path: '/admin/machine-profiles',
+        element: <AdminGuard><Wrap><AdminMachineProfiles /></Wrap></AdminGuard>,
+      },
+      {
+        // Sous-menu « Forfaits » : ce qu'un forfait provisionne. Distinct des
+        // profils de MACHINE, qui savent construire la VM sans savoir ce
+        // qu'elle vaut a l'usage.
+        path: '/admin/host-profiles',
+        element: <AdminGuard><Wrap><AdminHostProfiles /></Wrap></AdminGuard>,
+      },
+      {
+        // Meme sous-menu « Forfaits » : le catalogue dit OU l'on vend et par
+        // quel canal, la ou les profils de host disent ce qu'on provisionne.
+        path: '/admin/billing-catalog',
+        element: <AdminGuard><Wrap><AdminBillingCatalog /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/billing-offers',
+        element: <AdminGuard><Wrap><AdminBillingOffers /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/abonnements',
+        element: <AdminGuard><Wrap><AdminAbonnements /></Wrap></AdminGuard>,
+      },
+      {
+        // Ecran plein, pas une fenetre modale : une offre se saisit en plusieurs
+        // minutes, avec un editeur markdown par langue.
+        path: '/admin/billing-offers/new',
+        element: <AdminGuard><Wrap><AdminOfferEditor /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/billing-offers/:slug',
+        element: <AdminGuard><Wrap><AdminOfferEditor /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/recipes',
@@ -161,6 +220,15 @@ export const router = createBrowserRouter([
       {
         path: '/admin/hypervisor-types',
         element: <AdminGuard><Wrap><AdminHypervisorTypes /></Wrap></AdminGuard>,
+      },
+      {
+        // `new` = création : même page, même formulaire, pas de popup.
+        path: '/admin/hypervisor-types/new',
+        element: <AdminGuard><Wrap><AdminHypervisorTypeEditor /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/hypervisor-types/:name',
+        element: <AdminGuard><Wrap><AdminHypervisorTypeEditor /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/agent-types',

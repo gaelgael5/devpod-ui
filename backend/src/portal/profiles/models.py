@@ -23,7 +23,10 @@ _USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 
 class ProfileBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    name: str = Field(min_length=1, max_length=80, pattern=r"^[\w\s\-+.]{1,80}$")
+    # Le `/` est admis : « C/C++ Dev », « TypeScript / Node.js » sont des
+    # LIBELLÉS — le chemin sur disque est dérivé du slug, validé séparément
+    # (`_VALID_SLUG`), et la slugification traite `/` comme un séparateur.
+    name: str = Field(min_length=1, max_length=80, pattern=r"^[\w\s\-+./]{1,80}$")
     description: str = ""
     # Image de base du devcontainer — vide = image par défaut du portail. Permet
     # de partir d'une image outillée (ex. mcr.microsoft.com/devcontainers/python)

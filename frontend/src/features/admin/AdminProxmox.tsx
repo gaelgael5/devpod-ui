@@ -11,8 +11,63 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { apiFetchJson } from '@/shared/api/client'
-import { useAdminProxmox, type HypervisorConfig } from './useAdminProxmox'
+import {
+  useAdminProxmox,
+  useHypervisorCharges,
+  type ChargesHyperviseur,
+  type HypervisorConfig,
+} from './useAdminProxmox'
 import { useAdminHypervisorTypes } from './useAdminHypervisorTypes'
+import ActionsMenu from './ActionsMenu'
+import { useHypervisorActions } from './useHypervisorActions'
+
+/**
+ * Menu Actions d'une ligne d'hyperviseur.
+ *
+ * Composant a part parce que chaque ligne interroge SES actions : un hook ne
+ * s'appelle pas dans une boucle de rendu.
+ */
+function HypervisorRowActions({ node }: { node: HypervisorConfig }) {
+  const { data } = useHypervisorActions(node.name)
+  return (
+    <ActionsMenu
+      base={`/admin/hypervisors/${node.name}`}
+      cibleLabel={node.name}
+      actions={data ?? []}
+    />
+  )
+}
+
+/**
+ * Machines portées par un hyperviseur, ventilées par nature.
+ *
+ * Des ZÉROS plutôt qu'un vide : un hyperviseur sans machine doit se lire
+ * « libre », pas « comptage raté ». Les machines jamais sondées ne sont ni
+ * actives ni arrêtées — leur cas s'affiche à part. `autres` n'apparaît que
+ * s'il porte quelque chose : c'est un agrégat de destinations rares, pas une
+ * nature de premier rang.
+ */
+function ChargesCell({ charges }: { charges: ChargesHyperviseur | undefined }) {
+  const { t } = useTranslation()
+  if (!charges) return <span className="text-muted-foreground">…</span>
+  return (
+    <div className="flex flex-col gap-0.5 text-xs">
+      <span>
+        {charges.workspaces} {t('admin.charges.workspaces')}
+        {' · '}
+        {charges.tests} {t('admin.charges.tests')}
+        {' · '}
+        {charges.ressources} {t('admin.charges.ressources')}
+        {charges.autres > 0 && <> · {charges.autres} {t('admin.charges.autres')}</>}
+      </span>
+      {charges.jamais_sondees > 0 && (
+        <span className="text-muted-foreground italic">
+          {t('admin.charges.jamaisSondees', { count: charges.jamais_sondees })}
+        </span>
+      )}
+    </div>
+  )
+}
 
 const EMPTY = {
   name: '', address: '', ssh_user: 'root', ssh_port: 22,
@@ -44,6 +99,7 @@ export default function AdminProxmox() {
   const { t } = useTranslation()
   const { nodesQuery, deleteNode, addNode, updateNode } = useAdminProxmox()
   const { typesQuery } = useAdminHypervisorTypes()
+  const { data: charges } = useHypervisorCharges()
   const { data: nodes, isLoading, isError } = nodesQuery
   const hypervisorTypes = typesQuery.data ?? []
 
@@ -325,6 +381,7 @@ export default function AdminProxmox() {
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.sshUser')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.pveNode')}</th>
                 <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.form.hypervisorType')}</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.charges.col')}</th>
                 <th className="px-4 py-2" />
               </tr>
             </thead>
@@ -335,8 +392,18 @@ export default function AdminProxmox() {
                   <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{n.address}</td>
                   <td className="px-4 py-2 text-muted-foreground">{n.ssh_user}</td>
                   <td className="px-4 py-2 text-muted-foreground">{n.pve_node}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{n.hypervisor_type || '—'}</td>
+                  {/* Le libelle, pas la clef technique : le `name` peut etre
+                      un slug (« roxmox4vm ») que personne ne reconnait. */}
+                  <td className="px-4 py-2 text-muted-foreground">
+                    {hypervisorTypes.find((ht) => ht.name === n.hypervisor_type)?.label
+                      || n.hypervisor_type
+                      || '—'}
+                  </td>
+                  <td className="px-4 py-2" data-testid={`charges-${n.name}`}>
+                    <ChargesCell charges={charges?.par_hyperviseur[n.name]} />
+                  </td>
                   <td className="px-4 py-2 text-right flex items-center justify-end gap-1">
+                    <HypervisorRowActions node={n} />
                     <Button size="sm" variant="ghost" onClick={() => handleEditOpen(n)}>
                       {t('workspaces.actions.edit')}
                     </Button>
@@ -355,6 +422,14 @@ export default function AdminProxmox() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Sans provenance : personne ne se les attribue — un lien deviné est
+          pire qu'un lien absent. Le cas se dit, il ne disparaît pas. */}
+      {charges && charges.sans_provenance > 0 && (
+        <p className="text-xs text-muted-foreground italic">
+          {t('admin.charges.sansProvenance', { count: charges.sans_provenance })}
+        </p>
       )}
 
       {/* ─── Dialogue aide clé SSH ─────────────────────────────────────────── */}

@@ -30,6 +30,13 @@ def _test_chemin(chemin: str) -> str:
     return f'[ -e {cible} ] || echo "{_FAIL} path_exists {cible}"'
 
 
+def _test_accessible(chemin: str) -> str:
+    """Lisible ET inscriptible. Un fichier de peripherique peut exister sans
+    etre accessible — /dev/kvm appartient au groupe `kvm`."""
+    cible = shlex.quote(chemin)
+    return f'[ -r {cible} ] && [ -w {cible} ] || echo "{_FAIL} path_writable {cible}"'
+
+
 def _test_disque(gb: int, chemin: str) -> str:
     cible = shlex.quote(chemin)
     requis = gb * _KO_PAR_GO
@@ -57,6 +64,8 @@ def build_check_command(preconditions: list[RecipePrecondition]) -> str:
     for p in preconditions:
         if p.path_exists:
             tests.append(_test_chemin(p.path_exists))
+        if p.path_writable:
+            tests.append(_test_accessible(p.path_writable))
         if p.disk_free_gb is not None:
             tests.append(_test_disque(p.disk_free_gb, p.disk_path))
         if p.arch:
@@ -77,6 +86,10 @@ def parse_check_output(out: str) -> list[str]:
         nom, args = champs[0], champs[1:]
         if nom == "path_exists":
             manquantes.append(f"chemin absent : {' '.join(args)}")
+        elif nom == "path_writable":
+            # Distinct de l'absence : « absent » appelle a activer le nesting,
+            # « pas accessible » a ajouter l'utilisateur au groupe.
+            manquantes.append(f"chemin non accessible en lecture/ecriture : {' '.join(args)}")
         elif nom == "disk_free_gb":
             taille = args[0] if args else "?"
             chemin = args[1] if len(args) > 1 else "/"

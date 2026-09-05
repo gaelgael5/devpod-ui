@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from datetime import datetime
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .tables import test_host_links as _links
 from .tables import workspace_test_hosts as _t
+from .tables import workspaces
 
 _ALIAS_RE = re.compile(r"^test([0-9]+)$")
 
@@ -316,17 +318,85 @@ async def host_full_info(
     return (row["login"], row["workspace_name"], row["alias"] or "") if row else None
 
 
-async def get_test_host_message_id(
+async def list_test_host_creation_dates(conn: AsyncConnection) -> dict[str, datetime]:
+    """Date de creation de chaque host de test, par nom (ligne propriétaire).
+
+    Un nom de machine se réemploie : c'est cette date qui permet de dire qu'un
+    déploiement plus ancien que la machine ne peut pas y tourner.
+    """
+    rows = (
+        await conn.execute(
+            select(_t.c.host_name, _t.c.created_at).where(_t.c.shared_from_workspace.is_(None))
+        )
+    ).mappings().all()
+    return {r["host_name"]: r["created_at"] for r in rows if r["created_at"] is not None}
+
+
+async def workspace_context_for_host(
     host_name: str, conn: AsyncConnection
-) -> int | None:
-    """Retourne le message_id du host de test (ligne propriétaire), ou None."""
-    return (
+) -> dict[str, str] | None:
+    """Contexte du workspace auquel une machine de test est rattachée.
+
+    Les clés sont celles du vocabulaire `CONTEXT_KEYS` — celles qu'une recette
+    peut citer dans un `from:`. `None` si la machine n'est rattachée à aucun
+    workspace : un host de workspaces ou un serveur de ressources n'a pas de
+    dépôt à faire connaître, et ce n'est pas une erreur.
+
+    `workspace.id` est l'identifiant canonique `<login>-<nom>`, celui qui nomme
+    le conteneur et les répertoires : c'est lui qu'on retrouve dans les logs.
+
+    La jointure porte sur la ligne PROPRIÉTAIRE : une machine partagée vers un
+    autre workspace garde le dépôt de celui qui l'a créée.
+    """
+    row = (
+        (
+            await conn.execute(
+                select(
+                    _t.c.login,
+                    _t.c.workspace_name,
+                    workspaces.c.source,
+                    workspaces.c.branch,
+                )
+                .select_from(
+                    _t.join(
+                        workspaces,
+                        (workspaces.c.login == _t.c.login)
+                        & (workspaces.c.name == _t.c.workspace_name),
+                    )
+                )
+                .where((_t.c.host_name == host_name) & (_t.c.shared_from_workspace.is_(None)))
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if row is None:
+        return None
+    return {
+        "workspace.id": f"{row['login']}-{row['workspace_name']}",
+        "workspace.git_url": row["source"] or "",
+        "workspace.git_ref": row["branch"] or "",
+    }
+
+
+async def list_test_host_message_ids(host_name: str, conn: AsyncConnection) -> list[int]:
+    """message_id des lignes PROPRIÉTAIRES d'un host de test.
+
+    Une liste, pas une valeur unique : rien en base n'empêche deux workspaces
+    de posséder un host du même nom, et c'est arrivé — une suppression côté
+    admin retirait le host de la config sans détacher ses associations, et la
+    machine suivante à porter ce nom en créait une seconde. `scalar_one_or_none`
+    levait alors `MultipleResultsFound` au beau milieu de la suppression, le
+    seul chemin qui aurait permis de nettoyer.
+    """
+    rows = (
         await conn.execute(
             select(_t.c.message_id).where(
                 (_t.c.host_name == host_name) & (_t.c.shared_from_workspace.is_(None))
             )
         )
-    ).scalar_one_or_none()
+    ).all()
+    return [r[0] for r in rows if r[0] is not None]
 
 
 async def set_test_host_message_id(
