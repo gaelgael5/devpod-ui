@@ -784,6 +784,23 @@ describe('FullscreenTerminal — historique au geste', () => {
     expect(sent()).toContain(LINE_DOWN)
   })
 
+  it('ferme le clavier des que le geste defile', () => {
+    // Defiler clavier ouvert est instable : la geometrie change sous le doigt
+    // (resize en plein geste). Le glissement dit « je veux LIRE » : on ferme le
+    // clavier, l'ecran entier redevient disponible (demande utilisateur 05/09).
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    terminals[0].textarea.focus()
+    expect(document.activeElement).toBe(terminals[0].textarea)
+
+    fireEvent.touchStart(surface(), { touches: [{ clientX: 10, clientY: 300 }] })
+    fireEvent.touchMove(surface(), {
+      touches: [{ clientX: 10, clientY: 300 - DRAG_SLOP_PX - 1 }],
+    })
+
+    expect(document.activeElement).not.toBe(terminals[0].textarea)
+  })
+
   it('parle molette SGR a une TUI qui suit la souris (Claude Code)', () => {
     // Son historique tmux est VIDE (copy-mode a [0/0]) : le copy-mode n'a rien
     // a defiler, c'est l'application qui defile son transcript sur la molette.

@@ -480,7 +480,15 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       doubleTap.move(t.clientX, t.clientY)
       // Pas de preventDefault sans mouvement : l'appui long, donc la selection
       // native sur mobile, reste intact.
-      if (scroller.touchMove(t.clientY)) e.preventDefault()
+      if (scroller.touchMove(t.clientY)) {
+        // Defiler clavier ouvert est instable : la geometrie change sous le
+        // doigt (resize en plein geste). Le glissement dit « je veux LIRE » :
+        // on ferme le clavier, l'ecran entier redevient disponible (demande
+        // utilisateur du 05/09). Le blur ne part qu'une fois — apres, la zone
+        // de saisie n'est plus l'element actif.
+        if (document.activeElement === inputRef.current) inputRef.current?.blur()
+        e.preventDefault()
+      }
     }
     const onTouchEnd = (e: TouchEvent) => {
       scroller.touchEnd()
