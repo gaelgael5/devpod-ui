@@ -15,6 +15,8 @@ FROM python:3.12-slim
 
 # Version DevPod à pinner — vérifier avec : devpod version
 ARG DEVPOD_VERSION=0.6.15
+# Version OpenTofu à pinner — vérifier avec : tofu version (socle IaC, ticket 8)
+ARG OPENTOFU_VERSION=1.10.6
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -50,6 +52,17 @@ RUN ARCH=$(dpkg --print-architecture) \
         "https://github.com/loft-sh/devpod/releases/download/v${DEVPOD_VERSION}/devpod-${DEVPOD_ARCH}" \
         -o /usr/local/bin/devpod \
     && chmod 755 /usr/local/bin/devpod
+
+# OpenTofu pinné — le runner IaC du provisionnement de machines. Le cache de
+# providers vit dans /data/tofu/mirror (volume), peuplé par
+# scripts/tofu-mirror.sh : sans lui, chaque init retéléchargerait le provider.
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -fsSL \
+        "https://github.com/opentofu/opentofu/releases/download/v${OPENTOFU_VERSION}/tofu_${OPENTOFU_VERSION}_linux_${ARCH}.tar.gz" \
+        -o /tmp/tofu.tar.gz \
+    && tar -xzf /tmp/tofu.tar.gz -C /usr/local/bin tofu \
+    && chmod 755 /usr/local/bin/tofu \
+    && rm /tmp/tofu.tar.gz
 
 # Installer uv pour résoudre les deps depuis le lockfile (builds déterministes)
 RUN pip install --no-cache-dir uv
