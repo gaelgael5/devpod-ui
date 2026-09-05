@@ -51,6 +51,10 @@ class PolitiqueRetention(BaseModel):
     echec_paiement_jours: int = Field(default=14, ge=1)
     #: Jours entre la résiliation et la destruction.
     resiliation_jours: int = Field(default=30, ge=1)
+    #: Jours AVANT la destruction où part le dernier avertissement email
+    #: (fiche 6fdfdaab). 0 = pas d'avertissement — c'est le « seulement si le
+    #: délai configuré est > 0 » de la fiche.
+    avertissement_jours: int = Field(default=3, ge=0)
 
     def delai_jours(self, state: str) -> int:
         """Délai applicable à un état d'abonnement en fin de vie.

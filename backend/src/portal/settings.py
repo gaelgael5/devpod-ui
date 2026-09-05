@@ -91,6 +91,11 @@ class AppSettings(BaseSettings):
     # provisionnement est REFUSÉ avant toute création. 0 = aucun plafond —
     # à réserver aux environnements sans provider facturé.
     provisioning_cost_cap_eur_month: float = 0.0
+    # Identité produit des emails du cycle d'abonnement. L'adresse support est
+    # vide par défaut : les templates l'affichent conditionnellement — on ne
+    # publie pas une adresse inventée.
+    product_name: str = "devflow"
+    support_email: str = ""
 
     # Base de données PostgreSQL (format : postgresql+asyncpg://user:pass@host/db)
     database_url: str = ""

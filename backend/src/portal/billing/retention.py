@@ -118,4 +118,13 @@ async def retention_sweep_loop(interval_s: float = 3600.0) -> None:
                 log.info("retention_sweep_done", emis=emis)
         except Exception:
             log.warning("retention_sweep_failed", exc_info=True)
+        # APRÈS la rétention : les épisodes déjà expirés viennent d'être
+        # notifiés et sortent de la requête — l'avertissement ne vise que ce
+        # qui expire dans les `avertissement_jours` à venir.
+        try:
+            from ..emails.service import balayer_avertissements
+
+            await balayer_avertissements()
+        except Exception:
+            log.warning("avertissement_sweep_failed", exc_info=True)
         await asyncio.sleep(interval_s)

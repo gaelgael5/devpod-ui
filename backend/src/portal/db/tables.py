@@ -1953,6 +1953,38 @@ provisioning_runs = Table(
     ),
     UniqueConstraint("subscription_id", "provider_event_id", name="uq_provisioning_run_event"),
 )
+emails_envoyes = Table(
+    "emails_envoyes",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column(
+        "subscription_id",
+        UUID(as_uuid=False),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    # 5 kinds du cycle + 'avertissement_destruction' (balayeur de retention).
+    Column("kind", Text, nullable=False),
+    # provider_event_id du webhook, ou cle d'episode du balayeur.
+    Column("dedup_key", Text, nullable=False),
+    Column("destinataire", Text, nullable=False),
+    Column("culture", Text, nullable=False, server_default="fr"),
+    Column("template", Text, nullable=False),
+    # Payload FIGE (preuve de ce qui a ete annonce) — jamais un secret.
+    Column("data", JSONB, nullable=False),
+    Column("statut", Text, nullable=False, server_default="reserve"),
+    Column("erreur", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("statut IN ('reserve','envoye','echec')", name="ck_email_envoye_statut"),
+    UniqueConstraint("subscription_id", "kind", "dedup_key", name="uq_email_envoye_episode"),
+)
+Index(
+    "ix_emails_envoyes_echec",
+    emails_envoyes.c.statut,
+    postgresql_where=text("statut = 'echec'"),
+)
+
 Index(
     "ix_provisioning_runs_echec",
     provisioning_runs.c.state,

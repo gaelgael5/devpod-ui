@@ -100,3 +100,15 @@ async def publier_evenement_abonnement(
             subscription_id=abonnement.id,
             exc_info=True,
         )
+
+    # L'email du cycle suit le même fait générateur, depuis le même entonnoir :
+    # webhook, souscription gratuite, octroi d'essai et clôture au terme passent
+    # tous ici. Le type rétention émet le sien via le balayeur d'avertissements,
+    # pas ici. Best-effort : envoyer_email_cycle ne lève jamais.
+    if type_evenement is None:
+        from ..emails.service import KINDS_AVEC_EMAIL, envoyer_email_cycle
+
+        if kind in KINDS_AVEC_EMAIL:
+            await envoyer_email_cycle(
+                kind, abonnement, provider_event_id=provider_event_id, conn=conn
+            )

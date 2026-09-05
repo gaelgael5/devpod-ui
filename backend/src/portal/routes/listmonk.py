@@ -116,7 +116,51 @@ async def tester_connexion(
             motif = str(corps.get("message") or "")
     except ValueError:
         pass
-    log.warning(
-        "listmonk_test_rejected", url=cfg.url, status=resp.status_code, motif=motif
-    )
+    log.warning("listmonk_test_rejected", url=cfg.url, status=resp.status_code, motif=motif)
     return ResultatTest(ok=False, status_code=resp.status_code, motif=motif)
+
+
+@router.post("/listmonk/sync-templates")
+async def synchroniser_templates(
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, int]:
+    """Pousse les 12 templates versionnés (6 messages × fr/en) vers Listmonk.
+
+    Action admin explicite, jamais au démarrage — même règle que la synchro des
+    recettes. Idempotente : créé ou mis à jour, au nom près.
+    """
+    from ..emails.listmonk_tx import ListmonkIndisponible, ListmonkTxClient
+    from ..emails.templates import TEMPLATES, nom_template
+
+    cfg = load_global().listmonk
+    if not cfg.enabled or not cfg.url.strip() or not cfg.apikey_secret.strip():
+        raise HTTPException(
+            status_code=409,
+            detail="Activez et configurez la connexion Listmonk avant la synchro.",
+        )
+    try:
+        credential = await reveal_system_secret(cfg.apikey_secret, conn)
+    except KeyError:
+        raise HTTPException(
+            status_code=409, detail=f"secret {cfg.apikey_secret!r} introuvable"
+        ) from None
+
+    client = ListmonkTxClient(url=cfg.url, credential=credential)
+    bilan = {"cree": 0, "mis_a_jour": 0}
+    for (message, culture), template in sorted(TEMPLATES.items()):
+        try:
+            action = await client.synchroniser_template(
+                nom=nom_template(message, culture),
+                sujet=template.sujet,
+                corps=template.corps,
+            )
+        except ListmonkIndisponible as exc:
+            # L'échec au N-ième template dit lesquels sont passés : le bilan
+            # partiel accompagne l'erreur.
+            raise HTTPException(
+                status_code=502, detail=f"{exc} — synchronisés avant l'échec : {bilan}"
+            ) from exc
+        bilan[action] += 1
+    log.info("listmonk_templates_synchronises", **bilan, actor=user.login)
+    return bilan

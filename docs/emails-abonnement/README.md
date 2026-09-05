@@ -94,3 +94,16 @@ sont des chaînes prêtes à afficher dans la locale du destinataire.
    payload avec un rendu conditionnel, pour ne pas re-toucher les templates.
 5. Payload = dict plat de chaînes + 3 booléens + 1 liste — aucun objet imbriqué,
    aucun secret, aucun montant en centimes bruts.
+
+## Implémentation (05/09/2026)
+
+Livrée dans `backend/src/portal/emails/` : `templates.py` (les 12 templates,
+source de vérité versionnée dérivée de ce répertoire), `formatage.py`,
+`listmonk_tx.py` (client `/api/tx` + synchro), `service.py` (payload, journal
+`emails_envoyes` — dédup par épisode, payload figé), branchée sur l'entonnoir
+`billing/evenements.py` et sur la boucle de rétention (préavis
+`avertissement_jours`, défaut 3, 0 = désactivé).
+
+Mise en service : configurer la connexion Listmonk (écran admin), puis
+`POST /admin/listmonk/sync-templates` (12 templates créés/mis à jour).
+Les envois se journalisent dans `emails_envoyes` (statuts reserve/envoye/echec).

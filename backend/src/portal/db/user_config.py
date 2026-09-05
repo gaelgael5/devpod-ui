@@ -440,6 +440,29 @@ def _ws_to_row(login: str, ws: WorkspaceSpec) -> dict[str, Any]:
     }
 
 
+async def contact_de(login: str, conn: AsyncConnection) -> tuple[str, str, str]:
+    """`(email, culture, display_name)` du compte — chaînes vides si inconnus.
+
+    Le trio des emails du cycle : l'email route l'envoi (vide = on refuse
+    d'envoyer, avec un log — jamais un envoi à vide), la culture choisit le
+    template, le display_name humanise la salutation (repli : le login).
+    """
+    row = (
+        (
+            await conn.execute(
+                select(users.c.email, users.c.culture, users.c.display_name).where(
+                    users.c.login == login
+                )
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if row is None:
+        return "", "fr", ""
+    return row["email"] or "", row["culture"] or "fr", row["display_name"] or ""
+
+
 async def email_de(login: str, conn: AsyncConnection) -> str:
     """Courriel du compte, ou `""` s'il n'est pas connu.
 
