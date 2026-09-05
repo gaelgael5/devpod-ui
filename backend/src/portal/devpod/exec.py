@@ -55,21 +55,40 @@ def remote_tmux_command(session: str) -> str:
 
 
 def tmux_refresh_command(sock_detect: str, tmux_prefix: str, session: str) -> str:
-    """Commande shell distante : force un repaint plein écran du terminal tmux.
+    """Commande shell distante : resynchronise la taille puis repeint le terminal.
 
-    `refresh-client` retransmet TOUT l'écran au client, comme le fait un `attach`
-    (un F5) — c'est le seul moyen d'effacer les résidus déjà peints côté
-    navigateur, que le redessin différentiel de tmux ne renvoie jamais (il croit
-    ces cellules correctes). Un nudge de taille, lui, ne les touche pas.
+    Deux temps, dans cet ordre :
 
-    On rafraîchit chaque client attaché À CETTE session (la politique « un seul
+    1. `kill -WINCH` sur le PID de chaque client attaché. Derrière `devpod ssh`
+       (login root puis `su - <user>`), le client tmux n'a PAS de terminal de
+       contrôle : le SIGWINCH émis par le TIOCSWINSZ du pont n'atteint personne,
+       et le client garde sa taille d'attache pendant que xterm, lui, a changé
+       (mesuré en production le 05/09 : clavier mobile ouvert, xterm à 28 lignes,
+       client tmux figé à 49 — écran « décalé », que le repaint seul reproduisait
+       à l'identique). Signalé directement au processus, le client relit son tty
+       — que le pont a déjà mis à la bonne taille — et l'annonce au serveur
+       (vérifié sur tmux 3.6, y compris sans terminal de contrôle).
+    2. `refresh-client`, qui retransmet TOUT l'écran au client, comme le fait un
+       `attach` (un F5) — c'est le seul moyen d'effacer les résidus déjà peints
+       côté navigateur, que le redessin différentiel de tmux ne renvoie jamais
+       (il croit ces cellules correctes). Un nudge de taille, lui, ne les touche
+       pas.
+
+    Le `sleep` entre les deux laisse au client le temps d'annoncer sa nouvelle
+    taille au serveur : repeindre avant, c'est retransmettre l'écran à
+    l'ancienne géométrie.
+
+    On traite chaque client attaché À CETTE session (la politique « un seul
     écran » n'en laisse qu'un, mais la boucle reste correcte s'il y en avait
-    plusieurs). `session` est shell-quotée ; le nom de client passe par une
-    variable citée, jamais interpolé.
+    plusieurs). `session` est shell-quotée ; pid et nom de client passent par
+    des variables citées, jamais interpolés.
     """
     q = shlex.quote(session)
     return (
         f"{sock_detect}; "
+        f"{tmux_prefix} list-clients -t {q} -F '#{{client_pid}}' 2>/dev/null | "
+        'while IFS= read -r p; do kill -WINCH "$p" 2>/dev/null; done; '
+        "sleep 0.2; "
         f"{tmux_prefix} list-clients -t {q} -F '#{{client_name}}' 2>/dev/null | "
         f'while IFS= read -r c; do {tmux_prefix} refresh-client -t "$c"; done'
     )
