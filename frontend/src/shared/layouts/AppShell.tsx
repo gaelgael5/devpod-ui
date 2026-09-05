@@ -21,6 +21,7 @@ import SectionNav from '@/shared/nav/SectionNav'
 import { SECTION_FORFAITS, SECTION_MACHINES } from '@/shared/nav/sections'
 import { useMyCulture } from '@/features/profile/useCulture'
 import { useLanguageChoice } from '@/shared/hooks/useLanguageChoice'
+import OnboardingOverlay from '@/features/onboarding/OnboardingOverlay'
 
 const RAIL_LINK =
   'flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
@@ -298,6 +299,9 @@ export default function AppShell() {
         <SectionNav />
         <Outlet />
       </main>
+      {/* Parcours guidé (fiche 849978e7) : monté une fois ici, il se pilote sur
+          l'état serveur et ne rend rien quand le parcours est fini/désactivé. */}
+      <OnboardingOverlay />
     </div>
   )
 }

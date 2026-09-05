@@ -2375,5 +2375,49 @@
   "recherche": {
     "aucun": "No match",
     "affine": "{{restants}} more — refine your search"
+  },
+  "onboarding": {
+    "aria": "Onboarding tour",
+    "progression": "Step {{index}} / {{total}}",
+    "suivant": "Next",
+    "terminer": "Finish",
+    "fermer": "Close",
+    "reouvrir": "Resume tour",
+    "desactiver": "Turn off tour",
+    "horsSequence": "Go to “{{page}}” to continue the tour.",
+    "steps": {
+      "profil": {
+        "title": "Your preferences",
+        "body": "Set your profile: language, timezone, billing address."
+      },
+      "abonnement": {
+        "title": "Your plan",
+        "body": "Choose or review your subscription."
+      },
+      "secrets": {
+        "title": "Your secrets",
+        "body": "Store your keys and tokens in the vault, encrypted."
+      },
+      "git": {
+        "title": "Your Git access",
+        "body": "Add a Git credential to clone your private repositories."
+      },
+      "recette": {
+        "title": "Recipes",
+        "body": "Compose what your machines install at creation time."
+      },
+      "profils": {
+        "title": "Your VS Code profiles",
+        "body": "Define the environment of your workspaces."
+      },
+      "workspace": {
+        "title": "Your first workspace",
+        "body": "Create a workspace: a VS Code ready in the browser."
+      },
+      "sessions": {
+        "title": "Your sessions",
+        "body": "Find and reopen your working sessions."
+      }
+    }
   }
 }

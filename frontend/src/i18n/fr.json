@@ -2375,5 +2375,49 @@
   "recherche": {
     "aucun": "Aucun résultat",
     "affine": "{{restants}} autres — affinez la recherche"
+  },
+  "onboarding": {
+    "aria": "Parcours de découverte",
+    "progression": "Étape {{index}} / {{total}}",
+    "suivant": "Suivant",
+    "terminer": "Terminer",
+    "fermer": "Fermer",
+    "reouvrir": "Reprendre le guide",
+    "desactiver": "Désactiver le guide",
+    "horsSequence": "Rendez-vous sur « {{page}} » pour continuer le guide.",
+    "steps": {
+      "profil": {
+        "title": "Vos préférences",
+        "body": "Réglez votre profil : langue, fuseau, adresse de facturation."
+      },
+      "abonnement": {
+        "title": "Votre forfait",
+        "body": "Choisissez ou consultez votre abonnement."
+      },
+      "secrets": {
+        "title": "Vos secrets",
+        "body": "Déposez vos clés et jetons dans le coffre, chiffrés."
+      },
+      "git": {
+        "title": "Vos accès Git",
+        "body": "Ajoutez un identifiant Git pour cloner vos dépôts privés."
+      },
+      "recette": {
+        "title": "Les recettes",
+        "body": "Composez ce que vos machines installent à la création."
+      },
+      "profils": {
+        "title": "Vos profils VS Code",
+        "body": "Définissez l'environnement de vos workspaces."
+      },
+      "workspace": {
+        "title": "Votre premier workspace",
+        "body": "Créez un workspace : un VS Code prêt dans le navigateur."
+      },
+      "sessions": {
+        "title": "Vos sessions",
+        "body": "Retrouvez et rouvrez vos sessions de travail."
+      }
+    }
   }
 }
