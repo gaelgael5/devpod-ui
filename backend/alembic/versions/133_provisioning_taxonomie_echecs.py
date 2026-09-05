@@ -13,8 +13,8 @@ l'écrit plus.
 `provider` + `provider_ref` : ce que le driver a laissé derrière lui, posé dès
 que la machine existe. `provider_ref` est opaque (contrat du ticket 4).
 
-Revision ID: 128
-Revises: 127
+Revision ID: 133
+Revises: 132
 Create Date: 2026-09-05
 """
 
@@ -25,8 +25,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "128"
-down_revision: str | Sequence[str] | None = "127"
+revision: str = "133"
+down_revision: str | Sequence[str] | None = "132"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

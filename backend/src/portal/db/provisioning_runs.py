@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..billing.provisioning import Decision
 from .tables import provisioning_runs
 
-# `echec` : lignes antérieures à la migration 128 (issue inconnue, faute de
+# `echec` : lignes antérieures à la migration 133 (issue inconnue, faute de
 # taxonomie à l'époque) — le nouveau code ne l'écrit plus. La distinction qui
 # compte n'est pas succès/échec, c'est ce qu'il reste derrière (ticket 6).
 RunState = Literal[

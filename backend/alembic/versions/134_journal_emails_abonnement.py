@@ -5,8 +5,8 @@ l'écriture, comme provisioning_runs — et preuve : le payload est figé dans l
 ligne, dates limites comprises, pour pouvoir prouver ce qui a été annoncé même
 si la politique de rétention change ensuite.
 
-Revision ID: 129
-Revises: 128
+Revision ID: 134
+Revises: 133
 Create Date: 2026-09-05
 """
 
@@ -17,8 +17,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "129"
-down_revision: str | Sequence[str] | None = "128"
+revision: str = "134"
+down_revision: str | Sequence[str] | None = "133"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

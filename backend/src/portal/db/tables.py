@@ -1944,7 +1944,7 @@ provisioning_runs = Table(
         "action IN ('rien','assigner_host','creer_host_mutualise','creer_vm_dediee','impossible')",
         name="ck_provisioning_action",
     ),
-    # 'echec' = lignes anterieures a la migration 128 (issue inconnue faute de
+    # 'echec' = lignes anterieures a la migration 133 (issue inconnue faute de
     # taxonomie a l'epoque) ; le nouveau code ne l'ecrit plus.
     CheckConstraint(
         "state IN ('decide','en_cours','fait','echec',"
