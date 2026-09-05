@@ -1307,6 +1307,22 @@
       "testHint": "The test performs an authenticated call (/api/lists): it fails if the key is wrong — a plain ping would not tell.",
       "testOk": "Listmonk connection verified: the key is accepted.",
       "testFail": "Connection refused: {{detail}}"
+    },
+    "parc": {
+      "mutualisee": "Shared pool",
+      "jamaisSondee": "never probed",
+      "filtrerNom": "Filter by name…",
+      "filtrerProprietaire": "Filter by owner",
+      "tousProprietaires": "All owners",
+      "colProprietaire": "Owner",
+      "colWorkspaces": "Workspaces",
+      "colDisque": "Disk",
+      "colMemoire": "Memory",
+      "total_one": "{{count}} machine",
+      "total_other": "{{count}} machines",
+      "aucune": "No machine matches the filters.",
+      "page": "page {{page}} / {{pages}}",
+      "horsConfig": "not in config — actions unavailable"
     }
   },
   "errors": {

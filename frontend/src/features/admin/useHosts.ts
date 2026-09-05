@@ -366,3 +366,60 @@ export function useTestHostsSummary(hosts: HostConfig[]): UserTestGroup[] {
         .map(([workspace_name, entries]) => ({ workspace_name, entries })),
     }))
 }
+
+// ─── Vue « parc » : filtres, tris et pagination SERVEUR ───────────────────────
+
+/** Une ligne de la vue parc : nature, propriétaire, charge. `disk_used_pct`
+ * null = machine JAMAIS sondée — un inconnu, pas 0 %. */
+export interface LigneParc {
+  name: string
+  usage: string
+  accepts_mutualise: boolean
+  /** null sur une mutualisée : deux natures, deux rendus. */
+  owner_login: string | null
+  workspaces: number
+  disk_used_pct: number | null
+  mem_used_bytes: number | null
+  mem_total_bytes: number | null
+  hypervisor: string
+  capacity_workspaces: number | null
+}
+
+export interface PageParc {
+  total: number
+  page: number
+  page_size: number
+  proprietaires: string[]
+  hosts: LigneParc[]
+}
+
+export type TriParc = 'nom' | 'workspaces' | 'disque' | 'memoire'
+
+/** Valeur du filtre propriétaire qui sélectionne le POOL (décidé 31/08). */
+export const FILTRE_MUTUALISE = '__mutualise__'
+
+export interface ParcParams {
+  q: string
+  owner: string
+  tri: TriParc
+  descendant: boolean
+  page: number
+}
+
+export function useParcHosts(params: ParcParams) {
+  const qs = new URLSearchParams({
+    q: params.q,
+    owner: params.owner,
+    tri: params.tri,
+    descendant: String(params.descendant),
+    page: String(params.page),
+    page_size: '25',
+    // L'écran des hôtes de workspaces : tests/ressources/autres ont leurs sections.
+    hors_usages: 'tests,ressources,autres',
+  })
+  return useQuery<PageParc>({
+    queryKey: ['admin', 'hosts', 'parc', params],
+    queryFn: () => apiFetchJson<PageParc>(`/admin/hosts/parc?${qs.toString()}`),
+    placeholderData: (prev) => prev,
+  })
+}

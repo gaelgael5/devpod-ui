@@ -82,6 +82,18 @@ describe('AdminHosts', () => {
           { name: 'ded-4321', type: 'docker-tls', docker_host: 'tcp://10.0.0.42:2376', usage: 'workspaces', hypervisor: 'pve-1' },
           { name: 'manuel', type: 'docker-tls', docker_host: 'tcp://10.0.0.9:2376', usage: 'workspaces' },
         ])),
+      http.get('/admin/hosts/parc', () =>
+        HttpResponse.json({
+          total: 2, page: 1, page_size: 25, proprietaires: [],
+          hosts: [
+            { name: 'ded-4321', usage: 'workspaces', accepts_mutualise: false, owner_login: null,
+              workspaces: 0, disk_used_pct: null, mem_used_bytes: null, mem_total_bytes: null,
+              hypervisor: 'pve-1', capacity_workspaces: null },
+            { name: 'manuel', usage: 'workspaces', accepts_mutualise: false, owner_login: null,
+              workspaces: 0, disk_used_pct: null, mem_used_bytes: null, mem_total_bytes: null,
+              hypervisor: '', capacity_workspaces: null },
+          ],
+        })),
     )
     renderWithProviders(<AdminHosts />)
 
@@ -239,6 +251,15 @@ describe('AdminHosts', () => {
     server.use(
       http.get('/admin/hosts', () =>
         HttpResponse.json([{ name: 'brut', type: 'ssh', address: 'root@10.0.0.9' }])),
+      http.get('/admin/hosts/parc', () =>
+        HttpResponse.json({
+          total: 1, page: 1, page_size: 25, proprietaires: [],
+          hosts: [
+            { name: 'brut', usage: 'workspaces', accepts_mutualise: false, owner_login: null,
+              workspaces: 0, disk_used_pct: null, mem_used_bytes: null, mem_total_bytes: null,
+              hypervisor: '', capacity_workspaces: null },
+          ],
+        })),
     )
     const user = userEvent.setup()
     renderWithProviders(<AdminHosts />)
@@ -281,5 +302,98 @@ describe('AdminHosts', () => {
     // Radix rend l'item + une <option> native miroir → findAll.
     expect(await screen.findAllByText(/Docker node1/)).not.toHaveLength(0)
     expect(screen.queryByText(/Gitea SSH/)).not.toBeInTheDocument()
+  })
+})
+
+describe('AdminHosts — vue parc (fiche c3f54202)', () => {
+  beforeEach(() => {
+    useUserStore.setState({ user: { login: 'alice', roles: ['dev', 'admin'], is_admin: true } })
+  })
+
+  function servirParc(hosts: unknown[], proprietaires: string[] = []) {
+    const requetes: URLSearchParams[] = []
+    server.use(
+      http.get('/admin/hosts/parc', ({ request }) => {
+        requetes.push(new URL(request.url).searchParams)
+        return HttpResponse.json({
+          total: hosts.length, page: 1, page_size: 25, proprietaires, hosts,
+        })
+      }),
+    )
+    return requetes
+  }
+
+  const LIGNE = {
+    usage: 'workspaces', accepts_mutualise: false, owner_login: null, workspaces: 0,
+    disk_used_pct: null, mem_used_bytes: null, mem_total_bytes: null,
+    hypervisor: '', capacity_workspaces: null,
+  }
+
+  it('deux natures, deux rendus : propriétaire pour la dédiée, badge pour la mutualisée', async () => {
+    servirParc([
+      { ...LIGNE, name: 'ded-1', owner_login: 'bob' },
+      { ...LIGNE, name: 'mut-1', accepts_mutualise: true },
+    ])
+    renderWithProviders(<AdminHosts />)
+
+    const ded = await screen.findByTestId('parc-ded-1')
+    expect(ded).toHaveTextContent('bob')
+    const mut = screen.getByTestId('parc-mut-1')
+    // La mutualisée montre ce qu'elle EST — pas un vide qu'on croirait manquant.
+    expect(mut).toHaveTextContent(i18n.t('admin.parc.mutualisee'))
+    expect(mut).not.toHaveTextContent('bob')
+  })
+
+  it("une machine jamais sondée dit « jamais sondée », pas 0 %", async () => {
+    servirParc([
+      { ...LIGNE, name: 'sondee', disk_used_pct: 42, mem_used_bytes: 2_000_000_000, mem_total_bytes: 8_000_000_000 },
+      { ...LIGNE, name: 'inconnue' },
+    ])
+    renderWithProviders(<AdminHosts />)
+
+    expect(await screen.findByTestId('parc-sondee')).toHaveTextContent('42 %')
+    const inconnue = screen.getByTestId('parc-inconnue')
+    expect(inconnue).toHaveTextContent(i18n.t('admin.parc.jamaisSondee'))
+    expect(inconnue).not.toHaveTextContent('0 %')
+  })
+
+  it('les deux filtres se combinent dans la même requête', async () => {
+    const requetes = servirParc([], ['bob'])
+    const user = userEvent.setup()
+    renderWithProviders(<AdminHosts />)
+    await screen.findByPlaceholderText(i18n.t('admin.parc.filtrerNom'))
+
+    await user.type(screen.getByPlaceholderText(i18n.t('admin.parc.filtrerNom')), 'alpha')
+    await user.selectOptions(
+      screen.getByLabelText(i18n.t('admin.parc.filtrerProprietaire')),
+      '__mutualise__',
+    )
+
+    await waitFor(() => {
+      const derniere = requetes[requetes.length - 1]
+      expect(derniere.get('q')).toBe('alpha')
+      expect(derniere.get('owner')).toBe('__mutualise__')
+    })
+  })
+
+  it('cliquer un en-tête trie côté serveur, et re-cliquer inverse le sens', async () => {
+    const requetes = servirParc([])
+    const user = userEvent.setup()
+    renderWithProviders(<AdminHosts />)
+    const entete = await screen.findByRole('button', { name: new RegExp(i18n.t('admin.parc.colDisque')) })
+
+    await user.click(entete)
+    await waitFor(() => {
+      const d = requetes[requetes.length - 1]
+      expect(d.get('tri')).toBe('disque')
+      expect(d.get('descendant')).toBe('true')
+    })
+
+    await user.click(entete)
+    await waitFor(() => {
+      const d = requetes[requetes.length - 1]
+      expect(d.get('tri')).toBe('disque')
+      expect(d.get('descendant')).toBe('false')
+    })
   })
 })

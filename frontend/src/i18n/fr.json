@@ -1307,6 +1307,22 @@
       "testHint": "Le test exerce un appel authentifié (/api/lists) : il échoue si la clef est fausse — un simple ping ne le dirait pas.",
       "testOk": "Connexion Listmonk vérifiée : la clef est acceptée.",
       "testFail": "Connexion refusée : {{detail}}"
+    },
+    "parc": {
+      "mutualisee": "Mutualisée",
+      "jamaisSondee": "jamais sondée",
+      "filtrerNom": "Filtrer par nom…",
+      "filtrerProprietaire": "Filtrer par propriétaire",
+      "tousProprietaires": "Tous les propriétaires",
+      "colProprietaire": "Propriétaire",
+      "colWorkspaces": "Workspaces",
+      "colDisque": "Disque",
+      "colMemoire": "Mémoire",
+      "total_one": "{{count}} machine",
+      "total_other": "{{count}} machines",
+      "aucune": "Aucune machine ne correspond aux filtres.",
+      "page": "page {{page}} / {{pages}}",
+      "horsConfig": "hors config — actions indisponibles"
     }
   },
   "errors": {

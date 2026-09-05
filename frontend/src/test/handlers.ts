@@ -45,6 +45,27 @@ export const handlers = [
       { name: 'ssh-dev', type: 'ssh', default: false, address: 'debian@192.168.10.175', host_cert_slug: 'hosts/ssh_dev_ed25519', storage_type: 'local' },
     ])
   ),
+  // Vue « parc » (filtres/tris/pagination serveur) : par défaut, le miroir des
+  // trois hosts de /admin/hosts, sans sonde ni propriétaire.
+  http.get('/admin/hosts/parc', () =>
+    HttpResponse.json({
+      total: 3,
+      page: 1,
+      page_size: 25,
+      proprietaires: [],
+      hosts: [
+        { name: 'pve1', usage: 'workspaces', accepts_mutualise: false, owner_login: null,
+          workspaces: 0, disk_used_pct: null, mem_used_bytes: null, mem_total_bytes: null,
+          hypervisor: '', capacity_workspaces: null },
+        { name: 'pve2', usage: 'workspaces', accepts_mutualise: false, owner_login: null,
+          workspaces: 0, disk_used_pct: null, mem_used_bytes: null, mem_total_bytes: null,
+          hypervisor: '', capacity_workspaces: null },
+        { name: 'ssh-dev', usage: 'workspaces', accepts_mutualise: false, owner_login: null,
+          workspaces: 0, disk_used_pct: null, mem_used_bytes: null, mem_total_bytes: null,
+          hypervisor: '', capacity_workspaces: null },
+      ],
+    })
+  ),
   http.get('/me/git/branches', () => HttpResponse.json({ branches: [] })),
   http.get('/me/certificates', () =>
     HttpResponse.json([

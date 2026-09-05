@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useRevealCiPassword, useTestHostsSummary, type HostConfig, type HostCreatePayload, type HostUserWorkspaces, type UserTestGroup } from './useHosts'
+import { useHosts, useAddHost, useUpdateHost, useDeleteHost, useHostCert, useDestroyVm, useHostWorkspaces, useParcHosts, useRevealCiPassword, useTestHostsSummary, FILTRE_MUTUALISE, type HostConfig, type HostCreatePayload, type HostUserWorkspaces, type LigneParc, type TriParc, type UserTestGroup } from './useHosts'
 import ActionsMenu from './ActionsMenu'
 import { useHostActions } from './useHypervisorActions'
 import BootstrapSshDialog from './BootstrapSshDialog'
@@ -48,6 +48,244 @@ function HostRowActions({ host }: { host: HostConfig }) {
 
 function openHostSsh(name: string): void {
   openTerminalTab(`/admin/hosts/${encodeURIComponent(name)}/ssh`, name)
+}
+
+// ─── Vue « parc » des hôtes de workspaces (fiche c3f54202) ────────────────────
+
+function _go(octets: number): string {
+  return `${(octets / 1_000_000_000).toFixed(1)} Go`
+}
+
+/** Deux natures, deux rendus : une dédiée montre son propriétaire, une
+ * mutualisée montre ce qu'elle EST — jamais un vide qu'on croirait manquant. */
+function CelluleProprietaire({ ligne }: { ligne: LigneParc }) {
+  const { t } = useTranslation()
+  if (ligne.accepts_mutualise) {
+    return (
+      <span className="rounded-full border border-sky-600 px-2 py-0.5 text-xs text-sky-700 dark:text-sky-400">
+        {t('admin.parc.mutualisee')}
+      </span>
+    )
+  }
+  if (ligne.owner_login) return <span className="font-medium">{ligne.owner_login}</span>
+  return <span className="text-muted-foreground">—</span>
+}
+
+/** Une valeur sondée s'affiche ; une machine jamais sondée le DIT — un inconnu
+ * n'est pas un 0 %. */
+function CelluleSonde({ texte }: { texte: string | null }) {
+  const { t } = useTranslation()
+  if (texte === null) {
+    return <span className="text-xs italic text-muted-foreground">{t('admin.parc.jamaisSondee')}</span>
+  }
+  return <span className="tabular-nums">{texte}</span>
+}
+
+function EnTeteTriable({
+  cle,
+  libelle,
+  tri,
+  descendant,
+  onTri,
+}: {
+  cle: TriParc
+  libelle: string
+  tri: TriParc
+  descendant: boolean
+  onTri: (cle: TriParc) => void
+}) {
+  const actif = tri === cle
+  return (
+    <th className="px-4 py-2 text-left font-medium text-muted-foreground">
+      <button
+        type="button"
+        className={cn('inline-flex items-center gap-1 hover:text-foreground', actif && 'text-foreground')}
+        onClick={() => onTri(cle)}
+      >
+        {libelle}
+        <span aria-hidden>{actif ? (descendant ? '▼' : '▲') : '↕'}</span>
+      </button>
+    </th>
+  )
+}
+
+function ParcSection({
+  configs,
+  onEdit,
+  onDelete,
+  onBootstrap,
+}: {
+  configs: Map<string, HostConfig>
+  onEdit: (h: HostConfig) => void
+  onDelete: (h: HostConfig) => void
+  onBootstrap: (h: HostConfig) => void
+}) {
+  const { t } = useTranslation()
+  const [q, setQ] = useState('')
+  const [owner, setOwner] = useState('')
+  const [tri, setTri] = useState<TriParc>('nom')
+  const [descendant, setDescendant] = useState(false)
+  const [page, setPage] = useState(1)
+  const { data, isLoading } = useParcHosts({ q, owner, tri, descendant, page })
+
+  // Tout changement de filtre revient page 1 : rester sur la page 3 d'un
+  // résultat qui n'en a plus qu'une afficherait le vide.
+  function majQ(v: string) { setQ(v); setPage(1) }
+  function majOwner(v: string) { setOwner(v); setPage(1) }
+  function basculerTri(cle: TriParc) {
+    if (tri === cle) setDescendant((d) => !d)
+    else { setTri(cle); setDescendant(cle !== 'nom') }
+    setPage(1)
+  }
+
+  const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={q}
+          onChange={(e) => majQ(e.target.value)}
+          placeholder={t('admin.parc.filtrerNom')}
+          className="h-8 w-56"
+        />
+        <select
+          value={owner}
+          onChange={(e) => majOwner(e.target.value)}
+          className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+          aria-label={t('admin.parc.filtrerProprietaire')}
+        >
+          <option value="">{t('admin.parc.tousProprietaires')}</option>
+          {/* Le pool a SA place dans le filtre, au même titre qu'un compte :
+              on nomme ce que la machine est, pas ce qui lui manque. */}
+          <option value={FILTRE_MUTUALISE}>{t('admin.parc.mutualisee')}</option>
+          {(data?.proprietaires ?? []).map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+        {data && (
+          <span className="ml-auto text-xs text-muted-foreground">
+            {t('admin.parc.total', { count: data.total })}
+          </span>
+        )}
+      </div>
+
+      <div className="rounded-lg border">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b bg-muted/50">
+              <EnTeteTriable cle="nom" libelle={t('admin.col.name')} tri={tri} descendant={descendant} onTri={basculerTri} />
+              <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.parc.colProprietaire')}</th>
+              <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.provenance')}</th>
+              <EnTeteTriable cle="workspaces" libelle={t('admin.parc.colWorkspaces')} tri={tri} descendant={descendant} onTri={basculerTri} />
+              <EnTeteTriable cle="disque" libelle={t('admin.parc.colDisque')} tri={tri} descendant={descendant} onTri={basculerTri} />
+              <EnTeteTriable cle="memoire" libelle={t('admin.parc.colMemoire')} tri={tri} descendant={descendant} onTri={basculerTri} />
+              <th className="px-4 py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading && (
+              <tr><td colSpan={7} className="px-4 py-3 text-muted-foreground">…</td></tr>
+            )}
+            {data && data.hosts.length === 0 && (
+              <tr><td colSpan={7} className="px-4 py-3 text-muted-foreground">{t('admin.parc.aucune')}</td></tr>
+            )}
+            {(data?.hosts ?? []).map((ligne) => {
+              const config = configs.get(ligne.name)
+              return (
+                <Fragment key={ligne.name}>
+                  <tr className="border-b" data-testid={`parc-${ligne.name}`}>
+                    <td className="px-4 py-2">
+                      <span className="font-medium">{ligne.name}</span>
+                      {config?.default && <span className="ml-1.5 text-green-600">✓</span>}
+                    </td>
+                    <td className="px-4 py-2"><CelluleProprietaire ligne={ligne} /></td>
+                    <td className="px-4 py-2 text-xs">
+                      {ligne.hypervisor
+                        ? <span className="font-mono">{ligne.hypervisor}</span>
+                        : <span className="italic text-muted-foreground">{t('admin.provenanceUnknown')}</span>}
+                    </td>
+                    <td className="px-4 py-2 tabular-nums">
+                      {ligne.workspaces}
+                      {ligne.capacity_workspaces !== null && (
+                        <span className="text-muted-foreground"> / {ligne.capacity_workspaces}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2">
+                      <CelluleSonde texte={ligne.disk_used_pct === null ? null : `${ligne.disk_used_pct} %`} />
+                    </td>
+                    <td className="px-4 py-2">
+                      <CelluleSonde
+                        texte={
+                          ligne.mem_used_bytes === null
+                            ? null
+                            : `${_go(ligne.mem_used_bytes)}${ligne.mem_total_bytes ? ` / ${_go(ligne.mem_total_bytes)}` : ''}`
+                        }
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      {config ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <HostRowActions host={config} />
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onEdit(config)}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => onDelete(config)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                          {config.type === 'ssh' && (
+                            <>
+                              <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+                              {!config.host_cert_slug && (
+                                <Button size="sm" variant="outline"
+                                  className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
+                                  onClick={() => onBootstrap(config)}>
+                                  {t('admin.bootstrap.btn')}
+                                </Button>
+                              )}
+                              {config.host_cert_slug && (
+                                <Button size="sm" variant="outline"
+                                  className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
+                                  onClick={() => openHostSsh(config.name)}>
+                                  {t('admin.sshTerminal.openBtn')}
+                                </Button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        // Ligne connue en base mais absente de la config : les
+                        // actions exigent la config — l'écart se voit, il ne se
+                        // masque pas derrière des boutons cassés.
+                        <span className="text-xs italic text-muted-foreground">{t('admin.parc.horsConfig')}</span>
+                      )}
+                    </td>
+                  </tr>
+                  <tr className="border-b last:border-0 bg-muted/20">
+                    <td colSpan={7} className="px-4 py-2">
+                      <HostWorkspacesPanel name={ligne.name} />
+                    </td>
+                  </tr>
+                </Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {pages > 1 && (
+        <div className="flex items-center justify-end gap-2 text-sm">
+          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            ←
+          </Button>
+          <span className="text-muted-foreground">{t('admin.parc.page', { page, pages })}</span>
+          <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
+            →
+          </Button>
+        </div>
+      )}
+    </div>
+  )
 }
 import { useDeployments } from '@/features/compose/hooks/useCompose'
 import HostServicesBlock from '@/features/compose/components/HostServicesBlock'
@@ -902,9 +1140,7 @@ export default function AdminHosts() {
         <p className="text-muted-foreground">{t('admin.hostsEmpty')}</p>
       )}
       {hosts && hosts.length > 0 && (() => {
-        const wsHosts = hosts.filter(
-          (h: HostConfig) => h.usage !== 'tests' && h.usage !== 'ressources' && h.usage !== 'autres',
-        )
+        const configsParNom = new Map(hosts.map((h: HostConfig) => [h.name, h]))
         const testHosts = hosts.filter((h: HostConfig) => h.usage === 'tests')
         const resourceHosts = hosts.filter((h: HostConfig) => h.usage === 'ressources')
         const otherHosts = hosts.filter((h: HostConfig) => h.usage === 'autres')
@@ -917,82 +1153,12 @@ export default function AdminHosts() {
         }
         return (
           <>
-            {wsHosts.length > 0 && (
-              <div className="rounded-lg border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.name')}</th>
-                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.type')}</th>
-                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.host')}</th>
-                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.provenance')}</th>
-                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.default')}</th>
-                      <th className="px-4 py-2" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {wsHosts.map((h: HostConfig) => (
-                      <Fragment key={h.name}>
-                        <tr className="border-b">
-                          <td className="px-4 py-2 font-medium">{h.name}</td>
-                          <td className="px-4 py-2 text-muted-foreground">{h.type}</td>
-                          <td className="px-4 py-2 text-muted-foreground font-mono text-xs">
-                            {h.type === 'ssh' ? (h.address || '—') : (h.docker_host || '—')}
-                          </td>
-                          <td className="px-4 py-2 text-xs">
-                            {/* Provenance = fait posé au provisionnement. Vide
-                                n'est ni une erreur ni un défaut : on le dit. */}
-                            {h.hypervisor
-                              ? <span className="font-mono">{h.hypervisor}</span>
-                              : <span className="text-muted-foreground italic">{t('admin.provenanceUnknown')}</span>}
-                          </td>
-                          <td className="px-4 py-2">
-                            {h.default
-                              ? <span className="text-green-600">✓</span>
-                              : <span className="text-muted-foreground">—</span>}
-                          </td>
-                          <td className="px-4 py-2">
-                            <div className="flex items-center justify-end gap-1">
-                              <HostRowActions host={h} />
-                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(h)}>
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => confirmDelete(h)}>
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                              {h.type === 'ssh' && (
-                                <>
-                                  <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
-                                  {!h.host_cert_slug && (
-                                    <Button size="sm" variant="outline"
-                                      className="h-7 px-2 text-xs font-semibold text-amber-700 border-amber-600 hover:bg-amber-50"
-                                      onClick={() => setBootstrapTarget(h)}>
-                                      {t('admin.bootstrap.btn')}
-                                    </Button>
-                                  )}
-                                  {h.host_cert_slug && (
-                                    <Button size="sm" variant="outline"
-                                      className="h-7 px-2 text-xs font-semibold text-green-700 border-green-600 hover:bg-green-50"
-                                      onClick={() => openHostSsh(h.name)}>
-                                      {t('admin.sshTerminal.openBtn')}
-                                    </Button>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                        <tr className="border-b last:border-0 bg-muted/20">
-                          <td colSpan={6} className="px-4 py-2">
-                            <HostWorkspacesPanel name={h.name} />
-                          </td>
-                        </tr>
-                      </Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <ParcSection
+              configs={configsParNom}
+              onEdit={openEdit}
+              onDelete={confirmDelete}
+              onBootstrap={setBootstrapTarget}
+            />
             <TestHostsGroupedSection hosts={testHosts} actions={hostActions} />
             <ResourceHostsSection hosts={resourceHosts} actions={hostActions} />
             <OtherHostsSection hosts={otherHosts} actions={hostActions} />
