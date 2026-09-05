@@ -641,6 +641,12 @@ export default function FullscreenTerminal({ wsPath, title, resize = true }: Pro
       // Curseur/spinner : au plus quelques lignes changent, en place. Pas un
       // defilement, donc pas de refresh (sinon scintillement au repos).
       if (changees <= LIGNES_CHANGEES_MIN) return
+      // Defilement PILOTE par l'utilisateur (glissement, elan) : chaque image
+      // change beaucoup de lignes, et un refresh-client plein ecran par rafale
+      // fait clignoter — ecran blanc au scroll rapide, mesure sur iPhone le
+      // 05/09. Le nettoyage attend la fin du geste : la sortie suivante armera
+      // le refresh normalement.
+      if (scroller.actif()) return
       clearTimeout(reRenduTimer)
       reRenduTimer = setTimeout(() => {
         reRenduTimer = undefined

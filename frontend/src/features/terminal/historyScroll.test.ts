@@ -376,3 +376,117 @@ describe('application qui capte la souris (TUI plein ecran, ex. Claude Code)', (
     expect(send).toHaveBeenCalledExactlyOnceWith(ENTER_COPY)
   })
 })
+
+describe('elan au lacher du doigt', () => {
+  /**
+   * Un grand geste rapide doit continuer sur sa lancee (deceleration
+   * progressive) ; un glissement lent reste ligne a ligne, sans inertie.
+   */
+  function scrollerElan() {
+    const send = vi.fn()
+    const frames: (() => void)[] = []
+    let t = 0
+    const s = createHistoryScroller({
+      isAlternate: () => true,
+      send,
+      schedule: (cb) => frames.push(cb),
+      now: () => t,
+      capteSouris: () => true,
+      sequenceMolette: (up) => (up ? 'HAUT' : 'BAS'),
+    })
+    const avance = (ms: number) => { t += ms }
+    const tick = (n = 1) => {
+      for (let i = 0; i < n; i++) {
+        const f = frames.shift()
+        if (!f) break
+        f()
+      }
+    }
+    return { s, send, tick, avance, frames }
+  }
+
+  function grandGeste(s: ReturnType<typeof scrollerElan>['s'], avance: (ms: number) => void) {
+    // Doigt qui descend VITE : ~3 px/ms, bien au-dela du seuil d'elan.
+    s.touchStart(100)
+    avance(16)
+    s.touchMove(150)  // franchit le seuil de glissement
+    avance(16)
+    s.touchMove(200)
+    s.touchEnd()
+  }
+
+  it('continue de defiler apres le lacher', () => {
+    const { s, send, tick, avance } = scrollerElan()
+    grandGeste(s, avance)
+    send.mockClear()
+
+    tick(30)
+
+    expect(send.mock.calls.length).toBeGreaterThan(0)
+  })
+
+  it('decelere jusqu’a l’arret : la file de frames se vide', () => {
+    const { s, tick, avance, frames } = scrollerElan()
+    grandGeste(s, avance)
+
+    tick(500)
+
+    expect(frames).toHaveLength(0)
+  })
+
+  it('pas d’elan sur un glissement lent', () => {
+    const { s, send, tick, avance } = scrollerElan()
+    s.touchStart(100)
+    avance(100)
+    s.touchMove(115)  // franchit le seuil, ~0.15 px/ms
+    avance(100)
+    s.touchMove(130)
+    s.touchEnd()
+    send.mockClear()
+
+    tick(50)
+
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('poser le doigt arrete l’elan', () => {
+    const { s, send, tick, avance } = scrollerElan()
+    grandGeste(s, avance)
+    tick(2)
+    s.touchStart(100)  // le doigt rattrape l'ecran
+    send.mockClear()
+
+    tick(50)
+
+    expect(send).not.toHaveBeenCalled()
+  })
+})
+
+describe('actif() — le re-rendu force doit se taire pendant le geste', () => {
+  /**
+   * Pendant un defilement pilote par l'utilisateur, chaque image change
+   * beaucoup de lignes : la detection de defilement declencherait des
+   * refresh-client plein ecran en rafale — ecran blanc, clignotement (mesure
+   * sur iPhone le 05/09). L'appelant interroge `actif()` pour suspendre le
+   * nettoyage tant que le geste ou l'elan court.
+   */
+  it('vrai pendant un glissement, faux au repos', () => {
+    const { s } = scroller()
+    expect(s.actif()).toBe(false)
+
+    s.touchStart(100)
+    s.touchMove(100 + DRAG_SLOP_PX + 1)
+
+    expect(s.actif()).toBe(true)
+  })
+
+  it('faux apres la fin du geste une fois tout ecoule', () => {
+    const { s, tick } = scroller()
+    s.touchStart(100)
+    s.touchMove(100 + DRAG_SLOP_PX + 1)
+    s.touchEnd()
+    tick(100)
+
+    expect(s.actif()).toBe(false)
+  })
+})

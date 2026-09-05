@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { I18nextProvider } from 'react-i18next'
 import i18n from '@/i18n'
 import FullscreenTerminal, { AJUSTEMENT_MS, CODE_REPRISE_AILLEURS, REFRESH_SORTIE_MS } from './FullscreenTerminal'
-import { ENTER_COPY, EXIT_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScroll'
+import { DRAG_SLOP_PX, ENTER_COPY, EXIT_COPY, LINE_DOWN, LINE_PX, LINE_UP } from './historyScroll'
 import { ATTENTE_MAX_MS } from './parseQueue'
 
 // Mock xterm : capture l'instance pour déclencher onSelectionChange depuis les
@@ -706,6 +706,27 @@ describe('FullscreenTerminal — re-rendu apres la sortie de l\u2019agent', () =
 
     // contenu identique (le mock renvoie toujours la meme ligne)
     act(() => { sockets[0].onmessage?.({ data: 'z\n' }) })
+    act(() => { terminals[0].draine() })
+    act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
+
+    expect(redrawsEnvoyes()).toHaveLength(0)
+  })
+
+  it('se tait pendant un defilement au geste (sinon l’ecran clignote)', () => {
+    // Pendant un glissement, chaque image change beaucoup de lignes : la
+    // detection « vrai defilement » enverrait des refresh-client plein ecran
+    // en rafale — ecran blanc au scroll rapide, mesure sur iPhone le 05/09.
+    renderTerminal()
+    act(() => { vi.runAllTimers() })
+    baseline()
+
+    // Geste en cours : seuil franchi, doigt toujours pose.
+    const zone = screen.getByTestId('terminal-surface')
+    fireEvent.touchStart(zone, { touches: [{ clientX: 10, clientY: 300 }] })
+    fireEvent.touchMove(zone, { touches: [{ clientX: 10, clientY: 300 - DRAG_SLOP_PX - LINE_PX }] })
+
+    terminals[0].ligne = 'contenu qui defile sous le doigt'
+    act(() => { sockets[0].onmessage?.({ data: 'y\n' }) })
     act(() => { terminals[0].draine() })
     act(() => { vi.advanceTimersByTime(REFRESH_SORTIE_MS) })
 

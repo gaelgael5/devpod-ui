@@ -56,6 +56,23 @@ export const LINE_PX = 20
 export const MAX_LIGNES_EN_ATTENTE = 50
 
 /**
+ * Elan (inertie) au lacher du doigt.
+ *
+ * Un grand geste rapide continue sur sa lancee et decelere progressivement ;
+ * un glissement lent reste ligne a ligne, sans inertie. La vitesse est lissee
+ * pendant le geste (moyenne mobile), comparee au seuil au lacher, puis
+ * amortie a chaque frame jusqu'au plancher.
+ */
+/** Vitesse minimale au lacher pour declencher l'elan (px/ms). */
+export const ELAN_SEUIL_PX_MS = 0.3
+/** Amortissement par frame : ~5 % de vitesse perdue toutes les 16 ms. */
+export const ELAN_FROTTEMENT = 0.95
+/** Sous ce plancher (px/ms), l'elan s'arrete. */
+export const ELAN_MIN_PX_MS = 0.05
+/** Duree nominale d'une frame, pour convertir la vitesse en pixels. */
+export const FRAME_MS = 16
+
+/**
  * `deltaY` d'un evenement molette, converti en PIXELS.
  *
  * `deltaY` n'a pas d'unite fixe : `deltaMode` dit laquelle. Firefox, et Chrome
@@ -107,6 +124,14 @@ export interface HistoryScroller {
    * ensuite (cf. la note sur les lectures PTY groupees).
    */
   exitCopyMode(): boolean
+  /**
+   * Un defilement pilote par l'utilisateur est-il en cours (glissement, elan,
+   * ou reliquat a ecouler) ? Pendant ce temps, chaque image change beaucoup de
+   * lignes : la detection de defilement de l'appelant declencherait des
+   * refresh-client plein ecran en rafale — ecran blanc, clignotement (mesure
+   * sur iPhone le 05/09). L'appelant suspend ce nettoyage tant que c'est vrai.
+   */
+  actif(): boolean
 }
 
 interface Options {
@@ -131,6 +156,8 @@ interface Options {
    * Fournie par l'appelant, qui connait la geometrie du terminal.
    */
   sequenceMolette?: (up: boolean) => string
+  /** Horloge en millisecondes (vitesse du geste). Injectable pour les tests. */
+  now?: () => number
 }
 
 const parDefaut = (cb: () => void) => {
@@ -144,6 +171,7 @@ export function createHistoryScroller({
   schedule = parDefaut,
   capteSouris = () => false,
   sequenceMolette = () => '',
+  now = () => performance.now(),
 }: Options): HistoryScroller {
   let acc = 0
   let lastY: number | null = null
@@ -156,6 +184,12 @@ export function createHistoryScroller({
   let entre = false
   /** tmux est-il en copy-mode ? Persiste APRES le geste, contrairement a `entre`. */
   let enCopyMode = false
+  /** Vitesse lissee du geste, en px/ms, du signe de `feed`. */
+  let vitesse = 0
+  /** Horodatage du dernier point du geste, pour la vitesse. */
+  let derniereT: number | null = null
+  /** L'elan court-il encore apres le lacher ? */
+  let elanEnCours = false
 
   const plafond = LINE_PX * MAX_LIGNES_EN_ATTENTE
 
@@ -220,6 +254,17 @@ export function createHistoryScroller({
     return true
   }
 
+  /** Une frame d'elan : amortit, ecoule, se replanifie tant que ca court. */
+  function pasElan() {
+    if (!elanEnCours) return
+    vitesse *= ELAN_FROTTEMENT
+    if (Math.abs(vitesse) < ELAN_MIN_PX_MS || !feed(vitesse * FRAME_MS)) {
+      elanEnCours = false
+      return
+    }
+    schedule(pasElan)
+  }
+
   return {
     wheel: (deltaY) => feed(deltaY),
 
@@ -227,6 +272,12 @@ export function createHistoryScroller({
       lastY = clientY
       departY = clientY
       glisse = false
+      // Le doigt rattrape l'ecran : poser stoppe l'inertie, comme partout —
+      // reliquat compris, sinon l'ecran continuerait de glisser sous le doigt.
+      elanEnCours = false
+      vitesse = 0
+      acc = 0
+      derniereT = now()
     },
 
     touchMove(clientY) {
@@ -241,10 +292,20 @@ export function createHistoryScroller({
         // consomme hors tampon alterne, ou xterm a son propre scrollback.
         glisse = true
         lastY = clientY
+        derniereT = now()
         return feed(0)
       }
       // Le doigt descend => on remonte dans l'historique : signe inverse.
-      const consomme = feed(-(clientY - lastY))
+      const delta = -(clientY - lastY)
+      // Vitesse lissee (px/ms) : l'instantanee d'un doigt est trop nerveuse
+      // pour decider seule de l'elan. Sous 1 ms d'ecart, la division exploserait
+      // en vitesses absurdes (points quasi simultanes) : on saute la mesure.
+      const t = now()
+      if (derniereT !== null && t - derniereT >= 1) {
+        vitesse = 0.7 * (delta / (t - derniereT)) + 0.3 * vitesse
+        derniereT = t
+      }
+      const consomme = feed(delta)
       lastY = clientY
       return consomme
     },
@@ -252,7 +313,16 @@ export function createHistoryScroller({
     touchEnd() {
       lastY = null
       departY = null
+      // Grand geste rapide : on continue sur la lancee. Lent : rien.
+      if (glisse && Math.abs(vitesse) >= ELAN_SEUIL_PX_MS) {
+        elanEnCours = true
+        schedule(pasElan)
+      }
       glisse = false
+    },
+
+    actif() {
+      return glisse || elanEnCours || acc <= -LINE_PX || acc >= LINE_PX
     },
 
     exitCopyMode() {
