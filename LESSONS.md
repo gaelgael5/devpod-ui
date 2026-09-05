@@ -3,6 +3,7 @@
 ## [workflow]
 - « Enchaîne jusqu'au bout » N'EST PAS un feu vert pour des choix d'archi contestés (ex. bastion dans le portail vs à côté ; provisioning en dur vs via automates). Verrouiller EXPLICITEMENT chaque décision d'archi avant de coder, même sous pression d'avancer — l'utilisateur est architecte.
 - Ne JAMAIS expliquer un comportement runtime par déduction : lire les logs Loki d'abord (corrigé 2x sur Termix — le « nettoyage » supposé était en fait admin=False + une course de clics). Un état IHM ≠ l'état serveur : croiser les deux avant de conclure.
+- Sessions parallèles : la stack `wsportal-dev` de test1 est un livrable PARTAGÉ — la redéployer redémarre le portail sous les tests de l'autre session et mélange les recettes dans Loki. Avant tout `dev-deploy.sh` : vérifier l'activité de l'autre chantier, ou monter une stack dédiée (compose project + DATA_ROOT + ports distincts).
 
 ## [backend]
 - Pas de synchro auto des recettes au démarrage — choix admin (`POST /admin/recipes/sync`), demandé 3x.
