@@ -124,11 +124,13 @@ class AppSettings(BaseSettings):
     # à la vivacité : un taux d'occupation ne « hoquette » pas.
     # Cadences PAR famille, toutes servies par une seule boucle et une seule
     # connexion SSH par tick (la boucle bat au pas de la plus fréquente) :
-    #   disque  1 h   — se remplit lentement, c'est l'alerte de fond ;
-    #   mémoire 5 min — bouge, mais pas à la seconde ;
-    #   CPU     30 s  — la charge n'a d'intérêt que fraîche.
+    #   disque  15 min — assez lent pour être discret, assez vite pour qu'une
+    #                    alerte disparaisse peu après la réparation (l'heure
+    #                    initiale laissait un bandeau périmé — incident 05/09) ;
+    #   mémoire 5 min  — bouge, mais pas à la seconde ;
+    #   CPU     30 s   — la charge n'a d'intérêt que fraîche.
     # 0 désactive une famille ; les trois à 0 arrêtent la boucle.
-    host_disk_interval_s: float = 3600.0
+    host_disk_interval_s: float = 900.0
     host_metrics_mem_interval_s: float = 300.0
     host_metrics_cpu_interval_s: float = 30.0
     host_disk_warn_pct: int = 90

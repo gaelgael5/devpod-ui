@@ -250,7 +250,7 @@ async def metrics_loop() -> None:
 
     UNE boucle et UNE connexion SSH par tick plutôt que trois boucles
     concurrentes : à chaque réveil on n'embarque que les familles échues. Le CPU
-    (30 s) rythme la boucle, la mémoire (5 min) et le disque (1 h) s'y greffent
+    (30 s) rythme la boucle, la mémoire (5 min) et le disque (15 min) s'y greffent
     quand leur tour vient. Le multiplexage SSH (ControlMaster) rend les ticks
     suivants bon marché.
     """
