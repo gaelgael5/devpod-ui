@@ -123,6 +123,37 @@ async def test_la_reservation_est_idempotente(db_conn) -> None:
     assert await marquer_notifie(db_conn, **cle) is False
 
 
+async def test_les_forfaits_echus_sont_reperes_ouverts_seulement(db_conn) -> None:
+    """Le terme repère les OUVERTS échus : un résilié échu relève de la
+    rétention, pas d'une seconde clôture ; un ouvert sans terme n'échoit jamais."""
+    from portal.db.retention import abonnements_a_terme
+
+    await _seed_socle(db_conn)
+    echu = await _abonnement(db_conn, state="essai", depuis_jours=0)
+    await db_conn.execute(
+        subscriptions.update()
+        .where(subscriptions.c.id == echu.id)
+        .values(ends_at=MAINTENANT - timedelta(days=1))
+    )
+    futur = await _abonnement(db_conn, state="actif", depuis_jours=0)
+    await db_conn.execute(
+        subscriptions.update()
+        .where(subscriptions.c.id == futur.id)
+        .values(ends_at=MAINTENANT + timedelta(days=1))
+    )
+    deja_clos = await _abonnement(db_conn, state="resilie", depuis_jours=0)
+    await db_conn.execute(
+        subscriptions.update()
+        .where(subscriptions.c.id == deja_clos.id)
+        .values(ends_at=MAINTENANT - timedelta(days=1))
+    )
+    await _abonnement(db_conn, state="essai", depuis_jours=0)  # sans terme
+
+    echus = await abonnements_a_terme(db_conn, maintenant=MAINTENANT)
+
+    assert [s.id for s in echus] == [echu.id]
+
+
 async def test_un_nouvel_episode_est_notifie_a_son_tour(db_conn) -> None:
     """Un abonnement rétabli puis retombé en échec a un nouveau
     `state_changed_at` : l'ancienne notification ne le couvre pas."""

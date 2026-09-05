@@ -65,6 +65,29 @@ async def abonnements_en_retard(
     return [_row_to_subscription(dict(r)) for r in rows]
 
 
+async def abonnements_a_terme(conn: AsyncConnection, *, maintenant: datetime) -> list[Subscription]:
+    """Les abonnements OUVERTS dont le terme (`ends_at`) est passé.
+
+    Le terme n'est pas la rétention : c'est la fin NORMALE d'un forfait borné —
+    un essai gratuit qui échoit, un forfait sans reconduction arrivé au bout.
+    L'appelant décide quoi en faire (l'offre à reconduction tacite n'est jamais
+    close par le terme) ; ici on ne fait que les repérer.
+    """
+    from ..billing.subscriptions import ETATS_OUVERTS
+
+    stmt = (
+        select(subscriptions)
+        .where(
+            subscriptions.c.state.in_(tuple(ETATS_OUVERTS)),
+            subscriptions.c.ends_at.isnot(None),
+            subscriptions.c.ends_at <= maintenant,
+        )
+        .order_by(subscriptions.c.ends_at)
+    )
+    rows = (await conn.execute(stmt)).mappings().all()
+    return [_row_to_subscription(dict(r)) for r in rows]
+
+
 async def marquer_notifie(
     conn: AsyncConnection,
     *,

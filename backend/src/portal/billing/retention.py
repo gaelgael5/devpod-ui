@@ -94,14 +94,24 @@ async def balayer(maintenant: datetime | None = None) -> int:
 
 
 async def retention_sweep_loop(interval_s: float = 3600.0) -> None:
-    """Boucle de fond : une passe par heure.
+    """Boucle de fond : une passe par heure, TERMES d'abord, rétention ensuite.
 
-    Le rythme n'a pas d'importance métier — la dédup par épisode garantit
-    l'unicité de la notification — mais une passe horaire borne à une heure le
-    retard entre l'échéance et le signal, sans attendre « demain ».
+    L'ordre n'est pas décoratif : la clôture d'un terme produit un résilié, et
+    c'est la rétention qui le suivra — dans la même boucle, il entame son délai
+    au passage suivant. Le rythme n'a pas d'importance métier (la dédup par
+    épisode et par échéance garantit l'unicité), mais une passe horaire borne à
+    une heure le retard entre l'échéance et le signal, sans attendre « demain ».
     """
+    from .terme import clore_les_termes
+
     await asyncio.sleep(5)  # laisse le portail démarrer
     while True:
+        try:
+            clos = await clore_les_termes()
+            if clos:
+                log.info("terme_sweep_done", clos=clos)
+        except Exception:
+            log.warning("terme_sweep_failed", exc_info=True)
         try:
             emis = await balayer()
             if emis:
