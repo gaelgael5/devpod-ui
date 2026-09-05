@@ -537,6 +537,28 @@ if [[ $SMOKE_OK -eq 1 ]]; then
     echo ""
     echo "==> Logs (80 dernières lignes) :"
     docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs --tail=80
+
+    # ─── 6) Purge hebdomadaire du cache Docker (enabler 16347278) ─────────────
+    # Chaque build empile des couches que rien ne récupère (26 G de snapshots
+    # constatés sur un disque de 43 G). Témoin horodaté : au plus UNE purge par
+    # semaine, quel que soit le nombre de déploiements. APRÈS le déploiement,
+    # pour ne pas retarder la mise à disposition ; jamais bloquante (|| true).
+    # Périmètre volontairement borné : PAS de `system prune -a` (les images de
+    # base sauteraient, tous les builds suivants rallongeraient), PAS de
+    # `volume prune` (données de workspace).
+    PRUNE_STAMP="${DATA_ROOT}/.last-docker-prune"
+    if [[ ! -f "$PRUNE_STAMP" ]] || [[ -n "$(find "$PRUNE_STAMP" -mtime +7 2>/dev/null)" ]]; then
+        echo ""
+        echo "==> [6] Purge hebdomadaire du cache Docker..."
+        _RECUP_BUILDER="$(docker builder prune -a -f 2>/dev/null | tail -1 || true)"
+        _RECUP_IMAGES="$(docker image prune -f 2>/dev/null | tail -1 || true)"
+        echo "    builder prune : ${_RECUP_BUILDER:-(rien)}"
+        echo "    image prune   : ${_RECUP_IMAGES:-(rien)}"
+        touch "$PRUNE_STAMP" 2>/dev/null || true
+    else
+        echo ""
+        echo "==> [6] Purge Docker : déjà faite il y a moins de 7 jours (témoin ${PRUNE_STAMP})."
+    fi
 else
     cat >&2 <<EOF
 

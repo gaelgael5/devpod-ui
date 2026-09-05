@@ -181,6 +181,20 @@ echo "    Paquets installés (git, openssl, docker CE + compose v2)."
 echo "    Utilisateur '${CI_USER}' ajouté au groupe docker."
 echo "    Builder 'devpod-builder' (docker-container) configuré."
 
+# ─── A.10c — Plafonds du démon Docker (enabler 6e8c661f) ─────────────────────
+# GC du builder + rotation des journaux, posés AU PROVISIONNEMENT : la machine
+# est vierge, le restart du démon ne coupe rien — c'est la seule fenêtre où il
+# est gratuit. Le script fusionne sans écraser un daemon.json existant.
+# Seuils calibrés au disque (variables, jamais en dur) : DOCKER_GC_KEEP/_MAX.
+STAGE="A.10c (daemon.json)"
+echo ""
+echo "==> A.10c — Plafonds daemon.json (GC builder + rotation des logs)..."
+ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" \
+    "${SUDO} env RESTART_DOCKER=1 \
+        DOCKER_GC_KEEP='${DOCKER_GC_KEEP:-10GB}' \
+        DOCKER_GC_MAX='${DOCKER_GC_MAX:-20GB}' bash -s" \
+    < "$(dirname "$0")/docker-daemon-limits.sh"
+
 # ─── A.10b — Swapfile d'urgence (enabler 74ad4fdf) ───────────────────────────
 # Posé ici (provisioning SSH) plutôt que via du user-data cloud-init : sur
 # Proxmox, `cicustom user=` REMPLACE tout le user-data généré et ferait sauter
