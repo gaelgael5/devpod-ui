@@ -39,6 +39,7 @@ from ..billing.eligibilite import CanalIndisponible, SouscriptionRefusee, verifi
 from ..billing.evenements import publier_evenement_abonnement
 from ..billing.subscriptions import Subscription, fin_de_forfait
 from ..config.store import load_global
+from ..db.billing_address import adresse_figee, figer_adresse, lire_adresse
 from ..db.billing_catalog import (
     devise_par_defaut,
     devises_actives,
@@ -84,6 +85,11 @@ class ContexteSouscription(BaseModel):
 
     #: Déduit de la connexion, `None` si la déduction n'est pas fiable.
     pays_devine: str | None
+    #: Pays de l'adresse de facturation du compte, `None` sans adresse saisie.
+    #: PRIORITAIRE sur la déduction pour pré-remplir : une adresse saisie est
+    #: une meilleure preuve du lieu de consommation qu'une IP — et l'écran doit
+    #: proposer d'emblée le seul pays que la souscription acceptera.
+    pays_adresse: str | None
     #: Pays ACTIVÉS uniquement : proposer un pays où l'on ne vend pas mènerait
     #: droit à un refus, après que le client a choisi.
     pays: list[PaysOuvert]
@@ -114,8 +120,10 @@ async def contexte_souscription(
     conn: AsyncConnection = Depends(get_conn),
 ) -> ContexteSouscription:
     ouverts = [p for p in await list_countries(conn) if p.enabled]
+    adresse = await lire_adresse(user.login, conn)
     return ContexteSouscription(
         pays_devine=_pays_devine(request),
+        pays_adresse=adresse.country if adresse else None,
         pays=[PaysOuvert(code=p.code, label=p.label) for p in ouverts],
         devise_par_defaut=await devise_par_defaut(conn),
         devises=await devises_actives(conn),
@@ -184,6 +192,20 @@ async def souscrire(
         # du catalogue qui s'y oppose. Le message est affichable tel quel.
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    # Le pays de l'adresse et celui de la souscription ne peuvent pas diverger :
+    # le pays décide de la taxe, l'adresse s'imprime sur la facture — les
+    # laisser différer produirait une facture qui se contredit elle-même.
+    adresse = await lire_adresse(user.login, conn)
+    if adresse is not None and adresse.country != body.country_code:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Le pays choisi ({body.country_code}) ne correspond pas à celui de votre "
+                f"adresse de facturation ({adresse.country}). Mettez votre adresse à jour, "
+                "ou choisissez le pays correspondant."
+            ),
+        )
+
     prix = offre.prix(devise)
     maintenant = datetime.now(UTC)
     # `duration_days` est garanti non nul par `verifier` — sans terme, l'offre
@@ -205,6 +227,10 @@ async def souscrire(
         ends_at=fin_de_forfait(maintenant, offre.duration_days),
     )
     await creer(abonnement, conn)
+    if adresse is not None:
+        # FIGÉE sur l'abonnement, comme le prix : celle qui a servi ne bouge
+        # plus, même si le profil change ensuite.
+        await figer_adresse(abonnement.id, adresse, conn)
     log.info(
         "souscription_creee",
         subscription_id=abonnement.id,
@@ -302,6 +328,9 @@ async def ouvrir_paiement(
         # connue : le fournisseur la demandera lui-même, il en a besoin pour le
         # reçu.
         email=await email_de(user.login, conn),
+        # L'adresse FIGÉE de cet abonnement — pas celle, mouvante, du profil :
+        # c'est elle qui a validé le pays de taxe à la souscription.
+        adresse=await adresse_figee(abonnement.id, conn),
         url_succes=f"{base}/forfaits/retour?abonnement={abonnement.id}",
         url_abandon=f"{base}/forfaits",
     )

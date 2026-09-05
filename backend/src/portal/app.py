@@ -27,6 +27,7 @@ from .routes.agent_types import admin_router as agent_types_admin_router
 from .routes.agent_types import me_router as agent_types_me_router
 from .routes.applications import router as applications_router
 from .routes.automations import router as automations_router
+from .routes.billing_address import router as billing_address_router
 from .routes.billing_catalog import router as billing_catalog_router
 from .routes.billing_essais import router as billing_essais_router
 from .routes.billing_offers import router as billing_offers_router
@@ -496,6 +497,7 @@ def create_app() -> FastAPI:
     # Souscription d'un forfait : cree l'abonnement, et rien d'autre — ni
     # paiement, ni provisionnement, ni message.
     app.include_router(subscriptions_router, prefix="/me")
+    app.include_router(billing_address_router, prefix="/me")
     app.include_router(plugins_router)
     app.include_router(recipes_public_router)
     # Offres publiees, sans authentification : la page des forfaits doit etre

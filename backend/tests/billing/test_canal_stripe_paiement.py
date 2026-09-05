@@ -230,3 +230,74 @@ async def test_une_coupure_refusee_remonte() -> None:
 
     with pytest.raises(PaiementImpossible, match="No such subscription"):
         await CanalStripe().couper_reconduction("sub_1", CLE)
+
+
+# ─── L'adresse de facturation transmise au canal ─────────────────────────────
+
+
+def _adresse(**extra: Any) -> Any:
+    from portal.billing.adresse import AdresseFacturation
+
+    base: dict[str, Any] = {
+        "line1": "12 rue des Lilas",
+        "city": "Lyon",
+        "postal_code": "69003",
+        "country": "FR",
+    }
+    base.update(extra)
+    return AdresseFacturation.model_validate(base)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_l_adresse_part_structuree_sur_un_client_cree_d_abord() -> None:
+    """La session n'accepte pas d'adresse directement : elle vit sur le CLIENT,
+    créé avant la session — idempotent par abonnement — et Checkout la reprend."""
+    route_client = respx.post(f"{API}/v1/customers").mock(
+        return_value=httpx.Response(200, json={"id": "cus_42"})
+    )
+    route_session = respx.post(f"{API}/v1/checkout/sessions").mock(
+        return_value=httpx.Response(200, json={"url": "https://paiement/cs_1"})
+    )
+
+    await CanalStripe().ouvrir_paiement(_demande(adresse=_adresse()), CLE)
+
+    corps_client = _envoye(route_client)
+    assert corps_client["address[line1]"] == "12 rue des Lilas"
+    assert corps_client["address[city]"] == "Lyon"
+    assert corps_client["address[postal_code]"] == "69003"
+    assert corps_client["address[country]"] == "FR"
+    assert corps_client["email"] == "alice@example.org"
+    # Champs vides ABSENTS, pas envoyés à blanc.
+    assert "address[line2]" not in corps_client
+    assert "address[state]" not in corps_client
+
+    corps_session = _envoye(route_session)
+    assert corps_session["customer"] == "cus_42"
+    # `customer` et `customer_email` sont exclusifs : l'email vit sur le client.
+    assert "customer_email" not in corps_session
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_sans_adresse_aucun_client_n_est_cree() -> None:
+    route_client = respx.post(f"{API}/v1/customers").mock(
+        return_value=httpx.Response(200, json={"id": "cus_42"})
+    )
+    route_session = respx.post(f"{API}/v1/checkout/sessions").mock(
+        return_value=httpx.Response(200, json={"url": "https://paiement/cs_1"})
+    )
+
+    await CanalStripe().ouvrir_paiement(_demande(), CLE)
+
+    assert not route_client.called
+    assert _envoye(route_session)["customer_email"] == "alice@example.org"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_un_client_sans_identifiant_est_un_echec_franc() -> None:
+    respx.post(f"{API}/v1/customers").mock(return_value=httpx.Response(200, json={}))
+
+    with pytest.raises(PaiementImpossible):
+        await CanalStripe().ouvrir_paiement(_demande(adresse=_adresse()), CLE)

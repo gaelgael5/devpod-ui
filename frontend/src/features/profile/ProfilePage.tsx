@@ -10,6 +10,7 @@ import {
   supportedTimezones,
   TIMEZONE_PREF_KEY,
 } from '@/shared/hooks/useUserTimezone'
+import BillingAddressSection from './BillingAddressSection'
 import { CULTURES, useMyCulture, useSetCulture, type Culture } from './useCulture'
 import { useMyTermixInstances, useProfile, useTokenClaims, useUpdateProfile } from './useProfile'
 import type { UserProfile } from './useProfile'
@@ -25,6 +26,7 @@ export default function ProfilePage() {
       <ProfileForm profile={profile} />
       <CultureBlock />
       <TimezoneBlock />
+      <BillingAddressSection />
       <TermixInstancesBlock />
       <TokenClaimsBlock />
     </div>

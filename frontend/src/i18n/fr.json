@@ -2014,6 +2014,18 @@
         "fr": "Français",
         "en": "English"
       }
+    },
+    "billingAddress": {
+      "title": "Adresse de facturation",
+      "intro": "Utilisée pour vos paiements et vos factures. Chiffrée côté portail.",
+      "figee": "Modifier cette adresse ne change pas vos souscriptions passées : l'adresse d'une facture émise est figée, comme son prix.",
+      "line1": "Adresse",
+      "line2": "Complément (facultatif)",
+      "postalCode": "Code postal",
+      "city": "Ville",
+      "state": "Région/État (facultatif)",
+      "country": "Pays (code à 2 lettres)",
+      "saved": "Adresse de facturation enregistrée."
     }
   },
   "agentMessages": {

@@ -2014,6 +2014,18 @@
         "fr": "Français",
         "en": "English"
       }
+    },
+    "billingAddress": {
+      "title": "Billing address",
+      "intro": "Used for your payments and invoices. Encrypted on the portal side.",
+      "figee": "Changing this address does not affect past subscriptions: the address on an issued invoice is frozen, like its price.",
+      "line1": "Address",
+      "line2": "Line 2 (optional)",
+      "postalCode": "Postal code",
+      "city": "City",
+      "state": "State/Region (optional)",
+      "country": "Country (2-letter code)",
+      "saved": "Billing address saved."
     }
   },
   "agentMessages": {

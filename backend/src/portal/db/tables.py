@@ -1662,6 +1662,10 @@ subscriptions = Table(
     # facturee cote fournisseur : celle-ci se renouvelle, le terme arrete le
     # service.
     Column("ends_at", DateTime(timezone=True), nullable=True),
+    # Adresse de facturation FIGEE a la souscription (blob chiffre serveur,
+    # migration 129) : celle qui a servi, elle ne bouge plus — meme doctrine
+    # que l'instantane de prix. NULL = souscription sans adresse au profil.
+    Column("billing_address_enc", LargeBinary, nullable=True),
     # Date du dernier changement d'état : c'est d'elle que le scheduler déduit
     # l'échéance de rétention, en y ajoutant le délai configuré pour l'événement.
     Column("state_changed_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
@@ -1719,6 +1723,17 @@ subscription_events = Table(
     CheckConstraint(
         "visibilite IN ('achat','operation')", name="ck_subscription_event_visibilite"
     ),
+)
+
+# Adresse de facturation COURANTE du compte (migration 129) : un blob chiffre
+# cote serveur (KEK + HKDF domaine dedie, pas le coffre a PIN — le
+# renouvellement doit la relire sans l'utilisateur). Aucune colonne en clair.
+billing_addresses = Table(
+    "billing_addresses",
+    metadata,
+    Column("login", Text, ForeignKey("users.login", ondelete="CASCADE"), primary_key=True),
+    Column("adresse_enc", LargeBinary, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
 # Trace des expirations de rétention notifiées (migration 128).

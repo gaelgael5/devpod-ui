@@ -3,13 +3,10 @@ from __future__ import annotations
 from typing import Literal
 
 import structlog
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from portal.db.tables import harpo_certificates, harpo_secrets, users
-from portal.settings import get_settings
 from portal.vault.crypto import decrypt_token, encrypt_token
 
 _log = structlog.get_logger(__name__)
@@ -19,14 +16,11 @@ _SYSTEM_SECRET_NS = "00000000-0000-0000-0000-000000000001"
 
 
 def _system_master_key() -> bytes:
-    kek_hex = get_settings().portal_vault_kek
-    if not kek_hex:
-        raise RuntimeError(
-            "PORTAL_VAULT_KEK non configuré — impossible de chiffrer les secrets système"
-        )
-    kek = bytes.fromhex(kek_hex)
-    hkdf = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=b"portal-system-vault")
-    return hkdf.derive(kek)
+    # Primitive partagée (secrets/chiffrement.py) avec l'`info` HISTORIQUE de ce
+    # module : la clef dérivée est identique, les blobs existants restent lisibles.
+    from .chiffrement import cle_domaine
+
+    return cle_domaine(b"portal-system-vault")
 
 
 async def ensure_system_user(conn: AsyncConnection) -> None:

@@ -270,7 +270,38 @@ class CanalStripe:
             # session seule, tout ce qui suit le premier paiement serait orphelin.
             "subscription_data[metadata][portal_subscription_id]": demande.subscription_id,
         }
-        if demande.email:
+        if demande.adresse is not None:
+            # L'adresse figée part sur un CLIENT créé d'abord : la session de
+            # paiement n'accepte pas d'adresse directement — c'est le client qui
+            # la porte, et Checkout la reprend. Idempotent par abonnement : deux
+            # clics ne créent pas deux clients.
+            adr = demande.adresse
+            corps_client = {
+                "address[line1]": adr.line1,
+                "address[city]": adr.city,
+                "address[postal_code]": adr.postal_code,
+                "address[country]": adr.country,
+                "metadata[portal_subscription_id]": demande.subscription_id,
+            }
+            if adr.line2:
+                corps_client["address[line2]"] = adr.line2
+            if adr.state:
+                corps_client["address[state]"] = adr.state
+            if demande.email:
+                corps_client["email"] = demande.email
+            client_paiement = await self._appeler(
+                "/v1/customers",
+                corps_client,
+                cle_api,
+                idempotence=f"client:{demande.subscription_id}",
+            )
+            identifiant = client_paiement.get("id")
+            if not isinstance(identifiant, str) or not identifiant:
+                raise PaiementImpossible("le canal n'a pas rendu d'identifiant de client")
+            # `customer` et `customer_email` sont exclusifs : l'email vit déjà
+            # sur le client créé.
+            corps["customer"] = identifiant
+        elif demande.email:
             corps["customer_email"] = demande.email
 
         session = await self._appeler(

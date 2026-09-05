@@ -90,6 +90,20 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         etat["provisionnements"].append(kwargs)
 
     etat["provisionnements"] = []
+    etat["adresse"] = None  # adresse courante du profil (None = pas saisie)
+    etat["figees"] = []  # (subscription_id, adresse) figées
+
+    async def _lire_adresse(login: str, _conn: Any) -> Any:
+        return etat["adresse"]
+
+    async def _figer_adresse(subscription_id: str, adresse: Any, _conn: Any) -> None:
+        etat["figees"].append((subscription_id, adresse))
+
+    async def _adresse_figee(subscription_id: str, _conn: Any) -> Any:
+        return next((a for sid, a in etat["figees"] if sid == subscription_id), None)
+
+    async def _publier_evenement(*args: Any, **kwargs: Any) -> None:
+        return None
 
     async def _historique_de(
         login: str, _conn: Any, *, achats_seulement: bool
@@ -110,6 +124,10 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         "list_de": _list_de,
         "lancer_provisioning": _lancer_provisioning,
         "historique_de": _historique_de,
+        "lire_adresse": _lire_adresse,
+        "figer_adresse": _figer_adresse,
+        "adresse_figee": _adresse_figee,
+        "publier_evenement_abonnement": _publier_evenement,
     }.items():
         monkeypatch.setattr(routes, nom, impl)
 
@@ -332,3 +350,65 @@ def test_le_contexte_donne_les_devises_acceptees(client: TestClient) -> None:
 
     assert corps["devise_par_defaut"] == "EUR"
     assert corps["devises"] == ["EUR", "USD"]
+
+
+# ─── L'adresse de facturation ────────────────────────────────────────────────
+
+
+def _adresse(**extra: Any) -> Any:
+    from portal.billing.adresse import AdresseFacturation
+
+    base: dict[str, Any] = {
+        "line1": "12 rue des Lilas",
+        "city": "Lyon",
+        "postal_code": "69003",
+        "country": "FR",
+    }
+    base.update(extra)
+    return AdresseFacturation.model_validate(base)
+
+
+def test_le_pays_de_l_adresse_et_de_la_souscription_ne_divergent_pas(
+    client: TestClient,
+) -> None:
+    """Le pays décide de la taxe, l'adresse s'imprime sur la facture : les
+    laisser différer produirait une facture qui se contredit elle-même."""
+    client.etat["adresse"] = _adresse(country="BE")  # type: ignore[attr-defined]
+
+    reponse = client.post("/me/subscriptions", json=_corps(country_code="FR"))
+
+    assert reponse.status_code == 409
+    assert "BE" in reponse.json()["detail"]
+    assert client.etat["crees"] == []  # type: ignore[attr-defined]
+
+
+def test_l_adresse_est_figee_sur_la_souscription(client: TestClient) -> None:
+    """Même doctrine que le prix : celle qui a servi ne bouge plus."""
+    client.etat["adresse"] = _adresse()  # type: ignore[attr-defined]
+
+    reponse = client.post("/me/subscriptions", json=_corps())
+
+    assert reponse.status_code == 201
+    ((sid, figee),) = client.etat["figees"]  # type: ignore[attr-defined]
+    assert sid == reponse.json()["id"]
+    assert figee.country == "FR"
+
+
+def test_sans_adresse_la_souscription_reste_possible(client: TestClient) -> None:
+    """L'adresse n'est pas (encore) obligatoire : le canal la collectera."""
+    reponse = client.post("/me/subscriptions", json=_corps())
+
+    assert reponse.status_code == 201
+    assert client.etat["figees"] == []  # type: ignore[attr-defined]
+
+
+def test_le_contexte_donne_le_pays_de_l_adresse(client: TestClient) -> None:
+    client.etat["adresse"] = _adresse(country="BE")  # type: ignore[attr-defined]
+
+    corps = client.get("/me/subscriptions/contexte").json()
+
+    assert corps["pays_adresse"] == "BE"
+
+
+def test_sans_adresse_le_contexte_ne_pretend_rien(client: TestClient) -> None:
+    assert client.get("/me/subscriptions/contexte").json()["pays_adresse"] is None

@@ -95,12 +95,16 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def _email(login: str, _conn: Any) -> str:
         return "alice@example.org"
 
+    async def _adresse_figee(subscription_id: str, _conn: Any) -> None:
+        return None
+
     for nom, impl in {
         "get": _get,
         "get_offer": _get_offer,
         "get_provider": _get_provider,
         "reveal_system_secret": _reveal,
         "email_de": _email,
+        "adresse_figee": _adresse_figee,
     }.items():
         monkeypatch.setattr(routes, nom, impl)
     monkeypatch.setattr(routes, "CANAUX", {"stripe": _CanalTemoin()})

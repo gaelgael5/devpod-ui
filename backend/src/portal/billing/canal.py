@@ -28,6 +28,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .adresse import AdresseFacturation
 from .subscriptions import SubscriptionEvent
 
 
@@ -76,6 +77,9 @@ class DemandePaiement(BaseModel):
     reconduction: bool
     #: Pré-remplit la page de paiement. Vide si on ne le connaît pas.
     email: str = ""
+    #: Adresse de facturation FIGÉE de l'abonnement, transmise structurée au
+    #: fournisseur. `None` = le fournisseur la collectera lui-même.
+    adresse: AdresseFacturation | None = None
     url_succes: str
     url_abandon: str
 

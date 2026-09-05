@@ -11,7 +11,7 @@ def test_system_master_key_requires_kek() -> None:
     """Lève RuntimeError si portal_vault_kek vide."""
     from portal.secrets.system import _system_master_key
 
-    with patch("portal.secrets.system.get_settings") as mock:
+    with patch("portal.secrets.chiffrement.get_settings") as mock:
         mock.return_value.portal_vault_kek = ""
         with pytest.raises(RuntimeError, match="PORTAL_VAULT_KEK"):
             _system_master_key()
@@ -19,7 +19,7 @@ def test_system_master_key_requires_kek() -> None:
 
 def test_system_master_key_is_deterministic() -> None:
     kek = "ab" * 32  # 64 hex chars
-    with patch("portal.secrets.system.get_settings") as mock:
+    with patch("portal.secrets.chiffrement.get_settings") as mock:
         mock.return_value.portal_vault_kek = kek
         from portal.secrets.system import _system_master_key
 
@@ -31,7 +31,7 @@ def test_system_master_key_is_deterministic() -> None:
 
 def test_system_master_key_differs_from_kek() -> None:
     kek = "cd" * 32
-    with patch("portal.secrets.system.get_settings") as mock:
+    with patch("portal.secrets.chiffrement.get_settings") as mock:
         mock.return_value.portal_vault_kek = kek
         from portal.secrets.system import _system_master_key
 
@@ -96,7 +96,7 @@ async def test_store_system_secret_local_does_not_raise() -> None:
 
     conn = AsyncMock()
 
-    with patch("portal.secrets.system.get_settings") as mock:
+    with patch("portal.secrets.chiffrement.get_settings") as mock:
         mock.return_value.portal_vault_kek = "ff" * 32
         await store_system_secret(
             slug="host.test-host.ci-password",
@@ -160,7 +160,7 @@ async def test_store_system_cert_local_does_not_raise() -> None:
 
     conn = AsyncMock()
 
-    with patch("portal.secrets.system.get_settings") as mock:
+    with patch("portal.secrets.chiffrement.get_settings") as mock:
         mock.return_value.portal_vault_kek = "aa" * 32
         await store_system_cert(
             slug="host.test-host.key",
