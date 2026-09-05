@@ -109,7 +109,7 @@ function WorkspaceDefaultsForm({ initial }: { initial: WorkspaceDefaults }) {
         <p className="text-xs text-muted-foreground">
           {t(
             'admin.workspaceDefaults.memoryLimitHint',
-            'docker --memory : un dépassement tue le conteneur, pas le host. Vide = aucune limite. Surchargeable par workspace ; appliquée au prochain démarrage/recreate.',
+            'docker --memory : un dépassement tue le conteneur, pas le host. Vide = aucune limite. Surchargeable par workspace ; appliquée au prochain démarrage/recreate. Défaut global : un nœud qui déclare un plafond « Mémoire max par workspace » l’emporte sur ce défaut et borne toute demande supérieure.',
           )}
         </p>
       </div>

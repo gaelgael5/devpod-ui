@@ -189,6 +189,25 @@ def memoire_depasse_plafond(demande: str, plafond: str) -> bool:
     return d > p
 
 
+def borner_memoire(demande: str, plafond: str) -> str:
+    """Valeur mémoire effective à injecter, ramenée au `plafond` du nœud.
+
+    Filet du parc existant (enabler « Migration vers max_memory ») : on ne
+    réécrit jamais la spec en base, on borne uniquement ce qu'on injecte au
+    `up()`. Plafond non renseigné = aucun bornage, la demande passe telle
+    quelle. Demande vide sur un nœud plafonné = le plafond (une limite absente
+    ne vaut plus « aucune limite » face à un nœud qui en déclare une). Sinon on
+    rabaisse au plafond dès qu'il est dépassé.
+    """
+    demande = demande.strip()
+    plafond = plafond.strip()
+    if not plafond:
+        return demande
+    if not demande:
+        return plafond
+    return plafond if memoire_depasse_plafond(demande, plafond) else demande
+
+
 class DevpodDefaults(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

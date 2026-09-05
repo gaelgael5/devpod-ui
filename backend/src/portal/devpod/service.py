@@ -16,7 +16,13 @@ from urllib.parse import urlparse
 import structlog
 
 from ..agents.keys import revoke_workspace_keys
-from ..config.models import GitCredential, GlobalConfig, SourceSpec, WorkspaceSpec
+from ..config.models import (
+    GitCredential,
+    GlobalConfig,
+    SourceSpec,
+    WorkspaceSpec,
+    borner_memoire,
+)
 from ..config.store import _data_root, load_global, load_user, safe_login_path, safe_user_path
 from ..db.engine import _get_engine
 from ..db.log_blobs import persist_log_blob_from_file
@@ -405,6 +411,22 @@ class DevPodService:
             # Bornage mémoire (enabler 59864c37) : surcharge workspace, sinon
             # défaut global. "" = pas de limite.
             memory_limit = ws_spec.memory_limit or global_cfg.devpod.defaults.memory_limit
+            # Filet du parc existant (enabler « Migration vers max_memory ») : la
+            # limite effective ne peut pas dépasser le plafond déclaré par le
+            # nœud. On ne réécrit jamais la spec en base — on borne ce qu'on
+            # injecte. La vraie migration se produit ici, au prochain démarrage
+            # ou recreate demandé par l'utilisateur.
+            borne = borner_memoire(memory_limit, host_cfg.max_memory)
+            if borne != memory_limit:
+                _log.info(
+                    "memory_limit_borne",
+                    ws_id=ws_id,
+                    host=host_cfg.name,
+                    demande=memory_limit or "(vide)",
+                    plafond=host_cfg.max_memory,
+                    applique=borne,
+                )
+            memory_limit = borne
             needs_devcontainer = bool(
                 recipes
                 or feature_env

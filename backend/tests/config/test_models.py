@@ -268,3 +268,29 @@ class TestDepassePlafond:
         from portal.config.models import memoire_depasse_plafond
 
         assert memoire_depasse_plafond("", "4g") is False
+
+
+class TestBornerMemoire:
+    """Filet du parc existant : la valeur effective à injecter au `up()`."""
+
+    def test_une_spec_heritee_trop_gourmande_est_ramenee_au_plafond(self) -> None:
+        from portal.config.models import borner_memoire
+
+        assert borner_memoire("32g", "8g") == "8g"
+
+    def test_une_spec_vide_sur_host_plafonne_vaut_le_plafond(self) -> None:
+        from portal.config.models import borner_memoire
+
+        assert borner_memoire("", "4g") == "4g"
+
+    def test_sans_plafond_la_demande_passe_telle_quelle(self) -> None:
+        from portal.config.models import borner_memoire
+
+        assert borner_memoire("32g", "") == "32g"
+        assert borner_memoire("", "") == ""
+
+    def test_sous_le_plafond_la_demande_est_conservee(self) -> None:
+        from portal.config.models import borner_memoire
+
+        assert borner_memoire("2g", "4g") == "2g"
+        assert borner_memoire("4096m", "4g") == "4096m"  # égalité conservée

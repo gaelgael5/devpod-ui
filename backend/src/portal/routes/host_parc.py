@@ -7,12 +7,15 @@ contre le vrai schéma.
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
 from ..db.engine import get_conn
 from ..db.host_parc import PageParc, TriParc, lister_parc
+from ..devpod.memory_inventory import inventaire_memoire
 
 router = APIRouter(tags=["host-parc"])
 
@@ -45,3 +48,16 @@ async def parc(
         page_size=page_size,
         hors_usages=exclus,
     )
+
+
+@router.get("/hosts/memory-inventory")
+async def memory_inventory(
+    _user: UserInfo = Depends(require_admin),
+) -> list[dict[str, Any]]:
+    """Workspaces dont la limite mémoire dépasse le plafond de leur nœud.
+
+    Inclut les `memory_limit` vides sur un host plafonné (invisibles d'un filtre
+    naïf). N'agit sur rien : chaque entrée sera ramenée au plafond au prochain
+    démarrage/recreate demandé par l'utilisateur.
+    """
+    return await inventaire_memoire()

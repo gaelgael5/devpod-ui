@@ -469,6 +469,10 @@
     "hostDisk": {
       "title": "{{host}} disk at {{pct}}%",
       "hint": "Only {{free}} free — workspace writes may fail."
+    },
+    "memoryBorne": {
+      "title": "Memory limit lowered to {{value}}",
+      "hint": "Above the node's ceiling — applied on next start or recreate."
     }
   },
   "recipes": {

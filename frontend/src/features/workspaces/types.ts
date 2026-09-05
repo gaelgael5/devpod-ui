@@ -26,6 +26,10 @@ export interface WorkspaceSpec {
   keep_active?: boolean
   // Surcharge de la limite mémoire du conteneur (59864c37), "" = défaut global.
   memory_limit?: string
+  // Valeur à laquelle la limite sera ramenée au prochain démarrage/recreate,
+  // quand elle dépasse le plafond du nœud (migration max_memory). Absent = rien
+  // à borner. Le backend calcule ; le front ne fait que l'afficher.
+  memory_borne?: string
 }
 
 export type WorkspaceStatusValue =

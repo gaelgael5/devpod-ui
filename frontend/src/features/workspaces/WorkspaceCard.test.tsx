@@ -86,6 +86,21 @@ describe('WorkspaceCard', () => {
     expect(screen.queryByTestId('idle-suggestion')).not.toBeInTheDocument()
   })
 
+  it('signale la limite mémoire bornée quand spec.memory_borne est présent', () => {
+    const spec: WorkspaceSpec = { ...SPEC, memory_limit: '32g', memory_borne: '8g' }
+    const ws: WorkspaceStatus = { ws_id: 'alice-myapp', status: 'running' }
+    renderWithProviders(
+      <WorkspaceCard spec={spec} status={ws} onStop={vi.fn()} onDelete={vi.fn()} />,
+    )
+    const notice = screen.getByTestId('memory-borne-notice')
+    expect(notice).toHaveTextContent('8g')
+  })
+
+  it("n'affiche pas le bandeau mémoire quand memory_borne est absent", () => {
+    renderWithProviders(card('running', 'https://x'))
+    expect(screen.queryByTestId('memory-borne-notice')).not.toBeInTheDocument()
+  })
+
   it('affiche le badge "running" et le bouton Ouvrir', () => {
     renderWithProviders(card('running', 'https://alice-myapp.dev.yoops.org'))
     expect(screen.getByText(/running|en cours/i)).toBeInTheDocument()

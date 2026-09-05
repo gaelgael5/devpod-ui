@@ -469,6 +469,10 @@
     "hostDisk": {
       "title": "Disque de {{host}} à {{pct}} %",
       "hint": "Plus que {{free}} libres — les écritures du workspace peuvent échouer."
+    },
+    "memoryBorne": {
+      "title": "Limite mémoire ramenée à {{value}}",
+      "hint": "Dépasse le plafond du nœud — appliqué au prochain démarrage ou recreate."
     }
   },
   "recipes": {

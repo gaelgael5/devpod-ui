@@ -242,10 +242,38 @@ async def put_config(
     return new_cfg.model_dump(mode="json")
 
 
+def _memory_borne(host_name: str, memory_limit: str) -> str | None:
+    """Valeur à laquelle la limite sera ramenée au prochain démarrage, ou None.
+
+    Signalement du parc existant (enabler « Migration vers max_memory ») : on ne
+    réécrit pas la spec, mais on prévient l'utilisateur que sa limite dépasse le
+    plafond du nœud et sera bornée au prochain démarrage/recreate. None quand
+    rien ne change (nœud sans plafond, ou demande déjà conforme).
+    """
+    from ..config.models import borner_memoire
+    from ..config.store import load_global
+
+    g = load_global()
+    host = next((h for h in g.hosts if h.name == host_name), None)
+    plafond = host.max_memory if host else ""
+    if not plafond:
+        return None
+    demande = (memory_limit or "").strip() or g.devpod.defaults.memory_limit
+    borne = borner_memoire(demande, plafond)
+    return borne if borne != demande else None
+
+
 @router.get("/workspaces")
 async def list_workspaces(user: UserInfo = Depends(require_user)) -> list[dict[str, object]]:
     cfg = await load_user(user.login)
-    return [ws.model_dump(mode="json") for ws in cfg.workspaces]
+    entrees: list[dict[str, object]] = []
+    for ws in cfg.workspaces:
+        entree = ws.model_dump(mode="json")
+        borne = _memory_borne(ws.host, ws.memory_limit)
+        if borne is not None:
+            entree["memory_borne"] = borne
+        entrees.append(entree)
+    return entrees
 
 
 def _borner_memoire(host_name: str, memory_limit: str) -> str:

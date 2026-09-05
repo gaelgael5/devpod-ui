@@ -233,6 +233,30 @@ export default function WorkspaceCard({ spec, status, onStop, onDelete, onStart,
         </div>
       )}
 
+      {/* Limite mémoire au-dessus du plafond du nœud (migration max_memory) : la
+          spec n'est pas réécrite, mais la limite sera ramenée au prochain
+          démarrage/recreate. Même vocabulaire que le bandeau de recreate. */}
+      {spec.memory_borne && (
+        <div
+          className="mb-3 rounded-md border border-muted-foreground/30 bg-muted p-2.5 text-xs text-muted-foreground"
+          data-testid="memory-borne-notice"
+        >
+          <div className="flex items-center gap-1.5 font-medium">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            {t('workspaces.memoryBorne.title', {
+              value: spec.memory_borne,
+              defaultValue: 'Limite mémoire ramenée à {{value}}',
+            })}
+          </div>
+          <p className="mt-1 opacity-90">
+            {t('workspaces.memoryBorne.hint', {
+              defaultValue:
+                'Dépasse le plafond du nœud — appliqué au prochain démarrage ou recreate.',
+            })}
+          </p>
+        </div>
+      )}
+
       {(s === 'provisioning' || isStarting) && (
         <div className="mb-3 h-1 overflow-hidden rounded-full bg-muted">
           <div className="h-full w-1/2 animate-pulse rounded-full bg-primary" />
