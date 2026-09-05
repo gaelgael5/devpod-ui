@@ -351,6 +351,8 @@ class HypervisorTypeRequest(BaseModel):
     name: str
     add_script: str = ""
     destroy_script: str = ""
+    # Bascule creation par driver IaC (ticket 9) ; vide = chemin script.
+    provisioning_driver: str = ""
     actions: list[HypervisorAction] = []
     # Variables que les profils de host de ce type auront a renseigner. Sans ce
     # champ, pydantic ignorait en silence ce que l'IHM envoyait et la
@@ -414,6 +416,7 @@ async def add_hypervisor_type(
         name=body.name,
         add_script=body.add_script,
         destroy_script=body.destroy_script,
+        provisioning_driver=body.provisioning_driver,
         actions=_actions_qualifiees(body.name, body.actions),
         variables=_variables_validees(body.variables),
     )
@@ -438,6 +441,7 @@ async def update_hypervisor_type(
         name=name,
         add_script=body.add_script,
         destroy_script=body.destroy_script,
+        provisioning_driver=body.provisioning_driver,
         test_host_params=ht.test_host_params,  # préservé (réglé via /test-params)
         actions=_actions_qualifiees(name, body.actions),
         variables=_variables_validees(body.variables),
@@ -489,13 +493,10 @@ async def set_test_host_params(
     ht = next((t for t in cfg.hypervisor_types if t.name == name), None)
     if ht is None:
         raise HTTPException(status_code=404, detail=f"Hypervisor type {name!r} not found")
-    updated = HypervisorType(
-        label=ht.label,
-        name=ht.name,
-        add_script=ht.add_script,
-        destroy_script=ht.destroy_script,
-        test_host_params=body.params,
-    )
+    # model_copy et non une reconstruction : une reconstruction champ par champ
+    # perdait en silence tout champ non listé (actions, variables, bascule
+    # provisioning_driver...) à chaque enregistrement des paramètres de test.
+    updated = ht.model_copy(update={"test_host_params": body.params})
     cfg.hypervisor_types = [updated if t.name == name else t for t in cfg.hypervisor_types]
     await save_global(cfg)
     _log.info("test_host_params_saved", type=name, by=user.login, keys=sorted(body.params))

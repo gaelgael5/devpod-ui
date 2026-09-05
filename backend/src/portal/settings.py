@@ -63,6 +63,31 @@ class AppSettings(BaseSettings):
     scripts_dir: str = "/app/scripts"
     portal_api_key: str = ""
 
+    # ── Provisionnement IaC (épic hyperviseur, tickets 8/9) ──────────────────
+    # Binaire OpenTofu (pinné dans l'image ; surchargable en dev).
+    tofu_binary: str = "tofu"
+    # Miroir local de providers (scripts/tofu-mirror.sh). Vide = accès direct
+    # au registre (dev uniquement — en prod le miroir est la seule source).
+    tofu_provider_mirror: str = ""
+    # Répertoire des modules ; vide = auto (/app/tofu-modules puis deploy/).
+    tofu_modules_dir: str = ""
+    # Passphrase du chiffrement de state (>= 16 caractères). Vide = drivers
+    # IaC non enregistrés. En prod : résolue depuis Harpocrate au déploiement.
+    tofu_state_passphrase: str = ""
+    # Chaîne de connexion libpq du backend de state ; vide = dérivée de
+    # database_url.
+    tofu_pg_conn_str: str = ""
+    # Credentials API Proxmox du driver (PVE >= 8, jeton API). Vides = driver
+    # proxmox non enregistré (le chemin script reste le défaut).
+    proxmox_ve_endpoint: str = ""
+    proxmox_ve_api_token: str = ""
+    # Tailnet (ticket 7) : clé d'API (ou access-token OAuth scope auth_keys),
+    # tag de classe des nœuds, nom du tailnet (- = celui de la clé). Vides =
+    # pas d'adhésion tailnet au provisionnement.
+    tailnet_api_key: str = ""
+    tailnet_tag: str = "tag:workspace-node"
+    tailnet_name: str = "-"
+
     # Base de données PostgreSQL (format : postgresql+asyncpg://user:pass@host/db)
     database_url: str = ""
 

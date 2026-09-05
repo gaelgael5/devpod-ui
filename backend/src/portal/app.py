@@ -285,6 +285,19 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             if orphelins:
                 _log.warning("provisioning_runs_orphelins_requalifies", count=orphelins)
 
+            # Étape 1 de la migration provider/provider_ref (tickets 4/9) :
+            # backfill additif, déterministe et idempotent des hosts existants.
+            from .db.global_config import get_optional_cached_global as _get_cfg
+            from .provisioning.migration_hosts import migrer_hosts_vers_provider_ref
+
+            cfg_hosts = _get_cfg()
+            if cfg_hosts is not None and migrer_hosts_vers_provider_ref(cfg_hosts):
+                from .db.global_config import save_global_db as _save_cfg
+                from .db.global_config import set_cached_global as _set_cfg
+
+                await _save_cfg(cfg_hosts, conn)
+                _set_cfg(cfg_hosts)
+
             # Bastion sshd : démarré/arrêté selon la config DB (plus d'.env). À chaud
             # via PUT /admin/bastion-config ; ici au boot.
             from .bastion.runtime import apply as apply_bastion

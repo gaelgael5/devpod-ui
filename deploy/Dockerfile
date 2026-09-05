@@ -79,6 +79,8 @@ RUN uv sync --no-dev --no-install-project --frozen
 
 # Scripts d'exploitation (install-node.sh, backup.sh…)
 COPY scripts/ ./scripts/
+# Modules OpenTofu du provisionnement (ticket 9) — lus par le driver.
+COPY deploy/tofu-modules/ /app/tofu-modules/
 
 # Étape 2 : copier le code source et installer le package (layer invalidée si src/ change)
 COPY backend/src/ ./src/

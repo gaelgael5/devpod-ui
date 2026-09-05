@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import structlog
 
-from ..config.models import GlobalConfig, HostConfig, Hypervisor
+from ..config.models import GlobalConfig, HostConfig, Hypervisor, MachineProfile
 from .cible import Cible
 from .orchestration import HostProvisionne
 
@@ -125,6 +125,22 @@ class ExecuteurProxmox:
             raise ProvisioningImpossible(f"profil de machine {cible.machine_profile!r} introuvable")
         capacite = profil_host.capacity_workspaces() if profil_host else None
 
+        # Bascule du ticket 9 : le type d'hyperviseur peut désigner un driver
+        # IaC — le chemin script reste le défaut, et le rollback est ce champ.
+        hyp_type = next((t for t in cfg.hypervisor_types if t.name == node.hypervisor_type), None)
+        if hyp_type is not None and hyp_type.provisioning_driver:
+            return await self._monter_driver(
+                driver_name=hyp_type.provisioning_driver,
+                node=node,
+                profil=profil_machine,
+                cfg=cfg,
+                capacite=capacite,
+                mutualise=mutualise,
+                subscription_id=subscription_id,
+                owner_login=owner_login,
+                offer_slug=offer_slug,
+            )
+
         spec = await self._spec(node, cfg)
         vmid = await self._prochain_vmid(node)
         nom = f"{'mut' if mutualise else 'ded'}-{vmid}"
@@ -147,6 +163,77 @@ class ExecuteurProxmox:
             mutualise=mutualise,
             subscription_id=subscription_id,
             owner=owner_login,
+        )
+        return HostProvisionne(host_name=hote.name, capacity_workspaces=capacite)
+
+    async def _monter_driver(
+        self,
+        *,
+        driver_name: str,
+        node: Hypervisor,
+        profil: MachineProfile,
+        cfg: GlobalConfig,
+        capacite: int | None,
+        mutualise: bool,
+        subscription_id: str,
+        owner_login: str,
+        offer_slug: str,
+    ) -> HostProvisionne:
+        """Création par le contrat de driver, configuration par configure-node.
+
+        Le VMID vient du même mécanisme que le chemin script (nommage
+        mut-/ded-<vmid> conservé) ; le module refuse de toute façon un VMID
+        pris ailleurs dans le cluster, avant toute création.
+        """
+        from ..provisioning.errors import EchecApresCreation
+        from ..provisioning.tailnet import TailnetService
+        from ..settings import get_settings
+        from .executeur_driver import ConfigurationEchouee, monter_par_driver
+
+        settings = get_settings()
+        vmid = await self._prochain_vmid(node)
+        nom = f"{'mut' if mutualise else 'ded'}-{vmid}"
+        profil_avec_vmid = profil.model_copy(update={"params": {**profil.params, "VMID": vmid}})
+        tailnet_authkey = ""
+        if settings.tailnet_api_key:
+            tailnet_authkey = await TailnetService(
+                api_key=settings.tailnet_api_key,
+                tag=settings.tailnet_tag,
+                tailnet=settings.tailnet_name,
+            ).creer_cle_enrolement(hostname=nom)
+        try:
+            hote = await monter_par_driver(
+                driver_name=driver_name,
+                nom=nom,
+                node=node,
+                profil=profil_avec_vmid,
+                portal_url=cfg.server.external_url,
+                portal_token=settings.portal_api_key,
+                tailnet_authkey=tailnet_authkey,
+            )
+        except ConfigurationEchouee as exc:
+            # La machine existe et répond : échec APRÈS création, le ref part
+            # avec — reprendre (rejouer configure-node) ou détruire.
+            raise EchecApresCreation(
+                str(exc),
+                provider_ref=exc.descriptor.provider_ref,
+                provider=exc.descriptor.provider,
+            ) from exc
+        hote.capacity_workspaces = capacite
+        hote.accepts_mutualise = mutualise
+        await self._persister(
+            hote,
+            subscription_id=subscription_id,
+            owner_login=owner_login,
+            offer_slug=offer_slug,
+            mutualise=mutualise,
+        )
+        log.info(
+            "provisioning_machine_montee_driver",
+            host=hote.name,
+            driver=driver_name,
+            mutualise=mutualise,
+            subscription_id=subscription_id,
         )
         return HostProvisionne(host_name=hote.name, capacity_workspaces=capacite)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -333,6 +333,14 @@ class HostConfig(BaseModel):
     address: str = ""
     proxmox_node: str = ""
     vmid: str = ""
+    # Contrat de driver (épic provisionnement, ticket 4) : provider = type de
+    # driver qui a monté la machine, provider_ref = référence OPAQUE que seul
+    # ce driver sait relire (le portail la stocke et la repasse, jamais ne la
+    # lit). vmid/proxmox_node ci-dessus sont le chemin historique : ils
+    # disparaîtront à l'étape 3 de la migration (cf. cadrage), une fois le
+    # chemin driver éprouvé en production de test.
+    provider: str = ""
+    provider_ref: dict[str, Any] = Field(default_factory=dict)
     # Références vers harpo_* (slugs)
     ci_password_secret_slug: str = ""
     host_cert_slug: str = ""
@@ -480,6 +488,10 @@ class HypervisorType(BaseModel):
     name: str
     add_script: str = ""
     destroy_script: str = ""
+    # Bascule du chemin de création (ticket 9) : vide = scripts add/destroy
+    # ci-dessus (chemin historique) ; « proxmox » = driver IaC derrière le
+    # contrat. Revenir au script = vider ce champ, rien d'autre.
+    provisioning_driver: str = ""
     # Valeurs par défaut des args pour créer un host de test (sauf l'identifiant).
     test_host_params: dict[str, str] = Field(default_factory=dict)
     # Actions supplémentaires (au-delà de créer/détruire), déclarées par l'admin.
