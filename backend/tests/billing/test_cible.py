@@ -49,14 +49,44 @@ def test_la_cible_suit_la_chaine_complete() -> None:
     assert cible.noeud == "pve"
 
 
-def test_le_premier_hyperviseur_du_type_est_retenu() -> None:
-    """Premier lot : aucun arbitrage entre hyperviseurs de même type. On prend
-    le premier déclaré — un tirage instable rendrait le rejeu d'un événement,
-    qui est la norme avec des webhooks, non idempotent."""
-    cible = resoudre_cible(["host-gros"], _catalogue())
+def test_l_hyperviseur_le_moins_charge_est_retenu() -> None:
+    """L'arbitrage entre hyperviseurs d'un même type : le moins de machines à
+    workspaces en fonctionnement. Décision de l'architecte, 31/08/2026."""
+    cible = resoudre_cible(
+        ["host-gros"],
+        _catalogue(charge_par_hyperviseur={"pve-a": 3, "pve-b": 1}),
+    )
 
     assert cible is not None
-    assert cible.hypervisor == "pve-a"
+    assert cible.hypervisor == "pve-b"
+    assert cible.noeud == "pve2"
+
+
+def test_a_charge_egale_le_nom_departage() -> None:
+    """Un tri instable rendrait deux résolutions successives divergentes sans
+    raison — le rejeu d'un webhook est la norme, pas l'exception."""
+    cible = resoudre_cible(
+        ["host-gros"],
+        _catalogue(
+            hyperviseurs=[("zeta", "proxmox4vm", "pve"), ("alpha", "proxmox4vm", "pve2")],
+            charge_par_hyperviseur={"zeta": 2, "alpha": 2},
+        ),
+    )
+
+    assert cible is not None
+    assert cible.hypervisor == "alpha"
+
+
+def test_une_charge_inconnue_vaut_zero() -> None:
+    """Un hyperviseur qui n'a encore rien monté n'apparaît pas dans la charge :
+    l'absence se lit « rien ne tourne », pas « inéligible »."""
+    cible = resoudre_cible(
+        ["host-gros"],
+        _catalogue(charge_par_hyperviseur={"pve-a": 5}),
+    )
+
+    assert cible is not None
+    assert cible.hypervisor == "pve-b"
 
 
 def test_l_ordre_de_l_offre_est_l_ordre_d_essai() -> None:
@@ -121,25 +151,18 @@ def test_un_hyperviseur_sans_type_declare_n_est_jamais_retenu() -> None:
     assert resoudre_cible(["host-standard"], catalogue) is None
 
 
-# ─── Nœuds interdits aux abonnés ─────────────────────────────────────────────
+# ─── Plus aucun nœud interdit en dur ─────────────────────────────────────────
 
 
-def test_un_noeud_exclu_n_est_jamais_retenu() -> None:
-    """pve2 porte la RTX 4090, réservée à l'inférence LLM : aucune VM d'abonné
-    n'y naît. La règle survit au passage du nœud figé à la chaîne de profils —
-    elle change seulement de forme, de cible imposée à exclusion."""
+def test_un_hyperviseur_declare_sur_n_importe_quel_noeud_est_eligible() -> None:
+    """`NOEUDS_EXCLUS` a disparu : le catalogue est la seule source de vérité.
+
+    La garantie que pve2 (RTX 4090, réservée à l'inférence LLM) ne reçoit
+    aucune VM d'abonné repose désormais UNIQUEMENT sur le fait de ne pas y
+    déclarer d'hyperviseur — ce n'est plus le code qui la tient."""
     catalogue = _catalogue(hyperviseurs=[("gpu", "proxmox4vm", "pve2")])
 
-    assert resoudre_cible(["host-standard"], catalogue, frozenset({"pve2"})) is None
-
-
-def test_l_exclusion_laisse_la_place_a_l_hyperviseur_suivant() -> None:
-    """Exclure n'est pas renoncer : c'est le suivant du type qui sert."""
-    catalogue = _catalogue(
-        hyperviseurs=[("gpu", "proxmox4vm", "pve2"), ("pve-b", "proxmox4vm", "pve")],
-    )
-
-    cible = resoudre_cible(["host-standard"], catalogue, frozenset({"pve2"}))
+    cible = resoudre_cible(["host-standard"], catalogue)
 
     assert cible is not None
-    assert cible.hypervisor == "pve-b"
+    assert cible.noeud == "pve2"

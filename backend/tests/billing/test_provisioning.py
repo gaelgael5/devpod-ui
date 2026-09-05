@@ -12,7 +12,6 @@ import pytest
 
 from portal.billing.cible import Cible
 from portal.billing.provisioning import (
-    NOEUDS_EXCLUS,
     HostDisponible,
     decider,
 )
@@ -65,14 +64,6 @@ def test_activation_apres_essai_ne_reprovisionne_pas() -> None:
 
 
 # ─── Dédié ───────────────────────────────────────────────────────────────────
-
-
-def test_pve2_reste_interdit_aux_abonnes() -> None:
-    """pve2 porte la RTX 4090, réservée à l'inférence LLM. La garantie ne
-    s'exprime plus par un nœud imposé mais par une exclusion — depuis que le
-    nœud vient de l'hyperviseur résolu, déclarer un hyperviseur sur pve2
-    suffirait sinon à y envoyer des abonnés."""
-    assert "pve2" in NOEUDS_EXCLUS
 
 
 def test_dedie_cree_une_vm_sur_le_noeud_de_sa_cible() -> None:

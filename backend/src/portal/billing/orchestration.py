@@ -29,7 +29,7 @@ from ..db.provisioning_catalogue import charger_catalogue
 from ..db.provisioning_runs import enregistrer, marquer
 from .cible import Cible, resoudre_cible
 from .ownership import HostingType
-from .provisioning import NOEUDS_EXCLUS, Decision, decider
+from .provisioning import Decision, decider
 from .subscriptions import EventKind
 
 _log = structlog.get_logger(__name__)
@@ -114,7 +114,7 @@ async def traiter(
     # deux souscriptions legitimes a la meme offre (migration 118).
     deja = await a_deja_une_machine(subscription_id, conn)
     pool = await pool_mutualise(conn) if hosting_type == "mutualise" else []
-    cible = resoudre_cible(host_profiles, await charger_catalogue(conn), NOEUDS_EXCLUS)
+    cible = resoudre_cible(host_profiles, await charger_catalogue(conn))
     decision = decider(
         evenement=evenement,
         hosting_type=hosting_type,

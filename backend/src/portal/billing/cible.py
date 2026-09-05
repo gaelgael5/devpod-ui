@@ -10,17 +10,18 @@ Chaque maillon a son propriétaire : l'offre choisit des profils de host et les
 CLASSE, le profil de host porte le profil de machine, le profil de machine porte
 le type, et le type désigne les hyperviseurs capables de l'exécuter.
 
-Deux partis pris, et ils tiennent tous les deux à l'idempotence — un webhook se
-rejoue, et deux rejeux doivent viser la même machine :
+Deux partis pris :
 
 1. **L'ordre de l'offre est l'ordre d'essai.** La priorité saisie par
    l'administrateur décide ; le premier profil qui se résout entièrement gagne.
    Un profil dont un maillon manque cède la place au suivant : c'est tout
    l'intérêt d'une liste priorisée plutôt que d'un choix unique.
-2. **Le premier hyperviseur du type est retenu.** Aucun arbitrage entre
-   hyperviseurs de même type dans ce lot — ni charge, ni place restante, ni
-   tirage. Le jour où l'arbitrage existera, il se posera ici et nulle part
-   ailleurs.
+2. **Entre hyperviseurs d'un même type, le moins chargé est retenu** — le moins
+   de machines à workspaces en fonctionnement, le nom départageant les égalités
+   (un tri instable rendrait deux résolutions successives divergentes sans
+   raison). Le choix dépend donc de l'instant : l'idempotence d'un rejeu ne
+   repose plus sur le déterminisme du choix mais UNIQUEMENT sur le garde-fou
+   « cet abonnement a déjà sa machine » (`deja_provisionne` + registre).
 
 Ce module ne lit ni la base ni la configuration : il reçoit un `Catalogue` déjà
 constitué et rend un verdict. Les règles se testent donc sans base et sans
@@ -46,9 +47,13 @@ class Catalogue(BaseModel):
     machine_par_profil_host: dict[str, str] = Field(default_factory=dict)
     #: slug de profil de machine → nom de type d'hyperviseur
     type_par_profil_machine: dict[str, str] = Field(default_factory=dict)
-    #: hyperviseurs déclarés, DANS L'ORDRE : (nom, type, nœud). L'ordre porte la
-    #: règle « le premier du type gagne » — une liste triée ailleurs la casserait.
+    #: hyperviseurs déclarés : (nom, type, nœud).
     hyperviseurs: list[tuple[str, str, str]] = Field(default_factory=list)
+    #: Machines à workspaces EN FONCTIONNEMENT, par nom d'hyperviseur — la
+    #: métrique de l'arbitrage. L'appelant la constitue (et la groupe par
+    #: machine physique quand deux entrées visent le même fer) ; absent = rien
+    #: ne tourne, pas « inéligible ».
+    charge_par_hyperviseur: dict[str, int] = Field(default_factory=dict)
 
 
 class Cible(BaseModel):
@@ -68,34 +73,39 @@ class Cible(BaseModel):
     noeud: str
 
 
-def _premier_hyperviseur(
-    type_hyperviseur: str, catalogue: Catalogue, noeuds_exclus: frozenset[str]
+def _hyperviseur_le_moins_charge(
+    type_hyperviseur: str, catalogue: Catalogue
 ) -> tuple[str, str] | None:
-    """`(nom, nœud)` du premier hyperviseur de ce type, ou None.
+    """`(nom, nœud)` de l'hyperviseur du type le moins chargé, ou None.
 
     Un type vide n'est jamais servi : `Hypervisor.hypervisor_type` vaut `""` par
     défaut sur une machine enrôlée avant les types, et la faire correspondre à
     un profil serait un coup de chance, pas une décision.
 
-    `noeuds_exclus` porte les nœuds interdits aux abonnés (cf.
-    `provisioning.NOEUDS_EXCLUS`). L'exclusion est passée en paramètre plutôt
-    qu'écrite ici : ce module résout une chaîne, il n'a pas d'avis sur le parc.
+    Plus aucun nœud interdit en dur : la garantie que pve2 (RTX 4090, réservée
+    à l'inférence LLM) ne reçoit aucune VM d'abonné repose désormais UNIQUEMENT
+    sur le fait de ne pas y déclarer d'hyperviseur — le catalogue est la seule
+    source de vérité, une exclusion codée la doublerait pour finir par la
+    contredire.
     """
     if not type_hyperviseur:
         return None
-    for nom, type_declare, noeud in catalogue.hyperviseurs:
-        if not type_declare or type_declare != type_hyperviseur:
-            continue
-        if noeud in noeuds_exclus:
-            continue
-        return nom, noeud
-    return None
+    candidats = [
+        (nom, noeud)
+        for nom, type_declare, noeud in catalogue.hyperviseurs
+        if type_declare and type_declare == type_hyperviseur
+    ]
+    if not candidats:
+        return None
+    return min(
+        candidats,
+        key=lambda c: (catalogue.charge_par_hyperviseur.get(c[0], 0), c[0]),
+    )
 
 
 def resoudre_cible(
     profils_host: list[str],
     catalogue: Catalogue,
-    noeuds_exclus: frozenset[str] = frozenset(),
 ) -> Cible | None:
     """Premier profil de l'offre dont la chaîne se résout entièrement.
 
@@ -112,7 +122,7 @@ def resoudre_cible(
         type_hyperviseur = catalogue.type_par_profil_machine.get(profil_machine)
         if type_hyperviseur is None:
             continue
-        hyperviseur = _premier_hyperviseur(type_hyperviseur, catalogue, noeuds_exclus)
+        hyperviseur = _hyperviseur_le_moins_charge(type_hyperviseur, catalogue)
         if hyperviseur is None:
             continue
         nom, noeud = hyperviseur

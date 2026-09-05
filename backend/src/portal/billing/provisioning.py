@@ -31,13 +31,12 @@ from .cible import Cible
 from .ownership import HostingType
 from .subscriptions import EventKind
 
-#: Nœuds Proxmox interdits aux abonnés. pve2 porte la RTX 4090, réservée à
-#: l'inférence LLM : aucune VM d'abonné n'y naît. C'était auparavant une cible
-#: IMPOSÉE (`NOEUD_DEDIE = "pve"`) ; depuis que le nœud vient de l'hyperviseur
-#: résolu, la même garantie s'exprime en exclusion — sinon déclarer un
-#: hyperviseur sur pve2 suffirait à y envoyer des abonnés sans que rien ne le
-#: refuse.
-NOEUDS_EXCLUS: frozenset[str] = frozenset({"pve2"})
+# `NOEUDS_EXCLUS` a disparu (il interdisait pve2 en dur). Le catalogue est la
+# seule source de vérité : la garantie que pve2 (RTX 4090, réservée à
+# l'inférence LLM) ne reçoit aucune VM d'abonné repose désormais UNIQUEMENT sur
+# le fait de ne pas y déclarer d'hyperviseur — ce n'est plus le code qui la
+# tient. Une exclusion en dur doublait la règle et aurait fini par la
+# contredire.
 
 #: Les seuls événements qui provisionnent. Les autres — renouvellement, échec de
 #: paiement, résiliation — ne créent rien : ils relèvent du cycle de vie, pas de
