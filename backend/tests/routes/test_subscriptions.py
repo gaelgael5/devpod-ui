@@ -121,6 +121,20 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         etat["journal"].append((event, subscription_id))
         return True
 
+    async def _enregistrer_etat(abonnement: Subscription, _conn: Any) -> None:
+        etat["etats"].append(abonnement)
+        etat["abonnements"][abonnement.id] = abonnement
+
+    etat["etats"] = []
+    etat["coupures"] = []
+
+    class _CanalTemoin:
+        async def couper_reconduction(self, ref: str, cle: str) -> None:
+            etat["coupures"].append(ref)
+
+    async def _canal_et_clef(provider_slug: str | None, _conn: Any) -> Any:
+        return _CanalTemoin(), "cle"
+
     async def _historique_de(
         login: str, _conn: Any, *, achats_seulement: bool
     ) -> list[dict[str, Any]]:
@@ -147,6 +161,8 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         "get": _get,
         "enregistrer_reprise": _enregistrer_reprise,
         "enregistrer": _enregistrer,
+        "enregistrer_etat": _enregistrer_etat,
+        "_canal_et_clef": _canal_et_clef,
     }.items():
         monkeypatch.setattr(routes, nom, impl)
 
@@ -534,3 +550,79 @@ def test_la_reprise_se_journalise(client: TestClient) -> None:
     assert event.kind == "debut_essai"
     assert event.provider_slug == "portail"
     assert sid == sub.id
+
+
+# ─── La résiliation ──────────────────────────────────────────────────────────
+
+
+def _ouvert(**extra: Any) -> Subscription:
+    base: dict[str, Any] = {
+        "id": "33333333-3333-3333-3333-333333333333",
+        "login": "bob",
+        "offer_slug": "standard",
+        "state": "actif",
+        "country_code": "FR",
+        "currency": "EUR",
+        "amount_minor": 1200,
+    }
+    base.update(extra)
+    return Subscription.model_validate(base)
+
+
+def _poser_ouvert(client: TestClient, sub: Subscription) -> Subscription:
+    client.etat["abonnements"][sub.id] = sub  # type: ignore[attr-defined]
+    return sub
+
+
+def test_resilier_ferme_l_abonnement(client: TestClient) -> None:
+    """La sortie qui rend « sans engagement » vrai : l'abonnement passe resilie,
+    état clos mais réversible (le compte demeure, reprendre() le rouvre)."""
+    sub = _poser_ouvert(client, _ouvert())
+
+    reponse = client.post(f"/me/subscriptions/{sub.id}/resilier")
+
+    assert reponse.status_code == 200
+    assert reponse.json()["state"] == "resilie"
+    (maj,) = client.etat["etats"]  # type: ignore[attr-defined]
+    assert maj.state == "resilie"
+
+
+def test_resilier_emet_l_evenement_et_journalise(client: TestClient) -> None:
+    sub = _poser_ouvert(client, _ouvert())
+
+    client.post(f"/me/subscriptions/{sub.id}/resilier")
+
+    ((event, sid),) = client.etat["journal"]  # type: ignore[attr-defined]
+    assert event.kind == "resiliation"
+    assert sid == sub.id
+    assert client.etat["evenements_publies"]  # type: ignore[attr-defined]
+
+
+def test_resilier_un_payant_coupe_la_reconduction(client: TestClient) -> None:
+    sub = _poser_ouvert(
+        client, _ouvert(provider_slug="stripe-fr", provider_subscription_id="sub_x")
+    )
+
+    client.post(f"/me/subscriptions/{sub.id}/resilier")
+
+    assert client.etat["coupures"] == ["sub_x"]  # type: ignore[attr-defined]
+
+
+def test_resilier_un_gratuit_ne_touche_aucun_canal(client: TestClient) -> None:
+    sub = _poser_ouvert(client, _ouvert(provider_slug=None, amount_minor=0))
+
+    client.post(f"/me/subscriptions/{sub.id}/resilier")
+
+    assert client.etat["coupures"] == []  # type: ignore[attr-defined]
+
+
+def test_resilier_un_deja_resilie_est_refuse(client: TestClient) -> None:
+    sub = _poser_ouvert(client, _ouvert(state="resilie"))
+
+    assert client.post(f"/me/subscriptions/{sub.id}/resilier").status_code == 409
+
+
+def test_resilier_l_abonnement_d_un_autre_rend_404(client: TestClient) -> None:
+    sub = _poser_ouvert(client, _ouvert(login="alice"))
+
+    assert client.post(f"/me/subscriptions/{sub.id}/resilier").status_code == 404

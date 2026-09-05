@@ -47,7 +47,12 @@
     },
     "reprendre": "Reprendre cet abonnement",
     "reprendreHint": "La reprise repart au tarif du jour, pour une durée pleine — ce n'est pas une annulation de la résiliation.",
-    "reprisePartie": "Abonnement repris : il repart en période d'essai."
+    "reprisePartie": "Abonnement repris : il repart en période d'essai.",
+    "resilier": "Résilier",
+    "sansEngagement": "Sans engagement : vous pouvez résilier à tout moment. Votre disque est conservé le temps du délai de rétention, et vous pouvez reprendre ensuite.",
+    "resilierConfirme": "Résilier cet abonnement ? L'accès s'arrête ; votre travail reste récupérable pendant le délai de rétention.",
+    "resilierOui": "Confirmer la résiliation",
+    "resiliePartie": "Abonnement résilié. Vous pouvez le reprendre quand vous voulez."
   },
   "souscription": {
     "titre": "Confirmer votre forfait",

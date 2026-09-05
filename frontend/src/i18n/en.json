@@ -47,7 +47,12 @@
     },
     "reprendre": "Resume this subscription",
     "reprendreHint": "Resuming restarts at today's price, for a full term — it does not undo the cancellation.",
-    "reprisePartie": "Subscription resumed: it restarts in trial."
+    "reprisePartie": "Subscription resumed: it restarts in trial.",
+    "resilier": "Cancel",
+    "sansEngagement": "No commitment: cancel anytime. Your disk is kept during the retention window, and you can resume afterwards.",
+    "resilierConfirme": "Cancel this subscription? Access stops; your work stays recoverable during the retention window.",
+    "resilierOui": "Confirm cancellation",
+    "resiliePartie": "Subscription cancelled. You can resume it whenever you want."
   },
   "souscription": {
     "titre": "Confirm your plan",

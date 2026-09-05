@@ -74,3 +74,21 @@ export function useReprendre() {
     },
   })
 }
+
+/** Résiliation : la sortie qui rend « sans engagement » vrai. L'abonnement
+ * passe résilié (réversible par la reprise) ; le disque est gardé le temps de
+ * la rétention. */
+export function useResilier() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (subscriptionId: string) =>
+      apiFetchJson<Souscription>(
+        `/me/subscriptions/${encodeURIComponent(subscriptionId)}/resilier`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['mes-souscriptions'] })
+      void qc.invalidateQueries({ queryKey: ['mon-historique-achats'] })
+    },
+  })
+}

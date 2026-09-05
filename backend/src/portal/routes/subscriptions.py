@@ -58,6 +58,7 @@ from ..db.engine import get_conn
 from ..db.subscription_events import enregistrer, historique_de
 from ..db.subscriptions import (
     creer,
+    enregistrer_etat,
     enregistrer_reprise,
     get,
     list_de,
@@ -392,6 +393,72 @@ async def reprendre_abonnement(
         by=user.login,
         gratuite=offre.is_free,
     )
+    return maj.model_dump(mode="json")
+
+
+@router.post("/subscriptions/{subscription_id}/resilier")
+async def resilier_abonnement(
+    subscription_id: str,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    """Résilie un abonnement ouvert. La SORTIE qui rend « sans engagement » vrai.
+
+    Une résiliation N'EST PAS une suppression de compte : l'abonnement passe
+    `resilie` (état CLOS mais réversible — `reprendre()` le rouvre), le compte
+    demeure, et le disque est conservé le temps du délai de rétention avant
+    destruction. C'est la sémantique que le modèle porte déjà, cohérente avec la
+    décision « résiliation en essai = arrêt immédiat ».
+
+    Deux points RESTENT à ton arbitrage et ne sont donc pas tranchés ici :
+    - **immédiat vs fin de période payée** : le modèle coupe le droit au service
+      immédiatement (`Subscription.ouvert` devient faux). Un « je garde l'accès
+      jusqu'au terme déjà payé » demanderait un mécanisme distinct ;
+    - **remboursement au prorata** du mois entamé : aucun remboursement n'est
+      émis ici — c'est un geste commercial séparé (fiche remboursements/litiges).
+
+    Pour un abonnement payant, la reconduction est coupée chez le fournisseur :
+    sans quoi il continuerait de prélever un service résilié.
+    """
+    abonnement = await get(subscription_id, conn)
+    if abonnement is None or abonnement.login != user.login:
+        raise HTTPException(status_code=404, detail="Abonnement introuvable")
+    if not abonnement.ouvert:
+        # Déjà résilié (ou clos) : rien à faire, et le dire plutôt que rejouer.
+        raise HTTPException(status_code=409, detail="Cet abonnement n'est pas actif.")
+
+    maintenant = datetime.now(UTC)
+    evenement = SubscriptionEvent(
+        kind="resiliation",
+        provider_slug="portail",
+        provider_event_id=f"resiliation_client:{abonnement.id}:{maintenant.isoformat()}",
+        login=user.login,
+    )
+    from ..billing.subscriptions import appliquer
+
+    maj = appliquer(abonnement, evenement, maintenant)
+    await enregistrer(evenement, abonnement.id, conn)
+    await enregistrer_etat(maj, conn)
+    await publier_evenement_abonnement(
+        "resiliation", maj, provider_event_id=evenement.provider_event_id, conn=conn
+    )
+
+    # Reconduction coupée chez le fournisseur pour un payant : best-effort, la
+    # résiliation locale est déjà actée — un fournisseur injoignable ne doit pas
+    # laisser l'abonné coincé « actif » de notre côté.
+    if abonnement.provider_slug and abonnement.provider_subscription_id:
+        try:
+            canal, cle = await _canal_et_clef(abonnement.provider_slug, conn)
+            await canal.couper_reconduction(abonnement.provider_subscription_id, cle)
+        except Exception as exc:  # noqa: BLE001 — la coupure se retente, la résiliation est faite
+            log.error(
+                "resiliation_reconduction_non_coupee",
+                subscription_id=abonnement.id,
+                provider=abonnement.provider_slug,
+                raison=str(exc),
+            )
+
+    log.info("abonnement_resilie", subscription_id=abonnement.id, by=user.login)
     return maj.model_dump(mode="json")
 
 

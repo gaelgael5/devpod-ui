@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -9,6 +10,7 @@ import {
   useMesSouscriptions,
   useMonHistorique,
   useReprendre,
+  useResilier,
   type EntreeHistorique,
   type Souscription,
 } from './useMonAbonnement'
@@ -70,7 +72,49 @@ function CarteAbonnement({
         </p>
       )}
       {souscription.state === 'resilie' && <BoutonReprendre souscription={souscription} />}
+      {souscription.state !== 'resilie' && <BoutonResilier souscription={souscription} />}
     </article>
+  )
+}
+
+/** La sortie. La mention « sans engagement » n'existe QUE parce que ce bouton
+ * existe : promettre une sortie absente serait une promesse fausse. */
+function BoutonResilier({ souscription }: { souscription: Souscription }) {
+  const { t } = useTranslation()
+  const resilier = useResilier()
+  const [confirme, setConfirme] = useState(false)
+
+  function onClick() {
+    resilier.mutate(souscription.id, {
+      onSuccess: () => toast.success(t('abonnement.resiliePartie')),
+      onError: (err: Error) => toast.error(err.message),
+    })
+  }
+
+  if (!confirme) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <div>
+          <Button variant="ghost" className="text-muted-foreground" onClick={() => setConfirme(true)}>
+            {t('abonnement.resilier')}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">{t('abonnement.sansEngagement')}</p>
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-destructive/40 p-3">
+      <p className="text-sm">{t('abonnement.resilierConfirme')}</p>
+      <div className="flex gap-2">
+        <Button variant="destructive" onClick={onClick} disabled={resilier.isPending}>
+          {resilier.isPending ? '…' : t('abonnement.resilierOui')}
+        </Button>
+        <Button variant="outline" onClick={() => setConfirme(false)}>
+          {t('common.cancel')}
+        </Button>
+      </div>
+    </div>
   )
 }
 

@@ -133,6 +133,37 @@ describe('AbonnementPage', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('un abonnement ouvert propose la résiliation, avec confirmation, et appelle la route', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event')
+    let appelee = ''
+    servir({ abonnements: [{ ...ABO, state: 'actif' }] })
+    server.use(
+      http.post('/me/subscriptions/:id/resilier', ({ params }) => {
+        appelee = String(params.id)
+        return HttpResponse.json({ ...ABO, state: 'resilie' })
+      }),
+    )
+    renderWithProviders(<AbonnementPage />)
+
+    // La mention « sans engagement » n'existe QUE parce que la sortie existe.
+    expect(await screen.findByText(i18n.t('abonnement.sansEngagement'))).toBeInTheDocument()
+    // Une confirmation explicite avant d'agir — pas de résiliation au clic direct.
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('abonnement.resilier') }))
+    expect(appelee).toBe('')
+    await userEvent.click(screen.getByRole('button', { name: i18n.t('abonnement.resilierOui') }))
+    expect(appelee).toBe(ABO.id)
+  })
+
+  it("un abonnement résilié n'offre PAS de résiliation", async () => {
+    servir({ abonnements: [{ ...ABO, state: 'resilie' }] })
+    renderWithProviders(<AbonnementPage />)
+
+    await screen.findByText(i18n.t('abonnement.etat.resilie'))
+    expect(
+      screen.queryByRole('button', { name: i18n.t('abonnement.resilier') }),
+    ).not.toBeInTheDocument()
+  })
+
   it("sans abonnement, la page invite vers les forfaits au lieu d'un écran vide", async () => {
     servir({ abonnements: [] })
     renderWithProviders(<AbonnementPage />)
