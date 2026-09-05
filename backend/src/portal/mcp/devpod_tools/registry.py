@@ -577,6 +577,15 @@ DEVPOD_PRIMITIVES: dict[str, dict[str, Any]] = {
             "required": ["name"],
             "properties": {
                 "name": {"type": "string"},
+                "template": {
+                    "type": "string",
+                    "description": (
+                        "Slug d'un template de la galerie admin (publié) : ses "
+                        "recettes, agents, profil, mémoire et clef SSH servent de "
+                        "base ; les paramètres explicites les écrasent. Exclusif "
+                        "de based_on. 'repo' reste requis."
+                    ),
+                },
                 "based_on": {
                     "type": "string",
                     "description": (

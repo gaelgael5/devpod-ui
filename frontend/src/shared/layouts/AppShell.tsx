@@ -217,6 +217,9 @@ export default function AppShell() {
                       <DropdownMenuItem onClick={() => navigate('/admin/listmonk')}>
                         {t('admin.listmonk.navLabel')}
                       </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/admin/workspace-templates')}>
+                        {t('adminWsTemplates.navLabel')}
+                      </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => navigate('/admin/automations')}>
                         {t('automations.navLabel')}
                       </DropdownMenuItem>

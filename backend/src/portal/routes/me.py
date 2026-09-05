@@ -308,12 +308,12 @@ def _borner_memoire(host_name: str, memory_limit: str) -> str:
     return demande
 
 
-@router.post("/workspaces", status_code=201)
-async def add_workspace(
-    workspace: WorkspaceSpec,
-    user: UserInfo = Depends(require_user),
-    conn: AsyncConnection = Depends(get_conn),
+async def enregistrer_workspace(
+    workspace: WorkspaceSpec, user: UserInfo, conn: AsyncConnection
 ) -> dict[str, object]:
+    """Le SEUL chemin d'enregistrement REST d'un workspace — partagé avec la
+    création depuis un template : bornage mémoire, verrou, unicité du nom,
+    quota du forfait vérifié et écrit dans la même transaction."""
     # Bornage mémoire AVANT tout : un refus se dit à la saisie, et une demande
     # vide se voit remplacée par le plafond du nœud si celui-ci en déclare un.
     workspace = workspace.model_copy(
@@ -340,6 +340,15 @@ async def add_workspace(
         await save_user_db(user.login, cfg, conn)
     _log.info("workspace_added", login=user.login, name=workspace.name)
     return workspace.model_dump(mode="json")
+
+
+@router.post("/workspaces", status_code=201)
+async def add_workspace(
+    workspace: WorkspaceSpec,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    return await enregistrer_workspace(workspace, user, conn)
 
 
 class _WorkspacePatch(BaseModel):

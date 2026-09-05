@@ -911,9 +911,27 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
     if not _WS_NAME_RE.fullmatch(name):
         raise DevpodToolError(f"nom de workspace invalide: {name!r}")
 
-    # Résolution de la base (based_on) : les champs du workspace source servent de défauts.
+    # Résolution de la base : un template de la galerie admin (cadrage du
+    # 05/09/2026 — précédence explicite > template > défaut, la même que la
+    # route REST from-template), OU un workspace existant (based_on). Les deux
+    # à la fois seraient deux vérités : refusé.
+    template_slug = args.get("template")
     based_on = args.get("based_on")
     base_spec: Any = None
+    if template_slug is not None and based_on is not None:
+        raise DevpodToolError("template et based_on sont exclusifs — choisir une seule base")
+    if template_slug is not None:
+        from ...db.workspace_templates import get_template
+
+        tpl = await get_template(str(template_slug), conn)
+        if tpl is None or not tpl.published:
+            # Un brouillon est invisible : même réponse qu'un slug inconnu.
+            raise DevpodToolError(f"template introuvable: {template_slug!r}")
+        if "repo" not in args:
+            raise DevpodToolError("paramètre requis manquant: 'repo' (le template ne le porte pas)")
+        # WorkspaceTemplateSpec partage les noms de champs de WorkspaceSpec :
+        # le merge par getattr ci-dessous s'applique tel quel.
+        base_spec = tpl.spec
     if based_on is not None:
         based_on = str(based_on)
         if based_on == name:
@@ -941,7 +959,7 @@ async def _workspace_create(conn: AsyncConnection, args: dict[str, Any], owner_l
     if "repo" in args:
         repo = str(args["repo"])
 
-    branch = str(_get("branch", "dev"))
+    branch = str(_get("branch", "dev")) or "dev"
     if "node_id" in args or "node" in args:
         node = str(args.get("node_id") or args.get("node") or "")
     else:

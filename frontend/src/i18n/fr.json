@@ -409,7 +409,10 @@
       "memoryLimitPlaceholder": "défaut global — ex. 4g, 512m",
       "memoryLimitHint": "Un dépassement tue ce conteneur, pas le host. Appliquée à la (re)construction.",
       "memoryLimitCeiling": "Plafond de ce nœud : {{plafond}}.",
-      "memoryLimitOverCeiling": "Au-dessus du plafond du nœud ({{plafond}}). Réduisez la limite."
+      "memoryLimitOverCeiling": "Au-dessus du plafond du nœud ({{plafond}}). Réduisez la limite.",
+      "template": "Modèle",
+      "templateManual": "— configuration manuelle —",
+      "templateRepo": "Dépôt git"
     },
     "confirm": {
       "deleteTitle": "Supprimer le workspace ?",
@@ -2428,5 +2431,24 @@
         "body": "Retrouvez et rouvrez vos sessions de travail."
       }
     }
+  },
+  "adminWsTemplates": {
+    "title": "Templates de workspace",
+    "navLabel": "Templates de workspace",
+    "intro": "Un template fige les recettes, les agents IA, le profil VS Code, la limite mémoire et la clef SSH — l'utilisateur ne saisit que le nom et le dépôt git.",
+    "new": "Nouveau template",
+    "empty": "Aucun template. Créez-en un pour simplifier la création de workspaces.",
+    "draft": "brouillon",
+    "summary": "{{recipes}} recette(s), {{agents}} agent(s)",
+    "slug": "Identifiant (slug)",
+    "slugHint": "Minuscules, chiffres et tirets (ex. python-ia).",
+    "label": "Nom affiché",
+    "description": "Description",
+    "memoryLimit": "Limite mémoire du conteneur",
+    "branch": "Branche par défaut",
+    "sshKey": "Générer une clef SSH pour le workspace",
+    "published": "Publié (visible des utilisateurs à la création)",
+    "saved": "Template enregistré.",
+    "deleted": "Template supprimé."
   }
 }

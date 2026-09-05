@@ -27,6 +27,11 @@ import { useHosts, type HostConfig } from '@/features/admin/useHosts'
 import { memoireDepassePlafond } from './memory'
 import { useAgentTypes } from '@/features/mcp/api'
 import { apiFetchJson } from '@/shared/api/client'
+import {
+  useCreateFromTemplate,
+  useWorkspaceTemplates,
+  type WorkspaceTemplate,
+} from './useWorkspaceTemplates'
 
 /** Valeur sentinelle Radix Select pour "pas de nœud choisi" (Radix refuse les strings vides). */
 const HOST_DEFAULT = '__default__'
@@ -74,6 +79,14 @@ export default function WorkspaceCreate() {
   const { data: profiles = [] } = useProfiles()
   const { data: startRecipes = [] } = useStartRecipes()
   const { data: agentTypes = [] } = useAgentTypes()
+  const { data: galerie = [] } = useWorkspaceTemplates()
+  const createFromTemplate = useCreateFromTemplate()
+
+  // Mode template (cadrage 05/09) : l'UI est figée — nom + repo, le preset
+  // fait le reste. Le formulaire complet reste le mode « manuel ».
+  const [templateSlug, setTemplateSlug] = useState('')
+  const [repoUrl, setRepoUrl] = useState('')
+  const [repoError, setRepoError] = useState('')
 
   const [name, setName] = useState('')
   const [sourceRows, setSourceRows] = useState<SourceRowState[]>([])
@@ -245,6 +258,132 @@ export default function WorkspaceCreate() {
     }
   }
 
+  const templateChoisi: WorkspaceTemplate | undefined = galerie.find(
+    (g) => g.slug === templateSlug,
+  )
+
+  function selecteurDeTemplate() {
+    if (galerie.length === 0) return null
+    return (
+      <div>
+        <Label htmlFor="ws-template">{t('workspaces.form.template', 'Modèle')}</Label>
+        <Select
+          value={templateSlug || '__manual__'}
+          onValueChange={(v) => setTemplateSlug(v === '__manual__' ? '' : v)}
+        >
+          <SelectTrigger id="ws-template">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__manual__">
+              {t('workspaces.form.templateManual', '— configuration manuelle —')}
+            </SelectItem>
+            {galerie.map((g) => (
+              <SelectItem key={g.slug} value={g.slug}>
+                {g.label || g.slug}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    )
+  }
+
+  async function handleSubmitTemplate(e: React.FormEvent) {
+    e.preventDefault()
+    setServerError('')
+    let valid = true
+    if (!NAME_RE.test(name)) {
+      setNameError(t('workspaces.form.nameHint'))
+      valid = false
+    } else {
+      setNameError('')
+    }
+    if (!repoUrl.trim()) {
+      setRepoError(t('workspaces.form.sourceUrlRequired'))
+      valid = false
+    } else {
+      setRepoError('')
+    }
+    if (!valid || !templateChoisi) return
+    try {
+      await createFromTemplate.mutateAsync({
+        template: templateChoisi.slug,
+        name,
+        source: repoUrl.trim(),
+      })
+      navigate('/workspaces')
+    } catch (err) {
+      setServerError(extractErrorMessage(err) || t('errors.generic'))
+    }
+  }
+
+  if (templateChoisi) {
+    return (
+      <div className="mx-auto max-w-lg">
+        <div className="mb-6 text-sm text-muted-foreground">
+          <Link to="/workspaces" className="hover:underline">{t('workspaces.title')}</Link>
+          {' › '}
+          {t('workspaces.new')}
+        </div>
+
+        <h1 className="mb-6 text-2xl font-semibold">{t('workspaces.new')}</h1>
+
+        <form onSubmit={handleSubmitTemplate} className="flex flex-col gap-4">
+          {selecteurDeTemplate()}
+          {templateChoisi.description && (
+            <p className="text-sm text-muted-foreground">{templateChoisi.description}</p>
+          )}
+
+          <div>
+            <Label htmlFor="ws-name">{t('workspaces.form.name')}</Label>
+            <Input
+              id="ws-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="my-project"
+            />
+            {nameError && (
+              <p role="alert" className="mt-1 text-sm text-destructive">
+                {nameError}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <Label htmlFor="ws-repo">{t('workspaces.form.templateRepo', 'Dépôt git')}</Label>
+            <Input
+              id="ws-repo"
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+              placeholder="https://github.com/org/projet.git"
+            />
+            {repoError && (
+              <p role="alert" className="mt-1 text-sm text-destructive">
+                {repoError}
+              </p>
+            )}
+          </div>
+
+          {serverError && (
+            <p role="alert" className="text-sm text-destructive">
+              {serverError}
+            </p>
+          )}
+
+          <div className="flex gap-2">
+            <Button type="submit" disabled={createFromTemplate.isPending}>
+              {t('workspaces.form.create')}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => navigate('/workspaces')}>
+              {t('common.cancel')}
+            </Button>
+          </div>
+        </form>
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto max-w-lg">
       <div className="mb-6 text-sm text-muted-foreground">
@@ -256,6 +395,7 @@ export default function WorkspaceCreate() {
       <h1 className="mb-6 text-2xl font-semibold">{t('workspaces.new')}</h1>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        {selecteurDeTemplate()}
         <div>
           <Label htmlFor="ws-name">{t('workspaces.form.name')}</Label>
           <Input

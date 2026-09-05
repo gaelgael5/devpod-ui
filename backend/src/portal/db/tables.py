@@ -1953,6 +1953,22 @@ provisioning_runs = Table(
     ),
     UniqueConstraint("subscription_id", "provider_event_id", name="uq_provisioning_run_event"),
 )
+workspace_templates = Table(
+    "workspace_templates",
+    metadata,
+    Column("slug", Text, primary_key=True),
+    Column("label", Text, nullable=False, server_default=""),
+    Column("description", Text, nullable=False, server_default=""),
+    # Visibilite utilisateur : un brouillon d'admin n'apparait jamais dans le
+    # dialogue de creation.
+    Column("published", Boolean, nullable=False, server_default="false"),
+    # Le preset (recettes, agents, profil, memoire, clef SSH), valide par
+    # pydantic (WorkspaceTemplateSpec) a la lecture comme a l'ecriture.
+    Column("spec", JSONB, nullable=False, server_default="{}"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 emails_envoyes = Table(
     "emails_envoyes",
     metadata,

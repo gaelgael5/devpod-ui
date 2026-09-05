@@ -409,7 +409,10 @@
       "memoryLimitPlaceholder": "global default — e.g. 4g, 512m",
       "memoryLimitHint": "Exceeding it kills this container, not the host. Applied on (re)build.",
       "memoryLimitCeiling": "This node's ceiling: {{plafond}}.",
-      "memoryLimitOverCeiling": "Above the node's ceiling ({{plafond}}). Lower the limit."
+      "memoryLimitOverCeiling": "Above the node's ceiling ({{plafond}}). Lower the limit.",
+      "template": "Template",
+      "templateManual": "— manual configuration —",
+      "templateRepo": "Git repository"
     },
     "confirm": {
       "deleteTitle": "Delete workspace?",
@@ -2428,5 +2431,24 @@
         "body": "Find and reopen your working sessions."
       }
     }
+  },
+  "adminWsTemplates": {
+    "title": "Workspace templates",
+    "navLabel": "Workspace templates",
+    "intro": "A template locks in the recipes, AI agents, VS Code profile, memory limit and SSH key — users only type a name and a git repository.",
+    "new": "New template",
+    "empty": "No templates yet. Create one to simplify workspace creation.",
+    "draft": "draft",
+    "summary": "{{recipes}} recipe(s), {{agents}} agent(s)",
+    "slug": "Identifier (slug)",
+    "slugHint": "Lowercase letters, digits and dashes (e.g. python-ia).",
+    "label": "Display name",
+    "description": "Description",
+    "memoryLimit": "Container memory limit",
+    "branch": "Default branch",
+    "sshKey": "Generate an SSH key for the workspace",
+    "published": "Published (visible to users at creation)",
+    "saved": "Template saved.",
+    "deleted": "Template deleted."
   }
 }

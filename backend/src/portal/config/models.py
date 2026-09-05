@@ -848,6 +848,64 @@ class SourceSpec(BaseModel):
     git_credential: str = ""
 
 
+_WS_NAME_TEMPLATE_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
+
+
+class WorkspaceTemplateSpec(BaseModel):
+    """Le preset qu'un template applique à la création d'un workspace.
+
+    Sous-ensemble délibéré de `WorkspaceSpec` : ce que l'admin prépare
+    (recettes, agents, profil devcontainer, mémoire, clef SSH…) — jamais ce qui
+    appartient à l'utilisateur (nom, repo, credential git) ni à l'allocation
+    (host). La sémantique de chaque champ est celle de `WorkspaceSpec`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    branch: str = ""
+    recipes: list[str] = Field(default_factory=list)
+    start_recipes: list[str] = Field(default_factory=list)
+    init_recipes: list[str] = Field(default_factory=list)
+    recipe_volumes: list[str] = Field(default_factory=list)
+    default_start: str = ""
+    agents: list[str] = Field(default_factory=list)
+    profile: ProfileRef | None = None
+    memory_limit: str = ""
+    ssh_key: bool = False
+    ide: str = ""
+    env: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("memory_limit")
+    @classmethod
+    def validate_memory_limit(cls, v: str) -> str:
+        return _validate_memory_limit(v)
+
+
+class WorkspaceTemplate(BaseModel):
+    """Template de création de workspace — galerie préparée par l'admin.
+
+    L'utilisateur choisit un template et ne saisit que le nom et le repo git ;
+    le preset fait le reste. `published` gouverne la visibilité côté
+    utilisateur — un brouillon d'admin n'apparaît jamais dans le dialogue de
+    création.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str
+    label: str = ""
+    description: str = ""
+    published: bool = False
+    spec: WorkspaceTemplateSpec = Field(default_factory=WorkspaceTemplateSpec)
+
+    @field_validator("slug")
+    @classmethod
+    def validate_slug(cls, v: str) -> str:
+        if not _WS_NAME_TEMPLATE_RE.fullmatch(v):
+            raise ValueError(f"slug {v!r} invalide (minuscules, chiffres, tirets)")
+        return v
+
+
 class WorkspaceSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

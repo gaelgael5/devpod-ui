@@ -38,6 +38,9 @@ export const AdminTermix = lazy(() => import('@/features/admin/AdminTermix'))
 export const AdminUsers = lazy(() => import('@/features/admin/AdminUsers'))
 export const AdminWorkflow = lazy(() => import('@/features/admin/AdminWorkflow'))
 export const AdminListmonk = lazy(() => import('@/features/admin/AdminListmonk'))
+export const AdminWorkspaceTemplates = lazy(
+  () => import('@/features/admin/AdminWorkspaceTemplates'),
+)
 export const AdminAutomations = lazy(() => import('@/features/automations/AdminAutomations'))
 export const AutomationEditor = lazy(() => import('@/features/automations/AutomationEditorPage'))
 export const AdminContracts = lazy(() => import('@/features/automations/AdminContracts'))
