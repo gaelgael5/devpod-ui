@@ -87,7 +87,13 @@ def test_le_service_est_ferme_une_fois_resilie() -> None:
 
 
 def test_tous_les_types_d_evenement_ont_un_effet_declare() -> None:
-    # Ajouter un événement sans décider de son effet doit casser ici.
+    """Chaque kind vit dans exactement UNE des deux tables : transition décidée
+    (ETAT_APRES) ou journalisation sans transition (KINDS_SANS_TRANSITION,
+    arbitrage produit ouvert). Ajouter un kind sans le classer casse ici."""
+    from typing import get_args
+
+    from portal.billing.subscriptions import KINDS_SANS_TRANSITION, EventKind
+
     assert set(ETAT_APRES) == {
         "debut_essai",
         "activation",
@@ -95,6 +101,34 @@ def test_tous_les_types_d_evenement_ont_un_effet_declare() -> None:
         "echec_paiement",
         "resiliation",
     }
+    assert set(ETAT_APRES) | KINDS_SANS_TRANSITION == set(get_args(EventKind))
+    assert not set(ETAT_APRES) & KINDS_SANS_TRANSITION
+
+
+def test_un_evenement_informatif_ne_s_applique_jamais() -> None:
+    """Journalisé, pas appliqué : l'appliquer serait une faute de programmation
+    — un effet d'état sur une politique non tranchée."""
+    from datetime import UTC, datetime
+
+    import pytest as _pytest
+
+    from portal.billing.subscriptions import Subscription, SubscriptionEvent, appliquer
+
+    sub = Subscription.model_validate(
+        {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "login": "alice",
+            "offer_slug": "standard",
+            "state": "actif",
+            "country_code": "FR",
+            "currency": "EUR",
+            "amount_minor": 1200,
+        }
+    )
+    for kind in ("remboursement", "litige_ouvert", "litige_clos"):
+        evt = SubscriptionEvent(kind=kind, provider_slug="stripe-fr", provider_event_id="evt_x")
+        with _pytest.raises(ValueError, match="journalisé"):
+            appliquer(sub, evt, datetime.now(UTC))
 
 
 def test_le_paiement_active_l_abonnement() -> None:

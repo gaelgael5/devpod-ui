@@ -37,10 +37,25 @@ _CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 _COUNTRY_RE = re.compile(r"^[A-Z]{2}$")
 
 SubscriptionState = Literal["essai", "actif", "echec_paiement", "resilie"]
-EventKind = Literal["debut_essai", "activation", "renouvellement", "echec_paiement", "resiliation"]
+EventKind = Literal[
+    "debut_essai",
+    "activation",
+    "renouvellement",
+    "echec_paiement",
+    "resiliation",
+    # Survenus en exploitation réelle, SANS effet d'état à ce jour : les trois
+    # arbitrages produit (un remboursement coupe-t-il ? un litige suspend-il ?
+    # quelle réaction à la clôture ?) sont ouverts sur la fiche « Remboursements
+    # et litiges ». En attendant, ils se JOURNALISENT — un litige invisible est
+    # pire qu'un litige sans réaction.
+    "remboursement",
+    "litige_ouvert",
+    "litige_clos",
+]
 
 #: État dans lequel chaque événement place l'abonnement. La table est
-#: exhaustive : ajouter un type d'événement sans décider de son effet ici est
+#: exhaustive SUR LES ÉVÉNEMENTS DE CYCLE : ajouter un type d'événement sans
+#: décider de son effet — dans cette table OU dans KINDS_SANS_TRANSITION — est
 #: une erreur détectée par les tests, pas un comportement par défaut.
 ETAT_APRES: dict[str, SubscriptionState] = {
     "debut_essai": "essai",
@@ -49,6 +64,16 @@ ETAT_APRES: dict[str, SubscriptionState] = {
     "echec_paiement": "echec_paiement",
     "resiliation": "resilie",
 }
+
+#: Événements JOURNALISÉS mais sans transition : leur effet sur l'abonnement
+#: est un arbitrage produit encore ouvert (fiche « Remboursements et litiges »).
+#: Ce n'est pas un oubli, c'est une décision datée : on trace et on signale, on
+#: ne coupe pas un service sur une politique non tranchée. Le jour où
+#: l'arbitrage tombe, l'événement passe dans ETAT_APRES et sort d'ici — les
+#: tests exigent que chaque kind soit dans exactement UNE des deux tables.
+KINDS_SANS_TRANSITION: frozenset[str] = frozenset(
+    {"remboursement", "litige_ouvert", "litige_clos"}
+)
 
 #: États CLOS : aucun événement de cycle de facturation ne les fait sortir.
 #:
@@ -175,6 +200,11 @@ def etat_apres(courant: SubscriptionState, kind: EventKind) -> SubscriptionState
     refige le prix. Ce qui est refusé ici, c'est qu'un webhook en retard rouvre
     le service tout seul, au tarif d'hier.
     """
+    if kind in KINDS_SANS_TRANSITION:
+        # Pas un état à calculer : ces événements se journalisent, ils ne
+        # s'appliquent pas — appeler ceci avec l'un d'eux est une faute de
+        # programmation, pas un webhook à absorber.
+        raise ValueError(f"événement {kind!r} : journalisé, jamais appliqué (arbitrage ouvert)")
     if courant in ETATS_CLOS:
         raise TransitionRefusee(
             f"abonnement {courant} : l'événement {kind} ne s'applique plus — "

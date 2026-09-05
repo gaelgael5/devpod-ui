@@ -40,7 +40,10 @@
       "activation": "Activation",
       "renouvellement": "Renouvellement",
       "echec_paiement": "Échec de paiement",
-      "resiliation": "Résiliation"
+      "resiliation": "Résiliation",
+      "remboursement": "Remboursement",
+      "litige_ouvert": "Litige ouvert",
+      "litige_clos": "Litige clos"
     }
   },
   "souscription": {

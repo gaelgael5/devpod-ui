@@ -235,6 +235,12 @@ _DATA_SCHEMA_BY_TYPE: dict[str, dict[str, Any]] = {
             "subscription.renewed",
             "subscription.payment_failed",
             "subscription.cancelled",
+            # Informatifs : même payload de base — le détail (montant remboursé,
+            # issue du litige) vit dans le journal des webhooks, pas ici, tant
+            # que les arbitrages produit ne sont pas tranchés.
+            "subscription.refunded",
+            "subscription.dispute_opened",
+            "subscription.dispute_closed",
         )
     },
     # L'expiration du délai de rétention porte en plus l'état qui l'a armée et

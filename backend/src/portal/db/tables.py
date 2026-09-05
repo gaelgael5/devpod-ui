@@ -1717,7 +1717,8 @@ subscription_events = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("provider_slug", "provider_event_id", name="uq_subscription_event_provider"),
     CheckConstraint(
-        "kind IN ('debut_essai','activation','renouvellement','echec_paiement','resiliation')",
+        "kind IN ('debut_essai','activation','renouvellement','echec_paiement','resiliation',"
+        "'remboursement','litige_ouvert','litige_clos')",
         name="ck_subscription_event_kind",
     ),
     CheckConstraint(

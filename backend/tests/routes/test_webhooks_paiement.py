@@ -245,6 +245,43 @@ def test_une_transition_appliquee_emet_son_evenement_applicatif(client: TestClie
     assert kwargs["provider_event_id"] == "evt_1"
 
 
+def test_un_remboursement_se_journalise_sans_toucher_l_abonnement(client: TestClient) -> None:
+    """L'arbitrage produit est ouvert : on trace et on signale, on ne coupe pas
+    un service sur une politique non tranchée."""
+    import structlog.testing
+
+    corps = _charge("charge.refunded", amount_refunded=1200, refunded=True)
+
+    with structlog.testing.capture_logs() as journaux:
+        reponse = _poster(client, corps)
+
+    assert reponse.json()["statut"] == "enregistre"
+    # Journalisé (idempotence écrite), AUCUNE transition, aucun provisioning.
+    assert len(client.etat["journal"]) == 1  # type: ignore[attr-defined]
+    assert client.etat["etats"] == []  # type: ignore[attr-defined]
+    assert client.etat["provisionnements"] == []  # type: ignore[attr-defined]
+    # Le signal d'exploitation : de l'argent a bougé, quelqu'un doit regarder.
+    assert [j for j in journaux if j["event"] == "webhook_evenement_informatif"]
+
+
+def test_un_litige_emet_son_evenement_applicatif_quand_l_abonnement_est_connu(
+    client: TestClient,
+) -> None:
+    corps = _charge("charge.dispute.created")
+
+    _poster(client, corps)
+
+    ((kind, _maj, _kwargs),) = client.etat["evenements"]  # type: ignore[attr-defined]
+    assert kind == "litige_ouvert"
+
+
+def test_un_remboursement_rejoue_est_ignore(client: TestClient) -> None:
+    corps = _charge("charge.refunded")
+
+    assert _poster(client, corps).json()["statut"] == "enregistre"
+    assert _poster(client, corps).json()["statut"] == "deja_traite"
+
+
 def test_une_transition_refusee_n_emet_rien(client: TestClient) -> None:
     """Un webhook en retard sur un abonnement clos ne doit pas faire réagir
     les automates : rien n'a changé."""

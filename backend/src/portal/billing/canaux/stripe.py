@@ -187,6 +187,17 @@ class CanalStripe:
             # Facture hors cycle d'abonnement (ponctuelle, mise à jour de
             # moyen de paiement…) : elle ne fait pas avancer l'abonnement.
             return None
+        # Survenus en exploitation réelle : total ou partiel pour le
+        # remboursement (le montant vit dans le payload journalisé), fonds
+        # gelés à l'ouverture d'un litige, issue won/lost à sa clôture. SANS
+        # effet d'état tant que les arbitrages de la fiche « Remboursements et
+        # litiges » ne sont pas tranchés — journalisés, jamais appliqués.
+        if type_evenement == "charge.refunded":
+            return "remboursement"
+        if type_evenement == "charge.dispute.created":
+            return "litige_ouvert"
+        if type_evenement == "charge.dispute.closed":
+            return "litige_clos"
         return None
 
     @staticmethod

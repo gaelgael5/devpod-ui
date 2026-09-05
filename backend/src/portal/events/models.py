@@ -46,6 +46,11 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "subscription.payment_failed",
         "subscription.cancelled",
         "subscription.retention_expired",
+        # Informatifs (fiche « Remboursements et litiges ») : journalisés sans
+        # transition d'état tant que les arbitrages produit sont ouverts.
+        "subscription.refunded",
+        "subscription.dispute_opened",
+        "subscription.dispute_closed",
     }
 )
 

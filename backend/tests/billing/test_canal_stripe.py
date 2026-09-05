@@ -209,6 +209,28 @@ def test_sans_rattachement_lisible_l_identifiant_est_absent(canal: CanalStripe) 
     assert canal.identifiant_abonnement(charge) is None
 
 
+def test_un_remboursement_est_normalise(canal: CanalStripe) -> None:
+    """Total ou partiel : le montant vit dans le payload, journalisé tel quel."""
+    charge = _evenement(
+        "charge.refunded", {"id": "ch_1", "amount_refunded": 600, "refunded": False}
+    )
+
+    evenement = canal.normaliser(charge)
+
+    assert evenement is not None
+    assert evenement.kind == "remboursement"
+    assert evenement.payload["data"]["object"]["amount_refunded"] == 600
+
+
+def test_un_litige_ouvert_et_sa_cloture_sont_normalises(canal: CanalStripe) -> None:
+    ouvert = canal.normaliser(_evenement("charge.dispute.created", {"id": "dp_1"}))
+    clos = canal.normaliser(_evenement("charge.dispute.closed", {"id": "dp_1", "status": "lost"}))
+
+    assert ouvert is not None and ouvert.kind == "litige_ouvert"
+    assert clos is not None and clos.kind == "litige_clos"
+    assert clos.payload["data"]["object"]["status"] == "lost"
+
+
 def test_la_premiere_facture_payee_active(canal: CanalStripe) -> None:
     charge = _evenement("invoice.paid", {"billing_reason": "subscription_create"})
 
@@ -258,7 +280,7 @@ def test_un_evenement_qui_ne_nous_regarde_pas_est_ignore(canal: CanalStripe) -> 
     les vrais échecs.
     """
     assert canal.normaliser(_evenement("customer.updated", {})) is None
-    assert canal.normaliser(_evenement("charge.refunded", {})) is None
+    assert canal.normaliser(_evenement("payment_intent.succeeded", {})) is None
 
 
 # ─── Ce qui rend l'événement exploitable ─────────────────────────────────────

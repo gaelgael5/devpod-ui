@@ -35,6 +35,7 @@ from ..billing.declencheur import lancer_provisioning
 from ..billing.evenements import publier_evenement_abonnement
 from ..billing.models import PaymentProvider
 from ..billing.subscriptions import (
+    KINDS_SANS_TRANSITION,
     Subscription,
     SubscriptionEvent,
     TransitionRefusee,
@@ -107,6 +108,27 @@ async def recevoir(
             event_id=evenement.provider_event_id,
         )
         return {"statut": "deja_traite"}
+
+    if evenement.kind in KINDS_SANS_TRANSITION:
+        # Remboursement, litige : JOURNALISÉ — l'idempotence est déjà écrite —
+        # mais aucun effet d'état tant que les arbitrages de la fiche
+        # « Remboursements et litiges » ne sont pas tranchés. Le WARNING est le
+        # signal d'exploitation : de l'argent a bougé, quelqu'un doit regarder.
+        log.warning(
+            "webhook_evenement_informatif",
+            provider=provider_slug,
+            event_id=evenement.provider_event_id,
+            kind=evenement.kind,
+            subscription_id=abonnement.id if abonnement else None,
+        )
+        if abonnement is not None:
+            await publier_evenement_abonnement(
+                evenement.kind,
+                abonnement,
+                provider_event_id=evenement.provider_event_id,
+                conn=conn,
+            )
+        return {"statut": "enregistre"}
 
     if abonnement is None:
         # Authentique, mais rattaché à rien de connu. Tracé — c'est un écart

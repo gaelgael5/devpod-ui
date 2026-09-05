@@ -37,6 +37,10 @@ TYPE_PAR_KIND: dict[EventKind, str] = {
     "renouvellement": "subscription.renewed",
     "echec_paiement": "subscription.payment_failed",
     "resiliation": "subscription.cancelled",
+    # Informatifs : journalisés sans transition (arbitrages produit ouverts).
+    "remboursement": "subscription.refunded",
+    "litige_ouvert": "subscription.dispute_opened",
+    "litige_clos": "subscription.dispute_closed",
 }
 
 TYPE_RETENTION_EXPIREE = "subscription.retention_expired"
