@@ -178,7 +178,11 @@ def build_apply_script(meta: RecipeMeta, script: str, options: dict[str, str]) -
         "trap 'rm -rf \"$D\"' EXIT\n"
         f"printf %s '{encode}' | base64 -d > \"$D/install.sh\"\n"
         f"{exports}"
-        'sh "$D/install.sh"\n'
+        # Lancé DIRECTEMENT, jamais par `sh` : le noyau honore le shebang de la
+        # recette (bug c3864308 — dash ne connaît pas `set -o pipefail`). Sans
+        # shebang, le shell appelant retombe sur `sh` : comportement d'hier.
+        'chmod +x "$D/install.sh"\n'
+        '"$D/install.sh"\n'
         f"mkdir -p {racine}\n"
         f"printf '%s %s\\n' {version} \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" > {sentinelle}\n"
     )

@@ -62,7 +62,9 @@ class TestInjection:
     def test_exporte_avant_d_executer(self) -> None:
         script = build_apply_script(_meta(), "echo ok", {"api": "35"})
 
-        assert script.index("RECIPE_OPT_API=") < script.index('sh "$D/install.sh"')
+        # Le lancement est direct (shebang honoré, bug c3864308) : l'export
+        # doit précéder la ligne d'exécution, plus un `sh` explicite.
+        assert script.index("RECIPE_OPT_API=") < script.index('\n"$D/install.sh"\n')
 
     def test_sans_option_le_script_reste_simple(self) -> None:
         script = build_apply_script(_meta(), "echo ok", {})

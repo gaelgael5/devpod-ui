@@ -137,6 +137,49 @@ class TestIdempotence:
             await _appliquer(_meta(), runner)
 
 
+class TestShebang:
+    """Le script s'exécute par SON interpréteur, pas par `sh` d'office.
+
+    Le bug c3864308 : `sh "$D/install.sh"` court-circuitait le shebang — sur
+    Debian, `/bin/sh` est dash, et une recette `#!/usr/bin/env bash` avec
+    `set -o pipefail` mourait sur `Illegal option`. Le correctif rend le
+    fichier exécutable et le lance directement : le noyau lit le shebang
+    (AC1) ; un script SANS shebang retombe sur l'interpréteur du shell
+    appelant, c'est-à-dire `sh` — le comportement d'hier (AC3).
+    """
+
+    def test_le_script_est_lance_par_son_shebang(self) -> None:
+        from portal.recipes.host_apply import build_apply_script
+
+        produit = build_apply_script(_meta(), "#!/usr/bin/env bash\nset -euo pipefail\n", {})
+
+        # Rendu exécutable puis lancé DIRECTEMENT — jamais `sh "$D/install.sh"`,
+        # qui ignorerait le shebang.
+        assert 'chmod +x "$D/install.sh"' in produit
+        assert '\n"$D/install.sh"\n' in produit
+        assert 'sh "$D/install.sh"' not in produit
+
+    def test_les_options_restent_transmises_par_l_environnement(self) -> None:
+        """AC4 : exportées AVANT le lancement, elles traversent l'exec quel que
+        soit l'interpréteur du shebang."""
+        from portal.recipes.host_apply import build_apply_script
+
+        produit = build_apply_script(_meta(), "echo ok", {"avd": "pixel_7"})
+
+        assert "export RECIPE_OPT_AVD=pixel_7" in produit
+        assert produit.index("export RECIPE_OPT_AVD") < produit.index('\n"$D/install.sh"\n')
+
+    def test_la_sentinelle_reste_apres_le_lancement(self) -> None:
+        """AC5 : `set -e` + ordre — la sentinelle ne se pose que si le script
+        a rendu 0, quel que soit son interpréteur."""
+        from portal.recipes.host_apply import build_apply_script
+
+        produit = build_apply_script(_meta(), "echo ok", {})
+
+        assert produit.startswith("set -e\n")
+        assert produit.index('"$D/install.sh"') < produit.index(".done")
+
+
 class TestEtat:
     def test_sonde_d_etat_lit_les_sentinelles(self) -> None:
         assert "RECIPE_STATE" in build_state_probe()
