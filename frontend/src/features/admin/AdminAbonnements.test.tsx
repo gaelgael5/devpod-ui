@@ -25,6 +25,9 @@ function servir(historique: unknown[] = []) {
     http.get('/admin/host-profiles', () => HttpResponse.json([])),
     // L'onglet Essais embarque son formulaire : la liste des comptes aussi.
     http.get('/admin/users', () => HttpResponse.json([])),
+    http.get('/admin/billing/retention/config', () =>
+      HttpResponse.json({ echec_paiement_jours: 14, resiliation_jours: 30 }),
+    ),
   )
 }
 
@@ -96,16 +99,14 @@ describe('AdminAbonnements', () => {
     ).toBeInTheDocument()
   })
 
-  it("l'onglet pas encore cadré le dit, sans simuler de contrôle", async () => {
+  it("l'onglet Rétention porte le réglage des délais", async () => {
     servir()
     renderWithProviders(<AdminAbonnements />)
 
     await userEvent.click(
       await screen.findByRole('tab', { name: i18n.t('admin.abonnements.tabRetention') }),
     )
-    expect(
-      await screen.findByText(i18n.t('admin.abonnements.retentionAVenir')),
-    ).toBeInTheDocument()
+    expect(await screen.findByLabelText(i18n.t('admin.retention.echec'))).toBeInTheDocument()
   })
 
   it("l'onglet Essais porte le formulaire d'octroi", async () => {

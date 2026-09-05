@@ -5,16 +5,16 @@ import { apiFetchJson } from '@/shared/api/client'
 import type { EntreeHistorique } from '@/features/forfaits/useMonAbonnement'
 import AdminBillingOffers from './AdminBillingOffers'
 import AdminEssaisOfferts from './AdminEssaisOfferts'
+import AdminRetention from './AdminRetention'
 
 /**
  * La page admin des abonnements : une COMPOSITION, pas un nouvel écran métier.
  *
- * Quatre onglets décidés sur la fiche. Trois vivent : les offres (l'écran
- * existant, embarqué tel quel — il garde sa route directe), les essais offerts
- * et l'historique global (la vue complète, opérations comprises, orphelines
- * visibles). La rétention attend sa fiche : l'onglet existe et DIT qu'il
- * attend, il ne simule aucun contrôle. Un onglet absent se chercherait ; un
- * faux formulaire mentirait.
+ * Quatre onglets décidés sur la fiche, tous vivants : les offres (l'écran
+ * existant, embarqué tel quel — il garde sa route directe), les essais
+ * offerts, les délais de rétention (la fenêtre avant destruction d'un
+ * workspace non payé) et l'historique global (la vue complète, opérations
+ * comprises, orphelines visibles).
  */
 
 function HistoriqueGlobal() {
@@ -103,7 +103,7 @@ export default function AdminAbonnements() {
         </TabsContent>
 
         <TabsContent value="retention" className="mt-4">
-          <p className="text-sm text-muted-foreground">{t('admin.abonnements.retentionAVenir')}</p>
+          <AdminRetention />
         </TabsContent>
 
         <TabsContent value="historique" className="mt-4">

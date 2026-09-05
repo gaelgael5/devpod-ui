@@ -31,9 +31,46 @@ class PolitiqueRelance(BaseModel):
     tentatives_max: int = Field(default=2, ge=1)
 
 
+class PolitiqueRetention(BaseModel):
+    """Combien de temps un workspace non payé survit avant destruction.
+
+    Sur `echec_paiement` et `resiliation`, le workspace est ARRÊTÉ, pas détruit
+    — le disque reste sur le host. La destruction n'intervient qu'à l'expiration
+    d'un délai propre à chaque type d'événement : c'est la seule règle du lot
+    qui efface des données, et le délai est ce qui laisse au client le temps
+    d'archiver ou de reprendre.
+
+    Défauts PROVISOIRES (les valeurs définitives restent à cadrer sur la
+    fiche) : volontairement longs — se tromper vers le haut coûte du disque,
+    se tromper vers le bas coûte le travail d'un client.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Jours entre le passage en échec de paiement et la destruction.
+    echec_paiement_jours: int = Field(default=14, ge=1)
+    #: Jours entre la résiliation et la destruction.
+    resiliation_jours: int = Field(default=30, ge=1)
+
+    def delai_jours(self, state: str) -> int:
+        """Délai applicable à un état d'abonnement en fin de vie.
+
+        Table exhaustive sur les deux états surveillés : un état inconnu est une
+        faute de programmation, pas un délai par défaut silencieux.
+        """
+        par_etat = {
+            "echec_paiement": self.echec_paiement_jours,
+            "resilie": self.resiliation_jours,
+        }
+        if state not in par_etat:
+            raise ValueError(f"pas de délai de rétention pour l'état {state!r}")
+        return par_etat[state]
+
+
 class BillingConfig(BaseModel):
     """Réglages de facturation de l'installation."""
 
     model_config = ConfigDict(extra="forbid")
 
     relance: PolitiqueRelance = Field(default_factory=PolitiqueRelance)
+    retention: PolitiqueRetention = Field(default_factory=PolitiqueRetention)

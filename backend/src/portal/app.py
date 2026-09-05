@@ -31,6 +31,7 @@ from .routes.billing_catalog import router as billing_catalog_router
 from .routes.billing_essais import router as billing_essais_router
 from .routes.billing_offers import router as billing_offers_router
 from .routes.billing_offers import router_public as billing_offers_public_router
+from .routes.billing_retention import router as billing_retention_router
 from .routes.certificates import router_admin as certs_admin_router
 from .routes.certificates import router_me as certs_me_router
 from .routes.compose_sources import router_admin as compose_sources_admin_router
@@ -321,6 +322,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             _idle_task: asyncio.Task[None] | None = None
             _session_diff_task: asyncio.Task[None] | None = None
             _automation_task: asyncio.Task[None] | None = None
+            _retention_task: asyncio.Task[None] | None = None
             if settings_obj.database_url:
                 _monitor_task = asyncio.create_task(
                     monitor_loop(settings_obj.mcp_monitor_interval_s)
@@ -363,6 +365,12 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 from .automations.runner import runner_loop
 
                 _automation_task = asyncio.create_task(runner_loop())
+                # Balayeur de rétention : signale (une fois par épisode) les
+                # abonnements en échec/résiliés dont le délai est écoulé — ce
+                # sont les automates qui détruisent, jamais cette boucle.
+                from .billing.retention import retention_sweep_loop
+
+                _retention_task = asyncio.create_task(retention_sweep_loop())
                 # Spec 35b T6 : les conteneurs restés running pendant une
                 # indisponibilité du portail peuvent porter une config agents
                 # périmée — réconciliation best-effort, throttlée, en fond.
@@ -382,6 +390,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     _idle_task,
                     _session_diff_task,
                     _automation_task,
+                    _retention_task,
                 ):
                     if _task is not None:
                         _task.cancel()
@@ -519,6 +528,7 @@ def create_app() -> FastAPI:
     app.include_router(billing_catalog_router, prefix="/admin")
     app.include_router(billing_offers_router, prefix="/admin")
     app.include_router(billing_essais_router, prefix="/admin")
+    app.include_router(billing_retention_router, prefix="/admin")
     # Lecture ouverte : c'est l'utilisateur qui choisit son profil en creant sa machine.
     app.include_router(machine_profiles_me_router, prefix="/me")
     app.include_router(recipe_sources_admin_router, prefix="/admin")

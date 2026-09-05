@@ -746,12 +746,11 @@
     "abonnements": {
       "title": "Abonnements",
       "navLabel": "Abonnements",
-      "help": "Les offres, les essais offerts, l'historique global — et bientôt la rétention.",
+      "help": "Les offres, les essais offerts, les délais de rétention et l'historique global.",
       "tabOffres": "Offres",
       "tabEssais": "Essais gratuits",
       "tabRetention": "Rétention",
       "tabHistorique": "Historique",
-      "retentionAVenir": "Les délais de rétention (échec de paiement, résiliation) arrivent avec la fiche « Arrêt, rétention et destruction d'un workspace non payé ». Rien à régler ici pour l'instant.",
       "historiqueVide": "Aucune entrée d'historique pour le moment.",
       "colDate": "Date",
       "colCompte": "Compte",
@@ -1277,6 +1276,15 @@
       "accorde": "essai accordé",
       "accordes_one": "{{count}} essai accordé.",
       "accordes_other": "{{count}} essais accordés."
+    },
+    "retention": {
+      "intro": "Quand un forfait passe en échec de paiement ou est résilié, les workspaces sont arrêtés — le disque reste sur le host. À l'expiration du délai ci-dessous, l'automate de rétention les détruit (travail en attente archivé sur le remote git avant).",
+      "echec": "Échec de paiement (jours)",
+      "echecHint": "Délai entre le passage en échec de paiement et la destruction.",
+      "resiliation": "Résiliation (jours)",
+      "resiliationHint": "Délai entre la résiliation et la destruction.",
+      "minimum": "Un délai d'au moins 1 jour est requis : zéro détruirait sans fenêtre pour archiver.",
+      "saved": "Délais de rétention enregistrés."
     }
   },
   "errors": {

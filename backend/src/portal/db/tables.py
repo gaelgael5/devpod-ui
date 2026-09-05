@@ -1720,6 +1720,35 @@ subscription_events = Table(
         "visibilite IN ('achat','operation')", name="ck_subscription_event_visibilite"
     ),
 )
+
+# Trace des expirations de rétention notifiées (migration 128).
+#
+# L'épisode `(subscription_id, state, state_changed_at)` est UNIQUE : le
+# scheduler émet `subscription.retention_expired` UNE fois par épisode — c'est
+# la seule règle du lot qui mène à détruire des données, un double
+# déclenchement est exactement le défaut que la fiche interdit. Un abonnement
+# retombé en échec après s'être rétabli a un nouveau `state_changed_at` : c'est
+# un nouvel épisode, notifié à son tour.
+retention_notifications = Table(
+    "retention_notifications",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column(
+        "subscription_id",
+        UUID(as_uuid=False),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("state", Text, nullable=False),
+    Column("state_changed_at", DateTime(timezone=True), nullable=False),
+    Column("emitted_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint(
+        "subscription_id", "state", "state_changed_at", name="uq_retention_notification_episode"
+    ),
+    CheckConstraint(
+        "state IN ('echec_paiement','resilie')", name="ck_retention_notification_state"
+    ),
+)
 Index("ix_subscription_events_sub", subscription_events.c.subscription_id)
 
 # Propriété d'une machine par un utilisateur (hébergement `dedie`).

@@ -746,12 +746,11 @@
     "abonnements": {
       "title": "Subscriptions",
       "navLabel": "Subscriptions",
-      "help": "Offers, granted trials, the global history — and soon retention.",
+      "help": "Offers, granted trials, retention delays and the global history.",
       "tabOffres": "Offers",
       "tabEssais": "Free trials",
       "tabRetention": "Retention",
       "tabHistorique": "History",
-      "retentionAVenir": "Retention delays (payment failure, cancellation) ship with the ticket “Stop, retention and destruction of an unpaid workspace”. Nothing to configure here yet.",
       "historiqueVide": "No history entry yet.",
       "colDate": "Date",
       "colCompte": "Account",
@@ -1277,6 +1276,15 @@
       "accorde": "trial granted",
       "accordes_one": "{{count}} trial granted.",
       "accordes_other": "{{count}} trials granted."
+    },
+    "retention": {
+      "intro": "When a plan enters payment failure or is cancelled, workspaces are stopped — the disk stays on the host. Once the delay below expires, the retention automation destroys them (pending work is archived to the git remote first).",
+      "echec": "Payment failure (days)",
+      "echecHint": "Delay between entering payment failure and destruction.",
+      "resiliation": "Cancellation (days)",
+      "resiliationHint": "Delay between cancellation and destruction.",
+      "minimum": "A delay of at least 1 day is required: zero would destroy without any window to archive.",
+      "saved": "Retention delays saved."
     }
   },
   "errors": {
