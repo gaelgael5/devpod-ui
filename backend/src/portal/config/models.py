@@ -604,6 +604,25 @@ class EventsProducerConfig(BaseModel):
     events: list[str] = Field(default_factory=list)
 
 
+class ListmonkConfig(BaseModel):
+    """Connexion à l'instance Listmonk (emails du cycle d'abonnement).
+
+    Même motif que `EventsProducerConfig` : `enabled`, une URL de base, et un
+    `apikey_secret` qui RÉFÉRENCE un secret système — jamais la valeur. Le
+    secret porte la paire `api_user:token` telle que l'API Listmonk l'attend
+    (`Authorization: token api_user:token`, relevé dans la doc officielle —
+    l'instance déployée devra le confirmer).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    #: URL de base de l'instance (ex. https://listmonk.yoops.org).
+    url: str = ""
+    #: Slug du secret système portant `api_user:token`. Une RÉFÉRENCE, jamais la clef.
+    apikey_secret: str = ""
+
+
 class GlobalConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -619,6 +638,7 @@ class GlobalConfig(BaseModel):
     cloudflare_manager: CloudflareManagerConfig = Field(default_factory=CloudflareManagerConfig)
     logs: LogsConfig = Field(default_factory=LogsConfig)
     events_producer: EventsProducerConfig = Field(default_factory=EventsProducerConfig)
+    listmonk: ListmonkConfig = Field(default_factory=ListmonkConfig)
     bastion: BastionConfig = Field(default_factory=BastionConfig)
     # Reglages de facturation : la politique de relance d'un prelevement refuse
     # vaut pour l'installation entiere, pas pour un abonne — elle est donc ici

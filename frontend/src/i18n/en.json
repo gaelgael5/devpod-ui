@@ -1285,6 +1285,22 @@
       "resiliationHint": "Delay between cancellation and destruction.",
       "minimum": "A delay of at least 1 day is required: zero would destroy without any window to archive.",
       "saved": "Retention delays saved."
+    },
+    "listmonk": {
+      "title": "Listmonk",
+      "navLabel": "Listmonk (emails)",
+      "intro": "The instance that will send subscription lifecycle emails. The API key is picked from system secrets — it is never stored here, only its slug is.",
+      "enabled": "Enable sending via Listmonk",
+      "url": "Instance URL",
+      "secret": "API key",
+      "choisirSecret": "Pick a system secret…",
+      "secretHint": "The secret holds the api_user:token pair expected by the Listmonk API.",
+      "missing": "Enabling requires a URL and a chosen API key.",
+      "saved": "Listmonk connection saved.",
+      "test": "Test connection",
+      "testHint": "The test performs an authenticated call (/api/lists): it fails if the key is wrong — a plain ping would not tell.",
+      "testOk": "Listmonk connection verified: the key is accepted.",
+      "testFail": "Connection refused: {{detail}}"
     }
   },
   "errors": {

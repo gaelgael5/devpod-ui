@@ -34,6 +34,7 @@ import {
   AdminOfferEditor,
   AdminSessions,
   AdminWorkflow,
+  AdminListmonk,
   ApplicationsPage,
   ComposeGallery,
   ConsentPage,
@@ -265,6 +266,10 @@ export const router = createBrowserRouter([
       {
         path: '/admin/workflow',
         element: <AdminGuard><Wrap><AdminWorkflow /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/listmonk',
+        element: <AdminGuard><Wrap><AdminListmonk /></Wrap></AdminGuard>,
       },
       {
         path: '/admin/automations',

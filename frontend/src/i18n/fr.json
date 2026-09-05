@@ -1285,6 +1285,22 @@
       "resiliationHint": "Délai entre la résiliation et la destruction.",
       "minimum": "Un délai d'au moins 1 jour est requis : zéro détruirait sans fenêtre pour archiver.",
       "saved": "Délais de rétention enregistrés."
+    },
+    "listmonk": {
+      "title": "Listmonk",
+      "navLabel": "Listmonk (emails)",
+      "intro": "L'instance qui enverra les emails du cycle d'abonnement. La clef d'API se choisit parmi les secrets système — elle n'est jamais stockée ici, seul son slug l'est.",
+      "enabled": "Activer l'envoi via Listmonk",
+      "url": "URL de l'instance",
+      "secret": "Clef d'API",
+      "choisirSecret": "Choisir un secret système…",
+      "secretHint": "Le secret porte la paire api_user:token attendue par l'API Listmonk.",
+      "missing": "Activer exige une URL et une clef d'API choisie.",
+      "saved": "Connexion Listmonk enregistrée.",
+      "test": "Tester la connexion",
+      "testHint": "Le test exerce un appel authentifié (/api/lists) : il échoue si la clef est fausse — un simple ping ne le dirait pas.",
+      "testOk": "Connexion Listmonk vérifiée : la clef est acceptée.",
+      "testFail": "Connexion refusée : {{detail}}"
     }
   },
   "errors": {

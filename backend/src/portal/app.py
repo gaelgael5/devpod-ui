@@ -45,6 +45,7 @@ from .routes.host_secrets import router as host_secrets_router
 from .routes.hypervisor_actions import router as hypervisor_actions_router
 from .routes.jinja_template_sources import router_admin as jinja_sources_admin_router
 from .routes.jinja_templates import router as jinja_templates_router
+from .routes.listmonk import router as listmonk_router
 from .routes.machine_profiles import me_router as machine_profiles_me_router
 from .routes.machine_profiles import router as machine_profiles_admin_router
 from .routes.mcp import router as mcp_router
@@ -531,6 +532,7 @@ def create_app() -> FastAPI:
     app.include_router(billing_offers_router, prefix="/admin")
     app.include_router(billing_essais_router, prefix="/admin")
     app.include_router(billing_retention_router, prefix="/admin")
+    app.include_router(listmonk_router, prefix="/admin")
     # Lecture ouverte : c'est l'utilisateur qui choisit son profil en creant sa machine.
     app.include_router(machine_profiles_me_router, prefix="/me")
     app.include_router(recipe_sources_admin_router, prefix="/admin")
