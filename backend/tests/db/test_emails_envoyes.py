@@ -51,9 +51,7 @@ def _listmonk_active(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("portal.config.store.load_global", lambda *a, **k: cfg)
 
 
-async def _seed(
-    conn, *, email: str = "alice@example.org", culture: str = "en"
-) -> Subscription:
+async def _seed(conn, *, email: str = "alice@example.org", culture: str = "en") -> Subscription:
     await conn.execute(
         insert(users).values(
             login="alice",
