@@ -719,6 +719,17 @@
       "pveNode": "PVE node"
     },
     "provenanceUnknown": "unknown provenance",
+    "charges": {
+      "col": "Machines carried",
+      "workspaces": "workspaces",
+      "tests": "test",
+      "ressources": "resources",
+      "autres": "other",
+      "jamaisSondees_one": "{{count}} never probed",
+      "jamaisSondees_other": "{{count}} never probed",
+      "sansProvenance_one": "{{count}} machine without provenance — created outside provisioning or before the column, attributed to no one.",
+      "sansProvenance_other": "{{count}} machines without provenance — created outside provisioning or before the column, attributed to no one."
+    },
     "form": {
       "hostName": "Name",
       "hostType": "Type",

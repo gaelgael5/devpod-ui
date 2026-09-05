@@ -719,6 +719,17 @@
       "pveNode": "Nœud PVE"
     },
     "provenanceUnknown": "provenance inconnue",
+    "charges": {
+      "col": "Machines portées",
+      "workspaces": "workspaces",
+      "tests": "test",
+      "ressources": "ressources",
+      "autres": "autres",
+      "jamaisSondees_one": "{{count}} jamais sondée",
+      "jamaisSondees_other": "{{count}} jamais sondées",
+      "sansProvenance_one": "{{count}} machine sans provenance — montée hors provisioning ou antérieure à la colonne, attribuée à personne.",
+      "sansProvenance_other": "{{count}} machines sans provenance — montées hors provisioning ou antérieures à la colonne, attribuées à personne."
+    },
     "form": {
       "hostName": "Nom",
       "hostType": "Type",

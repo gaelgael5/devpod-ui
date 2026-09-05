@@ -13,6 +13,7 @@ import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..auth.rbac import UserInfo, require_admin
 from ..config.models import (
@@ -26,6 +27,7 @@ from ..config.models import (
     qualify_action_slug,
 )
 from ..config.store import load_global, save_global
+from ..db.engine import get_conn
 from ..devpod.name_mask import resolve_count_mask
 from ..settings import get_settings
 from ._ssrf import pinned_get, resolve_pinned
@@ -522,6 +524,32 @@ async def list_hypervisors(
 ) -> list[dict[str, object]]:
     cfg = load_global()
     return [n.model_dump(mode="json") for n in cfg.hypervisors]
+
+
+@router.get("/hypervisors/charges")
+async def hypervisor_charges(
+    user: UserInfo = Depends(require_admin),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    """Machines portées par hyperviseur, ventilées par nature et vivacité.
+
+    C'est le contrôle visuel de l'équilibrage : si le provisioning envoie tout
+    sur le même hyperviseur, ça doit se voir ici, pas dans les logs. Un
+    hyperviseur déclaré sans machine rend des ZÉROS, pas une absence — le vide
+    ne dit pas s'il est libre ou si le comptage l'a raté.
+    """
+    from ..db.host_counts import ComptesHyperviseur, machines_par_hyperviseur
+
+    comptes = await machines_par_hyperviseur(conn)
+    cfg = load_global()
+    par_hyperviseur = {
+        n.name: comptes.par_hyperviseur.get(n.name, ComptesHyperviseur()).model_dump()
+        for n in cfg.hypervisors
+    }
+    return {
+        "par_hyperviseur": par_hyperviseur,
+        "sans_provenance": comptes.sans_provenance,
+    }
 
 
 @router.post("/hypervisors", status_code=201)
