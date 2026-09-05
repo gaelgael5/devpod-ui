@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-import os
-
 import pytest
 import yaml
 
 from portal.config.models import GlobalConfig
 from portal.config.store import (
     ensure_user_dir,
-    load_user,
     load_user_config,
     safe_login_path,
     safe_user_path,
-    save_user,
 )
 
 # ─── safe_user_path ───────────────────────────────────────────────────────────
@@ -99,57 +95,16 @@ def test_ensure_user_dir_is_idempotent(tmp_data_root):
     ensure_user_dir("alice")  # pas d'erreur
 
 
-# ─── load_user ────────────────────────────────────────────────────────────────
-
-
-def test_load_user_parses_yaml(tmp_data_root, user_config_yaml):
-    ensure_user_dir("alice")
-    (tmp_data_root / "users" / "alice" / "config.yaml").write_text(user_config_yaml)
-    cfg = load_user("alice")
-    assert cfg.version == "1"
-    assert cfg.secret_ns == "a3f8c1d2-4b56-7890-abcd-ef1234567890"
-
-
-def test_load_user_raises_on_missing_file(tmp_data_root):
-    ensure_user_dir("alice")
-    with pytest.raises(FileNotFoundError):
-        load_user("alice")
-
-
-# ─── save_user (écriture atomique) ────────────────────────────────────────────
-
-
-def test_save_user_writes_file(tmp_data_root, sample_user_config):
-    ensure_user_dir("alice")
-    save_user("alice", sample_user_config)
-    p = tmp_data_root / "users" / "alice" / "config.yaml"
-    assert p.exists()
-    data = yaml.safe_load(p.read_text())
-    assert data["version"] == "1"
-
-
-def test_save_user_atomic_crash_leaves_original_intact(
-    tmp_data_root, sample_user_config, monkeypatch
-):
-    """Un crash avant os.replace (simulé) ne corrompt pas la config existante."""
-    ensure_user_dir("alice")
-    config_path = tmp_data_root / "users" / "alice" / "config.yaml"
-    original = "version: '1'\nsecret_ns: 'aaaaaaaa-0000-0000-0000-000000000000'\n"
-    config_path.write_text(original)
-
-    def exploding_replace(src: str, dst: str) -> None:
-        raise OSError("simulated crash before replace")
-
-    monkeypatch.setattr(os, "replace", exploding_replace)
-
-    with pytest.raises(OSError, match="simulated crash"):
-        save_user("alice", sample_user_config)
-
-    assert config_path.read_text() == original
+# ─── load_user / save_user ────────────────────────────────────────────────────
+# Les tests « fichier YAML » d'origine testaient un comportement DISPARU : la
+# config utilisateur vit en base depuis la migration correspondante, et le
+# round-trip save/load — atomicité transactionnelle comprise — est couvert par
+# tests/db/test_user_config.py contre le vrai schéma. Reste ICI ce qui est
+# propre à ce module : la validation croisée de load_user_config, testée en
+# pur (load_user doublé) — elle ne dépend d'aucun stockage.
 
 
 # ─── load_user_config (validation croisée) ────────────────────────────────────
-# Ces tests construisent la GlobalConfig directement (indépendant de load_global / DB).
 
 
 @pytest.fixture
@@ -157,52 +112,54 @@ def sample_global_config(global_config_yaml: str) -> GlobalConfig:
     return GlobalConfig.model_validate(yaml.safe_load(global_config_yaml))
 
 
-def test_load_user_config_passes_when_host_exists(tmp_data_root, sample_global_config):
-    ensure_user_dir("alice")
-    user_yaml = """\
-version: "1"
-secret_ns: "a3f8c1d2-4b56-7890-abcd-ef1234567890"
-git_credentials: []
-workspaces:
-  - name: myws
-    source: "git@github.com:foo/bar.git"
-    host: "local"
-"""
-    (tmp_data_root / "users" / "alice" / "config.yaml").write_text(user_yaml)
-    cfg = load_user_config("alice", sample_global_config)
+def _user_cfg(**ws_extra):
+    from portal.config.models import UserConfig, WorkspaceSpec
+
+    return UserConfig(
+        version="1",
+        secret_ns="a3f8c1d2-4b56-7890-abcd-ef1234567890",
+        git_credentials=[],
+        workspaces=[WorkspaceSpec(name="myws", source="git@github.com:foo/bar.git", **ws_extra)],
+    )
+
+
+@pytest.fixture
+def _doubler_load_user(monkeypatch):
+    """Injecte la config utilisateur SANS stockage : la validation croisée est
+    pure, la doubler contre la base ne prouverait rien de plus."""
+    import portal.config.store as store
+
+    def poser(cfg):
+        async def _load_user(login: str):
+            return cfg
+
+        monkeypatch.setattr(store, "load_user", _load_user)
+
+    return poser
+
+
+async def test_load_user_config_passes_when_host_exists(sample_global_config, _doubler_load_user):
+    _doubler_load_user(_user_cfg(host="local"))
+
+    cfg = await load_user_config("alice", sample_global_config)
+
     assert cfg.workspaces[0].host == "local"
 
 
-def test_load_user_config_rejects_unknown_host(tmp_data_root, sample_global_config):
-    ensure_user_dir("alice")
-    user_yaml = """\
-version: "1"
-secret_ns: "a3f8c1d2-4b56-7890-abcd-ef1234567890"
-git_credentials: []
-workspaces:
-  - name: myws
-    source: "git@github.com:foo/bar.git"
-    host: "nonexistent-host"
-"""
-    (tmp_data_root / "users" / "alice" / "config.yaml").write_text(user_yaml)
+async def test_load_user_config_rejects_unknown_host(sample_global_config, _doubler_load_user):
+    _doubler_load_user(_user_cfg(host="nonexistent-host"))
+
     with pytest.raises(ValueError, match="nonexistent-host"):
-        load_user_config("alice", sample_global_config)
+        await load_user_config("alice", sample_global_config)
 
 
-def test_load_user_config_rejects_unknown_git_credential(tmp_data_root, sample_global_config):
-    ensure_user_dir("alice")
-    user_yaml = """\
-version: "1"
-secret_ns: "a3f8c1d2-4b56-7890-abcd-ef1234567890"
-git_credentials: []
-workspaces:
-  - name: myws
-    source: "git@github.com:foo/bar.git"
-    git_credential: "ghost-cred"
-"""
-    (tmp_data_root / "users" / "alice" / "config.yaml").write_text(user_yaml)
+async def test_load_user_config_rejects_unknown_git_credential(
+    sample_global_config, _doubler_load_user
+):
+    _doubler_load_user(_user_cfg(git_credential="ghost-cred"))
+
     with pytest.raises(ValueError, match="ghost-cred"):
-        load_user_config("alice", sample_global_config)
+        await load_user_config("alice", sample_global_config)
 
 
 # ─── save_global : cache peuplé seulement après COMMIT (bug 034) ──────────────

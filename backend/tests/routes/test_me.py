@@ -1,47 +1,97 @@
+"""Les routes /me/* — profil, config, workspaces, git-credentials.
+
+Réécrite sur le modèle des suites qui marchent (dette 99c91952) : APP MINIMALE
+(le seul router `me`, pas `create_app()` et son lifespan), moteur global posé
+par `db_engine_pool`, et `httpx.AsyncClient` sur ASGITransport — tout vit dans
+LA MÊME boucle d'événements que les fixtures. C'est ce qui manquait à l'ancienne
+suite : `create_app()` + `TestClient` multipliaient les boucles et le moteur
+asyncpg fuyait de test en test.
+
+`db_conn` (pool 1) est volontairement absent : ces routes ouvrent leurs propres
+connexions via le moteur global — exactement le cas que `db_engine_pool` existe
+pour couvrir.
+"""
+
 from __future__ import annotations
 
-import asyncio
-import os
+from collections.abc import AsyncGenerator
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+
+from portal.auth.rbac import UserInfo, require_user
+from portal.config.store import load_user
+from portal.routes.me import router as me_router
 
 
-def _provision_alice(tmp_path: Path) -> None:
-    os.environ["PORTAL_DATA_ROOT"] = str(tmp_path)
-
-    async def _inner() -> None:
-        from portal.auth.router import provision_user
-
-        await provision_user(login="alice", sub="sub-alice", data_root=tmp_path)
-
-    asyncio.run(_inner())
-
-
-def _make_app(tmp_path: Path, role: str = "dev") -> TestClient:
+@pytest.fixture
+async def app_me(
+    db_engine_pool, postgres_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> FastAPI:
+    """App minimale + alice provisionnée (row users, dossiers, secret_ns)."""
     import portal.settings as mod
 
-    mod._settings = None
-    os.environ["PORTAL_DATA_ROOT"] = str(tmp_path)
-    os.environ["SESSION_SECRET_KEY"] = "test-secret-key-32chars-minimum!!"
+    monkeypatch.setenv("PORTAL_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv("SESSION_SECRET_KEY", "test-secret-key-32chars-minimum!!")
+    # provision_user ne fait l'upsert de la row users QUE si DATABASE_URL est
+    # posé — le moteur global, lui, est déjà celui de db_engine_pool.
+    monkeypatch.setenv("DATABASE_URL", postgres_url)
     mod._settings = None
 
-    from portal.app import create_app
-    from portal.auth.rbac import UserInfo, require_admin, require_user
+    from portal.auth.router import provision_user
 
-    app = create_app()
-    user = UserInfo(login="alice", roles=[role])
-    app.dependency_overrides[require_user] = lambda: user
-    if role == "admin":
-        app.dependency_overrides[require_admin] = lambda: user
+    await provision_user(login="alice", sub="sub-alice", data_root=tmp_path)
+
+    app = FastAPI()
+    # SessionMiddleware : `_sid()` (reveal vault) et `require_user` lisent
+    # request.session — sans lui, 500 au lieu du comportement réel.
+    from starlette.middleware.sessions import SessionMiddleware
+
+    app.add_middleware(SessionMiddleware, secret_key="test-secret-key-32chars-minimum!!")
+    app.include_router(me_router, prefix="/me")
+    yield app
+    mod._settings = None
+
+
+def _en_dev(app: FastAPI, role: str = "dev") -> FastAPI:
+    app.dependency_overrides[require_user] = lambda: UserInfo(login="alice", roles=[role])
     return app
 
 
-def test_get_me_returns_login_and_roles(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path, role="dev")
-    with TestClient(app) as client:
-        resp = client.get("/me")
+@pytest.fixture
+async def client(app_me: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+    async with AsyncClient(
+        transport=ASGITransport(app=_en_dev(app_me)), base_url="http://test"
+    ) as c:
+        yield c
+
+
+@pytest.fixture
+async def client_admin(app_me: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+    async with AsyncClient(
+        transport=ASGITransport(app=_en_dev(app_me, role="admin")), base_url="http://test"
+    ) as c:
+        yield c
+
+
+@pytest.fixture
+def dev_mode(monkeypatch: pytest.MonkeyPatch):
+    """DEV_MODE (vault désactivé) pour les routes qui touchent la table users."""
+    import portal.settings as mod
+
+    monkeypatch.setenv("DEV_MODE", "true")
+    mod._settings = None
+    yield
+    mod._settings = None
+
+
+# ─── /me ─────────────────────────────────────────────────────────────────────
+
+
+async def test_get_me_returns_login_and_roles(client: AsyncClient) -> None:
+    resp = await client.get("/me")
     assert resp.status_code == 200
     data = resp.json()
     assert data["login"] == "alice"
@@ -49,643 +99,167 @@ def test_get_me_returns_login_and_roles(tmp_path: Path) -> None:
     assert data["is_admin"] is False
 
 
-def test_get_me_admin_returns_admin_role(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path, role="admin")
-    with TestClient(app) as client:
-        resp = client.get("/me")
+async def test_get_me_admin_returns_admin_role(client_admin: AsyncClient) -> None:
+    resp = await client_admin.get("/me")
     assert resp.status_code == 200
     assert "admin" in resp.json()["roles"]
     # is_admin est calculé côté serveur contre settings.oidc_admin_role.
     assert resp.json()["is_admin"] is True
 
 
-def test_get_me_config_returns_user_config(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        resp = client.get("/me/config")
+async def test_get_me_config_returns_user_config(client: AsyncClient) -> None:
+    resp = await client.get("/me/config")
     assert resp.status_code == 200
     assert "secret_ns" in resp.json()
 
 
-def test_put_me_config_updates_defaults(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
+async def test_put_me_config_updates_defaults(client: AsyncClient) -> None:
     payload = {"defaults": {"ide": "openvscode", "idle_timeout": "2h"}}
-    with TestClient(app) as client:
-        resp = client.put("/me/config", json=payload)
+    resp = await client.put("/me/config", json=payload)
     assert resp.status_code == 200
 
 
-def test_put_me_config_rejects_unknown_field(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        resp = client.put("/me/config", json={"unknown_field": "value"})
+async def test_put_me_config_rejects_unknown_field(client: AsyncClient) -> None:
+    resp = await client.put("/me/config", json={"unknown_field": "value"})
     assert resp.status_code == 422
 
 
-def test_put_me_config_rejects_secret_ns_rewrite(tmp_path: Path) -> None:
+async def test_put_me_config_rejects_secret_ns_rewrite(client: AsyncClient, dev_mode) -> None:
     """Bug 008 : secret_ns est un champ valide de UserConfig — sans allowlist,
     pydantic le laisserait passer et un client pourrait réécrire son namespace
     de secrets. Doit être rejeté avant même de toucher load_user/save_user."""
     import uuid
 
-    import portal.settings as mod
-
-    os.environ["DEV_MODE"] = "true"
-    mod._settings = None
-    try:
-        _provision_alice(tmp_path)
-        app = _make_app(tmp_path)
-        with TestClient(app) as client:
-            resp = client.put("/me/config", json={"secret_ns": str(uuid.uuid4())})
-        assert resp.status_code == 422
-        assert "secret_ns" in resp.json()["detail"]
-    finally:
-        os.environ.pop("DEV_MODE", None)
-        mod._settings = None
+    resp = await client.put("/me/config", json={"secret_ns": str(uuid.uuid4())})
+    assert resp.status_code == 422
+    assert "secret_ns" in resp.json()["detail"]
 
 
-def test_put_me_config_allows_culture_field(tmp_path: Path) -> None:
-    import portal.settings as mod
-
-    os.environ["DEV_MODE"] = "true"
-    mod._settings = None
-    try:
-        _provision_alice(tmp_path)
-        app = _make_app(tmp_path)
-        with TestClient(app) as client:
-            resp = client.put("/me/config", json={"culture": "en"})
-        assert resp.status_code == 200
-        assert resp.json()["culture"] == "en"
-    finally:
-        os.environ.pop("DEV_MODE", None)
-        mod._settings = None
+async def test_put_me_config_allows_culture_field(client: AsyncClient, dev_mode) -> None:
+    resp = await client.put("/me/config", json={"culture": "en"})
+    assert resp.status_code == 200
+    assert resp.json()["culture"] == "en"
 
 
-def _profile_app(tmp_path: Path):
-    """App en DEV_MODE (vault désactivé) pour les tests /me/profile touchant la table users."""
-    import portal.settings as mod
-
-    os.environ["DEV_MODE"] = "true"
-    mod._settings = None
-    _provision_alice(tmp_path)
-    return _make_app(tmp_path)
+# ─── PATCH /me/profile (exigés par 67ecbae1) ─────────────────────────────────
 
 
-def test_patch_profile_updates_email(tmp_path: Path) -> None:
-    app = _profile_app(tmp_path)
-    try:
-        with TestClient(app) as client:
-            resp = client.patch("/me/profile", json={"email": "gaelgael5@gmail.com"})
-            assert resp.status_code == 200
-            assert resp.json()["email"] == "gaelgael5@gmail.com"
-            # Persisté : un GET ultérieur renvoie la même valeur.
-            assert client.get("/me/profile").json()["email"] == "gaelgael5@gmail.com"
-    finally:
-        os.environ.pop("DEV_MODE", None)
+async def test_patch_profile_updates_email(client: AsyncClient, dev_mode) -> None:
+    resp = await client.patch("/me/profile", json={"email": "gaelgael5@gmail.com"})
+    assert resp.status_code == 200
+    assert resp.json()["email"] == "gaelgael5@gmail.com"
+    # Persisté : un GET ultérieur renvoie la même valeur.
+    relu = await client.get("/me/profile")
+    assert relu.json()["email"] == "gaelgael5@gmail.com"
 
 
-def test_patch_profile_rejects_invalid_email(tmp_path: Path) -> None:
-    app = _profile_app(tmp_path)
-    try:
-        with TestClient(app) as client:
-            resp = client.patch("/me/profile", json={"email": "pas-un-email"})
-        assert resp.status_code == 422
-        assert "email" in resp.json()["detail"]
-    finally:
-        os.environ.pop("DEV_MODE", None)
+async def test_patch_profile_rejects_invalid_email(client: AsyncClient, dev_mode) -> None:
+    resp = await client.patch("/me/profile", json={"email": "pas-un-email"})
+    assert resp.status_code == 422
+    assert "email" in resp.json()["detail"]
 
 
-def test_patch_profile_updates_email_and_display_name(tmp_path: Path) -> None:
-    app = _profile_app(tmp_path)
-    try:
-        with TestClient(app) as client:
-            resp = client.patch(
-                "/me/profile",
-                json={"email": "a@b.io", "display_name": "Gaël"},
-            )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["email"] == "a@b.io"
-        assert body["display_name"] == "Gaël"
-    finally:
-        os.environ.pop("DEV_MODE", None)
+async def test_patch_profile_updates_email_and_display_name(client: AsyncClient, dev_mode) -> None:
+    resp = await client.patch("/me/profile", json={"email": "a@b.io", "display_name": "Gaël"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["email"] == "a@b.io"
+    assert body["display_name"] == "Gaël"
 
 
-def test_patch_profile_allows_clearing_email(tmp_path: Path) -> None:
+async def test_patch_profile_allows_clearing_email(client: AsyncClient, dev_mode) -> None:
     """Chaîne vide = efface l'email (pas de validation de format sur le vide)."""
-    app = _profile_app(tmp_path)
-    try:
-        with TestClient(app) as client:
-            assert client.patch("/me/profile", json={"email": ""}).status_code == 200
-    finally:
-        os.environ.pop("DEV_MODE", None)
+    resp = await client.patch("/me/profile", json={"email": ""})
+    assert resp.status_code == 200
 
 
-def test_patch_profile_rejects_login_field(tmp_path: Path) -> None:
+async def test_patch_profile_rejects_login_field(client: AsyncClient, dev_mode) -> None:
     """Le login est immuable : extra='forbid' rejette toute tentative de le modifier."""
-    app = _profile_app(tmp_path)
-    try:
-        with TestClient(app) as client:
-            resp = client.patch("/me/profile", json={"login": "someone-else"})
-        assert resp.status_code == 422
-    finally:
-        os.environ.pop("DEV_MODE", None)
+    resp = await client.patch("/me/profile", json={"login": "someone-else"})
+    assert resp.status_code == 422
 
 
-def test_patch_profile_rejects_empty_patch(tmp_path: Path) -> None:
-    app = _profile_app(tmp_path)
-    try:
-        with TestClient(app) as client:
-            resp = client.patch("/me/profile", json={})
-        assert resp.status_code == 422
-    finally:
-        os.environ.pop("DEV_MODE", None)
+async def test_patch_profile_rejects_empty_patch(client: AsyncClient, dev_mode) -> None:
+    resp = await client.patch("/me/profile", json={})
+    assert resp.status_code == 422
 
 
-def test_get_me_workspaces_returns_empty_list(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        resp = client.get("/me/workspaces")
+# ─── /me/workspaces ──────────────────────────────────────────────────────────
+
+
+async def test_get_me_workspaces_returns_empty_list(client: AsyncClient) -> None:
+    resp = await client.get("/me/workspaces")
     assert resp.status_code == 200
     assert resp.json() == []
 
 
-def test_post_me_workspace_adds_workspace(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
+async def test_post_me_workspace_adds_workspace(client: AsyncClient) -> None:
     ws = {"name": "myapp", "source": "git@github.com:user/repo.git"}
-    with TestClient(app) as client:
-        resp = client.post("/me/workspaces", json=ws)
+    resp = await client.post("/me/workspaces", json=ws)
     assert resp.status_code == 201
-    with TestClient(app) as client:
-        resp2 = client.get("/me/workspaces")
+    resp2 = await client.get("/me/workspaces")
     assert any(w["name"] == "myapp" for w in resp2.json())
 
 
-def test_delete_me_workspace_removes_workspace(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
+async def test_delete_me_workspace_removes_workspace(client: AsyncClient) -> None:
     ws = {"name": "todelete", "source": "git@github.com:user/repo.git"}
-    with TestClient(app) as client:
-        client.post("/me/workspaces", json=ws)
-        resp = client.delete("/me/workspaces/todelete")
+    await client.post("/me/workspaces", json=ws)
+    resp = await client.delete("/me/workspaces/todelete")
     assert resp.status_code == 200
-    with TestClient(app) as client:
-        resp2 = client.get("/me/workspaces")
+    resp2 = await client.get("/me/workspaces")
     assert not any(w["name"] == "todelete" for w in resp2.json())
 
 
-def test_patch_workspace_agents_updates_agents(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
+async def test_patch_workspace_agents_updates_agents(client: AsyncClient) -> None:
     ws = {"name": "myapp", "source": "git@github.com:user/repo.git"}
-    with TestClient(app) as client:
-        client.post("/me/workspaces", json=ws)
-        resp = client.patch("/me/workspaces/myapp/agents", json={"agents": ["claude"]})
+    await client.post("/me/workspaces", json=ws)
+    resp = await client.patch("/me/workspaces/myapp/agents", json={"agents": ["claude"]})
     assert resp.status_code == 200
     assert resp.json()["agents"] == ["claude"]
-    with TestClient(app) as client:
-        resp2 = client.get("/me/workspaces")
+    resp2 = await client.get("/me/workspaces")
     stored = next(w for w in resp2.json() if w["name"] == "myapp")
     assert stored["agents"] == ["claude"]
 
 
-def test_patch_workspace_agents_preserves_other_fields(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
+async def test_patch_workspace_agents_preserves_other_fields(client: AsyncClient) -> None:
     ws = {"name": "myapp", "source": "git@github.com:user/repo.git", "branch": "main"}
-    with TestClient(app) as client:
-        client.post("/me/workspaces", json=ws)
-        resp = client.patch("/me/workspaces/myapp/agents", json={"agents": []})
+    await client.post("/me/workspaces", json=ws)
+    resp = await client.patch("/me/workspaces/myapp/agents", json={"agents": []})
     assert resp.status_code == 200
     assert resp.json()["source"] == "git@github.com:user/repo.git"
     assert resp.json()["branch"] == "main"
 
 
-def test_patch_workspace_agents_unknown_workspace_404(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        resp = client.patch("/me/workspaces/ghost/agents", json={"agents": ["claude"]})
+async def test_patch_workspace_agents_unknown_workspace_404(client: AsyncClient) -> None:
+    resp = await client.patch("/me/workspaces/ghost/agents", json={"agents": ["claude"]})
     assert resp.status_code == 404
 
 
-def test_patch_workspace_agents_rejects_invalid_id(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
+async def test_patch_workspace_agents_rejects_invalid_id(client: AsyncClient) -> None:
     ws = {"name": "myapp", "source": "git@github.com:user/repo.git"}
-    with TestClient(app) as client:
-        client.post("/me/workspaces", json=ws)
-        resp = client.patch("/me/workspaces/myapp/agents", json={"agents": ["Bad Id!"]})
+    await client.post("/me/workspaces", json=ws)
+    resp = await client.patch("/me/workspaces/myapp/agents", json={"agents": ["Bad Id!"]})
     assert resp.status_code == 422
 
 
-def test_patch_workspace_agents_rejects_unknown_field(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
+async def test_patch_workspace_agents_rejects_unknown_field(client: AsyncClient) -> None:
     ws = {"name": "myapp", "source": "git@github.com:user/repo.git"}
-    with TestClient(app) as client:
-        client.post("/me/workspaces", json=ws)
-        resp = client.patch("/me/workspaces/myapp/agents", json={"agents": ["claude"], "host": "x"})
-    assert resp.status_code == 422
-
-
-def test_get_git_credentials_includes_username(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        client.post(
-            "/me/git-credentials",
-            json={
-                "name": "gh",
-                "host": "github.com",
-                "kind": "token",
-                "username": "oauth2",
-                "token": "ghp_test123",
-            },
-        )
-        resp = client.get("/me/git-credentials")
-    assert resp.status_code == 200
-    creds = resp.json()
-    assert len(creds) == 1
-    assert creds[0]["username"] == "oauth2"
-
-
-# ── helpers ────────────────────────────────────────────────────────────────
-
-_FAKE_SSH_KEY = (
-    "-----BEGIN OPENSSH PRIVATE KEY-----\n"
-    "dGVzdC1rZXktZm9yLXRlc3Rpbmctb25seQ==\n"
-    "-----END OPENSSH PRIVATE KEY-----"
-)
-
-
-def _add_token_cred(client: TestClient, name: str = "gh") -> None:
-    client.post(
-        "/me/git-credentials",
-        json={
-            "name": name,
-            "host": "github.com",
-            "kind": "token",
-            "username": "oauth2",
-            "token": "ghp_old",
-        },
+    await client.post("/me/workspaces", json=ws)
+    resp = await client.patch(
+        "/me/workspaces/myapp/agents", json={"agents": ["claude"], "host": "x"}
     )
-
-
-def _add_ssh_cred(client: TestClient, name: str = "gl-ssh") -> None:
-    client.post(
-        "/me/git-credentials",
-        json={
-            "name": name,
-            "host": "gitlab.com",
-            "kind": "ssh",
-            "private_key": _FAKE_SSH_KEY,
-        },
-    )
-
-
-# ── PATCH tests ─────────────────────────────────────────────────────────────
-
-
-def test_patch_git_credential_updates_host(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        _add_token_cred(client)
-        resp = client.patch("/me/git-credentials/gh", json={"host": "github.enterprise.com"})
-    assert resp.status_code == 200
-    assert resp.json()["host"] == "github.enterprise.com"
-    with TestClient(app) as client:
-        creds = client.get("/me/git-credentials").json()
-    assert creds[0]["host"] == "github.enterprise.com"
-
-
-def test_patch_git_credential_updates_token(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        _add_token_cred(client)
-        resp = client.patch("/me/git-credentials/gh", json={"token": "ghp_new"})
-    assert resp.status_code == 200
-    from portal.config.store import load_user
-
-    cfg = load_user("alice")
-    assert cfg.git_credentials[0].token == "ghp_new"
-
-
-def test_patch_git_credential_unchanged_token_preserved(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        _add_token_cred(client)
-        resp = client.patch("/me/git-credentials/gh", json={"token": "__UNCHANGED__"})
-    assert resp.status_code == 200
-    from portal.config.store import load_user
-
-    cfg = load_user("alice")
-    assert cfg.git_credentials[0].token == "ghp_old"
-
-
-def test_patch_git_credential_token_to_ssh(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        _add_token_cred(client)
-        resp = client.patch(
-            "/me/git-credentials/gh",
-            json={
-                "kind": "ssh",
-                "private_key": _FAKE_SSH_KEY,
-            },
-        )
-    assert resp.status_code == 200
-    from portal.config.store import load_user
-
-    cfg = load_user("alice")
-    cred = cfg.git_credentials[0]
-    assert cred.kind == "ssh"
-    assert cred.token == ""
-    assert cred.key_path != ""
-
-
-def test_patch_git_credential_ssh_to_token(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        _add_ssh_cred(client)
-        from portal.config.store import load_user as _lu
-
-        key_path_before = _lu("alice").git_credentials[0].key_path
-        resp = client.patch(
-            "/me/git-credentials/gl-ssh",
-            json={
-                "kind": "token",
-                "token": "glpat-new",
-            },
-        )
-    assert resp.status_code == 200
-    from portal.config.store import load_user
-
-    cfg = load_user("alice")
-    cred = cfg.git_credentials[0]
-    assert cred.kind == "token"
-    assert cred.token == "glpat-new"
-    assert cred.key_path == ""
-    assert not Path(key_path_before).exists()
-
-
-def test_patch_git_credential_rename_cascades_workspaces(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        _add_token_cred(client, name="gh")
-        client.post(
-            "/me/workspaces",
-            json={
-                "name": "myapp",
-                "source": "github.com/org/repo",
-                "git_credential": "gh",
-                "extra_sources": [{"url": "github.com/org/lib", "git_credential": "gh"}],
-            },
-        )
-        resp = client.patch("/me/git-credentials/gh", json={"new_name": "github"})
-    assert resp.status_code == 200
-    assert resp.json()["name"] == "github"
-    from portal.config.store import load_user
-
-    cfg = load_user("alice")
-    ws = cfg.workspaces[0]
-    assert ws.git_credential == "github"
-    assert ws.extra_sources[0].git_credential == "github"
-
-
-def test_patch_git_credential_duplicate_name_returns_409(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        _add_token_cred(client, name="gh")
-        _add_token_cred(client, name="gh2")
-        resp = client.patch("/me/git-credentials/gh", json={"new_name": "gh2"})
-    assert resp.status_code == 409
-
-
-def test_patch_git_credential_not_found_returns_404(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        resp = client.patch("/me/git-credentials/nope", json={"host": "example.com"})
-    assert resp.status_code == 404
-
-
-def test_patch_git_credential_ssh_rename_moves_key_file(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        _add_ssh_cred(client, name="gl-ssh")
-        from portal.config.store import load_user as _lu
-
-        old_key_path = Path(_lu("alice").git_credentials[0].key_path)
-        resp = client.patch("/me/git-credentials/gl-ssh", json={"new_name": "gitlab-ssh"})
-    assert resp.status_code == 200
-    from portal.config.store import load_user
-
-    cfg = load_user("alice")
-    cred = cfg.git_credentials[0]
-    assert cred.name == "gitlab-ssh"
-    assert "gitlab-ssh" in cred.key_path
-    assert Path(cred.key_path).exists()
-    assert not old_key_path.exists()
-
-
-def test_patch_git_credential_invalid_new_name_returns_422(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        _add_token_cred(client)
-        resp = client.patch("/me/git-credentials/gh", json={"new_name": "a"})
     assert resp.status_code == 422
-
-
-# ── SSH key management tests ────────────────────────────────────────────────
-
-
-def _real_ssh_pem() -> str:
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
-
-    key = Ed25519PrivateKey.generate()
-    return key.private_bytes(Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption()).decode("utf-8")
-
-
-def test_post_git_credential_generate_key_creates_credential(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        resp = client.post(
-            "/me/git-credentials",
-            json={"name": "my-key", "host": "github.com", "kind": "ssh", "generate_key": True},
-        )
-    assert resp.status_code == 201
-    data = resp.json()
-    assert data["kind"] == "ssh"
-    assert "public_key" in data
-    assert data["public_key"].startswith("ssh-ed25519 ")
-    from portal.config.store import load_user
-
-    cfg = load_user("alice")
-    cred = next(c for c in cfg.git_credentials if c.name == "my-key")
-    assert cred.key_path != ""
-    from pathlib import Path as P
-
-    priv = P(cred.key_path)
-    assert priv.exists()
-    assert (priv.parent / "id_ed25519.pub").exists()
-
-
-def test_post_git_credential_generate_key_with_token_kind_returns_422(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        resp = client.post(
-            "/me/git-credentials",
-            json={"name": "my-key", "host": "github.com", "kind": "token", "generate_key": True},
-        )
-    assert resp.status_code == 422
-
-
-def test_post_git_credential_ssh_upload_derives_pub_for_valid_key(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    pem = _real_ssh_pem()
-    with TestClient(app) as client:
-        resp = client.post(
-            "/me/git-credentials",
-            json={"name": "gl-ssh", "host": "gitlab.com", "kind": "ssh", "private_key": pem},
-        )
-    assert resp.status_code == 201
-    from pathlib import Path as P
-
-    from portal.config.store import load_user
-
-    cfg = load_user("alice")
-    cred = next(c for c in cfg.git_credentials if c.name == "gl-ssh")
-    assert (P(cred.key_path).parent / "id_ed25519.pub").exists()
-
-
-def test_get_git_credential_public_key_on_generated(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        client.post(
-            "/me/git-credentials",
-            json={"name": "my-key", "host": "github.com", "kind": "ssh", "generate_key": True},
-        )
-        resp = client.get("/me/git-credentials/my-key/public-key")
-    assert resp.status_code == 200
-    assert resp.json()["public_key"].startswith("ssh-ed25519 ")
-
-
-def test_get_git_credential_public_key_derives_on_the_fly(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    pem = _real_ssh_pem()
-    with TestClient(app) as client:
-        client.post(
-            "/me/git-credentials",
-            json={"name": "my-key", "host": "github.com", "kind": "ssh", "private_key": pem},
-        )
-        from pathlib import Path as P
-
-        from portal.config.store import load_user as _lu
-
-        cfg = _lu("alice")
-        cred = next(c for c in cfg.git_credentials if c.name == "my-key")
-        pub = P(cred.key_path).parent / "id_ed25519.pub"
-        if pub.exists():
-            pub.unlink()
-        resp = client.get("/me/git-credentials/my-key/public-key")
-    assert resp.status_code == 200
-    assert resp.json()["public_key"].startswith("ssh-ed25519 ")
-
-
-def test_get_git_credential_public_key_on_token_returns_404(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        _add_token_cred(client, name="gh")
-        resp = client.get("/me/git-credentials/gh/public-key")
-    assert resp.status_code == 404
-
-
-def test_get_git_credential_public_key_not_found_returns_404(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        resp = client.get("/me/git-credentials/nope/public-key")
-    assert resp.status_code == 404
-
-
-def test_patch_git_credential_updates_pub_on_new_key(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    pem = _real_ssh_pem()
-    with TestClient(app) as client:
-        client.post(
-            "/me/git-credentials",
-            json={"name": "my-key", "host": "github.com", "kind": "ssh", "generate_key": True},
-        )
-        resp = client.patch("/me/git-credentials/my-key", json={"private_key": pem})
-    assert resp.status_code == 200
-    from pathlib import Path as P
-
-    from portal.config.store import load_user
-
-    cfg = load_user("alice")
-    cred = next(c for c in cfg.git_credentials if c.name == "my-key")
-    assert (P(cred.key_path).parent / "id_ed25519.pub").exists()
-
-
-def test_require_user_blocks_unauthenticated(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    import portal.settings as mod
-
-    mod._settings = None
-    os.environ["PORTAL_DATA_ROOT"] = str(tmp_path)
-    os.environ["DEV_MODE"] = "true"
-    mod._settings = None
-
-    try:
-        from portal.app import create_app
-
-        app = create_app()  # no dependency_overrides
-        with TestClient(app) as client:
-            resp = client.get("/me/config")
-        assert resp.status_code == 401
-    finally:
-        os.environ.pop("DEV_MODE", None)
-        mod._settings = None
 
 
 # ─── PATCH /me/workspaces/{name} — édition de la config d'un workspace ────────
 
 
-def test_patch_workspace_updates_config_and_flags_recreate(tmp_path: Path) -> None:
+async def test_patch_workspace_updates_config_and_flags_recreate(client: AsyncClient) -> None:
     """Ajouter une recette impose une recréation : c'est une feature devcontainer,
     elle n'existe nulle part tant que l'image n'est pas reconstruite."""
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
     ws = {"name": "myapp", "source": "git@github.com:user/repo.git", "recipes": ["python"]}
-    with TestClient(app) as client:
-        client.post("/me/workspaces", json=ws)
-        resp = client.patch(
-            "/me/workspaces/myapp", json={"recipes": ["python", "claude-code"]}
-        )
+    await client.post("/me/workspaces", json=ws)
+    resp = await client.patch("/me/workspaces/myapp", json={"recipes": ["python", "claude-code"]})
     assert resp.status_code == 200
     body = resp.json()
     assert body["requires_recreate"] == ["recipes"]
@@ -693,23 +267,17 @@ def test_patch_workspace_updates_config_and_flags_recreate(tmp_path: Path) -> No
     assert body["spec"]["recipes"] == ["python", "claude-code"]
 
 
-def test_patch_workspace_persists_the_change(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
+async def test_patch_workspace_persists_the_change(client: AsyncClient) -> None:
     ws = {"name": "myapp", "source": "git@github.com:user/repo.git"}
-    with TestClient(app) as client:
-        client.post("/me/workspaces", json=ws)
-        client.patch("/me/workspaces/myapp", json={"memory_limit": "2g"})
-    with TestClient(app) as client:
-        stored = next(w for w in client.get("/me/workspaces").json() if w["name"] == "myapp")
+    await client.post("/me/workspaces", json=ws)
+    await client.patch("/me/workspaces/myapp", json={"memory_limit": "2g"})
+    stored = next(w for w in (await client.get("/me/workspaces")).json() if w["name"] == "myapp")
     assert stored["memory_limit"] == "2g"
 
 
-def test_patch_workspace_partial_never_erases_other_fields(tmp_path: Path) -> None:
+async def test_patch_workspace_partial_never_erases_other_fields(client: AsyncClient) -> None:
     """Un PATCH partiel ne doit pas effacer le reste de la config — même piège que
     celui déjà corrigé sur POST /workspaces/{name}/up."""
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
     ws = {
         "name": "myapp",
         "source": "git@github.com:user/repo.git",
@@ -717,9 +285,8 @@ def test_patch_workspace_partial_never_erases_other_fields(tmp_path: Path) -> No
         "recipes": ["python"],
         "agents": ["claude"],
     }
-    with TestClient(app) as client:
-        client.post("/me/workspaces", json=ws)
-        resp = client.patch("/me/workspaces/myapp", json={"branch": "feature/x"})
+    await client.post("/me/workspaces", json=ws)
+    resp = await client.patch("/me/workspaces/myapp", json={"branch": "feature/x"})
     spec = resp.json()["spec"]
     assert spec["branch"] == "feature/x"
     assert spec["source"] == "git@github.com:user/repo.git"
@@ -727,56 +294,350 @@ def test_patch_workspace_partial_never_erases_other_fields(tmp_path: Path) -> No
     assert spec["agents"] == ["claude"]
 
 
-def test_patch_workspace_restart_only_change_is_not_a_recreate(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
+async def test_patch_workspace_restart_only_change_is_not_a_recreate(
+    client: AsyncClient,
+) -> None:
     ws = {"name": "myapp", "source": "git@github.com:user/repo.git", "branch": "main"}
-    with TestClient(app) as client:
-        client.post("/me/workspaces", json=ws)
-        resp = client.patch("/me/workspaces/myapp", json={"branch": "dev"})
+    await client.post("/me/workspaces", json=ws)
+    resp = await client.patch("/me/workspaces/myapp", json={"branch": "dev"})
     body = resp.json()
     assert body["requires_recreate"] == []
     assert body["requires_restart"] == ["branch"]
 
 
-def test_patch_workspace_noop_reports_no_impact(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
+async def test_patch_workspace_noop_reports_no_impact(client: AsyncClient) -> None:
     ws = {"name": "myapp", "source": "git@github.com:user/repo.git", "recipes": ["python"]}
-    with TestClient(app) as client:
-        client.post("/me/workspaces", json=ws)
-        resp = client.patch("/me/workspaces/myapp", json={"recipes": ["python"]})
+    await client.post("/me/workspaces", json=ws)
+    resp = await client.patch("/me/workspaces/myapp", json={"recipes": ["python"]})
     body = resp.json()
     assert body["requires_recreate"] == []
     assert body["requires_restart"] == []
     assert body["added_recipes"] == []
 
 
-def test_patch_workspace_unknown_returns_404(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
-    with TestClient(app) as client:
-        resp = client.patch("/me/workspaces/ghost", json={"branch": "x"})
+async def test_patch_workspace_unknown_returns_404(client: AsyncClient) -> None:
+    resp = await client.patch("/me/workspaces/ghost", json={"branch": "x"})
     assert resp.status_code == 404
 
 
-def test_patch_workspace_rejects_rename_and_unknown_fields(tmp_path: Path) -> None:
+async def test_patch_workspace_rejects_rename_and_unknown_fields(client: AsyncClient) -> None:
     """`name` est hors du modèle : renommer changerait le ws_id, donc l'identité
     du conteneur — ce n'est pas une édition de config."""
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
     ws = {"name": "myapp", "source": "git@github.com:user/repo.git"}
-    with TestClient(app) as client:
-        client.post("/me/workspaces", json=ws)
-        assert client.patch("/me/workspaces/myapp", json={"name": "autre"}).status_code == 422
-        assert client.patch("/me/workspaces/myapp", json={"nope": 1}).status_code == 422
+    await client.post("/me/workspaces", json=ws)
+    assert (await client.patch("/me/workspaces/myapp", json={"name": "autre"})).status_code == 422
+    assert (await client.patch("/me/workspaces/myapp", json={"nope": 1})).status_code == 422
 
 
-def test_patch_workspace_rejects_invalid_value(tmp_path: Path) -> None:
-    _provision_alice(tmp_path)
-    app = _make_app(tmp_path)
+async def test_patch_workspace_rejects_invalid_value(client: AsyncClient) -> None:
     ws = {"name": "myapp", "source": "git@github.com:user/repo.git"}
-    with TestClient(app) as client:
-        client.post("/me/workspaces", json=ws)
-        resp = client.patch("/me/workspaces/myapp", json={"memory_limit": "beaucoup"})
+    await client.post("/me/workspaces", json=ws)
+    resp = await client.patch("/me/workspaces/myapp", json={"memory_limit": "beaucoup"})
     assert resp.status_code == 422
+
+
+# ─── /me/git-credentials — le contrat VAULT ──────────────────────────────────
+# L'ancienne section testait un contrat DISPARU (token/clef privée inline,
+# generate_key, endpoints public-key) : depuis la bascule vault, un credential
+# RÉFÉRENCE un secret (`secret_slug`) ou un certificat (`cert_slug`) du
+# gestionnaire — la valeur est révélée côté serveur, session déverrouillée.
+
+_MASTER_KEY = b"0" * 32
+
+_PEM = (
+    "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+    "dGVzdC1rZXktZm9yLXRlc3Rpbmctb25seQ==\n"
+    "-----END OPENSSH PRIVATE KEY-----"
+)
+
+
+@pytest.fixture
+def vault_ouvert(monkeypatch: pytest.MonkeyPatch) -> bytes:
+    """Session vault déverrouillée : les deux services (secrets, certificats)
+    lisent la master key par `vault.session.get_master_key`."""
+    from portal.vault import session as vault_session
+
+    monkeypatch.setattr(vault_session, "get_master_key", lambda sid: _MASTER_KEY)
+    return _MASTER_KEY
+
+
+async def _seed_secret(slug: str = "gh-token", valeur: str = "ghp_old") -> None:
+    from sqlalchemy import insert
+
+    from portal.db.engine import _get_engine
+    from portal.db.tables import harpo_secrets
+    from portal.vault.crypto import encrypt_token
+
+    async with _get_engine().begin() as conn:
+        await conn.execute(
+            insert(harpo_secrets).values(
+                slug=slug,
+                label=slug,
+                description="",
+                secret_type="CI_PASSWORD",
+                secret_value_local=encrypt_token(valeur, _MASTER_KEY),
+                secret_value_vault_ref=None,
+                storage_type="local",
+                vault_identifier="",
+                owner_login="alice",
+                is_public=False,
+            )
+        )
+
+
+async def _seed_cert(slug: str = "gl-key") -> None:
+    from sqlalchemy import insert
+
+    from portal.db.engine import _get_engine
+    from portal.db.tables import harpo_certificates
+    from portal.vault.crypto import encrypt_token
+
+    async with _get_engine().begin() as conn:
+        await conn.execute(
+            insert(harpo_certificates).values(
+                slug=slug,
+                label=slug,
+                description="",
+                cert_type="ssh-ed25519",
+                public_key="ssh-ed25519 AAAA",
+                private_key_local=encrypt_token(_PEM, _MASTER_KEY),
+                private_key_vault_ref=None,
+                storage_type="local",
+                vault_identifier="",
+                owner_login="alice",
+                is_public=False,
+            )
+        )
+
+
+async def _add_token_cred(client: AsyncClient, name: str = "gh") -> None:
+    resp = await client.post(
+        "/me/git-credentials",
+        json={
+            "name": name,
+            "host": "github.com",
+            "kind": "token",
+            "username": "oauth2",
+            "secret_slug": "gh-token",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_create_token_cred_reveals_and_stores(client: AsyncClient, vault_ouvert) -> None:
+    await _seed_secret()
+    await _add_token_cred(client)
+
+    cfg = await load_user("alice")
+    assert cfg.git_credentials[0].token == "ghp_old"
+    assert cfg.git_credentials[0].kind == "token"
+
+
+async def test_get_git_credentials_includes_username(client: AsyncClient, vault_ouvert) -> None:
+    await _seed_secret()
+    await _add_token_cred(client)
+
+    resp = await client.get("/me/git-credentials")
+
+    assert resp.status_code == 200
+    creds = resp.json()
+    assert len(creds) == 1
+    assert creds[0]["username"] == "oauth2"
+    # La valeur du token n'est JAMAIS servie par le listing.
+    assert "token" not in creds[0]
+
+
+async def test_create_ssh_cred_writes_key_file(client: AsyncClient, vault_ouvert) -> None:
+    await _seed_cert()
+
+    resp = await client.post(
+        "/me/git-credentials",
+        json={"name": "gl-ssh", "host": "gitlab.com", "kind": "ssh", "cert_slug": "gl-key"},
+    )
+
+    assert resp.status_code == 201, resp.text
+    cfg = await load_user("alice")
+    cred = cfg.git_credentials[0]
+    assert cred.kind == "ssh"
+    assert cred.key_path != ""
+    assert Path(cred.key_path).read_text().strip() == _PEM
+
+
+async def test_vault_verrouille_rend_403(client: AsyncClient) -> None:
+    """Sans session déverrouillée, on ne révèle RIEN — et on le dit."""
+    resp = await client.post(
+        "/me/git-credentials",
+        json={"name": "gh", "host": "github.com", "kind": "token", "secret_slug": "gh-token"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "vault_locked"
+
+
+async def test_secret_slug_inconnu_rend_404(client: AsyncClient, vault_ouvert) -> None:
+    resp = await client.post(
+        "/me/git-credentials",
+        json={"name": "gh", "host": "github.com", "kind": "token", "secret_slug": "fantome"},
+    )
+    assert resp.status_code == 404
+
+
+async def test_token_sans_secret_slug_rend_422(client: AsyncClient, vault_ouvert) -> None:
+    resp = await client.post(
+        "/me/git-credentials", json={"name": "gh", "host": "github.com", "kind": "token"}
+    )
+    assert resp.status_code == 422
+
+
+async def test_duplicate_name_returns_409(client: AsyncClient, vault_ouvert) -> None:
+    await _seed_secret()
+    await _add_token_cred(client)
+
+    resp = await client.post(
+        "/me/git-credentials",
+        json={"name": "gh", "host": "github.com", "kind": "token", "secret_slug": "gh-token"},
+    )
+    assert resp.status_code == 409
+
+
+async def test_patch_git_credential_updates_host(client: AsyncClient, vault_ouvert) -> None:
+    await _seed_secret()
+    await _add_token_cred(client)
+
+    resp = await client.patch("/me/git-credentials/gh", json={"host": "github.enterprise.com"})
+
+    assert resp.status_code == 200
+    assert resp.json()["host"] == "github.enterprise.com"
+    creds = (await client.get("/me/git-credentials")).json()
+    assert creds[0]["host"] == "github.enterprise.com"
+
+
+async def test_patch_git_credential_token_to_ssh(client: AsyncClient, vault_ouvert) -> None:
+    await _seed_secret()
+    await _seed_cert()
+    await _add_token_cred(client)
+
+    resp = await client.patch("/me/git-credentials/gh", json={"kind": "ssh", "cert_slug": "gl-key"})
+
+    assert resp.status_code == 200
+    cfg = await load_user("alice")
+    cred = cfg.git_credentials[0]
+    assert cred.kind == "ssh"
+    assert cred.token == ""
+    assert cred.key_path != ""
+
+
+async def test_patch_git_credential_ssh_to_token(client: AsyncClient, vault_ouvert) -> None:
+    """Le passage en PAT efface la clef privée du disque : une clef orpheline
+    qui traîne est une clef qu'on ne sait plus revoquer."""
+    await _seed_secret()
+    await _seed_cert()
+    await client.post(
+        "/me/git-credentials",
+        json={"name": "gl-ssh", "host": "gitlab.com", "kind": "ssh", "cert_slug": "gl-key"},
+    )
+    key_path_avant = (await load_user("alice")).git_credentials[0].key_path
+
+    resp = await client.patch(
+        "/me/git-credentials/gl-ssh", json={"kind": "token", "secret_slug": "gh-token"}
+    )
+
+    assert resp.status_code == 200
+    cred = (await load_user("alice")).git_credentials[0]
+    assert cred.kind == "token"
+    assert cred.token == "ghp_old"
+    assert cred.key_path == ""
+    assert not Path(key_path_avant).exists()
+
+
+async def test_patch_git_credential_rename_cascades_workspaces(
+    client: AsyncClient, vault_ouvert
+) -> None:
+    await _seed_secret()
+    await _add_token_cred(client)
+    await client.post(
+        "/me/workspaces",
+        json={
+            "name": "myapp",
+            "source": "github.com/org/repo",
+            "git_credential": "gh",
+            "extra_sources": [{"url": "github.com/org/lib", "git_credential": "gh"}],
+        },
+    )
+
+    resp = await client.patch("/me/git-credentials/gh", json={"new_name": "github"})
+
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "github"
+    cfg = await load_user("alice")
+    ws = cfg.workspaces[0]
+    assert ws.git_credential == "github"
+    assert ws.extra_sources[0].git_credential == "github"
+
+
+async def test_patch_git_credential_ssh_rename_moves_key_file(
+    client: AsyncClient, vault_ouvert
+) -> None:
+    await _seed_cert()
+    await client.post(
+        "/me/git-credentials",
+        json={"name": "gl-ssh", "host": "gitlab.com", "kind": "ssh", "cert_slug": "gl-key"},
+    )
+    old_key_path = Path((await load_user("alice")).git_credentials[0].key_path)
+
+    resp = await client.patch("/me/git-credentials/gl-ssh", json={"new_name": "gitlab-ssh"})
+
+    assert resp.status_code == 200
+    cred = (await load_user("alice")).git_credentials[0]
+    assert cred.name == "gitlab-ssh"
+    assert "gitlab-ssh" in cred.key_path
+    assert Path(cred.key_path).exists()
+    assert not old_key_path.exists()
+
+
+async def test_patch_git_credential_duplicate_name_returns_409(
+    client: AsyncClient, vault_ouvert
+) -> None:
+    await _seed_secret()
+    await _add_token_cred(client, name="gh")
+    await _add_token_cred(client, name="gh2")
+
+    resp = await client.patch("/me/git-credentials/gh", json={"new_name": "gh2"})
+
+    assert resp.status_code == 409
+
+
+async def test_patch_git_credential_not_found_returns_404(client: AsyncClient) -> None:
+    resp = await client.patch("/me/git-credentials/nope", json={"host": "example.com"})
+    assert resp.status_code == 404
+
+
+async def test_patch_git_credential_invalid_new_name_returns_422(
+    client: AsyncClient, vault_ouvert
+) -> None:
+    await _seed_secret()
+    await _add_token_cred(client)
+
+    resp = await client.patch("/me/git-credentials/gh", json={"new_name": "a"})
+
+    assert resp.status_code == 422
+
+
+async def test_delete_git_credential_removes_it(client: AsyncClient, vault_ouvert) -> None:
+    await _seed_secret()
+    await _add_token_cred(client)
+
+    resp = await client.delete("/me/git-credentials/gh")
+
+    assert resp.status_code == 200
+    assert (await client.get("/me/git-credentials")).json() == []
+
+
+# ─── Auth ────────────────────────────────────────────────────────────────────
+
+
+async def test_require_user_blocks_unauthenticated(app_me: FastAPI) -> None:
+    """SANS override : la vraie dépendance `require_user` doit rendre 401 —
+    l'app minimale suffit, la garde vit sur le router, pas dans create_app()."""
+    async with AsyncClient(transport=ASGITransport(app=app_me), base_url="http://test") as c:
+        resp = await c.get("/me/config")
+    assert resp.status_code == 401
