@@ -37,7 +37,13 @@ from ..billing.canaux import CANAUX
 from ..billing.declencheur import lancer_provisioning
 from ..billing.eligibilite import CanalIndisponible, SouscriptionRefusee, verifier
 from ..billing.evenements import publier_evenement_abonnement
-from ..billing.subscriptions import Subscription, fin_de_forfait
+from ..billing.subscriptions import (
+    RepriseRefusee,
+    Subscription,
+    SubscriptionEvent,
+    fin_de_forfait,
+    reprendre,
+)
 from ..config.store import load_global
 from ..db.billing_address import adresse_figee, figer_adresse, lire_adresse
 from ..db.billing_catalog import (
@@ -49,8 +55,14 @@ from ..db.billing_catalog import (
 )
 from ..db.billing_offers import get_offer
 from ..db.engine import get_conn
-from ..db.subscription_events import historique_de
-from ..db.subscriptions import creer, get, list_de, offres_deja_souscrites
+from ..db.subscription_events import enregistrer, historique_de
+from ..db.subscriptions import (
+    creer,
+    enregistrer_reprise,
+    get,
+    list_de,
+    offres_deja_souscrites,
+)
 from ..db.user_config import email_de
 from ..secrets.system import reveal_system_secret
 
@@ -266,6 +278,121 @@ async def souscrire(
             conn=conn,
         )
     return abonnement.model_dump(mode="json")
+
+
+class DemandeReprise(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Reprendre sur une AUTRE offre — le cas courant quand le catalogue a
+    #: bougé. Absent = la même offre.
+    offer_slug: str | None = None
+    #: Devise du nouveau prix. Absente = devise par défaut du catalogue.
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+
+
+@router.post("/subscriptions/{subscription_id}/reprendre")
+async def reprendre_abonnement(
+    subscription_id: str,
+    body: DemandeReprise,
+    user: UserInfo = Depends(require_user),
+    conn: AsyncConnection = Depends(get_conn),
+) -> dict[str, object]:
+    """Reprend un abonnement résilié : un ACTE COMMERCIAL NEUF.
+
+    Le prix est REFIGÉ au tarif du jour, le terme repart pour une durée pleine,
+    et l'éligibilité est revérifiée comme à une souscription — c'est ce qui
+    interdit de « reprendre » une offre limitée à une par compte : il suffirait
+    de résilier pour la renouveler indéfiniment. La reprise repart en `essai`,
+    comme toute souscription : une offre payante attendra son paiement, une
+    gratuite est servie tout de suite.
+    """
+    abonnement = await get(subscription_id, conn)
+    # Même 404 pour « n'existe pas » et « n'est pas à vous ».
+    if abonnement is None or abonnement.login != user.login:
+        raise HTTPException(status_code=404, detail="Abonnement introuvable")
+
+    slug = body.offer_slug or abonnement.offer_slug
+    offre = await get_offer(slug, conn)
+    if offre is None:
+        raise HTTPException(status_code=404, detail=f"Offre {slug!r} introuvable")
+
+    devise = body.currency or await devise_par_defaut(conn)
+    if devise is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Aucune devise n'est configurée : la reprise est impossible.",
+        )
+
+    # Le pays reste celui FIGÉ sur l'abonnement : la reprise ne rejoue pas le
+    # choix du lieu de consommation — changer de pays passe par une nouvelle
+    # souscription.
+    liens = await list_country_providers(conn, country_code=abonnement.country_code)
+    try:
+        verifier(
+            offre,
+            offres_deja_souscrites=await offres_deja_souscrites(user.login, conn),
+            devise=devise,
+            devises_actives=set(await devises_actives(conn)),
+            providers_du_pays={lien.provider_slug for lien in liens},
+            pays=abonnement.country_code,
+        )
+    except SouscriptionRefusee as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    prix = offre.prix(devise)
+    maintenant = datetime.now(UTC)
+    assert offre.duration_days is not None  # garanti par `verifier`
+    try:
+        maj = reprendre(
+            abonnement,
+            currency=devise,
+            # Tarif DU JOUR : l'instantané d'origine protégeait l'abonné
+            # pendant la vie de son abonnement, pas au-delà.
+            amount_minor=0 if offre.is_free or prix is None else prix.amount_minor,
+            moment=maintenant,
+            offer_slug=offre.slug,
+            en_essai=True,
+            duration_days=offre.duration_days,
+        )
+    except RepriseRefusee as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # Le canal suit l'offre reprise : une gratuite n'en a pas, une payante
+    # prend le sien — l'ancien routait les webhooks d'un abonnement mort.
+    maj = maj.model_copy(update={"provider_slug": None if offre.is_free else offre.provider_slug})
+
+    await enregistrer_reprise(maj, conn)
+    cle = f"reprise:{maj.id}:{maintenant.isoformat()}"
+    await enregistrer(
+        SubscriptionEvent(
+            kind="debut_essai",
+            provider_slug="portail",
+            provider_event_id=cle,
+            login=user.login,
+        ),
+        maj.id,
+        conn,
+    )
+    await publier_evenement_abonnement("debut_essai", maj, provider_event_id=cle, conn=conn)
+    if offre.is_free:
+        # Une gratuite ne recevra jamais de webhook : son provisioning part
+        # d'ici. L'orchestrateur décide s'il y a encore une machine à monter.
+        lancer_provisioning(
+            subscription_id=maj.id,
+            provider_event_id=cle,
+            evenement="debut_essai",
+            owner_login=user.login,
+            offer_slug=offre.slug,
+            hosting_type=offre.hosting_type,
+            host_profiles=list(offre.host_profiles),
+        )
+    log.info(
+        "abonnement_repris",
+        subscription_id=maj.id,
+        offer=offre.slug,
+        by=user.login,
+        gratuite=offre.is_free,
+    )
+    return maj.model_dump(mode="json")
 
 
 class OuverturePaiement(BaseModel):

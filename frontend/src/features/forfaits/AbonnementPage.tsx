@@ -1,11 +1,14 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
 import { Quotas } from './ForfaitsPage'
 import { formaterMontant } from './montant'
 import { useOffresPubliques, type OffrePubliee } from './useOffresPubliques'
 import {
   useMesSouscriptions,
   useMonHistorique,
+  useReprendre,
   type EntreeHistorique,
   type Souscription,
 } from './useMonAbonnement'
@@ -66,7 +69,33 @@ function CarteAbonnement({
           {t('abonnement.echeance', { date: _date(souscription.ends_at, i18n.language) })}
         </p>
       )}
+      {souscription.state === 'resilie' && <BoutonReprendre souscription={souscription} />}
     </article>
+  )
+}
+
+/** La reprise : un acte commercial neuf — le prix affiché sera celui du jour,
+ * pas l'instantané d'hier, et le bouton le dit avant le clic. */
+function BoutonReprendre({ souscription }: { souscription: Souscription }) {
+  const { t } = useTranslation()
+  const reprendre = useReprendre()
+
+  function onClick() {
+    reprendre.mutate(souscription.id, {
+      onSuccess: () => toast.success(t('abonnement.reprisePartie')),
+      onError: (err: Error) => toast.error(err.message),
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div>
+        <Button variant="outline" onClick={onClick} disabled={reprendre.isPending}>
+          {reprendre.isPending ? '…' : t('abonnement.reprendre')}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">{t('abonnement.reprendreHint')}</p>
+    </div>
   )
 }
 

@@ -103,7 +103,23 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         return next((a for sid, a in etat["figees"] if sid == subscription_id), None)
 
     async def _publier_evenement(*args: Any, **kwargs: Any) -> None:
-        return None
+        etat["evenements_publies"].append((args, kwargs))
+
+    etat["evenements_publies"] = []
+    etat["abonnements"] = {}  # id -> Subscription (pour get/reprise)
+    etat["reprises"] = []
+    etat["journal"] = []
+
+    async def _get(subscription_id: str, _conn: Any) -> Subscription | None:
+        return etat["abonnements"].get(subscription_id)
+
+    async def _enregistrer_reprise(abonnement: Subscription, _conn: Any) -> None:
+        etat["reprises"].append(abonnement)
+        etat["abonnements"][abonnement.id] = abonnement
+
+    async def _enregistrer(event: Any, subscription_id: str | None, _conn: Any) -> bool:
+        etat["journal"].append((event, subscription_id))
+        return True
 
     async def _historique_de(
         login: str, _conn: Any, *, achats_seulement: bool
@@ -128,6 +144,9 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         "figer_adresse": _figer_adresse,
         "adresse_figee": _adresse_figee,
         "publier_evenement_abonnement": _publier_evenement,
+        "get": _get,
+        "enregistrer_reprise": _enregistrer_reprise,
+        "enregistrer": _enregistrer,
     }.items():
         monkeypatch.setattr(routes, nom, impl)
 
@@ -412,3 +431,106 @@ def test_le_contexte_donne_le_pays_de_l_adresse(client: TestClient) -> None:
 
 def test_sans_adresse_le_contexte_ne_pretend_rien(client: TestClient) -> None:
     assert client.get("/me/subscriptions/contexte").json()["pays_adresse"] is None
+
+
+# ─── La reprise d'un abonnement résilié ──────────────────────────────────────
+
+
+def _resilie(**extra: Any) -> Subscription:
+    base: dict[str, Any] = {
+        "id": "22222222-2222-2222-2222-222222222222",
+        "login": "bob",
+        "offer_slug": "standard",
+        "state": "resilie",
+        "country_code": "FR",
+        "currency": "EUR",
+        "amount_minor": 900,  # l'ANCIEN prix — la reprise doit le refiger
+        "provider_subscription_id": "sub_mort",
+    }
+    base.update(extra)
+    return Subscription.model_validate(base)
+
+
+def _poser_resilie(client: TestClient, **extra: Any) -> Subscription:
+    sub = _resilie(**extra)
+    client.etat["abonnements"][sub.id] = sub  # type: ignore[attr-defined]
+    return sub
+
+
+def test_la_reprise_refige_le_prix_au_tarif_du_jour(client: TestClient) -> None:
+    """L'instantané d'origine protégeait l'abonné pendant la vie de son
+    abonnement — pas au-delà : la reprise paie le catalogue d'aujourd'hui."""
+    sub = _poser_resilie(client)
+
+    reponse = client.post(f"/me/subscriptions/{sub.id}/reprendre", json={})
+
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps["state"] == "essai"
+    assert corps["amount_minor"] == 1200  # le tarif du jour, pas les 900 d'hier
+    # L'identifiant du fournisseur est remis à zéro : l'ancien objet est mort.
+    assert corps["provider_subscription_id"] == ""
+    assert corps["ends_at"] is not None
+
+
+def test_la_reprise_revalide_l_eligibilite(client: TestClient) -> None:
+    """Une offre « une par compte » ne se reprend pas : il suffirait de
+    résilier pour la renouveler indéfiniment."""
+    client.etat["offres"]["standard"] = _offre(une_par_compte=True)  # type: ignore[attr-defined]
+    client.etat["deja_souscrites"] = {"standard"}  # type: ignore[attr-defined]
+    sub = _poser_resilie(client)
+
+    reponse = client.post(f"/me/subscriptions/{sub.id}/reprendre", json={})
+
+    assert reponse.status_code == 409
+    assert client.etat["reprises"] == []  # type: ignore[attr-defined]
+
+
+def test_un_abonnement_encore_ouvert_ne_se_reprend_pas(client: TestClient) -> None:
+    sub = _poser_resilie(client, state="actif")
+
+    assert client.post(f"/me/subscriptions/{sub.id}/reprendre", json={}).status_code == 409
+
+
+def test_l_abonnement_d_un_autre_rend_le_meme_404(client: TestClient) -> None:
+    sub = _poser_resilie(client, login="alice")
+
+    assert client.post(f"/me/subscriptions/{sub.id}/reprendre", json={}).status_code == 404
+
+
+def test_la_reprise_peut_changer_d_offre(client: TestClient) -> None:
+    """Le cas courant : le catalogue a bougé depuis la résiliation."""
+    client.etat["offres"]["nouvelle"] = _offre(slug="nouvelle")  # type: ignore[attr-defined]
+    sub = _poser_resilie(client)
+
+    reponse = client.post(f"/me/subscriptions/{sub.id}/reprendre", json={"offer_slug": "nouvelle"})
+
+    assert reponse.json()["offer_slug"] == "nouvelle"
+
+
+def test_la_reprise_d_une_gratuite_relance_le_provisioning(client: TestClient) -> None:
+    """C'est l'orchestrateur qui décide s'il reste une machine à monter — la
+    route relance, l'idempotence vit chez lui."""
+    client.etat["offres"]["standard"] = _offre(  # type: ignore[attr-defined]
+        is_free=True, prices=[], provider_slug=None, host_profiles=["host-standard"]
+    )
+    sub = _poser_resilie(client)
+
+    reponse = client.post(f"/me/subscriptions/{sub.id}/reprendre", json={})
+
+    assert reponse.status_code == 200
+    assert reponse.json()["provider_slug"] is None
+    (lance,) = client.etat["provisionnements"]  # type: ignore[attr-defined]
+    assert lance["evenement"] == "debut_essai"
+    assert lance["provider_event_id"].startswith(f"reprise:{sub.id}:")
+
+
+def test_la_reprise_se_journalise(client: TestClient) -> None:
+    sub = _poser_resilie(client)
+
+    client.post(f"/me/subscriptions/{sub.id}/reprendre", json={})
+
+    ((event, sid),) = client.etat["journal"]  # type: ignore[attr-defined]
+    assert event.kind == "debut_essai"
+    assert event.provider_slug == "portail"
+    assert sid == sub.id

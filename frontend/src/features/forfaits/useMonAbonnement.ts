@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetchJson } from '@/shared/api/client'
 
 /** Contrat de `GET /me/subscriptions` — l'abonnement tel que souscrit. */
@@ -25,7 +25,15 @@ export interface Souscription {
 /** Contrat de `GET /me/subscriptions/historique` — ses ACHATS, filtrés serveur. */
 export interface EntreeHistorique {
   id: number
-  kind: 'debut_essai' | 'activation' | 'renouvellement' | 'echec_paiement' | 'resiliation'
+  kind:
+    | 'debut_essai'
+    | 'activation'
+    | 'renouvellement'
+    | 'echec_paiement'
+    | 'resiliation'
+    | 'remboursement'
+    | 'litige_ouvert'
+    | 'litige_clos'
   subscription_id: string | null
   provider_slug: string
   provider_event_id: string
@@ -47,5 +55,22 @@ export function useMonHistorique() {
   return useQuery<EntreeHistorique[]>({
     queryKey: ['mon-historique-achats'],
     queryFn: () => apiFetchJson<EntreeHistorique[]>('/me/subscriptions/historique'),
+  })
+}
+
+/** Reprise d'un abonnement résilié : acte commercial neuf, prix refigé au
+ * tarif du jour, terme qui repart — la page invalide ses caches au succès. */
+export function useReprendre() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (subscriptionId: string) =>
+      apiFetchJson<Souscription>(
+        `/me/subscriptions/${encodeURIComponent(subscriptionId)}/reprendre`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['mes-souscriptions'] })
+      void qc.invalidateQueries({ queryKey: ['mon-historique-achats'] })
+    },
   })
 }

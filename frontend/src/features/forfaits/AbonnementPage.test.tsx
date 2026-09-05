@@ -104,6 +104,35 @@ describe('AbonnementPage', () => {
     expect(screen.getByText(i18n.t('abonnement.aucunOuvert'))).toBeInTheDocument()
   })
 
+  it('un résilié propose la reprise — et elle appelle la bonne route', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event')
+    let appelee = ''
+    servir({ abonnements: [{ ...ABO, state: 'resilie' }] })
+    server.use(
+      http.post('/me/subscriptions/:id/reprendre', ({ params }) => {
+        appelee = String(params.id)
+        return HttpResponse.json({ ...ABO, state: 'essai' })
+      }),
+    )
+    renderWithProviders(<AbonnementPage />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: i18n.t('abonnement.reprendre') }),
+    )
+
+    expect(appelee).toBe(ABO.id)
+  })
+
+  it("un abonnement ouvert n'offre PAS de bouton de reprise", async () => {
+    servir({ abonnements: [{ ...ABO, state: 'actif' }] })
+    renderWithProviders(<AbonnementPage />)
+
+    await screen.findByText(i18n.t('abonnement.etat.actif'))
+    expect(
+      screen.queryByRole('button', { name: i18n.t('abonnement.reprendre') }),
+    ).not.toBeInTheDocument()
+  })
+
   it("sans abonnement, la page invite vers les forfaits au lieu d'un écran vide", async () => {
     servir({ abonnements: [] })
     renderWithProviders(<AbonnementPage />)

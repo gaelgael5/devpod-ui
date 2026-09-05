@@ -44,7 +44,10 @@
       "remboursement": "Remboursement",
       "litige_ouvert": "Litige ouvert",
       "litige_clos": "Litige clos"
-    }
+    },
+    "reprendre": "Reprendre cet abonnement",
+    "reprendreHint": "La reprise repart au tarif du jour, pour une durée pleine — ce n'est pas une annulation de la résiliation.",
+    "reprisePartie": "Abonnement repris : il repart en période d'essai."
   },
   "souscription": {
     "titre": "Confirmer votre forfait",

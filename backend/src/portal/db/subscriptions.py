@@ -95,6 +95,35 @@ async def enregistrer_etat(abonnement: Subscription, conn: AsyncConnection) -> N
     )
 
 
+async def enregistrer_reprise(abonnement: Subscription, conn: AsyncConnection) -> None:
+    """Réécrit ce qu'une REPRISE refige : offre, prix, canal, terme — en plus
+    des champs de transition.
+
+    C'est le SEUL écrivain autorisé à toucher l'instantané (`currency`,
+    `amount_minor`, `offer_slug`) : une reprise est un acte commercial neuf au
+    tarif du jour — pas un événement de cycle, qui n'a jamais ce droit
+    (`enregistrer_etat` ne les écrit pas, et c'est sa raison d'être).
+    """
+    await conn.execute(
+        subscriptions.update()
+        .where(subscriptions.c.id == abonnement.id)
+        .values(
+            offer_slug=abonnement.offer_slug,
+            provider_slug=abonnement.provider_slug,
+            state=abonnement.state,
+            currency=abonnement.currency,
+            amount_minor=abonnement.amount_minor,
+            provider_subscription_id=abonnement.provider_subscription_id,
+            payment_attempts=abonnement.payment_attempts,
+            next_retry_at=abonnement.next_retry_at,
+            trial_end=abonnement.trial_end,
+            current_period_end=abonnement.current_period_end,
+            ends_at=abonnement.ends_at,
+            state_changed_at=abonnement.state_changed_at,
+        )
+    )
+
+
 async def par_identifiant_fournisseur(
     provider_subscription_id: str, conn: AsyncConnection
 ) -> Subscription | None:
