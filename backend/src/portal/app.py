@@ -62,6 +62,7 @@ from .routes.profile_sources import router_admin as profile_sources_admin_router
 from .routes.profiles import get_repo as get_profile_repo
 from .routes.profiles import router as profiles_router
 from .routes.profiles import router_admin as profiles_admin_router
+from .routes.provisioning_runs import router as provisioning_runs_router
 from .routes.proxmox import router as proxmox_router
 from .routes.recipe_sources import router_admin as recipe_sources_admin_router
 from .routes.recipes import router_admin as recipes_admin_router
@@ -249,6 +250,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from .db.global_config import warm_global_cache
     from .db.profiles import AsyncProfileRepository
     from .openvsx import OpenVsxClient, OpenVsxSettings
+    from .provisioning.registry import register_builtin_drivers
+
+    register_builtin_drivers()
 
     settings_obj = get_settings()
     if settings_obj.database_url:
@@ -271,6 +275,15 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             from .secrets.system import ensure_system_user
 
             await ensure_system_user(conn)
+
+            # Provisionnement (ticket 6) : une ligne restée `en_cours` au boot
+            # est un runner mort en plein vol — issue inconnue, requalifiée
+            # `indetermine` pour rester visible et ne jamais se rejouer seule.
+            from .db.provisioning_runs import requalifier_orphelins
+
+            orphelins = await requalifier_orphelins(conn)
+            if orphelins:
+                _log.warning("provisioning_runs_orphelins_requalifies", count=orphelins)
 
             # Bastion sshd : démarré/arrêté selon la config DB (plus d'.env). À chaud
             # via PUT /admin/bastion-config ; ici au boot.
@@ -517,6 +530,7 @@ def create_app() -> FastAPI:
     app.include_router(host_grants_router, prefix="/admin")
     app.include_router(admin_users_router, prefix="/admin")
     app.include_router(host_secrets_router, prefix="/admin")
+    app.include_router(provisioning_runs_router)
     app.include_router(nodes_router, prefix="/admin")
     app.include_router(proxmox_router, prefix="/admin")
     app.include_router(hypervisor_actions_router, prefix="/admin")

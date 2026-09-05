@@ -22,7 +22,10 @@ retour non nul est une erreur, stderr en porte la raison.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import os
+import signal
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -30,14 +33,11 @@ import structlog
 from pydantic import ValidationError
 
 from .contract import MachineDescriptor, MachineSpec
+from .errors import DriverError, EchecApresCreation, EchecAvantCreation, Indetermine
 
 _log = structlog.get_logger(__name__)
 
 _TIMEOUT_DEFAULT_S = 1800.0
-
-
-class DriverError(RuntimeError):
-    """Échec d'un driver de provisionnement (raison humaine dans le message)."""
 
 
 @runtime_checkable
@@ -71,9 +71,17 @@ def driver_for(provider_type: str) -> ProvisioningDriver:
 class ExecutableDriver:
     """Adaptateur du protocole exécutable JSON stdin/stdout."""
 
-    def __init__(self, executable: Path, timeout_s: float = _TIMEOUT_DEFAULT_S) -> None:
+    def __init__(
+        self,
+        executable: Path,
+        timeout_s: float = _TIMEOUT_DEFAULT_S,
+        provider_type: str = "",
+    ) -> None:
         self._executable = executable
+        # Le timeout est une propriété du DRIVER : un qm clone et un apply
+        # cloud n'ont pas le même horizon raisonnable.
         self._timeout_s = timeout_s
+        self._provider_type = provider_type
 
     async def provision(self, spec: MachineSpec) -> MachineDescriptor:
         raw = await self._run({"action": "provision", "spec": spec.model_dump()})
@@ -91,12 +99,48 @@ class ExecutableDriver:
                 f"driver {self._executable.name} : destroy a rendu {raw.get('status')!r}"
             )
 
+    def _classifier_echec(
+        self, action: str, rc: int | None, stdout: bytes, err_text: str
+    ) -> DriverError:
+        """Classe un rc ≠ 0 selon ce que le driver a laissé derrière lui.
+
+        Contrat du protocole : en échec, le driver émet en DERNIÈRE ligne de
+        stdout un objet `{"status":"error","stage":...,"provider_ref":{...}}`
+        où `provider_ref` n'est présent que si la machine existe. Sans cette
+        ligne, l'issue est inconnue — `Indetermine`, pas de rejeu automatique.
+        """
+        detail = f"rc={rc} — {err_text[-500:] or '<stderr vide>'}"
+        erreur = _derniere_ligne_json(stdout)
+        if erreur is None or erreur.get("status") != "error":
+            return Indetermine(
+                f"driver {self._executable.name} : {action} interrompu sans ligne "
+                f"d'erreur JSON — issue inconnue ({detail})"
+            )
+        stage = str(erreur.get("stage") or "?")
+        message = str(erreur.get("message") or detail)
+        ref = erreur.get("provider_ref")
+        if isinstance(ref, dict) and ref:
+            return EchecApresCreation(
+                f"driver {self._executable.name} : échec à l'étape {stage} — "
+                f"machine créée, configuration incomplète ({message})",
+                provider_ref=ref,
+                provider=self._provider_type,
+            )
+        return EchecAvantCreation(
+            f"driver {self._executable.name} : échec à l'étape {stage} avant toute "
+            f"création ({message})"
+        )
+
     async def _run(self, request: dict[str, Any]) -> dict[str, Any]:
+        # start_new_session : le driver peut engendrer des enfants (un apply
+        # OpenTofu lance ses providers) — au timeout, on tue le GROUPE entier,
+        # sinon un petit-fils garde les pipes ouverts et survit au kill.
         proc = await asyncio.create_subprocess_exec(
             str(self._executable),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
         try:
             stdout, stderr = await asyncio.wait_for(
@@ -104,11 +148,14 @@ class ExecutableDriver:
                 timeout=self._timeout_s,
             )
         except TimeoutError:
-            proc.kill()
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
             await proc.wait()
-            raise DriverError(
+            # Un timeout en plein apply ne dit pas si la ressource a été
+            # créée : jamais de rejeu automatique.
+            raise Indetermine(
                 f"driver {self._executable.name} : délai dépassé "
-                f"({self._timeout_s:.0f}s) sur {request['action']}"
+                f"({self._timeout_s:.0f}s) sur {request['action']} — issue inconnue"
             ) from None
         err_text = stderr.decode(errors="replace").strip()
         if proc.returncode != 0:
@@ -118,10 +165,7 @@ class ExecutableDriver:
                 action=request["action"],
                 rc=proc.returncode,
             )
-            raise DriverError(
-                f"driver {self._executable.name} : rc={proc.returncode} — "
-                f"{err_text[-500:] or '<stderr vide>'}"
-            )
+            raise self._classifier_echec(request["action"], proc.returncode, stdout, err_text)
         try:
             payload = json.loads(stdout.decode())
         except ValueError as exc:
@@ -134,3 +178,19 @@ class ExecutableDriver:
                 f"driver {self._executable.name} : la réponse doit être un objet JSON"
             )
         return payload
+
+
+def _derniere_ligne_json(stdout: bytes) -> dict[str, Any] | None:
+    """Dernière ligne de stdout qui parse en objet JSON — même contrat que le
+    `parse_last_json` du portail côté scripts."""
+    for line in reversed(stdout.decode(errors="replace").splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None

@@ -16,7 +16,7 @@ from typing import Any, Protocol
 import structlog
 
 from .contract import MachineDescriptor, MachineSpec
-from .driver import DriverError
+from .errors import DriverError
 
 _log = structlog.get_logger(__name__)
 

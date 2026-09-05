@@ -18,7 +18,7 @@ depuis l'administration.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol, cast
 
 import structlog
 from pydantic import BaseModel, ConfigDict
@@ -26,10 +26,12 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..db.host_pool import a_deja_une_machine, pool_mutualise
 from ..db.provisioning_catalogue import charger_catalogue
-from ..db.provisioning_runs import enregistrer, marquer
+from ..db.provisioning_runs import enregistrer, lire, marquer, peut_rejouer
+from ..provisioning.driver import driver_for
+from ..provisioning.errors import provider_of, provider_ref_of, run_state_for
 from .cible import Cible, resoudre_cible
 from .ownership import HostingType
-from .provisioning import Decision, decider
+from .provisioning import Action, Decision, decider
 from .subscriptions import EventKind
 
 _log = structlog.get_logger(__name__)
@@ -150,7 +152,9 @@ async def traiter(
         # tente rien — il n'y a rien à tenter — mais l'écart est un ÉCHEC, pas
         # un « fait » : le client a payé, et cette ligne est ce qui le rend
         # listable et rejouable une fois la configuration réparée.
-        await marquer(run_id, "echec", conn, erreur=decision.motif)
+        # Rien n'a été tenté : rejouable à l'identique une fois la
+        # configuration réparée (taxonomie du ticket 6).
+        await marquer(run_id, "echec_avant_creation", conn, erreur=decision.motif)
         _log.error(
             "provisioning_sans_cible",
             run_id=run_id,
@@ -159,24 +163,41 @@ async def traiter(
             motif=decision.motif,
         )
         return Resultat(
-            run_id=run_id, decision=decision, state="echec", erreur=decision.motif
+            run_id=run_id,
+            decision=decision,
+            state="echec_avant_creation",
+            erreur=decision.motif,
         )
 
     await marquer(run_id, "en_cours", conn)
     try:
         provisionne = await _executer(decision, executeur, subscription_id, owner_login, offer_slug)
     except Exception as exc:  # noqa: BLE001 — l'échec se trace, il ne remonte pas
-        await marquer(run_id, "echec", conn, erreur=str(exc))
+        # Taxonomie du ticket 6 : ce qui compte n'est pas succès/échec mais ce
+        # qu'il reste derrière. Un échec après création DOIT emporter son
+        # provider_ref — c'est ce qui évite la machine orpheline.
+        etat = run_state_for(exc)
+        ref = provider_ref_of(exc)
+        await marquer(
+            run_id,
+            etat,
+            conn,
+            erreur=str(exc),
+            provider=provider_of(exc) or None,
+            provider_ref=ref,
+        )
         _log.error(
             "provisioning_echec",
             run_id=run_id,
             action=decision.action,
             owner=owner_login,
             offer=offer_slug,
+            state=etat,
+            provider_ref_present=ref is not None,
             error=str(exc),
             exc_info=True,
         )
-        return Resultat(run_id=run_id, decision=decision, state="echec", erreur=str(exc))
+        return Resultat(run_id=run_id, decision=decision, state=etat, erreur=str(exc))
 
     await marquer(run_id, "fait", conn)
     _log.info(
@@ -226,3 +247,108 @@ async def _executer(
             host_name=decision.host_name or "",
         )
     raise RuntimeError(f"action de provisioning inconnue : {decision.action!r}")
+
+
+class RejeuRefuse(RuntimeError):
+    """L'état de la tentative n'autorise pas cette action — le message dit
+    pourquoi et quelle est la suite attendue."""
+
+
+def _decision_depuis_run(run: dict[str, object]) -> Decision:
+    """Rejoue le VERDICT tel qu'enregistré — jamais une nouvelle décision : le
+    catalogue a pu changer depuis, et « à l'identique » est la garantie du
+    ticket, pas « au goût du jour »."""
+    cible = None
+    if run.get("machine_profile"):
+        cible = Cible(
+            host_profile=str(run.get("host_profile") or ""),
+            machine_profile=str(run.get("machine_profile") or ""),
+            hypervisor=str(run.get("hypervisor") or ""),
+            noeud=str(run.get("noeud") or ""),
+        )
+    # La contrainte SQL ck_provisioning_action garantit la valeur : le cast dit
+    # au typage ce que la base impose déjà.
+    return Decision(
+        action=cast("Action", run["action"]),
+        motif=str(run.get("motif") or ""),
+        host_name=(str(run["host_name"]) if run.get("host_name") else None),
+        noeud=(str(run["noeud"]) if run.get("noeud") else None),
+        cible=cible,
+    )
+
+
+async def rejouer(
+    run_id: int,
+    conn: AsyncConnection,
+    executeur: Executeur,
+) -> Resultat:
+    """Rejoue une tentative en échec, à l'identique.
+
+    Seuls `echec` (legacy) et `echec_avant_creation` se rejouent :
+    `echec_apres_creation` a une machine derrière lui (reprendre ou détruire
+    d'abord), `indetermine` exige une décision humaine — rejouer un apply à
+    l'issue inconnue est la façon de facturer deux VM.
+    """
+    run = await lire(run_id, conn)
+    if run is None:
+        raise RejeuRefuse(f"tentative {run_id} introuvable")
+    if not peut_rejouer(str(run["state"])):
+        raise RejeuRefuse(
+            f"tentative {run_id} en état {run['state']!r} : rejeu refusé — "
+            "reprendre ou détruire la machine (echec_apres_creation), ou trancher "
+            "à la main (indetermine)"
+        )
+    decision = _decision_depuis_run(run)
+    await marquer(run_id, "en_cours", conn)
+    try:
+        provisionne = await _executer(
+            decision,
+            executeur,
+            str(run["subscription_id"]),
+            str(run["owner_login"]),
+            str(run["offer_slug"]),
+        )
+    except Exception as exc:  # noqa: BLE001 — même contrat que traiter()
+        etat = run_state_for(exc)
+        await marquer(
+            run_id,
+            etat,
+            conn,
+            erreur=str(exc),
+            provider=provider_of(exc) or None,
+            provider_ref=provider_ref_of(exc),
+        )
+        _log.error("provisioning_rejeu_echec", run_id=run_id, state=etat, error=str(exc))
+        return Resultat(run_id=run_id, decision=decision, state=etat, erreur=str(exc))
+    await marquer(run_id, "fait", conn)
+    _log.info("provisioning_rejeu_fait", run_id=run_id, host=provisionne.host_name)
+    return Resultat(run_id=run_id, decision=decision, state="fait", host_name=provisionne.host_name)
+
+
+async def detruire_reste(run_id: int, conn: AsyncConnection) -> Resultat:
+    """Détruit la machine laissée par un `echec_apres_creation` (ou un
+    `indetermine` dont le `provider_ref` est connu), via le driver du provider.
+
+    Après destruction, la tentative redevient `echec_avant_creation` : rien
+    n'existe plus, le rejeu à l'identique est de nouveau sans risque.
+    """
+    run = await lire(run_id, conn)
+    if run is None:
+        raise RejeuRefuse(f"tentative {run_id} introuvable")
+    ref = run.get("provider_ref")
+    provider = str(run.get("provider") or "")
+    if run["state"] not in ("echec_apres_creation", "indetermine") or not ref or not provider:
+        raise RejeuRefuse(
+            f"tentative {run_id} : rien à détruire (état {run['state']!r}, "
+            f"provider {provider!r}, provider_ref {'présent' if ref else 'absent'})"
+        )
+    await driver_for(provider).destroy(dict(cast("dict[str, Any]", ref)))
+    await marquer(
+        run_id,
+        "echec_avant_creation",
+        conn,
+        erreur="machine détruite après échec — rejouable à l'identique",
+    )
+    _log.info("provisioning_reste_detruit", run_id=run_id, provider=provider)
+    decision = _decision_depuis_run(run)
+    return Resultat(run_id=run_id, decision=decision, state="echec_avant_creation", erreur="")

@@ -11,12 +11,12 @@ from __future__ import annotations
 
 from .contract import MachineDescriptor, MachineSpec, NetworkSpec, ResolvedResources
 from .driver import (
-    DriverError,
     ExecutableDriver,
     ProvisioningDriver,
     driver_for,
     register_driver,
 )
+from .errors import DriverError
 
 __all__ = [
     "DriverError",

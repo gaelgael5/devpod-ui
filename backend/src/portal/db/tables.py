@@ -1929,6 +1929,13 @@ provisioning_runs = Table(
     Column("state", Text, nullable=False, server_default="decide"),
     # Message du dernier echec. Jamais un secret : c'est une trace d'ecran.
     Column("erreur", Text, nullable=False, server_default=""),
+    # Ce que le driver a laisse derriere lui : provider = type de driver,
+    # provider_ref = reference OPAQUE (contrat ticket 4), posee des que la
+    # machine existe — y compris sur echec_apres_creation. NULL = rien.
+    Column("provider", Text, nullable=False, server_default=""),
+    Column("provider_ref", JSONB, nullable=True),
+    # Noeud vise par le verdict (cible.noeud) — necessaire au rejeu fidele.
+    Column("noeud", Text, nullable=False, server_default=""),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint(
@@ -1936,11 +1943,19 @@ provisioning_runs = Table(
         "'creer_vm_dediee','impossible')",
         name="ck_provisioning_action",
     ),
-    CheckConstraint("state IN ('decide','en_cours','fait','echec')", name="ck_provisioning_state"),
+    # 'echec' = lignes anterieures a la migration 128 (issue inconnue faute de
+    # taxonomie a l'epoque) ; le nouveau code ne l'ecrit plus.
+    CheckConstraint(
+        "state IN ('decide','en_cours','fait','echec',"
+        "'echec_avant_creation','echec_apres_creation','indetermine')",
+        name="ck_provisioning_state",
+    ),
     UniqueConstraint("subscription_id", "provider_event_id", name="uq_provisioning_run_event"),
 )
 Index(
     "ix_provisioning_runs_echec",
     provisioning_runs.c.state,
-    postgresql_where=text("state = 'echec'"),
+    postgresql_where=text(
+        "state IN ('echec','echec_avant_creation','echec_apres_creation','indetermine')"
+    ),
 )

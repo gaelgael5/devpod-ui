@@ -198,7 +198,9 @@ async def test_un_echec_est_trace_et_ne_remonte_pas(db_conn) -> None:
         executeur=ExecuteurFactice(casse=True),
     )
 
-    assert res.state == "echec"
+    # Taxonomie du ticket 6 : un RuntimeError hors taxonomie ne dit pas ce que
+    # l'exécution a laissé derrière elle — indeterminé, jamais rejoué seul.
+    assert res.state == "indetermine"
     assert "storage plein" in res.erreur
     echecs = await lister_echecs(db_conn)
     assert [e["id"] for e in echecs] == [res.run_id]
@@ -345,7 +347,7 @@ async def test_sans_cible_resoluble_l_echec_est_trace_et_rien_n_est_tente(db_con
     )
 
     assert res.decision.action == "impossible"
-    assert res.state == "echec"
+    assert res.state == "echec_avant_creation"
     assert executeur.appels == []
     assert [e["id"] for e in await lister_echecs(db_conn)] == [res.run_id]
 

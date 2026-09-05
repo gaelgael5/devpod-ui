@@ -128,8 +128,16 @@ on_exit() {
     fi
     # Dernière ligne stdout = contrat avec le portail (parse_last_json) ; le
     # détail humain est déjà parti sur stderr au fil de l eau.
-    printf '{"status":"error","stage":"%s","vmid":"%s","message":"échec à l étape %s — détail sur stderr"}\n' \
-        "$STAGE" "$NEW_VMID" "$STAGE"
+    # provider_ref n'est présent QUE si une machine existe encore derrière
+    # (contrat du ticket 6 : c'est lui qui distingue echec_apres_creation
+    # d'echec_avant_creation, et qui permet de reprendre ou détruire).
+    if [[ "$VM_CREEE" == "true" && "$CLEANUP_ON_ERROR" != "true" ]]; then
+        printf '{"status":"error","stage":"%s","vmid":"%s","provider_ref":{"vmid":"%s","node":"%s"},"message":"échec à l étape %s — machine créée, détail sur stderr"}\n' \
+            "$STAGE" "$NEW_VMID" "$NEW_VMID" "$PORTAL_PVE_NODE" "$STAGE"
+    else
+        printf '{"status":"error","stage":"%s","vmid":"%s","message":"échec à l étape %s — détail sur stderr"}\n' \
+            "$STAGE" "$NEW_VMID" "$STAGE"
+    fi
 }
 trap on_exit EXIT
 
