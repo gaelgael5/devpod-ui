@@ -146,9 +146,7 @@ async def historique_de(
     return [{**dict(r), "login": login} for r in rows]
 
 
-async def historique_global(
-    conn: AsyncConnection, *, limite: int = 100
-) -> list[dict[str, object]]:
+async def historique_global(conn: AsyncConnection, *, limite: int = 100) -> list[dict[str, object]]:
     """La page globale admin : les dernières entrées, tous comptes confondus.
 
     Bornée — c'est un fil d'activité, pas un export. Les entrées orphelines
@@ -167,6 +165,38 @@ async def historique_global(
     )
     rows = (await conn.execute(stmt)).mappings().all()
     return [dict(r) for r in rows]
+
+
+#: Préfixe des identifiants d'événements posés quand un ADMIN offre un essai.
+#: `provider_slug` vaut alors `portail` : l'événement ne vient d'aucun canal de
+#: vente, il vient de nous — et c'est ce couple qui rend le geste retrouvable.
+PREFIXE_ESSAI_ADMIN = "essai_admin:"
+
+
+async def essai_deja_offert(login: str, offer_slug: str, conn: AsyncConnection) -> bool:
+    """Ce compte a-t-il déjà reçu un essai OFFERT sur cette offre ?
+
+    Le garde-fou anti-abus des essais gratuits, assis sur l'historique : sans
+    lui, l'essai se renouvellerait indéfiniment à coups de gestes admin. Seuls
+    les essais offerts comptent — un `debut_essai` venu du canal de vente est un
+    parcours commercial normal, pas un cadeau.
+    """
+    stmt = (
+        select(subscription_events.c.id)
+        .select_from(
+            subscription_events.join(
+                subscriptions, subscription_events.c.subscription_id == subscriptions.c.id
+            )
+        )
+        .where(
+            subscription_events.c.provider_slug == "portail",
+            subscription_events.c.provider_event_id.like(PREFIXE_ESSAI_ADMIN + "%"),
+            subscriptions.c.login == login,
+            subscriptions.c.offer_slug == offer_slug,
+        )
+        .limit(1)
+    )
+    return (await conn.execute(stmt)).first() is not None
 
 
 async def dernier_recu(provider_slug: str, conn: AsyncConnection) -> datetime | None:

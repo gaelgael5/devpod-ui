@@ -23,6 +23,8 @@ function servir(historique: unknown[] = []) {
     http.get('/admin/billing/providers', () => HttpResponse.json([])),
     http.get('/admin/billing/currencies', () => HttpResponse.json([])),
     http.get('/admin/host-profiles', () => HttpResponse.json([])),
+    // L'onglet Essais embarque son formulaire : la liste des comptes aussi.
+    http.get('/admin/users', () => HttpResponse.json([])),
   )
 }
 
@@ -94,20 +96,25 @@ describe('AdminAbonnements', () => {
     ).toBeInTheDocument()
   })
 
-  it('les onglets pas encore cadrés le disent, sans simuler de contrôle', async () => {
+  it("l'onglet pas encore cadré le dit, sans simuler de contrôle", async () => {
+    servir()
+    renderWithProviders(<AdminAbonnements />)
+
+    await userEvent.click(
+      await screen.findByRole('tab', { name: i18n.t('admin.abonnements.tabRetention') }),
+    )
+    expect(
+      await screen.findByText(i18n.t('admin.abonnements.retentionAVenir')),
+    ).toBeInTheDocument()
+  })
+
+  it("l'onglet Essais porte le formulaire d'octroi", async () => {
     servir()
     renderWithProviders(<AdminAbonnements />)
 
     await userEvent.click(
       await screen.findByRole('tab', { name: i18n.t('admin.abonnements.tabEssais') }),
     )
-    expect(await screen.findByText(i18n.t('admin.abonnements.essaisAVenir'))).toBeInTheDocument()
-
-    await userEvent.click(
-      screen.getByRole('tab', { name: i18n.t('admin.abonnements.tabRetention') }),
-    )
-    expect(
-      await screen.findByText(i18n.t('admin.abonnements.retentionAVenir')),
-    ).toBeInTheDocument()
+    expect(await screen.findByLabelText(i18n.t('admin.essais.offre'))).toBeInTheDocument()
   })
 })

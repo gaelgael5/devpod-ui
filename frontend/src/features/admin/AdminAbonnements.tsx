@@ -4,16 +4,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { apiFetchJson } from '@/shared/api/client'
 import type { EntreeHistorique } from '@/features/forfaits/useMonAbonnement'
 import AdminBillingOffers from './AdminBillingOffers'
+import AdminEssaisOfferts from './AdminEssaisOfferts'
 
 /**
  * La page admin des abonnements : une COMPOSITION, pas un nouvel écran métier.
  *
- * Quatre onglets décidés sur la fiche. Deux vivent déjà : les offres (l'écran
- * existant, embarqué tel quel — il garde sa route directe) et l'historique
- * global (la vue complète, opérations comprises, orphelines visibles). Les
- * deux autres — essais gratuits, rétention — attendent leurs fiches : l'onglet
- * existe et DIT qu'il attend, il ne simule aucun contrôle. Un onglet absent se
- * chercherait ; un faux formulaire mentirait.
+ * Quatre onglets décidés sur la fiche. Trois vivent : les offres (l'écran
+ * existant, embarqué tel quel — il garde sa route directe), les essais offerts
+ * et l'historique global (la vue complète, opérations comprises, orphelines
+ * visibles). La rétention attend sa fiche : l'onglet existe et DIT qu'il
+ * attend, il ne simule aucun contrôle. Un onglet absent se chercherait ; un
+ * faux formulaire mentirait.
  */
 
 function HistoriqueGlobal() {
@@ -98,7 +99,7 @@ export default function AdminAbonnements() {
         </TabsContent>
 
         <TabsContent value="essais" className="mt-4">
-          <p className="text-sm text-muted-foreground">{t('admin.abonnements.essaisAVenir')}</p>
+          <AdminEssaisOfferts />
         </TabsContent>
 
         <TabsContent value="retention" className="mt-4">

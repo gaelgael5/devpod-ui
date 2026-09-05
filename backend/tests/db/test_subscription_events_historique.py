@@ -147,3 +147,42 @@ async def test_le_payload_n_est_jamais_servi(db_conn) -> None:
 
     assert "payload" not in entree
     assert entree["offer_slug"] == "standard"
+
+
+# ─── Le garde-fou des essais offerts ─────────────────────────────────────────
+
+
+async def _essai_offert(conn, *, subscription_id: str) -> None:
+    await conn.execute(
+        insert(subscription_events).values(
+            kind="debut_essai",
+            subscription_id=subscription_id,
+            login="alice",
+            provider_slug="portail",
+            provider_event_id=f"essai_admin:{subscription_id}",
+            occurred_at=datetime.now(UTC),
+        )
+    )
+
+
+async def test_un_essai_offert_se_retrouve_par_compte_et_offre(db_conn) -> None:
+    from portal.db.subscription_events import essai_deja_offert
+
+    sid = await _decor(db_conn)
+    await _essai_offert(db_conn, subscription_id=sid)
+
+    assert await essai_deja_offert("alice", "standard", db_conn) is True
+    # Ni un autre compte, ni une autre offre : la clef est le couple.
+    assert await essai_deja_offert("bob", "standard", db_conn) is False
+    assert await essai_deja_offert("alice", "autre", db_conn) is False
+
+
+async def test_un_debut_essai_venu_du_canal_de_vente_ne_compte_pas(db_conn) -> None:
+    """Seuls les essais OFFERTS par l'admin arment le garde-fou : un essai
+    entamé via le canal de vente est un parcours commercial normal."""
+    from portal.db.subscription_events import essai_deja_offert
+
+    sid = await _decor(db_conn)
+    await _entree(db_conn, subscription_id=sid, kind="debut_essai")
+
+    assert await essai_deja_offert("alice", "standard", db_conn) is False

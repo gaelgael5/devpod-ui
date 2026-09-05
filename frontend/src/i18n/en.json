@@ -746,12 +746,11 @@
     "abonnements": {
       "title": "Subscriptions",
       "navLabel": "Subscriptions",
-      "help": "Offers, the global history, and soon free trials and retention.",
+      "help": "Offers, granted trials, the global history — and soon retention.",
       "tabOffres": "Offers",
       "tabEssais": "Free trials",
       "tabRetention": "Retention",
       "tabHistorique": "History",
-      "essaisAVenir": "Granting free trials ships with its ticket “Admin — offer a free trial period”. Nothing to configure here yet.",
       "retentionAVenir": "Retention delays (payment failure, cancellation) ship with the ticket “Stop, retention and destruction of an unpaid workspace”. Nothing to configure here yet.",
       "historiqueVide": "No history entry yet.",
       "colDate": "Date",
@@ -1257,6 +1256,27 @@
       "tabVariables": "Variables",
       "nameFrozen": "The identifier is frozen: already-saved action slugs depend on it.",
       "notFound": "Hypervisor type not found."
+    },
+    "essais": {
+      "offre": "Plan",
+      "choisirOffre": "Pick a plan…",
+      "nonPubliee": "unpublished",
+      "fin": "Trial end",
+      "raccourci": {
+        "uneSemaine": "1 week",
+        "deuxSemaines": "2 weeks",
+        "unMois": "1 month",
+        "deuxMois": "2 months",
+        "troisMois": "3 months"
+      },
+      "beneficiaires": "Beneficiaries ({{count}} selected)",
+      "filtrer": "Filter by login, name or email…",
+      "aucunCompte": "No account matches.",
+      "offrir_one": "Grant the trial",
+      "offrir_other": "Grant the trial to {{count}} accounts",
+      "accorde": "trial granted",
+      "accordes_one": "{{count}} trial granted.",
+      "accordes_other": "{{count}} trials granted."
     }
   },
   "errors": {

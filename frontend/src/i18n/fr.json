@@ -746,12 +746,11 @@
     "abonnements": {
       "title": "Abonnements",
       "navLabel": "Abonnements",
-      "help": "Les offres, l'historique global, et bientôt les essais gratuits et la rétention.",
+      "help": "Les offres, les essais offerts, l'historique global — et bientôt la rétention.",
       "tabOffres": "Offres",
       "tabEssais": "Essais gratuits",
       "tabRetention": "Rétention",
       "tabHistorique": "Historique",
-      "essaisAVenir": "L'octroi d'essais gratuits arrive avec sa fiche « Admin — offrir une période d'essai gratuite ». Rien à régler ici pour l'instant.",
       "retentionAVenir": "Les délais de rétention (échec de paiement, résiliation) arrivent avec la fiche « Arrêt, rétention et destruction d'un workspace non payé ». Rien à régler ici pour l'instant.",
       "historiqueVide": "Aucune entrée d'historique pour le moment.",
       "colDate": "Date",
@@ -1257,6 +1256,27 @@
       "tabVariables": "Variables",
       "nameFrozen": "L'identifiant est figé : les slugs d'action déjà enregistrés en dépendent.",
       "notFound": "Type d'hyperviseur introuvable."
+    },
+    "essais": {
+      "offre": "Forfait",
+      "choisirOffre": "Choisir un forfait…",
+      "nonPubliee": "non publiée",
+      "fin": "Fin de l'essai",
+      "raccourci": {
+        "uneSemaine": "1 semaine",
+        "deuxSemaines": "2 semaines",
+        "unMois": "1 mois",
+        "deuxMois": "2 mois",
+        "troisMois": "3 mois"
+      },
+      "beneficiaires": "Bénéficiaires ({{count}} sélectionné(s))",
+      "filtrer": "Filtrer par login, nom ou email…",
+      "aucunCompte": "Aucun compte ne correspond.",
+      "offrir_one": "Offrir l'essai",
+      "offrir_other": "Offrir l'essai à {{count}} comptes",
+      "accorde": "essai accordé",
+      "accordes_one": "{{count}} essai accordé.",
+      "accordes_other": "{{count}} essais accordés."
     }
   },
   "errors": {
