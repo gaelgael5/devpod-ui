@@ -32,6 +32,10 @@ export interface HostConfig {
   // provisionnement, jamais saisie ici. Vide = inconnue (machine enrôlée à la
   // main, ou antérieure à la colonne) — ni une erreur, ni un défaut.
   hypervisor?: string
+  // Plafond mémoire par workspace (syntaxe Docker). Vide = non renseigné :
+  // aucun bornage. Le backend refuse (422) une demande au-dessus ; ce champ
+  // permet de le signaler avant l'envoi.
+  max_memory?: string
 }
 
 export interface HostCreatePayload {

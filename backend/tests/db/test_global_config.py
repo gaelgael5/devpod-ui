@@ -157,6 +157,7 @@ def full_cfg() -> GlobalConfig:
                     "hypervisor": "pve-1",
                     "capacity_workspaces": 12,
                     "accepts_mutualise": True,
+                    "max_memory": "4g",
                 }
             ],
         }
@@ -320,6 +321,8 @@ async def test_host_capacite_et_provenance_round_trip(db_conn, full_cfg):
     assert h.profile_slug == "gros-noeud"
     assert h.capacity_workspaces == 12
     assert h.accepts_mutualise is True
+    # Plafond mémoire par workspace : donnée d'exploitation, survit au rechargement.
+    assert h.max_memory == "4g"
     # Provenance : sans elle, compter les machines par hyperviseur retombe sur
     # un rapprochement de NOMS de noeuds, ambigu des que deux hyperviseurs en
     # partagent un — et `pve` est le nom d'hote par defaut de Proxmox.
@@ -360,6 +363,7 @@ async def test_host_sans_capacite_reste_sans_capacite(db_conn, minimal_cfg):
     h = result.hosts[0]
     assert h.capacity_workspaces is None
     assert h.accepts_mutualise is False
+    assert h.max_memory == ""  # non renseigné : pas de bornage
     assert h.profile_slug == ""
     # Enrolee a la main : provenance INCONNUE. Vide, et surtout pas un
     # hyperviseur par defaut qui ferait mentir tous les comptages.

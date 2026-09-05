@@ -103,7 +103,9 @@ def _environnement(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("portal.settings.get_settings", lambda: _Settings())
 
 
-async def _seed(engine, *, quota_offre: int | None = 3, capacite: str | None = "8") -> str:
+async def _seed(
+    engine, *, quota_offre: int | None = 3, capacite: str | None = "8", max_memory: str = "4g"
+) -> str:
     async with engine.begin() as conn:
         await conn.execute(
             insert(users).values(
@@ -127,7 +129,11 @@ async def _seed(engine, *, quota_offre: int | None = 3, capacite: str | None = "
                 params={"TEMPLATE": "9001"},
             )
         )
-        variables = {} if capacite is None else {"capacity_workspaces": capacite}
+        variables: dict[str, str] = {}
+        if capacite is not None:
+            variables["capacity_workspaces"] = capacite
+        if max_memory:
+            variables["max_memory"] = max_memory
         await conn.execute(
             insert(host_profiles).values(
                 slug="host-standard",
@@ -171,6 +177,8 @@ async def test_une_vm_dediee_est_montee_possedee_et_rattachee(db_engine) -> None
     assert hote["usage"] == "workspaces"
     assert hote["accepts_mutualise"] is False
     assert hote["capacity_workspaces"] == 8
+    # Le plafond mémoire du profil de host est recopié sur le nœud (provenance).
+    assert hote["max_memory"] == "4g"
     assert hote["hypervisor"] == "pve-a"
     (propriete,) = await _lignes(db_engine, host_ownership)
     assert propriete["owner_login"] == "alice"

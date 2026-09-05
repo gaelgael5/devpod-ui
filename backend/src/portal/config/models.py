@@ -157,6 +157,38 @@ def _validate_memory_limit(v: str) -> str:
     return v
 
 
+_MEMORY_UNITES = {"b": 1, "k": 1024, "m": 1024**2, "g": 1024**3, "": 1}
+
+
+def memoire_en_octets(v: str) -> int | None:
+    """Convertit une limite Docker (`4g`, `512m`, `1073741824`) en octets.
+
+    `None` sur une valeur vide ou non conforme : l'appelant distingue « non
+    renseigné » d'une vraie borne, il ne compare pas un octet fantôme. Un entier
+    nu est en OCTETS, exactement comme Docker l'interprète.
+    """
+    v = v.strip().lower()
+    if not v or not _MEMORY_LIMIT_RE.fullmatch(v):
+        return None
+    unite = v[-1] if v[-1] in "bkmg" else ""
+    nombre = v[:-1] if unite else v
+    return int(nombre) * _MEMORY_UNITES[unite]
+
+
+def memoire_depasse_plafond(demande: str, plafond: str) -> bool:
+    """Vrai si `demande` excède strictement `plafond`.
+
+    Un plafond non renseigné (`""`) ne borne rien — toujours faux. Une demande
+    vide ne « dépasse » pas : c'est à l'appelant de la remplacer par le plafond
+    (borner le défaut), pas de la refuser.
+    """
+    p = memoire_en_octets(plafond)
+    d = memoire_en_octets(demande)
+    if p is None or d is None:
+        return False
+    return d > p
+
+
 class DevpodDefaults(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -379,6 +411,16 @@ class HostConfig(BaseModel):
     # Vide = provenance inconnue : machine enrolee a la main, ou montee avant
     # que cette colonne existe. Ni une erreur, ni un hyperviseur par defaut.
     hypervisor: str = ""
+    # Plafond memoire PAR WORKSPACE (syntaxe Docker, `4g`/`512m`). Provenance
+    # comme la capacite : valeur par defaut du profil au provisionnement, jamais
+    # une tutelle rejouee. Vide = non renseigne (ni zero ni illimite) : le
+    # bornage a la creation ne s'applique que si la machine declare un plafond.
+    max_memory: str = ""
+
+    @field_validator("max_memory")
+    @classmethod
+    def _valider_max_memory(cls, v: str) -> str:
+        return _validate_memory_limit(v)
 
 
 _PROXMOX_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
@@ -393,6 +435,13 @@ _ACTION_SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
 #: variable déclarée comme les autres sur le type d'hyperviseur, que l'IHM sait
 #: proposer d'un clic pour éviter une faute de frappe.
 CAPACITY_VARIABLE = "capacity_workspaces"
+
+#: Slug RÉSERVÉ : la mémoire maximale qu'un workspace Docker peut se voir
+#: allouer sur les nœuds de ce type. Même mécanique que la capacité — déclarée
+#: sur le type, valuée par le profil, portée par le nœud — mais elle borne le
+#: `--memory` d'UN workspace, pas leur nombre. camelCase impossible (regex de
+#: slug), d'où l'underscore, identique au nom de la colonne alimentée.
+MAX_MEMORY_VARIABLE = "max_memory"
 
 # Les variables acceptent l'underscore, contrairement aux autres slugs : elles
 # nomment des grandeurs (`capacity_workspaces`) et non des ressources, et le
@@ -721,6 +770,15 @@ class HostProfile(BaseModel):
             return int(brut)
         except ValueError:
             return None
+
+    def max_memory(self) -> str:
+        """Plafond mémoire par workspace déclaré, ou `""` si non renseigné.
+
+        `""` = non renseigné, ni zéro ni illimité : l'appelant décide s'il borne
+        ou laisse passer, comme pour la capacité. La valeur est en syntaxe
+        Docker (`4g`, `512m`) — validée à la saisie, jamais réinterprétée ici.
+        """
+        return self.variables.get(MAX_MEMORY_VARIABLE, "").strip()
 
 
 class ProfileRef(BaseModel):

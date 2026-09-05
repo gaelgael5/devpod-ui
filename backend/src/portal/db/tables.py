@@ -167,6 +167,9 @@ hosts = Table(
     # effacer des machines ni bloquer l'operation. Vide = provenance inconnue
     # (enrolee a la main), et surtout pas un hyperviseur par defaut.
     Column("hypervisor", Text, nullable=False, server_default=""),
+    # Plafond memoire par workspace (syntaxe Docker), recopie du profil au
+    # provisionnement (migration 132). Vide = non renseigne : pas de bornage.
+    Column("max_memory", Text, nullable=False, server_default=""),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint(
         "capacity_workspaces IS NULL OR capacity_workspaces >= 0", name="ck_host_capacity"
@@ -1721,9 +1724,7 @@ subscription_events = Table(
         "'remboursement','litige_ouvert','litige_clos','action_requise')",
         name="ck_subscription_event_kind",
     ),
-    CheckConstraint(
-        "visibilite IN ('achat','operation')", name="ck_subscription_event_visibilite"
-    ),
+    CheckConstraint("visibilite IN ('achat','operation')", name="ck_subscription_event_visibilite"),
 )
 
 # Adresse de facturation COURANTE du compte (migration 129) : un blob chiffre
@@ -1940,8 +1941,7 @@ provisioning_runs = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint(
-        "action IN ('rien','assigner_host','creer_host_mutualise',"
-        "'creer_vm_dediee','impossible')",
+        "action IN ('rien','assigner_host','creer_host_mutualise','creer_vm_dediee','impossible')",
         name="ck_provisioning_action",
     ),
     # 'echec' = lignes anterieures a la migration 128 (issue inconnue faute de

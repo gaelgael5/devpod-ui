@@ -246,6 +246,7 @@ def _host_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "capacity_workspaces": row["capacity_workspaces"],
         "accepts_mutualise": row["accepts_mutualise"],
         "hypervisor": row["hypervisor"],
+        "max_memory": row["max_memory"],
     }
 
 
@@ -394,4 +395,5 @@ def _host_to_row(h: HostConfig) -> dict[str, Any]:
         "capacity_workspaces": h.capacity_workspaces,
         "accepts_mutualise": h.accepts_mutualise,
         "hypervisor": h.hypervisor,
+        "max_memory": h.max_memory,
     }

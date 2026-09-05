@@ -641,3 +641,55 @@ async def test_require_user_blocks_unauthenticated(app_me: FastAPI) -> None:
     async with AsyncClient(transport=ASGITransport(app=app_me), base_url="http://test") as c:
         resp = await c.get("/me/config")
     assert resp.status_code == 401
+
+
+# ─── Bornage mémoire au plafond du nœud (fiche max_memory) ───────────────────
+
+
+class TestBornageMemoire:
+    """Le cœur de l'application du plafond `hosts.max_memory` à la création et à
+    l'édition d'un workspace (fiche 1dae864d)."""
+
+    def _doubler_hosts(self, monkeypatch, max_memory: str) -> None:
+        from types import SimpleNamespace
+
+        import portal.config.store as store
+
+        host = SimpleNamespace(name="node-a", max_memory=max_memory)
+        monkeypatch.setattr(store, "load_global", lambda: SimpleNamespace(hosts=[host]))
+
+    def test_une_demande_au_dessus_du_plafond_est_refusee(self, monkeypatch) -> None:
+        from fastapi import HTTPException
+
+        from portal.routes.me import _borner_memoire
+
+        self._doubler_hosts(monkeypatch, "4g")
+        with pytest.raises(HTTPException) as exc:
+            _borner_memoire("node-a", "8g")
+        assert exc.value.status_code == 422
+        assert "4g" in exc.value.detail
+
+    def test_a_egalite_la_demande_passe(self, monkeypatch) -> None:
+        from portal.routes.me import _borner_memoire
+
+        self._doubler_hosts(monkeypatch, "4g")
+        assert _borner_memoire("node-a", "4096m") == "4096m"
+
+    def test_une_demande_vide_est_bornee_au_plafond(self, monkeypatch) -> None:
+        from portal.routes.me import _borner_memoire
+
+        self._doubler_hosts(monkeypatch, "4g")
+        assert _borner_memoire("node-a", "") == "4g"
+
+    def test_un_noeud_sans_plafond_ne_borne_rien(self, monkeypatch) -> None:
+        from portal.routes.me import _borner_memoire
+
+        self._doubler_hosts(monkeypatch, "")
+        assert _borner_memoire("node-a", "32g") == "32g"
+        assert _borner_memoire("node-a", "") == ""
+
+    def test_un_host_inconnu_ne_borne_rien(self, monkeypatch) -> None:
+        from portal.routes.me import _borner_memoire
+
+        self._doubler_hosts(monkeypatch, "4g")
+        assert _borner_memoire("autre-node", "32g") == "32g"

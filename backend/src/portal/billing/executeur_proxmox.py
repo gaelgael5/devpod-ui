@@ -124,6 +124,9 @@ class ExecuteurProxmox:
         if profil_machine is None:
             raise ProvisioningImpossible(f"profil de machine {cible.machine_profile!r} introuvable")
         capacite = profil_host.capacity_workspaces() if profil_host else None
+        # Plafond mémoire par workspace : valeur par défaut du profil, recopiée
+        # sur le nœud comme la capacité (provenance, pas tutelle).
+        max_memory = profil_host.max_memory() if profil_host else ""
 
         # Bascule du ticket 9 : le type d'hyperviseur peut désigner un driver
         # IaC — le chemin script reste le défaut, et le rollback est ce champ.
@@ -135,6 +138,7 @@ class ExecuteurProxmox:
                 profil=profil_machine,
                 cfg=cfg,
                 capacite=capacite,
+                max_memory=max_memory,
                 mutualise=mutualise,
                 subscription_id=subscription_id,
                 owner_login=owner_login,
@@ -148,6 +152,7 @@ class ExecuteurProxmox:
 
         sortie = await self._executer_commandes(node, commandes, vmid=vmid, nom=nom)
         hote = self._machine_creee(sortie, cible, vmid, nom, capacite, mutualise)
+        hote.max_memory = max_memory  # plafond du profil, porté par le nœud
 
         await self._persister(
             hote,
@@ -174,6 +179,7 @@ class ExecuteurProxmox:
         profil: MachineProfile,
         cfg: GlobalConfig,
         capacite: int | None,
+        max_memory: str,
         mutualise: bool,
         subscription_id: str,
         owner_login: str,
@@ -220,6 +226,7 @@ class ExecuteurProxmox:
                 provider=exc.descriptor.provider,
             ) from exc
         hote.capacity_workspaces = capacite
+        hote.max_memory = max_memory
         hote.accepts_mutualise = mutualise
         await self._persister(
             hote,

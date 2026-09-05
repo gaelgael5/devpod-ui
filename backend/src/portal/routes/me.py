@@ -248,12 +248,49 @@ async def list_workspaces(user: UserInfo = Depends(require_user)) -> list[dict[s
     return [ws.model_dump(mode="json") for ws in cfg.workspaces]
 
 
+def _borner_memoire(host_name: str, memory_limit: str) -> str:
+    """La mémoire effective d'un workspace, bornée au plafond du nœud cible.
+
+    Le plafond `hosts.max_memory` protège le nœud du dépassement d'UN workspace
+    (fiche 1dae864d) :
+    - nœud sans plafond → rien ne change, la valeur demandée passe telle quelle ;
+    - demande VIDE sur un nœud qui plafonne → n'est plus « aucune limite », elle
+      vaut le plafond du nœud ;
+    - demande au-dessus du plafond → refus 422 au moment de la saisie, plutôt
+      qu'un `up` qui échoue dix minutes plus tard.
+    """
+    from ..config.models import memoire_depasse_plafond
+    from ..config.store import load_global
+
+    host = next((h for h in load_global().hosts if h.name == host_name), None)
+    plafond = host.max_memory if host else ""
+    if not plafond:
+        return memory_limit
+    demande = (memory_limit or "").strip()
+    if not demande:
+        return plafond
+    if memoire_depasse_plafond(demande, plafond):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"La mémoire demandée ({demande}) dépasse le plafond du nœud "
+                f"{host_name!r} ({plafond})."
+            ),
+        )
+    return demande
+
+
 @router.post("/workspaces", status_code=201)
 async def add_workspace(
     workspace: WorkspaceSpec,
     user: UserInfo = Depends(require_user),
     conn: AsyncConnection = Depends(get_conn),
 ) -> dict[str, object]:
+    # Bornage mémoire AVANT tout : un refus se dit à la saisie, et une demande
+    # vide se voit remplacée par le plafond du nœud si celui-ci en déclare un.
+    workspace = workspace.model_copy(
+        update={"memory_limit": _borner_memoire(workspace.host, workspace.memory_limit)}
+    )
     async with user_config_lock(user.login):
         cfg = await load_user(user.login)
         if any(ws.name == workspace.name for ws in cfg.workspaces):
@@ -332,6 +369,11 @@ async def patch_workspace(
             updated = WorkspaceSpec.model_validate({**current.model_dump(), **patch})
         except Exception as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # Même bornage qu'à la création : éditer la mémoire au-dessus du plafond
+        # du nœud est refusé ici, pas découvert au prochain recreate.
+        borne = _borner_memoire(updated.host, updated.memory_limit)
+        if borne != updated.memory_limit:
+            updated = updated.model_copy(update={"memory_limit": borne})
         recreate = requires_recreate(current, updated)
         restart = requires_restart(current, updated)
         added = added_recipes(current, updated)

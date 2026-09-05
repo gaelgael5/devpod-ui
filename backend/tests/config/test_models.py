@@ -217,3 +217,54 @@ def test_workspace_spec_start_recipe_invalid_id_rejected() -> None:
             source="https://github.com/x/y",
             start_recipes=["../evil"],
         )
+
+
+# ─── Plafond mémoire par workspace (fiche max_memory) ────────────────────────
+
+
+class TestMemoireOctets:
+    def test_les_unites_docker_se_convertissent(self) -> None:
+        from portal.config.models import memoire_en_octets
+
+        assert memoire_en_octets("512m") == 512 * 1024**2
+        assert memoire_en_octets("4g") == 4 * 1024**3
+        assert memoire_en_octets("1024k") == 1024 * 1024
+        assert memoire_en_octets("2048b") == 2048
+        # Entier nu = octets, comme Docker l'interprète.
+        assert memoire_en_octets("1073741824") == 1073741824
+
+    def test_une_valeur_vide_ou_invalide_rend_none(self) -> None:
+        from portal.config.models import memoire_en_octets
+
+        assert memoire_en_octets("") is None
+        assert memoire_en_octets("beaucoup") is None
+        assert memoire_en_octets("4gib") is None
+
+
+class TestDepassePlafond:
+    def test_au_dessus_depasse(self) -> None:
+        from portal.config.models import memoire_depasse_plafond
+
+        assert memoire_depasse_plafond("5g", "4g") is True
+
+    def test_a_egalite_ne_depasse_pas(self) -> None:
+        from portal.config.models import memoire_depasse_plafond
+
+        # 4096m == 4g : l'égalité passe, seul le STRICTEMENT supérieur est refusé.
+        assert memoire_depasse_plafond("4096m", "4g") is False
+
+    def test_en_dessous_ne_depasse_pas(self) -> None:
+        from portal.config.models import memoire_depasse_plafond
+
+        assert memoire_depasse_plafond("512m", "4g") is False
+
+    def test_un_plafond_absent_ne_borne_rien(self) -> None:
+        from portal.config.models import memoire_depasse_plafond
+
+        assert memoire_depasse_plafond("999g", "") is False
+
+    def test_une_demande_vide_ne_depasse_pas(self) -> None:
+        """La demande vide se borne au plafond (côté appelant), elle ne se refuse pas."""
+        from portal.config.models import memoire_depasse_plafond
+
+        assert memoire_depasse_plafond("", "4g") is False

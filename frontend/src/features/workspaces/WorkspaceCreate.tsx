@@ -24,6 +24,7 @@ import ProfileSelector from './ProfileSelector'
 import SourceRow from './SourceRow'
 import { useUserStore } from '@/store/user'
 import { useHosts, type HostConfig } from '@/features/admin/useHosts'
+import { memoireDepassePlafond } from './memory'
 import { useAgentTypes } from '@/features/mcp/api'
 import { apiFetchJson } from '@/shared/api/client'
 
@@ -105,6 +106,16 @@ export default function WorkspaceCreate() {
   const [profile, setProfile] = useState('')
   // Surcharge de la limite mémoire du conteneur (59864c37) — vide = défaut global.
   const [memoryLimit, setMemoryLimit] = useState('')
+  // Plafond mémoire du nœud sélectionné (vide = aucun bornage). Sert à signaler
+  // le dépassement avant l'envoi ; le refus qui fait foi reste le 422 backend.
+  const plafondMemoire = useMemo(
+    () => (host ? (hosts.find((h: HostConfig) => h.name === host)?.max_memory ?? '') : ''),
+    [host, hosts],
+  )
+  const memoireDepasse = useMemo(
+    () => memoireDepassePlafond(memoryLimit, plafondMemoire),
+    [memoryLimit, plafondMemoire],
+  )
   const [nameError, setNameError] = useState('')
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({})
   const [serverError, setServerError] = useState('')
@@ -521,13 +532,31 @@ export default function WorkspaceCreate() {
             onChange={(e) => setMemoryLimit(e.target.value)}
             placeholder={t('workspaces.form.memoryLimitPlaceholder', 'défaut global — ex. 4g, 512m')}
             pattern="^\s*([0-9]+[bkmgBKMG]?)?\s*$"
+            aria-invalid={memoireDepasse}
           />
           <p className="text-xs text-muted-foreground">
             {t(
               'workspaces.form.memoryLimitHint',
               'Un dépassement tue ce conteneur, pas le host. Appliquée à la (re)construction.',
             )}
+            {plafondMemoire && (
+              <>
+                {' '}
+                {t('workspaces.form.memoryLimitCeiling', 'Plafond de ce nœud : {{plafond}}.', {
+                  plafond: plafondMemoire,
+                })}
+              </>
+            )}
           </p>
+          {memoireDepasse && (
+            <p role="alert" className="text-xs text-destructive">
+              {t(
+                'workspaces.form.memoryLimitOverCeiling',
+                'Au-dessus du plafond du nœud ({{plafond}}). Réduisez la limite.',
+                { plafond: plafondMemoire },
+              )}
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -548,7 +577,7 @@ export default function WorkspaceCreate() {
         )}
 
         <div className="flex gap-3 pt-2">
-          <Button type="submit" disabled={createWorkspace.isPending}>
+          <Button type="submit" disabled={createWorkspace.isPending || memoireDepasse}>
             {t('workspaces.form.submit')}
           </Button>
           <Button type="button" variant="ghost" asChild>
