@@ -743,6 +743,24 @@
       "pveNode": "PVE node"
     },
     "provenanceUnknown": "unknown provenance",
+    "abonnements": {
+      "title": "Subscriptions",
+      "navLabel": "Subscriptions",
+      "help": "Offers, the global history, and soon free trials and retention.",
+      "tabOffres": "Offers",
+      "tabEssais": "Free trials",
+      "tabRetention": "Retention",
+      "tabHistorique": "History",
+      "essaisAVenir": "Granting free trials ships with its ticket “Admin — offer a free trial period”. Nothing to configure here yet.",
+      "retentionAVenir": "Retention delays (payment failure, cancellation) ship with the ticket “Stop, retention and destruction of an unpaid workspace”. Nothing to configure here yet.",
+      "historiqueVide": "No history entry yet.",
+      "colDate": "Date",
+      "colCompte": "Account",
+      "colEvenement": "Event",
+      "colOffre": "Offer",
+      "orphelin": "unattached",
+      "operation": "operations"
+    },
     "charges": {
       "col": "Machines carried",
       "workspaces": "workspaces",

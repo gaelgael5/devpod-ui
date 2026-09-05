@@ -743,6 +743,24 @@
       "pveNode": "Nœud PVE"
     },
     "provenanceUnknown": "provenance inconnue",
+    "abonnements": {
+      "title": "Abonnements",
+      "navLabel": "Abonnements",
+      "help": "Les offres, l'historique global, et bientôt les essais gratuits et la rétention.",
+      "tabOffres": "Offres",
+      "tabEssais": "Essais gratuits",
+      "tabRetention": "Rétention",
+      "tabHistorique": "Historique",
+      "essaisAVenir": "L'octroi d'essais gratuits arrive avec sa fiche « Admin — offrir une période d'essai gratuite ». Rien à régler ici pour l'instant.",
+      "retentionAVenir": "Les délais de rétention (échec de paiement, résiliation) arrivent avec la fiche « Arrêt, rétention et destruction d'un workspace non payé ». Rien à régler ici pour l'instant.",
+      "historiqueVide": "Aucune entrée d'historique pour le moment.",
+      "colDate": "Date",
+      "colCompte": "Compte",
+      "colEvenement": "Événement",
+      "colOffre": "Offre",
+      "orphelin": "non rattachée",
+      "operation": "exploitation"
+    },
     "charges": {
       "col": "Machines portées",
       "workspaces": "workspaces",

@@ -30,6 +30,7 @@ import {
   AdminHostProfiles,
   AdminBillingCatalog,
   AdminBillingOffers,
+  AdminAbonnements,
   AdminOfferEditor,
   AdminSessions,
   AdminWorkflow,
@@ -181,6 +182,10 @@ export const router = createBrowserRouter([
       {
         path: '/admin/billing-offers',
         element: <AdminGuard><Wrap><AdminBillingOffers /></Wrap></AdminGuard>,
+      },
+      {
+        path: '/admin/abonnements',
+        element: <AdminGuard><Wrap><AdminAbonnements /></Wrap></AdminGuard>,
       },
       {
         // Ecran plein, pas une fenetre modale : une offre se saisit en plusieurs
