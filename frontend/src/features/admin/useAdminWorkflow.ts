@@ -49,6 +49,9 @@ export interface TestConnectionResult {
   status_code?: number
   event_code: string
   error?: string
+  /** Diagnostic de l'ingest sur un refus (`no_event_context`…) — c'est lui qui
+   * dit quoi réparer, le code HTTP seul ne dit rien. */
+  reason?: string
 }
 
 export function useTestConnection() {

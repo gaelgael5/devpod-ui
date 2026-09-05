@@ -68,7 +68,12 @@ function WorkflowForm({ initial }: { initial: EventsProducerConfig }) {
         if (r.ok) {
           toast.success(t('admin.workflow.testOk', { code: r.event_code, status: r.status_code }))
         } else {
-          toast.error(t('admin.workflow.testFail', { detail: r.error ?? r.status_code }))
+          // Trois issues distinctes : accepté (ci-dessus), refusé par l'ingest
+          // (status + motif — le motif dit quoi réparer), injoignable (error).
+          const detail = r.reason
+            ? `${r.status_code} — ${r.reason}`
+            : (r.error ?? r.status_code)
+          toast.error(t('admin.workflow.testFail', { detail }))
         }
       },
     })

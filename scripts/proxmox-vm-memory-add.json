@@ -13,7 +13,7 @@
     }
   ],
   "commands": [
-    "curl -fsSL -o /tmp/proxmox-vm-memory.sh https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/main/scripts/proxmox-vm-memory.sh",
+    "curl -fsSL -o /tmp/proxmox-vm-memory.sh https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/proxmox-vm-memory.sh",
     "chmod +x /tmp/proxmox-vm-memory.sh",
     "/tmp/proxmox-vm-memory.sh {VMID} --delta +1024"
   ],

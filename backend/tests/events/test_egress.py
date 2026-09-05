@@ -43,11 +43,43 @@ async def test_post_event_sends_signed_raw_body_to_ingestion_url() -> None:
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
-        status = await post_event(
+        status, motif = await post_event(
             "https://wf.example/", "src-1", b'{"x":1}', "deadbeef", client=client
         )
 
     assert status == 202
+    assert motif == ""
     assert seen["url"] == "https://wf.example/events/src-1"
     assert seen["sig"] == "deadbeef"
     assert seen["body"] == b'{"x":1}'
+
+
+async def test_post_event_remonte_le_motif_de_rejet() -> None:
+    """Un 400 de l'ingest porte son diagnostic dans le corps (`reason`) : c'est
+    lui qui rend l'échec exploitable — « no_event_context » dit quoi réparer,
+    « HTTP 400 » ne dit rien. Le perdre a déjà coûté une session de diagnostic
+    entière (bug 90cfaca8)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"reason": "no_event_context", "event": "rejected"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        status, motif = await post_event(
+            "https://wf.example/", "src-1", b"{}", "sig", client=client
+        )
+
+    assert status == 400
+    assert motif == "no_event_context"
+
+
+async def test_post_event_sans_corps_lisible_rend_un_motif_vide() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, text="Bad Gateway")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        status, motif = await post_event(
+            "https://wf.example/", "src-1", b"{}", "sig", client=client
+        )
+
+    assert status == 502
+    assert motif == ""

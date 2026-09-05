@@ -492,11 +492,30 @@ async def test_events_producer_connection(
     raw = serialize_envelope(envelope)
     signature = compute_signature(secret.encode(), raw)
     try:
-        status = await post_event(cfg.workflow_base_url, cfg.source_id, raw, signature)
+        status, motif = await post_event(cfg.workflow_base_url, cfg.source_id, raw, signature)
     except httpx.HTTPError as exc:
+        # Injoignable : l'appel lui-même a échoué — troisième issue, distincte
+        # du refus par l'ingest.
         _log.warning("events_producer_test_failed", by=user.login, exc_type=type(exc).__name__)
         return {"ok": False, "event_code": envelope["_eventCode"], "error": type(exc).__name__}
-    return {"ok": status == 202, "status_code": status, "event_code": envelope["_eventCode"]}
+    if status != 202:
+        # Joignable mais REFUSÉ : le faux positif historique — un 400 amont
+        # rendu en succès a déjà masqué une erreur de configuration réelle
+        # pendant toute une session de diagnostic. Le motif de l'ingest
+        # (`no_event_context`, signature invalide…) est ce qui rend le refus
+        # exploitable : il part dans la réponse ET dans le journal.
+        _log.warning(
+            "events_producer_test_rejected",
+            by=user.login,
+            status=status,
+            reason=motif,
+        )
+    return {
+        "ok": status == 202,
+        "status_code": status,
+        "event_code": envelope["_eventCode"],
+        "reason": motif,
+    }
 
 
 @router.post("/events-producer/send-test-event")

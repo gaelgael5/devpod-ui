@@ -13,7 +13,7 @@
     }
   ],
   "commands": [
-    "curl -fsSL -o /tmp/proxmox-vm-disk.sh https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/main/scripts/proxmox-vm-disk.sh",
+    "curl -fsSL -o /tmp/proxmox-vm-disk.sh https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/proxmox-vm-disk.sh",
     "chmod +x /tmp/proxmox-vm-disk.sh",
     "/tmp/proxmox-vm-disk.sh {VMID} --delta +10G"
   ],

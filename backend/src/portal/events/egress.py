@@ -59,16 +59,34 @@ async def post_event(
     signature: str,
     *,
     client: httpx.AsyncClient | None = None,
-) -> int:
-    """POST l'enveloppe signée vers l'endpoint d'ingestion. Retourne le status HTTP."""
+) -> tuple[int, str]:
+    """POST l'enveloppe signée vers l'endpoint d'ingestion.
+
+    Retourne `(status, motif)`. Le motif est le diagnostic que l'ingest met
+    dans son corps de refus (`reason`, à défaut `detail`) : c'est LUI qui rend
+    un échec exploitable — « no_event_context » dit quoi réparer, « HTTP 400 »
+    ne dit rien. Vide sur un 202, ou quand le corps n'en porte pas.
+    """
     url = f"{base_url.rstrip('/')}/events/{source_id}"
     headers = {"x-signature": signature, "content-type": "application/json"}
     if client is not None:
         resp = await client.post(url, content=raw_body, headers=headers)
-        return resp.status_code
-    async with httpx.AsyncClient(timeout=_TIMEOUT_S) as owned:
-        resp = await owned.post(url, content=raw_body, headers=headers)
-        return resp.status_code
+    else:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_S) as owned:
+            resp = await owned.post(url, content=raw_body, headers=headers)
+    return resp.status_code, _motif_de_refus(resp)
+
+
+def _motif_de_refus(resp: httpx.Response) -> str:
+    if resp.status_code == httpx.codes.ACCEPTED:
+        return ""
+    try:
+        corps = resp.json()
+    except ValueError:
+        return ""
+    if not isinstance(corps, dict):
+        return ""
+    return str(corps.get("reason") or corps.get("detail") or "")
 
 
 async def enqueue_event(event: AppEvent) -> dict[str, Any]:
@@ -124,13 +142,15 @@ async def deliver_one(
     raw = row["raw_body"].encode()
     signature = compute_signature(secret.encode(), raw)
     try:
-        status = await post_event(base_url, source_id, raw, signature, client=client)
+        status, motif = await post_event(base_url, source_id, raw, signature, client=client)
     except httpx.HTTPError as exc:
         # Message volontairement sans secret ni corps : juste le type et l'URL cible.
         return "failed", f"{type(exc).__name__}: {exc}"
     if status == httpx.codes.ACCEPTED:
         return "delivered", None
-    return "failed", f"workflow ingestion HTTP {status}"
+    # Le motif de l'ingest (reason/detail) est le diagnostic exploitable — le
+    # perdre condamnerait à relire les logs du récepteur pour comprendre.
+    return "failed", f"workflow ingestion HTTP {status}" + (f" — {motif}" if motif else "")
 
 
 async def deliver_due(

@@ -23,6 +23,12 @@ def test_slugify_special_chars() -> None:
     assert slugify("React + TypeScript!") == "react-typescript"
 
 
+def test_slugify_traite_la_barre_oblique_comme_separateur() -> None:
+    """Aucun `/` ne survit dans un slug — c'est lui qui sert de chemin."""
+    assert slugify("TypeScript / Node.js") == "typescript-node-js"
+    assert slugify("C/C++ Dev") == "c-c-dev"
+
+
 def test_slugify_empty_fallback() -> None:
     assert slugify("!!!") == "profil"
 
