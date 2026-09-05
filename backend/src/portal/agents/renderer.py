@@ -9,6 +9,7 @@ de variables/attributs).
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 from jinja2 import StrictUndefined
@@ -29,8 +30,17 @@ _env = SandboxedEnvironment(undefined=StrictUndefined, autoescape=False, keep_tr
 
 
 def _slugify(name: str) -> str:
-    """Nom de serveur MCP sûr pour les clients (clé de mcpServers)."""
-    return _SLUG_STRIP_RE.sub("-", name.lower()).strip("-")
+    """Nom de serveur MCP sûr pour les clients (clé de mcpServers).
+
+    Les accents sont TRANSLITTÉRÉS avant le nettoyage (« Défaut » → `defaut`),
+    pas traités comme des séparateurs (`d-faut`) : la clé doit rester lisible,
+    et surtout STABLE — le merge purge puis repose les serveurs `portal-*` par
+    nom, une clé qui varie selon la fonction de slugification changerait
+    d'identité au premier passage.
+    """
+    decompose = unicodedata.normalize("NFKD", name)
+    ascii_seulement = decompose.encode("ascii", "ignore").decode("ascii")
+    return _SLUG_STRIP_RE.sub("-", ascii_seulement.lower()).strip("-")
 
 
 def build_render_context(

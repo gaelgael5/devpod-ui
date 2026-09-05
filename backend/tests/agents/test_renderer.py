@@ -60,6 +60,16 @@ def test_render_no_servers_yields_empty_block() -> None:
     assert json.loads(out) == {"mcpServers": {}}
 
 
+def test_context_slug_translitere_les_accents() -> None:
+    """« Défaut » → `defaut`, jamais `d-faut` : un accent n'est pas un
+    séparateur. La clé de serveur MCP doit rester lisible, et STABLE — une clé
+    qui change selon la fonction de slugification dupliquerait les fragments au
+    merge suivant."""
+    ctx = _ctx(keys=[WorkspaceKey("a1", "p1", "Défaut", "mcpk_t1")])
+
+    assert [s["name"] for s in ctx["servers"]] == ["defaut"]  # type: ignore[index]
+
+
 def test_context_slug_collision_deduplicated() -> None:
     ctx = _ctx(
         keys=[
