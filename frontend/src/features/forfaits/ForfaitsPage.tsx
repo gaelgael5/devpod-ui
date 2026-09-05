@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import LanguageSelect from '@/shared/nav/LanguageSelect'
 import Markdown from '@/shared/Markdown'
 import { useOptionalSession } from '@/features/auth/useOptionalSession'
+import { formaterMontant } from './montant'
 import { useOffresPubliques, type OffrePubliee } from './useOffresPubliques'
 
 /**
@@ -18,18 +19,6 @@ import { useOffresPubliques, type OffrePubliee } from './useOffresPubliques'
  * l'objet d'un ticket séparé.
  */
 
-/**
- * Montant lisible depuis des unités mineures.
- *
- * Le nombre de décimales vient d'`Intl` et non d'une division par 100 : le yen
- * n'a pas de sous-unité, et diviser aveuglément afficherait un prix cent fois
- * trop petit.
- */
-function formaterMontant(minor: number, devise: string, langue: string): string {
-  const format = new Intl.NumberFormat(langue, { style: 'currency', currency: devise })
-  const decimales = format.resolvedOptions().maximumFractionDigits ?? 2
-  return format.format(minor / 10 ** decimales)
-}
 
 function Prix({ offre }: { offre: OffrePubliee }) {
   const { t, i18n } = useTranslation()
@@ -54,7 +43,7 @@ function Prix({ offre }: { offre: OffrePubliee }) {
   )
 }
 
-function Quotas({ offre }: { offre: OffrePubliee }) {
+export function Quotas({ offre }: { offre: OffrePubliee }) {
   const { t } = useTranslation()
   // `null` = illimité, pour les deux quotas. Un plafond absent n'est pas zéro.
   const illimite = t('forfaits.unlimited')

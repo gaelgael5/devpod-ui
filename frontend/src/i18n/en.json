@@ -19,6 +19,30 @@
     "why3Title": "Your AI, your hosting",
     "why3Body": "Six agents supported — Claude, Cline, Copilot, Cursor, Windsurf, Kimi Code — and two modes at parity: as a service, or on your own machines. The FSL licence is what makes both possible."
   },
+  "abonnement": {
+    "title": "My plan",
+    "navLabel": "My plan",
+    "courant": "Current plan",
+    "termines": "Ended",
+    "historique": "My purchase history",
+    "historiqueVide": "No purchase yet.",
+    "aucunOuvert": "No active subscription.",
+    "voirForfaits": "See the plans",
+    "echeance": "Until {{date}}",
+    "etat": {
+      "essai": "Trial",
+      "actif": "Active",
+      "echec_paiement": "Payment failing",
+      "resilie": "Cancelled"
+    },
+    "evenement": {
+      "debut_essai": "Trial started",
+      "activation": "Activation",
+      "renouvellement": "Renewal",
+      "echec_paiement": "Payment failure",
+      "resiliation": "Cancellation"
+    }
+  },
   "souscription": {
     "titre": "Confirm your plan",
     "retour": "← All plans",

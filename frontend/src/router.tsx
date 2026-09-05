@@ -41,6 +41,7 @@ import {
   ForfaitsPage,
   LandingPage,
   SouscriptionPage,
+  AbonnementPage,
   ProfileList,
   ProfilePage,
   RecipeCatalog,
@@ -144,6 +145,8 @@ export const router = createBrowserRouter([
       // Souscrire exige un compte : la page vit DANS la coquille authentifiee,
       // contrairement a la liste des forfaits qui reste publique.
       { path: '/forfaits/:slug', element: <Wrap><SouscriptionPage /></Wrap> },
+      // Son abonnement : ce qu'il paie, jusqu'a quand, et son historique.
+      { path: '/abonnement', element: <Wrap><AbonnementPage /></Wrap> },
       { path: '/sessions', element: <Wrap><SessionsView /></Wrap> },
       { path: '/workspaces/new', element: <Wrap><WorkspaceCreate /></Wrap> },
       { path: '/recipes', element: <Wrap><RecipeCatalog /></Wrap> },

@@ -63,6 +63,7 @@ export const ProfilePage = lazy(() => import('@/features/profile/ProfilePage'))
 export const LandingPage = lazy(() => import('@/features/landing/LandingPage'))
 export const ForfaitsPage = lazy(() => import('@/features/forfaits/ForfaitsPage'))
 export const SouscriptionPage = lazy(() => import('@/features/forfaits/SouscriptionPage'))
+export const AbonnementPage = lazy(() => import('@/features/forfaits/AbonnementPage'))
 
 export function Wrap({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>

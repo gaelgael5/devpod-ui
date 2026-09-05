@@ -19,6 +19,30 @@
     "why3Title": "Ton IA, ton hébergement",
     "why3Body": "Six agents pris en charge — Claude, Cline, Copilot, Cursor, Windsurf, Kimi Code — et deux modes à parité : en service, ou chez toi. La licence FSL rend les deux possibles."
   },
+  "abonnement": {
+    "title": "Mon abonnement",
+    "navLabel": "Mon abonnement",
+    "courant": "Forfait courant",
+    "termines": "Terminés",
+    "historique": "Historique de mes achats",
+    "historiqueVide": "Aucun achat pour le moment.",
+    "aucunOuvert": "Aucun abonnement en cours.",
+    "voirForfaits": "Voir les forfaits",
+    "echeance": "Jusqu'au {{date}}",
+    "etat": {
+      "essai": "Essai",
+      "actif": "Actif",
+      "echec_paiement": "Paiement en échec",
+      "resilie": "Résilié"
+    },
+    "evenement": {
+      "debut_essai": "Début d'essai",
+      "activation": "Activation",
+      "renouvellement": "Renouvellement",
+      "echec_paiement": "Échec de paiement",
+      "resiliation": "Résiliation"
+    }
+  },
   "souscription": {
     "titre": "Confirmer votre forfait",
     "retour": "← Tous les forfaits",

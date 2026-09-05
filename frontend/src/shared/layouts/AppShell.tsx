@@ -152,6 +152,10 @@ export default function AppShell() {
                 <Globe size={14} className="mr-2" />
                 {t('nav.language')}: {i18n.language.startsWith('fr') ? 'EN' : 'FR'}
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/abonnement')}>
+                <Receipt size={14} className="mr-2" />
+                {t('abonnement.navLabel')}
+              </DropdownMenuItem>
               {/* Hors du bloc `isAdmin` a dessein : consulter les forfaits
                   proposes regarde tout abonne, pas seulement l'exploitant. */}
               {/* `from` : la page forfaits renvoie son « Retour » vers l'ecran
