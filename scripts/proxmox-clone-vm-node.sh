@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# clone-vm-node.sh — Clone un template Proxmox et configure un nœud Docker (étapes A.1–A.11).
+# clone-vm-node.sh — Clone un template Proxmox en nœud Docker : création (A.1–A.9b),
+# puis délègue la configuration (A.10–A.12) à configure-node.sh, qui ne dépend que
+# du triplet (adresse, user, clé) et se rejoue seul sur une machine existante.
 # À exécuter en root sur le host PVE, pas dans une VM.
 #
 # Usage :
@@ -7,12 +9,12 @@
 #
 #   IP fixe :
 #     bash clone-vm-node.sh 104 pve2-docker --ip 192.168.1.50/24 --gw 192.168.1.1
-#   DHCP (IP détectée automatiquement via tcpdump ARP) :
+#   DHCP (IP détectée via le guest agent QEMU, repli ping-sweep + ip neigh) :
 #     bash clone-vm-node.sh 104 pve2-docker
 #
-# Arguments obligatoires :
+# Arguments obligatoires (positionnels, dans cet ordre) :
 #   <NEW_VMID>        VMID de la nouvelle VM (entier libre, ni VM ni LXC existant)
-#   --name NOM        Nom DNS-safe de la VM  (ex. portail-dev, pve2-docker)
+#   <NODE_NAME>       Nom DNS-safe de la VM  (ex. portail-dev, pve2-docker)
 #
 # Options réseau (omettre les deux = DHCP) :
 #   --ip IP/CIDR      Adresse IP fixe avec masque  (ex. 192.168.1.50/24)
@@ -30,6 +32,13 @@
 #   --ciuser USER         Utilisateur cloud-init      (défaut : debian)
 #   --cpu MODELE          Modèle CPU QEMU             (défaut : x86-64-v3 ; ou host)
 #   --swap PCT            Swapfile en % de la RAM     (défaut : 25 ; 0 = désactivé)
+#   --cleanup-on-error    Détruit la VM créée si le script échoue en cours de route
+#
+# Options d'intégration portail (toutes trois requises pour l'enrôlement A.9b/A.12) :
+#   --portal-url URL      URL externe du portail
+#   --portal-token TOKEN  Jeton d'API admin — préférer la variable d'environnement
+#                         PORTAL_TOKEN, qui ne s'affiche pas dans `ps auxww`
+#   --portal-pve-node NOM Nom du nœud Proxmox tel qu'enregistré dans le portail
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -64,8 +73,11 @@ CPU_TYPE="x86-64-v3"
 # compilés avec Bun (dont `claude`).
 CPU_TYPES_AUTORISES=("x86-64-v3" "host")
 PORTAL_URL=""
-PORTAL_TOKEN=""
+# Accepté en variable d'environnement : un argv est lisible par tout processus
+# local (`ps auxww`). L'option --portal-token reste un repli de compatibilité.
+PORTAL_TOKEN="${PORTAL_TOKEN:-}"
 PORTAL_PVE_NODE=""
+CLEANUP_ON_ERROR=false
 # Swapfile d'urgence (enabler 74ad4fdf) : sans swap, un pic mémoire transitoire
 # déclenche l'OOM killer immédiatement (incident du 23/07 : networkd tué, host
 # injoignable). 25 % de la RAM, borné, swappiness bas = airbag, pas matelas.
@@ -83,6 +95,43 @@ fi
 NEW_VMID="$1"
 NODE_NAME="$2"
 shift 2
+
+# ─── Rattrapage sur échec ─────────────────────────────────────────────────────
+# Entre A.2 et la fin, n'importe quel échec sous `set -e` laisserait une VM
+# orpheline (VMID consommé, run suivant en échec sur A.1) et le portail sans
+# rien d'exploitable à parser. Le trap EXIT garantit : fichiers temporaires
+# nettoyés, commande de nettoyage affichée (ou jouée si --cleanup-on-error),
+# et une DERNIÈRE ligne JSON status:error que le portail sait lire.
+STAGE="préliminaires"
+VM_CREEE=false
+COMBINED_KEYS_FILE=""
+PORTAL_RESP_FILE=""
+CONFIGURE_TMP=""
+
+on_exit() {
+    local rc=$?
+    # ${VAR:+...} : sous `set -u`, ne référencer que les fichiers réellement créés
+    rm -f ${COMBINED_KEYS_FILE:+"$COMBINED_KEYS_FILE"} \
+          ${PORTAL_RESP_FILE:+"$PORTAL_RESP_FILE"} \
+          ${CONFIGURE_TMP:+"$CONFIGURE_TMP"}
+    [[ $rc -eq 0 ]] && return 0
+    if [[ "$VM_CREEE" == "true" ]]; then
+        if [[ "$CLEANUP_ON_ERROR" == "true" ]]; then
+            echo "==> --cleanup-on-error : destruction de la VM $NEW_VMID..." >&2
+            qm stop "$NEW_VMID" >/dev/null 2>&1 || true
+            qm destroy "$NEW_VMID" >/dev/null 2>&1 || true
+            echo "    VM $NEW_VMID détruite." >&2
+        else
+            echo "  La VM $NEW_VMID reste créée. Nettoyage manuel :" >&2
+            echo "    qm stop $NEW_VMID && qm destroy $NEW_VMID" >&2
+        fi
+    fi
+    # Dernière ligne stdout = contrat avec le portail (parse_last_json) ; le
+    # détail humain est déjà parti sur stderr au fil de l eau.
+    printf '{"status":"error","stage":"%s","vmid":"%s","message":"échec à l étape %s — détail sur stderr"}\n' \
+        "$STAGE" "$NEW_VMID" "$STAGE"
+}
+trap on_exit EXIT
 
 # ─── Options facultatives ─────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -103,9 +152,11 @@ while [[ $# -gt 0 ]]; do
         --portal-token)    PORTAL_TOKEN="$2";    shift 2 ;;
         --portal-pve-node) PORTAL_PVE_NODE="$2"; shift 2 ;;
         --swap)            SWAP_PERCENT="$2";    shift 2 ;;
+        --cleanup-on-error) CLEANUP_ON_ERROR=true; shift ;;
         *)
             echo "ERREUR : option inconnue : $1" >&2
-            echo "Options : --name --ip --gw --template --storage --dns --memory --cores --disk --cpu --sshkey --extra-sshkey --ciuser --swap --portal-url --portal-token --portal-pve-node" >&2
+            echo "Usage : bash $0 <NEW_VMID> <NODE_NAME> [OPTIONS]" >&2
+            echo "Options : --ip --gw --template --storage --dns --memory --cores --disk --cpu --sshkey --extra-sshkey --ciuser --swap --cleanup-on-error --portal-url --portal-token --portal-pve-node" >&2
             exit 1
             ;;
     esac
@@ -114,7 +165,9 @@ done
 # ─── Prérequis système ────────────────────────────────────────────────────────
 echo "==> Vérification des prérequis..."
 
-for cmd in qm pct pvesm ssh; do
+# curl et python3 : consommés en A.9b et A.10+ ; le contrôle est gratuit ici,
+# leur absence à mi-parcours laisserait une VM à moitié configurée.
+for cmd in qm pct pvesm ssh curl python3; do
     command -v "$cmd" &>/dev/null || {
         echo "ERREUR : '$cmd' introuvable — exécuter en root sur un host Proxmox VE." >&2
         exit 1
@@ -122,8 +175,6 @@ for cmd in qm pct pvesm ssh; do
 done
 
 # ─── Validation des arguments obligatoires ────────────────────────────────────
-[[ -n "$NODE_NAME" ]] || { echo "ERREUR : --name est obligatoire (ex. portail-dev)." >&2; exit 1; }
-
 # --ip et --gw doivent être fournis ensemble ou pas du tout
 if [[ -n "$IP_CIDR" ]] && [[ -z "$GATEWAY" ]]; then
     echo "ERREUR : --ip fourni sans --gw (ex. --gw 192.168.1.1)." >&2; exit 1
@@ -207,6 +258,7 @@ fi
 [[ "$TEMPLATE_VMID" == "auto" ]] && TEMPLATE_VMID=""
 
 # ─── A.1 — Vérifier que le VMID est libre (cluster-wide) ──────────────────────
+STAGE="A.1 (vérification VMID)"
 echo "==> A.1 — Vérification du VMID $NEW_VMID (cluster)..."
 
 # /etc/pve est répliqué dans tout le cluster (pmxcfs) : un VMID doit être unique sur
@@ -328,17 +380,20 @@ echo "    Utilisateur CI : $CI_USER"
 echo ""
 
 # ─── A.2 — Cloner le template ─────────────────────────────────────────────────
+STAGE="A.2 (clonage)"
 echo "==> A.2 — Clonage du template VMID ${TEMPLATE_VMID} -> VMID ${NEW_VMID}..."
 echo "    (clone complet --full, peut prendre 1 à 5 minutes)"
 
 CLONE_ARGS=("$TEMPLATE_VMID" "$NEW_VMID" --name "$NODE_NAME" --full)
 [[ -n "$STORAGE" ]] && CLONE_ARGS+=(--storage "$STORAGE")
 qm clone "${CLONE_ARGS[@]}"
+VM_CREEE=true
 
 echo "    Clone terminé."
 
 # ─── A.3 — Injecter la clé SSH et définir un mot de passe console ────────────
 echo ""
+STAGE="A.3 (clé SSH + mot de passe console)"
 echo "==> A.3 — Injection de la clé SSH publique + mot de passe console..."
 
 # Mot de passe aléatoire pour accès console Proxmox (noVNC / qm terminal)
@@ -346,7 +401,6 @@ CI_PASSWORD=$(openssl rand -base64 12)
 
 # Construire le fichier de clés à injecter (principale + extra si fournie)
 COMBINED_KEYS_FILE=$(mktemp /tmp/sshkeys-XXXXXX.pub)
-trap 'rm -f "$COMBINED_KEYS_FILE"' EXIT
 cat "$SSH_KEY_FILE" > "$COMBINED_KEYS_FILE"
 if [[ -n "$EXTRA_SSH_KEY_FILE" ]]; then
     echo "" >> "$COMBINED_KEYS_FILE"
@@ -359,16 +413,24 @@ sed -i 's/\r//' "$COMBINED_KEYS_FILE"
 qm set "$NEW_VMID" --sshkeys "$COMBINED_KEYS_FILE" --ciuser "$CI_USER" --cipassword "$CI_PASSWORD"
 
 echo "    Clé(s) injectée(s) pour l'utilisateur '$CI_USER'."
-echo ""
-echo "  ┌─────────────────────────────────────────────────┐"
-echo "  │  Accès console (Proxmox noVNC / qm terminal)   │"
-echo "  │  Login    : $CI_USER                            │"
-echo "  │  Password : $CI_PASSWORD                        │"
-echo "  └─────────────────────────────────────────────────┘"
-echo ""
+# Le mot de passe console ne s'affiche qu'en interactif : sur un run déclenché
+# par le portail, stdout part dans les logs de la tâche et un secret n'a rien à
+# y faire. Un admin peut toujours le reposer : qm set <vmid> --cipassword.
+if [[ -t 1 ]]; then
+    echo ""
+    echo "  ┌─────────────────────────────────────────────────┐"
+    echo "  │  Accès console (Proxmox noVNC / qm terminal)   │"
+    echo "  │  Login    : $CI_USER                            │"
+    echo "  │  Password : $CI_PASSWORD                        │"
+    echo "  └─────────────────────────────────────────────────┘"
+    echo ""
+else
+    echo "    Mot de passe console non affiché (sortie non interactive)."
+fi
 
 # ─── A.4 — Configurer la mémoire, le CPU et le modèle CPU ────────────────────
 echo ""
+STAGE="A.4 (ressources)"
 echo "==> A.4 — Configuration des ressources (${CORES} vCPU / ${MEMORY} Mo RAM / CPU ${CPU_TYPE})..."
 
 # --cpu appliqué explicitement même sur un clone : un template créé avec l'ancien
@@ -381,6 +443,7 @@ echo "    Ressources configurées (démarrage automatique au boot du host activ�
 
 # ─── A.5 — Agrandir le disque avant le premier démarrage ─────────────────────
 echo ""
+STAGE="A.5 (disque)"
 echo "==> A.5 — Agrandissement du disque ($DISK_EXTRA) avant le premier démarrage..."
 
 # Détecter le nom du disque principal (scsi0, virtio0…) en excluant cloud-init et cd-rom
@@ -404,6 +467,7 @@ echo "    Disque agrandi de $DISK_EXTRA."
 
 # ─── A.6 — Configurer le réseau via cloud-init ───────────────────────────────
 echo ""
+STAGE="A.6 (réseau cloud-init)"
 if [[ "$USE_DHCP" == "true" ]]; then
     echo "==> A.6 — Configuration réseau via cloud-init (DHCP)..."
     qm set "$NEW_VMID" --ipconfig0 "ip=dhcp"
@@ -424,6 +488,7 @@ qm set "$NEW_VMID" --agent enabled=1
 
 # ─── A.7 — Démarrer la VM ────────────────────────────────────────────────────
 echo ""
+STAGE="A.7 (démarrage)"
 echo "==> A.7 — Démarrage de la VM VMID $NEW_VMID..."
 
 qm start "$NEW_VMID"
@@ -432,8 +497,10 @@ echo "    VM démarrée. Attente de cloud-init et SSH..."
 
 # ─── A.8 — Récupérer l'IP DHCP ───────────────────────────────────────────────
 # Primaire : guest agent QEMU (lit l'IP depuis le guest, fiable quel que soit le
-# subnet/bridge). Repli : ping sweep du /24 du bridge + lecture de la table ARP
-# (la VM répond à l'ARP request du host PVE → arp -n | grep <MAC>).
+# subnet/bridge). Repli : ping sweep du /24 du bridge + lecture de la table de
+# voisinage du kernel via `ip neigh` (iproute2, toujours présent) — PAS `arp`,
+# qui vient de net-tools, absent par défaut sur Debian 12/PVE 8 : son échec
+# silencieux (2>/dev/null) était indiscernable d'une table vide.
 _ip_from_agent() {
     # Première IPv4 non-loopback rapportée par l'agent (JSON network-get-interfaces).
     qm guest cmd "$NEW_VMID" network-get-interfaces 2>/dev/null \
@@ -443,6 +510,7 @@ _ip_from_agent() {
 }
 if [[ "$USE_DHCP" == "true" ]]; then
     echo ""
+    STAGE="A.8 (détection IP DHCP)"
     echo "==> A.8 — Détection de l'IP DHCP (guest agent puis ping-sweep, max 120s)..."
 
     BRIDGE=$(qm config "$NEW_VMID" 2>/dev/null | grep '^net0:' \
@@ -467,8 +535,8 @@ if [[ "$USE_DHCP" == "true" ]]; then
         IP_ADDR=$(_ip_from_agent) || true
         [[ -n "$IP_ADDR" ]] && { echo ""; echo "    (détectée via guest agent)"; break; }
 
-        # 2) Repli : table ARP du kernel (peuplée par le ping-sweep ci-dessous)
-        IP_ADDR=$(arp -n 2>/dev/null | awk -v mac="$MAC" 'tolower($3) == mac {print $1; exit}') || true
+        # 2) Repli : table de voisinage du kernel (peuplée par le ping-sweep ci-dessous)
+        IP_ADDR=$(ip -4 neigh show 2>/dev/null | awk -v mac="$MAC" 'tolower($5)==mac {print $1; exit}') || true
         [[ -n "$IP_ADDR" ]] && break
 
         # Ping sweep toutes les 30s dès 30s : force la VM à répondre par ARP
@@ -481,7 +549,7 @@ if [[ "$USE_DHCP" == "true" ]]; then
             done
             wait "${PING_PIDS[@]}" 2>/dev/null || true
             LAST_SWEEP=$ELAPSED
-            IP_ADDR=$(arp -n 2>/dev/null | awk -v mac="$MAC" 'tolower($3) == mac {print $1; exit}') || true
+            IP_ADDR=$(ip -4 neigh show 2>/dev/null | awk -v mac="$MAC" 'tolower($5)==mac {print $1; exit}') || true
             if [[ -n "$IP_ADDR" ]]; then echo ""; break; fi
         fi
 
@@ -494,7 +562,7 @@ if [[ "$USE_DHCP" == "true" ]]; then
 
     if [[ -z "$IP_ADDR" ]]; then
         echo ""
-        echo "  IP DHCP non détectée après 120s (ni guest agent, ni ARP)."
+        echo "  IP DHCP non détectée après 120s (ni guest agent, ni table de voisinage)."
         echo "  La VM est démarrée ($(qm status "$NEW_VMID" 2>/dev/null))."
         echo "  Causes probables : qemu-guest-agent absent du template, ou pas de"
         echo "  bail DHCP sur le bridge de la VM."
@@ -522,6 +590,7 @@ fi
 # ~90s. Plafond à 120s. Au-delà ce n'est plus de la lenteur mais une panne
 # (clé non injectée, réseau cassé) : on échoue et on diagnostique avec LAST_ERR.
 echo ""
+STAGE="A.9 (attente SSH)"
 echo "==> A.9 — Attente de SSH sur $IP_ADDR (max 120s)..."
 echo "    (sshd ouvre le port avant que cloud-init n'écrive authorized_keys)"
 
@@ -575,13 +644,6 @@ if [[ -d ~/.ssh ]]; then
     echo "    known_hosts du host PVE rafraîchi pour $IP_ADDR."
 fi
 
-# Les commandes d'élévation : sudo pour un utilisateur non-root, rien pour root
-if [[ "$CI_USER" == "root" ]]; then
-    SUDO=""
-else
-    SUDO="sudo"
-fi
-
 # ─── A.9b — Clé SSH portail (si portail configuré et host de type ssh) ──────
 # Génère la paire ed25519 côté portail, enregistre l'adresse dans config.yaml,
 # et injecte la clé publique du portail dans authorized_keys de la VM.
@@ -589,18 +651,22 @@ fi
 PORTAL_KEY_PATH=""
 if [[ -n "$PORTAL_URL" && -n "$PORTAL_TOKEN" ]]; then
     echo ""
+    STAGE="A.9b (clé SSH portail)"
     echo "==> A.9b — Génération de la clé SSH portail pour '$NODE_NAME'..."
 
     PORTAL_RESP_FILE=$(mktemp /tmp/portal-keygen-XXXXXX.json)
-    # Étend le trap EXIT pour nettoyer également ce fichier temporaire
-    trap 'rm -f "$COMBINED_KEYS_FILE" "$PORTAL_RESP_FILE"' EXIT
 
+    # Le jeton passe par un fichier de config curl lu sur stdin (-K -), jamais
+    # en argv : l argv de curl est lisible par tout processus local (ps auxww).
     HTTP_CODE=$(curl -sS \
         -w "%{http_code}" \
         -o "$PORTAL_RESP_FILE" \
         -X POST \
         "${PORTAL_URL}/admin/hosts/${NODE_NAME}/generate-ssh-key?address=${CI_USER}@${IP_ADDR}&proxmox_node=${PORTAL_PVE_NODE}" \
-        -H "Authorization: Bearer ${PORTAL_TOKEN}" 2>/dev/null) || HTTP_CODE="000"
+        -K - 2>/dev/null <<CURL_CFG
+header = "Authorization: Bearer ${PORTAL_TOKEN}"
+CURL_CFG
+    ) || HTTP_CODE="000"
 
     if [[ "$HTTP_CODE" == "200" ]]; then
         PORTAL_PUBKEY=$(python3 -c \
@@ -635,175 +701,50 @@ REMOTE
     rm -f "$PORTAL_RESP_FILE"
 fi
 
-# ─── A.10 — Installer les paquets système requis ─────────────────────────────
-echo ""
-echo "==> A.10 — Installation des paquets (git, openssl, docker)..."
-
-ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
-set -e
-export DEBIAN_FRONTEND=noninteractive
-${SUDO} cloud-init status --wait 2>/dev/null || true
-# apt-daily et unattended-upgrades peuvent tenir le lock après cloud-init.
-# systemctl stop bloque autant que le processus ; on laisse apt gérer ses locks :
-#   - update : retry toutes les 5s jusqu'à 300s (lock lists/)
-#   - install : DPkg::Lock::Timeout attend jusqu'à 300s (lock dpkg)
-_t=0
-until ${SUDO} apt-get update -qq 2>/dev/null; do
-    sleep 5; _t=\$(( _t + 5 ))
-    [ \$_t -ge 300 ] && { echo "ERREUR: apt-get update en échec après 300s" >&2; exit 1; }
-done
-# git et openssl : dépôts Debian standard (toujours disponibles)
-${SUDO} apt-get -o "DPkg::Lock::Timeout=300" install -y --no-install-recommends git openssl
-# Docker CE + compose v2 : script officiel (docker-compose-plugin absent des dépôts Debian)
-curl -fsSL https://get.docker.com | ${SUDO} sh
-${SUDO} systemctl enable --now docker
-# DevPod SSH provider pilote Docker en tant qu'utilisateur non-root :
-# l'utilisateur doit être dans le groupe docker pour éviter l'erreur "rerun as root".
-${SUDO} usermod -aG docker "${CI_USER}"
-# Builder buildx docker-container — indispensable pour éviter l'erreur buildkit
-# "only one connection allowed" du driver docker intégré (une seule session buildkit
-# simultanée). sudo -u lit /etc/group au moment de l'appel, donc le nouveau groupe
-# est actif immédiatement sans besoin de rouvrir la session SSH.
-if ! ${SUDO} -u "${CI_USER}" docker buildx inspect devpod-builder &>/dev/null 2>&1; then
-    ${SUDO} -u "${CI_USER}" docker buildx create \
-        --name devpod-builder \
-        --driver docker-container \
-        --bootstrap \
-        --use
-else
-    ${SUDO} -u "${CI_USER}" docker buildx use devpod-builder
-fi
-REMOTE
-
-echo "    Paquets installés (git, openssl, docker CE + compose v2)."
-echo "    Utilisateur '${CI_USER}' ajouté au groupe docker."
-echo "    Builder 'devpod-builder' (docker-container) configuré."
-
-# ─── A.10b — Swapfile d'urgence (enabler 74ad4fdf) ───────────────────────────
-# Posé ici (provisioning SSH, comme A.10/A.11) plutôt que via un snippet
-# cloud-init `cicustom` : sur Proxmox, `cicustom user=` REMPLACE tout le
-# user-data généré et ferait sauter --sshkeys/--cipassword posés en A.3.
-# Idempotent : re-run du script → aucune duplication.
-if [[ "$SWAP_PERCENT" -gt 0 ]]; then
-    echo ""
-    echo "==> A.10b — Swapfile ${SWAP_MB} Mo (${SWAP_PERCENT}% RAM, swappiness ${SWAPPINESS})..."
-
-    ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
-set -e
-if ! ${SUDO} test -f /swapfile; then
-    # fallocate est instantané ; dd en secours (systèmes de fichiers sans support)
-    ${SUDO} fallocate -l ${SWAP_MB}M /swapfile 2>/dev/null \
-        || ${SUDO} dd if=/dev/zero of=/swapfile bs=1M count=${SWAP_MB} status=none
-    ${SUDO} chmod 600 /swapfile
-    ${SUDO} mkswap /swapfile > /dev/null
-fi
-# Activer si pas déjà actif (re-run) ; fstab pour la persistance au reboot
-${SUDO} swapon --show=NAME --noheadings 2>/dev/null | grep -qx /swapfile \
-    || ${SUDO} swapon /swapfile
-grep -q '^/swapfile' /etc/fstab \
-    || echo '/swapfile none swap sw 0 0' | ${SUDO} tee -a /etc/fstab > /dev/null
-# Swap d'URGENCE : inerte tant que la RAM suffit (défaut 60 = swap proactif qui
-# fait ramer les conteneurs actifs d'un host Docker)
-printf 'vm.swappiness=${SWAPPINESS}\n' | ${SUDO} tee /etc/sysctl.d/99-swappiness.conf > /dev/null
-${SUDO} sysctl -q -p /etc/sysctl.d/99-swappiness.conf
-REMOTE
-
-    echo "    Swapfile actif et persistant (fstab + sysctl.d)."
+# ─── A.10 → A.12 — Configuration du nœud (déléguée à configure-node.sh) ─────
+# La création s'arrête ici : la machine répond en SSH. Tout ce qui suit ne
+# dépend que du triplet (adresse, user, clé) et vit dans configure-node.sh,
+# rejouable seul sur une machine existante (enabler 7c739d1f). Ce script
+# n'écrit pas le JSON final : le descripteur est composé ci-dessous.
+CONFIGURE_URL="https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/configure-node.sh"
+# Exécution locale si le script est à côté (dépôt cloné) ; sinon téléchargé —
+# le cas `curl | bash`, où BASH_SOURCE est vide.
+CONFIGURE_SH="$(dirname "${BASH_SOURCE[0]:-.}")/configure-node.sh"
+if [[ ! -f "$CONFIGURE_SH" ]]; then
+    CONFIGURE_TMP=$(mktemp /tmp/configure-node-XXXXXX.sh)
+    curl -fsSL "$CONFIGURE_URL" -o "$CONFIGURE_TMP" || {
+        echo "ERREUR : configure-node.sh introuvable (ni à côté du script, ni $CONFIGURE_URL)." >&2
+        echo "  La VM est créée et joignable : ssh ${CI_USER}@${IP_ADDR} -i $SSH_PRIVATE_KEY" >&2
+        exit 1
+    }
+    CONFIGURE_SH="$CONFIGURE_TMP"
 fi
 
-# ─── A.10c — Résilience réseau (enabler 59864c37) ────────────────────────────
-# networkd protégé de l'OOM killer, KeepConfiguration=yes (un échec DHCP ne
-# flush plus l'adresse — incident du 24/07), timer de reprise automatique.
-# Script mutualisé avec le durcissement des VM existantes (harden-networkd.sh).
-HARDEN_URL="https://raw.githubusercontent.com/gaelgael5/devpod-ui/refs/heads/dev/scripts/harden-networkd.sh"
-echo ""
-echo "==> A.10c — Résilience réseau (networkd)..."
-HARDEN_TMP=$(mktemp /tmp/harden-networkd-XXXXXX.sh)
-if curl -fsSL "$HARDEN_URL" -o "$HARDEN_TMP" 2>/dev/null; then
-    if ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" "${SUDO} bash -s" < "$HARDEN_TMP"; then
-        echo "    Résilience réseau appliquée (OOM shield + KeepConfiguration + timer)."
-    else
-        echo "AVERTISSEMENT : harden-networkd.sh a échoué sur la VM — à rejouer à la main." >&2
-    fi
-else
-    echo "AVERTISSEMENT : $HARDEN_URL introuvable — étape A.10c ignorée." >&2
+CONFIGURE_ARGS=(
+    --address "$IP_ADDR"
+    --user "$CI_USER"
+    --key "$SSH_PRIVATE_KEY"
+    --node-name "$NODE_NAME"
+    --swap "$SWAP_PERCENT"
+    --cpu-type "$CPU_TYPE"
+)
+# L'enrôlement ne se transmet que complet (URL + jeton) : un jeton seul en
+# environnement ne doit pas déclencher la validation portail de configure-node.
+ENROLL_TOKEN=""
+if [[ -n "$PORTAL_URL" && -n "$PORTAL_TOKEN" ]]; then
+    CONFIGURE_ARGS+=(--portal-url "$PORTAL_URL")
+    ENROLL_TOKEN="$PORTAL_TOKEN"
 fi
-rm -f "$HARDEN_TMP"
+STAGE="A.10+ (configure-node)"
+# stdin < /dev/null : ce script peut tourner en `curl | bash` ; sans redirection,
+# un enfant qui lirait stdin consommerait le reste du script (cf. A.9).
+# Le jeton passe en environnement, jamais en argv (lisible dans ps auxww).
+PORTAL_TOKEN="$ENROLL_TOKEN" bash "$CONFIGURE_SH" "${CONFIGURE_ARGS[@]}" < /dev/null
 
-# ─── A.10d — Accès à /dev/kvm (enabler ab83a2e9) ─────────────────────────────
-# `--cpu host` expose les extensions de virtualisation à l'invité, donc
-# /dev/kvm. Mais le périphérique appartient à un groupe, et sans y être
-# l'utilisateur le voit sans pouvoir s'en servir : l'émulateur Android échoue
-# alors sur « pas d'accès à /dev/kvm », après avoir été installé.
-#
-# Le nom du groupe n'est PAS codé en dur. Il est créé par udev à l'apparition
-# du périphérique et varie selon la distribution : on lit celui du fichier.
-if [[ "$CPU_TYPE" == "host" ]]; then
-    echo ""
-    echo "==> A.10d — Accès à /dev/kvm pour ${CI_USER}..."
-
-    ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
-set -e
-if [ ! -e /dev/kvm ]; then
-    # Nesting inactif côté hôte Proxmox : le script l'a déjà signalé au
-    # démarrage. Rien à faire ici, et surtout pas d'échec de plus.
-    echo "    /dev/kvm absent — nesting inactif côté hôte, rien à donner."
-    exit 0
-fi
-GROUPE=\$(stat -c %G /dev/kvm)
-if id -nG ${CI_USER} | tr ' ' '\n' | grep -qx "\$GROUPE"; then
-    echo "    ${CI_USER} est déjà dans le groupe \$GROUPE."
-else
-    ${SUDO} usermod -aG "\$GROUPE" ${CI_USER}
-    echo "    ${CI_USER} ajouté au groupe \$GROUPE."
-fi
-REMOTE
-
-    echo "    Effectif au prochain démarrage de session (déjà le cas pour une VM neuve)."
-fi
-
-# ─── A.11 — Vérifier et finaliser le hostname ────────────────────────────────
-echo ""
-echo "==> A.11 — Vérification du hostname et de /etc/hosts..."
-
-ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
-set -e
-EXPECTED="$NODE_NAME"
-SUDO="$SUDO"
-
-# Vérifier le hostname courant (cloud-init le fixe depuis le nom de la VM)
-CURRENT=\$(hostname)
-if [[ "\$CURRENT" != "\$EXPECTED" ]]; then
-    echo "    Correction du hostname : \$CURRENT -> \$EXPECTED"
-    \$SUDO hostnamectl set-hostname "\$EXPECTED"
-fi
-
-# Garantir la présence de 127.0.1.1 dans /etc/hosts (évite les warnings sudo)
-if ! grep -q "127.0.1.1" /etc/hosts 2>/dev/null; then
-    echo "127.0.1.1	\$EXPECTED" | \$SUDO tee -a /etc/hosts > /dev/null
-elif ! grep "127.0.1.1" /etc/hosts | grep -q "\$EXPECTED"; then
-    \$SUDO sed -i "s/^127.0.1.1.*/127.0.1.1\t\$EXPECTED/" /etc/hosts
-fi
-
-echo "    Hostname : \$(hostname)"
-REMOTE
-
-echo "    Hostname vérifié."
-
-# ─── A.12 — Enrôlement dans le portail (optionnel) ───────────────────────────
+# Sémantique inchangée : l'enrôlement (A.12) n'a lieu que si portail configuré,
+# et un échec de configuration a déjà interrompu le script (set -e) avant ici.
 ENROLLED=false
 if [[ -n "$PORTAL_URL" && -n "$PORTAL_TOKEN" ]]; then
-    echo ""
-    echo "==> A.12 — Enrôlement du nœud dans le portail..."
-    ssh "${SSH_OPTS[@]}" "${CI_USER}@${IP_ADDR}" bash <<REMOTE
-set -e
-${SUDO} bash /opt/workspace-portal/scripts/install-node.sh \
-    --portal "${PORTAL_URL}" \
-    --token "${PORTAL_TOKEN}" \
-    --node-name "${NODE_NAME}" \
-    --address "${IP_ADDR}"
-REMOTE
-    echo "    Nœud enrôlé dans le portail."
     ENROLLED=true
 fi
 
@@ -837,7 +778,10 @@ echo ""
 # ─── Résumé JSON (dernière ligne — parsée par le portail) ────────────────────
 # vmid et proxmox_node sont obligatoires pour que le portail puisse déclencher
 # le destroy_script lors de la suppression du host.
-# ci_password : mot de passe console Proxmox (noVNC) généré en A.3.
+# ci_password : mot de passe console Proxmox (noVNC) généré en A.3. Émis
+# seulement en interactif — sur un run portail, stdout part dans les logs de la
+# tâche et aucun consommateur ne lit ce champ (vérifié au ticket 81cbc93a).
+[[ -t 1 ]] || CI_PASSWORD=""
 if [[ "$ENROLLED" == "true" ]]; then
     printf '{"status":"ok","name":"%s","address":"%s","type":"docker-tls","docker_host":"tcp://%s:2376","ssh_user":"%s","ssh_port":22,"key_path":"/data/certs/portal","vmid":"%s","proxmox_node":"%s","ci_password":"%s"}\n' \
         "$NODE_NAME" "$IP_ADDR" "$IP_ADDR" "$CI_USER" "$NEW_VMID" "$PORTAL_PVE_NODE" "$CI_PASSWORD"

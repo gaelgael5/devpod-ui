@@ -345,6 +345,31 @@ s'arrête avec un message d'erreur explicite.
 Les étapes A.1 à A.11 ci-dessous détaillent chaque action — utiles pour comprendre,
 déboguer ou adapter à un environnement spécifique.
 
+### `configure-node.sh` — reconfigurer une machine existante sans la recréer
+
+Depuis le découpage du script (enabler 7c739d1f), la configuration du nœud
+(étapes A.10 à A.12 : paquets, Docker CE, builder buildx, swapfile, résilience
+networkd, `/dev/kvm`, hostname, enrôlement portail) vit dans un script séparé,
+`configure-node.sh`, que `clone-vm-node.sh` appelle automatiquement en fin de
+création. Il ne connaît ni VMID, ni nœud Proxmox, ni template : seulement le
+triplet `(adresse, user, clé privée)`.
+
+Conséquence : toute machine Debian joignable en SSH — vieux NUC, VPS, VM créée
+à la main — peut recevoir la configuration standard du parc, et une machine
+déjà configurée peut la **rejouer** sans rien dupliquer (toutes les étapes sont
+idempotentes) :
+
+```bash
+# Reconfigurer un host existant du parc (aucune création de machine)
+bash scripts/configure-node.sh   --address 192.168.10.x   --user debian   --key /data/keys/hosts/<name>_ed25519   --node-name <name>
+```
+
+Options : `--swap PCT` (défaut 25 % de la RAM effective, 0 = désactivé),
+`--portal-url` + le jeton via la variable d'environnement `PORTAL_TOKEN` (ou `--portal-token`, moins sûr : visible dans `ps`) pour déclencher l'enrôlement A.12,
+`--cpu-type` (informatif). En échec, le script rend un code non nul et
+l'étape atteinte sur stderr ; il n'écrit aucun JSON — le descripteur de
+machine est composé par l'appelant.
+
 ---
 
 ### A.1 — Vérifier le VMID source et choisir un VMID libre
