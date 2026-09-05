@@ -712,11 +712,13 @@
       "name": "Name",
       "type": "Type",
       "host": "Host",
+      "provenance": "Provenance",
       "default": "Default",
       "address": "Address",
       "sshUser": "SSH user",
       "pveNode": "PVE node"
     },
+    "provenanceUnknown": "unknown provenance",
     "form": {
       "hostName": "Name",
       "hostType": "Type",

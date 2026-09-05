@@ -327,6 +327,25 @@ async def test_host_capacite_et_provenance_round_trip(db_conn, full_cfg):
 
 
 @pytest.mark.asyncio
+async def test_supprimer_un_hyperviseur_n_altere_aucune_machine(db_conn, full_cfg):
+    """DoD de la colonne de provenance : PROVENANCE, PAS CONTRAINTE.
+
+    Aucune clé étrangère vers `hypervisors.name` — supprimer l'hyperviseur ne
+    doit ni effacer des machines ni toucher leur provenance : c'est un fait
+    passé, il ne se révise pas."""
+    await save_global_db(full_cfg, db_conn)
+
+    ampute = full_cfg.model_copy(update={"hypervisors": []})
+    await save_global_db(ampute, db_conn)
+    result = await load_global_db(db_conn)
+
+    assert result.hypervisors == []
+    (h,) = result.hosts
+    assert h.name == full_cfg.hosts[0].name
+    assert h.hypervisor == "pve-1"
+
+
+@pytest.mark.asyncio
 async def test_host_sans_capacite_reste_sans_capacite(db_conn, minimal_cfg):
     """`None` = non renseigne, et le rechargement ne l'invente pas.
 

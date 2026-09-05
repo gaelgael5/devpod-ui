@@ -28,6 +28,10 @@ export interface HostConfig {
   capacity_workspaces?: number | null
   // La machine peut-elle accueillir les workspaces d'offres mutualisées ?
   accepts_mutualise?: boolean
+  // Hyperviseur qui a monté la machine. Provenance, pas contrainte : posée au
+  // provisionnement, jamais saisie ici. Vide = inconnue (machine enrôlée à la
+  // main, ou antérieure à la colonne) — ni une erreur, ni un défaut.
+  hypervisor?: string
 }
 
 export interface HostCreatePayload {

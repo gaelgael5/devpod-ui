@@ -4,6 +4,7 @@ import { http, HttpResponse } from 'msw'
 import { beforeAll, describe, expect, it, beforeEach, vi } from 'vitest'
 import { server } from '@/test/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
+import i18n from '@/i18n'
 import { useUserStore } from '@/store/user'
 import AdminHosts from './AdminHosts'
 
@@ -69,6 +70,24 @@ describe('AdminHosts', () => {
       'noopener',
     )
     open.mockRestore()
+  })
+
+  it("affiche la provenance d'une machine, et « inconnue » sans en faire une erreur", async () => {
+    // La provenance est un FAIT posé au provisionnement (hosts.hypervisor).
+    // Vide = machine enrôlée à la main ou antérieure à la colonne : les écrans
+    // le disent tel quel, jamais comme une erreur ni un hyperviseur par défaut.
+    server.use(
+      http.get('/admin/hosts', () =>
+        HttpResponse.json([
+          { name: 'ded-4321', type: 'docker-tls', docker_host: 'tcp://10.0.0.42:2376', usage: 'workspaces', hypervisor: 'pve-1' },
+          { name: 'manuel', type: 'docker-tls', docker_host: 'tcp://10.0.0.9:2376', usage: 'workspaces' },
+        ])),
+    )
+    renderWithProviders(<AdminHosts />)
+
+    await waitFor(() => expect(screen.getByText('ded-4321')).toBeInTheDocument())
+    expect(screen.getByText('pve-1')).toBeInTheDocument()
+    expect(screen.getByText(i18n.t('admin.provenanceUnknown'))).toBeInTheDocument()
   })
 
   it("affiche la section hosts ressources vide quand aucun host n'a usage=ressources", async () => {

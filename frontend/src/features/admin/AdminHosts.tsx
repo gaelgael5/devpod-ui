@@ -925,6 +925,7 @@ export default function AdminHosts() {
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.name')}</th>
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.type')}</th>
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.host')}</th>
+                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.provenance')}</th>
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('admin.col.default')}</th>
                       <th className="px-4 py-2" />
                     </tr>
@@ -937,6 +938,13 @@ export default function AdminHosts() {
                           <td className="px-4 py-2 text-muted-foreground">{h.type}</td>
                           <td className="px-4 py-2 text-muted-foreground font-mono text-xs">
                             {h.type === 'ssh' ? (h.address || '—') : (h.docker_host || '—')}
+                          </td>
+                          <td className="px-4 py-2 text-xs">
+                            {/* Provenance = fait posé au provisionnement. Vide
+                                n'est ni une erreur ni un défaut : on le dit. */}
+                            {h.hypervisor
+                              ? <span className="font-mono">{h.hypervisor}</span>
+                              : <span className="text-muted-foreground italic">{t('admin.provenanceUnknown')}</span>}
                           </td>
                           <td className="px-4 py-2">
                             {h.default
@@ -975,7 +983,7 @@ export default function AdminHosts() {
                           </td>
                         </tr>
                         <tr className="border-b last:border-0 bg-muted/20">
-                          <td colSpan={5} className="px-4 py-2">
+                          <td colSpan={6} className="px-4 py-2">
                             <HostWorkspacesPanel name={h.name} />
                           </td>
                         </tr>
